@@ -1,15 +1,21 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const port = 4173;
+const baseURL = `http://127.0.0.1:${port}`;
+const webServerCommand = process.env.CI
+  ? `bun run start -- --port ${port}`
+  : `bun run dev -- --port ${port}`;
+
 export default defineConfig({
   testDir: "./e2e",
   webServer: {
-    command: "bun run dev -- --port 4173",
+    command: webServerCommand,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    url: "http://127.0.0.1:4173",
+    url: baseURL,
   },
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [
