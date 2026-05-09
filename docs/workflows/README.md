@@ -16,6 +16,12 @@ keep each worker's context focused on its own domain.
 | 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready after Task 6 |
 | 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 4 and 7 |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Final integration pass |
+| 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Refactor wave entry point |
+| 11 | [Test suite health refactor](task-11-test-suite-health-refactor.md) | Test boundaries, weak assertions, startup coverage, script normalization | Ready after Task 10 |
+| 12 | [GitHub Actions and docs health](task-12-github-actions-and-docs-health.md) | CI trigger split, docs health checks, scheduled docs maintenance workflow | Ready after Task 11 |
+| 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | Ready after Task 10 |
+| 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
+| 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 
 ## Archived Workflows
 
@@ -64,3 +70,9 @@ Use concise branch names that match the workflow:
 - `feat/highlights`
 - `feat/git-backup-queue`
 - `test/e2e-hardening`
+- `fix/dev-server-startup`
+- `test/test-suite-health`
+- `ci/docs-health`
+- `chore/reader-library-decision`
+- `refactor/markdown-reader`
+- `chore/refactor-wave-integration`
