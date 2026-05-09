@@ -158,6 +158,7 @@ function sanitizeReaderHtml(html: string) {
       iframe: sanitizeIframe,
       img: sanitizeImage,
       input: sanitizeTaskCheckbox,
+      mark: sanitizeHighlightMark,
     },
   });
 }
@@ -264,6 +265,26 @@ function sanitizeTaskCheckbox(_tagName: string, attribs: sanitizeHtml.Attributes
       type: "checkbox",
       disabled: "disabled",
       ...(attribs.checked !== undefined ? { checked: "checked" } : {}),
+    },
+  };
+}
+
+function sanitizeHighlightMark(
+  _tagName: string,
+  attribs: sanitizeHtml.Attributes,
+): sanitizeHtml.Tag {
+  const highlightId = attribs["data-highlight-id"];
+  if (highlightId === undefined || highlightId.trim() === "") {
+    return {
+      tagName: "span",
+      attribs: {},
+    };
+  }
+
+  return {
+    tagName: "mark",
+    attribs: {
+      "data-highlight-id": highlightId,
     },
   };
 }

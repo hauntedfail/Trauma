@@ -51,6 +51,7 @@ describe("renderMemoryMarkdown", () => {
       '<script>alert("xss")</script>',
       '<img src="x" onerror="alert(1)">',
       '<a href="javascript:alert(1)" onclick="alert(1)">unsafe link</a>',
+      "<mark>plain mark</mark>",
       '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" onclick="alert(1)">saved highlight</mark>',
     ].join("\n"));
 
@@ -58,6 +59,7 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("onerror");
     expect(result.html).not.toContain("onclick");
     expect(result.html).not.toContain("javascript:");
+    expect(result.html).not.toContain("<mark>plain mark</mark>");
     expect(result.html).toContain(
       '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved highlight</mark>',
     );

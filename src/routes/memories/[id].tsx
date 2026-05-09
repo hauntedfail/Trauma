@@ -1,9 +1,14 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, query, useParams } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
+import { Show } from "solid-js";
 
 import { MemoryReader } from "../../components/reader/MemoryReader";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
+import {
+  readerHttpStatusCode,
+  titleForReaderResult,
+} from "./reader-route-state";
 
 const getReaderMemory = query(async (memoryId: string) => {
   "use server";
@@ -18,7 +23,7 @@ export default function MemoryReaderRoute() {
 
   return (
     <>
-      <Title>{titleForResult(readerResult())}</Title>
+      <Title>{titleForReaderResult(readerResult())}</Title>
       <ReaderStatusCode result={readerResult()} />
       <ReaderBody result={readerResult()} />
     </>
@@ -26,35 +31,26 @@ export default function MemoryReaderRoute() {
 }
 
 function ReaderBody(props: { result: ReaderMemoryResult | undefined }) {
-  if (props.result === undefined) {
-    return (
-      <section class="reader-page" aria-labelledby="reader-loading-title">
-        <div class="reader-state">
-          <h1 id="reader-loading-title">Loading memory...</h1>
-        </div>
-      </section>
-    );
-  }
-
-  return <MemoryReader result={props.result} />;
+  return (
+    <Show
+      when={props.result}
+      fallback={
+        <section class="reader-page" aria-labelledby="reader-loading-title">
+          <div class="reader-state">
+            <h1 id="reader-loading-title">Loading memory...</h1>
+          </div>
+        </section>
+      }
+    >
+      {(result) => <MemoryReader result={result()} />}
+    </Show>
+  );
 }
 
 function ReaderStatusCode(props: { result: ReaderMemoryResult | undefined }) {
-  if (props.result?.status === "not_found" || props.result?.status === "content_missing") {
-    return <HttpStatusCode code={404} />;
-  }
-
-  if (props.result?.status === "unavailable") {
-    return <HttpStatusCode code={503} />;
-  }
-
-  return null;
-}
-
-function titleForResult(result: ReaderMemoryResult | undefined) {
-  if (result?.status === "ready") {
-    return `${result.memory.title} | Trauma`;
-  }
-
-  return "Memory | Trauma";
+  return (
+    <Show when={readerHttpStatusCode(props.result)}>
+      {(statusCode) => <HttpStatusCode code={statusCode()} />}
+    </Show>
+  );
 }

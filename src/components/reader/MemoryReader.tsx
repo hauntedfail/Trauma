@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
+import { toSafeReaderSourceHref } from "./source-url";
 
 interface MemoryReaderProps {
   result: ReaderMemoryResult;
@@ -26,19 +27,29 @@ export function MemoryReader(props: MemoryReaderProps) {
 }
 
 function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
+  const sourceUrl = () => props.result.memory.url;
+  const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+
   return (
     <article class="reader-page" aria-labelledby="reader-title">
       <header class="reader-header">
         <p class="eyebrow">Reader mode</p>
         <h1 id="reader-title">{props.result.memory.title}</h1>
-        <a
-          class="reader-source"
-          href={props.result.memory.url}
-          rel="noreferrer"
-          target="_blank"
+        <Show
+          when={sourceHref()}
+          fallback={<span class="reader-source">{sourceUrl()}</span>}
         >
-          {props.result.memory.url}
-        </a>
+          {(href) => (
+            <a
+              class="reader-source"
+              href={href()}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {sourceUrl()}
+            </a>
+          )}
+        </Show>
       </header>
       <div class="reader-layout">
         <ReaderToc toc={props.result.rendered.toc} />
