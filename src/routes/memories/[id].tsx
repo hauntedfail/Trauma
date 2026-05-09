@@ -1,58 +1,56 @@
 import { Title } from "@solidjs/meta";
-import { createAsync, useParams } from "@solidjs/router";
+import { createAsync, query, useParams } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
-import { For, Show, createMemo } from "solid-js";
+import { Show } from "solid-js";
 
-import { getMemoryReaderHighlights } from "~/components/memories/browse-data";
-import { getBrowseMemories } from "~/components/memories/browse-loader";
-import { getMemoryReaderStatusCode } from "./reader-status";
+import { MemoryReader } from "../../components/reader/MemoryReader";
+import {
+  readerHttpStatusCode,
+  titleForReaderResult,
+} from "../../components/reader/route-state";
+import type { ReaderMemoryResult } from "../../server/reader/page-data";
 
-export default function MemoryReaderPlaceholder() {
+const getReaderMemory = query(async (memoryId: string) => {
+  "use server";
+  const { loadReaderMemory } = await import("../../server/reader/page-data");
+  return loadReaderMemory(memoryId);
+}, "reader-memory");
+
+export default function MemoryReaderRoute() {
   const params = useParams();
-  const memories = createAsync(() => getBrowseMemories());
-  const browseMemories = createMemo(() => memories() ?? []);
-  const memory = createMemo(() => browseMemories().find((item) => item.id === params.id));
-  const statusCode = createMemo(() => getMemoryReaderStatusCode(memory()));
+  const result = createAsync(() => getReaderMemory(params.id ?? ""));
+  const readerResult = () => result();
 
   return (
-    <section class="timeline" aria-labelledby="memory-reader-title">
-      <Title>{memory()?.title ?? "Memory"} | Trauma</Title>
-      <header class="timeline-header">
-        <div>
-          <p class="eyebrow">Reader placeholder</p>
-          <h1 id="memory-reader-title">{memory()?.title ?? "Memory reader"}</h1>
-        </div>
-      </header>
-      <Show
-        when={memory()}
-        fallback={
-          <div class="empty-state">
-            <Show when={statusCode()}>{(code) => <HttpStatusCode code={code()} />}</Show>
-            <h2>Memory not found</h2>
-            <p>The reader route exists, but this memory is not available in the current repository data.</p>
+    <>
+      <Title>{titleForReaderResult(readerResult())}</Title>
+      <ReaderStatusCode result={readerResult()} />
+      <ReaderBody result={readerResult()} />
+    </>
+  );
+}
+
+function ReaderBody(props: { result: ReaderMemoryResult | undefined }) {
+  return (
+    <Show
+      when={props.result}
+      fallback={
+        <section class="reader-page" aria-labelledby="reader-loading-title">
+          <div class="reader-state">
+            <h1 id="reader-loading-title">Loading memory...</h1>
           </div>
-        }
-      >
-        {(selectedMemory) => (
-          <article class="memory-item" data-view="list">
-            <p class="memory-url">{selectedMemory().url}</p>
-            <p>{selectedMemory().description}</p>
-            <Show when={getMemoryReaderHighlights(selectedMemory()).length > 0}>
-              <div class="reader-highlights" aria-label="Highlights in this memory">
-                <For each={getMemoryReaderHighlights(selectedMemory())}>
-                  {(highlight) => (
-                    <blockquote>
-                      <span>{highlight.prefix}</span>
-                      <mark id={highlight.anchorId}>{highlight.text}</mark>
-                      <span>{highlight.suffix}</span>
-                    </blockquote>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </article>
-        )}
-      </Show>
-    </section>
+        </section>
+      }
+    >
+      {(result) => <MemoryReader result={result()} />}
+    </Show>
+  );
+}
+
+function ReaderStatusCode(props: { result: ReaderMemoryResult | undefined }) {
+  return (
+    <Show when={readerHttpStatusCode(props.result)}>
+      {(statusCode) => <HttpStatusCode code={statusCode()} />}
+    </Show>
   );
 }

@@ -6,6 +6,8 @@
   patterns.
 - MUST keep server-only code out of client bundles. Filesystem, SQLite, git, and
   extraction code belong behind server modules or server functions.
+- MUST keep non-route helper modules outside `src/routes` when `<FileRoutes />`
+  is active. Files under the route tree must be actual route modules.
 - MUST NOT use Solid `createEffect` for derived state, data transformation, or
   user-triggered actions.
 - MUST reserve `createEffect` for real side effects such as subscriptions,

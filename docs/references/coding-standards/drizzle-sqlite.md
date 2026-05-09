@@ -29,6 +29,8 @@
 - MUST prevent path traversal when reading or writing markdown content.
 - MUST resolve bundled migration paths from module/package location or an
   explicit option, not from incidental launch cwd.
+- MUST keep bundled runtime migrations in sync with reviewable `drizzle/**`
+  migration files through a focused drift test.
 - MUST keep `drizzle.config.ts`, runtime config, migrations, and tests pointed
   at the same database path contract.
 - MUST use actual Bun SQLite driver types for Bun-backed connections. Do not

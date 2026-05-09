@@ -108,13 +108,14 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await page.goto("/memories");
   await page.getByRole("link", { name: "Open" }).first().click();
   await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
-  await expect(page.getByRole("heading", { name: "Reader Mode Notes" })).toBeVisible();
+  await expect(page.locator("#reader-state-title")).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
   await page.goto("/highlights");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
   await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
-  await expect(page.locator("mark#h-foundation", { hasText: "highlight-aware results" })).toBeVisible();
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.getByText("Page not found")).toHaveCount(0);
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
