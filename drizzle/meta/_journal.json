@@ -1,1 +1,13 @@
-{"version":"7","dialect":"sqlite","entries":[]}
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1778308356677,
+      "tag": "0000_conscious_mikhail_rasputin",
+      "breakpoints": true
+    }
+  ]
+}
