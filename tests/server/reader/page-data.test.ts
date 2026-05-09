@@ -168,16 +168,26 @@ function resolveBunExecutable() {
 
   const candidates = [
     process.env.BUN_EXECUTABLE,
+    process.versions.bun !== undefined ? process.execPath : undefined,
+    join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
     process.env.npm_execpath,
     "bun",
-    join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
   ];
-  const executable = candidates.find((candidate) => candidate !== undefined && canAccess(candidate));
+  const executable = candidates.find(
+    (candidate) =>
+      candidate !== undefined &&
+      isBunExecutable(candidate) &&
+      (candidate.includes("/") ? canAccess(candidate) : true),
+  );
   if (executable === undefined) {
     throw new Error("Bun executable is required for reader page-data tests");
   }
 
   return executable;
+}
+
+function isBunExecutable(path: string) {
+  return path === "bun" || path.endsWith("/bun") || path.endsWith("\\bun.exe");
 }
 
 function canAccess(path: string) {
