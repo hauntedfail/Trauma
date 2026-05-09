@@ -12,6 +12,7 @@ historical notes.
 | #2 | Markdown store | Atomic writes, temp-file uniqueness, CRLF/BOM/frontmatter parsing edge cases |
 | #3 | Coding standards refactor | Duplicated key lists, local replacement for upstream Bun SQLite types |
 | #4 | Markdown status contract | Serialized field naming, duplicated validation, drift between shared status constants and SQL constraints |
+| #5 | URL importer and add memory workflow | Bounded fetch lifecycle, SSRF edge cases, markdown escaping, browser-visible errors, partial memory creation failures |
 | #7 | Browse shell and filters | Production fixture leakage, missing route targets, query filter edge cases, responsive drawer reachability, highlight anchor drift, hidden global composer, swallowed runtime adapter failures |
 
 ## Recurring Patterns
@@ -26,6 +27,9 @@ historical notes.
 | Embed permission leakage | Markdown sanitization allowed host-validated iframes but preserved author-controlled `allow` permissions. | Sanitizers MUST normalize or remove iframe capability attributes even when iframe hosts are allowlisted. |
 | Git-backed markdown edge cases | LF-only parsing, BOM rejection, trailing-newline assumptions, and predictable temp paths made content artifacts fragile. | Markdown artifacts MUST tolerate common Git/editor output and writer temp paths MUST be collision-resistant and cleaned up on failure. |
 | Error surface mismatch | Errors used internal TypeScript field names or collapsed distinct failure classes. | User-facing and artifact-facing errors MUST name serialized fields and preserve the relevant failure class. |
+| Importer trust-boundary gaps | URL fetches and HTML-to-markdown conversion accepted edge-case inputs beyond the intended public HTTP(S) contract. | Importers MUST bound remote I/O, validate every fetched or persisted URL against the public-host policy, and escape text-node markdown before writing `CONTENT.md`. |
+| Multi-step create ambiguity | A memory row and markdown file could survive while the caller observed a failed create after post-insert backup-status work. | Once memory metadata and content are durable, later boundary failures MUST return the created memory or compensate explicitly; callers must not receive an ambiguous failed create. |
+| Boundary normalization drift | Request parsers trimmed values for one guard but passed the original value into deeper validation. | Normalize external scalar inputs once at the boundary, then validate and pass only the normalized value inward. |
 | Review fixes without durable guardrails | Several valid review points required follow-up tests or central constants. | Accepted review fixes MUST add focused regression coverage or centralize the contract so the same mistake is hard to repeat. |
 | Fixture leakage into production UI | Browse shell data initially rendered deterministic example memories for every self-hosted instance. | Route and shell UI MUST load production state from repository/server boundaries; fixtures MUST be test-only or gated by an explicit test/runtime flag. |
 | Fatal runtime failures rendered as empty state | Missing Bun SQLite runtime errors and missing required config were initially collapsed into an empty browse result. | Empty states MUST represent valid empty product data, not failed required runtime adapters, required config, or broken storage initialization. |

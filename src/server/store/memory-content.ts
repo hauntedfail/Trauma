@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 
 import {
@@ -47,11 +47,17 @@ export interface WriteMemoryContentInput {
   memoryId: string;
   frontmatter: MemoryContentFrontmatter;
   markdown: string;
+  overwrite?: boolean;
 }
 
 export interface WriteMemoryContentResult extends ResolvedMemoryContentPath {}
 
 export interface ReadMemoryContentInput {
+  config: MemoryContentStoreConfig;
+  memoryId: string;
+}
+
+export interface DeleteMemoryContentInput {
   config: MemoryContentStoreConfig;
   memoryId: string;
 }
@@ -66,6 +72,7 @@ export class MemoryContentStoreError extends Error {
     message: string,
     public readonly code:
       | "invalid_memory_id"
+      | "content_exists"
       | "missing_content"
       | "malformed_frontmatter",
   ) {
@@ -142,7 +149,7 @@ export async function writeMemoryContent(
   try {
     await mkdir(contentDir, { recursive: true });
     await writeFile(temporaryPath, content, "utf8");
-    await replaceFile(temporaryPath, resolvedPath.absolutePath);
+    await replaceFile(temporaryPath, resolvedPath, input.overwrite ?? true);
     temporaryFileMoved = true;
   } finally {
     if (!temporaryFileMoved) {
@@ -183,6 +190,17 @@ export async function readMemoryContent(
     frontmatter,
     markdown,
   };
+}
+
+export async function deleteMemoryContent(
+  input: DeleteMemoryContentInput,
+): Promise<ResolvedMemoryContentPath> {
+  const resolvedPath = resolveMemoryContentPath(input.config, input.memoryId);
+  await rm(dirname(resolvedPath.absolutePath), {
+    recursive: true,
+    force: true,
+  });
+  return resolvedPath;
 }
 
 function parseMemoryContentFixture(
@@ -385,16 +403,38 @@ function readSerializedFrontmatterValue(
   return value;
 }
 
-async function replaceFile(sourcePath: string, destinationPath: string) {
+async function replaceFile(
+  sourcePath: string,
+  destination: ResolvedMemoryContentPath,
+  overwrite: boolean,
+) {
+  if (!overwrite) {
+    try {
+      await link(sourcePath, destination.absolutePath);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        throw new MemoryContentStoreError(
+          `CONTENT.md already exists at ${destination.relativePath}`,
+          "content_exists",
+        );
+      }
+
+      throw error;
+    }
+
+    await rm(sourcePath, { force: true });
+    return;
+  }
+
   try {
-    await rename(sourcePath, destinationPath);
+    await rename(sourcePath, destination.absolutePath);
   } catch (error) {
     if (
       isNodeError(error) &&
       (error.code === "EEXIST" || error.code === "EPERM")
     ) {
-      await rm(destinationPath, { force: true });
-      await rename(sourcePath, destinationPath);
+      await rm(destination.absolutePath, { force: true });
+      await rename(sourcePath, destination.absolutePath);
       return;
     }
 

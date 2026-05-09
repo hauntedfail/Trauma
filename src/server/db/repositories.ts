@@ -4,6 +4,11 @@ import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
+type Memory = typeof schema.memories.$inferSelect;
+type MemoryBackupStatusUpdate = Pick<
+  Memory,
+  "id" | "backupStatus" | "lastBackupAt" | "lastBackupError" | "updatedAt"
+>;
 
 export interface MemoryBrowseRow {
   id: string;
@@ -17,7 +22,15 @@ export interface MemoryBrowseRow {
 }
 
 export interface MemoryRepository {
-  findById: (id: string) => Promise<typeof schema.memories.$inferSelect | undefined>;
+  findById: (id: string) => Promise<Memory | undefined>;
+  create: (input: Memory) => Promise<Memory>;
+  updateBackupStatus: (input: {
+    id: string;
+    backupStatus: schema.BackupStatus;
+    lastBackupAt?: Date | null;
+    lastBackupError?: string | null;
+    updatedAt: Date;
+  }) => Promise<MemoryBackupStatusUpdate>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
@@ -32,6 +45,29 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         db.query.memories.findFirst({
           where: eq(schema.memories.id, id),
         }),
+      create: async (input) => {
+        await db.insert(schema.memories).values(input).run();
+        return input;
+      },
+      updateBackupStatus: async (input) => {
+        await db
+          .update(schema.memories)
+          .set({
+            backupStatus: input.backupStatus,
+            lastBackupAt: input.lastBackupAt,
+            lastBackupError: input.lastBackupError,
+            updatedAt: input.updatedAt,
+          })
+          .where(eq(schema.memories.id, input.id))
+          .run();
+        return {
+          id: input.id,
+          backupStatus: input.backupStatus,
+          lastBackupAt: input.lastBackupAt ?? null,
+          lastBackupError: input.lastBackupError ?? null,
+          updatedAt: input.updatedAt,
+        };
+      },
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({
           orderBy: [desc(schema.memories.createdAt)],
