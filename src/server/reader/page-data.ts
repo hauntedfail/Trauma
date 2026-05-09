@@ -82,8 +82,7 @@ export async function loadReaderMemory(
 
     if (
       error instanceof TraumaConfigError ||
-      error instanceof MemoryContentStoreError ||
-      error instanceof Error
+      error instanceof MemoryContentStoreError
     ) {
       return {
         status: "unavailable",

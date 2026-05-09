@@ -37,6 +37,29 @@ describe("reader route state", () => {
     expect(readerHttpStatusCode(undefined)).toBeUndefined();
     expect(
       readerHttpStatusCode({
+        status: "ready",
+        memory: {
+          id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001",
+          url: "https://example.com",
+          title: "Reader Title",
+          description: null,
+          faviconUrl: null,
+          extractionStatus: "success",
+          contentPath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f001/CONTENT.md",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        },
+        content: {
+          relativePath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f001/CONTENT.md",
+        },
+        rendered: {
+          html: "<h1>Reader Title</h1>",
+          toc: [],
+        },
+      }),
+    ).toBeUndefined();
+    expect(
+      readerHttpStatusCode({
         status: "not_found",
         message: "Memory was not found.",
       }),
