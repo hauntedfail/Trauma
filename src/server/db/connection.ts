@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ResolvedTraumaConfig } from "../config";
@@ -8,7 +9,11 @@ import { createRepositories, type TraumaRepositories } from "./repositories";
 import * as schema from "./schema";
 
 const require = createRequire(import.meta.url);
-const DEFAULT_MIGRATIONS_FOLDER = "drizzle";
+const DEFAULT_MIGRATIONS_FOLDER = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+  "drizzle",
+);
 
 interface SQLiteDatabase {
   close: () => void;
@@ -76,7 +81,7 @@ function createDrizzleDatabase(sqlite: SQLiteDatabase) {
 
 function applyMigrations(
   db: BunSQLiteDatabase<typeof schema>,
-  migrationsFolder = resolve(process.cwd(), DEFAULT_MIGRATIONS_FOLDER),
+  migrationsFolder = DEFAULT_MIGRATIONS_FOLDER,
 ) {
   const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
   migrate(db, { migrationsFolder });

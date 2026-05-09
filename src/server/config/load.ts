@@ -14,9 +14,10 @@ const CONFIG_FILE_NAME = "trauma.config.json";
 export function loadTraumaConfig(
   options: LoadTraumaConfigOptions = {},
 ): ResolvedTraumaConfig {
-  const configPath = resolve(
-    options.configPath ?? join(options.cwd ?? process.cwd(), CONFIG_FILE_NAME),
-  );
+  const cwd = options.cwd ?? process.cwd();
+  const configPath = options.configPath
+    ? resolveConfigPath(cwd, options.configPath)
+    : resolve(cwd, CONFIG_FILE_NAME);
 
   let raw: string;
   try {

@@ -43,6 +43,24 @@ describe("loadTraumaConfig", () => {
     expect(config.backup.git).toEqual(gitConfig);
   });
 
+  it("resolves a relative configPath from cwd when both are provided", () => {
+    const root = createTempRoot();
+    writeConfig(root, {
+      storePath: "./data/store",
+      projectPath: "./data",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    const config = loadTraumaConfig({
+      cwd: root,
+      configPath: "trauma.config.json",
+    });
+
+    expect(config.configFilePath).toBe(join(root, "trauma.config.json"));
+    expect(config.storePath).toBe(join(root, "data/store"));
+  });
+
   it("reports invalid JSON clearly", () => {
     const root = createTempRoot();
     const configPath = join(root, "trauma.config.json");
