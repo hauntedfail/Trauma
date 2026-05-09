@@ -153,6 +153,7 @@ describe("db foundation", () => {
 
     const memories = JSON.parse(output);
     expect(memories[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(memories[0]?.highlights[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(memories).toEqual([
       {
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
@@ -168,6 +169,7 @@ describe("db foundation", () => {
             text: "repository highlight",
             prefix: "from",
             suffix: "sqlite",
+            createdAt: memories[0].highlights[0].createdAt,
           },
         ],
       },

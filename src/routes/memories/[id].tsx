@@ -1,7 +1,8 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, useParams } from "@solidjs/router";
-import { Show, createMemo } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 
+import { getMemoryReaderHighlights } from "~/components/memories/browse-data";
 import { getBrowseMemories } from "~/components/memories/browse-loader";
 
 export default function MemoryReaderPlaceholder() {
@@ -32,6 +33,19 @@ export default function MemoryReaderPlaceholder() {
           <article class="memory-item" data-view="list">
             <p class="memory-url">{selectedMemory().url}</p>
             <p>{selectedMemory().description}</p>
+            <Show when={getMemoryReaderHighlights(selectedMemory()).length > 0}>
+              <div class="reader-highlights" aria-label="Highlights in this memory">
+                <For each={getMemoryReaderHighlights(selectedMemory())}>
+                  {(highlight) => (
+                    <blockquote>
+                      <span>{highlight.prefix}</span>
+                      <mark id={highlight.anchorId}>{highlight.text}</mark>
+                      <span>{highlight.suffix}</span>
+                    </blockquote>
+                  )}
+                </For>
+              </div>
+            </Show>
           </article>
         )}
       </Show>

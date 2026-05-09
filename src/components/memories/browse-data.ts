@@ -10,6 +10,11 @@ export interface BrowseHighlight {
   text: string;
   prefix: string;
   suffix: string;
+  createdAt: string;
+}
+
+export interface BrowseReaderHighlight extends BrowseHighlight {
+  anchorId: string;
 }
 
 export interface BrowseMemory {
@@ -105,7 +110,10 @@ export function getBrowseTags(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
 }
 
 export function getRecentHighlights(memories: BrowseMemory[]): BrowseHighlight[] {
-  return memories.flatMap((memory) => memory.highlights).slice(0, 5);
+  return memories
+    .flatMap((memory) => memory.highlights)
+    .toSorted((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+    .slice(0, 5);
 }
 
 export function getMemoryDisplayHighlight(memory: BrowseMemory, activeHighlightId: string): BrowseHighlight | undefined {
@@ -114,6 +122,13 @@ export function getMemoryDisplayHighlight(memory: BrowseMemory, activeHighlightI
   }
 
   return memory.highlights[0];
+}
+
+export function getMemoryReaderHighlights(memory: BrowseMemory): BrowseReaderHighlight[] {
+  return memory.highlights.map((highlight) => ({
+    ...highlight,
+    anchorId: highlight.id,
+  }));
 }
 
 function appendParam(params: URLSearchParams, key: string, value: string): void {

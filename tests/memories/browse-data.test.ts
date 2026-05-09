@@ -4,6 +4,8 @@ import {
   buildBrowseHref,
   filterBrowseMemories,
   getMemoryDisplayHighlight,
+  getMemoryReaderHighlights,
+  getRecentHighlights,
   parseBrowseQuery,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
@@ -23,6 +25,7 @@ const fixtures: BrowseMemory[] = [
         text: "highlight-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
+        createdAt: "2026-05-09T12:00:00.000Z",
       },
     ],
   },
@@ -98,17 +101,59 @@ describe("browse query state", () => {
           text: "first highlight",
           prefix: "first",
           suffix: "context",
+          createdAt: "2026-05-09T10:00:00.000Z",
         },
         {
           id: "h-selected",
           text: "selected highlight",
           prefix: "selected",
           suffix: "context",
+          createdAt: "2026-05-09T11:00:00.000Z",
         },
       ],
     };
 
     expect(getMemoryDisplayHighlight(memory, "h-selected")?.text).toBe("selected highlight");
     expect(getMemoryDisplayHighlight(memory, "")?.text).toBe("first highlight");
+  });
+
+  it("sorts recent highlight shortcuts globally by highlight creation time", () => {
+    const memories: BrowseMemory[] = [
+      {
+        ...fixtures[0]!,
+        capturedAt: "2026-05-10",
+        highlights: [
+          {
+            id: "h-newer-memory-old-highlight",
+            text: "older highlight on newer memory",
+            prefix: "new memory",
+            suffix: "old highlight",
+            createdAt: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        ...fixtures[1]!,
+        capturedAt: "2026-05-01",
+        highlights: [
+          {
+            id: "h-older-memory-new-highlight",
+            text: "newer highlight on older memory",
+            prefix: "old memory",
+            suffix: "new highlight",
+            createdAt: "2026-05-10T00:00:00.000Z",
+          },
+        ],
+      },
+    ];
+
+    expect(getRecentHighlights(memories).map((highlight) => highlight.id)).toEqual([
+      "h-older-memory-new-highlight",
+      "h-newer-memory-old-highlight",
+    ]);
+  });
+
+  it("exposes reader highlight anchors for memory routes", () => {
+    expect(getMemoryReaderHighlights(fixtures[0]!).map((highlight) => highlight.anchorId)).toEqual(["h-foundation"]);
   });
 });

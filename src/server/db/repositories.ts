@@ -13,7 +13,7 @@ export interface MemoryBrowseRow {
   capturedAt: string;
   categories: { id: string; name: string }[];
   tags: { id: string; name: string }[];
-  highlights: { id: string; text: string; prefix: string; suffix: string }[];
+  highlights: { id: string; text: string; prefix: string; suffix: string; createdAt: string }[];
 }
 
 export interface MemoryRepository {
@@ -71,6 +71,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             text: highlight.text,
             prefix: highlight.prefix,
             suffix: highlight.suffix,
+            createdAt: formatDateTime(highlight.createdAt),
           })),
         }));
       },
@@ -81,4 +82,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
 function formatDate(value: Date | number) {
   const date = value instanceof Date ? value : new Date(value);
   return date.toISOString().slice(0, 10);
+}
+
+function formatDateTime(value: Date | number) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString();
 }
