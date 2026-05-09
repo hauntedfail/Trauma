@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 
 export const MEMORY_CONTENT_FILENAME = "CONTENT.md";
@@ -127,12 +128,20 @@ export async function writeMemoryContent(
   const contentDir = dirname(resolvedPath.absolutePath);
   const temporaryPath = join(
     contentDir,
-    `.${MEMORY_CONTENT_FILENAME}.${process.pid}.${Date.now()}.tmp`,
+    `.${MEMORY_CONTENT_FILENAME}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
   );
+  let temporaryFileMoved = false;
 
-  await mkdir(contentDir, { recursive: true });
-  await writeFile(temporaryPath, content, "utf8");
-  await rename(temporaryPath, resolvedPath.absolutePath);
+  try {
+    await mkdir(contentDir, { recursive: true });
+    await writeFile(temporaryPath, content, "utf8");
+    await replaceFile(temporaryPath, resolvedPath.absolutePath);
+    temporaryFileMoved = true;
+  } finally {
+    if (!temporaryFileMoved) {
+      await rm(temporaryPath, { force: true });
+    }
+  }
 
   return resolvedPath;
 }
@@ -173,18 +182,22 @@ function parseMemoryContentFixture(
   content: string,
   relativePath: string,
 ): { frontmatter: MemoryContentFrontmatter; markdown: string } {
-  if (!content.startsWith("---\n")) {
+  const readableContent = stripLeadingBom(content);
+  const openingSeparator = /^---(?:\r?\n)/.exec(readableContent);
+  if (!openingSeparator) {
     throw malformedFrontmatter(relativePath, "missing opening separator");
   }
 
-  const closingSeparator = "\n---\n";
-  const closingIndex = content.indexOf(closingSeparator, 4);
-  if (closingIndex === -1) {
+  const contentAfterOpening = readableContent.slice(openingSeparator[0].length);
+  const closingSeparator = /\r?\n---(?:\r?\n|$)/.exec(contentAfterOpening);
+  if (!closingSeparator || closingSeparator.index === undefined) {
     throw malformedFrontmatter(relativePath, "missing closing separator");
   }
 
-  const rawFrontmatter = content.slice(4, closingIndex);
-  const markdown = content.slice(closingIndex + closingSeparator.length);
+  const rawFrontmatter = contentAfterOpening.slice(0, closingSeparator.index);
+  const markdown = contentAfterOpening.slice(
+    closingSeparator.index + closingSeparator[0].length,
+  );
   const serialized = parseSerializedFrontmatter(rawFrontmatter, relativePath);
 
   return {
@@ -205,7 +218,7 @@ function parseSerializedFrontmatter(
 ): Record<SerializedFrontmatterKey, string> {
   const values = new Map<string, string>();
 
-  for (const line of rawFrontmatter.split("\n")) {
+  for (const line of rawFrontmatter.split(/\r?\n/)) {
     if (line.trim() === "") {
       continue;
     }
@@ -322,6 +335,27 @@ function malformedFrontmatter(relativePath: string, detail: string) {
     `CONTENT.md has malformed frontmatter at ${relativePath}: ${detail}`,
     "malformed_frontmatter",
   );
+}
+
+async function replaceFile(sourcePath: string, destinationPath: string) {
+  try {
+    await rename(sourcePath, destinationPath);
+  } catch (error) {
+    if (
+      isNodeError(error) &&
+      (error.code === "EEXIST" || error.code === "EPERM")
+    ) {
+      await rm(destinationPath, { force: true });
+      await rename(sourcePath, destinationPath);
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function stripLeadingBom(content: string) {
+  return content.startsWith("\uFEFF") ? content.slice(1) : content;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

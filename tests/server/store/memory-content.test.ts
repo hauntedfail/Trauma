@@ -1,7 +1,14 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MEMORY_CONTENT_FILENAME,
@@ -14,6 +21,17 @@ import {
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef111";
 
 const tempDirs: string[] = [];
+
+function frontmatter(overrides = {}) {
+  return {
+    id: memoryId,
+    url: "https://example.com/article",
+    title: "Example Memory",
+    capturedAt: "2026-05-09T06:00:00.000Z",
+    extractionStatus: "extracted",
+    ...overrides,
+  };
+}
 
 async function makeStorePath() {
   const storePath = await mkdtemp(join(tmpdir(), "trauma-store-"));
@@ -126,6 +144,40 @@ describe("memory content writing and reading", () => {
     expect(read.markdown).toContain("https://cdn.example.test/raw.jpg");
   });
 
+  it("uses isolated temporary paths for overlapping writes to the same memory", async () => {
+    const storePath = await makeStorePath();
+    vi.spyOn(Date, "now").mockReturnValue(1_778_309_100_000);
+    const contentDir = dirname(
+      resolveMemoryContentPath({ storePath }, memoryId).absolutePath,
+    );
+    const predictableTemporaryName = `.CONTENT.md.${process.pid}.1778309100000.tmp`;
+    await mkdir(contentDir, { recursive: true });
+    await mkdir(join(contentDir, predictableTemporaryName));
+
+    const writes = await Promise.allSettled(
+      Array.from({ length: 8 }, (_, index) =>
+        writeMemoryContent({
+          config: { storePath },
+          memoryId,
+          frontmatter: frontmatter({
+            title: `Concurrent ${index}`,
+          }),
+          markdown: `Concurrent body ${index}`,
+        }),
+      ),
+    );
+
+    expect(writes.every((write) => write.status === "fulfilled")).toBe(true);
+
+    const entries = await readdir(contentDir);
+    expect(
+      entries.filter(
+        (entry) =>
+          entry.endsWith(".tmp") && entry !== predictableTemporaryName,
+      ),
+    ).toEqual([]);
+  });
+
   it("creates deterministic fixture markdown for tests and docs", () => {
     const fixture = createMemoryContentFixture({
       frontmatter: {
@@ -169,6 +221,65 @@ describe("memory content read failures", () => {
 
     await expect(readMemoryContent({ config: { storePath }, memoryId })).rejects
       .toThrow(/malformed frontmatter/);
+  });
+
+  it("reads frontmatter with CRLF separators", async () => {
+    const storePath = await makeStorePath();
+    const { absolutePath } = resolveMemoryContentPath({ storePath }, memoryId);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(
+      absolutePath,
+      createMemoryContentFixture({
+        frontmatter: frontmatter(),
+        markdown: "CRLF body.",
+      }).replaceAll("\n", "\r\n"),
+      "utf8",
+    );
+
+    const read = await readMemoryContent({ config: { storePath }, memoryId });
+
+    expect(read.markdown).toBe("CRLF body.");
+  });
+
+  it("reads frontmatter with a leading UTF-8 BOM", async () => {
+    const storePath = await makeStorePath();
+    const { absolutePath } = resolveMemoryContentPath({ storePath }, memoryId);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(
+      absolutePath,
+      `\uFEFF${createMemoryContentFixture({
+        frontmatter: frontmatter(),
+        markdown: "BOM body.",
+      })}`,
+      "utf8",
+    );
+
+    const read = await readMemoryContent({ config: { storePath }, memoryId });
+
+    expect(read.markdown).toBe("BOM body.");
+  });
+
+  it("accepts frontmatter-only content without a trailing newline", async () => {
+    const storePath = await makeStorePath();
+    const { absolutePath } = resolveMemoryContentPath({ storePath }, memoryId);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(
+      absolutePath,
+      [
+        "---",
+        `id: ${JSON.stringify(memoryId)}`,
+        'url: "https://example.com/article"',
+        'title: "Example Memory"',
+        'captured_at: "2026-05-09T06:00:00.000Z"',
+        'extraction_status: "extracted"',
+        "---",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const read = await readMemoryContent({ config: { storePath }, memoryId });
+
+    expect(read.markdown).toBe("");
   });
 
   it("keeps generated files inside the temp store path", async () => {
