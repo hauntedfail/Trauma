@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vinxi dev",
+    "dev": "vinxi dev --port 3000",
+    "dev:smoke": "bun run scripts/dev-smoke.ts",
     "build": "vinxi build",
-    "start": "vinxi start",
+    "start": "vinxi start --port 3000",
     "preview": "vinxi preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

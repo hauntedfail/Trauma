@@ -1,10 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = 4173;
-const baseURL = `http://127.0.0.1:${port}`;
+const baseURL = `http://localhost:${port}`;
 const webServerCommand = process.env.CI
   ? `PORT=${port} bun .output/server/index.mjs`
-  : `bun run dev -- --port ${port}`;
+  : `bun x vinxi dev --port ${port}`;
 
 export default defineConfig({
   testDir: "./e2e",

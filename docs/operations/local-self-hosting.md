@@ -35,6 +35,36 @@ Backup work is asynchronous. A failed backup does not invalidate memory
 creation, highlight creation, or markdown writes. Failures are recorded and
 surfaced through metadata.
 
+## Local Dev Server Contract
+
+The dev server uses deterministic host and port settings to avoid random-port
+discovery failures.
+
+Defaults:
+
+- Host: `localhost` (loopback only — matches both `127.0.0.1` and `::1`)
+- App port: `3000`
+- HMR ports: `24678` (client), `24679` (server), `24680` (server-function)
+
+Override via environment:
+
+- `TRAUMA_DEV_HOST` — host used by the smoke check.
+- `TRAUMA_DEV_PORT` — app port used by the smoke check.
+- `TRAUMA_HMR_PORT` — base HMR port. Server and server-function routers use
+  the next two ports above this value.
+
+Standard commands:
+
+- `bun run dev` — start the dev server on port `3000`.
+- `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
+  Fails if the server cannot bind, exits early, or does not respond within
+  the timeout.
+- `bun run start` — serve the production build on `127.0.0.1:3000`.
+
+The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
+real `trauma.config.json`. Run the smoke check before relying on the dev
+server in CI or scripted environments.
+
 ## Auth
 
 There is no auth in the initial operating model. The app is single-user and
