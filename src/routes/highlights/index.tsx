@@ -2,6 +2,7 @@ import { Title } from "@solidjs/meta";
 import { createAsync } from "@solidjs/router";
 import { For, createMemo } from "solid-js";
 
+import { getMemoryReaderHighlights } from "~/components/memories/browse-data";
 import { getBrowseMemories } from "~/components/memories/browse-loader";
 
 export default function HighlightsIndex() {
@@ -9,7 +10,7 @@ export default function HighlightsIndex() {
   const browseMemories = createMemo(() => memories() ?? []);
   const highlights = createMemo(() =>
     browseMemories().flatMap((memory) =>
-      memory.highlights.map((highlight) => ({
+      getMemoryReaderHighlights(memory).map((highlight) => ({
         ...highlight,
         memoryId: memory.id,
         memoryTitle: memory.title,
@@ -42,7 +43,7 @@ export default function HighlightsIndex() {
                 <div>
                   <p class="memory-date">Source memory</p>
                   <h2>
-                    <a href={`/memories/${highlight.memoryId}#${highlight.id}`}>{highlight.memoryTitle}</a>
+                    <a href={`/memories/${highlight.memoryId}#${highlight.anchorId}`}>{highlight.memoryTitle}</a>
                   </h2>
                 </div>
               </header>
