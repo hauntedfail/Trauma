@@ -46,12 +46,20 @@ verification commands and recording their outcomes.
 ## Review Follow-Up
 
 When a valid review finding exposes a reproducible bug, invariant gap, parser
-edge case, or implementation anti-pattern, the fix should include one durable
-guardrail:
+edge case, or implementation anti-pattern, the fix should use the strongest
+durable guardrail that fits:
 
-- A regression test that fails without the fix.
-- A shared constant, validator, or helper that removes duplicated logic.
-- A coding-standard or architecture note when the issue is cross-cutting.
+- One-off bug: add a regression test.
+- Repeated style issue: add or update linting, formatting, typecheck, or a
+  static check.
+- Architecture invariant: document the invariant and add a test/static check
+  where possible.
+- Workflow failure: update workflow automation or the workflow checklist.
+- Reviewer false positive: update reviewer config, ignore rules, or reply with
+  evidence.
+
+Do not treat a prose-only documentation update as sufficient when the finding
+is machine-checkable.
 
 Review follow-up is not complete until thread-aware review state has been
 checked after the fix is pushed and the corresponding review thread has a

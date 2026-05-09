@@ -1,6 +1,6 @@
 # Task 02.5: Coding Standards Refactor Workflow
 
-Status: archived after PR #3 merge.
+Status: archived after completion.
 
 ## Goal
 

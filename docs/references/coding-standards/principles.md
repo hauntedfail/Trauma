@@ -15,8 +15,8 @@ Trauma favors clean, boring implementation over cleverness.
   separate phases.
 - Prefer discriminated options objects over boolean flag APIs when a function
   has more than one mode.
-- Convert reproducible review mistakes into durable tests, shared contracts, or
-  coding-standard rules.
+- Convert reproducible review mistakes into tests, static checks, shared
+  contracts, or workflow automation before adding prose rules.
 
 ## State And Data Ownership
 

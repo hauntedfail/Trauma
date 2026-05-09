@@ -35,5 +35,8 @@ These are prohibited by default:
   trailing newline after frontmatter.
 - Error messages that use internal TypeScript property names when the failing
   artifact uses serialized field names.
+- PR-specific review history in coding standards or architecture docs.
+- Prose-only guardrails for defects, style issues, or invariants that can be
+  enforced by tests, static checks, or tool configuration.
 - Force-push, remote history rewrite, or destructive ref updates without
   current-task user authorization.

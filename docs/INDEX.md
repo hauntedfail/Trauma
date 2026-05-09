@@ -29,7 +29,7 @@ from the foundation design and should stay aligned with it.
   validation rules, and operational meaning.
 - [Coding standards](references/coding-standards/INDEX.md): map of
   TypeScript, SolidStart, Bun, Drizzle, security, testing, and anti-pattern
-  rules for implementation work, including review-derived prevention rules.
+  rules for implementation work, including review feedback triage.
 - [Glossary](references/glossary.md): domain language and status terms.
 
 ## Operations

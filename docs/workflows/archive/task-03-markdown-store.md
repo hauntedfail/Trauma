@@ -1,6 +1,6 @@
 # Task 03: Markdown Store Workflow
 
-Status: archived after PR #2 and PR #4 merges.
+Status: archived after completion.
 
 ## Goal
 
