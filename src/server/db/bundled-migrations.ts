@@ -19,4 +19,3 @@ export function readBundledMigrations(): MigrationMeta[] {
     bps: migration.bps,
   }));
 }
-

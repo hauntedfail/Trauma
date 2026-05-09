@@ -75,6 +75,109 @@ describe("db foundation", () => {
     });
   });
 
+  it("lists memory browse rows from SQLite metadata and relations", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const now = Date.now();
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  description,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
+                "https://example.com/real-memory",
+                "Real SQLite Memory",
+                "Saved from the repository",
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f003/CONTENT.md",
+                "success",
+                "pending",
+                now,
+                now,
+              );
+            connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("research", "Research", now, now);
+            connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("sqlite", "sqlite", now, now);
+            connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "research", now, now);
+            connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "sqlite", now, now);
+            connection.sqlite
+              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("h-real", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "repository highlight", "from", "sqlite", 0, 20, now, now);
+
+            const memories = await connection.repositories.memories.listForBrowse();
+            process.stdout.write(JSON.stringify(memories));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    const memories = JSON.parse(output);
+    expect(memories[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(memories[0]?.highlights[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(memories).toEqual([
+      {
+        id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
+        title: "Real SQLite Memory",
+        url: "https://example.com/real-memory",
+        description: "Saved from the repository",
+        capturedAt: memories[0].capturedAt,
+        categories: [{ id: "research", name: "Research" }],
+        tags: [{ id: "sqlite", name: "sqlite" }],
+        highlights: [
+          {
+            id: "h-real",
+            text: "repository highlight",
+            prefix: "from",
+            suffix: "sqlite",
+            createdAt: memories[0].highlights[0].createdAt,
+          },
+        ],
+      },
+    ]);
+  });
+
   it("applies migrations when launched outside the project cwd", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const launchedFrom = mkdtempSync(join(tmpdir(), "trauma-cwd-"));

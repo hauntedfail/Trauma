@@ -7,7 +7,6 @@ export function titleForReaderResult(result: ReaderMemoryResult | undefined) {
 
   return "Memory | Trauma";
 }
-
 export function readerHttpStatusCode(result: ReaderMemoryResult | undefined) {
   if (result?.status === "not_found" || result?.status === "content_missing") {
     return 404;
@@ -19,4 +18,3 @@ export function readerHttpStatusCode(result: ReaderMemoryResult | undefined) {
 
   return undefined;
 }
-

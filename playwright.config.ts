@@ -11,6 +11,7 @@ export default defineConfig({
   webServer: {
     command: webServerCommand,
     env: {
+      TRAUMA_BROWSE_FIXTURES: "1",
       TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
     },
     reuseExistingServer: !process.env.CI,
