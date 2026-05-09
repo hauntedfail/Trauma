@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { APIEvent } from "@solidjs/start/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -44,12 +45,14 @@ describe("memories API route", () => {
     tempDirs.push(root);
     process.chdir(root);
 
-    const response = await POST({
-      request: new Request("http://localhost/api/memories", {
-        method: "POST",
-        body: JSON.stringify({ url: "http://93.184.216.34/article" }),
-      }),
-    });
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          body: JSON.stringify({ url: "http://93.184.216.34/article" }),
+        }),
+      ),
+    );
     const body = await response.json();
 
     expect(response.status).toBe(500);
@@ -57,3 +60,13 @@ describe("memories API route", () => {
     expect(JSON.stringify(body)).not.toContain(root);
   });
 });
+
+function createApiEvent(request: Request): APIEvent {
+  return {
+    request,
+    params: {},
+    response: new Response(),
+    locals: {},
+    nativeEvent: {},
+  } as unknown as APIEvent;
+}

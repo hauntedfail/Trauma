@@ -1,14 +1,12 @@
+import type { APIEvent } from "@solidjs/start/server";
+
 import { createNoopMemoryBackupQueue } from "~/server/backup";
 import { loadTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { validateImportUrl } from "~/server/importer";
 import { addMemory } from "~/server/memories/add-memory";
 
-interface ApiRouteEvent {
-  request: Request;
-}
-
-export async function POST(event: ApiRouteEvent): Promise<Response> {
+export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseAddMemoryPayload(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
