@@ -10,7 +10,7 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
 
-  await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
+  await expect(page.locator("#reader-title")).toHaveText("Fixture Reader");
   await expect(page.getByRole("link", { name: "Details" })).toBeVisible();
   await expect(page.locator("#details")).toBeVisible();
   await page.getByRole("link", { name: "Details" }).click();
