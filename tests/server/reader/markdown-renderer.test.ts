@@ -68,6 +68,7 @@ describe("renderMemoryMarkdown", () => {
   it("allows only controlled external embeds", () => {
     const result = renderMemoryMarkdown([
       '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video" referrerpolicy="unsafe-url"></iframe>',
+      '<iframe src="https://player.vimeo.com/video/123" title="Allowed Vimeo" allow="camera; microphone; geolocation; clipboard-write"></iframe>',
       '<iframe src="https://evil.example/embed" title="Blocked video"></iframe>',
     ].join("\n"));
 
@@ -76,6 +77,11 @@ describe("renderMemoryMarkdown", () => {
     );
     expect(result.html).toContain('referrerpolicy="no-referrer"');
     expect(result.html).not.toContain('referrerpolicy="unsafe-url"');
+    expect(result.html).not.toContain("camera");
+    expect(result.html).not.toContain("microphone");
+    expect(result.html).not.toContain("geolocation");
+    expect(result.html).not.toContain("clipboard-write");
+    expect(result.html).not.toContain(" allow=");
     expect(result.html).not.toContain("evil.example");
     expect(result.html).not.toContain("Blocked video");
   });

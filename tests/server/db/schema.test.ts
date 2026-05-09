@@ -3,9 +3,11 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { describe, expect, it } from "vitest";
 
 import { schema } from "../../../src/server/db";
+import { readBundledMigrations } from "../../../src/server/db/bundled-migrations";
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -125,6 +127,12 @@ describe("db foundation", () => {
     expect(JSON.parse(output)).toEqual({
       tables: [{ name: "memories" }],
     });
+  });
+
+  it("keeps bundled migrations in sync with the reviewable drizzle files", () => {
+    expect(readBundledMigrations()).toEqual(
+      readMigrationFiles({ migrationsFolder: join(process.cwd(), "drizzle") }),
+    );
   });
 
   it("rejects invalid persisted memory status values", () => {

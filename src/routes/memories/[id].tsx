@@ -4,11 +4,11 @@ import { HttpStatusCode } from "@solidjs/start";
 import { Show } from "solid-js";
 
 import { MemoryReader } from "../../components/reader/MemoryReader";
-import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import {
   readerHttpStatusCode,
   titleForReaderResult,
-} from "./reader-route-state";
+} from "../../components/reader/route-state";
+import type { ReaderMemoryResult } from "../../server/reader/page-data";
 
 const getReaderMemory = query(async (memoryId: string) => {
   "use server";

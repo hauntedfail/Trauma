@@ -115,7 +115,6 @@ function sanitizeReaderHtml(html: string) {
       h5: ["id"],
       h6: ["id"],
       iframe: [
-        "allow",
         "allowfullscreen",
         "loading",
         "referrerpolicy",
@@ -237,10 +236,11 @@ function sanitizeAnchor(_tagName: string, attribs: sanitizeHtml.Attributes) {
 }
 
 function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
+  const { allow: _allow, ...safeAttribs } = attribs;
   return {
     tagName: "iframe",
     attribs: {
-      ...attribs,
+      ...safeAttribs,
       loading: attribs.loading ?? "lazy",
       referrerpolicy: "no-referrer",
     },

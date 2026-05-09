@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   readerHttpStatusCode,
   titleForReaderResult,
-} from "../../../src/routes/memories/reader-route-state";
+} from "../../../src/components/reader/route-state";
 
 describe("reader route state", () => {
   it("maps loading and ready results to document titles", () => {
