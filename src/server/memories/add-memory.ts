@@ -31,7 +31,7 @@ export async function addMemory(input: AddMemoryInput) {
   const markdown =
     imported.status === "success"
       ? imported.markdown
-      : `[${imported.url}](${imported.url})`;
+      : formatFallbackMarkdownLink(imported.url);
   const written = await writeMemoryContent({
     config: { storePath: input.config.storePath },
     memoryId: id,
@@ -74,13 +74,13 @@ export async function addMemory(input: AddMemoryInput) {
 
   if (input.config.backup.git.enabled) {
     try {
-      await input.backupQueue.enqueue({
+      const queued = await input.backupQueue.enqueue({
         memoryId: id,
         contentPath: written.relativePath,
       });
       return repositories.memories.updateBackupStatus({
         id,
-        backupStatus: "queued",
+        backupStatus: queued.backupStatus,
         lastBackupAt: null,
         lastBackupError: null,
         updatedAt: capturedAt,
@@ -102,6 +102,18 @@ export async function addMemory(input: AddMemoryInput) {
   }
 
   return memory;
+}
+
+function formatFallbackMarkdownLink(url: string) {
+  return `[${escapeMarkdownLinkLabel(url)}](<${escapeMarkdownDestination(url)}>)`;
+}
+
+function escapeMarkdownLinkLabel(value: string) {
+  return value.replace(/([\\[\]])/g, "\\$1");
+}
+
+function escapeMarkdownDestination(value: string) {
+  return value.replaceAll("<", "%3C").replaceAll(">", "%3E");
 }
 
 function formatUnknownError(error: unknown) {

@@ -53,6 +53,7 @@ describe("add memory orchestration", () => {
             backupQueue: {
               enqueue: async (input) => {
                 enqueued.push(input);
+                return { backupStatus: "queued" };
               },
             },
             generateId: () => ${JSON.stringify(successMemoryId)},
@@ -149,13 +150,13 @@ describe("add memory orchestration", () => {
 
         try {
           await addMemory({
-            url: "https://example.com/offline",
+            url: "https://example.com/wiki/Foo_(bar)?q=]",
             config,
             db: connection.db,
             importer: {
               importUrl: async () => ({
                 status: "link_only",
-                url: "https://example.com/offline",
+                url: "https://example.com/wiki/Foo_(bar)?q=]",
                 title: "example.com",
                 extractionError: "fetch failed: network unavailable",
               }),
@@ -163,6 +164,7 @@ describe("add memory orchestration", () => {
             backupQueue: {
               enqueue: async (input) => {
                 enqueued.push(input);
+                return { backupStatus: "queued" };
               },
             },
             generateId: () => ${JSON.stringify(fallbackMemoryId)},
@@ -203,7 +205,7 @@ describe("add memory orchestration", () => {
 
     expect(stored).toMatchObject({
       id: fallbackMemoryId,
-      url: "https://example.com/offline",
+      url: "https://example.com/wiki/Foo_(bar)?q=]",
       title: "example.com",
       description: null,
       faviconUrl: null,
@@ -214,7 +216,7 @@ describe("add memory orchestration", () => {
 
     expect(content.frontmatter.extractionStatus).toBe("link_only");
     expect(content.markdown).toBe(
-      "[https://example.com/offline](https://example.com/offline)",
+      "[https://example.com/wiki/Foo_(bar)?q=\\]](<https://example.com/wiki/Foo_(bar)?q=]>)",
     );
     expect(enqueued).toHaveLength(1);
   });
@@ -290,6 +292,77 @@ describe("add memory orchestration", () => {
       id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef113",
       backupStatus: "failed",
       lastBackupError: "queue unavailable",
+    });
+  });
+
+  it("leaves backup pending when the no-op queue boundary is used", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { createNoopMemoryBackupQueue } from "./src/server/backup/index.ts";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          const result = await addMemory({
+            url: "https://example.com/noop-backup",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/noop-backup",
+                title: "Noop Backup",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Noop Backup\\n\\nImported markdown body.",
+              }),
+            },
+            backupQueue: createNoopMemoryBackupQueue(),
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef114")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          process.stdout.write(JSON.stringify({ result }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result } = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef114",
+      backupStatus: "pending",
+      lastBackupError: null,
     });
   });
 });

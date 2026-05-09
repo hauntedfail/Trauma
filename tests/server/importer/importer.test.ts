@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { importUrl } from "../../../src/server/importer";
+import { importUrl, validateImportUrl } from "../../../src/server/importer";
 
 describe("URL importer", () => {
   it("extracts article metadata and markdown through an injectable fetch boundary", async () => {
@@ -105,6 +105,44 @@ describe("URL importer", () => {
         },
       }),
     ).rejects.toThrow(/public HTTP/);
+  });
+
+  it("rejects private redirect targets before following them", async () => {
+    const requestedUrls: string[] = [];
+    const result = await importUrl({
+      url: "https://example.com/redirect",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async (url, init) => {
+        requestedUrls.push(url);
+        expect(init?.redirect).toBe("manual");
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: "http://127.0.0.1/admin",
+          },
+        });
+      },
+    });
+
+    expect(requestedUrls).toEqual(["https://example.com/redirect"]);
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/redirect",
+      title: "example.com",
+      extractionError: "fetch failed: url must target a public HTTP(S) host",
+    });
+  });
+
+  it("rejects non-global IP spellings before fetch", async () => {
+    await expect(validateImportUrl("http://[::ffff:127.0.0.1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[fe90::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://100.64.0.1/")).rejects.toThrow(
+      /public HTTP/,
+    );
   });
 
   it("returns a link-only fallback before reading oversized responses", async () => {

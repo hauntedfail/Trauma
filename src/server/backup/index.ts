@@ -3,12 +3,18 @@ export interface EnqueueMemoryBackupInput {
   contentPath: string;
 }
 
+export interface EnqueueMemoryBackupResult {
+  backupStatus: "pending" | "queued";
+}
+
 export interface MemoryBackupQueue {
-  enqueue: (input: EnqueueMemoryBackupInput) => Promise<void>;
+  enqueue: (
+    input: EnqueueMemoryBackupInput,
+  ) => Promise<EnqueueMemoryBackupResult>;
 }
 
 export function createNoopMemoryBackupQueue(): MemoryBackupQueue {
   return {
-    enqueue: async () => undefined,
+    enqueue: async () => ({ backupStatus: "pending" }),
   };
 }

@@ -1,5 +1,8 @@
 import { lookup } from "node:dns/promises";
+import { request as requestHttp } from "node:http";
+import { request as requestHttps } from "node:https";
 import { isIP } from "node:net";
+import { Readable } from "node:stream";
 
 export type ImportFetch = (
   input: string,
@@ -37,12 +40,13 @@ export interface LinkOnlyImporterResult {
 const MINIMUM_READABLE_BODY_LENGTH = 80;
 const DEFAULT_MAX_IMPORT_BYTES = 2_000_000;
 const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 5;
 
 export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> {
   const normalizedUrl = await normalizeImportUrl(input.url, {
     resolveHostname: input.resolveHostname,
   });
-  const fetchUrl = input.fetch ?? fetch;
+  const fetchUrl = input.fetch ?? createPinnedFetch(input.resolveHostname);
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_IMPORT_BYTES;
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -51,24 +55,30 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
   );
 
   let response: Response;
+  let currentUrl = normalizedUrl;
   try {
-    response = await fetchUrl(normalizedUrl, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-      },
+    response = await fetchWithValidatedRedirects({
+      url: currentUrl,
+      fetchUrl,
       signal: controller.signal,
+      resolveHostname: input.resolveHostname,
+      setCurrentUrl: (url) => {
+        currentUrl = url;
+      },
     });
   } catch (error) {
     clearTimeout(timeout);
-    return linkOnly(normalizedUrl, fallbackTitleFromUrl(normalizedUrl), {
+    return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "fetch failed",
-      detail: controller.signal.aborted ? "request timed out" : formatUnknownError(error),
+      detail: controller.signal.aborted
+        ? "request timed out"
+        : formatUnknownError(error),
     });
   }
 
   if (!response.ok) {
     clearTimeout(timeout);
-    return linkOnly(normalizedUrl, fallbackTitleFromUrl(normalizedUrl), {
+    return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "fetch failed",
       detail: `HTTP ${response.status}`,
     });
@@ -77,7 +87,7 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("html")) {
     clearTimeout(timeout);
-    return linkOnly(normalizedUrl, fallbackTitleFromUrl(normalizedUrl), {
+    return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "unsupported content type",
       detail: contentType || "missing content-type",
     });
@@ -91,7 +101,7 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
     });
   } catch (error) {
     clearTimeout(timeout);
-    return linkOnly(normalizedUrl, fallbackTitleFromUrl(normalizedUrl), {
+    return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "fetch failed",
       detail: controller.signal.aborted
         ? "request timed out"
@@ -100,25 +110,25 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
   }
   clearTimeout(timeout);
   if (!boundedBody.ok) {
-    return linkOnly(normalizedUrl, fallbackTitleFromUrl(normalizedUrl), {
+    return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "response too large",
       detail: boundedBody.error,
     });
   }
 
   const html = boundedBody.text;
-  const extracted = extractReadableArticle(html, normalizedUrl);
-  const title = extracted.title || fallbackTitleFromUrl(normalizedUrl);
+  const extracted = extractReadableArticle(html, currentUrl);
+  const title = extracted.title || fallbackTitleFromUrl(currentUrl);
 
   if (readableLength(extracted.markdown) < MINIMUM_READABLE_BODY_LENGTH) {
-    return linkOnly(normalizedUrl, title, {
+    return linkOnly(currentUrl, title, {
       reason: "insufficient article body",
     });
   }
 
   return {
     status: "success",
-    url: normalizedUrl,
+    url: currentUrl,
     title,
     description: extracted.description,
     faviconUrl: extracted.faviconUrl,
@@ -419,6 +429,48 @@ function resolveSafeDisplayUrl(pageUrl: string, value: string) {
   }
 }
 
+async function fetchWithValidatedRedirects(input: {
+  url: string;
+  fetchUrl: ImportFetch;
+  signal: AbortSignal;
+  resolveHostname?: HostResolver;
+  setCurrentUrl: (url: string) => void;
+}) {
+  let currentUrl = input.url;
+
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    input.setCurrentUrl(currentUrl);
+    const response = await input.fetchUrl(currentUrl, {
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "manual",
+      signal: input.signal,
+    });
+
+    if (!isRedirectStatus(response.status)) {
+      return response;
+    }
+
+    await response.body?.cancel();
+
+    const location = response.headers.get("location");
+    if (!location) {
+      throw new Error("redirect response missing Location header");
+    }
+
+    currentUrl = await normalizeImportUrl(new URL(location, currentUrl).toString(), {
+      resolveHostname: input.resolveHostname,
+    });
+  }
+
+  throw new Error("too many redirects");
+}
+
+function isRedirectStatus(status: number) {
+  return [301, 302, 303, 307, 308].includes(status);
+}
+
 function fallbackTitleFromUrl(url: string) {
   const parsed = new URL(url);
   return parsed.hostname || url;
@@ -465,6 +517,117 @@ async function assertPublicHostname(
   }
 }
 
+function createPinnedFetch(resolveHostname?: HostResolver): ImportFetch {
+  return async (input, init) => {
+    const parsed = new URL(input);
+    const normalizedHostname = normalizeHostname(parsed.hostname);
+    const address =
+      isIP(normalizedHostname) === 0
+        ? await resolvePublicAddress(normalizedHostname, resolveHostname)
+        : normalizedHostname;
+
+    if (isPrivateAddress(address)) {
+      throw new Error("url must target a public HTTP(S) host");
+    }
+
+    return fetchPinnedAddress(parsed, address, init);
+  };
+}
+
+async function resolvePublicAddress(hostname: string, resolveHostname?: HostResolver) {
+  const addresses = await (resolveHostname ?? resolveHostnameAddresses)(hostname);
+  if (
+    addresses.length === 0 ||
+    addresses.some((address) => isPrivateAddress(address))
+  ) {
+    throw new Error("url must target a public HTTP(S) host");
+  }
+
+  return addresses[0] ?? hostname;
+}
+
+function fetchPinnedAddress(
+  url: URL,
+  address: string,
+  init?: RequestInit,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const isHttps = url.protocol === "https:";
+    const request = (isHttps ? requestHttps : requestHttp)(
+      {
+        protocol: url.protocol,
+        hostname: address,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method: init?.method ?? "GET",
+        headers: {
+          ...headersToRecord(init?.headers),
+          host: url.host,
+        },
+        servername: url.hostname,
+        lookup: (_hostname, _options, callback) => {
+          callback(null, address, isIP(address) === 6 ? 6 : 4);
+        },
+      },
+      (incoming) => {
+        resolve(
+          new Response(
+            Readable.toWeb(incoming) as unknown as ReadableStream<Uint8Array>,
+            {
+              status: incoming.statusCode ?? 0,
+              statusText: incoming.statusMessage,
+              headers: incomingHeadersToHeaders(incoming.headers),
+            },
+          ),
+        );
+      },
+    );
+
+    const signal = init?.signal;
+    if (signal) {
+      if (signal.aborted) {
+        request.destroy(new Error("request aborted"));
+        return;
+      }
+
+      signal.addEventListener(
+        "abort",
+        () => request.destroy(new Error("request aborted")),
+        { once: true },
+      );
+    }
+
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function headersToRecord(headers: HeadersInit | undefined) {
+  if (!headers) {
+    return {};
+  }
+
+  return Object.fromEntries(new Headers(headers).entries());
+}
+
+function incomingHeadersToHeaders(headers: Record<string, string | string[] | undefined>) {
+  const result = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        result.append(name, entry);
+      }
+      continue;
+    }
+
+    if (value !== undefined) {
+      result.set(name, value);
+    }
+  }
+
+  return result;
+}
+
 async function resolveHostnameAddresses(hostname: string) {
   try {
     const addresses = await lookup(hostname, { all: true, verbatim: true });
@@ -506,28 +669,145 @@ function isPrivateAddress(address: string) {
 }
 
 function isPrivateIpv4(address: string) {
-  const octets = address.split(".").map((part) => Number.parseInt(part, 10));
-  const first = octets[0];
-  const second = octets[1];
-  if (first === undefined || second === undefined) {
+  const octets = parseIpv4Octets(address);
+  if (!octets) {
     return true;
   }
 
+  const [first, second, third] = octets;
   return (
+    first === 0 ||
     first === 10 ||
     first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 0) ||
     (first === 192 && second === 168) ||
-    first === 0
+    (first === 198 && (second === 18 || second === 19)) ||
+    (first === 198 && second === 51 && third === 100) ||
+    (first === 203 && second === 0 && third === 113) ||
+    first >= 224
   );
 }
 
 function isPrivateIpv6(address: string) {
+  const words = parseIpv6Words(address);
+  if (!words) {
+    return true;
+  }
+
+  const embeddedIpv4 = ipv4FromMappedIpv6(words);
+  if (embeddedIpv4 && isPrivateIpv4(embeddedIpv4)) {
+    return true;
+  }
+
+  const first = words[0] ?? 0;
   return (
-    address === "::1" ||
-    address.startsWith("fe80:") ||
-    address.startsWith("fc") ||
-    address.startsWith("fd")
+    words.slice(0, 7).every((word) => word === 0) && words[7] === 1 ||
+    (first & 0xffc0) === 0xfe80 ||
+    (first & 0xfe00) === 0xfc00
   );
+}
+
+function parseIpv4Octets(address: string) {
+  const parts = address.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const octets = parts.map((part) => Number.parseInt(part, 10));
+  if (
+    octets.some(
+      (octet, index) =>
+        !Number.isInteger(octet) ||
+        octet < 0 ||
+        octet > 255 ||
+        String(octet) !== parts[index],
+    )
+  ) {
+    return null;
+  }
+
+  return octets as [number, number, number, number];
+}
+
+function parseIpv6Words(address: string) {
+  const withoutZone = address.split("%", 1)[0] ?? "";
+  const sections = withoutZone.split("::");
+  if (sections.length > 2) {
+    return null;
+  }
+
+  const left = parseIpv6Section(sections[0] ?? "");
+  const right = parseIpv6Section(sections[1] ?? "");
+  if (!left || !right) {
+    return null;
+  }
+
+  if (sections.length === 1) {
+    return left.length === 8 ? left : null;
+  }
+
+  const missing = 8 - left.length - right.length;
+  if (missing < 1) {
+    return null;
+  }
+
+  return [...left, ...Array.from({ length: missing }, () => 0), ...right];
+}
+
+function parseIpv6Section(section: string) {
+  if (section === "") {
+    return [];
+  }
+
+  const words: number[] = [];
+  const parts = section.split(":");
+  for (const part of parts) {
+    if (part.includes(".")) {
+      const octets = parseIpv4Octets(part);
+      if (!octets) {
+        return null;
+      }
+
+      words.push(octets[0] * 256 + octets[1], octets[2] * 256 + octets[3]);
+      continue;
+    }
+
+    const word = Number.parseInt(part, 16);
+    if (
+      part === "" ||
+      part.length > 4 ||
+      !/^[0-9a-f]+$/i.test(part) ||
+      !Number.isInteger(word) ||
+      word < 0 ||
+      word > 0xffff
+    ) {
+      return null;
+    }
+
+    words.push(word);
+  }
+
+  return words;
+}
+
+function ipv4FromMappedIpv6(words: number[]) {
+  if (
+    words.length === 8 &&
+    words.slice(0, 5).every((word) => word === 0) &&
+    words[5] === 0xffff
+  ) {
+    const high = words[6] ?? 0;
+    const low = words[7] ?? 0;
+    return [
+      high >> 8,
+      high & 0xff,
+      low >> 8,
+      low & 0xff,
+    ].join(".");
+  }
+
+  return null;
 }
