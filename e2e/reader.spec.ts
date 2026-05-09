@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { accessSync } from "node:fs";
+import { homedir } from "node:os";
 import { expect, test } from "@playwright/test";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
@@ -21,13 +23,8 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 
 function createReaderFixture() {
   execFileSync(
-    "mise",
+    resolveBunExecutable(),
     [
-      "exec",
-      "-C",
-      process.cwd(),
-      "--",
-      "bun",
       "-e",
       `
         import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -120,4 +117,42 @@ function createReaderFixture() {
       stdio: "pipe",
     },
   );
+}
+
+function resolveBunExecutable() {
+  if (process.versions.bun !== undefined) {
+    return process.execPath;
+  }
+
+  const candidates = [
+    process.env.BUN_EXECUTABLE,
+    process.versions.bun !== undefined ? process.execPath : undefined,
+    `${homedir()}/.local/share/mise/installs/bun/1.3.13/bin/bun`,
+    process.env.npm_execpath,
+    "bun",
+  ];
+  const executable = candidates.find(
+    (candidate) =>
+      candidate !== undefined &&
+      isBunExecutable(candidate) &&
+      (candidate.includes("/") ? canAccess(candidate) : true),
+  );
+  if (executable === undefined) {
+    throw new Error("Bun executable is required for reader E2E fixtures");
+  }
+
+  return executable;
+}
+
+function isBunExecutable(path: string) {
+  return path === "bun" || path.endsWith("/bun") || path.endsWith("\\bun.exe");
+}
+
+function canAccess(path: string) {
+  try {
+    accessSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
