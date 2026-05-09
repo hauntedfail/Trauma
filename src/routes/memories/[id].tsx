@@ -1,15 +1,18 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, useParams } from "@solidjs/router";
+import { HttpStatusCode } from "@solidjs/start";
 import { For, Show, createMemo } from "solid-js";
 
 import { getMemoryReaderHighlights } from "~/components/memories/browse-data";
 import { getBrowseMemories } from "~/components/memories/browse-loader";
+import { getMemoryReaderStatusCode } from "./reader-status";
 
 export default function MemoryReaderPlaceholder() {
   const params = useParams();
   const memories = createAsync(() => getBrowseMemories());
   const browseMemories = createMemo(() => memories() ?? []);
   const memory = createMemo(() => browseMemories().find((item) => item.id === params.id));
+  const statusCode = createMemo(() => getMemoryReaderStatusCode(memory()));
 
   return (
     <section class="timeline" aria-labelledby="memory-reader-title">
@@ -24,6 +27,7 @@ export default function MemoryReaderPlaceholder() {
         when={memory()}
         fallback={
           <div class="empty-state">
+            <Show when={statusCode()}>{(code) => <HttpStatusCode code={code()} />}</Show>
             <h2>Memory not found</h2>
             <p>The reader route exists, but this memory is not available in the current repository data.</p>
           </div>

@@ -1,4 +1,4 @@
-import { TraumaConfigError, loadTraumaConfig } from "../config";
+import { loadTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
 import type { MemoryBrowseRow } from "../db/repositories";
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
@@ -16,12 +16,6 @@ export async function loadBrowseMemories(): Promise<BrowseMemory[]> {
     const config = loadTraumaConfig();
     connection = initializeDatabase(config);
     return (await connection.repositories.memories.listForBrowse()).map(toBrowseMemory);
-  } catch (error) {
-    if (canRenderEmptyBrowse(error)) {
-      return [];
-    }
-
-    throw error;
   } finally {
     connection?.close();
   }
@@ -29,8 +23,4 @@ export async function loadBrowseMemories(): Promise<BrowseMemory[]> {
 
 function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
   return row;
-}
-
-export function canRenderEmptyBrowse(error: unknown) {
-  return error instanceof TraumaConfigError && error.message.startsWith("Missing trauma config");
 }
