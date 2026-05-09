@@ -478,6 +478,126 @@ describe("add memory orchestration", () => {
     );
   });
 
+  it("does not replace existing content when generated memory ID collides", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+        import {
+          readMemoryContent,
+          writeMemoryContent,
+        } from "./src/server/store/memory-content.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          const memoryId = ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef117")};
+          await writeMemoryContent({
+            config: { storePath: config.storePath },
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/original",
+              title: "Original",
+              capturedAt: ${JSON.stringify(capturedAt.toISOString())},
+              extractionStatus: "success",
+            },
+            markdown: "# Original\\n\\nKeep this existing memory.",
+          });
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/original",
+            title: "Original",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: new Date(${JSON.stringify(capturedAt.toISOString())}),
+            updatedAt: new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          let errorMessage = null;
+          try {
+            await addMemory({
+              url: "https://example.com/collision",
+              config,
+              db: connection.db,
+              importer: {
+                importUrl: async () => ({
+                  status: "success",
+                  url: "https://example.com/collision",
+                  title: "Collision",
+                  description: null,
+                  faviconUrl: null,
+                  markdown: "# Collision\\n\\nThis must not replace existing content.",
+                }),
+              },
+              backupQueue: {
+                enqueue: async () => {
+                  throw new Error("backup should be disabled");
+                },
+              },
+              generateId: () => memoryId,
+              now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+            });
+          } catch (error) {
+            errorMessage = error instanceof Error ? error.message : String(error);
+          }
+
+          const stored = await connection.repositories.memories.findById(memoryId);
+          const content = await readMemoryContent({
+            config: { storePath: config.storePath },
+            memoryId,
+          });
+
+          process.stdout.write(JSON.stringify({ errorMessage, stored, content }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { errorMessage, stored, content } = JSON.parse(output);
+
+    expect(errorMessage).toContain("CONTENT.md already exists");
+    expect(stored).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef117",
+      url: "https://example.com/original",
+      title: "Original",
+    });
+    expect(content.markdown).toBe("# Original\n\nKeep this existing memory.");
+  });
+
   it("leaves backup pending when the no-op queue boundary is used", async () => {
     const root = await makeRoot();
     const output = runBunScript(

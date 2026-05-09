@@ -687,7 +687,11 @@ export function createPinnedFetch(
     const normalizedHostname = normalizeHostname(parsed.hostname);
     const addresses =
       isIP(normalizedHostname) === 0
-        ? await resolvePublicAddresses(normalizedHostname, resolveHostname)
+        ? await resolvePublicAddressesForFetch(
+            normalizedHostname,
+            resolveHostname,
+            init?.signal ?? undefined,
+          )
         : [normalizedHostname];
 
     let lastError: unknown;
@@ -721,6 +725,15 @@ async function resolvePublicAddresses(hostname: string, resolveHostname?: HostRe
   }
 
   return addresses;
+}
+
+async function resolvePublicAddressesForFetch(
+  hostname: string,
+  resolveHostname: HostResolver | undefined,
+  signal: AbortSignal | undefined,
+) {
+  const operation = resolvePublicAddresses(hostname, resolveHostname);
+  return signal ? rejectWhenAborted(operation, signal) : operation;
 }
 
 function fetchPinnedAddress(

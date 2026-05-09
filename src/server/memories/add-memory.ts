@@ -35,6 +35,7 @@ export async function addMemory(input: AddMemoryInput) {
   const written = await writeMemoryContent({
     config: { storePath: input.config.storePath },
     memoryId: id,
+    overwrite: false,
     frontmatter: {
       id,
       url: imported.url,

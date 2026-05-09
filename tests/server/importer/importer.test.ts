@@ -427,6 +427,30 @@ describe("URL importer", () => {
     });
   });
 
+  it("includes pinned DNS validation in the import timeout budget", async () => {
+    let resolveCalls = 0;
+    const result = await importUrl({
+      url: "https://example.com/pinned-slow-dns",
+      timeoutMs: 1,
+      resolveHostname: async () => {
+        resolveCalls += 1;
+        if (resolveCalls === 1) {
+          return ["93.184.216.34"];
+        }
+
+        return new Promise(() => {});
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/pinned-slow-dns",
+      title: "example.com",
+      extractionError: "fetch failed: request timed out",
+    });
+    expect(resolveCalls).toBe(2);
+  });
+
   it("tries later validated DNS addresses when an earlier public address fails", async () => {
     const requestedAddresses: string[] = [];
     const fetch = createPinnedFetch(
