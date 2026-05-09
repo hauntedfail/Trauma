@@ -6,8 +6,9 @@ import { getBrowseMemories } from "~/components/memories/browse-loader";
 
 export default function MemoryReaderPlaceholder() {
   const params = useParams();
-  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
-  const memory = createMemo(() => memories().find((item) => item.id === params.id));
+  const memories = createAsync(() => getBrowseMemories());
+  const browseMemories = createMemo(() => memories() ?? []);
+  const memory = createMemo(() => browseMemories().find((item) => item.id === params.id));
 
   return (
     <section class="timeline" aria-labelledby="memory-reader-title">

@@ -11,9 +11,9 @@ export default function App() {
       root={(props) => (
         <MetaProvider>
           <Title>Trauma</Title>
-          <AppShell>
-            <Suspense>{props.children}</Suspense>
-          </AppShell>
+          <Suspense>
+            <AppShell>{props.children}</AppShell>
+          </Suspense>
         </MetaProvider>
       )}
     >

@@ -14,9 +14,10 @@ import { getBrowseMemories } from "./browse-loader";
 export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
-  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
+  const memories = createAsync(() => getBrowseMemories());
+  const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const filteredMemories = createMemo(() => filterBrowseMemories(memories(), query()));
+  const filteredMemories = createMemo(() => filterBrowseMemories(browseMemories(), query()));
   const isGrid = createMemo(() => query().view === "grid");
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {

@@ -22,11 +22,12 @@ export function AppShell(props: AppShellProps) {
   const navigate = useNavigate();
   const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
-  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
+  const memories = createAsync(() => getBrowseMemories());
+  const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const categories = createMemo(() => getBrowseCategories(memories()));
-  const tags = createMemo(() => getBrowseTags(memories()));
-  const highlights = createMemo(() => getRecentHighlights(memories()));
+  const categories = createMemo(() => getBrowseCategories(browseMemories()));
+  const tags = createMemo(() => getBrowseTags(browseMemories()));
+  const highlights = createMemo(() => getRecentHighlights(browseMemories()));
 
   const goToFilter = (patch: Parameters<typeof buildBrowseHref>[1]) => {
     navigate(buildBrowseHref(query(), patch));

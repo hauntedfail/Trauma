@@ -5,9 +5,10 @@ import { For, createMemo } from "solid-js";
 import { getBrowseMemories } from "~/components/memories/browse-loader";
 
 export default function HighlightsIndex() {
-  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
+  const memories = createAsync(() => getBrowseMemories());
+  const browseMemories = createMemo(() => memories() ?? []);
   const highlights = createMemo(() =>
-    memories().flatMap((memory) =>
+    browseMemories().flatMap((memory) =>
       memory.highlights.map((highlight) => ({
         ...highlight,
         memoryId: memory.id,
