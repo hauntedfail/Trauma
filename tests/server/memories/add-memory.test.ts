@@ -218,6 +218,80 @@ describe("add memory orchestration", () => {
     );
     expect(enqueued).toHaveLength(1);
   });
+
+  it("preserves memory creation and marks backup failed when enqueue fails", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          const result = await addMemory({
+            url: "https://example.com/backup-fails",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/backup-fails",
+                title: "Backup Fails",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Backup Fails\\n\\nImported markdown body.",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("queue unavailable");
+              },
+            },
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef113")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          process.stdout.write(JSON.stringify({ result }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result } = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef113",
+      backupStatus: "failed",
+      lastBackupError: "queue unavailable",
+    });
+  });
 });
 
 async function makeRoot() {

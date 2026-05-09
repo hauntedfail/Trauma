@@ -1,6 +1,7 @@
 import { createNoopMemoryBackupQueue } from "~/server/backup";
 import { loadTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
+import { validateImportUrl } from "~/server/importer";
 import { addMemory } from "~/server/memories/add-memory";
 
 interface ApiRouteEvent {
@@ -62,7 +63,11 @@ async function parseAddMemoryPayload(
     return { ok: false, error: "url must be a non-empty string" };
   }
 
-  return { ok: true, url: payload.url };
+  try {
+    return { ok: true, url: await validateImportUrl(payload.url) };
+  } catch {
+    return { ok: false, error: "url must be a valid absolute URL" };
+  }
 }
 
 function json(body: unknown, init: ResponseInit) {

@@ -6,6 +6,7 @@ describe("URL importer", () => {
   it("extracts article metadata and markdown through an injectable fetch boundary", async () => {
     const result = await importUrl({
       url: "https://example.com/posts/importable",
+      resolveHostname: async () => ["93.184.216.34"],
       fetch: async () =>
         new Response(
           `<!doctype html>
@@ -54,6 +55,7 @@ describe("URL importer", () => {
   it("returns a link-only fallback when fetch fails", async () => {
     const result = await importUrl({
       url: "https://example.com/offline",
+      resolveHostname: async () => ["93.184.216.34"],
       fetch: async () => {
         throw new Error("network unavailable");
       },
@@ -70,6 +72,7 @@ describe("URL importer", () => {
   it("returns a link-only fallback for insufficient article body", async () => {
     const result = await importUrl({
       url: "https://example.com/thin",
+      resolveHostname: async () => ["93.184.216.34"],
       fetch: async () =>
         new Response(
           `<!doctype html>
@@ -90,6 +93,38 @@ describe("URL importer", () => {
       url: "https://example.com/thin",
       title: "Thin Page",
       extractionError: "insufficient article body",
+    });
+  });
+
+  it("rejects local URLs before fetch to prevent server-side request forgery", async () => {
+    await expect(
+      importUrl({
+        url: "http://localhost/admin",
+        fetch: async () => {
+          throw new Error("fetch should not be called");
+        },
+      }),
+    ).rejects.toThrow(/public HTTP/);
+  });
+
+  it("returns a link-only fallback before reading oversized responses", async () => {
+    const result = await importUrl({
+      url: "https://example.com/huge",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html></html>", {
+          headers: {
+            "content-length": "2000001",
+            "content-type": "text/html",
+          },
+        }),
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/huge",
+      title: "example.com",
+      extractionError: "response too large: 2000001 bytes exceeds 2000000",
     });
   });
 });

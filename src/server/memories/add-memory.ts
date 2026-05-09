@@ -2,7 +2,10 @@ import type { ResolvedTraumaConfig } from "../config";
 import type { MemoryBackupQueue } from "../backup";
 import { importUrl, type ImporterResult } from "../importer";
 import type { TraumaDatabase } from "../db";
-import { writeMemoryContent } from "../store/memory-content";
+import {
+  deleteMemoryContent,
+  writeMemoryContent,
+} from "../store/memory-content";
 import { generateMemoryId } from "./id";
 import { createRepositories } from "../db/repositories";
 
@@ -42,30 +45,55 @@ export async function addMemory(input: AddMemoryInput) {
     markdown,
   });
   const repositories = createRepositories(input.db);
-  const backupStatus = input.config.backup.git.enabled ? "queued" : "disabled";
+  const initialBackupStatus = input.config.backup.git.enabled ? "pending" : "disabled";
 
-  await repositories.memories.create({
-    id,
-    url: imported.url,
-    title: imported.title,
-    description: imported.status === "success" ? imported.description : null,
-    faviconUrl: imported.status === "success" ? imported.faviconUrl : null,
-    contentPath: written.relativePath,
-    extractionStatus: imported.status,
-    extractionError:
-      imported.status === "link_only" ? imported.extractionError : null,
-    backupStatus,
-    lastBackupAt: null,
-    lastBackupError: null,
-    createdAt: capturedAt,
-    updatedAt: capturedAt,
-  });
+  try {
+    await repositories.memories.create({
+      id,
+      url: imported.url,
+      title: imported.title,
+      description: imported.status === "success" ? imported.description : null,
+      faviconUrl: imported.status === "success" ? imported.faviconUrl : null,
+      contentPath: written.relativePath,
+      extractionStatus: imported.status,
+      extractionError:
+        imported.status === "link_only" ? imported.extractionError : null,
+      backupStatus: initialBackupStatus,
+      lastBackupAt: null,
+      lastBackupError: null,
+      createdAt: capturedAt,
+      updatedAt: capturedAt,
+    });
+  } catch (error) {
+    await deleteMemoryContent({
+      config: { storePath: input.config.storePath },
+      memoryId: id,
+    });
+    throw error;
+  }
 
   if (input.config.backup.git.enabled) {
-    await input.backupQueue.enqueue({
-      memoryId: id,
-      contentPath: written.relativePath,
-    });
+    try {
+      await input.backupQueue.enqueue({
+        memoryId: id,
+        contentPath: written.relativePath,
+      });
+      return repositories.memories.updateBackupStatus({
+        id,
+        backupStatus: "queued",
+        lastBackupAt: null,
+        lastBackupError: null,
+        updatedAt: capturedAt,
+      });
+    } catch (error) {
+      return repositories.memories.updateBackupStatus({
+        id,
+        backupStatus: "failed",
+        lastBackupAt: null,
+        lastBackupError: formatUnknownError(error),
+        updatedAt: capturedAt,
+      });
+    }
   }
 
   const memory = await repositories.memories.findById(id);
@@ -74,4 +102,8 @@ export async function addMemory(input: AddMemoryInput) {
   }
 
   return memory;
+}
+
+function formatUnknownError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }

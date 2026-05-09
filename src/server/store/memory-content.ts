@@ -56,6 +56,11 @@ export interface ReadMemoryContentInput {
   memoryId: string;
 }
 
+export interface DeleteMemoryContentInput {
+  config: MemoryContentStoreConfig;
+  memoryId: string;
+}
+
 export interface ReadMemoryContentResult extends ResolvedMemoryContentPath {
   frontmatter: MemoryContentFrontmatter;
   markdown: string;
@@ -183,6 +188,17 @@ export async function readMemoryContent(
     frontmatter,
     markdown,
   };
+}
+
+export async function deleteMemoryContent(
+  input: DeleteMemoryContentInput,
+): Promise<ResolvedMemoryContentPath> {
+  const resolvedPath = resolveMemoryContentPath(input.config, input.memoryId);
+  await rm(dirname(resolvedPath.absolutePath), {
+    recursive: true,
+    force: true,
+  });
+  return resolvedPath;
 }
 
 function parseMemoryContentFixture(

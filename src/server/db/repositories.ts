@@ -10,6 +10,13 @@ export interface MemoryRepository {
   create: (
     input: typeof schema.memories.$inferInsert,
   ) => Promise<typeof schema.memories.$inferSelect>;
+  updateBackupStatus: (input: {
+    id: string;
+    backupStatus: schema.BackupStatus;
+    lastBackupAt?: Date | null;
+    lastBackupError?: string | null;
+    updatedAt: Date;
+  }) => Promise<typeof schema.memories.$inferSelect>;
 }
 
 export interface TraumaRepositories {
@@ -30,6 +37,26 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         });
         if (!memory) {
           throw new Error(`created memory ${input.id} was not found`);
+        }
+
+        return memory;
+      },
+      updateBackupStatus: async (input) => {
+        await db
+          .update(schema.memories)
+          .set({
+            backupStatus: input.backupStatus,
+            lastBackupAt: input.lastBackupAt,
+            lastBackupError: input.lastBackupError,
+            updatedAt: input.updatedAt,
+          })
+          .where(eq(schema.memories.id, input.id))
+          .run();
+        const memory = await db.query.memories.findFirst({
+          where: eq(schema.memories.id, input.id),
+        });
+        if (!memory) {
+          throw new Error(`memory ${input.id} was not found`);
         }
 
         return memory;
