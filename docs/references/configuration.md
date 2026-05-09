@@ -28,8 +28,8 @@ lifecycle hooks.
 }
 ```
 
-Exact defaults may change during implementation planning, but the fields above
-capture the required configuration model.
+The implementation resolves relative paths against the directory that contains
+the config file.
 
 ## Path Rules
 
@@ -37,7 +37,8 @@ capture the required configuration model.
 - `projectPath` is the git working directory used by built-in backup.
 - `storePath` must be inside `projectPath`.
 - `databasePath` points to the SQLite runtime database.
-- The SQLite database file is outside Trauma's git backup scope.
+- `databasePath` must be outside `storePath`, which keeps the SQLite database
+  outside Trauma's markdown backup scope.
 
 Invalid path relationships are startup errors.
 

@@ -13,9 +13,10 @@ content, and git backup for the markdown store.
 
 ## Status
 
-Foundation/bootstrap stage. The app currently has the SolidStart/Bun toolchain,
-baseline routes, test configuration, Drizzle configuration, and documentation
-structure needed for feature work.
+Foundation feature work is underway. The app has the SolidStart/Bun toolchain,
+baseline routes, test configuration, Drizzle/SQLite persistence, config
+loading, markdown content store APIs, and documentation/workflow structure
+needed for the remaining implementation tasks.
 
 ## Stack
 

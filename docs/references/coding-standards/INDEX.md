@@ -32,6 +32,8 @@ not React.
 - [Testing and verification](testing-verification.md): required checks and test
   expectations.
 - [Anti-patterns](anti-patterns.md): prohibited patterns across the project.
+- [Review learnings](review-learnings.md): recurring mistakes observed in
+  merged PR review threads and their durable prevention rules.
 
 ## Source Basis
 
@@ -44,3 +46,10 @@ The rules are grounded in the official docs for the active stack:
   behavior.
 - Drizzle codebase-first migrations, relations, transactions, and `sql`
   template usage.
+
+## Review Feedback Loop
+
+Valid review feedback that exposes a reproducible mistake should become a
+durable rule, test, or shared contract. Use
+[Review learnings](review-learnings.md) as the place for patterns that workers
+should check before opening later PRs.

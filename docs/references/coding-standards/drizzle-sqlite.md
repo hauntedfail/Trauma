@@ -10,6 +10,8 @@
 - MUST keep `src/server/db/schema.ts` as the codebase-first schema source of
   truth.
 - MUST commit schema changes with matching migrations and metadata.
+- MUST derive persisted status constraints from the same domain constants used
+  by TypeScript unions and validators, or add a focused drift test.
 - MUST use `bun run db:generate` and review the generated SQL for schema
   changes. Do not use push-style schema mutation for reviewable project
   migrations.
@@ -18,9 +20,19 @@
 - MUST wrap multi-table or multi-step writes in transactions. Memory creation,
   tag/category association, highlight persistence, and backup status updates
   must not partially commit.
+- MUST apply bundled migrations before exposing repositories or returning an
+  initialized database handle to application code.
+- MUST close the SQLite handle if initialization fails after the handle is
+  opened.
 - MUST keep SQLite database files outside the markdown backup store.
 - MUST resolve and validate configured paths before filesystem writes.
 - MUST prevent path traversal when reading or writing markdown content.
+- MUST resolve bundled migration paths from module/package location or an
+  explicit option, not from incidental launch cwd.
+- MUST keep `drizzle.config.ts`, runtime config, migrations, and tests pointed
+  at the same database path contract.
+- MUST use actual Bun SQLite driver types for Bun-backed connections. Do not
+  cast unrelated sqlite adapters into Bun/Drizzle compatibility.
 - SHOULD expose repository methods that match domain use cases rather than
   generic table access.
 - AVOID adding external services, queues, managed databases, or auth/user

@@ -1,5 +1,7 @@
 # Task 03: Markdown Store Workflow
 
+Status: archived after PR #2 and PR #4 merges.
+
 ## Goal
 
 Implement the filesystem contract for readable memory content:
@@ -7,9 +9,9 @@ Implement the filesystem contract for readable memory content:
 
 ## Required Context
 
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Runtime flows](../architecture/flows.md)
-- [Configuration reference](../references/configuration.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Configuration reference](../../references/configuration.md)
 
 ## Ownership
 

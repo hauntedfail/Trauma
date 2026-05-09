@@ -28,7 +28,8 @@ shell in this task.
 
 1. Define importer result types.
    - Success: title, description, favicon URL, markdown body.
-   - Link-only fallback: URL, title fallback, status, error detail.
+   - Link-only fallback: URL, title fallback, shared extraction status, error
+     detail.
 
 2. Implement fetch boundary.
    - Use an injectable fetch function for deterministic tests.
@@ -43,7 +44,8 @@ shell in this task.
    - Generate UUID v7.
    - Create DB metadata.
    - Write `CONTENT.md` through the store API.
-   - Mark extraction status and error fields.
+   - Mark extraction status through `src/server/memory-status.ts` values and
+     preserve error fields.
    - Call backup enqueue through an interface, even if Task 8 later provides
      the real queue.
 
@@ -76,6 +78,6 @@ bun run build
 The PR description must include:
 
 - Importer interfaces.
-- Extraction status values introduced.
+- Extraction status values used from `src/server/memory-status.ts`.
 - Fixture strategy.
 - Exact verification commands and outcomes.

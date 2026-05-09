@@ -9,6 +9,15 @@
 - MUST fail fast with clear errors when config, persistence, or import input is
   invalid.
 - MUST keep validation close to the boundary, then pass typed values inward.
+- MUST preserve distinct failure classes. Missing config, unreadable config,
+  invalid JSON, invalid shape, malformed frontmatter, and unsupported runtime
+  are different failures.
+- MUST use serialized field names in errors for serialized artifacts and API
+  payloads. For example, frontmatter errors should name `extraction_status`,
+  not the internal `extractionStatus` property.
+- MUST validate path containment against the actual ownership boundary. A
+  database path restriction should target the markdown backup store boundary,
+  not a broader project directory unless that is the designed invariant.
 - SHOULD use schema-based validation when the shape is non-trivial.
 
 ## Markdown, HTML, And Reader Safety

@@ -21,5 +21,19 @@ These are prohibited by default:
 - Package manager drift through npm, Yarn, or pnpm lockfiles.
 - Push-style database schema mutation that bypasses committed migrations.
 - `sql.raw()` with request, config, extractor, or user-controlled input.
+- Duplicated domain value lists across types, guards, schema checks, migrations,
+  parsers, fixtures, or UI filters.
+- Fake cross-runtime fallbacks where one runtime path is typed or cast to look
+  compatible without a tested adapter contract.
+- Exposing repositories or clients before migrations, constraints, and schema
+  invariants are applied.
+- Resolving bundled migrations, fixtures, or config-relative paths from
+  incidental `process.cwd()` when the contract needs a stable base.
+- Predictable temp-file names, non-cleaned temp files, or file replacement code
+  that assumes one OS rename behavior without a fallback.
+- Markdown/frontmatter parsing that assumes LF-only files, no UTF-8 BOM, or a
+  trailing newline after frontmatter.
+- Error messages that use internal TypeScript property names when the failing
+  artifact uses serialized field names.
 - Force-push, remote history rewrite, or destructive ref updates without
   current-task user authorization.

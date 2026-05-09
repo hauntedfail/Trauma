@@ -15,6 +15,8 @@ Trauma favors clean, boring implementation over cleverness.
   separate phases.
 - Prefer discriminated options objects over boolean flag APIs when a function
   has more than one mode.
+- Convert reproducible review mistakes into durable tests, shared contracts, or
+  coding-standard rules.
 
 ## State And Data Ownership
 
@@ -27,6 +29,8 @@ Trauma favors clean, boring implementation over cleverness.
 - MUST update data immutably in UI and domain transformations.
 - MUST model status fields as explicit unions and enforce persisted constraints
   where possible.
+- MUST keep domain values and serialized keys in one source of truth when they
+  are used by validators, schemas, frontmatter, migrations, and UI filters.
 - SHOULD prefer small DTOs at module boundaries rather than leaking ORM rows
   through the entire app.
 

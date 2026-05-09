@@ -1,5 +1,7 @@
 # Task 02.5: Coding Standards Refactor Workflow
 
+Status: archived after PR #3 merge.
+
 ## Goal
 
 Validate the merged foundation against the new coding standards and refactor
@@ -8,13 +10,13 @@ feature work continues.
 
 ## Required Context
 
-- [Coding standards](../references/coding-standards/INDEX.md)
-- [Technology stack](../references/technology-stack.md)
-- [Configuration reference](../references/configuration.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Verification strategy](../quality/verification.md)
-- [Archived Task 01](archive/task-01-project-bootstrap.md)
-- [Archived Task 02](archive/task-02-config-persistence.md)
+- [Coding standards](../../references/coding-standards/INDEX.md)
+- [Technology stack](../../references/technology-stack.md)
+- [Configuration reference](../../references/configuration.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Verification strategy](../../quality/verification.md)
+- [Archived Task 01](task-01-project-bootstrap.md)
+- [Archived Task 02](task-02-config-persistence.md)
 
 ## Ownership
 

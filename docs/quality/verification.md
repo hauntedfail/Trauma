@@ -42,3 +42,17 @@ are sufficient.
 
 Do not claim an implementation is complete without running the relevant
 verification commands and recording their outcomes.
+
+## Review Follow-Up
+
+When a valid review finding exposes a reproducible bug, invariant gap, parser
+edge case, or implementation anti-pattern, the fix should include one durable
+guardrail:
+
+- A regression test that fails without the fix.
+- A shared constant, validator, or helper that removes duplicated logic.
+- A coding-standard or architecture note when the issue is cross-cutting.
+
+Review follow-up is not complete until thread-aware review state has been
+checked after the fix is pushed and the corresponding review thread has a
+concrete reply.

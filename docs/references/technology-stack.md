@@ -10,6 +10,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Runtime and package manager: Bun.
 - ORM: Drizzle ORM.
 - Database: SQLite through Drizzle's Bun SQLite support.
+- Unit/integration testing: Vitest.
 - E2E testing: Playwright.
 
 ## Current Bootstrap Pins

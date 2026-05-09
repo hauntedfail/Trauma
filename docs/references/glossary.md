@@ -40,7 +40,9 @@ prefix/suffix context and the source memory title.
 
 `extraction_status`
 : Import/extraction state for a memory. It distinguishes successful extraction
-from partial or failed link-only creation.
+from partial or failed link-only creation. Current values are `pending`,
+`success`, `link_only`, and `failed`; `src/server/memory-status.ts` is the
+code source of truth.
 
 `extraction_error`
 : Human-readable or diagnostic extraction failure detail.

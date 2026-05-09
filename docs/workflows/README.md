@@ -10,13 +10,11 @@ keep each worker's context focused on its own domain.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
-| 2.5 | [Coding standards refactor](task-02-5-coding-standards-refactor.md) | Standards audit, vulnerability cleanup, readability refactor | Ready after Task 2 merge |
-| 3 | [Markdown store](task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Ready after Task 2.5 quality gate |
-| 4 | [Importer and add memory](task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Ready after Tasks 2.5 and 3 |
-| 5 | [Browse shell and filters](task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Ready after Task 2.5 |
-| 6 | [Reader pipeline](task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Ready after Tasks 3 and 5 |
-| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready after Tasks 2.5, 3, and 6 |
-| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 2.5, 3, 4, and 7 |
+| 4 | [Importer and add memory](task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Ready |
+| 5 | [Browse shell and filters](task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Ready |
+| 6 | [Reader pipeline](task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Ready after Task 5 |
+| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready after Task 6 |
+| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 4 and 7 |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Final integration pass |
 
 ## Archived Workflows
@@ -25,6 +23,8 @@ keep each worker's context focused on its own domain.
 | --- | --- | --- | --- |
 | 1 | [Project bootstrap](archive/task-01-project-bootstrap.md) | Toolchain, scaffold, baseline verification | Archived |
 | 2 | [Config and persistence](archive/task-02-config-persistence.md) | Config loader, path validation, Drizzle schema, repositories | Archived |
+| 2.5 | [Coding standards refactor](archive/task-02-5-coding-standards-refactor.md) | Standards audit, vulnerability cleanup, readability refactor | Archived after PR #3 merge |
+| 3 | [Markdown store](archive/task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Archived after PR #2 and PR #4 merges |
 
 ## Worker Rules
 
@@ -47,13 +47,17 @@ All workflows assume the bootstrap already exists:
 - Drizzle, Vitest, and Playwright are installed.
 - `bun run verify` runs typecheck, unit tests, and build.
 - `bun run test:e2e` runs the Playwright smoke suite.
+- Config and persistence foundations are merged, including path validation,
+  migrations before repository exposure, and Bun SQLite connection lifecycle.
+- Markdown content store APIs are merged, including content path resolution,
+  writer/reader behavior, and filesystem-isolated fixtures.
+- `ExtractionStatus` is shared through `src/server/memory-status.ts` and used
+  by markdown frontmatter validation and SQLite constraints.
 
 ## Branching
 
 Use concise branch names that match the workflow:
 
-- `chore/coding-standards-refactor`
-- `feat/markdown-store`
 - `feat/importer-add-memory`
 - `feat/browse-shell`
 - `feat/reader-pipeline`

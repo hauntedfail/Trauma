@@ -10,6 +10,11 @@
   outcomes.
 - MUST NOT weaken or delete tests to make a change pass unless the test is
   wrong and the PR explains the correction.
+- MUST add or identify regression coverage for each accepted review finding
+  that exposed a reproducible bug, invariant gap, parsing edge case, or bad
+  practice.
+- MUST use thread-aware review inspection for PR follow-up and re-sweep after
+  pushing fixes.
 - SHOULD write deterministic tests with local fixtures, especially for
   extraction and markdown rendering.
 - SHOULD prefer focused tests for pure transforms and repositories, then E2E for

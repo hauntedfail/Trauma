@@ -31,7 +31,8 @@ Do not introduce Redis, external queues, or generic lifecycle hooks.
 2. Implement in-process queue.
    - Sequential processing.
    - No concurrent git operations.
-   - Clear state transitions: pending, running, succeeded, failed.
+   - Clear state transitions backed by one shared `BackupStatus` source of
+     truth for TypeScript, SQLite constraints, and tests.
 
 3. Implement git runner.
    - Use `projectPath` as cwd.
@@ -82,6 +83,7 @@ bun run test:e2e
 The PR description must include:
 
 - Queue states.
+- Backup status source-of-truth location.
 - Git commands executed by the runner.
 - Temporary git repo test strategy.
 - Exact verification commands and outcomes.

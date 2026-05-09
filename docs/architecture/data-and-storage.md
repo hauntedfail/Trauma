@@ -29,6 +29,10 @@ frontmatter keys:
 Tags and categories are not written to frontmatter. SQLite is their source of
 truth.
 
+`extraction_status` values are defined by `src/server/memory-status.ts`. The
+markdown frontmatter parser, writer, SQLite schema constraint, and tests must
+derive from that shared contract or include explicit drift coverage.
+
 Remote images stay remote in the initial design. Trauma is not a full offline
 archive.
 
@@ -45,6 +49,10 @@ Initial tables:
 
 `memories` stores URL metadata, content path, extraction status, backup status,
 and timestamps.
+
+Runtime initialization applies bundled migrations before repositories are
+returned. Application code must not observe a partially initialized SQLite
+schema.
 
 `tags` and `categories` are both many-to-many with memories. Category means a
 curated grouping. Tag means ad-hoc labeling. URL import does not auto-assign
