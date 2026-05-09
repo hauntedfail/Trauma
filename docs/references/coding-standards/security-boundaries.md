@@ -29,6 +29,9 @@
 - MUST sanitize rendered markdown or HTML before it reaches the browser.
 - MUST NOT use raw HTML injection without a sanitizer and a local explanation.
 - MUST preserve highlight markers through deterministic markdown transforms.
+- MUST normalize or remove browser capability attributes on allowed embeds.
+  Saved markdown must not control iframe `allow` permissions, referrer policy,
+  scripts, forms, or same-origin access.
 - SHOULD keep markdown transform functions pure and covered by focused tests.
 
 ## Security
