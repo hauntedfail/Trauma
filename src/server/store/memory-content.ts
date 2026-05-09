@@ -255,7 +255,21 @@ function parseSerializedFrontmatter(
     }
   }
 
-  return Object.fromEntries(values) as Record<SerializedFrontmatterKey, string>;
+  return {
+    id: readSerializedFrontmatterValue(values, "id", relativePath),
+    url: readSerializedFrontmatterValue(values, "url", relativePath),
+    title: readSerializedFrontmatterValue(values, "title", relativePath),
+    captured_at: readSerializedFrontmatterValue(
+      values,
+      "captured_at",
+      relativePath,
+    ),
+    extraction_status: readSerializedFrontmatterValue(
+      values,
+      "extraction_status",
+      relativePath,
+    ),
+  };
 }
 
 function validateFrontmatter(
@@ -316,7 +330,7 @@ function parseFrontmatterValue(
   key: string,
 ) {
   try {
-    const parsed = JSON.parse(rawValue) as unknown;
+    const parsed: unknown = JSON.parse(rawValue);
     if (typeof parsed !== "string") {
       throw new Error("not a string");
     }
@@ -327,7 +341,16 @@ function parseFrontmatterValue(
 }
 
 function isFrontmatterKey(key: string): key is SerializedFrontmatterKey {
-  return FRONTMATTER_KEYS.includes(key as SerializedFrontmatterKey);
+  switch (key) {
+    case "id":
+    case "url":
+    case "title":
+    case "captured_at":
+    case "extraction_status":
+      return true;
+  }
+
+  return false;
 }
 
 function malformedFrontmatter(relativePath: string, detail: string) {
@@ -335,6 +358,19 @@ function malformedFrontmatter(relativePath: string, detail: string) {
     `CONTENT.md has malformed frontmatter at ${relativePath}: ${detail}`,
     "malformed_frontmatter",
   );
+}
+
+function readSerializedFrontmatterValue(
+  values: ReadonlyMap<string, string>,
+  key: SerializedFrontmatterKey,
+  relativePath: string,
+) {
+  const value = values.get(key);
+  if (value === undefined) {
+    throw malformedFrontmatter(relativePath, `missing key: ${key}`);
+  }
+
+  return value;
 }
 
 async function replaceFile(sourcePath: string, destinationPath: string) {

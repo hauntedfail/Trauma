@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Database as BunDatabase } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ResolvedTraumaConfig } from "../config";
@@ -15,18 +16,13 @@ const DEFAULT_MIGRATIONS_FOLDER = resolve(
   "drizzle",
 );
 
-interface SQLiteDatabase {
-  close: () => void;
-  exec: (sql: string) => unknown;
-  prepare: (sql: string) => {
-    get: (...params: unknown[]) => unknown;
-    all?: (...params: unknown[]) => unknown[];
-    run?: (...params: unknown[]) => unknown;
-  };
-}
+type BunDatabaseConstructor = new (
+  path: string,
+  options: { create: boolean },
+) => BunDatabase;
 
 export interface TraumaDatabaseConnection {
-  sqlite: SQLiteDatabase;
+  sqlite: BunDatabase;
   db: BunSQLiteDatabase<typeof schema>;
   repositories: TraumaRepositories;
   close: () => void;
@@ -71,12 +67,10 @@ export function initializeDatabase(
   }
 }
 
-function loadDatabaseConstructor() {
+function loadDatabaseConstructor(): BunDatabaseConstructor {
   try {
-    return require("bun:sqlite").Database as new (
-      path: string,
-      options: { create: boolean },
-    ) => SQLiteDatabase;
+    const sqliteModule = require("bun:sqlite") as typeof import("bun:sqlite");
+    return sqliteModule.Database;
   } catch (error) {
     throw new Error(
       `Bun SQLite runtime is required to initialize Trauma database: ${formatUnknownError(error)}`,
@@ -84,9 +78,9 @@ function loadDatabaseConstructor() {
   }
 }
 
-function createDrizzleDatabase(sqlite: SQLiteDatabase) {
+function createDrizzleDatabase(sqlite: BunDatabase) {
   const { drizzle } = require("drizzle-orm/bun-sqlite") as typeof import("drizzle-orm/bun-sqlite");
-  return drizzle(sqlite as never, { schema });
+  return drizzle(sqlite, { schema });
 }
 
 function applyMigrations(
