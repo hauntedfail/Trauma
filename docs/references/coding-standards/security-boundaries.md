@@ -42,7 +42,14 @@
   redirects, and DNS answers that resolve outside the public-host policy.
 - MUST bound importer fetches with timeouts, response-size limits, body
   cancellation on fallback paths, and retry over already validated public DNS
-  answers before returning link-only fallback.
+  answers before returning link-only fallback. The timeout budget must include
+  initial hostname validation and redirect hostname validation, not only the
+  final body read.
+- MUST request identity encoding or explicitly decode compressed bodies when
+  using low-level HTTP clients that do not automatically decompress responses.
+- MUST decode HTML entities in extracted URL attributes before URL resolution,
+  and MUST strip or reject URL userinfo before persisting display URLs,
+  markdown links, favicon URLs, or API response URLs.
 - MUST prevent XSS in markdown and extracted content rendering.
 - MUST avoid leaking stack traces, filesystem paths, or raw dependency errors to
   browser-visible responses.

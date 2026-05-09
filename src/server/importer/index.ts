@@ -48,9 +48,6 @@ const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 
 export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> {
-  const normalizedUrl = await normalizeImportUrl(input.url, {
-    resolveHostname: input.resolveHostname,
-  });
   const fetchUrl = input.fetch ?? createPinnedFetch(input.resolveHostname);
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_IMPORT_BYTES;
   const controller = new AbortController();
@@ -58,6 +55,27 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
     () => controller.abort(),
     input.timeoutMs ?? DEFAULT_IMPORT_TIMEOUT_MS,
   );
+
+  let normalizedUrl: string;
+  try {
+    normalizedUrl = await rejectWhenAborted(
+      normalizeImportUrl(input.url, {
+        resolveHostname: input.resolveHostname,
+      }),
+      controller.signal,
+    );
+  } catch (error) {
+    clearTimeout(timeout);
+    if (controller.signal.aborted) {
+      const fallbackUrl = fallbackUrlFromInput(input.url);
+      return linkOnly(fallbackUrl, fallbackTitleFromUrl(fallbackUrl), {
+        reason: "fetch failed",
+        detail: "request timed out",
+      });
+    }
+
+    throw error;
+  }
 
   let response: Response;
   let currentUrl = normalizedUrl;
@@ -501,12 +519,19 @@ async function normalizeImportUrl(
 
 function resolveSafeDisplayUrl(pageUrl: string, value: string) {
   try {
-    const parsed = new URL(value, pageUrl);
+    const parsed = new URL(decodeHtmlEntities(value), pageUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return null;
     }
 
-    return isBlockedHostname(parsed.hostname) ? null : parsed.toString();
+    if (isBlockedHostname(parsed.hostname)) {
+      return null;
+    }
+
+    parsed.username = "";
+    parsed.password = "";
+
+    return parsed.toString();
   } catch {
     return null;
   }
@@ -530,6 +555,7 @@ async function fetchWithValidatedRedirects(input: {
     const response = await input.fetchUrl(currentUrl, {
       headers: {
         accept: "text/html,application/xhtml+xml",
+        "accept-encoding": "identity",
       },
       redirect: "manual",
       signal: input.signal,
@@ -546,9 +572,12 @@ async function fetchWithValidatedRedirects(input: {
       throw new Error("redirect response missing Location header");
     }
 
-    currentUrl = await normalizeImportUrl(new URL(location, currentUrl).toString(), {
-      resolveHostname: input.resolveHostname,
-    });
+    currentUrl = await rejectWhenAborted(
+      normalizeImportUrl(new URL(location, currentUrl).toString(), {
+        resolveHostname: input.resolveHostname,
+      }),
+      input.signal,
+    );
   }
 
   throw new Error("too many redirects");
@@ -561,6 +590,15 @@ function isRedirectStatus(status: number) {
 function fallbackTitleFromUrl(url: string) {
   const parsed = new URL(url);
   return parsed.hostname || url;
+}
+
+function fallbackUrlFromInput(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function linkOnly(
@@ -580,6 +618,31 @@ function linkOnly(
 
 function formatUnknownError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function rejectWhenAborted<T>(operation: Promise<T>, signal: AbortSignal) {
+  if (signal.aborted) {
+    return Promise.reject(new Error("request aborted"));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    const abort = () => {
+      cleanup();
+      reject(new Error("request aborted"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 async function assertPublicHostname(
@@ -665,6 +728,7 @@ function fetchPinnedAddress(
         method: init?.method ?? "GET",
         headers: {
           ...headersToRecord(init?.headers),
+          "accept-encoding": "identity",
           host: url.host,
         },
         servername: url.hostname,
@@ -788,7 +852,7 @@ function isPrivateIpv4(address: string) {
     (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 0) ||
+    (first === 192 && second === 0 && (third === 0 || third === 2)) ||
     (first === 192 && second === 168) ||
     (first === 198 && (second === 18 || second === 19)) ||
     (first === 198 && second === 51 && third === 100) ||
@@ -809,6 +873,8 @@ function isPrivateIpv6(address: string) {
   }
 
   const first = words[0] ?? 0;
+  const second = words[1] ?? 0;
+  const third = words[2] ?? 0;
   return (
     words.every((word) => word === 0) ||
     (words.slice(0, 7).every((word) => word === 0) && words[7] === 1) ||
@@ -816,7 +882,12 @@ function isPrivateIpv6(address: string) {
     (first & 0xffc0) === 0xfe80 ||
     (first & 0xfe00) === 0xfc00 ||
     (first & 0xe000) !== 0x2000 ||
-    (first === 0x2001 && words[1] === 0x0db8)
+    (first === 0x2001 && second === 0x0000) ||
+    (first === 0x2001 && second === 0x0002 && third === 0x0000) ||
+    (first === 0x2001 && (second & 0xfff0) === 0x0010) ||
+    (first === 0x2001 && (second & 0xfff0) === 0x0020) ||
+    (first === 0x2001 && second === 0x0db8) ||
+    first === 0x2002
   );
 }
 

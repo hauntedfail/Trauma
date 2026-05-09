@@ -73,6 +73,37 @@ describe("URL importer", () => {
     });
   });
 
+  it("requests identity encoding so pinned responses are read as text", async () => {
+    const observedHeaders: Headers[] = [];
+    const result = await importUrl({
+      url: "https://example.com/identity",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async (_url, init) => {
+        observedHeaders.push(new Headers(init?.headers));
+        return new Response(
+          `<!doctype html>
+          <html>
+            <head><title>Identity Encoding</title></head>
+            <body>
+              <article>
+                <p>This article has enough readable words to confirm importer requests avoid compressed socket bytes.</p>
+                <p>The pinned Node request path asks servers for identity transfer encoding before markdown extraction.</p>
+              </article>
+            </body>
+          </html>`,
+          {
+            headers: {
+              "content-type": "text/html",
+            },
+          },
+        );
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(observedHeaders[0]?.get("accept-encoding")).toBe("identity");
+  });
+
   it("returns a link-only fallback for insufficient article body", async () => {
     const result = await importUrl({
       url: "https://example.com/thin",
@@ -153,6 +184,23 @@ describe("URL importer", () => {
     await expect(validateImportUrl("http://100.64.0.1/")).rejects.toThrow(
       /public HTTP/,
     );
+    await expect(validateImportUrl("http://192.0.2.1/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[2001:2::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[2001:10::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[2002::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://192.0.3.1/")).resolves.toBe(
+      "http://192.0.3.1/",
+    );
+    await expect(validateImportUrl("http://[2001:4860:4860::8888]/")).resolves
+      .toBe("http://[2001:4860:4860::8888]/");
   });
 
   it("rejects URLs containing userinfo before persistence", async () => {
@@ -177,6 +225,8 @@ describe("URL importer", () => {
                 <p>This article has enough readable body text to pass extraction and exercise markdown URL handling.</p>
                 <p><a href="javascript://example.com/%0aalert(1)">unsafe link</a></p>
                 <p><a href="/redirect?next=)">reader link</a></p>
+                <p><a href="/search?q=a&amp;page=2">decoded query link</a></p>
+                <p><a href="https://token:secret@example.com/private">credential link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
               </article>
             </body>
@@ -198,6 +248,14 @@ describe("URL importer", () => {
     expect(result.markdown).toContain(
       "[reader link](https://example.com/redirect?next=\\))",
     );
+    expect(result.markdown).toContain(
+      "[decoded query link](https://example.com/search?q=a&page=2)",
+    );
+    expect(result.markdown).toContain(
+      "[credential link](https://example.com/private)",
+    );
+    expect(result.markdown).not.toContain("token:secret");
+    expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).toContain("![diagram](https://example.com/image\\).png)");
   });
 
@@ -320,6 +378,24 @@ describe("URL importer", () => {
     expect(result).toEqual({
       status: "link_only",
       url: "https://example.com/slow-dns",
+      title: "example.com",
+      extractionError: "fetch failed: request timed out",
+    });
+  });
+
+  it("includes initial DNS validation in the import timeout budget", async () => {
+    const result = await importUrl({
+      url: "https://example.com/initial-slow-dns",
+      timeoutMs: 1,
+      resolveHostname: async () => new Promise(() => {}),
+      fetch: async () => {
+        throw new Error("fetch should not be called");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/initial-slow-dns",
       title: "example.com",
       extractionError: "fetch failed: request timed out",
     });
