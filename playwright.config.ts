@@ -10,6 +10,9 @@ export default defineConfig({
   testDir: "./e2e",
   webServer: {
     command: webServerCommand,
+    env: {
+      TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     url: baseURL,
