@@ -1,22 +1,28 @@
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import type { Database as BunDatabase } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import type { MigrationConfig, MigrationMeta } from "drizzle-orm/migrator";
 
 import type { ResolvedTraumaConfig } from "../config";
+import { readBundledMigrations } from "./bundled-migrations";
 import { createRepositories, type TraumaRepositories } from "./repositories";
 import * as schema from "./schema";
 
 const require = createRequire(import.meta.url);
-const DEFAULT_MIGRATIONS_FOLDER = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../..",
-  "drizzle",
-);
 
 type BunDatabaseConstructor = typeof import("bun:sqlite").Database;
+type BunMigrationDatabaseInternals = {
+  dialect: {
+    migrate: (
+      migrations: MigrationMeta[],
+      session: unknown,
+      config: MigrationConfig,
+    ) => void;
+  };
+  session: unknown;
+};
 
 export interface TraumaDatabaseConnection {
   sqlite: BunDatabase;
@@ -82,10 +88,18 @@ function createDrizzleDatabase(sqlite: BunDatabase) {
 
 function applyMigrations(
   db: BunSQLiteDatabase<typeof schema>,
-  migrationsFolder = DEFAULT_MIGRATIONS_FOLDER,
+  migrationsFolder?: string,
 ) {
   const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
-  migrate(db, { migrationsFolder });
+  if (migrationsFolder !== undefined) {
+    migrate(db, { migrationsFolder });
+    return;
+  }
+
+  const migrationDb = db as unknown as BunMigrationDatabaseInternals;
+  migrationDb.dialect.migrate(readBundledMigrations(), migrationDb.session, {
+    migrationsFolder: "bundled",
+  });
 }
 
 function formatUnknownError(error: unknown) {
