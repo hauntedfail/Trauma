@@ -3,6 +3,10 @@
 Trauma is a personal bookmark management app. The product language uses
 `memory` for one saved bookmark and `memories` for the collection.
 
+> <span style="color: #b7791f;">⚠️ Warning:</span> This is mostly a personal
+> project that I work on in the margins of another project, so please do not
+> expect particularly eager maintenance.
+
 The project is designed as a lightweight local/self-hosted web app: one
 SolidStart app, one Bun runtime, SQLite for metadata, markdown files for saved
 content, and git backup for the markdown store.
