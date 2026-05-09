@@ -385,6 +385,99 @@ describe("add memory orchestration", () => {
     });
   });
 
+  it("does not delete content when post-insert read-back is unavailable", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+        import { readMemoryContent } from "./src/server/store/memory-content.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          connection.db.query.memories.findFirst = async () => {
+            throw new Error("read-back unavailable");
+          };
+
+          const memoryId = ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef116")};
+          const result = await addMemory({
+            url: "https://example.com/readback-fails",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/readback-fails",
+                title: "Readback Fails",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Readback Fails\\n\\nImported markdown body.",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("backup should be disabled");
+              },
+            },
+            generateId: () => memoryId,
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+          const stored = connection.sqlite
+            .prepare("select id, content_path as contentPath from memories where id = ?")
+            .get(memoryId);
+          const content = await readMemoryContent({
+            config: { storePath: config.storePath },
+            memoryId,
+          });
+
+          process.stdout.write(JSON.stringify({ result, stored, content }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result, stored, content } = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef116",
+      backupStatus: "disabled",
+    });
+    expect(stored).toEqual({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef116",
+      contentPath: "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef116/CONTENT.md",
+    });
+    expect(content.markdown).toBe(
+      "# Readback Fails\n\nImported markdown body.",
+    );
+  });
+
   it("leaves backup pending when the no-op queue boundary is used", async () => {
     const root = await makeRoot();
     const output = runBunScript(

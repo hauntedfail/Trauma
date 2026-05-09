@@ -225,7 +225,7 @@ function htmlFragmentToMarkdown(
     }
 
     return `\n${protectGeneratedMarkdown(
-      `![${escapeMarkdownText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})`,
+      `![${escapeMarkdownPlainText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})`,
     )}\n`;
   });
 
@@ -243,7 +243,7 @@ function htmlFragmentToMarkdown(
       }
 
       return protectGeneratedMarkdown(
-        `[${escapeMarkdownText(label)}](${formatMarkdownDestination(resolvedHref)})`,
+        `[${escapeMarkdownPlainText(label)}](${formatMarkdownDestination(resolvedHref)})`,
       );
     },
   );
@@ -255,12 +255,16 @@ function htmlFragmentToMarkdown(
     );
     content = content.replace(headingPattern, (_match, headingHtml: string) => {
       const heading = normalizeInlineText(stripHtml(headingHtml));
-      return heading.length > 0 ? `\n${"#".repeat(level)} ${heading}\n` : "\n";
+      return heading.length > 0
+        ? `\n${protectGeneratedMarkdown(
+            `${"#".repeat(level)} ${escapeMarkdownPlainText(heading)}`,
+          )}\n`
+        : "\n";
     });
   }
 
   content = content
-    .replace(/<li\b[^>]*>/gi, "\n- ")
+    .replace(/<li\b[^>]*>/gi, () => `\n${protectGeneratedMarkdown("- ")}`)
     .replace(/<\/li>/gi, "\n")
     .replace(/<(p|div|section|main|blockquote)\b[^>]*>/gi, "\n")
     .replace(/<\/(p|div|section|main|blockquote)>/gi, "\n")
@@ -277,7 +281,7 @@ function htmlFragmentToMarkdown(
   const markdown = lines.join("\n\n");
 
   if (title.length > 0 && !markdown.startsWith("# ")) {
-    return `# ${escapeMarkdownText(title)}\n\n${markdown}`.trim();
+    return `# ${escapeMarkdownPlainText(title)}\n\n${markdown}`.trim();
   }
 
   return markdown;
@@ -364,12 +368,31 @@ function readHtmlAttribute(tag: string, name: string) {
 
 function decodeHtmlEntities(value: string) {
   return value
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex: string) =>
+      decodeNumericHtmlEntity(match, Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (match, dec: string) =>
+      decodeNumericHtmlEntity(match, Number.parseInt(dec, 10)),
+    )
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
     .replace(/&#39;/gi, "'");
+}
+
+function decodeNumericHtmlEntity(match: string, codePoint: number) {
+  if (
+    !Number.isInteger(codePoint) ||
+    codePoint < 0 ||
+    codePoint > 0x10ffff
+  ) {
+    return match;
+  }
+
+  return String.fromCodePoint(codePoint);
 }
 
 function escapeMarkdownText(value: string) {
@@ -380,26 +403,14 @@ function escapeMarkdownText(value: string) {
     .replace(/([\\[\]])/g, "\\$1");
 }
 
+function escapeMarkdownPlainText(value: string) {
+  return escapeMarkdownText(value).replace(/([`*_{}()[\]#+\-.!|~])/g, "\\$1");
+}
+
 function escapeMarkdownLinePreservingGenerated(
   line: string,
   generatedMarkdownFragments: string[],
 ) {
-  const heading = /^(#{1,6}) (.*)$/.exec(line);
-  if (heading) {
-    return `${heading[1]} ${restoreGeneratedMarkdown(
-      heading[2] ?? "",
-      generatedMarkdownFragments,
-    )}`;
-  }
-
-  const listItem = /^(- )(.*)$/.exec(line);
-  if (listItem) {
-    return `${listItem[1]}${restoreGeneratedMarkdown(
-      listItem[2] ?? "",
-      generatedMarkdownFragments,
-    )}`;
-  }
-
   return restoreGeneratedMarkdown(line, generatedMarkdownFragments);
 }
 
@@ -412,14 +423,14 @@ function restoreGeneratedMarkdown(
   let lastIndex = 0;
 
   for (const match of value.matchAll(tokenPattern)) {
-    output += escapeMarkdownText(value.slice(lastIndex, match.index));
+    output += escapeMarkdownPlainText(value.slice(lastIndex, match.index));
     const fragmentIndex = Number.parseInt(match[1] ?? "", 10);
     const fragment = generatedMarkdownFragments[fragmentIndex];
-    output += fragment ?? escapeMarkdownText(match[0]);
+    output += fragment ?? escapeMarkdownPlainText(match[0]);
     lastIndex = match.index + match[0].length;
   }
 
-  output += escapeMarkdownText(value.slice(lastIndex));
+  output += escapeMarkdownPlainText(value.slice(lastIndex));
   return output;
 }
 

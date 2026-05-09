@@ -226,6 +226,8 @@ describe("URL importer", () => {
                 <p><a href="javascript://example.com/%0aalert(1)">unsafe link</a></p>
                 <p><a href="/redirect?next=)">reader link</a></p>
                 <p><a href="/search?q=a&amp;page=2">decoded query link</a></p>
+                <p><a href="/search?q=a&#38;page=3">decimal entity query link</a></p>
+                <p><a href="/search?q=a&#x26;page=4">hex entity query link</a></p>
                 <p><a href="https://token:secret@example.com/private">credential link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
               </article>
@@ -252,10 +254,18 @@ describe("URL importer", () => {
       "[decoded query link](https://example.com/search?q=a&page=2)",
     );
     expect(result.markdown).toContain(
+      "[decimal entity query link](https://example.com/search?q=a&page=3)",
+    );
+    expect(result.markdown).toContain(
+      "[hex entity query link](https://example.com/search?q=a&page=4)",
+    );
+    expect(result.markdown).toContain(
       "[credential link](https://example.com/private)",
     );
     expect(result.markdown).not.toContain("token:secret");
     expect(result.markdown).not.toContain("amp;page");
+    expect(result.markdown).not.toContain("&#38;");
+    expect(result.markdown).not.toContain("&#x26;");
     expect(result.markdown).toContain("![diagram](https://example.com/image\\).png)");
   });
 
@@ -272,6 +282,10 @@ describe("URL importer", () => {
               <article>
                 <p>This article has enough readable body text to pass extraction.</p>
                 <p>[click](javascript:alert(1)) &lt;img src=x onerror=alert(1)&gt;</p>
+                <p># fake heading</p>
+                <p>- fake item with **bold** and \`code\`</p>
+                <ul><li>generated list item with **escaped text**</li></ul>
+                <h2>Generated heading with **escaped text**</h2>
                 <p><a href="/safe">safe link</a></p>
               </article>
             </body>
@@ -288,8 +302,20 @@ describe("URL importer", () => {
       throw new Error(`expected success, got ${result.status}`);
     }
 
-    expect(result.markdown).toContain("\\[click\\](javascript:alert(1))");
-    expect(result.markdown).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(result.markdown).toContain(
+      "\\[click\\\\]\\(javascript:alert\\(1\\)\\)",
+    );
+    expect(result.markdown).toContain("&lt;img src=x onerror=alert\\(1\\)&gt;");
+    expect(result.markdown).toContain("\\# fake heading");
+    expect(result.markdown).toContain(
+      "\\- fake item with \\*\\*bold\\*\\* and \\`code\\`",
+    );
+    expect(result.markdown).toContain(
+      "- generated list item with \\*\\*escaped text\\*\\*",
+    );
+    expect(result.markdown).toContain(
+      "## Generated heading with \\*\\*escaped text\\*\\*",
+    );
     expect(result.markdown).toContain("[safe link](https://example.com/safe)");
     expect(result.markdown).not.toContain("[click](javascript:");
     expect(result.markdown).not.toContain("<img src=x");

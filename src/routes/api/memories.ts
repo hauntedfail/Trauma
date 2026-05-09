@@ -65,14 +65,19 @@ export async function parseAddMemoryPayload(
     return { ok: false, error: "request body must contain only url" };
   }
 
-  if (typeof payload.url !== "string" || payload.url.trim() === "") {
+  if (typeof payload.url !== "string") {
+    return { ok: false, error: "url must be a non-empty string" };
+  }
+
+  const url = payload.url.trim();
+  if (url === "") {
     return { ok: false, error: "url must be a non-empty string" };
   }
 
   try {
     return {
       ok: true,
-      url: await validateUrlWithinTimeout(payload.url, {
+      url: await validateUrlWithinTimeout(url, {
         validateUrl: options.validateUrl ?? validateImportUrl,
         timeoutMs:
           options.validationTimeoutMs ??

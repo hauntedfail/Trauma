@@ -4,19 +4,18 @@ import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
+type Memory = typeof schema.memories.$inferSelect;
 
 export interface MemoryRepository {
-  findById: (id: string) => Promise<typeof schema.memories.$inferSelect | undefined>;
-  create: (
-    input: typeof schema.memories.$inferInsert,
-  ) => Promise<typeof schema.memories.$inferSelect>;
+  findById: (id: string) => Promise<Memory | undefined>;
+  create: (input: Memory) => Promise<Memory>;
   updateBackupStatus: (input: {
     id: string;
     backupStatus: schema.BackupStatus;
     lastBackupAt?: Date | null;
     lastBackupError?: string | null;
     updatedAt: Date;
-  }) => Promise<typeof schema.memories.$inferSelect>;
+  }) => Promise<Memory>;
 }
 
 export interface TraumaRepositories {
@@ -32,14 +31,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }),
       create: async (input) => {
         await db.insert(schema.memories).values(input).run();
-        const memory = await db.query.memories.findFirst({
-          where: eq(schema.memories.id, input.id),
-        });
-        if (!memory) {
-          throw new Error(`created memory ${input.id} was not found`);
-        }
-
-        return memory;
+        return input;
       },
       updateBackupStatus: async (input) => {
         await db

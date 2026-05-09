@@ -25,6 +25,7 @@ Treat these as coding-standard extensions, not one-off historical notes.
 | Error surface mismatch | Errors used internal TypeScript field names or collapsed distinct failure classes. | User-facing and artifact-facing errors MUST name serialized fields and preserve the relevant failure class. |
 | Importer trust-boundary gaps | URL fetches and HTML-to-markdown conversion accepted edge-case inputs beyond the intended public HTTP(S) contract. | Importers MUST bound remote I/O, validate every fetched or persisted URL against the public-host policy, and escape text-node markdown before writing `CONTENT.md`. |
 | Multi-step create ambiguity | A memory row and markdown file could survive while the caller observed a failed create after post-insert backup-status work. | Once memory metadata and content are durable, later boundary failures MUST return the created memory or compensate explicitly; callers must not receive an ambiguous failed create. |
+| Boundary normalization drift | Request parsers trimmed values for one guard but passed the original value into deeper validation. | Normalize external scalar inputs once at the boundary, then validate and pass only the normalized value inward. |
 | Review fixes without durable guardrails | Several valid review points required follow-up tests or central constants. | Accepted review fixes MUST add focused regression coverage or centralize the contract so the same mistake is hard to repeat. |
 
 ## Persistent Rules

@@ -22,6 +22,28 @@ afterEach(async () => {
 const repositoryRoot = process.cwd();
 
 describe("memories API route", () => {
+  it("trims padded URLs before route validation", async () => {
+    const observedUrls: string[] = [];
+    const result = await parseAddMemoryPayload(
+      new Request("http://localhost/api/memories", {
+        method: "POST",
+        body: JSON.stringify({ url: " https://example.com/padded " }),
+      }),
+      {
+        validateUrl: async (url) => {
+          observedUrls.push(url);
+          return new URL(url).toString();
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      url: "https://example.com/padded",
+    });
+    expect(observedUrls).toEqual(["https://example.com/padded"]);
+  });
+
   it("bounds route URL preflight validation", async () => {
     const result = await parseAddMemoryPayload(
       new Request("http://localhost/api/memories", {
