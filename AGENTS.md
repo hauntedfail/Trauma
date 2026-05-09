@@ -18,6 +18,7 @@ Key project decisions are split by purpose:
 - Glossary: [docs/references/glossary.md](docs/references/glossary.md)
 - Operations: [docs/operations/local-self-hosting.md](docs/operations/local-self-hosting.md)
 - Verification: [docs/quality/verification.md](docs/quality/verification.md)
+- Execution workflows: [docs/workflows/README.md](docs/workflows/README.md)
 
 The approved foundation design record is
 [docs/superpowers/specs/2026-05-09-trauma-foundation-design.md](docs/superpowers/specs/2026-05-09-trauma-foundation-design.md).

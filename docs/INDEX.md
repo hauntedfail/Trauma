@@ -5,7 +5,7 @@ This directory is the working documentation set for Trauma.
 The approved foundation spec remains the design record:
 
 - [Foundation design](superpowers/specs/2026-05-09-trauma-foundation-design.md)
-- [Foundation implementation plan](superpowers/plans/2026-05-09-trauma-foundation-implementation.md)
+- [Execution workflows](workflows/README.md)
 
 Use the documents below for day-to-day implementation context. They are derived
 from the foundation design and should stay aligned with it.
@@ -38,6 +38,11 @@ from the foundation design and should stay aligned with it.
 
 - [Verification](quality/verification.md): E2E-first strategy and focused
   unit/integration coverage.
+
+## Workflows
+
+- [Task execution workflows](workflows/README.md): task-scoped worker handoff
+  files for implementation PRs.
 
 ## Documentation Rules
 

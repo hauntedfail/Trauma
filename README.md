@@ -59,7 +59,7 @@ Start with [docs/INDEX.md](docs/INDEX.md).
 Key references:
 
 - [Foundation design](docs/superpowers/specs/2026-05-09-trauma-foundation-design.md)
-- [Foundation implementation plan](docs/superpowers/plans/2026-05-09-trauma-foundation-implementation.md)
+- [Task execution workflows](docs/workflows/README.md)
 - [Architecture overview](docs/architecture/overview.md)
 - [Data and storage](docs/architecture/data-and-storage.md)
 - [Runtime flows](docs/architecture/flows.md)
