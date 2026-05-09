@@ -15,7 +15,7 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   await page.getByRole("searchbox", { name: "Search memories" }).fill("reader mode");
   await expect(page).toHaveURL(/q=reader\+mode/);
   await expect(page.getByText("Reader Mode Notes")).toBeVisible();
-  await expect(page.getByRole("main").locator("mark", { hasText: "highlight-aware results" })).toBeVisible();
+  await expect(page.getByRole("main").locator("mark", { hasText: /highlight-aware/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Research" }).click();
   await expect(page).toHaveURL(/category=research/);

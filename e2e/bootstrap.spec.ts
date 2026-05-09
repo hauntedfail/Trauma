@@ -6,5 +6,5 @@ test("renders the memories shell", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Trauma" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
   await expect(page.getByRole("searchbox", { name: "Search memories" })).toBeVisible();
-  await expect(page.getByRole("article").first()).toBeVisible();
+  await expect(page.getByRole("article").getByRole("heading", { name: "Reader Mode Notes" })).toBeVisible();
 });
