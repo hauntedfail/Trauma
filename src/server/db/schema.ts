@@ -9,7 +9,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export type ExtractionStatus = "pending" | "success" | "link_only" | "failed";
+import type { ExtractionStatus } from "../memory-status";
+
 export type BackupStatus = "pending" | "queued" | "success" | "failed" | "disabled";
 
 function timestamps() {

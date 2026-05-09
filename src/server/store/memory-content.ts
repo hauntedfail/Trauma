@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 
+import {
+  EXTRACTION_STATUSES,
+  isExtractionStatus,
+  type ExtractionStatus,
+} from "../memory-status";
+
 export const MEMORY_CONTENT_FILENAME = "CONTENT.md";
 
 const UUID_V7_PATTERN =
@@ -27,7 +33,7 @@ export interface MemoryContentFrontmatter {
   url: string;
   title: string;
   capturedAt: string;
-  extractionStatus: string;
+  extractionStatus: ExtractionStatus;
 }
 
 export interface ResolvedMemoryContentPath {
@@ -201,16 +207,16 @@ function parseMemoryContentFixture(
   );
   const serialized = parseSerializedFrontmatter(rawFrontmatter, relativePath);
 
-  return {
-    frontmatter: {
-      id: serialized.id,
-      url: serialized.url,
-      title: serialized.title,
-      capturedAt: serialized.captured_at,
-      extractionStatus: serialized.extraction_status,
-    },
-    markdown,
+  const frontmatter = {
+    id: serialized.id,
+    url: serialized.url,
+    title: serialized.title,
+    capturedAt: serialized.captured_at,
+    extractionStatus: serialized.extraction_status,
   };
+  validateFrontmatter(frontmatter, frontmatter.id, relativePath);
+
+  return { frontmatter, markdown };
 }
 
 function parseSerializedFrontmatter(
@@ -274,10 +280,16 @@ function parseSerializedFrontmatter(
 }
 
 function validateFrontmatter(
-  frontmatter: MemoryContentFrontmatter,
+  frontmatter: {
+    id: string;
+    url: string;
+    title: string;
+    capturedAt: string;
+    extractionStatus: string;
+  },
   expectedMemoryId: string,
   relativePath = "CONTENT.md",
-) {
+): asserts frontmatter is MemoryContentFrontmatter {
   const entries: Array<[keyof MemoryContentFrontmatter, string]> = [
     ["id", frontmatter.id],
     ["url", frontmatter.url],
@@ -299,6 +311,13 @@ function validateFrontmatter(
     throw malformedFrontmatter(
       relativePath,
       `frontmatter id ${frontmatter.id} does not match memoryId ${expectedMemoryId}`,
+    );
+  }
+
+  if (!isExtractionStatus(frontmatter.extractionStatus)) {
+    throw malformedFrontmatter(
+      relativePath,
+      `extractionStatus must be one of ${EXTRACTION_STATUSES.join(", ")}`,
     );
   }
 }

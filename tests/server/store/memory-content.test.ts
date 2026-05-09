@@ -16,19 +16,22 @@ import {
   readMemoryContent,
   resolveMemoryContentPath,
   writeMemoryContent,
+  type MemoryContentFrontmatter,
 } from "../../../src/server/store/memory-content";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef111";
 
 const tempDirs: string[] = [];
 
-function frontmatter(overrides = {}) {
+function frontmatter(
+  overrides: Partial<MemoryContentFrontmatter> = {},
+): MemoryContentFrontmatter {
   return {
     id: memoryId,
     url: "https://example.com/article",
     title: "Example Memory",
     capturedAt: "2026-05-09T06:00:00.000Z",
-    extractionStatus: "extracted",
+    extractionStatus: "success",
     ...overrides,
   };
 }
@@ -80,7 +83,7 @@ describe("memory content writing and reading", () => {
         url: "https://example.com/article",
         title: 'Title with "quotes" and: colon',
         capturedAt: "2026-05-09T06:00:00.000Z",
-        extractionStatus: "extracted",
+        extractionStatus: "success",
       },
       markdown,
     });
@@ -95,7 +98,7 @@ describe("memory content writing and reading", () => {
         'url: "https://example.com/article"',
         'title: "Title with \\"quotes\\" and: colon"',
         'captured_at: "2026-05-09T06:00:00.000Z"',
-        'extraction_status: "extracted"',
+        'extraction_status: "success"',
         "---",
         markdown,
       ].join("\n"),
@@ -114,7 +117,7 @@ describe("memory content writing and reading", () => {
       url: "https://example.com/article",
       title: 'Title with "quotes" and: colon',
       capturedAt: "2026-05-09T06:00:00.000Z",
-      extractionStatus: "extracted",
+      extractionStatus: "success",
     });
     expect(read.markdown).toBe(markdown);
   });
@@ -132,7 +135,7 @@ describe("memory content writing and reading", () => {
         url: "https://example.com/remote-images",
         title: "Remote images stay remote",
         capturedAt: "2026-05-09T06:00:00.000Z",
-        extractionStatus: "extracted",
+        extractionStatus: "success",
       },
       markdown,
     });
@@ -223,6 +226,45 @@ describe("memory content read failures", () => {
       .toThrow(/malformed frontmatter/);
   });
 
+  it("fails clearly when CONTENT.md has an unknown extraction status", async () => {
+    const storePath = await makeStorePath();
+    const { absolutePath } = resolveMemoryContentPath({ storePath }, memoryId);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(
+      absolutePath,
+      [
+        "---",
+        `id: ${JSON.stringify(memoryId)}`,
+        'url: "https://example.com/article"',
+        'title: "Example Memory"',
+        'captured_at: "2026-05-09T06:00:00.000Z"',
+        'extraction_status: "extracted"',
+        "---",
+        "body",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(readMemoryContent({ config: { storePath }, memoryId })).rejects
+      .toThrow(/extractionStatus must be one of/);
+  });
+
+  it("rejects writing unknown extraction statuses", async () => {
+    const storePath = await makeStorePath();
+
+    await expect(
+      writeMemoryContent({
+        config: { storePath },
+        memoryId,
+        frontmatter: {
+          ...frontmatter(),
+          extractionStatus: "extracted",
+        } as unknown as MemoryContentFrontmatter,
+        markdown: "Invalid status.",
+      }),
+    ).rejects.toThrow(/extractionStatus must be one of/);
+  });
+
   it("reads frontmatter with CRLF separators", async () => {
     const storePath = await makeStorePath();
     const { absolutePath } = resolveMemoryContentPath({ storePath }, memoryId);
@@ -271,7 +313,7 @@ describe("memory content read failures", () => {
         'url: "https://example.com/article"',
         'title: "Example Memory"',
         'captured_at: "2026-05-09T06:00:00.000Z"',
-        'extraction_status: "extracted"',
+        'extraction_status: "success"',
         "---",
       ].join("\n"),
       "utf8",
@@ -293,7 +335,7 @@ describe("memory content read failures", () => {
         url: "https://example.com/locality",
         title: "Locality",
         capturedAt: "2026-05-09T06:00:00.000Z",
-        extractionStatus: "extracted",
+        extractionStatus: "success",
       },
       markdown: "Locality check.",
     });
