@@ -83,26 +83,28 @@ export async function addMemory(input: AddMemoryInput) {
       });
     } catch (error) {
       try {
-        return await repositories.memories.updateBackupStatus({
+        const backupUpdate = await repositories.memories.updateBackupStatus({
           id,
           backupStatus: "failed",
           lastBackupAt: null,
           lastBackupError: formatUnknownError(error),
           updatedAt: capturedAt,
         });
+        return { ...memory, ...backupUpdate };
       } catch {
         return memory;
       }
     }
 
     try {
-      return await repositories.memories.updateBackupStatus({
+      const backupUpdate = await repositories.memories.updateBackupStatus({
         id,
         backupStatus: queued.backupStatus,
         lastBackupAt: null,
         lastBackupError: null,
         updatedAt: capturedAt,
       });
+      return { ...memory, ...backupUpdate };
     } catch {
       return memory;
     }

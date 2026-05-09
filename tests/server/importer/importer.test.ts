@@ -131,6 +131,22 @@ describe("URL importer", () => {
     });
   });
 
+  it("times out fetch implementations that ignore abort signals", async () => {
+    const result = await importUrl({
+      url: "https://example.com/hung-fetch",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () => new Promise<Response>(() => {}),
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/hung-fetch",
+      title: "example.com",
+      extractionError: "fetch failed: request timed out",
+    });
+  });
+
   it("rejects local URLs before fetch to prevent server-side request forgery", async () => {
     await expect(
       importUrl({

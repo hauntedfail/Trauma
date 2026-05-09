@@ -5,6 +5,10 @@ import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
 type Memory = typeof schema.memories.$inferSelect;
+type MemoryBackupStatusUpdate = Pick<
+  Memory,
+  "id" | "backupStatus" | "lastBackupAt" | "lastBackupError" | "updatedAt"
+>;
 
 export interface MemoryBrowseRow {
   id: string;
@@ -26,7 +30,7 @@ export interface MemoryRepository {
     lastBackupAt?: Date | null;
     lastBackupError?: string | null;
     updatedAt: Date;
-  }) => Promise<Memory>;
+  }) => Promise<MemoryBackupStatusUpdate>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
@@ -56,14 +60,13 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           })
           .where(eq(schema.memories.id, input.id))
           .run();
-        const memory = await db.query.memories.findFirst({
-          where: eq(schema.memories.id, input.id),
-        });
-        if (!memory) {
-          throw new Error(`memory ${input.id} was not found`);
-        }
-
-        return memory;
+        return {
+          id: input.id,
+          backupStatus: input.backupStatus,
+          lastBackupAt: input.lastBackupAt ?? null,
+          lastBackupError: input.lastBackupError ?? null,
+          updatedAt: input.updatedAt,
+        };
       },
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({

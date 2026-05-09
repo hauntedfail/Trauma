@@ -385,6 +385,91 @@ describe("add memory orchestration", () => {
     });
   });
 
+  it("returns queued memory when post-update read-back is unavailable", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          connection.db.query.memories.findFirst = async () => {
+            throw new Error("read-back unavailable");
+          };
+
+          const memoryId = ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef117")};
+          const result = await addMemory({
+            url: "https://example.com/update-readback-fails",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/update-readback-fails",
+                title: "Update Readback Fails",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Update Readback Fails\\n\\nImported markdown body.",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => ({ backupStatus: "queued" }),
+            },
+            generateId: () => memoryId,
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+          const stored = connection.sqlite
+            .prepare("select id, backup_status as backupStatus, last_backup_error as lastBackupError from memories where id = ?")
+            .get(memoryId);
+
+          process.stdout.write(JSON.stringify({ result, stored }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result, stored } = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef117",
+      backupStatus: "queued",
+      lastBackupError: null,
+    });
+    expect(stored).toEqual({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef117",
+      backupStatus: "queued",
+      lastBackupError: null,
+    });
+  });
+
   it("does not delete content when post-insert read-back is unavailable", async () => {
     const root = await makeRoot();
     const output = runBunScript(

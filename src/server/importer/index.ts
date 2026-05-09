@@ -563,14 +563,17 @@ async function fetchWithValidatedRedirects(input: {
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     input.setCurrentUrl(currentUrl);
-    const response = await input.fetchUrl(currentUrl, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "accept-encoding": "identity",
-      },
-      redirect: "manual",
-      signal: input.signal,
-    });
+    const response = await rejectWhenAborted(
+      input.fetchUrl(currentUrl, {
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          "accept-encoding": "identity",
+        },
+        redirect: "manual",
+        signal: input.signal,
+      }),
+      input.signal,
+    );
 
     if (!isRedirectStatus(response.status)) {
       return response;
