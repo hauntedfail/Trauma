@@ -18,6 +18,15 @@ This reference records the selected initial stack and explicit exclusions.
 - SolidStart: stable v1 starter, currently `@solidjs/start@1.3.2`.
 - Build runner: `vinxi`.
 
+## Package Manager Rules
+
+Bun is the only package manager for this project.
+
+- Commit and review `bun.lock`.
+- Use `bun install` for dependency installation.
+- Use frozen lockfile installs in CI once dependencies are already resolved.
+- Do not add npm, Yarn, or pnpm lockfiles.
+
 ## Deployment Target
 
 The app targets local operation and single-instance self-hosting on a VPS or

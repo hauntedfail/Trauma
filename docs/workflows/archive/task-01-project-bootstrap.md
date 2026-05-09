@@ -2,7 +2,7 @@
 
 ## Status
 
-Done on commit `73f161b chore: bootstrap trauma app`.
+Archived. Done on commit `73f161b chore: bootstrap trauma app`.
 
 ## Purpose
 
@@ -48,5 +48,6 @@ bun run test:e2e
 ## Follow-Up Boundary
 
 Future tasks should not redo bootstrap decisions. If a task needs to change the
-toolchain, it must update [technology-stack.md](../references/technology-stack.md)
-and explain the reason in its PR.
+toolchain, it must update
+[technology-stack.md](../../references/technology-stack.md) and explain the
+reason in its PR.

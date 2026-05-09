@@ -10,21 +10,28 @@ keep each worker's context focused on its own domain.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
-| 1 | [Project bootstrap](task-01-project-bootstrap.md) | Toolchain, scaffold, baseline verification | Done on `73f161b` |
-| 2 | [Config and persistence](task-02-config-persistence.md) | Config loader, path validation, Drizzle schema, repositories | Ready |
-| 3 | [Markdown store](task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Ready after Task 2 interfaces |
-| 4 | [Importer and add memory](task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Ready after Tasks 2-3 |
-| 5 | [Browse shell and filters](task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters | Ready after Task 2 |
+| 2.5 | [Coding standards refactor](task-02-5-coding-standards-refactor.md) | Standards audit, vulnerability cleanup, readability refactor | Ready after Task 2 merge |
+| 3 | [Markdown store](task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Ready after Task 2.5 quality gate |
+| 4 | [Importer and add memory](task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Ready after Tasks 2.5 and 3 |
+| 5 | [Browse shell and filters](task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters | Ready after Task 2.5 |
 | 6 | [Reader pipeline](task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Ready after Tasks 3 and 5 |
-| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, markdown mark insertion | Ready after Tasks 2, 3, and 6 |
-| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 2-4 and 7 |
+| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, markdown mark insertion | Ready after Tasks 2.5, 3, and 6 |
+| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 2.5, 3, 4, and 7 |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Final integration pass |
+
+## Archived Workflows
+
+| Order | Workflow | Domain | Status |
+| --- | --- | --- | --- |
+| 1 | [Project bootstrap](archive/task-01-project-bootstrap.md) | Toolchain, scaffold, baseline verification | Archived |
+| 2 | [Config and persistence](archive/task-02-config-persistence.md) | Config loader, path validation, Drizzle schema, repositories | Archived |
 
 ## Worker Rules
 
 - Own only the files listed in the workflow unless the PR description explains
   why a boundary change is required.
-- Read the workflow file and its referenced docs before coding.
+- Read the workflow file, its referenced docs, and
+  [coding standards](../references/coding-standards.md) before coding.
 - Keep PRs domain-scoped. Do not bundle unrelated UI, storage, importer, and
   backup changes.
 - Add tests in the same PR as the behavior.
@@ -45,7 +52,7 @@ All workflows assume the bootstrap already exists:
 
 Use concise branch names that match the workflow:
 
-- `feat/config-persistence`
+- `chore/coding-standards-refactor`
 - `feat/markdown-store`
 - `feat/importer-add-memory`
 - `feat/browse-shell`

@@ -1,5 +1,9 @@
 # Task 02: Config And Persistence Workflow
 
+## Status
+
+Archived. Merged through pull request #1.
+
 ## Goal
 
 Implement the configuration loader, path validation, Drizzle SQLite schema, and
@@ -7,10 +11,10 @@ repository foundation used by all feature domains.
 
 ## Required Context
 
-- [Configuration reference](../references/configuration.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Architecture overview](../architecture/overview.md)
-- [Verification strategy](../quality/verification.md)
+- [Configuration reference](../../references/configuration.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Architecture overview](../../architecture/overview.md)
+- [Verification strategy](../../quality/verification.md)
 
 ## Ownership
 
