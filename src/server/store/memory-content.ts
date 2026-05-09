@@ -175,8 +175,8 @@ export async function readMemoryContent(
   const { frontmatter, markdown } = parseMemoryContentFixture(
     content,
     resolvedPath.relativePath,
+    input.memoryId,
   );
-  validateFrontmatter(frontmatter, input.memoryId, resolvedPath.relativePath);
 
   return {
     ...resolvedPath,
@@ -188,6 +188,7 @@ export async function readMemoryContent(
 function parseMemoryContentFixture(
   content: string,
   relativePath: string,
+  expectedMemoryId: string,
 ): { frontmatter: MemoryContentFrontmatter; markdown: string } {
   const readableContent = stripLeadingBom(content);
   const openingSeparator = /^---(?:\r?\n)/.exec(readableContent);
@@ -214,7 +215,7 @@ function parseMemoryContentFixture(
     capturedAt: serialized.captured_at,
     extractionStatus: serialized.extraction_status,
   };
-  validateFrontmatter(frontmatter, frontmatter.id, relativePath);
+  validateFrontmatter(frontmatter, expectedMemoryId, relativePath);
 
   return { frontmatter, markdown };
 }
@@ -290,12 +291,12 @@ function validateFrontmatter(
   expectedMemoryId: string,
   relativePath = "CONTENT.md",
 ): asserts frontmatter is MemoryContentFrontmatter {
-  const entries: Array<[keyof MemoryContentFrontmatter, string]> = [
+  const entries: Array<[string, string]> = [
     ["id", frontmatter.id],
     ["url", frontmatter.url],
     ["title", frontmatter.title],
-    ["capturedAt", frontmatter.capturedAt],
-    ["extractionStatus", frontmatter.extractionStatus],
+    ["captured_at", frontmatter.capturedAt],
+    ["extraction_status", frontmatter.extractionStatus],
   ];
 
   for (const [key, value] of entries) {
@@ -317,7 +318,7 @@ function validateFrontmatter(
   if (!isExtractionStatus(frontmatter.extractionStatus)) {
     throw malformedFrontmatter(
       relativePath,
-      `extractionStatus must be one of ${EXTRACTION_STATUSES.join(", ")}`,
+      `extraction_status must be one of ${EXTRACTION_STATUSES.join(", ")}`,
     );
   }
 }

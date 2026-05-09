@@ -246,7 +246,7 @@ describe("memory content read failures", () => {
     );
 
     await expect(readMemoryContent({ config: { storePath }, memoryId })).rejects
-      .toThrow(/extractionStatus must be one of/);
+      .toThrow(/extraction_status must be one of/);
   });
 
   it("rejects writing unknown extraction statuses", async () => {
@@ -262,7 +262,7 @@ describe("memory content read failures", () => {
         } as unknown as MemoryContentFrontmatter,
         markdown: "Invalid status.",
       }),
-    ).rejects.toThrow(/extractionStatus must be one of/);
+    ).rejects.toThrow(/extraction_status must be one of/);
   });
 
   it("reads frontmatter with CRLF separators", async () => {

@@ -9,9 +9,17 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-import type { ExtractionStatus } from "../memory-status";
+import { EXTRACTION_STATUSES, type ExtractionStatus } from "../memory-status";
 
 export type BackupStatus = "pending" | "queued" | "success" | "failed" | "disabled";
+
+const extractionStatusSqlList = sql.raw(
+  EXTRACTION_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+
+function toSqlStringLiteral(value: string) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 function timestamps() {
   return {
@@ -45,7 +53,7 @@ export const memories = sqliteTable(
     index("memories_backup_status_idx").on(table.backupStatus),
     check(
       "memories_extraction_status_check",
-      sql`${table.extractionStatus} in ('pending', 'success', 'link_only', 'failed')`,
+      sql`${table.extractionStatus} in (${extractionStatusSqlList})`,
     ),
     check(
       "memories_backup_status_check",
