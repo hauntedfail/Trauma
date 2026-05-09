@@ -23,6 +23,9 @@
 ## Markdown, HTML, And Reader Safety
 
 - MUST treat extracted article content as untrusted input.
+- MUST escape Markdown syntax that originates from extracted text nodes before
+  persisting imported `CONTENT.md`; only importer-generated markdown constructs
+  may remain active.
 - MUST sanitize rendered markdown or HTML before it reaches the browser.
 - MUST NOT use raw HTML injection without a sanitizer and a local explanation.
 - MUST preserve highlight markers through deterministic markdown transforms.
@@ -34,6 +37,12 @@
 - MUST keep `.env*` secrets untracked.
 - MUST validate URL protocols before importer fetches. `http:` and `https:` are
   the only expected initial protocols.
+- MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,
+  local/private/link-local/non-global IP targets, URL userinfo, unsafe
+  redirects, and DNS answers that resolve outside the public-host policy.
+- MUST bound importer fetches with timeouts, response-size limits, body
+  cancellation on fallback paths, and retry over already validated public DNS
+  answers before returning link-only fallback.
 - MUST prevent XSS in markdown and extracted content rendering.
 - MUST avoid leaking stack traces, filesystem paths, or raw dependency errors to
   browser-visible responses.

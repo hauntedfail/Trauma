@@ -47,8 +47,9 @@ export async function addMemory(input: AddMemoryInput) {
   const repositories = createRepositories(input.db);
   const initialBackupStatus = input.config.backup.git.enabled ? "pending" : "disabled";
 
+  let memory;
   try {
-    await repositories.memories.create({
+    memory = await repositories.memories.create({
       id,
       url: imported.url,
       title: imported.title,
@@ -73,32 +74,37 @@ export async function addMemory(input: AddMemoryInput) {
   }
 
   if (input.config.backup.git.enabled) {
+    let queued;
     try {
-      const queued = await input.backupQueue.enqueue({
+      queued = await input.backupQueue.enqueue({
         memoryId: id,
         contentPath: written.relativePath,
       });
-      return repositories.memories.updateBackupStatus({
+    } catch (error) {
+      try {
+        return await repositories.memories.updateBackupStatus({
+          id,
+          backupStatus: "failed",
+          lastBackupAt: null,
+          lastBackupError: formatUnknownError(error),
+          updatedAt: capturedAt,
+        });
+      } catch {
+        return memory;
+      }
+    }
+
+    try {
+      return await repositories.memories.updateBackupStatus({
         id,
         backupStatus: queued.backupStatus,
         lastBackupAt: null,
         lastBackupError: null,
         updatedAt: capturedAt,
       });
-    } catch (error) {
-      return repositories.memories.updateBackupStatus({
-        id,
-        backupStatus: "failed",
-        lastBackupAt: null,
-        lastBackupError: formatUnknownError(error),
-        updatedAt: capturedAt,
-      });
+    } catch {
+      return memory;
     }
-  }
-
-  const memory = await repositories.memories.findById(id);
-  if (!memory) {
-    throw new Error(`created memory ${id} was not found`);
   }
 
   return memory;

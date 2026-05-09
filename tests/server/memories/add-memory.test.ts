@@ -295,6 +295,96 @@ describe("add memory orchestration", () => {
     });
   });
 
+  it("returns the created memory when queued-status persistence fails after insert", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          const originalRun = connection.db.update;
+          let shouldFailBackupUpdate = false;
+          connection.db.update = (...args) => {
+            if (shouldFailBackupUpdate) {
+              throw new Error("backup update unavailable");
+            }
+
+            return originalRun.call(connection.db, ...args);
+          };
+
+          const result = await addMemory({
+            url: "https://example.com/update-fails",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/update-fails",
+                title: "Backup Update Fails",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Backup Update Fails\\n\\nImported markdown body.",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                shouldFailBackupUpdate = true;
+                return { backupStatus: "queued" };
+              },
+            },
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef115")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+          const stored = await connection.repositories.memories.findById(${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef115")});
+
+          process.stdout.write(JSON.stringify({ result, stored }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result, stored } = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef115",
+      backupStatus: "pending",
+      lastBackupError: null,
+    });
+    expect(stored).toMatchObject({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef115",
+      backupStatus: "pending",
+    });
+  });
+
   it("leaves backup pending when the no-op queue boundary is used", async () => {
     const root = await makeRoot();
     const output = runBunScript(

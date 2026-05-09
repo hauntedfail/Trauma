@@ -10,6 +10,11 @@ export type ImportFetch = (
 ) => Promise<Response>;
 
 export type HostResolver = (hostname: string) => Promise<string[]>;
+export type PinnedAddressFetch = (
+  url: URL,
+  address: string,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export interface ImportUrlInput {
   url: string;
@@ -178,6 +183,12 @@ function htmlFragmentToMarkdown(
   pageUrl: string,
   title: string,
 ): string {
+  const generatedMarkdownFragments: string[] = [];
+  const protectGeneratedMarkdown = (fragment: string) => {
+    const token = `%%TRAUMA_MARKDOWN_FRAGMENT_${generatedMarkdownFragments.length}%%`;
+    generatedMarkdownFragments.push(fragment);
+    return token;
+  };
   let content = html
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, "")
@@ -195,7 +206,9 @@ function htmlFragmentToMarkdown(
       return "";
     }
 
-    return `\n![${escapeMarkdownText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})\n`;
+    return `\n${protectGeneratedMarkdown(
+      `![${escapeMarkdownText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})`,
+    )}\n`;
   });
 
   content = content.replace(
@@ -211,7 +224,9 @@ function htmlFragmentToMarkdown(
         return label;
       }
 
-      return `[${escapeMarkdownText(label)}](${formatMarkdownDestination(resolvedHref)})`;
+      return protectGeneratedMarkdown(
+        `[${escapeMarkdownText(label)}](${formatMarkdownDestination(resolvedHref)})`,
+      );
     },
   );
 
@@ -237,7 +252,10 @@ function htmlFragmentToMarkdown(
   const lines = decodeHtmlEntities(content)
     .split(/\r?\n/)
     .map((line) => line.replace(/[ \t]+/g, " ").trim())
-    .filter((line) => line.length > 0);
+    .filter((line) => line.length > 0)
+    .map((line) =>
+      escapeMarkdownLinePreservingGenerated(line, generatedMarkdownFragments),
+    );
   const markdown = lines.join("\n\n");
 
   if (title.length > 0 && !markdown.startsWith("# ")) {
@@ -337,7 +355,54 @@ function decodeHtmlEntities(value: string) {
 }
 
 function escapeMarkdownText(value: string) {
-  return value.replace(/([\\[\]])/g, "\\$1");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/([\\[\]])/g, "\\$1");
+}
+
+function escapeMarkdownLinePreservingGenerated(
+  line: string,
+  generatedMarkdownFragments: string[],
+) {
+  const heading = /^(#{1,6}) (.*)$/.exec(line);
+  if (heading) {
+    return `${heading[1]} ${restoreGeneratedMarkdown(
+      heading[2] ?? "",
+      generatedMarkdownFragments,
+    )}`;
+  }
+
+  const listItem = /^(- )(.*)$/.exec(line);
+  if (listItem) {
+    return `${listItem[1]}${restoreGeneratedMarkdown(
+      listItem[2] ?? "",
+      generatedMarkdownFragments,
+    )}`;
+  }
+
+  return restoreGeneratedMarkdown(line, generatedMarkdownFragments);
+}
+
+function restoreGeneratedMarkdown(
+  value: string,
+  generatedMarkdownFragments: string[],
+) {
+  const tokenPattern = /%%TRAUMA_MARKDOWN_FRAGMENT_(\d+)%%/g;
+  let output = "";
+  let lastIndex = 0;
+
+  for (const match of value.matchAll(tokenPattern)) {
+    output += escapeMarkdownText(value.slice(lastIndex, match.index));
+    const fragmentIndex = Number.parseInt(match[1] ?? "", 10);
+    const fragment = generatedMarkdownFragments[fragmentIndex];
+    output += fragment ?? escapeMarkdownText(match[0]);
+    lastIndex = match.index + match[0].length;
+  }
+
+  output += escapeMarkdownText(value.slice(lastIndex));
+  return output;
 }
 
 async function readBoundedResponseText(
@@ -539,24 +604,40 @@ async function assertPublicHostname(
   }
 }
 
-function createPinnedFetch(resolveHostname?: HostResolver): ImportFetch {
+export function createPinnedFetch(
+  resolveHostname?: HostResolver,
+  fetchAddress: PinnedAddressFetch = fetchPinnedAddress,
+): ImportFetch {
   return async (input, init) => {
     const parsed = new URL(input);
     const normalizedHostname = normalizeHostname(parsed.hostname);
-    const address =
+    const addresses =
       isIP(normalizedHostname) === 0
-        ? await resolvePublicAddress(normalizedHostname, resolveHostname)
-        : normalizedHostname;
+        ? await resolvePublicAddresses(normalizedHostname, resolveHostname)
+        : [normalizedHostname];
 
-    if (isPrivateAddress(address)) {
-      throw new Error("url must target a public HTTP(S) host");
+    let lastError: unknown;
+    for (const address of addresses) {
+      if (isPrivateAddress(address)) {
+        throw new Error("url must target a public HTTP(S) host");
+      }
+
+      try {
+        return await fetchAddress(parsed, address, init);
+      } catch (error) {
+        if (init?.signal?.aborted) {
+          throw error;
+        }
+
+        lastError = error;
+      }
     }
 
-    return fetchPinnedAddress(parsed, address, init);
+    throw lastError ?? new Error("url must target a public HTTP(S) host");
   };
 }
 
-async function resolvePublicAddress(hostname: string, resolveHostname?: HostResolver) {
+async function resolvePublicAddresses(hostname: string, resolveHostname?: HostResolver) {
   const addresses = await (resolveHostname ?? resolveHostnameAddresses)(hostname);
   if (
     addresses.length === 0 ||
@@ -565,7 +646,7 @@ async function resolvePublicAddress(hostname: string, resolveHostname?: HostReso
     throw new Error("url must target a public HTTP(S) host");
   }
 
-  return addresses[0] ?? hostname;
+  return addresses;
 }
 
 function fetchPinnedAddress(
@@ -606,9 +687,13 @@ function fetchPinnedAddress(
     );
 
     const signal = init?.signal;
+    request.on("error", reject);
+
     if (signal) {
       if (signal.aborted) {
-        request.destroy(new Error("request aborted"));
+        const error = new Error("request aborted");
+        request.destroy(error);
+        reject(error);
         return;
       }
 
@@ -619,7 +704,6 @@ function fetchPinnedAddress(
       );
     }
 
-    request.on("error", reject);
     request.end();
   });
 }

@@ -20,6 +20,10 @@
 - MUST wrap multi-table or multi-step writes in transactions. Memory creation,
   tag/category association, highlight persistence, and backup status updates
   must not partially commit.
+- MUST make post-insert boundary failures recoverable for create workflows.
+  After a memory row and `CONTENT.md` are durable, backup enqueue/status failures
+  must return the created memory with the best persisted status or compensate
+  explicitly instead of surfacing an ambiguous failed create.
 - MUST apply bundled migrations before exposing repositories or returning an
   initialized database handle to application code.
 - MUST close the SQLite handle if initialization fails after the handle is

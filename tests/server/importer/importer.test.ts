@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { importUrl, validateImportUrl } from "../../../src/server/importer";
+import {
+  createPinnedFetch,
+  importUrl,
+  validateImportUrl,
+} from "../../../src/server/importer";
 
 describe("URL importer", () => {
   it("extracts article metadata and markdown through an injectable fetch boundary", async () => {
@@ -197,6 +201,42 @@ describe("URL importer", () => {
     expect(result.markdown).toContain("![diagram](https://example.com/image\\).png)");
   });
 
+  it("escapes markdown syntax that came from article text nodes", async () => {
+    const result = await importUrl({
+      url: "https://example.com/text-markdown",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response(
+          `<!doctype html>
+          <html>
+            <head><title>Text Markdown</title></head>
+            <body>
+              <article>
+                <p>This article has enough readable body text to pass extraction.</p>
+                <p>[click](javascript:alert(1)) &lt;img src=x onerror=alert(1)&gt;</p>
+                <p><a href="/safe">safe link</a></p>
+              </article>
+            </body>
+          </html>`,
+          {
+            headers: {
+              "content-type": "text/html",
+            },
+          },
+        ),
+    });
+
+    if (result.status !== "success") {
+      throw new Error(`expected success, got ${result.status}`);
+    }
+
+    expect(result.markdown).toContain("\\[click\\](javascript:alert(1))");
+    expect(result.markdown).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(result.markdown).toContain("[safe link](https://example.com/safe)");
+    expect(result.markdown).not.toContain("[click](javascript:");
+    expect(result.markdown).not.toContain("<img src=x");
+  });
+
   it("cancels non-OK response bodies before falling back", async () => {
     let canceled = false;
     const result = await importUrl({
@@ -265,5 +305,62 @@ describe("URL importer", () => {
       title: "example.com",
       extractionError: "response too large: 2000001 bytes exceeds 2000000",
     });
+  });
+
+  it("returns timeout fallback when DNS resolution finishes after the request is aborted", async () => {
+    const result = await importUrl({
+      url: "https://example.com/slow-dns",
+      timeoutMs: 1,
+      resolveHostname: async () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(["93.184.216.34"]), 10);
+        }),
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/slow-dns",
+      title: "example.com",
+      extractionError: "fetch failed: request timed out",
+    });
+  });
+
+  it("tries later validated DNS addresses when an earlier public address fails", async () => {
+    const requestedAddresses: string[] = [];
+    const fetch = createPinnedFetch(
+      async () => ["2001:4860:4860::8888", "93.184.216.34"],
+      async (_url, address) => {
+        requestedAddresses.push(address);
+        if (requestedAddresses.length === 1) {
+          throw new Error("network unreachable");
+        }
+
+        return new Response(
+          `<!doctype html>
+          <html>
+            <head><title>Retried Address</title></head>
+            <body>
+              <article>
+                <p>This article has enough readable words to confirm fallback to the second resolved address.</p>
+                <p>The importer should keep trying already validated public DNS answers before giving up.</p>
+              </article>
+            </body>
+          </html>`,
+          {
+            headers: {
+              "content-type": "text/html",
+            },
+          },
+        );
+      },
+    );
+
+    const response = await fetch("https://example.com/dual-stack");
+
+    expect(requestedAddresses).toEqual([
+      "2001:4860:4860::8888",
+      "93.184.216.34",
+    ]);
+    expect(response.ok).toBe(true);
   });
 });
