@@ -1,0 +1,14 @@
+{
+  "storePath": "./data/store",
+  "projectPath": "./data",
+  "databasePath": "./.trauma/trauma.sqlite",
+  "backup": {
+    "git": {
+      "enabled": true,
+      "remote": "origin",
+      "branch": "main",
+      "push": false,
+      "commitMessageTemplate": "backup memory {memoryId}"
+    }
+  }
+}

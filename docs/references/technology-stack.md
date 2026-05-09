@@ -12,6 +12,12 @@ This reference records the selected initial stack and explicit exclusions.
 - Database: SQLite through Drizzle's Bun SQLite support.
 - E2E testing: Playwright.
 
+## Current Bootstrap Pins
+
+- Bun: `1.3.13` through `mise.toml` and `packageManager`.
+- SolidStart: stable v1 starter, currently `@solidjs/start@1.3.2`.
+- Build runner: `vinxi`.
+
 ## Deployment Target
 
 The app targets local operation and single-instance self-hosting on a VPS or

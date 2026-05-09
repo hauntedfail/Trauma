@@ -1,1 +1,10 @@
 .superpowers/
+node_modules/
+.vinxi/
+.output/
+.solid/
+dist/
+playwright-report/
+test-results/
+.trauma/
+data/

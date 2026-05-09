@@ -5,6 +5,7 @@ This directory is the working documentation set for Trauma.
 The approved foundation spec remains the design record:
 
 - [Foundation design](superpowers/specs/2026-05-09-trauma-foundation-design.md)
+- [Foundation implementation plan](superpowers/plans/2026-05-09-trauma-foundation-implementation.md)
 
 Use the documents below for day-to-day implementation context. They are derived
 from the foundation design and should stay aligned with it.
