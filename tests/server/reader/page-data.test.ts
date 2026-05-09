@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { accessSync, mkdtempSync } from "node:fs";
+import { homedir } from "node:os";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -148,15 +149,41 @@ function runReaderFixture(input: {
 
 function runBunScript(script: string, env: Record<string, string>) {
   const repositoryRoot = process.cwd();
-  return execFileSync("mise", ["exec", "-C", repositoryRoot, "--", "bun", "-e", script], {
+  return execFileSync(resolveBunExecutable(), ["-e", script], {
     cwd: repositoryRoot,
     encoding: "utf8",
     env: {
       ...process.env,
       ...env,
       BUN_INSTALL_CACHE_DIR: join(repositoryRoot, ".tmp/bun-cache"),
-      MISE_TRUSTED_CONFIG_PATHS: join(repositoryRoot, "mise.toml"),
       TMPDIR: join(repositoryRoot, ".tmp/bun-tmp"),
     },
   });
+}
+
+function resolveBunExecutable() {
+  if (process.versions.bun !== undefined) {
+    return process.execPath;
+  }
+
+  const candidates = [
+    process.env.BUN_EXECUTABLE,
+    "bun",
+    join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
+  ];
+  const executable = candidates.find((candidate) => candidate !== undefined && canAccess(candidate));
+  if (executable === undefined) {
+    throw new Error("Bun executable is required for reader page-data tests");
+  }
+
+  return executable;
+}
+
+function canAccess(path: string) {
+  try {
+    accessSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
