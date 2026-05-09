@@ -168,6 +168,7 @@ function resolveBunExecutable() {
 
   const candidates = [
     process.env.BUN_EXECUTABLE,
+    process.env.npm_execpath,
     "bun",
     join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
   ];
