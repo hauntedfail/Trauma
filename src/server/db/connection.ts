@@ -16,10 +16,7 @@ const DEFAULT_MIGRATIONS_FOLDER = resolve(
   "drizzle",
 );
 
-type BunDatabaseConstructor = new (
-  path: string,
-  options: { create: boolean },
-) => BunDatabase;
+type BunDatabaseConstructor = typeof import("bun:sqlite").Database;
 
 export interface TraumaDatabaseConnection {
   sqlite: BunDatabase;

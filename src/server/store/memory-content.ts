@@ -16,6 +16,7 @@ const FRONTMATTER_KEYS = [
 ] as const;
 
 type SerializedFrontmatterKey = (typeof FRONTMATTER_KEYS)[number];
+const FRONTMATTER_KEY_SET: ReadonlySet<string> = new Set(FRONTMATTER_KEYS);
 
 export interface MemoryContentStoreConfig {
   storePath: string;
@@ -341,16 +342,7 @@ function parseFrontmatterValue(
 }
 
 function isFrontmatterKey(key: string): key is SerializedFrontmatterKey {
-  switch (key) {
-    case "id":
-    case "url":
-    case "title":
-    case "captured_at":
-    case "extraction_status":
-      return true;
-  }
-
-  return false;
+  return FRONTMATTER_KEY_SET.has(key);
 }
 
 function malformedFrontmatter(relativePath: string, detail: string) {
