@@ -2,9 +2,9 @@
 
 ## Goal
 
-Implement text selection highlight toggles in reader mode, with optimistic UI,
-SQLite persistence, and `<mark data-highlight-id>` insertion/removal in
-`CONTENT.md`.
+Implement text selection highlight toggles in reader mode, highlight-aware
+search data, the `/highlights` browse view, optimistic UI, SQLite persistence,
+and `<mark data-highlight-id>` insertion/removal in `CONTENT.md`.
 
 ## Required Context
 
@@ -17,6 +17,8 @@ SQLite persistence, and `<mark data-highlight-id>` insertion/removal in
 Primary files and directories:
 
 - `src/components/reader/**`
+- `src/components/highlights/**`
+- `src/routes/highlights/**`
 - `src/server/highlights/**`
 - `src/server/store/**` highlight insertion helpers.
 - `src/server/db/**` highlight repository helpers.
@@ -61,21 +63,41 @@ Avoid changing the reader pipeline except where needed to surface highlight UI.
      to match SQLite.
    - Enqueue backup through the Task 8 boundary.
 
-5. Add tests.
+5. Implement highlight browse data.
+   - Add repository methods for listing highlights with memory title.
+   - Return highlighted `text`, muted `prefix`, muted `suffix`, memory ID,
+     memory title, and highlight ID.
+   - Support highlight-aware `/memories?q=...` search by matching highlight
+     text and prefix/suffix context.
+
+6. Implement `/highlights`.
+   - Render highlight rows with memory title, muted prefix, highlighted text,
+     and muted suffix.
+   - Use a dense GitHub PR file-review-inspired layout.
+   - Link each row to the source memory highlight anchor.
+   - Do not render full memory bodies in this view.
+
+7. Add tests.
    - Same text appearing multiple times anchors correctly using hybrid selector.
    - Mark insertion preserves markdown outside the selection.
    - Selecting an exact existing highlight removes that highlight.
    - Selecting a subset of an existing highlight preserves the unselected
      highlighted text on both sides.
    - Selecting across multiple highlights removes only the selected overlaps.
+   - Highlight list repository returns source memory title and context.
+   - `/memories?q=...` can match highlight text/context.
    - Failed persistence reports failure to the UI.
 
-6. Add E2E coverage.
+8. Add E2E coverage.
    - Select text in `/memories/:id`.
    - Verify highlight appears.
    - Select the highlighted text again.
    - Verify only the selected text is unhighlighted.
    - Reload and verify persisted highlight appears.
+   - Visit `/highlights` and verify the quote row shows memory title plus
+     prefix/highlight/suffix context.
+   - Search `/memories?q=...` for text that exists only in a highlight and
+     verify the source memory appears.
 
 ## Acceptance Criteria
 
@@ -83,6 +105,8 @@ Avoid changing the reader pipeline except where needed to surface highlight UI.
 - Highlight records are canonical in SQLite.
 - `CONTENT.md` stores persisted mark tags.
 - Selecting already-highlighted text toggles off only the selected range.
+- `/highlights` lists highlight excerpts with source memory titles.
+- `/memories?q=...` includes highlight text/context in search results.
 - Existing sanitization allows the persisted marks.
 - Backup enqueue happens after markdown write.
 
@@ -104,6 +128,8 @@ The PR description must include:
 - Selection anchoring strategy.
 - Toggle/unhighlight behavior for exact, partial, and multi-highlight
   selections.
+- `/highlights` row shape and source-memory linking.
+- Highlight-aware `/memories?q=...` search behavior.
 - Failure/rollback behavior.
 - Mark insertion examples.
 - Exact verification commands and outcomes.

@@ -32,6 +32,10 @@
 selected range is removed from highlight coverage; surrounding highlighted text
 remains highlighted.
 
+`/highlights`
+: Canonical highlight browse route. It lists highlighted excerpts with muted
+prefix/suffix context and the source memory title.
+
 ## Status Fields
 
 `extraction_status`

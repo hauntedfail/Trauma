@@ -11,7 +11,9 @@ Playwright should cover the main user workflows:
 - Markdown file creation.
 - `/memories` list rendering.
 - `/memories/:id` reader rendering.
+- `/highlights` highlight excerpt rendering.
 - Category/tag filtering.
+- `/memories?q=...` matching highlight text.
 - Highlight selection and persistence.
 - Highlight toggle removal when selecting already-highlighted text.
 - Backup status display.

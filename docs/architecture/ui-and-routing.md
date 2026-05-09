@@ -10,6 +10,7 @@ Initial canonical routes:
 - `/`
 - `/memories`
 - `/memories/:id`
+- `/highlights`
 
 `/` redirects to `/memories`.
 
@@ -17,8 +18,11 @@ Initial canonical routes:
 filters and view options:
 
 ```text
-/memories?q=...&category=...&tag=...&view=list|grid
+/memories?q=...&category=...&tag=...&highlight=...&view=list|grid
 ```
+
+`/highlights` is the canonical route for browsing highlighted excerpts across
+memories.
 
 `/category`, `/tags`, and `/memories/new` are not initial routes. Category/tag
 management pages are future work.
@@ -29,13 +33,38 @@ Desktop layout:
 
 - Left shared navigation.
 - Center content area.
-- Right category/tag filter panel.
+- Right category/tag/highlight panel.
 
 The left navigation is an app-shell component shared by all routes. It should
 not be implemented as a page-specific component.
 
-The right panel lists categories and tags. Clicking an item updates the
-`/memories` query filter.
+The right panel lists categories, tags, and recent highlights. Category and tag
+items update the `/memories` query filter. Highlight shortcuts apply
+`/memories?highlight=<highlight id>`. Source-memory navigation is handled by
+the `/highlights` row title/link or reader anchors, not the primary right-panel
+shortcut.
+
+## Search And Filters
+
+`/memories?q=...` searches memory metadata and highlight metadata. The query
+must match title, URL, description, category names, tag names, highlighted text,
+and stored highlight prefix/suffix context. This is not full body search; body
+FTS remains future work.
+
+`highlight=...` filters memories to a specific highlight ID. This is mainly
+used by right-panel highlight shortcuts.
+
+## Highlights View
+
+`/highlights` is a highlight-first browse view.
+
+Each highlight row shows the source memory title, muted prefix context,
+highlighted text, and muted suffix context. The visual treatment should feel
+close to a GitHub pull request file-review view: dense rows, quote-focused
+content, clear source labels, and no full article rendering.
+
+Clicking the source title or quote opens `/memories/:id` at the corresponding
+highlight anchor.
 
 ## Responsive Behavior
 

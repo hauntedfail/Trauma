@@ -253,6 +253,7 @@ Canonical routes:
 - `/`
 - `/memories`
 - `/memories/:id`
+- `/highlights`
 
 `/` redirects to `/memories`.
 
@@ -260,11 +261,14 @@ Canonical routes:
 represents filters and view options:
 
 ```text
-/memories?q=...&category=...&tag=...&view=list|grid
+/memories?q=...&category=...&tag=...&highlight=...&view=list|grid
 ```
 
 `/category`, `/tags`, and `/memories/new` are not initial canonical routes.
 Category/tag management pages are future work and require a separate spec.
+
+`/highlights` is the canonical highlight browse route. It lists highlighted
+text snippets across memories and is separate from the memory reader.
 
 ## UI Shell
 
@@ -274,13 +278,16 @@ Desktop layout:
 
 - Shared left-side navigation.
 - Center content area.
-- Right-side category/tag filter panel.
+- Right-side category/tag/highlight panel.
 
 The left navigation is an app shell component shared by all routes. It is not
 owned by a single page.
 
-The right panel lists categories and tags. Clicking a category or tag updates
-the `/memories` query filter.
+The right panel lists categories, tags, and recent highlights. Clicking a
+category or tag updates the `/memories` query filter. Clicking a highlight
+shortcut applies `/memories?highlight=<highlight id>`. Source-memory navigation
+belongs to the `/highlights` row title/link or reader anchors, not the primary
+right-panel shortcut.
 
 Responsive layout:
 
@@ -313,10 +320,26 @@ or disabled embeds.
 
 ## Search And Filtering
 
-Initial search is metadata-only SQLite search over fields such as title, URL,
-description, categories, and tags.
+Initial search is SQLite metadata search over fields such as title, URL,
+description, categories, tags, and highlight text/context. `/memories?q=...`
+must include matching memories whose highlights contain the query even when the
+memory title or URL does not match.
 
 Body full-text search and SQLite FTS are future work.
+
+## Highlights View
+
+`/highlights` shows highlight-centered browsing. Each row shows:
+
+- Memory title as the source label.
+- Muted prefix context before the highlighted text.
+- The highlighted text.
+- Muted suffix context after the highlighted text.
+- A link to open the source memory at the highlight anchor.
+
+The layout should evoke GitHub pull request file-review views: compact,
+quote-oriented rows with enough surrounding context to understand where the
+selection came from, without rendering the whole memory body.
 
 ## Configuration
 

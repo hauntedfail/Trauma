@@ -19,7 +19,7 @@ from the foundation design and should stay aligned with it.
 - [Flows](architecture/flows.md): add memory, extraction fallback, highlight,
   and git backup flows.
 - [UI and routing](architecture/ui-and-routing.md): canonical routes, shell
-  layout, filters, composer, and reader behavior.
+  layout, filters, highlight browse, composer, and reader behavior.
 
 ## References
 

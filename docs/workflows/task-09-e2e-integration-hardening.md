@@ -42,7 +42,9 @@ Do not add product behavior in this task unless it is test-only plumbing.
    - Markdown file creation.
    - `/memories` list rendering.
    - `/memories/:id` reader rendering.
+   - `/highlights` excerpt rendering.
    - Category/tag filtering.
+   - Search matching highlight-only text.
    - Highlight selection and persistence.
    - Backup status display.
 

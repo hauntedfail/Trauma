@@ -69,6 +69,11 @@ Highlights are both metadata and content mutations.
 as `memory.highlights: Highlight[]`, but memories should not store a separate
 highlight ID array as source-of-truth state.
 
+Highlight browse and search views use `text`, `prefix`, `suffix`, and the
+related memory title. The highlight table remains the canonical source for
+highlight snippets; no separate denormalized highlight feed is introduced in
+the initial design.
+
 Persisted highlights are inserted into `CONTENT.md` as inline marks:
 
 ```html
