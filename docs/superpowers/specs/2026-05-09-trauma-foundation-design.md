@@ -188,15 +188,30 @@ first implementation.
 ## Highlight Flow
 
 The reader does not expose general editing. It does allow highlight creation.
+Highlight interaction is a text-range toggle, not a separate edit mode.
 
 When the user selects text in `/memories/:id`:
 
-1. The frontend immediately renders an optimistic highlight.
-2. The frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
-   `end_offset` to the server.
-3. The server creates a `highlights` record.
-4. The server updates `CONTENT.md`.
-5. The server enqueues markdown store backup.
+1. The frontend determines whether the selected range is already fully
+   highlighted.
+2. If it is not already highlighted, the frontend immediately renders an
+   optimistic highlight.
+3. If it is already highlighted, the frontend immediately removes highlight
+   styling from the selected range only.
+4. The frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
+   `end_offset` to the server with the intended toggle operation.
+5. The server creates, deletes, shrinks, or splits `highlights` records.
+6. The server updates `CONTENT.md`.
+7. The server enqueues markdown store backup.
+
+When the user selects an already-highlighted range again, Trauma treats that as
+an unhighlight toggle for the selected range only. It must not remove a larger
+highlight span just because the selected text sits inside it. If the selected
+range exactly matches a highlight, the server removes that highlight record and
+its `<mark>`. If the selected range is a subset of a highlight, the server
+shrinks or splits the remaining highlighted text into valid highlight records
+and marks. If the selected range crosses multiple highlights, only the selected
+overlapping text is removed from each affected highlight.
 
 `CONTENT.md` uses inline HTML marks for persisted highlights:
 
@@ -207,8 +222,8 @@ When the user selects text in `/memories/:id`:
 The reader sanitizer must allow `mark` and `data-highlight-id`, while still
 removing unsafe HTML and scripts.
 
-If server persistence fails, the optimistic highlight is rolled back or marked
-failed in the UI.
+If server persistence fails, the optimistic highlight or unhighlight state is
+rolled back or marked failed in the UI.
 
 ## Backup Flow
 

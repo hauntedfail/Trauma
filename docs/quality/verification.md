@@ -13,6 +13,7 @@ Playwright should cover the main user workflows:
 - `/memories/:id` reader rendering.
 - Category/tag filtering.
 - Highlight selection and persistence.
+- Highlight toggle removal when selecting already-highlighted text.
 - Backup status display.
 
 E2E tests should use controlled URLs or fixtures so extraction behavior is
@@ -27,6 +28,7 @@ Unit or integration tests should cover:
 - Importer success and failure mapping.
 - Markdown store writer.
 - Highlight marker insertion.
+- Highlight marker removal, shrink, and split behavior.
 - Backup queue behavior.
 - Reader sanitization and rendering.
 

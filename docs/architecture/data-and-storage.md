@@ -77,3 +77,11 @@ Persisted highlights are inserted into `CONTENT.md` as inline marks:
 
 The reader pipeline must allow `mark` and `data-highlight-id` while still
 sanitizing unsafe HTML.
+
+Highlight removal uses the same text-range model as highlight creation. When a
+user selects text that is already highlighted, only the selected range is
+unhighlighted. Exact matches delete the corresponding `highlights` row and
+remove the mark. Partial matches shrink the existing range or split it into
+multiple remaining highlight ranges, each represented in SQLite and in
+`CONTENT.md`. This prevents a nested or wider highlight from being removed when
+the user intended to toggle off only a sentence or phrase.

@@ -27,6 +27,11 @@
 : User-created text selection inside reader content. Persisted in SQLite and as
 `<mark data-highlight-id="...">...</mark>` inside `CONTENT.md`.
 
+`unhighlight`
+: Toggle action caused by selecting already-highlighted reader text. Only the
+selected range is removed from highlight coverage; surrounding highlighted text
+remains highlighted.
+
 ## Status Fields
 
 `extraction_status`

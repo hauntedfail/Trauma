@@ -33,19 +33,43 @@ path can be added later without replacing the storage model.
 ## Highlight
 
 Reader content is not generally editable. Highlight creation is the only
-content mutation exposed in read mode.
+content mutation exposed in read mode. The same selection gesture also toggles
+off existing highlights.
 
 Flow:
 
 1. User selects text in `/memories/:id`.
-2. Frontend renders an optimistic highlight immediately.
-3. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
-   `end_offset` to the server.
-4. Server creates a `highlights` row.
-5. Server inserts `<mark data-highlight-id="...">...</mark>` into `CONTENT.md`.
-6. Server enqueues markdown backup work.
+2. Frontend determines whether the selected range is already fully highlighted.
+3. If the range is not already highlighted, the frontend renders an optimistic
+   highlight immediately.
+4. If the range is already highlighted, the frontend optimistically removes
+   highlight styling only from the selected range.
+5. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
+   `end_offset` to the server with the intended toggle operation.
+6. Server creates, deletes, shrinks, or splits `highlights` rows so SQLite
+   represents exactly the highlighted ranges that remain.
+7. Server inserts or removes `<mark data-highlight-id="...">...</mark>` ranges
+   in `CONTENT.md` to match SQLite.
+8. Server enqueues markdown backup work.
 
-If persistence fails, the optimistic highlight is rolled back or surfaced as
+Highlight toggle rules:
+
+- Selecting unhighlighted text creates a highlight for the selected range.
+- Selecting an already-highlighted range unhighlights the selected range only.
+- Selecting a subset of a larger highlight preserves the unselected highlighted
+  text by shrinking or splitting marks and metadata.
+- Selecting across multiple existing highlights removes only the selected
+  overlap from each affected highlight.
+
+Selection payload:
+
+1. `text`
+2. `prefix`
+3. `suffix`
+4. `start_offset`
+5. `end_offset`
+
+If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.
 
 ## Git Backup

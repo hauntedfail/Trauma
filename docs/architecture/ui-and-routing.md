@@ -71,5 +71,10 @@ The initial markdown reader supports:
 - Controlled external embeds.
 - Highlight marks.
 
+Text selection inside reader content is a highlight toggle. Selecting
+unhighlighted text creates a highlight. Selecting text that is already
+highlighted removes highlight styling from the selected text only, preserving
+any unselected highlighted text around it.
+
 External embeds auto-load in the initial design. This has privacy and network
 side effects; future configuration may allow lazy or disabled embeds.
