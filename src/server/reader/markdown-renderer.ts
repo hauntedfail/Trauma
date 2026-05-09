@@ -242,7 +242,7 @@ function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
     attribs: {
       ...attribs,
       loading: attribs.loading ?? "lazy",
-      referrerpolicy: attribs.referrerpolicy ?? "no-referrer",
+      referrerpolicy: "no-referrer",
     },
   };
 }

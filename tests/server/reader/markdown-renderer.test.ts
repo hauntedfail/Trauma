@@ -67,13 +67,15 @@ describe("renderMemoryMarkdown", () => {
 
   it("allows only controlled external embeds", () => {
     const result = renderMemoryMarkdown([
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video"></iframe>',
+      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video" referrerpolicy="unsafe-url"></iframe>',
       '<iframe src="https://evil.example/embed" title="Blocked video"></iframe>',
     ].join("\n"));
 
     expect(result.html).toContain(
       '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video"',
     );
+    expect(result.html).toContain('referrerpolicy="no-referrer"');
+    expect(result.html).not.toContain('referrerpolicy="unsafe-url"');
     expect(result.html).not.toContain("evil.example");
     expect(result.html).not.toContain("Blocked video");
   });

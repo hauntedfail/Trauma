@@ -18,10 +18,11 @@ export function MemoryReader(props: MemoryReaderProps) {
 
   return (
     <Show
+      keyed
       when={readyResult()}
       fallback={<ReaderState message={stateMessage()} />}
     >
-      {(result) => <ReadyMemoryReader result={result()} />}
+      {(result) => <ReadyMemoryReader result={result} />}
     </Show>
   );
 }

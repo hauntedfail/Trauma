@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { expect, test } from "@playwright/test";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
+const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
 
 test("renders a fixture memory in reader mode", async ({ page }) => {
   createReaderFixture();
@@ -19,6 +20,19 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.locator("mark[data-highlight-id='hl-fixture']")).toContainText(
     "saved highlight",
   );
+
+  await page.evaluate((memoryId) => {
+    const link = document.createElement("a");
+    link.href = `/memories/${memoryId}`;
+    link.textContent = "Open second reader fixture";
+    document.body.append(link);
+  }, SECOND_READER_MEMORY_ID);
+  await page.getByRole("link", { name: "Open second reader fixture" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/memories/${SECOND_READER_MEMORY_ID}$`));
+  await expect(page.locator("#reader-title")).toHaveText("Second Fixture Reader");
+  await expect(page.getByText("Second reader body")).toBeVisible();
+  await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });
 
 function createReaderFixture() {
@@ -35,6 +49,7 @@ function createReaderFixture() {
 
         const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
         const memoryId = "${READER_MEMORY_ID}";
+        const secondMemoryId = "${SECOND_READER_MEMORY_ID}";
         const config = {
           storePath: "./project/store",
           projectPath: "./project",
@@ -61,12 +76,11 @@ function createReaderFixture() {
         await mkdir(dirname(configPath), { recursive: true });
         await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
-        const connection = initializeDatabase(resolvedConfig);
-        try {
+        async function insertMemory(memoryId, title, url) {
           await connection.db.insert(schema.memories).values({
             id: memoryId,
-            url: "https://example.com/reader",
-            title: "Fixture Reader",
+            url,
+            title,
             description: "Reader fixture",
             faviconUrl: null,
             contentPath: \`memories/\${memoryId}/CONTENT.md\`,
@@ -78,21 +92,36 @@ function createReaderFixture() {
             createdAt: new Date("2026-05-09T00:00:00.000Z"),
             updatedAt: new Date("2026-05-09T00:00:00.000Z"),
           });
+        }
+
+        const connection = initializeDatabase(resolvedConfig);
+        try {
+          await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
+          await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
         } finally {
           connection.close();
         }
 
-        await writeMemoryContent({
-          config: resolvedConfig,
+        async function writeFixtureContent(memoryId, title, url, markdown) {
+          await writeMemoryContent({
+            config: resolvedConfig,
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url,
+              title,
+              capturedAt: "2026-05-09T00:00:00.000Z",
+              extractionStatus: "success",
+            },
+            markdown,
+          });
+        }
+
+        await writeFixtureContent(
           memoryId,
-          frontmatter: {
-            id: memoryId,
-            url: "https://example.com/reader",
-            title: "Fixture Reader",
-            capturedAt: "2026-05-09T00:00:00.000Z",
-            extractionStatus: "success",
-          },
-          markdown: [
+          "Fixture Reader",
+          "https://example.com/reader",
+          [
             "# Fixture Reader",
             "",
             "Curated markdown body with <mark data-highlight-id=\\"hl-fixture\\">saved highlight</mark>.",
@@ -103,7 +132,21 @@ function createReaderFixture() {
             "| --- | --- |",
             "| reader | smoke |",
           ].join("\\n"),
-        });
+        );
+        await writeFixtureContent(
+          secondMemoryId,
+          "Second Fixture Reader",
+          "https://example.com/second-reader",
+          [
+            "# Second Fixture Reader",
+            "",
+            "Second reader body.",
+            "",
+            "## Follow Up",
+            "",
+            "Ready-to-ready navigation should replace the rendered article.",
+          ].join("\\n"),
+        );
       `,
     ],
     {
