@@ -1,4 +1,9 @@
 // @refresh reload
 import { mount, StartClient } from "@solidjs/start/client";
 
-export default mount(() => <StartClient />, document.getElementById("app")!);
+const appRoot = document.getElementById("app");
+if (!appRoot) {
+  throw new Error("SolidStart app root element was not found");
+}
+
+export default mount(() => <StartClient />, appRoot);

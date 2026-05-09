@@ -6,7 +6,6 @@ import type {
   ConfigValidationResult,
   LoadTraumaConfigOptions,
   ResolvedTraumaConfig,
-  TraumaConfig,
 } from "./types";
 
 const CONFIG_FILE_NAME = "trauma.config.json";
@@ -83,41 +82,55 @@ export function validateTraumaConfig(
     errors.push("backup.git must be a JSON object");
   }
 
-  const gitConfig = {
-    enabled: isRecord(git)
-      ? requireBoolean(git, "enabled", "backup.git.enabled", errors)
-      : undefined,
-    remote: isRecord(git)
-      ? requireString(git, "remote", "backup.git.remote", errors)
-      : undefined,
-    branch: isRecord(git)
-      ? requireString(git, "branch", "backup.git.branch", errors)
-      : undefined,
-    push: isRecord(git)
-      ? requireBoolean(git, "push", "backup.git.push", errors)
-      : undefined,
-    commitMessageTemplate: isRecord(git)
-      ? requireString(
-          git,
-          "commitMessageTemplate",
-          "backup.git.commitMessageTemplate",
-          errors,
-        )
-      : undefined,
-  };
+  const gitEnabled = isRecord(git)
+    ? requireBoolean(git, "enabled", "backup.git.enabled", errors)
+    : undefined;
+  const gitRemote = isRecord(git)
+    ? requireString(git, "remote", "backup.git.remote", errors)
+    : undefined;
+  const gitBranch = isRecord(git)
+    ? requireString(git, "branch", "backup.git.branch", errors)
+    : undefined;
+  const gitPush = isRecord(git)
+    ? requireBoolean(git, "push", "backup.git.push", errors)
+    : undefined;
+  const gitCommitMessageTemplate = isRecord(git)
+    ? requireString(
+        git,
+        "commitMessageTemplate",
+        "backup.git.commitMessageTemplate",
+        errors,
+      )
+    : undefined;
 
-  if (errors.length > 0) {
+  if (
+    errors.length > 0 ||
+    storePath === undefined ||
+    projectPath === undefined ||
+    databasePath === undefined ||
+    gitEnabled === undefined ||
+    gitRemote === undefined ||
+    gitBranch === undefined ||
+    gitPush === undefined ||
+    gitCommitMessageTemplate === undefined
+  ) {
     return { ok: false, errors };
   }
 
   const configDir = dirname(resolve(configPath));
   const resolvedConfig: ResolvedTraumaConfig = {
     configFilePath: resolve(configPath),
-    projectPath: resolveConfigPath(configDir, projectPath!),
-    storePath: resolveConfigPath(configDir, storePath!),
-    databasePath: resolveConfigPath(configDir, databasePath!),
+    projectPath: resolveConfigPath(configDir, projectPath),
+    storePath: resolveConfigPath(configDir, storePath),
+    databasePath: resolveConfigPath(configDir, databasePath),
     backup: {
-      git: gitConfig as TraumaConfig["backup"]["git"],
+      git: {
+        enabled: gitEnabled,
+        remote: gitRemote,
+        branch: gitBranch,
+        push: gitPush,
+        commitMessageTemplate: gitCommitMessageTemplate,
+      },
     },
   };
 

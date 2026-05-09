@@ -49,7 +49,7 @@ describe("db foundation", () => {
 
           try {
             const memory = await connection.repositories.memories.findById("018f04a2-3c6f-7c88-9a8b-8c99a9b7f001");
-            console.log(JSON.stringify({
+            process.stdout.write(JSON.stringify({
               memory,
               tables: connection.sqlite
                 .prepare("select name from sqlite_master where type = 'table' and name = 'memories'")
@@ -104,7 +104,7 @@ describe("db foundation", () => {
           });
 
           try {
-            console.log(JSON.stringify({
+            process.stdout.write(JSON.stringify({
               tables: connection.sqlite
                 .prepare("select name from sqlite_master where type = 'table' and name = 'memories'")
                 .all(),
@@ -179,9 +179,9 @@ describe("db foundation", () => {
                 Date.now(),
                 Date.now(),
               );
-            console.log(JSON.stringify({ rejected: false }));
+            process.stdout.write(JSON.stringify({ rejected: false }));
           } catch (error) {
-            console.log(JSON.stringify({
+            process.stdout.write(JSON.stringify({
               rejected: true,
               message: error instanceof Error ? error.message : String(error),
             }));
@@ -242,9 +242,9 @@ describe("db foundation", () => {
               },
               { migrationsFolder: join(root, "missing-migrations") },
             );
-            console.log(JSON.stringify({ failed: false, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: false, closeCalls }));
           } catch {
-            console.log(JSON.stringify({ failed: true, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: true, closeCalls }));
           } finally {
             Database.prototype.close = originalClose;
           }
