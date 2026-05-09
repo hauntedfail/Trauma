@@ -86,7 +86,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function formatConfigError(error: unknown) {
   if (error instanceof TraumaConfigError) {
-    return error.message;
+    console.error(error.message);
   }
 
   return "failed to load Trauma configuration";

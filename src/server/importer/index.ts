@@ -77,6 +77,7 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
   }
 
   if (!response.ok) {
+    await cancelResponseBody(response);
     clearTimeout(timeout);
     return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "fetch failed",
@@ -86,6 +87,7 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("html")) {
+    await cancelResponseBody(response);
     clearTimeout(timeout);
     return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "unsupported content type",
@@ -193,7 +195,7 @@ function htmlFragmentToMarkdown(
       return "";
     }
 
-    return `\n![${escapeMarkdownText(decodeHtmlEntities(alt))}](${resolvedSrc})\n`;
+    return `\n![${escapeMarkdownText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})\n`;
   });
 
   content = content.replace(
@@ -209,7 +211,7 @@ function htmlFragmentToMarkdown(
         return label;
       }
 
-      return `[${escapeMarkdownText(label)}](${resolvedHref})`;
+      return `[${escapeMarkdownText(label)}](${formatMarkdownDestination(resolvedHref)})`;
     },
   );
 
@@ -400,6 +402,14 @@ async function readBoundedResponseText(
   return { ok: true, text: chunks.join("") };
 }
 
+async function cancelResponseBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Best-effort cleanup for fallback paths; the import result should still be link-only.
+  }
+}
+
 async function normalizeImportUrl(
   url: string,
   options: { resolveHostname?: HostResolver } = {},
@@ -415,6 +425,10 @@ async function normalizeImportUrl(
     throw new Error("url must use http: or https:");
   }
 
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new Error("url must not include userinfo");
+  }
+
   await assertPublicHostname(parsed.hostname, options.resolveHostname);
 
   return parsed.toString();
@@ -423,10 +437,18 @@ async function normalizeImportUrl(
 function resolveSafeDisplayUrl(pageUrl: string, value: string) {
   try {
     const parsed = new URL(value, pageUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
     return isBlockedHostname(parsed.hostname) ? null : parsed.toString();
   } catch {
     return null;
   }
+}
+
+function formatMarkdownDestination(url: string) {
+  return url.replace(/\\/g, "%5C").replace(/\)/g, "\\)");
 }
 
 async function fetchWithValidatedRedirects(input: {
@@ -704,9 +726,13 @@ function isPrivateIpv6(address: string) {
 
   const first = words[0] ?? 0;
   return (
-    words.slice(0, 7).every((word) => word === 0) && words[7] === 1 ||
+    words.every((word) => word === 0) ||
+    (words.slice(0, 7).every((word) => word === 0) && words[7] === 1) ||
+    (first & 0xff00) === 0xff00 ||
     (first & 0xffc0) === 0xfe80 ||
-    (first & 0xfe00) === 0xfc00
+    (first & 0xfe00) === 0xfc00 ||
+    (first & 0xe000) !== 0x2000 ||
+    (first === 0x2001 && words[1] === 0x0db8)
   );
 }
 

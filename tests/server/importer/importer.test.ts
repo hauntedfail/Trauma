@@ -137,12 +137,113 @@ describe("URL importer", () => {
     await expect(validateImportUrl("http://[::ffff:127.0.0.1]/")).rejects.toThrow(
       /public HTTP/,
     );
+    await expect(validateImportUrl("http://[::]/")).rejects.toThrow(
+      /public HTTP/,
+    );
     await expect(validateImportUrl("http://[fe90::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[ff02::1]/")).rejects.toThrow(
       /public HTTP/,
     );
     await expect(validateImportUrl("http://100.64.0.1/")).rejects.toThrow(
       /public HTTP/,
     );
+  });
+
+  it("rejects URLs containing userinfo before persistence", async () => {
+    await expect(
+      validateImportUrl("https://token:secret@example.com/article", {
+        resolveHostname: async () => ["93.184.216.34"],
+      }),
+    ).rejects.toThrow(/userinfo/);
+  });
+
+  it("keeps unsafe display URLs out of extracted markdown", async () => {
+    const result = await importUrl({
+      url: "https://example.com/article",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response(
+          `<!doctype html>
+          <html>
+            <head><title>Unsafe Display Links</title></head>
+            <body>
+              <article>
+                <p>This article has enough readable body text to pass extraction and exercise markdown URL handling.</p>
+                <p><a href="javascript://example.com/%0aalert(1)">unsafe link</a></p>
+                <p><a href="/redirect?next=)">reader link</a></p>
+                <p><img src="/image).png" alt="diagram"></p>
+              </article>
+            </body>
+          </html>`,
+          {
+            headers: {
+              "content-type": "text/html",
+            },
+          },
+        ),
+    });
+
+    if (result.status !== "success") {
+      throw new Error(`expected success, got ${result.status}`);
+    }
+
+    expect(result.markdown).toContain("unsafe link");
+    expect(result.markdown).not.toContain("javascript:");
+    expect(result.markdown).toContain(
+      "[reader link](https://example.com/redirect?next=\\))",
+    );
+    expect(result.markdown).toContain("![diagram](https://example.com/image\\).png)");
+  });
+
+  it("cancels non-OK response bodies before falling back", async () => {
+    let canceled = false;
+    const result = await importUrl({
+      url: "https://example.com/server-error",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            cancel: () => {
+              canceled = true;
+            },
+          }),
+          {
+            status: 500,
+            headers: {
+              "content-type": "text/html",
+            },
+          },
+        ),
+    });
+
+    expect(result.status).toBe("link_only");
+    expect(canceled).toBe(true);
+  });
+
+  it("cancels non-HTML response bodies before falling back", async () => {
+    let canceled = false;
+    const result = await importUrl({
+      url: "https://example.com/plain-text",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            cancel: () => {
+              canceled = true;
+            },
+          }),
+          {
+            headers: {
+              "content-type": "text/plain",
+            },
+          },
+        ),
+    });
+
+    expect(result.status).toBe("link_only");
+    expect(canceled).toBe(true);
   });
 
   it("returns a link-only fallback before reading oversized responses", async () => {
