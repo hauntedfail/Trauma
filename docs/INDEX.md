@@ -27,8 +27,9 @@ from the foundation design and should stay aligned with it.
   exclusions, and rationale.
 - [Configuration](references/configuration.md): `trauma.config.json` shape,
   validation rules, and operational meaning.
-- [Coding standards](references/coding-standards.md): TypeScript, SolidStart,
-  security, testing, and anti-pattern rules for implementation work.
+- [Coding standards](references/coding-standards/INDEX.md): map of
+  TypeScript, SolidStart, Bun, Drizzle, security, testing, and anti-pattern
+  rules for implementation work.
 - [Glossary](references/glossary.md): domain language and status terms.
 
 ## Operations

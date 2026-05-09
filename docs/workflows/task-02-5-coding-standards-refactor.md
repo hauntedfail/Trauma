@@ -8,7 +8,7 @@ feature work continues.
 
 ## Required Context
 
-- [Coding standards](../references/coding-standards.md)
+- [Coding standards](../references/coding-standards/INDEX.md)
 - [Technology stack](../references/technology-stack.md)
 - [Configuration reference](../references/configuration.md)
 - [Data and storage architecture](../architecture/data-and-storage.md)

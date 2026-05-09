@@ -31,7 +31,7 @@ keep each worker's context focused on its own domain.
 - Own only the files listed in the workflow unless the PR description explains
   why a boundary change is required.
 - Read the workflow file, its referenced docs, and
-  [coding standards](../references/coding-standards.md) before coding.
+  [coding standards](../references/coding-standards/INDEX.md) before coding.
 - Keep PRs domain-scoped. Do not bundle unrelated UI, storage, importer, and
   backup changes.
 - Add tests in the same PR as the behavior.

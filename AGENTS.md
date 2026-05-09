@@ -15,7 +15,7 @@ Key project decisions are split by purpose:
 - UI and routing: [docs/architecture/ui-and-routing.md](docs/architecture/ui-and-routing.md)
 - Technology stack: [docs/references/technology-stack.md](docs/references/technology-stack.md)
 - Configuration: [docs/references/configuration.md](docs/references/configuration.md)
-- Coding standards: [docs/references/coding-standards.md](docs/references/coding-standards.md)
+- Coding standards: [docs/references/coding-standards/INDEX.md](docs/references/coding-standards/INDEX.md)
 - Glossary: [docs/references/glossary.md](docs/references/glossary.md)
 - Operations: [docs/operations/local-self-hosting.md](docs/operations/local-self-hosting.md)
 - Verification: [docs/quality/verification.md](docs/quality/verification.md)
