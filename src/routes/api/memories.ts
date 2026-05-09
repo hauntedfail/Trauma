@@ -40,8 +40,16 @@ type AddMemoryPayloadResult =
   | { ok: true; url: string }
   | { ok: false; error: string };
 
-async function parseAddMemoryPayload(
+interface ParseAddMemoryPayloadOptions {
+  validateUrl?: (url: string) => Promise<string>;
+  validationTimeoutMs?: number;
+}
+
+const DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS = 10_000;
+
+export async function parseAddMemoryPayload(
   request: Request,
+  options: ParseAddMemoryPayloadOptions = {},
 ): Promise<AddMemoryPayloadResult> {
   let payload: unknown;
   try {
@@ -64,9 +72,40 @@ async function parseAddMemoryPayload(
   }
 
   try {
-    return { ok: true, url: await validateImportUrl(payload.url) };
-  } catch {
+    return {
+      ok: true,
+      url: await validateUrlWithinTimeout(payload.url, {
+        validateUrl: options.validateUrl ?? validateImportUrl,
+        timeoutMs:
+          options.validationTimeoutMs ??
+          DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS,
+      }),
+    };
+  } catch (error) {
+    if (isUrlValidationTimeout(error)) {
+      return { ok: false, error: "url validation timed out" };
+    }
+
     return { ok: false, error: "url must be a valid absolute URL" };
+  }
+}
+
+async function validateUrlWithinTimeout(
+  url: string,
+  input: { validateUrl: (url: string) => Promise<string>; timeoutMs: number },
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      input.validateUrl(url),
+      new Promise<string>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new UrlValidationTimeoutError());
+        }, input.timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -90,4 +129,10 @@ function formatConfigError(error: unknown) {
   }
 
   return "failed to load Trauma configuration";
+}
+
+class UrlValidationTimeoutError extends Error {}
+
+function isUrlValidationTimeout(error: unknown) {
+  return error instanceof UrlValidationTimeoutError;
 }

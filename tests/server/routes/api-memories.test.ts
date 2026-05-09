@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { POST } from "../../../src/routes/api/memories";
+import {
+  parseAddMemoryPayload,
+  POST,
+} from "../../../src/routes/api/memories";
 
 const tempDirs: string[] = [];
 
@@ -18,6 +21,24 @@ afterEach(async () => {
 const repositoryRoot = process.cwd();
 
 describe("memories API route", () => {
+  it("bounds route URL preflight validation", async () => {
+    const result = await parseAddMemoryPayload(
+      new Request("http://localhost/api/memories", {
+        method: "POST",
+        body: JSON.stringify({ url: "https://example.com/slow-dns" }),
+      }),
+      {
+        validateUrl: async () => new Promise(() => {}),
+        validationTimeoutMs: 1,
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "url validation timed out",
+    });
+  });
+
   it("does not expose local config paths in client errors", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-api-memory-"));
     tempDirs.push(root);
