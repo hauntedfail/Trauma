@@ -549,7 +549,7 @@ function resolveSafeDisplayUrl(pageUrl: string, value: string) {
 }
 
 function formatMarkdownDestination(url: string) {
-  return url.replace(/\\/g, "%5C").replace(/\)/g, "\\)");
+  return url.replace(/\\/g, "%5C").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
 async function fetchWithValidatedRedirects(input: {
@@ -877,6 +877,7 @@ function isPrivateIpv4(address: string) {
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
     (first === 192 && second === 0 && (third === 0 || third === 2)) ||
+    (first === 192 && second === 88 && third === 99) ||
     (first === 192 && second === 168) ||
     (first === 198 && (second === 18 || second === 19)) ||
     (first === 198 && second === 51 && third === 100) ||
@@ -896,6 +897,11 @@ function isPrivateIpv6(address: string) {
     return true;
   }
 
+  const nat64Ipv4 = ipv4FromNat64WellKnownPrefix(words);
+  if (nat64Ipv4) {
+    return isPrivateIpv4(nat64Ipv4);
+  }
+
   const first = words[0] ?? 0;
   const second = words[1] ?? 0;
   const third = words[2] ?? 0;
@@ -906,12 +912,41 @@ function isPrivateIpv6(address: string) {
     (first & 0xffc0) === 0xfe80 ||
     (first & 0xfe00) === 0xfc00 ||
     (first & 0xe000) !== 0x2000 ||
-    (first === 0x2001 && second === 0x0000) ||
+    isNonGlobalIetfProtocolAssignment(words) ||
     (first === 0x2001 && second === 0x0002 && third === 0x0000) ||
     (first === 0x2001 && (second & 0xfff0) === 0x0010) ||
-    (first === 0x2001 && (second & 0xfff0) === 0x0020) ||
     (first === 0x2001 && second === 0x0db8) ||
+    (first === 0x3fff && (second & 0xf000) === 0x0000) ||
     first === 0x2002
+  );
+}
+
+function isNonGlobalIetfProtocolAssignment(words: number[]) {
+  const first = words[0] ?? 0;
+  const second = words[1] ?? 0;
+  if (first !== 0x2001 || (second & 0xfe00) !== 0x0000) {
+    return false;
+  }
+
+  return !isGloballyReachableIetfProtocolAssignment(words);
+}
+
+function isGloballyReachableIetfProtocolAssignment(words: number[]) {
+  const second = words[1] ?? 0;
+  const third = words[2] ?? 0;
+  const fourth = words[3] ?? 0;
+  const restAfterFourth = words.slice(4);
+
+  return (
+    (second === 0x0001 &&
+      third === 0 &&
+      fourth === 0 &&
+      restAfterFourth.slice(0, 3).every((word) => word === 0) &&
+      [1, 2, 3].includes(words[7] ?? 0)) ||
+    second === 0x0003 ||
+    (second === 0x0004 && third === 0x0112) ||
+    (second & 0xfff0) === 0x0020 ||
+    (second & 0xfff0) === 0x0030
   );
 }
 
@@ -1003,6 +1038,26 @@ function ipv4FromMappedIpv6(words: number[]) {
     words.length === 8 &&
     words.slice(0, 5).every((word) => word === 0) &&
     words[5] === 0xffff
+  ) {
+    const high = words[6] ?? 0;
+    const low = words[7] ?? 0;
+    return [
+      high >> 8,
+      high & 0xff,
+      low >> 8,
+      low & 0xff,
+    ].join(".");
+  }
+
+  return null;
+}
+
+function ipv4FromNat64WellKnownPrefix(words: number[]) {
+  if (
+    words.length === 8 &&
+    words[0] === 0x0064 &&
+    words[1] === 0xff9b &&
+    words.slice(2, 6).every((word) => word === 0)
   ) {
     const high = words[6] ?? 0;
     const low = words[7] ?? 0;

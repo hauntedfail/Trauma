@@ -187,17 +187,37 @@ describe("URL importer", () => {
     await expect(validateImportUrl("http://192.0.2.1/")).rejects.toThrow(
       /public HTTP/,
     );
+    await expect(validateImportUrl("http://192.88.99.2/")).rejects.toThrow(
+      /public HTTP/,
+    );
     await expect(validateImportUrl("http://[2001:2::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
+    await expect(validateImportUrl("http://[2001:1::4]/")).rejects.toThrow(
       /public HTTP/,
     );
     await expect(validateImportUrl("http://[2001:10::1]/")).rejects.toThrow(
       /public HTTP/,
     );
+    await expect(validateImportUrl("http://[3fff::1]/")).rejects.toThrow(
+      /public HTTP/,
+    );
     await expect(validateImportUrl("http://[2002::1]/")).rejects.toThrow(
       /public HTTP/,
     );
+    await expect(
+      validateImportUrl("http://[64:ff9b::10.0.0.1]/"),
+    ).rejects.toThrow(/public HTTP/);
     await expect(validateImportUrl("http://192.0.3.1/")).resolves.toBe(
       "http://192.0.3.1/",
+    );
+    await expect(validateImportUrl("http://[64:ff9b::93.184.216.34]/")).resolves
+      .toBe("http://[64:ff9b::5db8:d822]/");
+    await expect(validateImportUrl("http://[2001:1::1]/")).resolves.toBe(
+      "http://[2001:1::1]/",
+    );
+    await expect(validateImportUrl("http://[2001:20::1]/")).resolves.toBe(
+      "http://[2001:20::1]/",
     );
     await expect(validateImportUrl("http://[2001:4860:4860::8888]/")).resolves
       .toBe("http://[2001:4860:4860::8888]/");
@@ -225,6 +245,7 @@ describe("URL importer", () => {
                 <p>This article has enough readable body text to pass extraction and exercise markdown URL handling.</p>
                 <p><a href="javascript://example.com/%0aalert(1)">unsafe link</a></p>
                 <p><a href="/redirect?next=)">reader link</a></p>
+                <p><a href="/redirect?next=(">opening paren link</a></p>
                 <p><a href="/search?q=a&amp;page=2">decoded query link</a></p>
                 <p><a href="/search?q=a&#38;page=3">decimal entity query link</a></p>
                 <p><a href="/search?q=a&#x26;page=4">hex entity query link</a></p>
@@ -249,6 +270,9 @@ describe("URL importer", () => {
     expect(result.markdown).not.toContain("javascript:");
     expect(result.markdown).toContain(
       "[reader link](https://example.com/redirect?next=\\))",
+    );
+    expect(result.markdown).toContain(
+      "[opening paren link](https://example.com/redirect?next=\\()",
     );
     expect(result.markdown).toContain(
       "[decoded query link](https://example.com/search?q=a&page=2)",
