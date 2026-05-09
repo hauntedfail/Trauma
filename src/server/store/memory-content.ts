@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 
+import {
+  EXTRACTION_STATUSES,
+  isExtractionStatus,
+  type ExtractionStatus,
+} from "../memory-status";
+
 export const MEMORY_CONTENT_FILENAME = "CONTENT.md";
 
 const UUID_V7_PATTERN =
@@ -27,7 +33,7 @@ export interface MemoryContentFrontmatter {
   url: string;
   title: string;
   capturedAt: string;
-  extractionStatus: string;
+  extractionStatus: ExtractionStatus;
 }
 
 export interface ResolvedMemoryContentPath {
@@ -169,8 +175,8 @@ export async function readMemoryContent(
   const { frontmatter, markdown } = parseMemoryContentFixture(
     content,
     resolvedPath.relativePath,
+    input.memoryId,
   );
-  validateFrontmatter(frontmatter, input.memoryId, resolvedPath.relativePath);
 
   return {
     ...resolvedPath,
@@ -182,6 +188,7 @@ export async function readMemoryContent(
 function parseMemoryContentFixture(
   content: string,
   relativePath: string,
+  expectedMemoryId: string,
 ): { frontmatter: MemoryContentFrontmatter; markdown: string } {
   const readableContent = stripLeadingBom(content);
   const openingSeparator = /^---(?:\r?\n)/.exec(readableContent);
@@ -201,16 +208,16 @@ function parseMemoryContentFixture(
   );
   const serialized = parseSerializedFrontmatter(rawFrontmatter, relativePath);
 
-  return {
-    frontmatter: {
-      id: serialized.id,
-      url: serialized.url,
-      title: serialized.title,
-      capturedAt: serialized.captured_at,
-      extractionStatus: serialized.extraction_status,
-    },
-    markdown,
+  const frontmatter = {
+    id: serialized.id,
+    url: serialized.url,
+    title: serialized.title,
+    capturedAt: serialized.captured_at,
+    extractionStatus: serialized.extraction_status,
   };
+  validateFrontmatter(frontmatter, expectedMemoryId, relativePath);
+
+  return { frontmatter, markdown };
 }
 
 function parseSerializedFrontmatter(
@@ -274,16 +281,22 @@ function parseSerializedFrontmatter(
 }
 
 function validateFrontmatter(
-  frontmatter: MemoryContentFrontmatter,
+  frontmatter: {
+    id: string;
+    url: string;
+    title: string;
+    capturedAt: string;
+    extractionStatus: string;
+  },
   expectedMemoryId: string,
   relativePath = "CONTENT.md",
-) {
-  const entries: Array<[keyof MemoryContentFrontmatter, string]> = [
+): asserts frontmatter is MemoryContentFrontmatter {
+  const entries: Array<[string, string]> = [
     ["id", frontmatter.id],
     ["url", frontmatter.url],
     ["title", frontmatter.title],
-    ["capturedAt", frontmatter.capturedAt],
-    ["extractionStatus", frontmatter.extractionStatus],
+    ["captured_at", frontmatter.capturedAt],
+    ["extraction_status", frontmatter.extractionStatus],
   ];
 
   for (const [key, value] of entries) {
@@ -299,6 +312,13 @@ function validateFrontmatter(
     throw malformedFrontmatter(
       relativePath,
       `frontmatter id ${frontmatter.id} does not match memoryId ${expectedMemoryId}`,
+    );
+  }
+
+  if (!isExtractionStatus(frontmatter.extractionStatus)) {
+    throw malformedFrontmatter(
+      relativePath,
+      `extraction_status must be one of ${EXTRACTION_STATUSES.join(", ")}`,
     );
   }
 }
