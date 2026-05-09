@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const DEFAULT_MIGRATIONS_FOLDER = resolve(
   "../../..",
   "drizzle",
 );
+const CWD_MIGRATIONS_FOLDER = resolve(process.cwd(), "drizzle");
 
 type BunDatabaseConstructor = typeof import("bun:sqlite").Database;
 
@@ -82,10 +83,16 @@ function createDrizzleDatabase(sqlite: BunDatabase) {
 
 function applyMigrations(
   db: BunSQLiteDatabase<typeof schema>,
-  migrationsFolder = DEFAULT_MIGRATIONS_FOLDER,
+  migrationsFolder = defaultMigrationsFolder(),
 ) {
   const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
   migrate(db, { migrationsFolder });
+}
+
+function defaultMigrationsFolder() {
+  return existsSync(DEFAULT_MIGRATIONS_FOLDER)
+    ? DEFAULT_MIGRATIONS_FOLDER
+    : CWD_MIGRATIONS_FOLDER;
 }
 
 function formatUnknownError(error: unknown) {
