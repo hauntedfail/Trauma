@@ -35,10 +35,11 @@ export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
 function createMarkdownIt(toc: ReaderTocEntry[]) {
   return new MarkdownIt({
     html: true,
-    linkify: false,
+    linkify: true,
     typographer: false,
     highlight: (code, language) => highlightCode(code, language),
   })
+    .use(taskListPlugin)
     .use(footnote)
     .use(anchor, {
       level: [1, 2, 3],
@@ -83,6 +84,7 @@ function sanitizeReaderHtml(html: string) {
       "hr",
       "iframe",
       "img",
+      "input",
       "li",
       "mark",
       "ol",
@@ -121,6 +123,7 @@ function sanitizeReaderHtml(html: string) {
         "title",
       ],
       img: ["alt", "height", "loading", "src", "title", "width"],
+      input: ["checked", "class", "disabled", "type"],
       li: ["class", "id"],
       mark: ["data-highlight-id"],
       ol: ["class"],
@@ -135,9 +138,11 @@ function sanitizeReaderHtml(html: string) {
     allowedClasses: {
       "*": [/^hljs(?:-[a-z0-9-]+)?$/, /^language-[a-z0-9-]+$/],
       a: ["footnote-backref"],
-      li: ["footnote-item"],
-      ol: ["footnotes-list"],
+      input: ["task-list-item-checkbox"],
+      li: ["footnote-item", "task-list-item"],
+      ol: ["contains-task-list", "footnotes-list"],
       sup: ["footnote-ref"],
+      ul: ["contains-task-list"],
     },
     allowedIframeHostnames: [...ALLOWED_IFRAME_HOSTNAMES],
     allowedSchemes: ["http", "https", "mailto"],
@@ -146,13 +151,75 @@ function sanitizeReaderHtml(html: string) {
     },
     allowProtocolRelative: false,
     exclusiveFilter: (frame) =>
-      frame.tag === "iframe" && !isAllowedIframeSource(frame.attribs.src),
+      (frame.tag === "iframe" && !isAllowedIframeSource(frame.attribs.src)) ||
+      (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: sanitizeAnchor,
       iframe: sanitizeIframe,
       img: sanitizeImage,
+      input: sanitizeTaskCheckbox,
     },
   });
+}
+
+function taskListPlugin(md: MarkdownIt) {
+  md.core.ruler.after("inline", "reader_task_lists", (state) => {
+    for (let index = 0; index < state.tokens.length; index += 1) {
+      const token = state.tokens[index];
+      if (token === undefined || token.type !== "inline" || token.children === null) {
+        continue;
+      }
+
+      const firstChild = token.children[0];
+      const match = firstChild?.type === "text"
+        ? /^\[([ xX])\]\s+/.exec(firstChild.content)
+        : null;
+      const taskState = match?.[1];
+      if (match === null || firstChild === undefined || taskState === undefined) {
+        continue;
+      }
+
+      const listItem = findOpenToken(state.tokens, index, "list_item_open");
+      if (listItem === undefined) {
+        continue;
+      }
+
+      const list = findOpenToken(state.tokens, index, "bullet_list_open")
+        ?? findOpenToken(state.tokens, index, "ordered_list_open");
+      list?.attrJoin("class", "contains-task-list");
+      listItem.attrJoin("class", "task-list-item");
+      firstChild.content = firstChild.content.slice(match[0].length);
+
+      const checkbox = new state.Token("html_inline", "", 0);
+      checkbox.content = `<input class="task-list-item-checkbox" type="checkbox" disabled${taskState.toLowerCase() === "x" ? " checked" : ""}> `;
+      token.children.unshift(checkbox);
+    }
+  });
+}
+
+type MarkdownToken = ReturnType<MarkdownIt["parse"]>[number];
+
+function findOpenToken(
+  tokens: MarkdownToken[],
+  startIndex: number,
+  tokenType: string,
+) {
+  for (let index = startIndex - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (token === undefined) {
+      continue;
+    }
+
+    if (token.type === tokenType) {
+      return token;
+    }
+
+    if (token.type === `${tokenType.replace("_open", "")}_close`) {
+      return undefined;
+    }
+  }
+
+  return undefined;
 }
 
 function sanitizeAnchor(_tagName: string, attribs: sanitizeHtml.Attributes) {
@@ -185,6 +252,18 @@ function sanitizeImage(_tagName: string, attribs: sanitizeHtml.Attributes) {
     attribs: {
       ...attribs,
       loading: attribs.loading ?? "lazy",
+    },
+  };
+}
+
+function sanitizeTaskCheckbox(_tagName: string, attribs: sanitizeHtml.Attributes) {
+  return {
+    tagName: "input",
+    attribs: {
+      class: "task-list-item-checkbox",
+      type: "checkbox",
+      disabled: "disabled",
+      ...(attribs.checked !== undefined ? { checked: "checked" } : {}),
     },
   };
 }

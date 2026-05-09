@@ -7,10 +7,12 @@ describe("renderMemoryMarkdown", () => {
     const result = renderMemoryMarkdown([
       "# Reader Title",
       "",
-      "Intro with [a link](https://example.com) and ~~old text~~.",
+      "Intro with [a link](https://example.com), https://example.org, and ~~old text~~.",
       "",
       "## Details",
       "",
+      "- [x] saved",
+      "- [ ] queued",
       "- first",
       "- second",
       "",
@@ -33,7 +35,11 @@ describe("renderMemoryMarkdown", () => {
     ]);
     expect(result.html).toContain('<h1 id="reader-title"');
     expect(result.html).toContain('<a href="https://example.com"');
+    expect(result.html).toContain('<a href="https://example.org"');
     expect(result.html).toContain("<s>old text</s>");
+    expect(result.html).toContain('class="task-list-item-checkbox"');
+    expect(result.html).toContain('type="checkbox"');
+    expect(result.html).toContain('checked="checked"');
     expect(result.html).toContain("<table>");
     expect(result.html).toContain('<code class="hljs language-ts">');
     expect(result.html).toContain("footnote-ref");

@@ -1,3 +1,5 @@
+import { Show } from "solid-js";
+
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 
@@ -5,34 +7,55 @@ interface MemoryReaderProps {
   result: ReaderMemoryResult;
 }
 
+type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
+
 export function MemoryReader(props: MemoryReaderProps) {
-  if (props.result.status !== "ready") {
-    return (
-      <section class="reader-page" aria-labelledby="reader-state-title">
-        <div class="reader-state">
-          <h1 id="reader-state-title">{props.result.message}</h1>
-          <p>Open another memory from the archive.</p>
-        </div>
-      </section>
-    );
-  }
+  const readyResult = () =>
+    props.result.status === "ready" ? props.result : undefined;
+  const stateMessage = () =>
+    props.result.status === "ready" ? "" : props.result.message;
 
-  const result = props.result;
+  return (
+    <Show
+      when={readyResult()}
+      fallback={<ReaderState message={stateMessage()} />}
+    >
+      {(result) => <ReadyMemoryReader result={result()} />}
+    </Show>
+  );
+}
 
+function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   return (
     <article class="reader-page" aria-labelledby="reader-title">
       <header class="reader-header">
         <p class="eyebrow">Reader mode</p>
-        <h1 id="reader-title">{result.memory.title}</h1>
-        <a class="reader-source" href={result.memory.url} rel="noreferrer" target="_blank">
-          {result.memory.url}
+        <h1 id="reader-title">{props.result.memory.title}</h1>
+        <a
+          class="reader-source"
+          href={props.result.memory.url}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {props.result.memory.url}
         </a>
       </header>
       <div class="reader-layout">
-        <ReaderToc toc={result.rendered.toc} />
-        <div class="reader-content" innerHTML={result.rendered.html} />
+        <ReaderToc toc={props.result.rendered.toc} />
+        <div class="reader-content" innerHTML={props.result.rendered.html} />
       </div>
     </article>
+  );
+}
+
+function ReaderState(props: { message: string }) {
+  return (
+    <section class="reader-page" aria-labelledby="reader-state-title">
+      <div class="reader-state">
+        <h1 id="reader-state-title">{props.message}</h1>
+        <p>Open another memory from the archive.</p>
+      </div>
+    </section>
   );
 }
 

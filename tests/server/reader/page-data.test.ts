@@ -24,7 +24,10 @@ describe("loadReaderMemory", () => {
     expect(result.status).toBe("ready");
     expect(result.memory.title).toBe("Fixture Reader");
     expect(result.memory.url).toBe("https://example.com/reader");
-    expect(result.content.markdown).toContain("saved");
+    expect(result.content).toEqual({
+      relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
+    });
+    expect("markdown" in result.content).toBe(false);
     expect(result.rendered.toc).toEqual([
       { id: "fixture-reader", level: 1, text: "Fixture Reader" },
     ]);
@@ -54,6 +57,29 @@ describe("loadReaderMemory", () => {
     expect(result).toEqual({
       status: "content_missing",
       message: "Readable content is missing for this memory.",
+    });
+  });
+
+  it("returns a user-readable unavailable state when the default config cannot load", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-reader-"));
+    tempDirs.push(root);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { loadReaderMemory } from "./src/server/reader/page-data.ts";
+
+        process.env.TRAUMA_CONFIG_PATH = join(process.env.TRAUMA_TEST_ROOT, "missing.config.json");
+        const result = await loadReaderMemory("${MEMORY_ID}");
+        process.stdout.write(JSON.stringify(result));
+      `,
+      {
+        TRAUMA_TEST_ROOT: root,
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      status: "unavailable",
+      message: "Reader content is unavailable.",
     });
   });
 });

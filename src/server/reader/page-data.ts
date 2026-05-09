@@ -18,7 +18,6 @@ export type ReaderMemoryResult =
       status: "ready";
       memory: ReaderMemory;
       content: {
-        markdown: string;
         relativePath: string;
       };
       rendered: RenderedMemoryMarkdown;
@@ -48,10 +47,10 @@ export async function loadReaderMemory(
   memoryId: string,
   options: LoadReaderMemoryOptions = {},
 ): Promise<ReaderMemoryResult> {
-  const config = options.config ?? loadReaderConfig();
   let connection: ReturnType<typeof initializeDatabase> | undefined;
 
   try {
+    const config = options.config ?? loadReaderConfig();
     connection = initializeDatabase(config);
     const memory = await connection.repositories.memories.findById(memoryId);
     if (memory === undefined) {
@@ -66,7 +65,6 @@ export async function loadReaderMemory(
       status: "ready",
       memory: toReaderMemory(memory),
       content: {
-        markdown: content.markdown,
         relativePath: content.relativePath,
       },
       rendered: renderMemoryMarkdown(content.markdown),
