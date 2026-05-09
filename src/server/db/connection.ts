@@ -45,20 +45,30 @@ export function initializeDatabase(
 
   const Database = loadDatabaseConstructor();
   const sqlite = new Database(config.databasePath, { create: true });
-  sqlite.exec("PRAGMA foreign_keys = ON;");
-  sqlite.exec("PRAGMA journal_mode = WAL;");
+  try {
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    sqlite.exec("PRAGMA journal_mode = WAL;");
 
-  const db = createDrizzleDatabase(sqlite);
-  if (options.runMigrations !== false) {
-    applyMigrations(db, options.migrationsFolder);
+    const db = createDrizzleDatabase(sqlite);
+    if (options.runMigrations !== false) {
+      applyMigrations(db, options.migrationsFolder);
+    }
+
+    return {
+      sqlite,
+      db,
+      repositories: createRepositories(db),
+      close: () => sqlite.close(),
+    };
+  } catch (error) {
+    try {
+      sqlite.close();
+    } catch {
+      // Preserve the original initialization error.
+    }
+
+    throw error;
   }
-
-  return {
-    sqlite,
-    db,
-    repositories: createRepositories(db),
-    close: () => sqlite.close(),
-  };
 }
 
 function loadDatabaseConstructor() {

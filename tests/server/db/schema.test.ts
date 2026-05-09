@@ -202,6 +202,67 @@ describe("db foundation", () => {
       rejected: true,
     });
   });
+
+  it("closes the SQLite handle when initialization fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          let closeCalls = 0;
+          const originalClose = Database.prototype.close;
+          Database.prototype.close = function close(...args) {
+            closeCalls += 1;
+            return originalClose.apply(this, args);
+          };
+
+          try {
+            initializeDatabase(
+              {
+                configFilePath: join(root, "trauma.config.json"),
+                projectPath: join(root, "data"),
+                storePath: join(root, "data/store"),
+                databasePath: join(root, ".trauma/trauma.sqlite"),
+                backup: {
+                  git: {
+                    enabled: true,
+                    remote: "origin",
+                    branch: "main",
+                    push: false,
+                    commitMessageTemplate: "backup memory {memoryId}",
+                  },
+                },
+              },
+              { migrationsFolder: join(root, "missing-migrations") },
+            );
+            console.log(JSON.stringify({ failed: false, closeCalls }));
+          } catch {
+            console.log(JSON.stringify({ failed: true, closeCalls }));
+          } finally {
+            Database.prototype.close = originalClose;
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      failed: true,
+      closeCalls: 1,
+    });
+  });
 });
 
 function runBunScript(script: string, options: { cwd: string; env: NodeJS.ProcessEnv }) {
