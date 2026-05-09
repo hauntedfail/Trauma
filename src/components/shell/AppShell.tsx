@@ -4,6 +4,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { getBrowseMemories } from "../memories/browse-loader";
 import {
   buildBrowseHref,
+  buildHighlightBrowseHref,
   getBrowseCategories,
   getBrowseTags,
   getRecentHighlights,
@@ -22,6 +23,7 @@ export function AppShell(props: AppShellProps) {
   const navigate = useNavigate();
   const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
+  const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const memories = createAsync(() => getBrowseMemories());
   const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
@@ -34,9 +36,21 @@ export function AppShell(props: AppShellProps) {
     setIsFiltersOpen(false);
   };
 
+  const goToHighlight = (highlightId: string) => {
+    navigate(buildHighlightBrowseHref(highlightId));
+    setIsFiltersOpen(false);
+  };
+
   const toggleFilter = (key: "category" | "tag" | "highlight", value: string) => {
     const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
     goToFilter(patch);
+  };
+
+  const closeNavigation = () => setIsNavigationOpen(false);
+
+  const openComposer = () => {
+    setIsNavigationOpen(false);
+    setIsComposerOpen(true);
   };
 
   return (
@@ -46,7 +60,7 @@ export function AppShell(props: AppShellProps) {
         onOpenFilters={() => setIsFiltersOpen(true)}
       />
       <aside class="left-nav" aria-label="Primary navigation">
-        <NavigationContent />
+        <NavigationContent onOpenComposer={openComposer} />
       </aside>
       <main class="content-shell">
         {props.children}
@@ -60,14 +74,14 @@ export function AppShell(props: AppShellProps) {
           highlights={highlights()}
           idPrefix="desktop"
           onSelectCategory={(category) => toggleFilter("category", category.id)}
-          onSelectHighlight={(highlight) => toggleFilter("highlight", highlight.id)}
+          onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
           onSelectTag={(tag) => toggleFilter("tag", tag.id)}
           tags={tags()}
         />
       </aside>
       <Show when={isNavigationOpen()}>
         <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
-          <NavigationContent />
+          <NavigationContent onNavigate={closeNavigation} onOpenComposer={openComposer} />
         </Drawer>
       </Show>
       <Show when={isFiltersOpen()}>
@@ -80,10 +94,15 @@ export function AppShell(props: AppShellProps) {
             highlights={highlights()}
             idPrefix="drawer"
             onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectHighlight={(highlight) => toggleFilter("highlight", highlight.id)}
+            onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
             tags={tags()}
           />
+        </Drawer>
+      </Show>
+      <Show when={isComposerOpen()}>
+        <Drawer ariaLabel="Add memory" onClose={() => setIsComposerOpen(false)}>
+          <GlobalAddMemoryComposer />
         </Drawer>
       </Show>
     </div>
@@ -106,20 +125,39 @@ function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () =
   );
 }
 
-function NavigationContent() {
+function NavigationContent(props: { onNavigate?: () => void; onOpenComposer: () => void }) {
   return (
     <div class="navigation-content">
-      <A class="brand" href="/memories">
+      <A class="brand" href="/memories" onClick={props.onNavigate}>
         Trauma
       </A>
       <nav class="nav-links">
-        <A href="/memories">Memories</A>
-        <A href="/highlights">Highlights</A>
+        <A href="/memories" onClick={props.onNavigate}>
+          Memories
+        </A>
+        <A href="/highlights" onClick={props.onNavigate}>
+          Highlights
+        </A>
       </nav>
-      <button class="add-memory" type="button" disabled>
+      <button class="add-memory" type="button" onClick={props.onOpenComposer}>
         Add memory
       </button>
     </div>
+  );
+}
+
+function GlobalAddMemoryComposer() {
+  return (
+    <form class="global-composer" aria-label="Add memory">
+      <h2>Add memory</h2>
+      <label>
+        <span>URL</span>
+        <input type="url" placeholder="https://example.com/article" />
+      </label>
+      <button type="button" disabled>
+        Save memory
+      </button>
+    </form>
   );
 }
 

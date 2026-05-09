@@ -31,10 +31,6 @@ function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
   return row;
 }
 
-function canRenderEmptyBrowse(error: unknown) {
-  if (error instanceof TraumaConfigError && error.message.startsWith("Missing trauma config")) {
-    return true;
-  }
-
-  return error instanceof Error && error.message.startsWith("Bun SQLite runtime is required");
+export function canRenderEmptyBrowse(error: unknown) {
+  return error instanceof TraumaConfigError && error.message.startsWith("Missing trauma config");
 }

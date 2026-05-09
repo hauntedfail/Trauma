@@ -24,7 +24,9 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   await expect(page).toHaveURL(/tag=solidstart/);
 
   await page.getByRole("button", { name: /highlight-aware results/i }).click();
-  await expect(page).toHaveURL(/highlight=h-foundation/);
+  await expect(page).toHaveURL(/\/memories\?highlight=h-foundation$/);
+  await expect(page).not.toHaveURL(/category=research/);
+  await expect(page).not.toHaveURL(/tag=solidstart/);
 
   const viewModeGroup = page.getByRole("group", { name: "View mode" });
   await expect(viewModeGroup).toBeVisible();
@@ -62,9 +64,11 @@ test("uses drawer controls for navigation and filters on narrow viewports", asyn
 
   await page.getByRole("button", { name: "Open navigation" }).click();
   await expect(page.getByRole("dialog", { name: "Navigation" })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Navigation" }).getByRole("link", { name: "Memories" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Navigation" }).getByRole("button", { name: "Close" }).click();
+  await page.getByRole("dialog", { name: "Navigation" }).getByRole("link", { name: "Highlights" }).click();
+  await expect(page).toHaveURL(/\/highlights$/);
+  await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
 
+  await page.goto("/memories");
   await page.getByRole("button", { name: "Open filters" }).click();
   await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
   await expect(
@@ -111,4 +115,18 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
   await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
   await expect(page.locator("mark#h-foundation", { hasText: "highlight-aware results" })).toBeVisible();
+});
+
+test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
+  await page.goto("/highlights");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Add memory" }).getByRole("button", { name: "Close" }).click();
+
+  await page.goto("/memories/memory-foundation");
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
 });

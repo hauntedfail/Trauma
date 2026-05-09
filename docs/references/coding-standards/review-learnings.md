@@ -12,7 +12,7 @@ historical notes.
 | #2 | Markdown store | Atomic writes, temp-file uniqueness, CRLF/BOM/frontmatter parsing edge cases |
 | #3 | Coding standards refactor | Duplicated key lists, local replacement for upstream Bun SQLite types |
 | #4 | Markdown status contract | Serialized field naming, duplicated validation, drift between shared status constants and SQL constraints |
-| #7 | Browse shell and filters | Production fixture leakage, missing route targets, query filter edge cases, responsive drawer reachability, highlight anchor drift |
+| #7 | Browse shell and filters | Production fixture leakage, missing route targets, query filter edge cases, responsive drawer reachability, highlight anchor drift, hidden global composer, swallowed runtime adapter failures |
 
 ## Recurring Patterns
 
@@ -26,9 +26,11 @@ historical notes.
 | Error surface mismatch | Errors used internal TypeScript field names or collapsed distinct failure classes. | User-facing and artifact-facing errors MUST name serialized fields and preserve the relevant failure class. |
 | Review fixes without durable guardrails | Several valid review points required follow-up tests or central constants. | Accepted review fixes MUST add focused regression coverage or centralize the contract so the same mistake is hard to repeat. |
 | Fixture leakage into production UI | Browse shell data initially rendered deterministic example memories for every self-hosted instance. | Route and shell UI MUST load production state from repository/server boundaries; fixtures MUST be test-only or gated by an explicit test/runtime flag. |
+| Fatal runtime failures rendered as empty state | Missing Bun SQLite runtime errors were initially collapsed into an empty browse result. | Empty states MUST represent valid empty product data, not failed required runtime adapters or broken storage initialization. |
 | Navigation without implemented targets | Shell links and browse actions pointed at routes or anchors that did not exist yet. | Visible navigation, action links, and deep links MUST resolve to implemented routes and concrete anchor targets, even when the target is a scoped placeholder. |
-| Filter state drift | Browse query parsing, clearing, and highlight shortcut ordering had different assumptions across UI and data helpers. | Query-backed filters MUST parse and normalize every supported parameter consistently, support clearing one active filter without resetting unrelated state, and sort recency shortcuts by the recency field they claim to represent before limiting. |
-| Responsive controls lost across breakpoints | The right filter panel could be hidden before the drawer trigger became visible, and duplicate drawer/panel IDs created ambiguous labels. | Responsive shell breakpoints MUST preserve access to every collapsed workflow, and concurrently mounted desktop/drawer UI MUST use distinct IDs for labels and controls. |
+| Filter state drift | Browse query parsing, clearing, highlight shortcut ordering, and right-panel shortcut semantics had different assumptions across UI and data helpers. | Query-backed filters MUST parse and normalize every supported parameter consistently, support clearing one active filter without resetting unrelated state, apply shortcut-specific canonical URL contracts, and sort recency shortcuts by the recency field they claim to represent before limiting. |
+| Responsive controls lost across breakpoints | The right filter panel could be hidden before the drawer trigger became visible, duplicate drawer/panel IDs created ambiguous labels, and drawer navigation could remain mounted after route selection. | Responsive shell breakpoints MUST preserve access to every collapsed workflow, concurrently mounted desktop/drawer UI MUST use distinct IDs for labels and controls, and drawer route selections MUST close the transient drawer state. |
+| Global actions hidden in route-local UI | The add-memory composer existed only on the browse route while shell routes introduced by the task could not reach it. | Foundation-global actions MUST live in the shared shell or another route-independent surface, not only in a page-local panel. |
 | Weak layout assertions | A Playwright dimension comparison could pass when both measured boxes were `null`. | Layout-sensitive Playwright tests MUST assert the target is visible and measured values are non-null before comparing dimensions. |
 
 ## Persistent Rules

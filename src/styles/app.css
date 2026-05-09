@@ -196,6 +196,7 @@ h1 {
 }
 
 .composer-baseline input,
+.global-composer input,
 .search-row input {
   min-width: 0;
   min-height: 42px;
@@ -220,6 +221,36 @@ h1 {
   color: #4e5a48;
   font-size: 13px;
   font-weight: 800;
+}
+
+.global-composer {
+  display: grid;
+  gap: 14px;
+}
+
+.global-composer h2 {
+  margin-bottom: 0;
+  font-size: 22px;
+}
+
+.global-composer label {
+  display: grid;
+  gap: 8px;
+}
+
+.global-composer span {
+  color: #4e5a48;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.global-composer button {
+  min-height: 38px;
+  border: 1px solid #b8c4b1;
+  border-radius: 8px;
+  background: #1e3a2f;
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .memory-list,
@@ -377,7 +408,7 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 20;
-  display: none;
+  display: block;
   background: rgb(17 24 39 / 46%);
 }
 

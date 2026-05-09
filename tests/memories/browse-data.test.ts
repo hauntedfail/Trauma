@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBrowseHref,
+  buildHighlightBrowseHref,
   filterBrowseMemories,
   getMemoryDisplayHighlight,
   getMemoryReaderHighlights,
@@ -81,6 +82,10 @@ describe("browse query state", () => {
     );
 
     expect(href).toBe("/memories?q=reader+mode&category=research&tag=solidstart&view=grid");
+  });
+
+  it("builds canonical highlight shortcut hrefs without incompatible taxonomy filters", () => {
+    expect(buildHighlightBrowseHref("h-foundation")).toBe("/memories?highlight=h-foundation");
   });
 
   it("filters memory metadata and highlight context without full body search", () => {

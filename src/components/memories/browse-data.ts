@@ -77,6 +77,10 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   return queryString.length > 0 ? `/memories?${queryString}` : "/memories";
 }
 
+export function buildHighlightBrowseHref(highlightId: string): string {
+  return buildBrowseHref(defaultBrowseQuery, { highlight: highlightId });
+}
+
 export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuery): BrowseMemory[] {
   const normalizedSearch = normalize(query.q);
 
