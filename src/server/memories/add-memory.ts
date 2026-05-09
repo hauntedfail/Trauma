@@ -1,0 +1,77 @@
+import type { ResolvedTraumaConfig } from "../config";
+import type { MemoryBackupQueue } from "../backup";
+import { importUrl, type ImporterResult } from "../importer";
+import type { TraumaDatabase } from "../db";
+import { writeMemoryContent } from "../store/memory-content";
+import { generateMemoryId } from "./id";
+import { createRepositories } from "../db/repositories";
+
+export interface MemoryImporter {
+  importUrl: (input: { url: string }) => Promise<ImporterResult>;
+}
+
+export interface AddMemoryInput {
+  url: string;
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  importer?: MemoryImporter;
+  backupQueue: MemoryBackupQueue;
+  generateId?: () => string;
+  now?: () => Date;
+}
+
+export async function addMemory(input: AddMemoryInput) {
+  const id = (input.generateId ?? generateMemoryId)();
+  const capturedAt = (input.now ?? (() => new Date()))();
+  const importer = input.importer ?? { importUrl };
+  const imported = await importer.importUrl({ url: input.url });
+  const markdown =
+    imported.status === "success"
+      ? imported.markdown
+      : `[${imported.url}](${imported.url})`;
+  const written = await writeMemoryContent({
+    config: { storePath: input.config.storePath },
+    memoryId: id,
+    frontmatter: {
+      id,
+      url: imported.url,
+      title: imported.title,
+      capturedAt: capturedAt.toISOString(),
+      extractionStatus: imported.status,
+    },
+    markdown,
+  });
+  const repositories = createRepositories(input.db);
+  const backupStatus = input.config.backup.git.enabled ? "queued" : "disabled";
+
+  await repositories.memories.create({
+    id,
+    url: imported.url,
+    title: imported.title,
+    description: imported.status === "success" ? imported.description : null,
+    faviconUrl: imported.status === "success" ? imported.faviconUrl : null,
+    contentPath: written.relativePath,
+    extractionStatus: imported.status,
+    extractionError:
+      imported.status === "link_only" ? imported.extractionError : null,
+    backupStatus,
+    lastBackupAt: null,
+    lastBackupError: null,
+    createdAt: capturedAt,
+    updatedAt: capturedAt,
+  });
+
+  if (input.config.backup.git.enabled) {
+    await input.backupQueue.enqueue({
+      memoryId: id,
+      contentPath: written.relativePath,
+    });
+  }
+
+  const memory = await repositories.memories.findById(id);
+  if (!memory) {
+    throw new Error(`created memory ${id} was not found`);
+  }
+
+  return memory;
+}
