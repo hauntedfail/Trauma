@@ -31,69 +31,6 @@ export interface BrowseQuery {
   view: BrowseView;
 }
 
-export const browseMemories: BrowseMemory[] = [
-  {
-    id: "memory-foundation",
-    title: "Reader Mode Notes",
-    url: "https://example.com/reader-mode",
-    description: "SolidStart route data and shell architecture notes for the canonical reader.",
-    capturedAt: "2026-05-09",
-    categories: [{ id: "research", name: "Research" }],
-    tags: [
-      { id: "solidstart", name: "solidstart" },
-      { id: "reader", name: "reader" },
-    ],
-    highlights: [
-      {
-        id: "h-foundation",
-        text: "highlight-aware results",
-        prefix: "Search query can be wired to",
-        suffix: "through repository fixtures.",
-      },
-    ],
-  },
-  {
-    id: "memory-ops",
-    title: "Local Hosting Checklist",
-    url: "https://example.com/local-hosting",
-    description: "Single Bun process and persistent disk assumptions for self-hosted operation.",
-    capturedAt: "2026-05-08",
-    categories: [{ id: "operations", name: "Operations" }],
-    tags: [
-      { id: "sqlite", name: "sqlite" },
-      { id: "backup", name: "backup" },
-    ],
-    highlights: [
-      {
-        id: "h-ops",
-        text: "persistent disk assumptions",
-        prefix: "The app keeps deployment simple with",
-        suffix: "and a markdown store.",
-      },
-    ],
-  },
-  {
-    id: "memory-design",
-    title: "Browse Shell Sketch",
-    url: "https://example.com/browse-shell",
-    description: "X-like layout notes for navigation, filters, and dense memory browsing.",
-    capturedAt: "2026-05-07",
-    categories: [{ id: "product", name: "Product" }],
-    tags: [
-      { id: "shell", name: "shell" },
-      { id: "filters", name: "filters" },
-    ],
-    highlights: [
-      {
-        id: "h-shell",
-        text: "right filter panel updates URL state",
-        prefix: "The canonical browse workflow requires that the",
-        suffix: "without page-local navigation.",
-      },
-    ],
-  },
-];
-
 export const defaultBrowseQuery: BrowseQuery = {
   q: "",
   category: "",
@@ -108,9 +45,9 @@ export function parseBrowseQuery(search: string): BrowseQuery {
 
   return {
     q: params.get("q")?.trim() ?? "",
-    category: params.get("category") ?? "",
-    tag: params.get("tag") ?? "",
-    highlight: params.get("highlight") ?? "",
+    category: params.get("category")?.trim() ?? "",
+    tag: params.get("tag")?.trim() ?? "",
+    highlight: params.get("highlight")?.trim() ?? "",
     view,
   };
 }
@@ -123,9 +60,9 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   const params = new URLSearchParams();
 
   appendParam(params, "q", next.q.trim());
-  appendParam(params, "category", next.category);
-  appendParam(params, "tag", next.tag);
-  appendParam(params, "highlight", next.highlight);
+  appendParam(params, "category", next.category.trim());
+  appendParam(params, "tag", next.tag.trim());
+  appendParam(params, "highlight", next.highlight.trim());
 
   if (next.view === "grid") {
     params.set("view", "grid");
@@ -169,6 +106,14 @@ export function getBrowseTags(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
 
 export function getRecentHighlights(memories: BrowseMemory[]): BrowseHighlight[] {
   return memories.flatMap((memory) => memory.highlights).slice(0, 5);
+}
+
+export function getMemoryDisplayHighlight(memory: BrowseMemory, activeHighlightId: string): BrowseHighlight | undefined {
+  if (activeHighlightId.length > 0) {
+    return memory.highlights.find((highlight) => highlight.id === activeHighlightId) ?? memory.highlights[0];
+  }
+
+  return memory.highlights[0];
 }
 
 function appendParam(params: URLSearchParams, key: string, value: string): void {

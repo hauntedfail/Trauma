@@ -1,10 +1,14 @@
 :root {
   color-scheme: light;
+  --color-bg-base: #f6f7f4;
+  --color-bg-surface: #fffefa;
+  --color-border: #d8ded5;
+  --color-text-primary: #111827;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  background: #f6f7f4;
-  color: #111827;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
 }
 
 * {
@@ -15,7 +19,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f6f7f4;
+  background: var(--color-bg-base);
 }
 
 button,
@@ -56,16 +60,16 @@ p {
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  background: #fffefa;
+  background: var(--color-bg-surface);
 }
 
 .left-nav {
-  border-right: 1px solid #d8ded5;
+  border-right: 1px solid var(--color-border);
   padding: 24px;
 }
 
 .right-panel {
-  border-left: 1px solid #d8ded5;
+  border-left: 1px solid var(--color-border);
   padding: 20px;
 }
 
@@ -135,7 +139,7 @@ p {
   width: min(100%, 840px);
   min-height: 100vh;
   margin: 0 auto;
-  border-inline: 1px solid #d8ded5;
+  border-inline: 1px solid var(--color-border);
   background: #ffffff;
 }
 
@@ -145,7 +149,7 @@ p {
   justify-content: space-between;
   gap: 16px;
   padding: 24px;
-  border-bottom: 1px solid #d8ded5;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .eyebrow {
@@ -187,7 +191,7 @@ h1 {
   grid-template-columns: minmax(0, 1fr) 128px;
   gap: 12px;
   padding: 20px 24px;
-  border-bottom: 1px solid #d8ded5;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .composer-baseline input,
@@ -197,13 +201,13 @@ h1 {
   border: 1px solid #b8c4b1;
   border-radius: 8px;
   padding: 0 12px;
-  background: #fffefa;
+  background: var(--color-bg-surface);
   color: #111827;
 }
 
 .search-row {
   padding: 18px 24px;
-  border-bottom: 1px solid #d8ded5;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .search-row label {
@@ -232,12 +236,12 @@ h1 {
   gap: 12px;
   min-width: 0;
   padding: 22px 24px;
-  border-bottom: 1px solid #d8ded5;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .memory-item[data-view="grid"] {
   min-height: 290px;
-  border-right: 1px solid #d8ded5;
+  border-right: 1px solid var(--color-border);
 }
 
 .memory-item header {
@@ -380,7 +384,7 @@ h1 {
   width: min(86vw, 340px);
   min-height: 100vh;
   padding: 18px;
-  background: #fffefa;
+  background: var(--color-bg-surface);
   box-shadow: 0 20px 60px rgb(17 24 39 / 24%);
 }
 
@@ -392,10 +396,40 @@ h1 {
 @media (max-width: 1040px) {
   .app-shell {
     grid-template-columns: 80px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: grid;
+    grid-column: 2;
+    grid-template-columns: minmax(0, 1fr) 112px;
+    align-items: center;
+    min-height: 58px;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 12px;
+    background: var(--color-bg-surface);
+  }
+
+  .mobile-topbar .icon-button:first-child {
+    display: none;
+  }
+
+  .mobile-brand {
+    min-width: 0;
+    font-size: 20px;
   }
 
   .left-nav {
+    grid-row: 1 / span 2;
     padding: 16px 10px;
+  }
+
+  .content-shell {
+    grid-column: 2;
   }
 
   .navigation-content {
@@ -419,6 +453,18 @@ h1 {
   .right-panel {
     display: none;
   }
+
+  .icon-button {
+    width: 100%;
+    overflow: hidden;
+    background: #ffffff;
+    color: #1e3a2f;
+    text-overflow: ellipsis;
+  }
+
+  .drawer-backdrop {
+    display: block;
+  }
 }
 
 @media (max-width: 720px) {
@@ -427,31 +473,18 @@ h1 {
   }
 
   .mobile-topbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: grid;
     grid-template-columns: 96px minmax(0, 1fr) 96px;
+    grid-column: auto;
+  }
+
+  .mobile-topbar .icon-button:first-child {
+    display: inline-flex;
     align-items: center;
-    min-height: 58px;
-    gap: 8px;
-    border-bottom: 1px solid #d8ded5;
-    padding: 8px 12px;
-    background: #fffefa;
+    justify-content: center;
   }
 
   .mobile-brand {
     justify-content: center;
-    min-width: 0;
-    font-size: 20px;
-  }
-
-  .icon-button {
-    width: 100%;
-    overflow: hidden;
-    background: #ffffff;
-    color: #1e3a2f;
-    text-overflow: ellipsis;
   }
 
   .left-nav {

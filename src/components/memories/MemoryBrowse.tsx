@@ -1,24 +1,26 @@
 import { Title } from "@solidjs/meta";
-import { useLocation, useNavigate } from "@solidjs/router";
+import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 
 import {
-  browseMemories,
   buildBrowseHref,
   filterBrowseMemories,
+  getMemoryDisplayHighlight,
   parseBrowseQuery,
   type BrowseMemory,
 } from "./browse-data";
+import { getBrowseMemories } from "./browse-loader";
 
 export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
+  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const filteredMemories = createMemo(() => filterBrowseMemories(browseMemories, query()));
+  const filteredMemories = createMemo(() => filterBrowseMemories(memories(), query()));
   const isGrid = createMemo(() => query().view === "grid");
 
-  const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1]) => {
-    navigate(buildBrowseHref(query(), patch));
+  const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
+    navigate(buildBrowseHref(query(), patch), { replace: options.replace });
   };
 
   return (
@@ -51,7 +53,7 @@ export function MemoryBrowse() {
             type="search"
             value={query().q}
             placeholder="Title, URL, tags, or highlights"
-            onInput={(event) => updateQuery({ q: event.currentTarget.value })}
+            onInput={(event) => updateQuery({ q: event.currentTarget.value }, { replace: true })}
           />
         </label>
       </div>
@@ -65,14 +67,20 @@ export function MemoryBrowse() {
         }
       >
         <div class={isGrid() ? "memory-grid" : "memory-list"}>
-          <For each={filteredMemories()}>{(memory) => <MemoryItem memory={memory} view={query().view} />}</For>
+          <For each={filteredMemories()}>
+            {(memory) => (
+              <MemoryItem memory={memory} selectedHighlightId={query().highlight} view={query().view} />
+            )}
+          </For>
         </div>
       </Show>
     </section>
   );
 }
 
-function MemoryItem(props: { memory: BrowseMemory; view: "list" | "grid" }) {
+function MemoryItem(props: { memory: BrowseMemory; selectedHighlightId: string; view: "list" | "grid" }) {
+  const displayHighlight = createMemo(() => getMemoryDisplayHighlight(props.memory, props.selectedHighlightId));
+
   return (
     <article class="memory-item" data-view={props.view}>
       <header>
@@ -88,7 +96,7 @@ function MemoryItem(props: { memory: BrowseMemory; view: "list" | "grid" }) {
         <For each={props.memory.categories}>{(category) => <span>{category.name}</span>}</For>
         <For each={props.memory.tags}>{(tag) => <span>#{tag.name}</span>}</For>
       </div>
-      <Show when={props.memory.highlights[0]}>
+      <Show when={displayHighlight()}>
         {(highlight) => (
           <blockquote>
             <span>{highlight().prefix}</span>

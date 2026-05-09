@@ -1,14 +1,15 @@
-import { A, useLocation, useNavigate } from "@solidjs/router";
+import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
+import { getBrowseMemories } from "../memories/browse-loader";
 import {
-  browseMemories,
   buildBrowseHref,
   getBrowseCategories,
   getBrowseTags,
   getRecentHighlights,
   parseBrowseQuery,
   type BrowseHighlight,
+  type BrowseQuery,
   type BrowseTaxonomyItem,
 } from "../memories/browse-data";
 
@@ -21,14 +22,20 @@ export function AppShell(props: AppShellProps) {
   const navigate = useNavigate();
   const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
+  const memories = createAsync(() => getBrowseMemories(), { initialValue: [] });
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const categories = getBrowseCategories(browseMemories);
-  const tags = getBrowseTags(browseMemories);
-  const highlights = getRecentHighlights(browseMemories);
+  const categories = createMemo(() => getBrowseCategories(memories()));
+  const tags = createMemo(() => getBrowseTags(memories()));
+  const highlights = createMemo(() => getRecentHighlights(memories()));
 
   const goToFilter = (patch: Parameters<typeof buildBrowseHref>[1]) => {
     navigate(buildBrowseHref(query(), patch));
     setIsFiltersOpen(false);
+  };
+
+  const toggleFilter = (key: "category" | "tag" | "highlight", value: string) => {
+    const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
+    goToFilter(patch);
   };
 
   return (
@@ -48,12 +55,13 @@ export function AppShell(props: AppShellProps) {
           activeCategory={query().category}
           activeHighlight={query().highlight}
           activeTag={query().tag}
-          categories={categories}
-          highlights={highlights}
-          onSelectCategory={(category) => goToFilter({ category: category.id })}
-          onSelectHighlight={(highlight) => goToFilter({ highlight: highlight.id })}
-          onSelectTag={(tag) => goToFilter({ tag: tag.id })}
-          tags={tags}
+          categories={categories()}
+          highlights={highlights()}
+          idPrefix="desktop"
+          onSelectCategory={(category) => toggleFilter("category", category.id)}
+          onSelectHighlight={(highlight) => toggleFilter("highlight", highlight.id)}
+          onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+          tags={tags()}
         />
       </aside>
       <Show when={isNavigationOpen()}>
@@ -67,12 +75,13 @@ export function AppShell(props: AppShellProps) {
             activeCategory={query().category}
             activeHighlight={query().highlight}
             activeTag={query().tag}
-            categories={categories}
-            highlights={highlights}
-            onSelectCategory={(category) => goToFilter({ category: category.id })}
-            onSelectHighlight={(highlight) => goToFilter({ highlight: highlight.id })}
-            onSelectTag={(tag) => goToFilter({ tag: tag.id })}
-            tags={tags}
+            categories={categories()}
+            highlights={highlights()}
+            idPrefix="drawer"
+            onSelectCategory={(category) => toggleFilter("category", category.id)}
+            onSelectHighlight={(highlight) => toggleFilter("highlight", highlight.id)}
+            onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+            tags={tags()}
           />
         </Drawer>
       </Show>
@@ -119,6 +128,7 @@ function FilterPanel(props: {
   activeTag: string;
   categories: BrowseTaxonomyItem[];
   highlights: BrowseHighlight[];
+  idPrefix: string;
   onSelectCategory: (category: BrowseTaxonomyItem) => void;
   onSelectHighlight: (highlight: BrowseHighlight) => void;
   onSelectTag: (tag: BrowseTaxonomyItem) => void;
@@ -126,8 +136,8 @@ function FilterPanel(props: {
 }) {
   return (
     <div class="filter-panel">
-      <section class="filter-section" aria-labelledby="category-filters-title">
-        <h2 id="category-filters-title">Categories</h2>
+      <section class="filter-section" aria-labelledby={`${props.idPrefix}-category-filters-title`}>
+        <h2 id={`${props.idPrefix}-category-filters-title`}>Categories</h2>
         <div class="filter-list">
           <For each={props.categories}>
             {(category) => (
@@ -142,8 +152,8 @@ function FilterPanel(props: {
           </For>
         </div>
       </section>
-      <section class="filter-section" aria-labelledby="tag-filters-title">
-        <h2 id="tag-filters-title">Tags</h2>
+      <section class="filter-section" aria-labelledby={`${props.idPrefix}-tag-filters-title`}>
+        <h2 id={`${props.idPrefix}-tag-filters-title`}>Tags</h2>
         <div class="filter-list">
           <For each={props.tags}>
             {(tag) => (
@@ -154,8 +164,8 @@ function FilterPanel(props: {
           </For>
         </div>
       </section>
-      <section class="filter-section" aria-labelledby="highlight-shortcuts-title">
-        <h2 id="highlight-shortcuts-title">Recent highlights</h2>
+      <section class="filter-section" aria-labelledby={`${props.idPrefix}-highlight-shortcuts-title`}>
+        <h2 id={`${props.idPrefix}-highlight-shortcuts-title`}>Recent highlights</h2>
         <div class="highlight-shortcuts">
           <For each={props.highlights}>
             {(highlight) => (

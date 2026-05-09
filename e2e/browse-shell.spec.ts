@@ -26,12 +26,17 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   await page.getByRole("button", { name: /highlight-aware results/i }).click();
   await expect(page).toHaveURL(/highlight=h-foundation/);
 
-  const toggleBoxBefore = await page.getByRole("group", { name: "View mode" }).boundingBox();
+  const viewModeGroup = page.getByRole("group", { name: "View mode" });
+  await expect(viewModeGroup).toBeVisible();
+  const toggleBoxBefore = await viewModeGroup.boundingBox();
   await page.getByRole("button", { name: "Grid" }).click();
   await expect(page).toHaveURL(/view=grid/);
   await expect(page.locator(".memory-grid")).toBeVisible();
-  const toggleBoxAfter = await page.getByRole("group", { name: "View mode" }).boundingBox();
+  await expect(viewModeGroup).toBeVisible();
+  const toggleBoxAfter = await viewModeGroup.boundingBox();
 
+  expect(toggleBoxBefore).not.toBeNull();
+  expect(toggleBoxAfter).not.toBeNull();
   expect(toggleBoxBefore?.width).toBe(toggleBoxAfter?.width);
   expect(toggleBoxBefore?.height).toBe(toggleBoxAfter?.height);
 });
@@ -65,4 +70,40 @@ test("uses drawer controls for navigation and filters on narrow viewports", asyn
   await expect(
     page.getByRole("dialog", { name: "Filters" }).getByRole("button", { name: "Research" }),
   ).toBeVisible();
+});
+
+test("keeps filter controls reachable on tablet widths", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/memories");
+
+  await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
+  await page.getByRole("button", { name: "Open filters" }).click();
+  await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
+});
+
+test("lets active filters be cleared without resetting the rest of the query", async ({ page }) => {
+  await page.goto("/memories?q=reader&view=grid");
+
+  await page.getByRole("button", { name: "Research" }).click();
+  await expect(page).toHaveURL(/category=research/);
+
+  await page.getByRole("button", { name: "Research" }).click();
+  await expect(page).not.toHaveURL(/category=research/);
+  await expect(page).toHaveURL(/q=reader/);
+  await expect(page).toHaveURL(/view=grid/);
+});
+
+test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
+  await page.goto("/memories");
+
+  await page.getByRole("link", { name: "Highlights" }).click();
+  await expect(page).toHaveURL(/\/highlights$/);
+  await expect(page.getByRole("heading", { name: "Highlights", exact: true })).toBeVisible();
+  await expect(page.getByText("Page not found")).toHaveCount(0);
+
+  await page.goto("/memories");
+  await page.getByRole("link", { name: "Open" }).first().click();
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.getByRole("heading", { name: "Reader Mode Notes" })).toBeVisible();
+  await expect(page.getByText("Page not found")).toHaveCount(0);
 });

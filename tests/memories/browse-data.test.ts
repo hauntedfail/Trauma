@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildBrowseHref,
   filterBrowseMemories,
+  getMemoryDisplayHighlight,
   parseBrowseQuery,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
@@ -52,6 +53,18 @@ describe("browse query state", () => {
     expect(parseBrowseQuery("?view=table").view).toBe("list");
   });
 
+  it("trims all text query values before applying filters", () => {
+    const query = parseBrowseQuery("?q=%20reader%20&category=%20research%20&tag=%20%20&highlight=%20h-foundation%20");
+
+    expect(query).toEqual({
+      q: "reader",
+      category: "research",
+      tag: "",
+      highlight: "h-foundation",
+      view: "list",
+    });
+  });
+
   it("builds canonical memories hrefs while preserving unrelated filters", () => {
     const href = buildBrowseHref(
       {
@@ -74,5 +87,28 @@ describe("browse query state", () => {
       1,
     );
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&highlight=missing"))).toHaveLength(0);
+  });
+
+  it("selects the active highlight for memory result excerpts", () => {
+    const memory: BrowseMemory = {
+      ...fixtures[0]!,
+      highlights: [
+        {
+          id: "h-first",
+          text: "first highlight",
+          prefix: "first",
+          suffix: "context",
+        },
+        {
+          id: "h-selected",
+          text: "selected highlight",
+          prefix: "selected",
+          suffix: "context",
+        },
+      ],
+    };
+
+    expect(getMemoryDisplayHighlight(memory, "h-selected")?.text).toBe("selected highlight");
+    expect(getMemoryDisplayHighlight(memory, "")?.text).toBe("first highlight");
   });
 });
