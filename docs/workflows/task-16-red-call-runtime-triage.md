@@ -9,9 +9,8 @@ loading consistently.
 
 ## Current Status
 
-- Runtime command stabilization has landed on `triage` in
-  `a169df2 fix: run server with bun runtime`.
-- Tailwind migration was split into Task 16a and merged through PR #11.
+- Runtime command stabilization has landed on `triage`.
+- Tailwind migration was split into Task 16a and has landed on `triage`.
 - Drizzle/SQLite hardening is split into Task 16b so DB/ORM review findings do
   not expand this runtime workflow.
 - `src/styles/app.css` has been removed; the active global style entry is

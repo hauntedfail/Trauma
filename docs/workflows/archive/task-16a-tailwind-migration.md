@@ -2,14 +2,10 @@
 
 ## Status
 
-Archived after PR #11 merged into `triage`.
+Archived after the Tailwind migration landed on `triage`.
 
-Execution record:
-
-- Branch: `triage-tailwind-migration`.
-- Main implementation: `cad33dc feat: migrate app styling to tailwind`.
-- Review follow-up: `d4fb07f fix: address tailwind migration review`.
-- Merge commit: `c42fd97 Merge pull request #11 from hauntedfail/triage-tailwind-migration`.
+This archive preserves the styling contract and migration rules. It does not
+track PR numbers, branch history, commit hashes, or review chronology.
 
 Git branch names must not use `triage/...` while a `triage` branch exists.
 

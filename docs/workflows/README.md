@@ -33,7 +33,7 @@ keep each worker's context focused on its own domain.
 | 4 | [Importer and add memory](archive/task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Archived |
 | 5 | [Browse shell and filters](archive/task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Archived |
 | 6 | [Reader pipeline](archive/task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Archived |
-| 16a | [Tailwind migration](archive/task-16a-tailwind-migration.md) | Tailwind v4 Vite plugin, `app.css` removal, component-local styling | Archived after PR #11 |
+| 16a | [Tailwind migration](archive/task-16a-tailwind-migration.md) | Tailwind v4 Vite plugin, `app.css` removal, component-local styling | Archived |
 
 ## Worker Rules
 
