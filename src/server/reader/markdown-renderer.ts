@@ -124,7 +124,7 @@ function sanitizeReaderHtml(html: string) {
       img: ["alt", "height", "loading", "src", "title", "width"],
       input: ["checked", "class", "disabled", "type"],
       li: ["class", "id"],
-      mark: ["data-highlight-id"],
+      mark: ["data-highlight-id", "id"],
       ol: ["class"],
       section: ["class"],
       span: ["class"],
@@ -285,6 +285,7 @@ function sanitizeHighlightMark(
     tagName: "mark",
     attribs: {
       "data-highlight-id": highlightId,
+      id: highlightId,
     },
   };
 }

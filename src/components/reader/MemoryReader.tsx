@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
@@ -10,6 +10,17 @@ interface MemoryReaderProps {
 }
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
+interface ReaderSelectionPayload {
+  text: string;
+  prefix: string;
+  suffix: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+interface ReaderSelection extends ReaderSelectionPayload {
+  range: Range;
+}
 
 const readerArticle =
   "prose max-w-none min-w-0 text-slate-800 prose-headings:text-slate-900 prose-a:text-blue-600 prose-a:underline prose-a:underline-offset-[3px] prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-900 prose-pre:text-slate-200 prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-slate-900 prose-td:border prose-td:border-slate-300 prose-td:px-2.5 prose-td:py-2 prose-mark:rounded prose-mark:bg-yellow-200 prose-mark:px-0.5 prose-mark:text-inherit [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-slate-700";
@@ -32,8 +43,25 @@ export function MemoryReader(props: MemoryReaderProps) {
 }
 
 function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
+  let contentRef: HTMLDivElement | undefined;
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+  const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
+  const [errorMessage, setErrorMessage] = createSignal("");
+
+  const handleSelectionToggle = () => {
+    if (contentRef === undefined) {
+      return;
+    }
+
+    void toggleReaderSelection({
+      container: contentRef,
+      memoryId: props.result.memory.id,
+      pendingSelectionKey: pendingSelectionKey(),
+      setErrorMessage,
+      setPendingSelectionKey,
+    });
+  };
 
   return (
     <article class={readerFrame} aria-labelledby="reader-title">
@@ -58,7 +86,24 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
       </header>
       <div class={`${readerPadding} grid grid-cols-[minmax(160px,220px)_minmax(0,1fr)] gap-8 py-7 pb-14 max-[1040px]:grid-cols-1`}>
         <ReaderToc toc={props.result.rendered.toc} />
-        <div class={readerArticle} innerHTML={props.result.rendered.html} />
+        <div>
+          <div
+            ref={contentRef}
+            aria-busy={pendingSelectionKey().length > 0}
+            class={readerArticle}
+            data-reader-content
+            innerHTML={props.result.rendered.html}
+            onKeyUp={handleSelectionToggle}
+            onMouseUp={handleSelectionToggle}
+          />
+          <Show when={errorMessage()}>
+            {(message) => (
+              <p class="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" role="status">
+                {message()}
+              </p>
+            )}
+          </Show>
+        </div>
       </div>
     </article>
   );
@@ -93,4 +138,166 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
       </ol>
     </nav>
   );
+}
+
+async function toggleReaderSelection(input: {
+  container: HTMLDivElement;
+  memoryId: string;
+  pendingSelectionKey: string;
+  setErrorMessage: (message: string) => void;
+  setPendingSelectionKey: (key: string) => void;
+}) {
+  const selection = readReaderSelection(input.container);
+  if (selection === undefined) {
+    return;
+  }
+
+  const selectionKey = `${selection.startOffset}:${selection.endOffset}:${selection.text}`;
+  if (selectionKey === input.pendingSelectionKey) {
+    return;
+  }
+
+  const previousHtml = input.container.innerHTML;
+  const shouldUnhighlight = isRangeFullyMarked(selection.range, input.container);
+  input.setErrorMessage("");
+  input.setPendingSelectionKey(selectionKey);
+
+  try {
+    applyOptimisticHighlight(selection.range, shouldUnhighlight);
+    window.getSelection()?.removeAllRanges();
+
+    const response = await fetch("/api/highlights", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        memoryId: input.memoryId,
+        selection: toPayload(selection),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Highlight persistence failed");
+    }
+  } catch {
+    input.container.innerHTML = previousHtml;
+    input.setErrorMessage("Highlight failed");
+  } finally {
+    input.setPendingSelectionKey("");
+  }
+}
+
+function readReaderSelection(container: HTMLElement): ReaderSelection | undefined {
+  const selection = window.getSelection();
+  if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) {
+    return undefined;
+  }
+
+  const range = selection.getRangeAt(0).cloneRange();
+  if (!containsBoundary(container, range.startContainer) || !containsBoundary(container, range.endContainer)) {
+    return undefined;
+  }
+
+  const text = range.toString();
+  if (text.trim().length === 0) {
+    return undefined;
+  }
+
+  const preSelectionRange = document.createRange();
+  preSelectionRange.selectNodeContents(container);
+  preSelectionRange.setEnd(range.startContainer, range.startOffset);
+  const startOffset = preSelectionRange.toString().length;
+  const endOffset = startOffset + text.length;
+  const contentText = container.textContent ?? "";
+
+  return {
+    range,
+    text,
+    prefix: readContextBefore(contentText, startOffset),
+    suffix: readContextAfter(contentText, endOffset),
+    startOffset,
+    endOffset,
+  };
+}
+
+function containsBoundary(container: HTMLElement, node: Node): boolean {
+  return node === container || container.contains(node);
+}
+
+function readContextBefore(text: string, startOffset: number): string {
+  const lineStart = text.lastIndexOf("\n", startOffset - 1) + 1;
+  return text.slice(Math.max(lineStart, startOffset - 80), startOffset);
+}
+
+function readContextAfter(text: string, endOffset: number): string {
+  const lineEnd = text.indexOf("\n", endOffset);
+  const contextEnd = lineEnd === -1 ? text.length : lineEnd;
+  return text.slice(endOffset, Math.min(contextEnd, endOffset + 80));
+}
+
+function isRangeFullyMarked(range: Range, container: HTMLElement): boolean {
+  const textNodes = collectIntersectingTextNodes(range, container).filter(
+    (node) => (node.nodeValue ?? "").trim().length > 0,
+  );
+  return (
+    textNodes.length > 0 &&
+    textNodes.every((node) =>
+      node.parentElement?.closest("mark[data-highlight-id]") !== null,
+    )
+  );
+}
+
+function collectIntersectingTextNodes(range: Range, container: HTMLElement): Text[] {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  let current = walker.nextNode();
+
+  while (current !== null) {
+    if (range.intersectsNode(current)) {
+      nodes.push(current as Text);
+    }
+
+    current = walker.nextNode();
+  }
+
+  return nodes;
+}
+
+function applyOptimisticHighlight(range: Range, shouldUnhighlight: boolean): void {
+  if (shouldUnhighlight) {
+    const fragment = range.extractContents();
+    stripHighlightElements(fragment);
+    range.insertNode(fragment);
+    return;
+  }
+
+  const mark = document.createElement("mark");
+  mark.dataset.highlightId = `pending-${Date.now()}`;
+  mark.append(range.extractContents());
+  range.insertNode(mark);
+}
+
+function stripHighlightElements(fragment: DocumentFragment): void {
+  for (const mark of [...fragment.querySelectorAll("mark[data-highlight-id]")]) {
+    const parent = mark.parentNode;
+    if (parent === null) {
+      continue;
+    }
+
+    while (mark.firstChild !== null) {
+      parent.insertBefore(mark.firstChild, mark);
+    }
+    parent.removeChild(mark);
+  }
+}
+
+function toPayload(selection: ReaderSelection): ReaderSelectionPayload {
+  return {
+    text: selection.text,
+    prefix: selection.prefix,
+    suffix: selection.suffix,
+    startOffset: selection.startOffset,
+    endOffset: selection.endOffset,
+  };
 }

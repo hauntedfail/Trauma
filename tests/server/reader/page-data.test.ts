@@ -32,7 +32,9 @@ describe("loadReaderMemory", () => {
       { id: "fixture-reader", level: 1, text: "Fixture Reader" },
     ]);
     expect(result.rendered.html).toContain('<h1 id="fixture-reader"');
-    expect(result.rendered.html).toContain('<mark data-highlight-id="hl-1">highlight</mark>');
+    expect(result.rendered.html).toContain(
+      '<mark data-highlight-id="hl-1" id="hl-1">highlight</mark>',
+    );
   });
 
   it("returns a user-readable missing state when the memory row does not exist", () => {

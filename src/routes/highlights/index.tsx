@@ -1,9 +1,8 @@
 import { Title } from "@solidjs/meta";
 import { createAsync } from "@solidjs/router";
-import { For, createMemo } from "solid-js";
+import { For } from "solid-js";
 
-import { getMemoryReaderHighlights } from "~/components/memories/browse-data";
-import { getBrowseMemories } from "~/components/memories/browse-loader";
+import { getHighlightBrowseRows } from "~/components/highlights/highlights-loader";
 
 const pageFrame =
   "mx-auto min-h-screen w-[min(100%,840px)] border-x border-trauma-border bg-white max-[720px]:min-h-[calc(100vh-58px)] max-[720px]:border-x-0";
@@ -18,17 +17,8 @@ const highlightMark =
   "w-fit rounded px-1 py-px bg-[#ffe2a8] text-[#3d2b12]";
 
 export default function HighlightsIndex() {
-  const memories = createAsync(() => getBrowseMemories());
-  const browseMemories = createMemo(() => memories() ?? []);
-  const highlights = createMemo(() =>
-    browseMemories().flatMap((memory) =>
-      getMemoryReaderHighlights(memory).map((highlight) => ({
-        ...highlight,
-        memoryId: memory.id,
-        memoryTitle: memory.title,
-      })),
-    ),
-  );
+  const highlights = createAsync(() => getHighlightBrowseRows());
+  const highlightRows = () => highlights() ?? [];
 
   return (
     <section class={pageFrame} aria-labelledby="highlights-title">
@@ -41,7 +31,7 @@ export default function HighlightsIndex() {
       </header>
       <div class="grid">
         <For
-          each={highlights()}
+          each={highlightRows()}
           fallback={
             <div class="px-6 py-12 text-[#5f6b5a]">
               <h2 class="text-xl font-bold text-trauma-text-primary">No highlights yet</h2>
@@ -55,15 +45,17 @@ export default function HighlightsIndex() {
                 <div>
                   <p class="mb-0 text-[13px] text-trauma-text-muted">Source memory</p>
                   <h2 class="mb-0 text-xl font-bold leading-tight">
-                    <a href={`/memories/${highlight.memoryId}#${highlight.anchorId}`}>{highlight.memoryTitle}</a>
+                    <a href={`/memories/${highlight.memoryId}#${highlight.id}`}>{highlight.memoryTitle}</a>
                   </h2>
                 </div>
               </header>
-              <blockquote class={highlightQuote}>
-                <span>{highlight.prefix}</span>
-                <mark class={highlightMark}>{highlight.text}</mark>
-                <span>{highlight.suffix}</span>
-              </blockquote>
+              <a class="block no-underline" href={`/memories/${highlight.memoryId}#${highlight.id}`}>
+                <blockquote class={highlightQuote}>
+                  <span>{highlight.prefix}</span>
+                  <mark class={highlightMark}>{highlight.text}</mark>
+                  <span>{highlight.suffix}</span>
+                </blockquote>
+              </a>
             </article>
           )}
         </For>
