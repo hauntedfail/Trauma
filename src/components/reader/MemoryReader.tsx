@@ -163,7 +163,7 @@ async function toggleReaderSelection(input: {
   input.setPendingSelectionKey(selectionKey);
 
   try {
-    applyOptimisticHighlight(selection.range, shouldUnhighlight);
+    applyOptimisticHighlight(selection.range, shouldUnhighlight, input.container);
     window.getSelection()?.removeAllRanges();
 
     const response = await fetch("/api/highlights", {
@@ -264,11 +264,20 @@ function collectIntersectingTextNodes(range: Range, container: HTMLElement): Tex
   return nodes;
 }
 
-function applyOptimisticHighlight(range: Range, shouldUnhighlight: boolean): void {
+function applyOptimisticHighlight(
+  range: Range,
+  shouldUnhighlight: boolean,
+  container: HTMLElement,
+): void {
   if (shouldUnhighlight) {
+    const placeholder = document.createElement("span");
     const fragment = range.extractContents();
     stripHighlightElements(fragment);
-    range.insertNode(fragment);
+    placeholder.append(fragment);
+    range.insertNode(placeholder);
+    liftNodeOutOfHighlightMarks(placeholder);
+    placeholder.replaceWith(...Array.from(placeholder.childNodes));
+    container.normalize();
     return;
   }
 
@@ -276,6 +285,7 @@ function applyOptimisticHighlight(range: Range, shouldUnhighlight: boolean): voi
   mark.dataset.highlightId = `pending-${Date.now()}`;
   mark.append(range.extractContents());
   range.insertNode(mark);
+  container.normalize();
 }
 
 function stripHighlightElements(fragment: DocumentFragment): void {
@@ -289,6 +299,59 @@ function stripHighlightElements(fragment: DocumentFragment): void {
       parent.insertBefore(mark.firstChild, mark);
     }
     parent.removeChild(mark);
+  }
+}
+
+function liftNodeOutOfHighlightMarks(node: HTMLElement): void {
+  let mark =
+    node.parentElement?.closest<HTMLElement>("mark[data-highlight-id]") ?? null;
+
+  while (mark !== null) {
+    const liftTarget = directChildContaining(mark, node);
+    if (liftTarget === undefined) {
+      return;
+    }
+
+    liftChildOutOfMark(liftTarget, mark);
+    mark =
+      node.parentElement?.closest<HTMLElement>("mark[data-highlight-id]") ??
+      null;
+  }
+}
+
+function directChildContaining(
+  ancestor: HTMLElement,
+  node: Node,
+): ChildNode | undefined {
+  let current: Node = node;
+  while (current.parentNode !== null && current.parentNode !== ancestor) {
+    current = current.parentNode;
+  }
+
+  return current.parentNode === ancestor ? (current as ChildNode) : undefined;
+}
+
+function liftChildOutOfMark(child: ChildNode, mark: HTMLElement): void {
+  const parent = mark.parentNode;
+  if (parent === null) {
+    return;
+  }
+
+  const afterMark = mark.cloneNode(false) as HTMLElement;
+  let sibling = child.nextSibling;
+  while (sibling !== null) {
+    const nextSibling = sibling.nextSibling;
+    afterMark.append(sibling);
+    sibling = nextSibling;
+  }
+
+  parent.insertBefore(child, mark.nextSibling);
+  if (afterMark.hasChildNodes()) {
+    parent.insertBefore(afterMark, child.nextSibling);
+  }
+
+  if (!mark.hasChildNodes()) {
+    mark.remove();
   }
 }
 
