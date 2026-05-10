@@ -37,6 +37,9 @@
   explicit option, not from incidental launch cwd.
 - MUST keep bundled runtime migrations in sync with reviewable `drizzle/**`
   migration files through a focused drift test.
+- MUST use SQLite-native migration metadata schema. Any local
+  `__drizzle_migrations` table must use a rowid-compatible integer primary key,
+  not PostgreSQL-style `SERIAL`.
 - MUST validate bundled runtime migration state before exposing the database.
   Every applied migration row must correspond to a bundled migration, and every
   matching row must have the expected hash. Unknown, newer, or hash-mismatched
@@ -49,9 +52,15 @@
   `PRAGMA foreign_keys=OFF/ON`, apply only the PRAGMA state transition outside
   the active transaction; keep ordinary DDL/DML and the migration record inside
   a rollback-capable transaction.
+- MUST keep every runtime migration entrypoint semantically equivalent. Test,
+  explicit-folder, and bundled paths must honor the same PRAGMA, hash, atomicity,
+  and compatibility rules, or the weaker entrypoint must be removed.
 - MUST NOT call Drizzle private migration internals such as `dialect.migrate`
   through `unknown` casts. Runtime migrations must use public APIs or a focused
   local runner with tests.
+- MUST lazy-load optional migration helpers only inside the branch that uses
+  them. The default startup path must not import adapter tooling that is
+  unnecessary for bundled runtime migrations.
 - MUST keep `drizzle.config.ts`, runtime config, migrations, and tests pointed
   at the same database path contract.
 - MUST use actual Bun SQLite driver types for Bun-backed connections. Do not
