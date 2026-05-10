@@ -88,7 +88,7 @@ export function AppShell(props: AppShellProps) {
       </aside>
       <Show when={isNavigationOpen()}>
         <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
-          <NavigationContent onNavigate={closeNavigation} onOpenComposer={openComposer} />
+          <NavigationContent isDrawer onNavigate={closeNavigation} onOpenComposer={openComposer} />
         </Drawer>
       </Show>
       <Show when={isFiltersOpen()}>
@@ -132,9 +132,15 @@ function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () =
   );
 }
 
-function NavigationContent(props: { onNavigate?: () => void; onOpenComposer: () => void }) {
+function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void; onOpenComposer: () => void }) {
   return (
-    <div class="grid min-h-[calc(100vh-48px)] grid-rows-[auto_1fr_auto] gap-7 max-[1040px]:min-h-[calc(100vh-32px)]">
+    <div
+      class="grid grid-rows-[auto_1fr_auto] gap-7"
+      classList={{
+        "min-h-0": props.isDrawer === true,
+        "min-h-[calc(100vh-48px)] max-[1040px]:min-h-[calc(100vh-32px)]": props.isDrawer !== true,
+      }}
+    >
       <A class="inline-flex min-h-10 items-center text-[22px] font-extrabold max-[1040px]:w-full max-[1040px]:justify-center max-[1040px]:text-lg" href="/memories" onClick={props.onNavigate}>
         Trauma
       </A>
@@ -236,7 +242,7 @@ function FilterPanel(props: {
 function Drawer(props: { ariaLabel: string; children: JSX.Element; onClose: () => void }) {
   return (
     <div class="fixed inset-0 z-20 bg-gray-900/45">
-      <div class="min-h-screen w-[min(86vw,340px)] bg-trauma-bg-surface p-[18px] shadow-[0_20px_60px_rgb(17_24_39_/_24%)]" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
+      <div class="max-h-screen min-h-screen w-[min(86vw,340px)] overflow-y-auto bg-trauma-bg-surface p-[18px] shadow-[0_20px_60px_rgb(17_24_39_/_24%)]" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
         <button type="button" class={`${buttonBase} mb-5 w-full bg-trauma-accent text-white`} onClick={props.onClose}>
           Close
         </button>

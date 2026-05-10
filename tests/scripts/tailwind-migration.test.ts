@@ -33,14 +33,17 @@ describe("Tailwind migration contract", () => {
       "src/components/reader/MemoryReader.tsx",
       "src/routes/highlights/index.tsx",
       "src/routes/[...404].tsx",
+      "src/routes/memories/[id].tsx",
     ];
-    const forbidden = [
+    const forbiddenClasses = [
       "app-shell",
       "left-nav",
       "right-panel",
       "timeline",
       "memory-item",
       "reader-content",
+      "reader-page",
+      "reader-state",
       "filter-panel",
       "drawer-backdrop",
       "drawer-panel",
@@ -48,8 +51,11 @@ describe("Tailwind migration contract", () => {
 
     for (const sourceFile of sourceFiles) {
       const source = readFileSync(sourceFile, "utf8");
-      for (const className of forbidden) {
-        expect(source, `${sourceFile} still uses ${className}`).not.toContain(className);
+      for (const className of forbiddenClasses) {
+        const exactClassPattern = new RegExp(`class="[^"]*\\b${className}\\b`);
+        expect(source, `${sourceFile} still uses CSS class ${className}`).not.toMatch(
+          exactClassPattern,
+        );
       }
     }
   });

@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
+import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 
 interface MemoryReaderProps {
@@ -10,9 +11,6 @@ interface MemoryReaderProps {
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
 
-const readerFrame =
-  "mx-auto min-h-screen max-w-[920px] border-x border-slate-200 bg-white max-[720px]:border-x-0";
-const readerPadding = "px-8 max-[720px]:px-5";
 const readerArticle =
   "prose max-w-none min-w-0 text-slate-800 prose-headings:text-slate-900 prose-a:text-blue-600 prose-a:underline prose-a:underline-offset-[3px] prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-900 prose-pre:text-slate-200 prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-slate-900 prose-td:border prose-td:border-slate-300 prose-td:px-2.5 prose-td:py-2 prose-mark:rounded prose-mark:bg-yellow-200 prose-mark:px-0.5 prose-mark:text-inherit [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-slate-700";
 
@@ -69,7 +67,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
 function ReaderState(props: { message: string }) {
   return (
     <section class={readerFrame} aria-labelledby="reader-state-title">
-      <div class={`${readerPadding} py-12 text-slate-600`}>
+      <div class={readerStatePanel}>
         <h1 class="mb-2 text-3xl font-bold text-slate-900" id="reader-state-title">{props.message}</h1>
         <p>Open another memory from the archive.</p>
       </div>
