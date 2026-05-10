@@ -23,6 +23,7 @@ keep each worker's context focused on its own domain.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Active triage |
+| 16a | [Tailwind migration](task-16a-tailwind-migration.md) | Replace `app.css` component styling with Tailwind classes | Triage subtask |
 
 ## Archived Workflows
 
@@ -78,3 +79,4 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `triage`
+- `triage/tailwind-migration`
