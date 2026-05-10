@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { loadTraumaConfig } from "../../../src/server/config";
+import { loadRuntimeTraumaConfig, loadTraumaConfig } from "../../../src/server/config";
 
 const gitConfig = {
   enabled: true,
@@ -61,6 +61,26 @@ describe("loadTraumaConfig", () => {
     expect(config.storePath).toBe(join(root, "data/store"));
   });
 
+  it("loads the runtime config path from TRAUMA_CONFIG_PATH", () => {
+    const root = createTempRoot();
+    const configPath = writeConfig(root, {
+      storePath: "./data/store",
+      projectPath: "./data",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+    const previousConfigPath = process.env.TRAUMA_CONFIG_PATH;
+    process.env.TRAUMA_CONFIG_PATH = configPath;
+
+    try {
+      const config = loadRuntimeTraumaConfig();
+      expect(config.configFilePath).toBe(configPath);
+      expect(config.storePath).toBe(join(root, "data/store"));
+    } finally {
+      restoreEnv("TRAUMA_CONFIG_PATH", previousConfigPath);
+    }
+  });
+
   it("reports invalid JSON clearly", () => {
     const root = createTempRoot();
     const configPath = join(root, "trauma.config.json");
@@ -99,3 +119,12 @@ describe("loadTraumaConfig", () => {
     );
   });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}

@@ -54,7 +54,7 @@ export function MemoryBrowse() {
             type="search"
             value={query().q}
             placeholder="Title, URL, tags, or highlights"
-            onInput={(event) => updateQuery({ q: event.currentTarget.value }, { replace: true })}
+            onInput={(event) => updateQuery({ q: event.currentTarget.value })}
           />
         </label>
       </div>

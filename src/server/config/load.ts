@@ -53,6 +53,15 @@ export function loadTraumaConfig(
   return result.config;
 }
 
+export function loadRuntimeTraumaConfig(
+  options: Omit<LoadTraumaConfigOptions, "configPath"> = {},
+): ResolvedTraumaConfig {
+  return loadTraumaConfig({
+    ...options,
+    configPath: process.env.TRAUMA_CONFIG_PATH,
+  });
+}
+
 export function validateTraumaConfig(
   value: unknown,
   configPath = resolve(CONFIG_FILE_NAME),

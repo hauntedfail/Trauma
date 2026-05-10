@@ -179,7 +179,7 @@ async function run(options: SmokeOptions): Promise<void> {
 
   const child = spawn(
     "bun",
-    ["x", "vinxi", "dev", "--port", String(options.port)],
+    ["--bun", "x", "vinxi", "dev", "--port", String(options.port)],
     {
       env: {
         ...process.env,

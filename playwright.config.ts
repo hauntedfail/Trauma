@@ -5,8 +5,8 @@ const port = 4173;
 const hmrBasePort = 24681;
 const baseURL = `http://${host}:${port}`;
 const webServerCommand = process.env.CI
-  ? `bun .output/server/index.mjs`
-  : `bun x vinxi dev`;
+  ? `bun --bun .output/server/index.mjs`
+  : `bun --bun x vinxi dev`;
 
 export default defineConfig({
   testDir: "./e2e",
