@@ -204,7 +204,20 @@ function createReaderFixture() {
 
 async function selectReaderText(page: Page, text: string) {
   await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
-    const textNode = findTextNode(root, selectedText);
+    const findTextNode = (node: Node): Text | undefined => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      let current = walker.nextNode();
+      while (current !== null) {
+        if (current.nodeValue?.includes(selectedText)) {
+          return current as Text;
+        }
+
+        current = walker.nextNode();
+      }
+
+      return undefined;
+    };
+    const textNode = findTextNode(root);
     if (textNode === undefined) {
       throw new Error(`Text not found: ${selectedText}`);
     }
@@ -222,20 +235,6 @@ async function selectReaderText(page: Page, text: string) {
     selection?.addRange(range);
     root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   }, text);
-}
-
-function findTextNode(root: Node, text: string): Text | undefined {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let current = walker.nextNode();
-  while (current !== null) {
-    if (current.nodeValue?.includes(text)) {
-      return current as Text;
-    }
-
-    current = walker.nextNode();
-  }
-
-  return undefined;
 }
 
 function resolveBunExecutable() {
