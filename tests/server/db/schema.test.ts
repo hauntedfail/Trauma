@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,6 +238,28 @@ describe("db foundation", () => {
     );
   });
 
+  it("keeps database initialization off deprecated Bun SQLite and Drizzle private migration APIs", () => {
+    const dbFiles = readdirSync(join(process.cwd(), "src/server/db"))
+      .filter((fileName) => fileName.endsWith(".ts"))
+      .map((fileName) => ({
+        fileName,
+        source: readFileSync(join(process.cwd(), "src/server/db", fileName), "utf8"),
+      }));
+
+    expect(
+      dbFiles
+        .filter(({ source }) => /\.exec\s*\(/.test(source))
+        .map(({ fileName }) => fileName),
+    ).toEqual([]);
+    expect(
+      dbFiles
+        .filter(({ source }) =>
+          /dialect\.migrate|BunMigrationDatabaseInternals|as unknown as/.test(source),
+        )
+        .map(({ fileName }) => fileName),
+    ).toEqual([]);
+  });
+
   it("rejects invalid persisted memory status values", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
@@ -290,6 +312,88 @@ describe("db foundation", () => {
                 Date.now(),
                 Date.now(),
               );
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+    });
+  });
+
+  it("rejects invalid highlight offsets at the SQLite boundary", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            const now = Date.now();
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004",
+                "https://example.com",
+                "Example",
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f004/CONTENT.md",
+                "success",
+                "pending",
+                now,
+                now,
+              );
+
+            connection.sqlite
+              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004", "bad", "", "", 8, 2, now, now);
+
             process.stdout.write(JSON.stringify({ rejected: false }));
           } catch (error) {
             process.stdout.write(JSON.stringify({

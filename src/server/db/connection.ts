@@ -3,26 +3,15 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { Database as BunDatabase } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import type { MigrationConfig, MigrationMeta } from "drizzle-orm/migrator";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { readBundledMigrations } from "./bundled-migrations";
+import { applyBundledMigrations } from "./migrations";
 import { createRepositories, type TraumaRepositories } from "./repositories";
 import * as schema from "./schema";
 
 const require = createRequire(import.meta.url);
 
 type BunDatabaseConstructor = typeof import("bun:sqlite").Database;
-type BunMigrationDatabaseInternals = {
-  dialect: {
-    migrate: (
-      migrations: MigrationMeta[],
-      session: unknown,
-      config: MigrationConfig,
-    ) => void;
-  };
-  session: unknown;
-};
 
 export interface TraumaDatabaseConnection {
   sqlite: BunDatabase;
@@ -45,12 +34,12 @@ export function initializeDatabase(
   const Database = loadDatabaseConstructor();
   const sqlite = new Database(config.databasePath, { create: true });
   try {
-    sqlite.exec("PRAGMA foreign_keys = ON;");
-    sqlite.exec("PRAGMA journal_mode = WAL;");
+    sqlite.run("PRAGMA foreign_keys = ON;");
+    sqlite.run("PRAGMA journal_mode = WAL;");
 
     const db = createDrizzleDatabase(sqlite);
     if (options.runMigrations !== false) {
-      applyMigrations(db, options.migrationsFolder);
+      applyMigrations(sqlite, db, options.migrationsFolder);
     }
 
     return {
@@ -83,10 +72,11 @@ function loadDatabaseConstructor(): BunDatabaseConstructor {
 
 function createDrizzleDatabase(sqlite: BunDatabase) {
   const { drizzle } = require("drizzle-orm/bun-sqlite") as typeof import("drizzle-orm/bun-sqlite");
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite, schema });
 }
 
 function applyMigrations(
+  sqlite: BunDatabase,
   db: BunSQLiteDatabase<typeof schema>,
   migrationsFolder?: string,
 ) {
@@ -96,10 +86,7 @@ function applyMigrations(
     return;
   }
 
-  const migrationDb = db as unknown as BunMigrationDatabaseInternals;
-  migrationDb.dialect.migrate(readBundledMigrations(), migrationDb.session, {
-    migrationsFolder: "bundled",
-  });
+  applyBundledMigrations(sqlite);
 }
 
 function formatUnknownError(error: unknown) {

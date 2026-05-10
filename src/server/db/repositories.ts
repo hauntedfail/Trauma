@@ -38,6 +38,13 @@ export interface TraumaRepositories {
   memories: MemoryRepository;
 }
 
+export class MemoryRepositoryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MemoryRepositoryError";
+  }
+}
+
 export function createRepositories(db: TraumaDatabase): TraumaRepositories {
   return {
     memories: {
@@ -50,7 +57,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         return input;
       },
       updateBackupStatus: async (input) => {
-        await db
+        const updated = await db
           .update(schema.memories)
           .set({
             backupStatus: input.backupStatus,
@@ -59,7 +66,13 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             updatedAt: input.updatedAt,
           })
           .where(eq(schema.memories.id, input.id))
-          .run();
+          .returning({ id: schema.memories.id })
+          .get();
+        if (updated === undefined) {
+          throw new MemoryRepositoryError(
+            `Cannot update backup status for missing memory: ${input.id}`,
+          );
+        }
         return {
           id: input.id,
           backupStatus: input.backupStatus,

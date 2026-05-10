@@ -26,6 +26,8 @@
   explicitly instead of surfacing an ambiguous failed create.
 - MUST apply bundled migrations before exposing repositories or returning an
   initialized database handle to application code.
+- MUST use current Bun SQLite APIs. Use `Database.run`, prepared statements, or
+  Drizzle queries instead of deprecated `Database.exec`.
 - MUST close the SQLite handle if initialization fails after the handle is
   opened.
 - MUST keep SQLite database files outside the markdown backup store.
@@ -35,6 +37,9 @@
   explicit option, not from incidental launch cwd.
 - MUST keep bundled runtime migrations in sync with reviewable `drizzle/**`
   migration files through a focused drift test.
+- MUST NOT call Drizzle private migration internals such as `dialect.migrate`
+  through `unknown` casts. Runtime migrations must use public APIs or a focused
+  local runner with tests.
 - MUST keep `drizzle.config.ts`, runtime config, migrations, and tests pointed
   at the same database path contract.
 - MUST use actual Bun SQLite driver types for Bun-backed connections. Do not

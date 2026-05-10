@@ -2,11 +2,17 @@ import { createHash } from "node:crypto";
 import type { MigrationMeta } from "drizzle-orm/migrator";
 
 import migration0000Sql from "../../../drizzle/0000_conscious_mikhail_rasputin.sql?raw";
+import migration0001Sql from "../../../drizzle/0001_cold_shotgun.sql?raw";
 
 const BUNDLED_MIGRATIONS = [
   {
     sql: migration0000Sql,
     folderMillis: 1778308356677,
+    bps: true,
+  },
+  {
+    sql: migration0001Sql,
+    folderMillis: 1778393646543,
     bps: true,
   },
 ] as const;

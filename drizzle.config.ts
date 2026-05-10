@@ -20,6 +20,10 @@ function resolveDatabasePath() {
     return process.env.TRAUMA_DATABASE_PATH;
   }
 
+  if (process.env.TRAUMA_CONFIG_PATH) {
+    return loadTraumaConfig({ configPath: process.env.TRAUMA_CONFIG_PATH }).databasePath;
+  }
+
   const configPath = resolve("trauma.config.json");
   if (existsSync(configPath)) {
     return loadTraumaConfig({ configPath }).databasePath;

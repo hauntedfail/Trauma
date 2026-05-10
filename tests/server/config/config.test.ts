@@ -1,5 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { accessSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -81,6 +82,29 @@ describe("loadTraumaConfig", () => {
     }
   });
 
+  it("resolves drizzle-kit database path from TRAUMA_CONFIG_PATH unless TRAUMA_DATABASE_PATH overrides it", () => {
+    const root = createTempRoot();
+    const configPath = writeConfig(root, {
+      storePath: "./data/store",
+      projectPath: "./data",
+      databasePath: "./custom/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+    const overridePath = join(root, "override.sqlite");
+
+    const fromConfig = readDrizzleDatabasePath({
+      TRAUMA_CONFIG_PATH: configPath,
+      TRAUMA_DATABASE_PATH: undefined,
+    });
+    const fromOverride = readDrizzleDatabasePath({
+      TRAUMA_CONFIG_PATH: configPath,
+      TRAUMA_DATABASE_PATH: overridePath,
+    });
+
+    expect(fromConfig).toBe(join(root, "custom/trauma.sqlite"));
+    expect(fromOverride).toBe(overridePath);
+  });
+
   it("reports invalid JSON clearly", () => {
     const root = createTempRoot();
     const configPath = join(root, "trauma.config.json");
@@ -127,4 +151,60 @@ function restoreEnv(name: string, value: string | undefined): void {
   }
 
   process.env[name] = value;
+}
+
+function readDrizzleDatabasePath(env: {
+  TRAUMA_CONFIG_PATH: string;
+  TRAUMA_DATABASE_PATH: string | undefined;
+}) {
+  const script = `
+    const config = await import("./drizzle.config.ts");
+    process.stdout.write(config.default.dbCredentials.url);
+  `;
+  const childEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    TRAUMA_CONFIG_PATH: env.TRAUMA_CONFIG_PATH,
+  };
+  if (env.TRAUMA_DATABASE_PATH === undefined) {
+    delete childEnv.TRAUMA_DATABASE_PATH;
+  } else {
+    childEnv.TRAUMA_DATABASE_PATH = env.TRAUMA_DATABASE_PATH;
+  }
+
+  return execFileSync(resolveBunExecutable(), ["-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: childEnv,
+  });
+}
+
+function resolveBunExecutable(): string {
+  if (process.versions.bun !== undefined) {
+    return process.execPath;
+  }
+
+  const candidates = [
+    process.env.BUN_EXECUTABLE,
+    join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
+    "bun",
+  ];
+  const executable = candidates.find(
+    (candidate) =>
+      candidate !== undefined &&
+      (candidate.includes("/") ? canAccess(candidate) : true),
+  );
+  if (executable === undefined) {
+    throw new Error("Bun executable is required for drizzle config tests");
+  }
+
+  return executable;
+}
+
+function canAccess(path: string): boolean {
+  try {
+    accessSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
