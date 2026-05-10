@@ -18,6 +18,8 @@ clear implementation decision, not a partial reader rewrite.
 Primary files and directories:
 
 - Create `docs/references/reader-pipeline-decision.md`.
+- Modify `docs/INDEX.md` so the decision doc is reachable from the indexed
+  documentation map.
 - Modify `docs/references/technology-stack.md` only if the selected reader
   stack changes.
 - Modify `docs/architecture/ui-and-routing.md` only if the supported reader
@@ -73,6 +75,8 @@ Each option must be scored from 1 to 5 against:
 
 4. Write the decision document.
    - Create `docs/references/reader-pipeline-decision.md`.
+   - Add `docs/references/reader-pipeline-decision.md` to `docs/INDEX.md` or
+     another page that is already reachable from `docs/INDEX.md`.
    - Include a scored matrix for `markdown-it`, `unified/remark/rehype`, and
      the hybrid option.
    - State selected option, rejected options, and why.
@@ -91,6 +95,8 @@ Each option must be scored from 1 to 5 against:
 - A single reader direction is selected.
 - `docs/references/reader-pipeline-decision.md` exists and contains the scored
   option matrix.
+- The decision doc is linked from the indexed documentation map so Task 12 docs
+  health does not report it as orphaned.
 - The decision covers security, highlighting, ToC, embeds, and tests.
 - Task 14 can proceed without re-litigating library choice or module
   boundaries.
