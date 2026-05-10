@@ -20,6 +20,7 @@ keep each worker's context focused on its own domain.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Active triage |
+| 16b | [Drizzle and SQLite hardening](task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Triage subtask |
 
 ## Archived Workflows
 
@@ -84,3 +85,4 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `triage`
+- `triage-db-orm-hardening`

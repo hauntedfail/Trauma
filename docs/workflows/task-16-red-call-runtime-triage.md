@@ -12,10 +12,12 @@ loading consistently.
 - Runtime command stabilization has landed on `triage` in
   `a169df2 fix: run server with bun runtime`.
 - Tailwind migration was split into Task 16a and merged through PR #11.
+- Drizzle/SQLite hardening is split into Task 16b so DB/ORM review findings do
+  not expand this runtime workflow.
 - `src/styles/app.css` has been removed; the active global style entry is
   `src/styles/tailwind.css`.
 - Keep this workflow open for any remaining red-call triage that is not already
-  owned by the archived Task 16a migration record.
+  owned by Task 16b or the archived Task 16a migration record.
 
 ## Initial Evidence
 
