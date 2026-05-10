@@ -15,6 +15,9 @@
 - MUST use `bun run db:generate` and review the generated SQL for schema
   changes. Do not use push-style schema mutation for reviewable project
   migrations.
+- MUST NOT edit an already-applied migration to change its behavior. Add a
+  forward migration instead, because runtime migration hashes are compatibility
+  guards for existing local SQLite databases.
 - MUST define both database-level constraints and Drizzle relations when a table
   relationship is part of the domain model.
 - MUST wrap multi-table or multi-step writes in transactions. Memory creation,

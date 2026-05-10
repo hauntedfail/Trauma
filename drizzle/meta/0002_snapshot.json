@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "47488a08-3e33-471b-adae-69c9993016cd",
-  "prevId": "3230dd59-baf1-4cd4-a15c-8b6c5b012637",
+  "id": "f5c7241b-604a-4fdc-9bce-c696d92cb24c",
+  "prevId": "47488a08-3e33-471b-adae-69c9993016cd",
   "tables": {
     "categories": {
       "name": "categories",
@@ -157,7 +157,7 @@
         },
         "highlights_end_offset_check": {
           "name": "highlights_end_offset_check",
-          "value": "\"highlights\".\"end_offset\" >= \"highlights\".\"start_offset\""
+          "value": "\"highlights\".\"end_offset\" > \"highlights\".\"start_offset\""
         }
       }
     },

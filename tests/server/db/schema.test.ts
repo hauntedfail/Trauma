@@ -288,6 +288,7 @@ describe("db foundation", () => {
     expect(JSON.parse(output)).toEqual([
       { id: 1, id_type: "integer" },
       { id: 2, id_type: "integer" },
+      { id: 3, id_type: "integer" },
     ]);
   });
 
@@ -393,6 +394,102 @@ describe("db foundation", () => {
       rejected: true,
       message: expect.stringContaining("hash mismatch"),
     });
+  });
+
+  it("upgrades databases that already recorded the original 0001 migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            const migration0000 = readBundledMigrations()
+              .find((migration) => migration.folderMillis === 1778308356677);
+            if (!migration0000) {
+              throw new Error("missing bundled 0000 migration");
+            }
+
+            sqlite.run("PRAGMA foreign_keys = ON");
+            sqlite.run("CREATE TABLE __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run(migration0000.hash, 1778308356677);
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("79acaf382478f3958e213cf29076922f9f234d4f8f927a1a1ef5f13e38b0bff0", 1778393646543);
+
+            sqlite.run(\`
+              CREATE TABLE memories (
+                id text PRIMARY KEY NOT NULL,
+                url text NOT NULL,
+                title text NOT NULL,
+                content_path text NOT NULL,
+                extraction_status text NOT NULL,
+                backup_status text NOT NULL,
+                created_at integer NOT NULL,
+                updated_at integer NOT NULL
+              )
+            \`);
+            sqlite.run(\`
+              CREATE TABLE highlights (
+                id text PRIMARY KEY NOT NULL,
+                memory_id text NOT NULL,
+                text text NOT NULL,
+                prefix text NOT NULL,
+                suffix text NOT NULL,
+                start_offset integer NOT NULL,
+                end_offset integer NOT NULL,
+                created_at integer NOT NULL,
+                updated_at integer NOT NULL,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON UPDATE no action ON DELETE cascade,
+                CONSTRAINT highlights_start_offset_check CHECK(start_offset >= 0),
+                CONSTRAINT highlights_end_offset_check CHECK(end_offset >= start_offset)
+              )
+            \`);
+            sqlite.run("CREATE INDEX highlights_memory_id_idx ON highlights (memory_id)");
+            sqlite.run("CREATE INDEX highlights_created_at_idx ON highlights (created_at)");
+
+            const now = Date.now();
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f007/CONTENT.md", "success", "pending", now, now);
+            sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("existing-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "valid", "", "", 0, 5, now, now);
+
+            applyBundledMigrations(sqlite);
+
+            process.stdout.write(JSON.stringify({
+              checkSql: sqlite.prepare("select sql from sqlite_master where type = 'table' and name = 'highlights'").get().sql,
+              highlightCount: sqlite.prepare("select count(*) as count from highlights where id = 'existing-highlight'").get().count,
+              migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      highlightCount: 1,
+      migrationCount: 3,
+    });
+    expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });
 
   it("fails loudly when the database has newer migrations than the bundled runtime", () => {
@@ -800,6 +897,9 @@ describe("db foundation", () => {
             process.stdout.write(JSON.stringify({ rejected: false }));
           } catch (error) {
             process.stdout.write(JSON.stringify({
+              highlightCount: connection.sqlite
+                .prepare("select count(*) as count from highlights where id = 'empty-highlight'")
+                .get().count,
               rejected: true,
               message: error instanceof Error ? error.message : String(error),
             }));
@@ -817,7 +917,9 @@ describe("db foundation", () => {
     );
 
     expect(JSON.parse(output)).toMatchObject({
+      highlightCount: 0,
       rejected: true,
+      message: expect.stringContaining("highlights_end_offset_check"),
     });
   });
 
