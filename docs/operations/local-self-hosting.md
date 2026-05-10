@@ -57,13 +57,21 @@ Standard commands:
 
 - `bun run dev` — start the dev server on port `3000`.
 - `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
-  Fails if the server cannot bind, exits early, or does not respond within
-  the timeout.
-- `bun run start` — serve the production build on `127.0.0.1:3000`.
+  Fails if the requested port is occupied, the server cannot bind, exits
+  early, falls back to a different port, or does not respond within the
+  timeout.
+- `bun run start` — serve the production build bound to `127.0.0.1:3000`
+  (loopback only). Override the bind address by passing `--host` directly
+  to `vinxi start`. Without `--host` the underlying Vinxi CLI defaults to
+  `0.0.0.0`, which is why this script pins it explicitly.
 
 The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
 real `trauma.config.json`. Run the smoke check before relying on the dev
 server in CI or scripted environments.
+
+`bun run test:e2e` boots its own dev server on port `4173` and pins
+`TRAUMA_HMR_PORT=24681` so it can run alongside `bun run dev` without HMR
+port collisions.
 
 ## Auth
 

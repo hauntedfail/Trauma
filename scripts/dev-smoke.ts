@@ -1,13 +1,15 @@
 /**
  * Dev startup smoke check.
  *
- * Boots `vinxi dev` with a deterministic host and port and an ephemeral
- * Trauma config, probes `/memories`, then shuts the server down. Exits
- * non-zero if the server fails to bind, exits early, or never serves a
- * 2xx/3xx/4xx response within the timeout.
+ * Boots `vinxi dev` with a deterministic host and port and probes
+ * `/memories` in fixtures mode, then shuts the server down. Exits
+ * non-zero if the requested port is occupied, the server cannot
+ * bind, the server exits early, the server falls back to a different
+ * port, or the probe never succeeds within the timeout.
  */
 
 import { spawn } from "node:child_process";
+import { createServer, isIP } from "node:net";
 
 interface SmokeOptions {
   readonly host: string;
@@ -20,14 +22,22 @@ interface SmokeOptions {
 
 function readNumber(name: string, fallback: number): number {
   const raw = process.env[name];
-  if (raw === undefined || raw === "") {
+  if (raw === undefined || raw.trim() === "") {
     return fallback;
   }
-  const parsed = Number(raw);
+  const parsed = Number(raw.trim());
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`Invalid ${name}: ${raw}`);
   }
   return parsed;
+}
+
+function readPort(name: string, fallback: number): number {
+  const value = readNumber(name, fallback);
+  if (!Number.isInteger(value) || value < 1 || value > 65_535) {
+    throw new Error(`Invalid ${name}: ${value} (expected integer in 1..65535)`);
+  }
+  return value;
 }
 
 function readString(name: string, fallback: string): string {
@@ -38,12 +48,45 @@ function readString(name: string, fallback: string): string {
 function buildOptions(): SmokeOptions {
   return {
     host: readString("TRAUMA_DEV_HOST", "localhost"),
-    port: readNumber("TRAUMA_DEV_PORT", 3000),
-    hmrPort: readNumber("TRAUMA_HMR_PORT", 24678),
+    port: readPort("TRAUMA_DEV_PORT", 3000),
+    hmrPort: readPort("TRAUMA_HMR_PORT", 24678),
     path: readString("TRAUMA_DEV_SMOKE_PATH", "/memories"),
     timeoutMs: readNumber("TRAUMA_DEV_SMOKE_TIMEOUT_MS", 90_000),
     pollIntervalMs: readNumber("TRAUMA_DEV_SMOKE_POLL_MS", 500),
   };
+}
+
+function bracketHost(host: string): string {
+  if (isIP(host) === 6 && !host.startsWith("[")) {
+    return `[${host}]`;
+  }
+  return host;
+}
+
+function buildProbeUrl(options: SmokeOptions): string {
+  return `http://${bracketHost(options.host)}:${options.port}${options.path}`;
+}
+
+async function ensurePortFree(host: string, port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      reject(
+        new Error(
+          `Port ${port} on host ${host} is already in use (${error.code ?? error.message})`,
+        ),
+      );
+    });
+    server.listen(port, host, () => {
+      server.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
 }
 
 async function probe(url: string, signal: AbortSignal): Promise<boolean> {
@@ -55,16 +98,42 @@ async function probe(url: string, signal: AbortSignal): Promise<boolean> {
   }
 }
 
+interface SmokeProcessState {
+  exited: boolean;
+  fallbackDetected: boolean;
+}
+
+const FALLBACK_PATTERNS: ReadonlyArray<RegExp> = [
+  /\[get-port\][^\n]*Unable to find/i,
+  /Using alternative port/i,
+  /Unable to find a random port/i,
+];
+
+function watchForFallback(
+  chunk: Buffer | string,
+  state: SmokeProcessState,
+): void {
+  const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  if (FALLBACK_PATTERNS.some((pattern) => pattern.test(text))) {
+    state.fallbackDetected = true;
+  }
+}
+
 async function waitForReady(
   url: string,
   timeoutMs: number,
   pollIntervalMs: number,
-  exitedRef: { exited: boolean },
+  state: SmokeProcessState,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (exitedRef.exited) {
+    if (state.exited) {
       throw new Error("Dev server exited before becoming ready");
+    }
+    if (state.fallbackDetected) {
+      throw new Error(
+        "Dev server fell back to a different port (see captured output above)",
+      );
     }
     const controller = new AbortController();
     const probeTimer = setTimeout(
@@ -82,9 +151,11 @@ async function waitForReady(
 }
 
 async function run(options: SmokeOptions): Promise<void> {
-  const url = `http://${options.host}:${options.port}${options.path}`;
+  const url = buildProbeUrl(options);
   // eslint-disable-next-line no-console
   console.log(`[dev-smoke] starting ${url} (hmr ${options.hmrPort})`);
+
+  await ensurePortFree(options.host, options.port);
 
   const child = spawn(
     "bun",
@@ -97,29 +168,32 @@ async function run(options: SmokeOptions): Promise<void> {
         TRAUMA_HMR_PORT: String(options.hmrPort),
         TRAUMA_BROWSE_FIXTURES: "1",
       },
-      stdio: ["ignore", "inherit", "inherit"],
+      stdio: ["ignore", "pipe", "pipe"],
     },
   );
 
-  const exitedRef = { exited: false };
+  const state: SmokeProcessState = { exited: false, fallbackDetected: false };
   let earlyExitCode: number | null = null;
 
+  child.stdout?.on("data", (chunk: Buffer) => {
+    process.stdout.write(chunk);
+    watchForFallback(chunk, state);
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    process.stderr.write(chunk);
+    watchForFallback(chunk, state);
+  });
   child.on("exit", (code) => {
-    exitedRef.exited = true;
+    state.exited = true;
     earlyExitCode = code;
   });
 
   try {
-    await waitForReady(
-      url,
-      options.timeoutMs,
-      options.pollIntervalMs,
-      exitedRef,
-    );
+    await waitForReady(url, options.timeoutMs, options.pollIntervalMs, state);
     // eslint-disable-next-line no-console
     console.log(`[dev-smoke] ${url} responded ok`);
   } finally {
-    if (!exitedRef.exited) {
+    if (!state.exited) {
       child.kill("SIGTERM");
       const killed = await new Promise<boolean>((resolve) => {
         const fallback = setTimeout(() => {
