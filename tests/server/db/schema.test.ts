@@ -390,6 +390,110 @@ describe("db foundation", () => {
     });
   });
 
+  it("fails loudly when the database has newer migrations than the bundled runtime", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("future", 9999999999999);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("newer bundled migration"),
+    });
+  });
+
+  it("rolls back breakpoint migration bodies when migration recording fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("CREATE TABLE IF NOT EXISTS __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.run(\`
+              CREATE TRIGGER fail_migration_record
+              BEFORE INSERT ON __drizzle_migrations
+              BEGIN
+                SELECT RAISE(ABORT, 'record blocked');
+              END
+            \`);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                memoryTableCount: sqlite.prepare("select count(*) as count from sqlite_master where type = 'table' and name = 'memories'").get().count,
+                migrationRows: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      memoryTableCount: 0,
+      migrationRows: 0,
+    });
+  });
+
   it("rolls back breakpoint migration body failures while honoring foreign key PRAGMAs", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(

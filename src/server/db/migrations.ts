@@ -27,8 +27,21 @@ export function applyBundledMigrations(sqlite: BunDatabase): void {
   const appliedMigrationByCreatedAt = new Map(
     appliedMigrations.map((migration) => [migration.created_at, migration]),
   );
+  const bundledMigrations = readBundledMigrations();
+  const bundledMigrationByCreatedAt = new Map(
+    bundledMigrations.map((migration) => [migration.folderMillis, migration]),
+  );
 
-  for (const migration of readBundledMigrations()) {
+  for (const appliedMigration of appliedMigrations) {
+    if (!bundledMigrationByCreatedAt.has(appliedMigration.created_at)) {
+      throw new Error(
+        `Database has an unknown or newer bundled migration: ${appliedMigration.created_at}. ` +
+          "Run this database with a runtime that includes that migration.",
+      );
+    }
+  }
+
+  for (const migration of bundledMigrations) {
     const appliedMigration = appliedMigrationByCreatedAt.get(migration.folderMillis);
     if (appliedMigration !== undefined) {
       if (appliedMigration.hash !== migration.hash) {
@@ -41,8 +54,9 @@ export function applyBundledMigrations(sqlite: BunDatabase): void {
     }
 
     if (migration.bps) {
-      applyBreakpointedMigration(sqlite, migration.sql);
-      recordMigration(sqlite, migration.hash, migration.folderMillis);
+      applyBreakpointedMigration(sqlite, migration.sql, () => {
+        recordMigration(sqlite, migration.hash, migration.folderMillis);
+      });
       continue;
     }
 
@@ -64,7 +78,11 @@ function applyStatements(sqlite: BunDatabase, statements: string[]) {
   }
 }
 
-function applyBreakpointedMigration(sqlite: BunDatabase, statements: string[]) {
+function applyBreakpointedMigration(
+  sqlite: BunDatabase,
+  statements: string[],
+  recordAppliedMigration: () => void,
+) {
   const originalForeignKeysState = readForeignKeysState(sqlite);
   let desiredForeignKeysState = originalForeignKeysState;
   let migrationCompleted = false;
@@ -91,6 +109,7 @@ function applyBreakpointedMigration(sqlite: BunDatabase, statements: string[]) {
 
     const apply = sqlite.transaction(() => {
       applyStatements(sqlite, ordinaryStatements);
+      recordAppliedMigration();
     });
     apply();
     migrationCompleted = true;
