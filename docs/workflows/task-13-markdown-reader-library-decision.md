@@ -17,7 +17,11 @@ clear implementation decision, not a partial reader rewrite.
 
 Primary files and directories:
 
-- `docs/workflows/task-13-markdown-reader-library-decision.md`
+- Create `docs/references/reader-pipeline-decision.md`.
+- Modify `docs/references/technology-stack.md` only if the selected reader
+  stack changes.
+- Modify `docs/architecture/ui-and-routing.md` only if the supported reader
+  behavior changes.
 - Reader-focused spike files under temporary or test-only paths if needed.
 - `package.json` and `bun.lock` only if a spike requires installing a candidate
   dependency for verification.
@@ -35,7 +39,7 @@ Evaluate at least these options:
 
 ## Evaluation Criteria
 
-Each option must be scored against:
+Each option must be scored from 1 to 5 against:
 
 - Bun and SolidStart SSR compatibility.
 - TypeScript type quality.
@@ -67,10 +71,15 @@ Each option must be scored against:
    - Keep spike code out of production paths unless it becomes the final
      implementation in Task 14.
 
-4. Write the decision in this workflow file.
-   - Add a `Decision` section near the top.
+4. Write the decision document.
+   - Create `docs/references/reader-pipeline-decision.md`.
+   - Include a scored matrix for `markdown-it`, `unified/remark/rehype`, and
+     the hybrid option.
    - State selected option, rejected options, and why.
+   - State whether Task 14 should change dependencies.
    - State exact follow-up scope for Task 14.
+   - State any module-boundary override for Task 14. If no override is written,
+     Task 14 must use its default module boundaries.
 
 5. Keep docs lean.
    - Update technology-stack or architecture docs only if the selected reader
@@ -80,8 +89,11 @@ Each option must be scored against:
 ## Acceptance Criteria
 
 - A single reader direction is selected.
+- `docs/references/reader-pipeline-decision.md` exists and contains the scored
+  option matrix.
 - The decision covers security, highlighting, ToC, embeds, and tests.
-- Task 14 can proceed without re-litigating library choice.
+- Task 14 can proceed without re-litigating library choice or module
+  boundaries.
 - No production reader behavior changes in this task.
 
 ## Verification

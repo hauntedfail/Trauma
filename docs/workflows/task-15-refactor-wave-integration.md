@@ -34,6 +34,7 @@ Do not add new product features in this task.
    - Run typecheck, unit/integration tests, build, E2E, startup smoke, and docs
      health.
    - Record exact commands and outcomes.
+   - Use the exact commands in this workflow's Verification section.
 
 2. Check workflow consistency.
    - Ensure Task 10-14 workflow files match the implemented code.
@@ -58,6 +59,9 @@ Do not add new product features in this task.
    - Confirm docs-only changes trigger docs health but not unnecessary expensive
      app checks.
    - Confirm release workflow still runs on tag pushes.
+   - Use `gh pr checks --watch`.
+   - Use `gh run list --branch <branch> --limit 10`.
+   - Use `gh run view <run-id> --log-failed` for any failed run.
 
 ## Acceptance Criteria
 
@@ -73,14 +77,26 @@ Run:
 
 ```bash
 bun install --frozen-lockfile
+bun run docs:check
+```
+
+Run the Task 10 startup smoke command exactly as documented by Task 10 after it
+has merged. Then run:
+
+```bash
 bun run typecheck
 bun run test
 bun run build
 bun run test:e2e
 ```
 
-Also run the startup smoke and docs health commands introduced by Tasks 10 and
-12.
+After opening or updating the PR, run:
+
+```bash
+gh pr checks --watch
+gh run list --branch <branch> --limit 10
+gh run view <run-id> --log-failed
+```
 
 ## PR Handoff
 
