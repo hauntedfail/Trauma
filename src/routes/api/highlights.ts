@@ -24,7 +24,7 @@ const SELECTION_KEYS = [
 ] as const;
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseHighlightTogglePayload(event.request);
+  const payload = await parseHighlightTogglePayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -54,7 +54,9 @@ export async function POST(event: APIEvent): Promise<Response> {
   }
 }
 
-export async function parseHighlightTogglePayload(
+export const parseHighlightTogglePayload = parseHighlightTogglePayloadInternal;
+
+async function parseHighlightTogglePayloadInternal(
   request: Request,
 ): Promise<HighlightTogglePayloadResult> {
   let payload: unknown;
