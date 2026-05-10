@@ -470,6 +470,69 @@ describe("add memory orchestration", () => {
     });
   });
 
+  it("does not report backup status update success when the memory row is missing", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase(createConfig(root));
+
+        try {
+          let result;
+          try {
+            result = await connection.repositories.memories.updateBackupStatus({
+              id: "missing-memory",
+              backupStatus: "failed",
+              lastBackupAt: null,
+              lastBackupError: "queue failed",
+              updatedAt: new Date(${JSON.stringify(capturedAt.toISOString())}),
+            });
+          } catch (error) {
+            result = {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              message: error instanceof Error ? error.message : String(error),
+            };
+          }
+
+          process.stdout.write(JSON.stringify(result));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      errorName: "MemoryRepositoryError",
+      message: expect.stringContaining("missing-memory"),
+    });
+  });
+
   it("does not delete content when post-insert read-back is unavailable", async () => {
     const root = await makeRoot();
     const output = runBunScript(

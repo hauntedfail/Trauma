@@ -73,11 +73,12 @@ Out of scope:
 
 2. **P0: Remove Drizzle private migration internals**
    - Do not cast Drizzle DB to `unknown` to call `dialect.migrate`.
-   - Prefer public Drizzle `migrate(db, { migrationsFolder })` where a real
-     migration folder is available.
    - For bundled runtime migrations, introduce a small tested runner that reads
      `readBundledMigrations()` and writes the standard `__drizzle_migrations`
      table using Bun SQLite `run` inside a transaction.
+   - If an explicit migration-folder path remains, it must preserve the same
+     PRAGMA, hash-validation, and atomicity semantics as the bundled runtime
+     path. Remove or narrow the option rather than keeping a weaker path.
    - Preserve compatibility with already-created databases that have Drizzle's
      migration table.
 
@@ -133,7 +134,8 @@ Out of scope:
 - Remove `BunMigrationDatabaseInternals` and any `unknown` cast used only to
   reach Drizzle internals.
 - Add tests that initialize from bundled migrations and from an explicit
-  `migrationsFolder`.
+  `migrationsFolder` only if the explicit-folder path remains semantically
+  equivalent to bundled runtime migrations.
 - Keep the existing drift test comparing bundled migrations with `drizzle/**`.
 
 ### Phase 3: Config contract alignment
