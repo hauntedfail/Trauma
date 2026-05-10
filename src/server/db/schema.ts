@@ -9,12 +9,16 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+import { BACKUP_STATUSES, type BackupStatus } from "../backup/status";
 import { EXTRACTION_STATUSES, type ExtractionStatus } from "../memory-status";
 
-export type BackupStatus = "pending" | "queued" | "success" | "failed" | "disabled";
+export type { BackupStatus } from "../backup/status";
 
 const extractionStatusSqlList = sql.raw(
   EXTRACTION_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+const backupStatusSqlList = sql.raw(
+  BACKUP_STATUSES.map(toSqlStringLiteral).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -57,7 +61,7 @@ export const memories = sqliteTable(
     ),
     check(
       "memories_backup_status_check",
-      sql`${table.backupStatus} in ('pending', 'queued', 'success', 'failed', 'disabled')`,
+      sql`${table.backupStatus} in (${backupStatusSqlList})`,
     ),
   ],
 );

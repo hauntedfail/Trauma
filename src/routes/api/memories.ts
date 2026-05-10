@@ -1,6 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 
-import { createNoopMemoryBackupQueue } from "~/server/backup";
+import { getMemoryBackupQueue } from "~/server/backup";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { validateImportUrl } from "~/server/importer";
@@ -25,7 +25,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       url: payload.url,
       config,
       db: connection.db,
-      backupQueue: createNoopMemoryBackupQueue(),
+      backupQueue: getMemoryBackupQueue(config),
     });
 
     return json({ memory }, { status: 201 });

@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "./schema";
@@ -8,6 +8,10 @@ type Memory = typeof schema.memories.$inferSelect;
 type MemoryBackupStatusUpdate = Pick<
   Memory,
   "id" | "backupStatus" | "lastBackupAt" | "lastBackupError" | "updatedAt"
+>;
+type MemoryBackupRetryRow = Pick<
+  Memory,
+  "id" | "contentPath" | "backupStatus" | "updatedAt"
 >;
 
 export interface MemoryBrowseRow {
@@ -31,6 +35,7 @@ export interface MemoryRepository {
     lastBackupError?: string | null;
     updatedAt: Date;
   }) => Promise<MemoryBackupStatusUpdate>;
+  listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
@@ -81,6 +86,17 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           updatedAt: input.updatedAt,
         };
       },
+      listBackupsEligibleForRetry: async () =>
+        db.query.memories.findMany({
+          columns: {
+            id: true,
+            contentPath: true,
+            backupStatus: true,
+            updatedAt: true,
+          },
+          where: inArray(schema.memories.backupStatus, ["pending", "failed"]),
+          orderBy: [asc(schema.memories.updatedAt), asc(schema.memories.id)],
+        }),
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({
           orderBy: [desc(schema.memories.createdAt)],
