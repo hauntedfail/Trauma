@@ -80,8 +80,8 @@ function applyMigrations(
   db: BunSQLiteDatabase<typeof schema>,
   migrationsFolder?: string,
 ) {
-  const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
   if (migrationsFolder !== undefined) {
+    const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
     migrate(db, { migrationsFolder });
     return;
   }
