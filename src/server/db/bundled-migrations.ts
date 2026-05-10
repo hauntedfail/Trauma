@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { MigrationMeta } from "drizzle-orm/migrator";
 
 import migration0000Sql from "../../../drizzle/0000_conscious_mikhail_rasputin.sql?raw";
 import migration0001Sql from "../../../drizzle/0001_cold_shotgun.sql?raw";
 import migration0002Sql from "../../../drizzle/0002_chilly_james_howlett.sql?raw";
+import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
   {
@@ -23,7 +23,7 @@ const BUNDLED_MIGRATIONS = [
   },
 ] as const;
 
-export function readBundledMigrations(): MigrationMeta[] {
+export function readBundledMigrations(): RuntimeMigration[] {
   return BUNDLED_MIGRATIONS.map((migration) => ({
     sql: migration.sql.split("--> statement-breakpoint"),
     folderMillis: migration.folderMillis,

@@ -62,6 +62,11 @@
 - MUST keep every runtime migration entrypoint semantically equivalent. Test,
   explicit-folder, and bundled paths must honor the same PRAGMA, hash, atomicity,
   and compatibility rules, or the weaker entrypoint must be removed.
+- MUST route explicit migration folders through Trauma's checked runtime runner.
+  Drizzle may parse committed migration files, but it must not own runtime
+  migration application semantics for this app.
+- MUST keep Trauma's runtime migration data contract locally owned. Do not type
+  production runner inputs against Drizzle migrator metadata interfaces.
 - MUST NOT call Drizzle private migration internals such as `dialect.migrate`
   through `unknown` casts. Runtime migrations must use public APIs or a focused
   local runner with tests.

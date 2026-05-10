@@ -540,6 +540,72 @@ describe("db foundation", () => {
     });
   });
 
+  it("rejects incompatible migration history when using an explicit migrations folder", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const databasePath = join(root, "trauma.sqlite");
+          const sqlite = new Database(databasePath);
+          try {
+            sqlite.run("CREATE TABLE __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("future", 9999999999999);
+          } finally {
+            sqlite.close();
+          }
+
+          try {
+            const connection = initializeDatabase(
+              {
+                configFilePath: join(root, "trauma.config.json"),
+                projectPath: join(root, "data"),
+                storePath: join(root, "data/store"),
+                databasePath,
+                backup: {
+                  git: {
+                    enabled: true,
+                    remote: "origin",
+                    branch: "main",
+                    push: false,
+                    commitMessageTemplate: "backup memory {memoryId}",
+                  },
+                },
+              },
+              { migrationsFolder: join(process.cwd(), "drizzle") },
+            );
+            connection.close();
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("newer explicit-folder migration"),
+    });
+  });
+
   it("rolls back breakpoint migration bodies when migration recording fails", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(

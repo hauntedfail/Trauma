@@ -5,7 +5,7 @@ import type { Database as BunDatabase } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { applyBundledMigrations } from "./migrations";
+import { applyBundledMigrations, applyRuntimeMigrations } from "./migrations";
 import { createRepositories, type TraumaRepositories } from "./repositories";
 import * as schema from "./schema";
 
@@ -39,7 +39,7 @@ export function initializeDatabase(
 
     const db = createDrizzleDatabase(sqlite);
     if (options.runMigrations !== false) {
-      applyMigrations(sqlite, db, options.migrationsFolder);
+      applyMigrations(sqlite, options.migrationsFolder);
     }
 
     return {
@@ -77,12 +77,15 @@ function createDrizzleDatabase(sqlite: BunDatabase) {
 
 function applyMigrations(
   sqlite: BunDatabase,
-  db: BunSQLiteDatabase<typeof schema>,
   migrationsFolder?: string,
 ) {
   if (migrationsFolder !== undefined) {
-    const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as typeof import("drizzle-orm/bun-sqlite/migrator");
-    migrate(db, { migrationsFolder });
+    const { readMigrationFiles } = require("drizzle-orm/migrator") as typeof import("drizzle-orm/migrator");
+    applyRuntimeMigrations(
+      sqlite,
+      readMigrationFiles({ migrationsFolder }),
+      "explicit-folder",
+    );
     return;
   }
 

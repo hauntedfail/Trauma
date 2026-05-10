@@ -7,6 +7,13 @@ interface AppliedMigrationRow {
   hash: string;
 }
 
+export interface RuntimeMigration {
+  sql: string[];
+  folderMillis: number;
+  hash: string;
+  bps: boolean;
+}
+
 interface ForeignKeyViolationRow {
   table: string;
   rowid: number | null;
@@ -18,6 +25,14 @@ const MIGRATIONS_TABLE = "__drizzle_migrations";
 const FOREIGN_KEYS_PRAGMA_PATTERN = /^PRAGMA\s+foreign_keys\s*=\s*(ON|OFF|1|0)\s*;?$/i;
 
 export function applyBundledMigrations(sqlite: BunDatabase): void {
+  applyRuntimeMigrations(sqlite, readBundledMigrations(), "bundled");
+}
+
+export function applyRuntimeMigrations(
+  sqlite: BunDatabase,
+  runtimeMigrations: RuntimeMigration[],
+  sourceLabel = "runtime",
+): void {
   sqlite.run(
     `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
       id integer primary key autoincrement,
@@ -34,26 +49,25 @@ export function applyBundledMigrations(sqlite: BunDatabase): void {
   const appliedMigrationByCreatedAt = new Map(
     appliedMigrations.map((migration) => [migration.created_at, migration]),
   );
-  const bundledMigrations = readBundledMigrations();
   const bundledMigrationByCreatedAt = new Map(
-    bundledMigrations.map((migration) => [migration.folderMillis, migration]),
+    runtimeMigrations.map((migration) => [migration.folderMillis, migration]),
   );
 
   for (const appliedMigration of appliedMigrations) {
     if (!bundledMigrationByCreatedAt.has(appliedMigration.created_at)) {
       throw new Error(
-        `Database has an unknown or newer bundled migration: ${appliedMigration.created_at}. ` +
+        `Database has an unknown or newer ${sourceLabel} migration: ${appliedMigration.created_at}. ` +
           "Run this database with a runtime that includes that migration.",
       );
     }
   }
 
-  for (const migration of bundledMigrations) {
+  for (const migration of runtimeMigrations) {
     const appliedMigration = appliedMigrationByCreatedAt.get(migration.folderMillis);
     if (appliedMigration !== undefined) {
       if (appliedMigration.hash !== migration.hash) {
         throw new Error(
-          `Bundled migration hash mismatch for ${migration.folderMillis}. ` +
+          `${sourceLabel} migration hash mismatch for ${migration.folderMillis}. ` +
             "The local database was migrated with different SQL.",
         );
       }
@@ -158,7 +172,7 @@ function assertNoForeignKeyViolations(sqlite: BunDatabase) {
   }
 
   throw new Error(
-    "Bundled migration introduced or preserved foreign key violations: " +
+    "Runtime migration introduced or preserved foreign key violations: " +
       `table=${firstViolation.table}, rowid=${firstViolation.rowid ?? "unknown"}, ` +
       `parent=${firstViolation.parent}, fkid=${firstViolation.fkid}`,
   );
