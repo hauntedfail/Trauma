@@ -105,6 +105,9 @@ function applyBreakpointedMigration(
   statements: string[],
   recordAppliedMigration: () => void,
 ) {
+  // SQLite ignores foreign_keys changes inside transactions. Generated table
+  // rebuild migrations must pair any OFF directive with a later ON directive so
+  // desiredForeignKeysState restores enforcement after the migration commits.
   const originalForeignKeysState = readForeignKeysState(sqlite);
   let desiredForeignKeysState = originalForeignKeysState;
   let migrationCompleted = false;

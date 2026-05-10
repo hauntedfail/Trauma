@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { accessSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -185,7 +185,7 @@ function resolveBunExecutable(): string {
 
   const candidates = [
     process.env.BUN_EXECUTABLE,
-    join(homedir(), ".local/share/mise/installs/bun/1.3.13/bin/bun"),
+    ...findMiseBunExecutables(),
     "bun",
   ];
   const executable = candidates.find(
@@ -198,6 +198,22 @@ function resolveBunExecutable(): string {
   }
 
   return executable;
+}
+
+function findMiseBunExecutables(): string[] {
+  const installsRoot =
+    process.env.MISE_INSTALL_PATH ?? join(homedir(), ".local/share/mise/installs");
+  const bunInstallsRoot = join(installsRoot, "bun");
+
+  try {
+    return readdirSync(bunInstallsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(bunInstallsRoot, entry.name, "bin/bun"))
+      .sort()
+      .reverse();
+  } catch {
+    return [];
+  }
 }
 
 function canAccess(path: string): boolean {
