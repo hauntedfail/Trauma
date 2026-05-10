@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vinxi dev",
+    "dev:smoke": "bun run scripts/dev-smoke.ts",
     "build": "vinxi build",
     "start": "vinxi start",
     "preview": "vinxi preview",

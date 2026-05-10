@@ -8,3 +8,6 @@ playwright-report/
 test-results/
 .trauma/
 data/
+.env
+.env.local
+.env.*.local

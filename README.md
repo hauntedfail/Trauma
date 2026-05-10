@@ -39,6 +39,16 @@ Install dependencies:
 bun install
 ```
 
+Create the local environment file from the example:
+
+```bash
+cp .env.example .env
+```
+
+`.env` is gitignored. It controls the dev/start bind address (`HOST`),
+listening port (`PORT`), and base HMR port (`TRAUMA_HMR_PORT`). The defaults
+in `.env.example` bind loopback only (`127.0.0.1:3000`); adjust as needed.
+
 Run the dev server:
 
 ```bash

@@ -26,6 +26,22 @@ Primary files and directories:
 Do not implement highlight creation/toggle persistence in this task. Preserve
 existing persisted `<mark data-highlight-id>` rendering behavior only.
 
+Unless `docs/references/reader-pipeline-decision.md` explicitly overrides the
+module boundaries, use this structure:
+
+- `src/server/reader/markdown-renderer.ts`: public facade exporting
+  `renderMemoryMarkdown`.
+- `src/server/reader/markdown-converter.ts`: selected library setup and
+  markdown-to-HTML conversion.
+- `src/server/reader/reader-sanitizer.ts`: `sanitize-html` or selected
+  sanitizer allowlist and transforms.
+- `src/server/reader/reader-toc.ts`: heading ID and table-of-contents
+  extraction.
+- `src/server/reader/reader-embeds.ts`: iframe host and capability policy.
+- `src/server/reader/code-highlighting.ts`: code fence highlighting.
+- `src/server/reader/highlight-mark-policy.ts`: persisted highlight mark
+  validation and transform policy.
+
 ## Implementation Steps
 
 1. Create a reader contract test fixture.
@@ -42,6 +58,8 @@ existing persisted `<mark data-highlight-id>` rendering behavior only.
    - Sanitization.
    - Controlled embed policy.
    - Highlight mark preservation.
+   - Keep the facade small enough that route components do not import internal
+     pipeline modules.
 
 3. Implement the selected pipeline.
    - Follow the Task 13 decision.
@@ -67,6 +85,7 @@ existing persisted `<mark data-highlight-id>` rendering behavior only.
 
 - Reader responsibilities are split into focused modules or clearly separated
   functions.
+- `src/server/reader/markdown-renderer.ts` remains the public facade.
 - Unsafe HTML is sanitized before browser rendering.
 - `<mark data-highlight-id>` survives sanitization only when valid.
 - Controlled embed policy is covered by tests.

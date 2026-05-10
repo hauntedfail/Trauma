@@ -22,8 +22,8 @@ Primary files and directories:
 - `docs/**`
 - `AGENTS.md`
 - `README.md`
-- `scripts/**` if docs health scripts are introduced.
-- `package.json` scripts if docs checks become package commands.
+- `scripts/check-docs-health.ts`
+- `package.json`
 
 Do not change application runtime behavior in this task.
 
@@ -41,16 +41,28 @@ Do not change application runtime behavior in this task.
    - Check that `docs/workflows/README.md` links to existing workflow files.
    - Check that coding standards do not contain PR-specific history.
    - Check for broken relative links in markdown.
+   - Check archived workflow links and active workflow links separately.
+   - Check that every markdown file under `docs/` is linked from either
+     `docs/INDEX.md`, `docs/workflows/README.md`, or another indexed doc.
+   - Check for stale references to the removed review-learning document.
+   - Check for pull-request-number markers, merge-commit narratives, and
+     commit-hash narratives in coding standards and architecture docs.
 
 3. Implement the smallest executable checker.
-   - Prefer one focused script that exits non-zero with actionable messages.
+   - Create `scripts/check-docs-health.ts`.
+   - Add `docs:check` to `package.json` and point it at that script.
+   - The script must exit non-zero with actionable messages.
    - Avoid adding a broad documentation framework unless needed.
    - Keep checks deterministic and local.
 
 4. Add a docs workflow.
-   - Trigger on docs-related paths, workflow dispatch, and a scheduled cadence.
+   - Create `.github/workflows/docs-health.yml`.
+   - Trigger on docs-related paths, `AGENTS.md`, `README.md`,
+     `scripts/check-docs-health.ts`, `package.json`, workflow dispatch, and a
+     weekly scheduled cadence.
    - Upload a report artifact when useful.
    - Do not auto-commit documentation rewrites in the first version.
+   - Do not require secrets.
 
 5. Update docs maintenance instructions.
    - Document the docs health command in the appropriate workflow or quality
@@ -63,6 +75,8 @@ Do not change application runtime behavior in this task.
 - Docs-only changes have a cheaper, relevant validation path.
 - Scheduled docs health exists and can be run manually.
 - The docs checker catches stale links and PR-history accumulation.
+- `bun run docs:check` is the local docs health command.
+- `.github/workflows/docs-health.yml` is the GitHub Actions entrypoint.
 - No workflow depends on secrets for normal validation.
 
 ## Verification
