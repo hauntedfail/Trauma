@@ -44,6 +44,9 @@ Do not change application runtime behavior in this task.
    - Check archived workflow links and active workflow links separately.
    - Check that every markdown file under `docs/` is linked from either
      `docs/INDEX.md`, `docs/workflows/README.md`, or another indexed doc.
+   - Exempt only intentional compatibility shim docs that link to a canonical
+     indexed page and are listed explicitly in the checker. The current known
+     shim is `docs/references/coding-standards.md`.
    - Check for stale references to the removed review-learning document.
    - Check for pull-request-number markers, merge-commit narratives, and
      commit-hash narratives in coding standards and architecture docs.
