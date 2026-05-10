@@ -7,7 +7,17 @@ target is the broken environment contract: project-root `.env` values must drive
 dev/start commands, server runtime selection, E2E startup, and server-side config
 loading consistently.
 
-## Current Evidence
+## Current Status
+
+- Runtime command stabilization has landed on `triage` in
+  `a169df2 fix: run server with bun runtime`.
+- Tailwind migration was split into Task 16a and merged through PR #11.
+- `src/styles/app.css` has been removed; the active global style entry is
+  `src/styles/tailwind.css`.
+- Keep this workflow open for any remaining red-call triage that is not already
+  owned by the archived Task 16a migration record.
+
+## Initial Evidence
 
 - Local `.env` sets `HOST=127.0.0.1`, `PORT=9999`, and
   `TRAUMA_HMR_PORT=9911`.

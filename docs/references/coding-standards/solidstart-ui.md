@@ -31,3 +31,18 @@
   markdown, and backup behavior into server/domain modules.
 - AVOID component-level duplication of server state. Derive view state from
   route data, params, query state, or local UI signals.
+
+## Styling
+
+- MUST use Tailwind CSS for component styling.
+- MUST keep `src/styles/tailwind.css` as the only global stylesheet entry.
+- MUST NOT reintroduce `src/styles/app.css` or a replacement stylesheet full of
+  semantic selectors.
+- MUST NOT use Tailwind `@apply` to rebuild the old component stylesheet.
+- MUST write conditional classes as full static class names in `classList`;
+  dynamic string-built utility names are not allowed.
+- SHOULD keep long, repeated, static reader class strings in a small local
+  helper module when inline JSX becomes harder to scan.
+- SHOULD use Tailwind Typography for sanitized markdown reader HTML.
+- AVOID arbitrary variants except for sanitized markdown HTML or other markup
+  the component cannot directly author.

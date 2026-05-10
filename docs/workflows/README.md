@@ -10,10 +10,7 @@ keep each worker's context focused on its own domain.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
-| 4 | [Importer and add memory](task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Ready |
-| 5 | [Browse shell and filters](task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Ready |
-| 6 | [Reader pipeline](task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Ready after Task 5 |
-| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready after Task 6 |
+| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready |
 | 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 4 and 7 |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Final integration pass |
 | 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Refactor wave entry point |
@@ -23,7 +20,6 @@ keep each worker's context focused on its own domain.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Active triage |
-| 16a | [Tailwind migration](task-16a-tailwind-migration.md) | Replace `app.css` component styling with Tailwind classes | Triage subtask |
 
 ## Archived Workflows
 
@@ -33,6 +29,10 @@ keep each worker's context focused on its own domain.
 | 2 | [Config and persistence](archive/task-02-config-persistence.md) | Config loader, path validation, Drizzle schema, repositories | Archived |
 | 2.5 | [Coding standards refactor](archive/task-02-5-coding-standards-refactor.md) | Standards audit, vulnerability cleanup, readability refactor | Archived |
 | 3 | [Markdown store](archive/task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Archived |
+| 4 | [Importer and add memory](archive/task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Archived |
+| 5 | [Browse shell and filters](archive/task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Archived |
+| 6 | [Reader pipeline](archive/task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Archived |
+| 16a | [Tailwind migration](archive/task-16a-tailwind-migration.md) | Tailwind v4 Vite plugin, `app.css` removal, component-local styling | Archived after PR #11 |
 
 ## Worker Rules
 
@@ -59,6 +59,11 @@ All workflows assume the bootstrap already exists:
   migrations before repository exposure, and Bun SQLite connection lifecycle.
 - Markdown content store APIs are merged, including content path resolution,
   writer/reader behavior, and filesystem-isolated fixtures.
+- Importer and add-memory APIs are merged, including link-only fallback behavior
+  and backup enqueue boundaries.
+- Browse shell and reader pipeline foundations are merged, including
+  repository-backed browse rows, shared shell layout, and sanitized markdown
+  rendering.
 - `ExtractionStatus` is shared through `src/server/memory-status.ts` and used
   by markdown frontmatter validation and SQLite constraints.
 
@@ -79,4 +84,3 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `triage`
-- `triage/tailwind-migration`

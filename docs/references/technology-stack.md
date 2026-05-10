@@ -30,6 +30,19 @@ Bun is the only package manager for this project.
 - Use frozen lockfile installs in CI once dependencies are already resolved.
 - Do not add npm, Yarn, or pnpm lockfiles.
 
+## Styling Rules
+
+Tailwind CSS is the active styling system.
+
+- Use Tailwind v4 through `@tailwindcss/vite` in `app.config.ts`.
+- Keep `src/styles/tailwind.css` as the only global stylesheet entry.
+- Do not reintroduce `src/styles/app.css`.
+- Put ordinary component styling on JSX as static Tailwind class strings or
+  Solid `classList` entries.
+- Use `@tailwindcss/typography` for rendered markdown reader content.
+- Keep narrow arbitrary selectors only for markup that cannot be authored
+  directly, such as sanitized markdown HTML.
+
 ## Deployment Target
 
 The app targets local operation and single-instance self-hosting on a VPS or
