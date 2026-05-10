@@ -7,6 +7,13 @@ interface AppliedMigrationRow {
   hash: string;
 }
 
+interface ForeignKeyViolationRow {
+  table: string;
+  rowid: number | null;
+  parent: string;
+  fkid: number;
+}
+
 const MIGRATIONS_TABLE = "__drizzle_migrations";
 const FOREIGN_KEYS_PRAGMA_PATTERN = /^PRAGMA\s+foreign_keys\s*=\s*(ON|OFF|1|0)\s*;?$/i;
 
@@ -62,6 +69,7 @@ export function applyBundledMigrations(sqlite: BunDatabase): void {
 
     const apply = sqlite.transaction(() => {
       applyStatements(sqlite, migration.sql);
+      assertNoForeignKeyViolations(sqlite);
       recordMigration(sqlite, migration.hash, migration.folderMillis);
     });
 
@@ -109,6 +117,7 @@ function applyBreakpointedMigration(
 
     const apply = sqlite.transaction(() => {
       applyStatements(sqlite, ordinaryStatements);
+      assertNoForeignKeyViolations(sqlite);
       recordAppliedMigration();
     });
     apply();
@@ -133,6 +142,26 @@ function parseForeignKeysPragma(statement: string) {
 function readForeignKeysState(sqlite: BunDatabase) {
   const row = sqlite.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get();
   return row?.foreign_keys === 1;
+}
+
+function assertNoForeignKeyViolations(sqlite: BunDatabase) {
+  const violations = sqlite
+    .query<ForeignKeyViolationRow, []>("PRAGMA foreign_key_check")
+    .all();
+  if (violations.length === 0) {
+    return;
+  }
+
+  const [firstViolation] = violations;
+  if (firstViolation === undefined) {
+    return;
+  }
+
+  throw new Error(
+    "Bundled migration introduced or preserved foreign key violations: " +
+      `table=${firstViolation.table}, rowid=${firstViolation.rowid ?? "unknown"}, ` +
+      `parent=${firstViolation.parent}, fkid=${firstViolation.fkid}`,
+  );
 }
 
 function recordMigration(sqlite: BunDatabase, hash: string, folderMillis: number) {

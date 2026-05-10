@@ -157,7 +157,7 @@
         },
         "highlights_end_offset_check": {
           "name": "highlights_end_offset_check",
-          "value": "\"highlights\".\"end_offset\" >= \"highlights\".\"start_offset\""
+          "value": "\"highlights\".\"end_offset\" > \"highlights\".\"start_offset\""
         }
       }
     },

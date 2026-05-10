@@ -52,6 +52,10 @@
   `PRAGMA foreign_keys=OFF/ON`, apply only the PRAGMA state transition outside
   the active transaction; keep ordinary DDL/DML and the migration record inside
   a rollback-capable transaction.
+- MUST validate foreign key integrity before recording a bundled migration.
+  Table rebuilds that temporarily disable FK enforcement must not silently carry
+  orphan rows forward; run `PRAGMA foreign_key_check` or an equivalent typed
+  integrity check and fail loudly before writing the migration record.
 - MUST keep every runtime migration entrypoint semantically equivalent. Test,
   explicit-folder, and bundled paths must honor the same PRAGMA, hash, atomicity,
   and compatibility rules, or the weaker entrypoint must be removed.
@@ -65,6 +69,13 @@
   at the same database path contract.
 - MUST use actual Bun SQLite driver types for Bun-backed connections. Do not
   cast unrelated sqlite adapters into Bun/Drizzle compatibility.
+- MUST store highlights as non-empty text ranges. Use `end_offset >
+  start_offset` for highlight rows; if zero-width anchors are later needed,
+  model them as a separate domain concept instead of overloading highlights.
+- MUST justify indexes by query shape and constraint ownership. FK child-key
+  indexes are valid for relationship enforcement and cascade performance; avoid
+  speculative single-column or composite indexes that are not tied to repository
+  queries.
 - SHOULD expose repository methods that match domain use cases rather than
   generic table access.
 - AVOID adding external services, queues, managed databases, or auth/user

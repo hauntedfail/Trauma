@@ -11,7 +11,7 @@ CREATE TABLE `__new_highlights` (
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`memory_id`) REFERENCES `memories`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "highlights_start_offset_check" CHECK("start_offset" >= 0),
-	CONSTRAINT "highlights_end_offset_check" CHECK("end_offset" >= "start_offset")
+	CONSTRAINT "highlights_end_offset_check" CHECK("end_offset" > "start_offset")
 );
 --> statement-breakpoint
 INSERT INTO `__new_highlights`("id", "memory_id", "text", "prefix", "suffix", "start_offset", "end_offset", "created_at", "updated_at") SELECT "id", "memory_id", "text", "prefix", "suffix", "start_offset", "end_offset", "created_at", "updated_at" FROM `highlights`;--> statement-breakpoint

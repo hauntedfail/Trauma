@@ -291,7 +291,7 @@ describe("db foundation", () => {
     ]);
   });
 
-  it("honors foreign key PRAGMAs in bundled breakpoint migrations", () => {
+  it("rejects orphan highlights before recording the rebuilt highlights table", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -317,12 +317,16 @@ describe("db foundation", () => {
               .run(1778393646543);
             sqlite.run("PRAGMA foreign_keys = ON");
 
-            applyBundledMigrations(sqlite);
-
-            process.stdout.write(JSON.stringify({
-              highlightCount: sqlite.prepare("select count(*) as count from highlights where id = 'orphan'").get().count,
-              foreignKeys: sqlite.prepare("PRAGMA foreign_keys").get().foreign_keys,
-            }));
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                foreignKeys: sqlite.prepare("PRAGMA foreign_keys").get().foreign_keys,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
           } finally {
             sqlite.close();
           }
@@ -336,9 +340,10 @@ describe("db foundation", () => {
       },
     );
 
-    expect(JSON.parse(output)).toEqual({
-      highlightCount: 1,
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
       foreignKeys: 1,
+      message: expect.stringContaining("foreign key"),
     });
   });
 
@@ -709,6 +714,88 @@ describe("db foundation", () => {
             connection.sqlite
               .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
               .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004", "bad", "", "", 8, 2, now, now);
+
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+    });
+  });
+
+  it("rejects zero-length highlight ranges at the SQLite boundary", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            const now = Date.now();
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006",
+                "https://example.com",
+                "Example",
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f006/CONTENT.md",
+                "success",
+                "pending",
+                now,
+                now,
+              );
+
+            connection.sqlite
+              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("empty-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006", "", "", "", 8, 8, now, now);
 
             process.stdout.write(JSON.stringify({ rejected: false }));
           } catch (error) {

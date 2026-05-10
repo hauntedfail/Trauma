@@ -134,7 +134,7 @@ export const highlights = sqliteTable(
     index("highlights_memory_id_idx").on(table.memoryId),
     index("highlights_created_at_idx").on(table.createdAt),
     check("highlights_start_offset_check", sql`${table.startOffset} >= 0`),
-    check("highlights_end_offset_check", sql`${table.endOffset} >= ${table.startOffset}`),
+    check("highlights_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
   ],
 );
 
