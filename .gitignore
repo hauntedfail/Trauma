@@ -8,6 +8,9 @@ playwright-report/
 test-results/
 .trauma/
 data/
+/.serena/
+/config.json
+/trauma.config.json
 .env
 .env.local
 .env.*.local
