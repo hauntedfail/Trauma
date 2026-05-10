@@ -7,6 +7,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Language: TypeScript.
 - Framework: SolidStart.
 - UI library: Solid.
+- Styling: Tailwind CSS through the Vite plugin.
 - Runtime and package manager: Bun.
 - ORM: Drizzle ORM.
 - Database: SQLite through Drizzle's Bun SQLite support.
@@ -18,6 +19,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Bun: `1.3.13` through `mise.toml` and `packageManager`.
 - SolidStart: stable v1 starter, currently `@solidjs/start@1.3.2`.
 - Build runner: `vinxi`.
+- Tailwind CSS: v4 through `@tailwindcss/vite`.
 
 ## Package Manager Rules
 
