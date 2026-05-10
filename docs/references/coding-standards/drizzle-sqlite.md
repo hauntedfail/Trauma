@@ -37,6 +37,18 @@
   explicit option, not from incidental launch cwd.
 - MUST keep bundled runtime migrations in sync with reviewable `drizzle/**`
   migration files through a focused drift test.
+- MUST validate bundled runtime migration state before exposing the database.
+  Every applied migration row must correspond to a bundled migration, and every
+  matching row must have the expected hash. Unknown, newer, or hash-mismatched
+  rows must fail loudly instead of letting older runtime code operate on a
+  different schema.
+- MUST treat migration execution and migration recording as one atomic unit.
+  If a migration body succeeds but writing `__drizzle_migrations` fails, the
+  schema changes must roll back with the failed record write.
+- MUST keep SQLite PRAGMA exceptions narrow. When generated migrations need
+  `PRAGMA foreign_keys=OFF/ON`, apply only the PRAGMA state transition outside
+  the active transaction; keep ordinary DDL/DML and the migration record inside
+  a rollback-capable transaction.
 - MUST NOT call Drizzle private migration internals such as `dialect.migrate`
   through `unknown` casts. Runtime migrations must use public APIs or a focused
   local runner with tests.

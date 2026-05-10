@@ -29,6 +29,12 @@ These are prohibited by default:
   invariants are applied.
 - Resolving bundled migrations, fixtures, or config-relative paths from
   incidental `process.cwd()` when the contract needs a stable base.
+- Runtime migration runners that accept unknown/newer applied migration rows or
+  skip applied-hash validation.
+- Migration runners that commit schema changes separately from the row that
+  records the migration as applied.
+- Disabling SQLite foreign-key checks for generated migrations by removing the
+  rollback transaction around ordinary DDL/DML.
 - Predictable temp-file names, non-cleaned temp files, or file replacement code
   that assumes one OS rename behavior without a fallback.
 - Markdown/frontmatter parsing that assumes LF-only files, no UTF-8 BOM, or a
