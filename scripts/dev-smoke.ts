@@ -45,10 +45,30 @@ function readString(name: string, fallback: string): string {
   return raw && raw.length > 0 ? raw : fallback;
 }
 
+function readFirstString(names: ReadonlyArray<string>, fallback: string): string {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw && raw.length > 0) {
+      return raw;
+    }
+  }
+  return fallback;
+}
+
+function readFirstPort(names: ReadonlyArray<string>, fallback: number): number {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw !== undefined && raw.trim() !== "") {
+      return readPort(name, fallback);
+    }
+  }
+  return fallback;
+}
+
 function buildOptions(): SmokeOptions {
   return {
-    host: readString("TRAUMA_DEV_HOST", "localhost"),
-    port: readPort("TRAUMA_DEV_PORT", 3000),
+    host: readFirstString(["TRAUMA_DEV_HOST", "HOST"], "127.0.0.1"),
+    port: readFirstPort(["TRAUMA_DEV_PORT", "PORT"], 3000),
     hmrPort: readPort("TRAUMA_HMR_PORT", 24678),
     path: readString("TRAUMA_DEV_SMOKE_PATH", "/memories"),
     timeoutMs: readNumber("TRAUMA_DEV_SMOKE_TIMEOUT_MS", 90_000),

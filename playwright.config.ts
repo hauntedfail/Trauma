@@ -1,17 +1,20 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const host = "127.0.0.1";
 const port = 4173;
 const hmrBasePort = 24681;
-const baseURL = `http://localhost:${port}`;
+const baseURL = `http://${host}:${port}`;
 const webServerCommand = process.env.CI
-  ? `PORT=${port} bun .output/server/index.mjs`
-  : `bun x vinxi dev --port ${port}`;
+  ? `bun .output/server/index.mjs`
+  : `bun x vinxi dev`;
 
 export default defineConfig({
   testDir: "./e2e",
   webServer: {
     command: webServerCommand,
     env: {
+      HOST: host,
+      PORT: String(port),
       TRAUMA_BROWSE_FIXTURES: "1",
       TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
       TRAUMA_HMR_PORT: String(hmrBasePort),

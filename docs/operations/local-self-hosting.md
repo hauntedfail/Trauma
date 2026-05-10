@@ -38,40 +38,48 @@ surfaced through metadata.
 ## Local Dev Server Contract
 
 The dev server uses deterministic host and port settings to avoid random-port
-discovery failures.
+discovery failures. All settings come from the project root `.env` file
+(loaded automatically by Bun for `bun run` scripts). `.env.example` ships
+the safe defaults; copy it to `.env` once before running anything.
 
-Defaults:
+Defaults from `.env.example`:
 
-- Host: `localhost` (loopback only — matches both `127.0.0.1` and `::1`)
-- App port: `3000`
-- HMR ports: `24678` (client), `24679` (server), `24680` (server-function)
+- `HOST=127.0.0.1` (loopback only)
+- `PORT=3000`
+- `TRAUMA_HMR_PORT=24678` (client; server uses base+1, server-function
+  uses base+2)
 
-Override via environment:
+The shell environment wins over `.env`. Exporting `HOST=0.0.0.0` in the
+shell will override the loopback default, which is intentional for cases
+where the operator wants network exposure behind their own firewall or
+reverse proxy. Set explicit values in `.env` for the no-auth local model.
 
-- `TRAUMA_DEV_HOST` — host used by the smoke check.
-- `TRAUMA_DEV_PORT` — app port used by the smoke check.
-- `TRAUMA_HMR_PORT` — base HMR port. Server and server-function routers use
-  the next two ports above this value.
+Smoke-only overrides:
+
+- `TRAUMA_DEV_HOST` — host the smoke check probes (falls back to `HOST`,
+  then `127.0.0.1`).
+- `TRAUMA_DEV_PORT` — port the smoke check probes (falls back to `PORT`,
+  then `3000`).
 
 Standard commands:
 
-- `bun run dev` — start the dev server on port `3000`.
+- `bun run dev` — start the dev server using `HOST` and `PORT` from `.env`.
 - `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
   Fails if the requested port is occupied, the server cannot bind, exits
   early, falls back to a different port, or does not respond within the
   timeout.
-- `bun run start` — serve the production build bound to `127.0.0.1:3000`
-  (loopback only). Override the bind address by passing `--host` directly
-  to `vinxi start`. Without `--host` the underlying Vinxi CLI defaults to
-  `0.0.0.0`, which is why this script pins it explicitly.
+- `bun run start` — serve the production build using `HOST` and `PORT`
+  from `.env`. With the default `HOST=127.0.0.1` the Vinxi CLI binds
+  loopback only; without an explicit `HOST` the CLI would default to
+  `0.0.0.0`.
 
 The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
 real `trauma.config.json`. Run the smoke check before relying on the dev
 server in CI or scripted environments.
 
-`bun run test:e2e` boots its own dev server on port `4173` and pins
-`TRAUMA_HMR_PORT=24681` so it can run alongside `bun run dev` without HMR
-port collisions.
+`bun run test:e2e` boots its own dev server with explicit `HOST=127.0.0.1`,
+`PORT=4173`, and `TRAUMA_HMR_PORT=24681`, so it can run alongside
+`bun run dev` without HMR port collisions and is unaffected by `.env`.
 
 ## Auth
 
