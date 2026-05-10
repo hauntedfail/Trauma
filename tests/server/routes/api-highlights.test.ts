@@ -9,6 +9,7 @@ describe("highlights API route", () => {
         method: "POST",
         body: JSON.stringify({
           memoryId: " 018f04a2-3c6f-7c88-9a8b-8c99a9b7f301 ",
+          operation: "highlight",
           selection: {
             text: "target",
             prefix: "Beta ",
@@ -23,6 +24,7 @@ describe("highlights API route", () => {
     expect(result).toEqual({
       ok: true,
       memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+      operation: "highlight",
       selection: {
         text: "target",
         prefix: "Beta ",
@@ -37,6 +39,7 @@ describe("highlights API route", () => {
     await expectPayloadError(
       {
         memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        operation: "highlight",
         selection: {
           text: "target",
           prefix: "",

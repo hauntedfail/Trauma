@@ -24,8 +24,11 @@ import {
 
 const CONTEXT_LIMIT = 80;
 
+export type HighlightToggleOperation = "highlight" | "unhighlight";
+
 export interface ToggleMemoryHighlightInput {
   memoryId: string;
+  operation?: HighlightToggleOperation;
   selection: HighlightSelectionInput;
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
@@ -50,10 +53,15 @@ type HighlightRow = Awaited<
   ReturnType<ReturnType<typeof createRepositories>["highlights"]["listForMemory"]>
 >[number];
 
+const highlightMemoryLocks = new Map<string, Promise<void>>();
+
 export class HighlightToggleError extends Error {
   constructor(
     message: string,
-    public readonly code: "missing_memory" | "invalid_selection",
+    public readonly code:
+      | "missing_memory"
+      | "invalid_selection"
+      | "stale_selection",
   ) {
     super(message);
     this.name = "HighlightToggleError";
@@ -61,6 +69,14 @@ export class HighlightToggleError extends Error {
 }
 
 export async function toggleMemoryHighlight(
+  input: ToggleMemoryHighlightInput,
+): Promise<ToggleMemoryHighlightResult> {
+  return withHighlightMemoryLock(input.memoryId, () =>
+    toggleMemoryHighlightUnlocked(input),
+  );
+}
+
+async function toggleMemoryHighlightUnlocked(
   input: ToggleMemoryHighlightInput,
 ): Promise<ToggleMemoryHighlightResult> {
   const repositories = createRepositories(input.db);
@@ -79,12 +95,29 @@ export async function toggleMemoryHighlight(
   );
   const existingRanges = existingHighlights.map(toHighlightRange);
   const generatedId = input.generateId ?? randomUUID;
-  const operation = isRangeFullyHighlighted(existingRanges, selection)
+  const currentFullyHighlighted = isRangeFullyHighlighted(
+    existingRanges,
+    selection,
+  );
+  const operation = input.operation ?? (currentFullyHighlighted
+    ? "unhighlight"
+    : "highlight");
+
+  if (operation === "unhighlight" && !currentFullyHighlighted) {
+    throw new HighlightToggleError(
+      "Highlight state changed. Reload the reader and try again.",
+      "stale_selection",
+    );
+  }
+
+  const resultOperation = operation === "unhighlight"
     ? "unhighlighted"
     : "highlighted";
-  const nextRanges = operation === "unhighlighted"
+  const nextRanges = operation === "unhighlight"
     ? removeHighlightCoverage(existingRanges, selection, generatedId)
-    : addHighlightCoverage(existingRanges, selection, generatedId);
+    : currentFullyHighlighted
+      ? existingRanges
+      : addHighlightCoverage(existingRanges, selection, generatedId);
   const cleanMarkdown = stripHighlightMarkers(content.markdown);
   const now = (input.now ?? (() => new Date()))();
   const nextHighlights = buildHighlightRows({
@@ -124,7 +157,7 @@ export async function toggleMemoryHighlight(
   });
 
   return {
-    operation,
+    operation: resultOperation,
     highlights: nextHighlights.map((highlight) => ({
       id: highlight.id,
       text: highlight.text,
@@ -134,6 +167,29 @@ export async function toggleMemoryHighlight(
       endOffset: highlight.endOffset,
     })),
   };
+}
+
+async function withHighlightMemoryLock<T>(
+  memoryId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = highlightMemoryLocks.get(memoryId) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => current);
+  highlightMemoryLocks.set(memoryId, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    releaseCurrent();
+    if (highlightMemoryLocks.get(memoryId) === queued) {
+      highlightMemoryLocks.delete(memoryId);
+    }
+  }
 }
 
 function resolveSelection(markdown: string, selection: HighlightSelectionInput) {

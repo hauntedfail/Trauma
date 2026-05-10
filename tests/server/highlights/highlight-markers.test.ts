@@ -30,6 +30,25 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("resolves repeated rendered text through markdown link syntax", () => {
+    const markdown = "[target](https://very-long.example/path) target";
+    const renderedOffset = "target ".length;
+
+    const selection = resolveHighlightSelection(markdown, {
+      text: "target",
+      prefix: "target ",
+      suffix: "",
+      startOffset: renderedOffset,
+      endOffset: renderedOffset + "target".length,
+    });
+
+    expect(selection).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
   it("inserts mark tags without rewriting markdown outside the selection", () => {
     const markdown = "Before **bold target** after.";
     const startOffset = markdown.indexOf("target");
@@ -68,5 +87,40 @@ describe("highlight markdown markers", () => {
     expect(stripHighlightMarkers("<mark>plain</mark> highlight")).toBe(
       "<mark>plain</mark> highlight",
     );
+  });
+
+  it("preserves literal app mark examples in markdown code", () => {
+    const markdown = [
+      "Before <mark data-highlight-id=\"real\">real</mark>.",
+      "",
+      "```html",
+      "<mark data-highlight-id=\"example\">literal</mark>",
+      "```",
+    ].join("\n");
+
+    expect(stripHighlightMarkers(markdown)).toBe(
+      [
+        "Before real.",
+        "",
+        "```html",
+        "<mark data-highlight-id=\"example\">literal</mark>",
+        "```",
+      ].join("\n"),
+    );
+  });
+
+  it("rejects selections inside markdown code", () => {
+    const markdown = "Before `literal` after.";
+    const startOffset = markdown.indexOf("literal");
+
+    expect(() =>
+      resolveHighlightSelection(markdown, {
+        text: "literal",
+        prefix: "Before ",
+        suffix: " after.",
+        startOffset,
+        endOffset: startOffset + "literal".length,
+      }),
+    ).toThrow("Selected markdown code cannot be highlighted");
   });
 });

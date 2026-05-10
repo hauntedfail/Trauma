@@ -22,6 +22,8 @@ interface ReaderSelection extends ReaderSelectionPayload {
   range: Range;
 }
 
+type ReaderHighlightOperation = "highlight" | "unhighlight";
+
 const readerArticle =
   "prose max-w-none min-w-0 text-slate-800 prose-headings:text-slate-900 prose-a:text-blue-600 prose-a:underline prose-a:underline-offset-[3px] prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-900 prose-pre:text-slate-200 prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-slate-900 prose-td:border prose-td:border-slate-300 prose-td:px-2.5 prose-td:py-2 prose-mark:rounded prose-mark:bg-yellow-200 prose-mark:px-0.5 prose-mark:text-inherit [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-slate-700";
 
@@ -159,6 +161,9 @@ async function toggleReaderSelection(input: {
 
   const previousHtml = input.container.innerHTML;
   const shouldUnhighlight = isRangeFullyMarked(selection.range, input.container);
+  const operation: ReaderHighlightOperation = shouldUnhighlight
+    ? "unhighlight"
+    : "highlight";
   input.setErrorMessage("");
   input.setPendingSelectionKey(selectionKey);
 
@@ -173,6 +178,7 @@ async function toggleReaderSelection(input: {
       },
       body: JSON.stringify({
         memoryId: input.memoryId,
+        operation,
         selection: toPayload(selection),
       }),
     });
@@ -238,7 +244,7 @@ function readContextAfter(text: string, endOffset: number): string {
 
 function isRangeFullyMarked(range: Range, container: HTMLElement): boolean {
   const textNodes = collectIntersectingTextNodes(range, container).filter(
-    (node) => (node.nodeValue ?? "").trim().length > 0,
+    (node) => (node.nodeValue ?? "").length > 0,
   );
   return (
     textNodes.length > 0 &&

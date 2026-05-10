@@ -91,6 +91,7 @@ describe("toggleMemoryHighlight", () => {
 
           const created = await toggleMemoryHighlight({
             memoryId,
+            operation: "highlight",
             selection,
             config,
             db: connection.db,
@@ -105,6 +106,7 @@ describe("toggleMemoryHighlight", () => {
 
           const removed = await toggleMemoryHighlight({
             memoryId,
+            operation: "unhighlight",
             selection,
             config,
             db: connection.db,
@@ -119,6 +121,25 @@ describe("toggleMemoryHighlight", () => {
           const memory = connection.sqlite
             .prepare("select backup_status from memories where id = ?")
             .get(memoryId);
+          let staleError;
+          try {
+            await toggleMemoryHighlight({
+              memoryId,
+              operation: "unhighlight",
+              selection,
+              config,
+              db: connection.db,
+              backupQueue,
+              generateId: () => "unused",
+              now: () => new Date("2026-05-10T03:00:00.000Z"),
+            });
+          } catch (error) {
+            staleError = {
+              name: error.name,
+              code: error.code,
+              message: error.message,
+            };
+          }
 
           process.stdout.write(JSON.stringify({
             created,
@@ -129,6 +150,7 @@ describe("toggleMemoryHighlight", () => {
             rowsAfterRemove,
             enqueuedWithMarkedContent,
             memory,
+            staleError,
           }));
         } finally {
           connection.close();
@@ -157,6 +179,11 @@ describe("toggleMemoryHighlight", () => {
     expect(result.rowsAfterRemove).toEqual([]);
     expect(result.enqueuedWithMarkedContent).toEqual([true, false]);
     expect(result.memory).toEqual({ backup_status: "queued" });
+    expect(result.staleError).toEqual({
+      name: "HighlightToggleError",
+      code: "stale_selection",
+      message: "Highlight state changed. Reload the reader and try again.",
+    });
   });
 });
 

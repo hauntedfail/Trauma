@@ -6,13 +6,19 @@ import { initializeDatabase } from "~/server/db";
 import {
   HighlightToggleError,
   toggleMemoryHighlight,
+  type HighlightToggleOperation,
   type ToggleMemoryHighlightResult,
 } from "~/server/highlights/toggle";
 import { MemoryContentStoreError } from "~/server/store";
 import type { HighlightSelectionInput } from "~/server/store/highlight-markers";
 
 type HighlightTogglePayloadResult =
-  | { ok: true; memoryId: string; selection: HighlightSelectionInput }
+  | {
+    ok: true;
+    memoryId: string;
+    operation: HighlightToggleOperation;
+    selection: HighlightSelectionInput;
+  }
   | { ok: false; error: string };
 
 const SELECTION_KEYS = [
@@ -40,6 +46,7 @@ export async function POST(event: APIEvent): Promise<Response> {
   try {
     const result = await toggleMemoryHighlight({
       memoryId: payload.memoryId,
+      operation: payload.operation,
       selection: payload.selection,
       config,
       db: connection.db,
@@ -70,12 +77,22 @@ async function parseHighlightTogglePayloadInternal(
     return { ok: false, error: "request body must be an object" };
   }
 
-  if (!hasOnlyKeys(payload, ["memoryId", "selection"])) {
-    return { ok: false, error: "request body must contain only memoryId and selection" };
+  if (!hasOnlyKeys(payload, ["memoryId", "operation", "selection"])) {
+    return {
+      ok: false,
+      error: "request body must contain only memoryId, operation, and selection",
+    };
   }
 
   if (typeof payload.memoryId !== "string" || payload.memoryId.trim() === "") {
     return { ok: false, error: "memoryId must be a non-empty string" };
+  }
+
+  if (!isHighlightToggleOperation(payload.operation)) {
+    return {
+      ok: false,
+      error: "operation must be highlight or unhighlight",
+    };
   }
 
   const selection = parseSelection(payload.selection);
@@ -86,6 +103,7 @@ async function parseHighlightTogglePayloadInternal(
   return {
     ok: true,
     memoryId: payload.memoryId.trim(),
+    operation: payload.operation,
     selection: selection.selection,
   };
 }
@@ -147,7 +165,13 @@ function formatToggleError(error: unknown): Response {
   if (error instanceof HighlightToggleError) {
     return json(
       { error: error.message },
-      { status: error.code === "missing_memory" ? 404 : 400 },
+      {
+        status: error.code === "missing_memory"
+          ? 404
+          : error.code === "stale_selection"
+            ? 409
+            : 400,
+      },
     );
   }
 
@@ -184,6 +208,12 @@ function hasOnlyKeys(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHighlightToggleOperation(
+  value: unknown,
+): value is HighlightToggleOperation {
+  return value === "highlight" || value === "unhighlight";
 }
 
 function formatConfigError(error: unknown): string {
