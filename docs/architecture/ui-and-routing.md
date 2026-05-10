@@ -77,6 +77,20 @@ On narrow screens:
 - Collapse right filters into a drawer.
 - Keep the add memory composer globally reachable.
 
+## Styling System
+
+UI styling is implemented with Tailwind CSS v4 through the SolidStart Vite
+configuration.
+
+- `src/styles/tailwind.css` owns Tailwind imports, theme tokens, and minimal
+  document-level base styles.
+- Page and component styling belongs on JSX through static Tailwind classes and
+  Solid `classList`.
+- Reader HTML produced from markdown uses Tailwind Typography plus narrow
+  arbitrary variants for sanitized markup that components cannot author
+  directly.
+- Do not rebuild the removed `src/styles/app.css` semantic selector layer.
+
 ## Add Memory Composer
 
 Add memory is a global composer modal or drawer. It accepts only a URL in the

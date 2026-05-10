@@ -1,4 +1,4 @@
-import { loadTraumaConfig } from "../config";
+import { loadRuntimeTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
 import type { MemoryBrowseRow } from "../db/repositories";
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
@@ -13,7 +13,7 @@ export async function loadBrowseMemories(): Promise<BrowseMemory[]> {
 
   let connection: ReturnType<typeof initializeDatabase> | undefined;
   try {
-    const config = loadTraumaConfig();
+    const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
     return (await connection.repositories.memories.listForBrowse()).map(toBrowseMemory);
   } finally {

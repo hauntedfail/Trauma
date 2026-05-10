@@ -2,7 +2,7 @@
 
 ## Status
 
-Archived. Done on commit `73f161b chore: bootstrap trauma app`.
+Archived. The bootstrap foundation is delivered.
 
 ## Purpose
 

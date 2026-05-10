@@ -8,7 +8,7 @@ import {
 } from "./schema";
 
 export { initializeDatabase } from "./connection";
-export { createRepositories } from "./repositories";
+export { createRepositories, MemoryRepositoryError } from "./repositories";
 export type {
   TraumaDatabaseConnection,
 } from "./connection";

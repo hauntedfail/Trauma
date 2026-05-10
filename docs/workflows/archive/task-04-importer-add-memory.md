@@ -7,9 +7,9 @@ fallback, SQLite metadata creation, markdown write, and backup enqueue boundary.
 
 ## Required Context
 
-- [Runtime flows](../architecture/flows.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [UI and routing architecture](../architecture/ui-and-routing.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [UI and routing architecture](../../architecture/ui-and-routing.md)
 
 ## Ownership
 

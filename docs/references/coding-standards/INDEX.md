@@ -22,7 +22,7 @@ not React.
 - [TypeScript](typescript.md): strictness, `unknown`, assertions, indexed
   access, and type-only imports.
 - [SolidStart UI](solidstart-ui.md): Solid reactivity, component boundaries,
-  props, effects, and cleanup.
+  props, effects, cleanup, and Tailwind styling rules.
 - [Bun runtime](bun-runtime.md): package manager rules, lockfile, Bun types,
   and runtime/resource lifecycle.
 - [Drizzle and SQLite](drizzle-sqlite.md): schema, migrations, SQL safety,

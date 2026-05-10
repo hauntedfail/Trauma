@@ -6,9 +6,9 @@ Implement `/memories/:id` read mode and the curated markdown rendering pipeline.
 
 ## Required Context
 
-- [UI and routing architecture](../architecture/ui-and-routing.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Verification strategy](../quality/verification.md)
+- [UI and routing architecture](../../architecture/ui-and-routing.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Verification strategy](../../quality/verification.md)
 
 ## Ownership
 

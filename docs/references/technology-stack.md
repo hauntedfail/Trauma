@@ -7,6 +7,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Language: TypeScript.
 - Framework: SolidStart.
 - UI library: Solid.
+- Styling: Tailwind CSS through the Vite plugin.
 - Runtime and package manager: Bun.
 - ORM: Drizzle ORM.
 - Database: SQLite through Drizzle's Bun SQLite support.
@@ -18,6 +19,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Bun: `1.3.13` through `mise.toml` and `packageManager`.
 - SolidStart: stable v1 starter, currently `@solidjs/start@1.3.2`.
 - Build runner: `vinxi`.
+- Tailwind CSS: v4 through `@tailwindcss/vite`.
 
 ## Package Manager Rules
 
@@ -27,6 +29,19 @@ Bun is the only package manager for this project.
 - Use `bun install` for dependency installation.
 - Use frozen lockfile installs in CI once dependencies are already resolved.
 - Do not add npm, Yarn, or pnpm lockfiles.
+
+## Styling Rules
+
+Tailwind CSS is the active styling system.
+
+- Use Tailwind v4 through `@tailwindcss/vite` in `app.config.ts`.
+- Keep `src/styles/tailwind.css` as the only global stylesheet entry.
+- Do not reintroduce `src/styles/app.css`.
+- Put ordinary component styling on JSX as static Tailwind class strings or
+  Solid `classList` entries.
+- Use `@tailwindcss/typography` for rendered markdown reader content.
+- Keep narrow arbitrary selectors only for markup that cannot be authored
+  directly, such as sanitized markdown HTML.
 
 ## Deployment Target
 

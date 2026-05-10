@@ -1,4 +1,5 @@
 import { defineConfig } from "@solidjs/start/config";
+import tailwindcss from "@tailwindcss/vite";
 
 type RouterName = "server" | "client" | "server-function";
 
@@ -43,6 +44,7 @@ export default defineConfig({
   },
   vite({ router }: { router: RouterName }) {
     return {
+      plugins: [tailwindcss()],
       server: {
         hmr: {
           port: HMR_PORTS[router],

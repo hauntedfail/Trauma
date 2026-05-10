@@ -25,6 +25,9 @@ The default durable artifact is a check, not prose.
   coding standards.
 - MUST generalize any retained guidance into a stable rule that applies beyond
   the triggering PR.
+- MUST write retained review knowledge semantically, not episodically. Prefer
+  rules about generally recurring design or implementation tendencies over
+  descriptions of what happened in one case.
 - MUST keep `AGENTS.md` as navigation only. Put details in the smallest owning
   doc and link to that doc.
 - MUST keep workflow failures in workflow documentation or automation, not in

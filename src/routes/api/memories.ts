@@ -1,7 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { createNoopMemoryBackupQueue } from "~/server/backup";
-import { loadTraumaConfig, TraumaConfigError } from "~/server/config";
+import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { validateImportUrl } from "~/server/importer";
 import { addMemory } from "~/server/memories/add-memory";
@@ -14,7 +14,7 @@ export async function POST(event: APIEvent): Promise<Response> {
 
   let config;
   try {
-    config = loadTraumaConfig();
+    config = loadRuntimeTraumaConfig();
   } catch (error) {
     return json({ error: formatConfigError(error) }, { status: 500 });
   }

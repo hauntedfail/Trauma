@@ -1,5 +1,9 @@
 export { TraumaConfigError } from "./errors";
-export { loadTraumaConfig, validateTraumaConfig } from "./load";
+export {
+  loadRuntimeTraumaConfig,
+  loadTraumaConfig,
+  validateTraumaConfig,
+} from "./load";
 export type {
   ConfigValidationResult,
   GitBackupConfig,

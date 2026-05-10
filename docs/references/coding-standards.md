@@ -3,5 +3,5 @@
 The detailed coding standards moved to
 [coding-standards/INDEX.md](coding-standards/INDEX.md).
 
-This compatibility file exists only to avoid stale external links. Use the
+This compatibility file exists only to preserve legacy external links. Use the
 directory index as the canonical entry point.

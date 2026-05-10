@@ -20,6 +20,16 @@ function resolveDatabasePath() {
     return process.env.TRAUMA_DATABASE_PATH;
   }
 
+  if (process.env.TRAUMA_CONFIG_PATH) {
+    try {
+      return loadTraumaConfig({ configPath: process.env.TRAUMA_CONFIG_PATH }).databasePath;
+    } catch (error) {
+      throw new Error(
+        `Failed to resolve drizzle database path from TRAUMA_CONFIG_PATH=${process.env.TRAUMA_CONFIG_PATH}: ${String(error)}`,
+      );
+    }
+  }
+
   const configPath = resolve("trauma.config.json");
   if (existsSync(configPath)) {
     return loadTraumaConfig({ configPath }).databasePath;
