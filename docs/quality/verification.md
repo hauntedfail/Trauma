@@ -21,6 +21,16 @@ Playwright should cover the main user workflows:
 E2E tests should use controlled URLs or fixtures so extraction behavior is
 deterministic.
 
+## Startup Smoke
+
+`bun run dev:smoke` boots the dev server with a deterministic host and port,
+probes `/memories`, then shuts the server down. The smoke check fails fast
+when the server cannot bind, crashes early, or does not respond within the
+timeout.
+
+Use the smoke check before E2E runs and after toolchain or config changes
+that could affect dev startup.
+
 ## Focused Tests
 
 Unit or integration tests should cover:
