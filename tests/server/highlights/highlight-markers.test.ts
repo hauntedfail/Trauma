@@ -49,6 +49,74 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("rejects protected rendered selections before checking duplicate text", () => {
+    const markdown = "`target` target";
+
+    expect(() =>
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "",
+        suffix: " target",
+        startOffset: 0,
+        endOffset: "target".length,
+      }),
+    ).toThrow("Selected markdown code cannot be highlighted");
+  });
+
+  it("resolves visible selections that span markdown emphasis syntax", () => {
+    const markdown = "a **bold** b";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "a bold b",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "a bold b".length,
+      }),
+    ).toEqual({
+      text: "a bold b",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
+  it("resolves visible selections that span markdown link syntax", () => {
+    const markdown = "a [linked](https://example.test) b";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "a linked b",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "a linked b".length,
+      }),
+    ).toEqual({
+      text: "a linked b",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
+  it("resolves decoded rendered entities back to encoded markdown", () => {
+    const markdown = "Tom &amp; Jerry";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "Tom & Jerry",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "Tom & Jerry".length,
+      }),
+    ).toEqual({
+      text: "Tom & Jerry",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
   it("inserts mark tags without rewriting markdown outside the selection", () => {
     const markdown = "Before **bold target** after.";
     const startOffset = markdown.indexOf("target");

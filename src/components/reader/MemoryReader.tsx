@@ -2,6 +2,7 @@ import { Show, createSignal } from "solid-js";
 
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
+import { isExplicitHighlightKeyboardToggle } from "./highlight-events";
 import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 
@@ -64,6 +65,14 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
       setPendingSelectionKey,
     });
   };
+  const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
+    if (!isExplicitHighlightKeyboardToggle(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    handleSelectionToggle();
+  };
 
   return (
     <article class={readerFrame} aria-labelledby="reader-title">
@@ -95,7 +104,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
             class={readerArticle}
             data-reader-content
             innerHTML={props.result.rendered.html}
-            onKeyUp={handleSelectionToggle}
+            onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={handleSelectionToggle}
           />
           <Show when={errorMessage()}>

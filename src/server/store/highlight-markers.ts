@@ -31,8 +31,18 @@ interface MarkdownRange {
 interface ProjectedMarkdownText {
   text: string;
   sourceOffsets: number[];
+  sourceEndOffsets: number[];
   protectedOffsets: boolean[];
 }
+
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: "\u00a0",
+  quot: "\"",
+};
 
 export class HighlightMarkerError extends Error {
   constructor(
@@ -200,6 +210,19 @@ function resolveProjectedSelection(
   selection: HighlightSelectionInput,
 ): ResolvedHighlightSelection | undefined {
   if (
+    rangeOverlapsProtectedProjection(
+      projectedMarkdown,
+      selection.startOffset,
+      selection.endOffset,
+    )
+  ) {
+    throw new HighlightMarkerError(
+      "Selected markdown code cannot be highlighted",
+      "invalid_selection",
+    );
+  }
+
+  if (
     projectedMarkdown.text.slice(selection.startOffset, selection.endOffset) !==
     selection.text
   ) {
@@ -217,9 +240,9 @@ function mapProjectedRange(
   const projectedEndOffset = projectedStartOffset + selection.text.length;
   const sourceStartOffset =
     projectedMarkdown.sourceOffsets[projectedStartOffset];
-  const lastSourceOffset =
-    projectedMarkdown.sourceOffsets[projectedEndOffset - 1];
-  if (sourceStartOffset === undefined || lastSourceOffset === undefined) {
+  const sourceEndOffset =
+    projectedMarkdown.sourceEndOffsets[projectedEndOffset - 1];
+  if (sourceStartOffset === undefined || sourceEndOffset === undefined) {
     return undefined;
   }
 
@@ -231,8 +254,7 @@ function mapProjectedRange(
     return undefined;
   }
 
-  const sourceEndOffset = lastSourceOffset + 1;
-  if (sourceEndOffset - sourceStartOffset !== selection.text.length) {
+  if (sourceEndOffset <= sourceStartOffset) {
     return undefined;
   }
 
@@ -376,6 +398,16 @@ function rangeOverlapsProtectedRanges(
   );
 }
 
+function rangeOverlapsProtectedProjection(
+  projectedMarkdown: ProjectedMarkdownText,
+  startOffset: number,
+  endOffset: number,
+): boolean {
+  return projectedMarkdown.protectedOffsets
+    .slice(startOffset, endOffset)
+    .some(Boolean);
+}
+
 function replaceOutsideRanges(
   value: string,
   ranges: MarkdownRange[],
@@ -490,6 +522,7 @@ function projectMarkdownText(
 ): ProjectedMarkdownText {
   const text: string[] = [];
   const sourceOffsets: number[] = [];
+  const sourceEndOffsets: number[] = [];
   const protectedOffsets: boolean[] = [];
   let cursor = 0;
 
@@ -504,6 +537,7 @@ function projectMarkdownText(
         protectedRanges,
         protectedValue: false,
         sourceOffsets,
+        sourceEndOffsets,
         text,
         protectedOffsets,
         startOffset: link.labelStartOffset,
@@ -518,17 +552,38 @@ function projectMarkdownText(
       continue;
     }
 
+    const protectedValue = rangeOverlapsProtectedRanges(
+      protectedRanges,
+      cursor,
+      cursor + 1,
+    );
+    const entity = readHtmlEntity(markdown, cursor, markdown.length);
+    if (entity !== undefined) {
+      appendProjectedText({
+        protectedOffsets,
+        protectedValue,
+        sourceEndOffset: entity.endOffset,
+        sourceOffset: cursor,
+        sourceOffsets,
+        sourceEndOffsets,
+        text,
+        value: entity.value,
+      });
+      cursor = entity.endOffset;
+      continue;
+    }
+
     text.push(markdown[cursor] ?? "");
     sourceOffsets.push(cursor);
-    protectedOffsets.push(
-      rangeOverlapsProtectedRanges(protectedRanges, cursor, cursor + 1),
-    );
+    sourceEndOffsets.push(cursor + 1);
+    protectedOffsets.push(protectedValue);
     cursor += 1;
   }
 
   return {
     text: text.join(""),
     sourceOffsets,
+    sourceEndOffsets,
     protectedOffsets,
   };
 }
@@ -538,19 +593,126 @@ function appendProjectedSlice(input: {
   protectedRanges: MarkdownRange[];
   protectedValue: boolean;
   sourceOffsets: number[];
+  sourceEndOffsets: number[];
   text: string[];
   protectedOffsets: boolean[];
   startOffset: number;
   endOffset: number;
 }): void {
-  for (let offset = input.startOffset; offset < input.endOffset; offset += 1) {
+  let offset = input.startOffset;
+  while (offset < input.endOffset) {
     if (shouldSkipMarkdownSyntax(input.markdown, offset, input.protectedRanges)) {
+      offset += 1;
       continue;
     }
 
-    input.text.push(input.markdown[offset] ?? "");
-    input.sourceOffsets.push(offset);
+    const entity = readHtmlEntity(input.markdown, offset, input.endOffset);
+    if (entity !== undefined) {
+      appendProjectedText({
+        protectedOffsets: input.protectedOffsets,
+        protectedValue: input.protectedValue,
+        sourceEndOffset: entity.endOffset,
+        sourceOffset: offset,
+        sourceOffsets: input.sourceOffsets,
+        sourceEndOffsets: input.sourceEndOffsets,
+        text: input.text,
+        value: entity.value,
+      });
+      offset = entity.endOffset;
+      continue;
+    }
+
+    appendProjectedText({
+      protectedOffsets: input.protectedOffsets,
+      protectedValue: input.protectedValue,
+      sourceEndOffset: offset + 1,
+      sourceOffset: offset,
+      sourceOffsets: input.sourceOffsets,
+      sourceEndOffsets: input.sourceEndOffsets,
+      text: input.text,
+      value: input.markdown[offset] ?? "",
+    });
+    offset += 1;
+  }
+}
+
+function appendProjectedText(input: {
+  protectedOffsets: boolean[];
+  protectedValue: boolean;
+  sourceEndOffset: number;
+  sourceOffset: number;
+  sourceOffsets: number[];
+  sourceEndOffsets: number[];
+  text: string[];
+  value: string;
+}): void {
+  for (let index = 0; index < input.value.length; index += 1) {
+    input.text.push(input.value[index] ?? "");
+    input.sourceOffsets.push(input.sourceOffset);
+    input.sourceEndOffsets.push(input.sourceEndOffset);
     input.protectedOffsets.push(input.protectedValue);
+  }
+}
+
+function readHtmlEntity(
+  markdown: string,
+  startOffset: number,
+  maximumEndOffset: number,
+): { value: string; endOffset: number } | undefined {
+  const match = /^&(?:#([0-9]{1,7})|#x([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]+));/.exec(
+    markdown.slice(startOffset, Math.min(maximumEndOffset, startOffset + 40)),
+  );
+  if (match === null) {
+    return undefined;
+  }
+
+  const [raw, decimal, hexadecimal, named] = match;
+  const value = decodeHtmlEntity({
+    decimal,
+    hexadecimal,
+    named,
+  });
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return {
+    value,
+    endOffset: startOffset + raw.length,
+  };
+}
+
+function decodeHtmlEntity(input: {
+  decimal: string | undefined;
+  hexadecimal: string | undefined;
+  named: string | undefined;
+}): string | undefined {
+  if (input.decimal !== undefined) {
+    return decodeNumericHtmlEntity(Number.parseInt(input.decimal, 10));
+  }
+
+  if (input.hexadecimal !== undefined) {
+    return decodeNumericHtmlEntity(Number.parseInt(input.hexadecimal, 16));
+  }
+
+  return input.named === undefined
+    ? undefined
+    : NAMED_HTML_ENTITIES[input.named];
+}
+
+function decodeNumericHtmlEntity(codePoint: number): string | undefined {
+  if (
+    !Number.isInteger(codePoint) ||
+    codePoint <= 0 ||
+    codePoint > 0x10ffff
+  ) {
+    return undefined;
+  }
+
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    return undefined;
   }
 }
 
