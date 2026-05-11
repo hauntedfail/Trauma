@@ -1,6 +1,7 @@
 import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
+import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { getBrowseMemories } from "../memories/browse-loader";
 import {
   buildBrowseHref,
@@ -109,7 +110,7 @@ export function AppShell(props: AppShellProps) {
       </Show>
       <Show when={isComposerOpen()}>
         <Drawer ariaLabel="Add memory" onClose={() => setIsComposerOpen(false)}>
-          <GlobalAddMemoryComposer />
+          <GlobalAddMemoryComposer onCreated={() => setIsComposerOpen(false)} />
         </Drawer>
       </Show>
     </div>
@@ -159,18 +160,16 @@ function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void;
   );
 }
 
-function GlobalAddMemoryComposer() {
+function GlobalAddMemoryComposer(props: { onCreated: () => void }) {
   return (
-    <form class="grid gap-3.5" aria-label="Add memory">
-      <h2 class="mb-0 text-[22px] font-bold">Add memory</h2>
-      <label class="grid gap-2">
-        <span class="text-[13px] font-extrabold text-[#4e5a48]">URL</span>
-        <input class={surfaceInput} type="url" placeholder="https://example.com/article" />
-      </label>
-      <button class={`${buttonBase} bg-trauma-accent text-white`} type="button" disabled>
-        Save memory
-      </button>
-    </form>
+    <AddMemoryForm
+      formClass="grid gap-3.5"
+      inputClass={surfaceInput}
+      buttonClass={`${buttonBase} bg-trauma-accent text-white`}
+      submitLabel="Save memory"
+      title="Add memory"
+      onCreated={props.onCreated}
+    />
   );
 }
 

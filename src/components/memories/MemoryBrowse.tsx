@@ -9,6 +9,7 @@ import {
   parseBrowseQuery,
   type BrowseMemory,
 } from "./browse-data";
+import { AddMemoryForm } from "./AddMemoryForm";
 import { getBrowseMemories } from "./browse-loader";
 
 const pageFrame =
@@ -62,12 +63,13 @@ export function MemoryBrowse() {
           </button>
         </div>
       </header>
-      <form class="grid grid-cols-[minmax(0,1fr)_128px] gap-3 border-b border-trauma-border px-6 py-5 max-[720px]:grid-cols-1 max-[720px]:px-4" aria-label="Add memory">
-        <input class={surfaceInput} type="url" placeholder="https://example.com/article" disabled />
-        <button class={`${controlButton} w-full bg-trauma-accent text-white`} type="button" disabled>
-          Add memory
-        </button>
-      </form>
+      <AddMemoryForm
+        formClass="grid grid-cols-[minmax(0,1fr)_128px] gap-3 border-b border-trauma-border px-6 py-5 max-[720px]:grid-cols-1 max-[720px]:px-4"
+        inputClass={surfaceInput}
+        buttonClass={`${controlButton} w-full bg-trauma-accent text-white`}
+        submitLabel="Add memory"
+        showVisibleLabel={false}
+      />
       <div class="border-b border-trauma-border px-6 py-[18px] max-[720px]:px-4">
         <label class="grid gap-2">
           <span class="text-[13px] font-extrabold text-[#4e5a48]">Search memories</span>
