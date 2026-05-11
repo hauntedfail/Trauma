@@ -242,6 +242,173 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("projects table syntax out before resolving duplicate text", () => {
+    const markdown = [
+      "target",
+      "",
+      "| Label |",
+      "| --- |",
+      "| target |",
+    ].join("\n");
+    const renderedOffset = "target\n\nLabel\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "Label\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("projects strikethrough delimiters out before resolving visible text", () => {
+    const markdown = "a ~~old~~ b";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "a old b",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "a old b".length,
+      }),
+    ).toEqual({
+      text: "a old b",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
+  it("projects task-list checkbox markers out before resolving duplicate text", () => {
+    const markdown = ["- [x] target", "- [ ] target"].join("\n");
+    const renderedOffset = "target\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("stores rendered task-list text without checkbox source markers", () => {
+    const markdown = "- [x] target";
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("target");
+  });
+
+  it("rejects selections inside indented markdown code", () => {
+    const markdown = ["Before target", "", "    target"].join("\n");
+
+    expect(() =>
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "\n",
+        suffix: "",
+        startOffset: "Before target\n\n".length,
+        endOffset: "Before target\n\ntarget".length,
+      }),
+    ).toThrow("Selected markdown code cannot be highlighted");
+  });
+
+  it("projects blockquote markers out before resolving duplicate text", () => {
+    const markdown = ["target", "", "> target"].join("\n");
+    const renderedOffset = "target\n\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "\n\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("stores rendered blockquote text without quote source markers", () => {
+    const markdown = "> target";
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("target");
+  });
+
+  it("parses balanced parentheses in inline link destinations", () => {
+    const markdown = "[target](https://example.test/a_(b)) target";
+    const renderedOffset = "target ".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target ",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("stores rendered link text without balanced destination remnants", () => {
+    const markdown = "[target](https://example.test/a_(b)) target";
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("target target");
+  });
+
+  it("maps rendered autolinks to the full source autolink before marking", () => {
+    const markdown = "<https://example.test>";
+
+    const selection = resolveHighlightSelection(markdown, {
+      text: "https://example.test",
+      prefix: "",
+      suffix: "",
+      startOffset: 0,
+      endOffset: "https://example.test".length,
+    });
+
+    expect(selection).toEqual({
+      text: "https://example.test",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+    expect(applyHighlightMarkers(markdown, [{ id: "hl-link", ...selection }]))
+      .toBe('<mark data-highlight-id="hl-link"><https://example.test></mark>');
+  });
+
   it("inserts mark tags without rewriting markdown outside the selection", () => {
     const markdown = "Before **bold target** after.";
     const startOffset = markdown.indexOf("target");
