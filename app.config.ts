@@ -39,8 +39,6 @@ export default defineConfig({
         "node_modules/drizzle-orm/bun-sqlite/session.js",
         "node_modules/drizzle-orm/bun-sqlite/driver.js",
         "node_modules/drizzle-orm/bun-sqlite/migrator.js",
-        "node_modules/entities/**",
-        "node_modules/htmlparser2/node_modules/entities/**",
       ],
     },
   },

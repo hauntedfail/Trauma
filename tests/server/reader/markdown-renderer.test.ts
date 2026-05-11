@@ -61,7 +61,7 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("javascript:");
     expect(result.html).not.toContain("<mark>plain mark</mark>");
     expect(result.html).toContain(
-      '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved highlight</mark>',
+      '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved highlight</mark>',
     );
   });
 

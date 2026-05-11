@@ -13,7 +13,6 @@ export type {
   TraumaDatabaseConnection,
 } from "./connection";
 export type {
-  HighlightRepository,
   MemoryRepository,
   TraumaDatabase,
   TraumaRepositories,
