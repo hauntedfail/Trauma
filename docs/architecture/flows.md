@@ -88,5 +88,6 @@ Flow:
 
 Backup failures do not roll back memory creation or highlight creation.
 
-On startup, Trauma should find pending or failed backup states that are eligible
-for retry and re-enqueue them.
+On startup, Trauma should find pending, queued, or failed backup states that are
+eligible for retry and re-enqueue them. `queued` is process-local, so queued rows
+from a previous process are eligible after restart.

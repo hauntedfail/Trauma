@@ -89,7 +89,8 @@ export function createGitMemoryBackupQueue(
   const openConnection = input.openConnection ?? initializeDatabase;
   const now = input.now ?? (() => new Date());
   const pendingJobs: MemoryBackupJob[] = [];
-  const activeMemoryIds = new Set<string>();
+  const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
+  const runningMemoryIds = new Set<string>();
   let worker: Promise<void> | undefined;
 
   function scheduleWorker() {
@@ -116,11 +117,13 @@ export function createGitMemoryBackupQueue(
       if (job === undefined) {
         continue;
       }
+      pendingJobsByMemoryId.delete(job.memoryId);
+      runningMemoryIds.add(job.memoryId);
 
       try {
         await processJob(job);
       } finally {
-        activeMemoryIds.delete(job.memoryId);
+        runningMemoryIds.delete(job.memoryId);
       }
     }
   }
@@ -130,7 +133,6 @@ export function createGitMemoryBackupQueue(
       await updateBackupStatus({
         memoryId: job.memoryId,
         backupStatus: "queued",
-        lastBackupAt: null,
         lastBackupError: null,
       });
       await runJob({ config: input.config, job });
@@ -145,7 +147,6 @@ export function createGitMemoryBackupQueue(
         await updateBackupStatus({
           memoryId: job.memoryId,
           backupStatus: "failed",
-          lastBackupAt: null,
           lastBackupError: formatUnknownError(error),
         });
       } catch {
@@ -158,8 +159,8 @@ export function createGitMemoryBackupQueue(
   async function updateBackupStatus(inputStatus: {
     memoryId: string;
     backupStatus: BackupStatus;
-    lastBackupAt: Date | null;
-    lastBackupError: string | null;
+    lastBackupAt?: Date | null;
+    lastBackupError?: string | null;
   }) {
     const connection = openConnection(input.config);
     try {
@@ -183,12 +184,14 @@ export function createGitMemoryBackupQueue(
     }
 
     const job = normalizeBackupJob(enqueueInput);
-    if (activeMemoryIds.has(job.memoryId)) {
+    const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
+    if (pendingJob !== undefined) {
+      mergeBackupJobs(pendingJob, job);
       return { backupStatus: "queued" };
     }
 
-    activeMemoryIds.add(job.memoryId);
     pendingJobs.push(job);
+    pendingJobsByMemoryId.set(job.memoryId, job);
     scheduleWorker();
     return { backupStatus: "queued" };
   }
@@ -211,7 +214,10 @@ export function createGitMemoryBackupQueue(
           await connection.repositories.memories.listBackupsEligibleForRetry();
         let enqueued = 0;
         for (const backup of backups) {
-          if (activeMemoryIds.has(backup.id)) {
+          if (
+            pendingJobsByMemoryId.has(backup.id) ||
+            runningMemoryIds.has(backup.id)
+          ) {
             continue;
           }
           await enqueue({
@@ -252,6 +258,9 @@ export async function runGitBackupJob(
     ...stagePaths,
   ], [0, 1]);
   if (diffResult.exitCode === 0) {
+    if (input.config.backup.git.push) {
+      await pushGitBackup(input.config);
+    }
     return;
   }
 
@@ -264,11 +273,7 @@ export async function runGitBackupJob(
   ]);
 
   if (input.config.backup.git.push) {
-    await runGit(input.config.projectPath, [
-      "push",
-      input.config.backup.git.remote,
-      `HEAD:${input.config.backup.git.branch}`,
-    ]);
+    await pushGitBackup(input.config);
   }
 }
 
@@ -285,6 +290,23 @@ function normalizeBackupJob(input: EnqueueMemoryBackupInput): MemoryBackupJob {
     contentPaths,
     reason: input.reason ?? "memory_creation",
   };
+}
+
+function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
+  const contentPaths = new Set(existing.contentPaths);
+  for (const contentPath of incoming.contentPaths) {
+    contentPaths.add(contentPath);
+  }
+  existing.contentPaths = [...contentPaths];
+  existing.reason = incoming.reason;
+}
+
+async function pushGitBackup(config: ResolvedTraumaConfig) {
+  await runGit(config.projectPath, [
+    "push",
+    config.backup.git.remote,
+    `HEAD:${config.backup.git.branch}`,
+  ]);
 }
 
 function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {

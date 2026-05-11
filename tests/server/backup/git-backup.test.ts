@@ -84,6 +84,42 @@ describe("git backup runner", () => {
 
     expect(hasRemoteMain(remotePath)).toBe(false);
   });
+
+  it("pushes an already committed backup when retrying after a failed push", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const missingRemotePath = join(root, "missing.git");
+    const remotePath = join(root, "remote.git");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Retry Push", "utf8");
+    initializeGitRepository(projectPath);
+    git(projectPath, ["remote", "add", "origin", missingRemotePath]);
+
+    await expect(
+      runGitBackupJob({
+        config: createConfig({ root, projectPath, storePath, push: true }),
+        job: createJob({ contentPaths: [contentPath] }),
+      }),
+    ).rejects.toThrow(/git push failed/);
+
+    git(root, ["init", "--bare", remotePath]);
+    git(projectPath, ["remote", "set-url", "origin", remotePath]);
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: true }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    expect(hasRemoteMain(remotePath)).toBe(true);
+    expect(
+      git(remotePath, ["show", "--name-only", "--pretty=format:", "main"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`store/${contentPath}`]);
+  });
 });
 
 describe("git memory backup queue", () => {
@@ -190,7 +226,7 @@ describe("git memory backup queue", () => {
     expect(stored.lastBackupError).toContain("git");
   });
 
-  it("retries pending and failed backups once without duplicating active work", async () => {
+  it("retries pending, queued, and failed backups once without duplicating active work", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(
       `
@@ -208,7 +244,8 @@ describe("git memory backup queue", () => {
         const ids = {
           pending: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
           failed: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
-          success: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+          queued: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+          success: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef814",
         };
         const connection = initializeDatabase(config);
         try {
@@ -222,7 +259,7 @@ describe("git memory backup queue", () => {
               contentPath: \`memories/\${id}/CONTENT.md\`,
               extractionStatus: "success",
               extractionError: null,
-              backupStatus: statusName === "success" ? "success" : statusName,
+              backupStatus: statusName,
               lastBackupAt: statusName === "success" ? now : null,
               lastBackupError: statusName === "failed" ? "previous failure" : null,
               createdAt: now,
@@ -281,10 +318,11 @@ describe("git memory backup queue", () => {
     );
     const { retryCount, processed, rows } = JSON.parse(output);
 
-    expect(retryCount).toBe(2);
+    expect(retryCount).toBe(3);
     expect(processed).toEqual([
       "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
       "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
     ]);
     expect(rows).toEqual([
       {
@@ -302,7 +340,217 @@ describe("git memory backup queue", () => {
         backupStatus: "success",
         lastBackupError: null,
       },
+      {
+        id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef814",
+        backupStatus: "success",
+        lastBackupError: null,
+      },
     ]);
+  });
+
+  it("preserves follow-up backup work enqueued while the same memory is active", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const now = new Date(${JSON.stringify(capturedAt)});
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+        try {
+          await connection.repositories.memories.create({
+            id: ${JSON.stringify(memoryId)},
+            url: "https://example.com/follow-up",
+            title: "Follow Up",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "pending",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } finally {
+          connection.close();
+        }
+
+        const processed = [];
+        let queue;
+        queue = createGitMemoryBackupQueue({
+          config,
+          now: () => now,
+          runJob: async ({ job }) => {
+            processed.push({
+              memoryId: job.memoryId,
+              contentPaths: [...job.contentPaths],
+              reason: job.reason,
+            });
+            if (processed.length === 1) {
+              await queue.enqueue({
+                memoryId: job.memoryId,
+                contentPaths: [\`memories/${memoryId}/HIGHLIGHTS.md\`],
+                reason: "highlight_update",
+              });
+            }
+          },
+        });
+
+        await queue.enqueue({
+          memoryId: ${JSON.stringify(memoryId)},
+          contentPaths: [\`memories/${memoryId}/CONTENT.md\`],
+          reason: "memory_creation",
+        });
+        await queue.drain();
+        process.stdout.write(JSON.stringify({ processed }));
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { processed } = JSON.parse(output);
+
+    expect(processed).toEqual([
+      {
+        memoryId,
+        contentPaths: [`memories/${memoryId}/CONTENT.md`],
+        reason: "memory_creation",
+      },
+      {
+        memoryId,
+        contentPaths: [`memories/${memoryId}/HIGHLIGHTS.md`],
+        reason: "highlight_update",
+      },
+    ]);
+  });
+
+  it("keeps the last successful backup timestamp when a later backup fails", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const successAt = new Date(${JSON.stringify(capturedAt)});
+        const failureAt = new Date("2026-05-09T09:00:00.000Z");
+        let currentTime = successAt;
+        let shouldFail = false;
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+        try {
+          await connection.repositories.memories.create({
+            id: ${JSON.stringify(memoryId)},
+            url: "https://example.com/failure-after-success",
+            title: "Failure After Success",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "pending",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: successAt,
+            updatedAt: successAt,
+          });
+        } finally {
+          connection.close();
+        }
+
+        const queue = createGitMemoryBackupQueue({
+          config,
+          now: () => currentTime,
+          runJob: async () => {
+            if (shouldFail) {
+              throw new Error("follow-up backup failed");
+            }
+          },
+        });
+
+        await queue.enqueue({
+          memoryId: ${JSON.stringify(memoryId)},
+          contentPaths: [\`memories/${memoryId}/CONTENT.md\`],
+          reason: "memory_creation",
+        });
+        await queue.drain();
+
+        shouldFail = true;
+        currentTime = failureAt;
+        await queue.enqueue({
+          memoryId: ${JSON.stringify(memoryId)},
+          contentPaths: [\`memories/${memoryId}/CONTENT.md\`],
+          reason: "highlight_update",
+        });
+        await queue.drain();
+
+        const check = initializeDatabase(config);
+        try {
+          const row = check.sqlite
+            .prepare("select backup_status as backupStatus, last_backup_at as lastBackupAt, last_backup_error as lastBackupError from memories where id = ?")
+            .get(${JSON.stringify(memoryId)});
+          process.stdout.write(JSON.stringify({ row, successAt: successAt.getTime() }));
+        } finally {
+          check.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { row, successAt } = JSON.parse(output);
+
+    expect(row).toEqual({
+      backupStatus: "failed",
+      lastBackupAt: successAt,
+      lastBackupError: "follow-up backup failed",
+    });
   });
 });
 
