@@ -1,12 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdtempSync } from "node:fs";
+import { accessSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 describe("highlight repository", () => {
+  const tempRoots: string[] = [];
+
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("lists highlight browse rows with source memory title and context", () => {
-    const root = mkdtempSync(join(tmpdir(), "trauma-highlights-"));
+    const root = createTempRoot(tempRoots);
     const output = runBunScript(
       `
         import { join } from "node:path";
@@ -111,7 +119,7 @@ describe("highlight repository", () => {
   });
 
   it("rejects replacement rows for a different memory", () => {
-    const root = mkdtempSync(join(tmpdir(), "trauma-highlights-"));
+    const root = createTempRoot(tempRoots);
     const output = runBunScript(
       `
         import { join } from "node:path";
@@ -214,6 +222,12 @@ describe("highlight repository", () => {
     });
   });
 });
+
+function createTempRoot(tempRoots: string[]): string {
+  const root = mkdtempSync(join(tmpdir(), "trauma-highlights-"));
+  tempRoots.push(root);
+  return root;
+}
 
 function runBunScript(script: string, env: Record<string, string>): string {
   const repositoryRoot = process.cwd();
