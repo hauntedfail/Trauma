@@ -285,6 +285,43 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("skips hidden paragraph separators before scoring duplicate text", () => {
+    const markdown = ["target", "", "target", "", "target"].join("\n");
+    const renderedOffset = "target\ntarget\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target\ntarget\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("decodes all CommonMark ASCII punctuation escapes", () => {
+    const markdown = "foo\\:bar target";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "foo:bar target",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "foo:bar target".length,
+      }),
+    ).toEqual({
+      text: "foo:bar target",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
   it("projects task-list checkbox markers out before resolving duplicate text", () => {
     const markdown = ["- [x] target", "- [ ] target"].join("\n");
     const renderedOffset = "target\n".length;
@@ -368,6 +405,31 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("projects list markers after blockquote prefixes out of reader text", () => {
+    const markdown = "> - target";
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("target");
+  });
+
+  it("rejects selections inside blockquoted fenced code", () => {
+    const markdown = ["> ```", "> target", "> ```", "", "target"].join("\n");
+
+    expect(() =>
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "target".length,
+      }),
+    ).toThrow("Selected markdown code cannot be highlighted");
+  });
+
   it("stores rendered blockquote text without quote source markers", () => {
     const markdown = "> target";
 
@@ -381,6 +443,25 @@ describe("highlight markdown markers", () => {
 
   it("parses balanced parentheses in inline link destinations", () => {
     const markdown = "[target](https://example.test/a_(b)) target";
+    const renderedOffset = "target ".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target ",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("does not let link-destination backticks disable link projection", () => {
+    const markdown = "[target](https://example.test/`v`) target";
     const renderedOffset = "target ".length;
 
     expect(
@@ -427,6 +508,31 @@ describe("highlight markdown markers", () => {
     });
     expect(applyHighlightMarkers(markdown, [{ id: "hl-link", ...selection }]))
       .toBe('<mark data-highlight-id="hl-link"><https://example.test></mark>');
+  });
+
+  it("preserves literal markdown inside raw HTML blocks", () => {
+    const markdown = "<div>**target**</div> target";
+    const renderedOffset = "**target** ".length;
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: "<div>**target**</div>".length,
+      }),
+    ).toBe("**target**");
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "**target** ",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
   });
 
   it("maps shortcut reference link labels to the full source label", () => {
@@ -705,6 +811,50 @@ describe("highlight markdown markers", () => {
       resolveHighlightSelection(markdown, {
         text: "target",
         prefix: "\n\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("projects heading marker syntax out of reader text", () => {
+    const markdown = ["# target #", "", "target"].join("\n");
+    const renderedOffset = "target".length;
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: "# target #".length,
+      }),
+    ).toBe("target");
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("skips setext heading underline markers", () => {
+    const markdown = ["target", "===", "", "target"].join("\n");
+    const renderedOffset = "target".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "target",
         suffix: "",
         startOffset: renderedOffset,
         endOffset: renderedOffset + "target".length,

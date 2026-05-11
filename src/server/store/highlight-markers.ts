@@ -54,6 +54,14 @@ const HIDDEN_RAW_HTML_TAGS = new Set([
   "textarea",
   "title",
 ]);
+const LITERAL_RAW_HTML_BLOCK_TAGS = new Set([
+  "article",
+  "aside",
+  "div",
+  "figcaption",
+  "figure",
+  "section",
+]);
 const PROTECTED_RAW_HTML_TAGS = new Set(["code", "pre"]);
 
 export class HighlightMarkerError extends Error {
@@ -752,6 +760,34 @@ function projectMarkdownText(
   let cursor = 0;
 
   while (cursor < markdown.length) {
+    const hiddenParagraphSeparator = readHiddenParagraphSeparator(markdown, cursor);
+    if (hiddenParagraphSeparator !== undefined) {
+      appendProjectedText({
+        protectedOffsets,
+        protectedValue: false,
+        sourceEndOffset: hiddenParagraphSeparator.endOffset,
+        sourceOffset: cursor,
+        sourceOffsets,
+        sourceEndOffsets,
+        text,
+        value: "\n",
+      });
+      cursor = hiddenParagraphSeparator.endOffset;
+      continue;
+    }
+
+    const setextHeadingBreak = readSetextHeadingBreak(markdown, cursor);
+    if (setextHeadingBreak !== undefined) {
+      cursor = setextHeadingBreak.endOffset;
+      continue;
+    }
+
+    const atxHeadingOpeningMarker = readAtxHeadingOpeningMarker(markdown, cursor);
+    if (atxHeadingOpeningMarker !== undefined) {
+      cursor = atxHeadingOpeningMarker.endOffset;
+      continue;
+    }
+
     const thematicBreakLine = readThematicBreakLine(markdown, cursor);
     if (thematicBreakLine !== undefined) {
       cursor = thematicBreakLine.endOffset;
@@ -808,6 +844,25 @@ function projectMarkdownText(
       continue;
     }
 
+    const literalRawHtmlBlock = readLiteralRawHtmlBlock(
+      markdown,
+      cursor,
+      markdown.length,
+    );
+    if (literalRawHtmlBlock !== undefined) {
+      appendRawHtmlTextContent({
+        block: literalRawHtmlBlock,
+        markdown,
+        protectedOffsets,
+        protectedValue: false,
+        sourceOffsets,
+        sourceEndOffsets,
+        text,
+      });
+      cursor = literalRawHtmlBlock.endOffset;
+      continue;
+    }
+
     const image = parseInlineImage(markdown, cursor);
     if (image !== undefined) {
       cursor = image.endOffset;
@@ -859,7 +914,11 @@ function projectMarkdownText(
     const link = parseInlineLink(markdown, cursor);
     if (
       link !== undefined &&
-      !rangeOverlapsProtectedRanges(protectedRanges, cursor, link.endOffset)
+      !rangeOverlapsProtectedRanges(
+        protectedRanges,
+        link.labelStartOffset,
+        link.labelEndOffset,
+      )
     ) {
       appendProjectedLinkLabel({
         link,
@@ -894,6 +953,12 @@ function projectMarkdownText(
 
     if (shouldSkipMarkdownSyntax(markdown, cursor, protectedRanges)) {
       cursor += 1;
+      continue;
+    }
+
+    const atxHeadingClosingMarker = readAtxHeadingClosingMarker(markdown, cursor);
+    if (atxHeadingClosingMarker !== undefined) {
+      cursor = atxHeadingClosingMarker.endOffset;
       continue;
     }
 
@@ -983,7 +1048,6 @@ function appendProjectedSlice(input: {
   markdown: string;
   protectedRanges: MarkdownRange[];
   protectedValue: boolean;
-  preserveBracketSyntax?: boolean;
   sourceOffsets: number[];
   sourceEndOffsets: number[];
   text: string[];
@@ -993,6 +1057,49 @@ function appendProjectedSlice(input: {
 }): void {
   let offset = input.startOffset;
   while (offset < input.endOffset) {
+    const hiddenParagraphSeparator = readHiddenParagraphSeparator(
+      input.markdown,
+      offset,
+    );
+    if (
+      hiddenParagraphSeparator !== undefined &&
+      hiddenParagraphSeparator.endOffset <= input.endOffset
+    ) {
+      appendProjectedText({
+        protectedOffsets: input.protectedOffsets,
+        protectedValue: input.protectedValue,
+        sourceEndOffset: hiddenParagraphSeparator.endOffset,
+        sourceOffset: offset,
+        sourceOffsets: input.sourceOffsets,
+        sourceEndOffsets: input.sourceEndOffsets,
+        text: input.text,
+        value: "\n",
+      });
+      offset = hiddenParagraphSeparator.endOffset;
+      continue;
+    }
+
+    const setextHeadingBreak = readSetextHeadingBreak(input.markdown, offset);
+    if (
+      setextHeadingBreak !== undefined &&
+      setextHeadingBreak.endOffset <= input.endOffset
+    ) {
+      offset = setextHeadingBreak.endOffset;
+      continue;
+    }
+
+    const atxHeadingOpeningMarker = readAtxHeadingOpeningMarker(
+      input.markdown,
+      offset,
+    );
+    if (
+      atxHeadingOpeningMarker !== undefined &&
+      atxHeadingOpeningMarker.endOffset <= input.endOffset
+    ) {
+      offset = atxHeadingOpeningMarker.endOffset;
+      continue;
+    }
+
     const listMarker = readListMarker(input.markdown, offset);
     if (
       listMarker !== undefined &&
@@ -1024,6 +1131,25 @@ function appendProjectedSlice(input: {
     );
     if (sanitizedRawHtmlBlock !== undefined) {
       offset = sanitizedRawHtmlBlock.endOffset;
+      continue;
+    }
+
+    const literalRawHtmlBlock = readLiteralRawHtmlBlock(
+      input.markdown,
+      offset,
+      input.endOffset,
+    );
+    if (literalRawHtmlBlock !== undefined) {
+      appendRawHtmlTextContent({
+        block: literalRawHtmlBlock,
+        markdown: input.markdown,
+        protectedOffsets: input.protectedOffsets,
+        protectedValue: input.protectedValue,
+        sourceOffsets: input.sourceOffsets,
+        sourceEndOffsets: input.sourceEndOffsets,
+        text: input.text,
+      });
+      offset = literalRawHtmlBlock.endOffset;
       continue;
     }
 
@@ -1113,12 +1239,20 @@ function appendProjectedSlice(input: {
       continue;
     }
 
-    if (
-      shouldSkipMarkdownSyntax(input.markdown, offset, input.protectedRanges, {
-        preserveBrackets: input.preserveBracketSyntax ?? false,
-      })
-    ) {
+    if (shouldSkipMarkdownSyntax(input.markdown, offset, input.protectedRanges)) {
       offset += 1;
+      continue;
+    }
+
+    const atxHeadingClosingMarker = readAtxHeadingClosingMarker(
+      input.markdown,
+      offset,
+    );
+    if (
+      atxHeadingClosingMarker !== undefined &&
+      atxHeadingClosingMarker.endOffset <= input.endOffset
+    ) {
+      offset = atxHeadingClosingMarker.endOffset;
       continue;
     }
 
@@ -1179,7 +1313,6 @@ function appendProjectedLinkLabel(input: {
     markdown: input.markdown,
     protectedRanges: input.protectedRanges,
     protectedValue: input.protectedValue,
-    preserveBracketSyntax: true,
     sourceOffsets: input.sourceOffsets,
     sourceEndOffsets: input.sourceEndOffsets,
     text: input.text,
@@ -1213,6 +1346,65 @@ function appendProjectedText(input: {
     input.sourceOffsets.push(input.sourceOffset);
     input.sourceEndOffsets.push(input.sourceEndOffset);
     input.protectedOffsets.push(input.protectedValue);
+  }
+}
+
+function appendRawHtmlTextContent(input: {
+  block: {
+    contentStartOffset: number;
+    contentEndOffset: number;
+  };
+  markdown: string;
+  protectedOffsets: boolean[];
+  protectedValue: boolean;
+  sourceOffsets: number[];
+  sourceEndOffsets: number[];
+  text: string[];
+}): void {
+  let offset = input.block.contentStartOffset;
+
+  while (offset < input.block.contentEndOffset) {
+    const htmlToken = readInlineHtmlToken(
+      input.markdown,
+      offset,
+      input.block.contentEndOffset,
+    );
+    if (htmlToken !== undefined) {
+      offset = htmlToken.endOffset;
+      continue;
+    }
+
+    const entity = readHtmlEntity(
+      input.markdown,
+      offset,
+      input.block.contentEndOffset,
+    );
+    if (entity !== undefined) {
+      appendProjectedText({
+        protectedOffsets: input.protectedOffsets,
+        protectedValue: input.protectedValue,
+        sourceEndOffset: entity.endOffset,
+        sourceOffset: offset,
+        sourceOffsets: input.sourceOffsets,
+        sourceEndOffsets: input.sourceEndOffsets,
+        text: input.text,
+        value: entity.value,
+      });
+      offset = entity.endOffset;
+      continue;
+    }
+
+    appendProjectedText({
+      protectedOffsets: input.protectedOffsets,
+      protectedValue: input.protectedValue,
+      sourceEndOffset: offset + 1,
+      sourceOffset: offset,
+      sourceOffsets: input.sourceOffsets,
+      sourceEndOffsets: input.sourceEndOffsets,
+      text: input.text,
+      value: input.markdown[offset] ?? "",
+    });
+    offset += 1;
   }
 }
 
@@ -1261,12 +1453,44 @@ function readSanitizedRawHtmlBlock(
   );
 }
 
+function readLiteralRawHtmlBlock(
+  markdown: string,
+  startOffset: number,
+  maximumEndOffset: number,
+):
+  | { contentStartOffset: number; contentEndOffset: number; endOffset: number }
+  | undefined {
+  return readRawHtmlElementBlockWithContent(
+    markdown,
+    startOffset,
+    maximumEndOffset,
+    LITERAL_RAW_HTML_BLOCK_TAGS,
+  );
+}
+
 function readRawHtmlElementBlock(
   markdown: string,
   startOffset: number,
   maximumEndOffset: number,
   tagNames: ReadonlySet<string>,
 ): { endOffset: number } | undefined {
+  const block = readRawHtmlElementBlockWithContent(
+    markdown,
+    startOffset,
+    maximumEndOffset,
+    tagNames,
+  );
+  return block === undefined ? undefined : { endOffset: block.endOffset };
+}
+
+function readRawHtmlElementBlockWithContent(
+  markdown: string,
+  startOffset: number,
+  maximumEndOffset: number,
+  tagNames: ReadonlySet<string>,
+):
+  | { contentStartOffset: number; contentEndOffset: number; endOffset: number }
+  | undefined {
   if (markdown[startOffset] !== "<") {
     return undefined;
   }
@@ -1285,15 +1509,24 @@ function readRawHtmlElementBlock(
 
   const openEndOffset = startOffset + openMatch[0].length;
   if (openMatch[0].endsWith("/>")) {
-    return { endOffset: openEndOffset };
+    return {
+      contentStartOffset: openEndOffset,
+      contentEndOffset: openEndOffset,
+      endOffset: openEndOffset,
+    };
   }
 
   const closePattern = new RegExp(`</${tagName}\\s*>`, "i");
   const closeMatch = closePattern.exec(markdown.slice(openEndOffset, maximumEndOffset));
+  const contentEndOffset = closeMatch === null
+    ? openEndOffset
+    : openEndOffset + closeMatch.index;
   return {
+    contentStartOffset: openEndOffset,
+    contentEndOffset,
     endOffset: closeMatch === null
       ? openEndOffset
-      : openEndOffset + closeMatch.index + closeMatch[0].length,
+      : contentEndOffset + closeMatch[0].length,
   };
 }
 
@@ -1329,7 +1562,7 @@ function readEscapedMarkdownCharacter(
   }
 
   const escaped = markdown[startOffset + 1];
-  if (escaped === undefined || !/^[\\`*_[\]{}()#+\-.!|<>]$/.test(escaped)) {
+  if (escaped === undefined || !/^[\u0021-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E]$/.test(escaped)) {
     return undefined;
   }
 
@@ -1567,7 +1800,6 @@ function shouldSkipMarkdownSyntax(
   markdown: string,
   offset: number,
   protectedRanges: MarkdownRange[],
-  options: { preserveBrackets?: boolean } = {},
 ): boolean {
   if (rangeOverlapsProtectedRanges(protectedRanges, offset, offset + 1)) {
     return markdown[offset] === "`";
@@ -1609,6 +1841,90 @@ function readThematicBreakLine(
   return thematicBreak
     ? { endOffset: readLineEndOffsetWithBreak(markdown, lineEndOffset) }
     : undefined;
+}
+
+function readHiddenParagraphSeparator(
+  markdown: string,
+  startOffset: number,
+): { endOffset: number } | undefined {
+  if (markdown[startOffset] !== "\n" || markdown[startOffset + 1] !== "\n") {
+    return undefined;
+  }
+
+  let endOffset = startOffset + 2;
+  while (markdown[endOffset] === "\n") {
+    endOffset += 1;
+  }
+
+  return { endOffset };
+}
+
+function readSetextHeadingBreak(
+  markdown: string,
+  startOffset: number,
+): { endOffset: number } | undefined {
+  if (markdown[startOffset] !== "\n") {
+    return undefined;
+  }
+
+  const underlineStartOffset = startOffset + 1;
+  const underlineEndOffset = readLineEndOffset(markdown, underlineStartOffset);
+  const underline = markdown.slice(underlineStartOffset, underlineEndOffset);
+  if (!isSetextHeadingUnderlineLine(underline)) {
+    return undefined;
+  }
+
+  const previousLine = readPreviousLine(markdown, underlineStartOffset);
+  if (previousLine === undefined || previousLine.line.trim() === "") {
+    return undefined;
+  }
+
+  return {
+    endOffset: readLineEndOffsetWithBreak(markdown, underlineEndOffset),
+  };
+}
+
+function readAtxHeadingOpeningMarker(
+  markdown: string,
+  startOffset: number,
+): { endOffset: number } | undefined {
+  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
+  if (lineStartOffset !== startOffset) {
+    return undefined;
+  }
+
+  const lineEndOffset = readLineEndOffset(markdown, startOffset);
+  const line = markdown.slice(startOffset, lineEndOffset);
+  const match = /^(?: {0,3})#{1,6}[ \t]+/.exec(line);
+  return match === null
+    ? undefined
+    : { endOffset: startOffset + match[0].length };
+}
+
+function readAtxHeadingClosingMarker(
+  markdown: string,
+  startOffset: number,
+): { endOffset: number } | undefined {
+  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
+  const lineEndOffset = readLineEndOffset(markdown, startOffset);
+  const line = markdown.slice(lineStartOffset, lineEndOffset);
+  if (!/^(?: {0,3})#{1,6}(?:[ \t]+|$)/.test(line)) {
+    return undefined;
+  }
+
+  const closing = /[ \t]+#{1,}[ \t]*$/.exec(line);
+  if (closing === null) {
+    return undefined;
+  }
+
+  const closingStartOffset = lineStartOffset + closing.index;
+  return closingStartOffset === startOffset
+    ? { endOffset: lineEndOffset }
+    : undefined;
+}
+
+function isSetextHeadingUnderlineLine(line: string): boolean {
+  return /^(?: {0,3})(?:=+|-+)[ \t]*$/.test(line);
 }
 
 function readReferenceDefinition(
@@ -1714,7 +2030,7 @@ function readListMarker(
   startOffset: number,
 ): { endOffset: number } | undefined {
   const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isContainerPrefix(markdown.slice(lineStartOffset, startOffset))) {
     return undefined;
   }
 
@@ -1732,8 +2048,7 @@ function readTaskCheckboxMarker(
 ): { endOffset: number } | undefined {
   const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
   const prefix = markdown.slice(lineStartOffset, startOffset);
-  const listMarker = readListMarkerMatch(markdown, lineStartOffset, prefix);
-  if (listMarker === null || listMarker.endOffset !== prefix.length) {
+  if (!isListMarkerPrefix(markdown, lineStartOffset, prefix)) {
     return undefined;
   }
 
@@ -1741,6 +2056,34 @@ function readTaskCheckboxMarker(
   return match === null
     ? undefined
     : { endOffset: startOffset + match[0].length };
+}
+
+function isListMarkerPrefix(
+  markdown: string,
+  lineStartOffset: number,
+  prefix: string,
+): boolean {
+  const containerPrefix = readContainerPrefix(prefix);
+  if (containerPrefix === undefined) {
+    return false;
+  }
+
+  const markerPrefix = prefix.slice(containerPrefix.length);
+  const listMarker = readListMarkerMatch(
+    markdown,
+    lineStartOffset + containerPrefix.length,
+    markerPrefix,
+  );
+  return listMarker !== null && listMarker.endOffset === markerPrefix.length;
+}
+
+function isContainerPrefix(prefix: string): boolean {
+  return readContainerPrefix(prefix) === prefix;
+}
+
+function readContainerPrefix(prefix: string): string | undefined {
+  const match = /^(?:(?: {0,3}>[ \t]?)+)?/.exec(prefix);
+  return match === null ? undefined : match[0];
 }
 
 function readListMarkerMatch(
