@@ -125,7 +125,8 @@ describe("add memory orchestration", () => {
     expect(enqueued).toEqual([
       {
         memoryId: successMemoryId,
-        contentPath: `memories/${successMemoryId}/CONTENT.md`,
+        contentPaths: [`memories/${successMemoryId}/CONTENT.md`],
+        reason: "memory_creation",
       },
     ]);
   });

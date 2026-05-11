@@ -45,6 +45,35 @@ describe("browse memory loader error policy", () => {
 
     expect(JSON.parse(output)).toEqual([]);
   });
+
+  it("starts the backup retry queue while loading browse memories", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "trauma-browse-retry-cwd-"));
+    const configRoot = mkdtempSync(join(tmpdir(), "trauma-browse-retry-config-"));
+    const configPath = writeConfig(configRoot);
+
+    const output = runBunScript(
+      `
+        import { loadBrowseMemories } from "./src/server/memories/browse.ts";
+
+        process.chdir(process.env.TRAUMA_TEST_CWD);
+        process.env.TRAUMA_CONFIG_PATH = process.env.TRAUMA_TEST_CONFIG_PATH;
+
+        const starts = [];
+        await loadBrowseMemories({
+          startBackupQueue: (config) => {
+            starts.push(config.projectPath);
+          },
+        });
+        process.stdout.write(JSON.stringify(starts));
+      `,
+      {
+        TRAUMA_TEST_CONFIG_PATH: configPath,
+        TRAUMA_TEST_CWD: cwd,
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual([join(configRoot, "data")]);
+  });
 });
 
 async function withCwd<T>(cwd: string, callback: () => Promise<T>): Promise<T> {

@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "./schema";
@@ -9,6 +9,10 @@ type Highlight = typeof schema.highlights.$inferSelect;
 type MemoryBackupStatusUpdate = Pick<
   Memory,
   "id" | "backupStatus" | "lastBackupAt" | "lastBackupError" | "updatedAt"
+>;
+type MemoryBackupRetryRow = Pick<
+  Memory,
+  "id" | "contentPath" | "backupStatus" | "updatedAt"
 >;
 
 export interface MemoryBrowseRow {
@@ -44,6 +48,7 @@ export interface MemoryRepository {
     lastBackupError?: string | null;
     updatedAt: Date;
   }) => Promise<MemoryBackupStatusUpdate>;
+  listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
@@ -132,30 +137,52 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         return input;
       },
       updateBackupStatus: async (input) => {
+        const values: {
+          backupStatus: schema.BackupStatus;
+          lastBackupAt?: Date | null;
+          lastBackupError?: string | null;
+          updatedAt: Date;
+        } = {
+          backupStatus: input.backupStatus,
+          updatedAt: input.updatedAt,
+        };
+        if ("lastBackupAt" in input) {
+          values.lastBackupAt = input.lastBackupAt;
+        }
+        if ("lastBackupError" in input) {
+          values.lastBackupError = input.lastBackupError;
+        }
+
         const updated = await db
           .update(schema.memories)
-          .set({
-            backupStatus: input.backupStatus,
-            lastBackupAt: input.lastBackupAt,
-            lastBackupError: input.lastBackupError,
-            updatedAt: input.updatedAt,
-          })
+          .set(values)
           .where(eq(schema.memories.id, input.id))
-          .returning({ id: schema.memories.id })
+          .returning({
+            id: schema.memories.id,
+            backupStatus: schema.memories.backupStatus,
+            lastBackupAt: schema.memories.lastBackupAt,
+            lastBackupError: schema.memories.lastBackupError,
+            updatedAt: schema.memories.updatedAt,
+          })
           .get();
         if (updated === undefined) {
           throw new MemoryRepositoryError(
             `Cannot update backup status for missing memory: ${input.id}`,
           );
         }
-        return {
-          id: input.id,
-          backupStatus: input.backupStatus,
-          lastBackupAt: input.lastBackupAt ?? null,
-          lastBackupError: input.lastBackupError ?? null,
-          updatedAt: input.updatedAt,
-        };
+        return updated;
       },
+      listBackupsEligibleForRetry: async () =>
+        db.query.memories.findMany({
+          columns: {
+            id: true,
+            contentPath: true,
+            backupStatus: true,
+            updatedAt: true,
+          },
+          where: inArray(schema.memories.backupStatus, ["pending", "queued", "failed"]),
+          orderBy: [asc(schema.memories.updatedAt), asc(schema.memories.id)],
+        }),
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({
           orderBy: [desc(schema.memories.createdAt)],
