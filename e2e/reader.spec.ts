@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { accessSync } from "node:fs";
 import { homedir } from "node:os";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
@@ -33,6 +33,46 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.locator("#reader-title")).toHaveText("Second Fixture Reader");
   await expect(page.getByText("Second reader body")).toBeVisible();
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
+});
+
+test("toggles selected reader text as a persisted highlight", async ({ page }) => {
+  createReaderFixture();
+  const selectedText = "Curated markdown body";
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/highlights") &&
+      response.request().method() === "POST",
+  );
+  await selectReaderText(page, selectedText);
+  await expect(
+    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+  ).toBeVisible();
+  expect((await createResponse).ok()).toBe(true);
+
+  await page.reload();
+  await expect(
+    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+  ).toBeVisible();
+
+  const removeResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/highlights") &&
+      response.request().method() === "POST",
+  );
+  await selectReaderText(page, selectedText);
+  await expect(
+    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+  ).toHaveCount(0);
+  expect((await removeResponse).ok()).toBe(true);
+
+  await page.reload();
+  await expect(
+    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+  ).toHaveCount(0);
+  await expect(page.getByText(selectedText)).toBeVisible();
 });
 
 function createReaderFixture() {
@@ -160,6 +200,41 @@ function createReaderFixture() {
       stdio: "pipe",
     },
   );
+}
+
+async function selectReaderText(page: Page, text: string) {
+  await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
+    const findTextNode = (node: Node): Text | undefined => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      let current = walker.nextNode();
+      while (current !== null) {
+        if (current.nodeValue?.includes(selectedText)) {
+          return current as Text;
+        }
+
+        current = walker.nextNode();
+      }
+
+      return undefined;
+    };
+    const textNode = findTextNode(root);
+    if (textNode === undefined) {
+      throw new Error(`Text not found: ${selectedText}`);
+    }
+
+    const startOffset = textNode.nodeValue?.indexOf(selectedText) ?? -1;
+    if (startOffset < 0) {
+      throw new Error(`Text node did not contain: ${selectedText}`);
+    }
+
+    const range = document.createRange();
+    range.setStart(textNode, startOffset);
+    range.setEnd(textNode, startOffset + selectedText.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }, text);
 }
 
 function resolveBunExecutable() {
