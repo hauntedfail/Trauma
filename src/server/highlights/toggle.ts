@@ -7,6 +7,7 @@ import { createRepositories } from "../db/repositories";
 import {
   applyHighlightMarkers,
   HighlightMarkerError,
+  readRenderedMarkdownRangeText,
   resolveHighlightSelection,
   stripHighlightMarkers,
   type HighlightSelectionInput,
@@ -225,7 +226,7 @@ function buildHighlightRows(input: {
 
   return input.ranges.map((range) => {
     const existing = existingById.get(range.id);
-    const text = input.cleanMarkdown.slice(range.startOffset, range.endOffset);
+    const text = readRenderedMarkdownRangeText(input.cleanMarkdown, range);
 
     return {
       id: range.id,

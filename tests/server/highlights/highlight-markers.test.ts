@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyHighlightMarkers,
+  readRenderedMarkdownRangeText,
   resolveHighlightSelection,
   stripHighlightMarkers,
 } from "../../../src/server/store/highlight-markers";
@@ -118,18 +119,18 @@ describe("highlight markdown markers", () => {
   });
 
   it("resolves common named entities back to encoded markdown", () => {
-    const markdown = "Tom &mdash; Jerry";
+    const markdown = "Tom &rarr; Jerry";
 
     expect(
       resolveHighlightSelection(markdown, {
-        text: "Tom \u2014 Jerry",
+        text: "Tom \u2192 Jerry",
         prefix: "",
         suffix: "",
         startOffset: 0,
-        endOffset: "Tom \u2014 Jerry".length,
+        endOffset: "Tom \u2192 Jerry".length,
       }),
     ).toEqual({
-      text: "Tom \u2014 Jerry",
+      text: "Tom \u2192 Jerry",
       startOffset: 0,
       endOffset: markdown.length,
     });
@@ -150,6 +151,94 @@ describe("highlight markdown markers", () => {
       text: "Alpha target omega",
       startOffset: 0,
       endOffset: markdown.length,
+    });
+  });
+
+  it("projects rendered text for highlight storage", () => {
+    const markdown = "a **bold** and <span>linked</span>";
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("a bold and linked");
+  });
+
+  it("projects list markers out before resolving duplicate text", () => {
+    const markdown = ["- target", "", "target"].join("\n");
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.indexOf("target"),
+      endOffset: markdown.indexOf("target") + "target".length,
+    });
+  });
+
+  it("treats escaped backticks as literal text", () => {
+    const markdown = "\\`target\\` target";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "`target`",
+        prefix: "",
+        suffix: " target",
+        startOffset: 0,
+        endOffset: "`target`".length,
+      }),
+    ).toEqual({
+      text: "`target`",
+      startOffset: 0,
+      endOffset: "\\`target\\`".length,
+    });
+  });
+
+  it("skips image markdown when resolving rendered text", () => {
+    const markdown = "![target](https://example.test/image.png) target";
+    const renderedOffset = " ".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("resolves visible selections that span reference link syntax", () => {
+    const markdown = [
+      "a [linked][ref] b",
+      "",
+      "[ref]: https://example.test",
+    ].join("\n");
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "a linked b",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "a linked b".length,
+      }),
+    ).toEqual({
+      text: "a linked b",
+      startOffset: 0,
+      endOffset: "a [linked][ref] b".length,
     });
   });
 

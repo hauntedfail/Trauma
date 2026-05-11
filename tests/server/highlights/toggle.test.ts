@@ -185,6 +185,105 @@ describe("toggleMemoryHighlight", () => {
       message: "Highlight state changed. Reload the reader and try again.",
     });
   });
+
+  it("stores rendered highlight text for selections spanning markdown syntax", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-highlight-toggle-"));
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase, schema } from "./src/server/db/index.ts";
+        import { toggleMemoryHighlight } from "./src/server/highlights/toggle.ts";
+        import { writeMemoryContent } from "./src/server/store/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f302";
+        const markdown = "Alpha **target** omega";
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const connection = initializeDatabase(config);
+
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/highlight-toggle-rendered",
+            title: "Highlight Toggle Rendered",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: new Date("2026-05-10T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await writeMemoryContent({
+            config,
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/highlight-toggle-rendered",
+              title: "Highlight Toggle Rendered",
+              capturedAt: "2026-05-10T00:00:00.000Z",
+              extractionStatus: "success",
+            },
+            markdown,
+          });
+
+          await toggleMemoryHighlight({
+            memoryId,
+            operation: "highlight",
+            selection: {
+              text: "Alpha target omega",
+              prefix: "",
+              suffix: "",
+              startOffset: 0,
+              endOffset: "Alpha target omega".length,
+            },
+            config,
+            db: connection.db,
+            backupQueue: {
+              enqueue: async () => ({ backupStatus: "queued" }),
+            },
+            generateId: () => "highlight-rendered",
+            now: () => new Date("2026-05-10T01:00:00.000Z"),
+          });
+
+          const row = connection.sqlite
+            .prepare("select text, prefix, suffix from highlights where id = ?")
+            .get("highlight-rendered");
+          process.stdout.write(JSON.stringify(row));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      text: "Alpha target omega",
+      prefix: "",
+      suffix: "",
+    });
+  });
 });
 
 function runBunScript(script: string, env: Record<string, string>): string {
