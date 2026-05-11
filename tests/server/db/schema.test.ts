@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,6 +238,512 @@ describe("db foundation", () => {
     );
   });
 
+  it("records bundled migration rows with SQLite integer primary keys", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            process.stdout.write(JSON.stringify(
+              connection.sqlite
+                .prepare("select id, typeof(id) as id_type from __drizzle_migrations order by created_at")
+                .all(),
+            ));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      { id: 1, id_type: "integer" },
+      { id: 2, id_type: "integer" },
+      { id: 3, id_type: "integer" },
+    ]);
+  });
+
+  it("rejects orphan highlights before recording the rebuilt highlights table", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            applyBundledMigrations(sqlite);
+
+            sqlite.run("PRAGMA foreign_keys = OFF");
+            sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("orphan", "missing-memory", "orphan", "", "", 0, 6, Date.now(), Date.now());
+            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
+              .run(1778393646543);
+            sqlite.run("PRAGMA foreign_keys = ON");
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                foreignKeys: sqlite.prepare("PRAGMA foreign_keys").get().foreign_keys,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      foreignKeys: 1,
+      message: expect.stringContaining("foreign key"),
+    });
+  });
+
+  it("fails loudly when an applied bundled migration hash drifts", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+            sqlite.prepare("update __drizzle_migrations set hash = ? where created_at = ?")
+              .run("tampered", 1778393646543);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("hash mismatch"),
+    });
+  });
+
+  it("upgrades databases that already recorded the original 0001 migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            const migration0000 = readBundledMigrations()
+              .find((migration) => migration.folderMillis === 1778308356677);
+            if (!migration0000) {
+              throw new Error("missing bundled 0000 migration");
+            }
+
+            sqlite.run("PRAGMA foreign_keys = ON");
+            sqlite.run("CREATE TABLE __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run(migration0000.hash, 1778308356677);
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("79acaf382478f3958e213cf29076922f9f234d4f8f927a1a1ef5f13e38b0bff0", 1778393646543);
+
+            sqlite.run(\`
+              CREATE TABLE memories (
+                id text PRIMARY KEY NOT NULL,
+                url text NOT NULL,
+                title text NOT NULL,
+                content_path text NOT NULL,
+                extraction_status text NOT NULL,
+                backup_status text NOT NULL,
+                created_at integer NOT NULL,
+                updated_at integer NOT NULL
+              )
+            \`);
+            sqlite.run(\`
+              CREATE TABLE highlights (
+                id text PRIMARY KEY NOT NULL,
+                memory_id text NOT NULL,
+                text text NOT NULL,
+                prefix text NOT NULL,
+                suffix text NOT NULL,
+                start_offset integer NOT NULL,
+                end_offset integer NOT NULL,
+                created_at integer NOT NULL,
+                updated_at integer NOT NULL,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON UPDATE no action ON DELETE cascade,
+                CONSTRAINT highlights_start_offset_check CHECK(start_offset >= 0),
+                CONSTRAINT highlights_end_offset_check CHECK(end_offset >= start_offset)
+              )
+            \`);
+            sqlite.run("CREATE INDEX highlights_memory_id_idx ON highlights (memory_id)");
+            sqlite.run("CREATE INDEX highlights_created_at_idx ON highlights (created_at)");
+
+            const now = Date.now();
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f007/CONTENT.md", "success", "pending", now, now);
+            sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("existing-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "valid", "", "", 0, 5, now, now);
+
+            applyBundledMigrations(sqlite);
+
+            process.stdout.write(JSON.stringify({
+              checkSql: sqlite.prepare("select sql from sqlite_master where type = 'table' and name = 'highlights'").get().sql,
+              highlightCount: sqlite.prepare("select count(*) as count from highlights where id = 'existing-highlight'").get().count,
+              migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    const result = JSON.parse(output);
+
+    expect(result).toMatchObject({
+      highlightCount: 1,
+      migrationCount: 3,
+    });
+    expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
+  });
+
+  it("fails loudly when the database has newer migrations than the bundled runtime", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("future", 9999999999999);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("newer bundled migration"),
+    });
+  });
+
+  it("rejects incompatible migration history when using an explicit migrations folder", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const databasePath = join(root, "trauma.sqlite");
+          const sqlite = new Database(databasePath);
+          try {
+            sqlite.run("CREATE TABLE __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run("future", 9999999999999);
+          } finally {
+            sqlite.close();
+          }
+
+          try {
+            const connection = initializeDatabase(
+              {
+                configFilePath: join(root, "trauma.config.json"),
+                projectPath: join(root, "data"),
+                storePath: join(root, "data/store"),
+                databasePath,
+                backup: {
+                  git: {
+                    enabled: true,
+                    remote: "origin",
+                    branch: "main",
+                    push: false,
+                    commitMessageTemplate: "backup memory {memoryId}",
+                  },
+                },
+              },
+              { migrationsFolder: join(process.cwd(), "drizzle") },
+            );
+            connection.close();
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("newer explicit-folder migration"),
+    });
+  });
+
+  it("rolls back breakpoint migration bodies when migration recording fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("CREATE TABLE IF NOT EXISTS __drizzle_migrations (id integer primary key autoincrement, hash text NOT NULL, created_at numeric)");
+            sqlite.run(\`
+              CREATE TRIGGER fail_migration_record
+              BEFORE INSERT ON __drizzle_migrations
+              BEGIN
+                SELECT RAISE(ABORT, 'record blocked');
+              END
+            \`);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                memoryTableCount: sqlite.prepare("select count(*) as count from sqlite_master where type = 'table' and name = 'memories'").get().count,
+                migrationRows: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      memoryTableCount: 0,
+      migrationRows: 0,
+    });
+  });
+
+  it("rolls back breakpoint migration body failures while honoring foreign key PRAGMAs", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+
+            sqlite.run("PRAGMA foreign_keys = OFF");
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f005", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f005/CONTENT.md", "success", "pending", Date.now(), Date.now());
+            sqlite.run("PRAGMA ignore_check_constraints = ON");
+            sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f005", "bad", "", "", 8, 2, Date.now(), Date.now());
+            sqlite.run("PRAGMA ignore_check_constraints = OFF");
+            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
+              .run(1778393646543);
+            sqlite.run("PRAGMA foreign_keys = ON");
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                newTableCount: sqlite.prepare("select count(*) as count from sqlite_master where type = 'table' and name = '__new_highlights'").get().count,
+                foreignKeys: sqlite.prepare("PRAGMA foreign_keys").get().foreign_keys,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      newTableCount: 0,
+      foreignKeys: 1,
+    });
+  });
+
+  it("keeps database initialization off deprecated Bun SQLite and Drizzle private migration APIs", () => {
+    const dbFiles = readdirSync(join(process.cwd(), "src/server/db"))
+      .filter((fileName) => fileName.endsWith(".ts"))
+      .map((fileName) => ({
+        fileName,
+        source: readFileSync(join(process.cwd(), "src/server/db", fileName), "utf8"),
+      }));
+
+    expect(
+      dbFiles
+        .filter(({ source }) => /\.exec\s*\(/.test(source))
+        .map(({ fileName }) => fileName),
+    ).toEqual([]);
+    expect(
+      dbFiles
+        .filter(({ source }) =>
+          /dialect\.migrate|BunMigrationDatabaseInternals|as unknown as/.test(source),
+        )
+        .map(({ fileName }) => fileName),
+    ).toEqual([]);
+  });
+
   it("rejects invalid persisted memory status values", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
@@ -311,6 +817,175 @@ describe("db foundation", () => {
 
     expect(JSON.parse(output)).toMatchObject({
       rejected: true,
+    });
+  });
+
+  it("rejects invalid highlight offsets at the SQLite boundary", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            const now = Date.now();
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004",
+                "https://example.com",
+                "Example",
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f004/CONTENT.md",
+                "success",
+                "pending",
+                now,
+                now,
+              );
+
+            connection.sqlite
+              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004", "bad", "", "", 8, 2, now, now);
+
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+    });
+  });
+
+  it("rejects zero-length highlight ranges at the SQLite boundary", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            const now = Date.now();
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006",
+                "https://example.com",
+                "Example",
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f006/CONTENT.md",
+                "success",
+                "pending",
+                now,
+                now,
+              );
+
+            connection.sqlite
+              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("empty-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006", "", "", "", 8, 8, now, now);
+
+            process.stdout.write(JSON.stringify({ rejected: false }));
+          } catch (error) {
+            process.stdout.write(JSON.stringify({
+              highlightCount: connection.sqlite
+                .prepare("select count(*) as count from highlights where id = 'empty-highlight'")
+                .get().count,
+              rejected: true,
+              message: error instanceof Error ? error.message : String(error),
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      highlightCount: 0,
+      rejected: true,
+      message: expect.stringContaining("highlights_end_offset_check"),
     });
   });
 

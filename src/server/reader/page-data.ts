@@ -1,7 +1,7 @@
 import type { schema } from "../db";
 import { initializeDatabase } from "../db";
 import {
-  loadTraumaConfig,
+  loadRuntimeTraumaConfig,
   TraumaConfigError,
   type ResolvedTraumaConfig,
 } from "../config";
@@ -50,7 +50,7 @@ export async function loadReaderMemory(
   let connection: ReturnType<typeof initializeDatabase> | undefined;
 
   try {
-    const config = options.config ?? loadReaderConfig();
+    const config = options.config ?? loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
     const memory = await connection.repositories.memories.findById(memoryId);
     if (memory === undefined) {
@@ -94,12 +94,6 @@ export async function loadReaderMemory(
   } finally {
     connection?.close();
   }
-}
-
-function loadReaderConfig() {
-  return loadTraumaConfig({
-    configPath: process.env.TRAUMA_CONFIG_PATH,
-  });
 }
 
 function toReaderMemory(memory: MemoryRow): ReaderMemory {

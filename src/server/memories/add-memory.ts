@@ -79,7 +79,8 @@ export async function addMemory(input: AddMemoryInput) {
     try {
       queued = await input.backupQueue.enqueue({
         memoryId: id,
-        contentPath: written.relativePath,
+        contentPaths: [written.relativePath],
+        reason: "memory_creation",
       });
     } catch (error) {
       try {

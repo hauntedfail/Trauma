@@ -18,6 +18,13 @@ interface AppShellProps {
   children: JSX.Element;
 }
 
+const buttonBase =
+  "inline-flex min-h-[38px] items-center justify-center rounded-lg border border-[#b8c4b1] px-3 py-2 font-bold";
+const surfaceInput =
+  "min-h-[42px] min-w-0 rounded-lg border border-[#b8c4b1] bg-trauma-bg-surface px-3 text-trauma-text-primary";
+const sideSurface =
+  "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-surface max-[720px]:hidden";
+
 export function AppShell(props: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -54,18 +61,18 @@ export function AppShell(props: AppShellProps) {
   };
 
   return (
-    <div class="app-shell">
+    <div class="grid min-h-screen grid-cols-[minmax(188px,248px)_minmax(0,1fr)_minmax(248px,328px)] bg-trauma-bg-base text-trauma-text-primary max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
         onOpenNavigation={() => setIsNavigationOpen(true)}
         onOpenFilters={() => setIsFiltersOpen(true)}
       />
-      <aside class="left-nav" aria-label="Primary navigation">
+      <aside class={`${sideSurface} border-r border-trauma-border p-6 max-[1040px]:row-span-2 max-[1040px]:p-4 max-[1040px]:px-2.5`} aria-label="Primary navigation">
         <NavigationContent onOpenComposer={openComposer} />
       </aside>
-      <main class="content-shell">
+      <main class="min-w-0 max-[1040px]:col-start-2">
         {props.children}
       </main>
-      <aside class="right-panel" aria-label="Browse filters">
+      <aside class={`${sideSurface} border-l border-trauma-border p-5 max-[1040px]:hidden`} aria-label="Browse filters">
         <FilterPanel
           activeCategory={query().category}
           activeHighlight={query().highlight}
@@ -81,7 +88,7 @@ export function AppShell(props: AppShellProps) {
       </aside>
       <Show when={isNavigationOpen()}>
         <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
-          <NavigationContent onNavigate={closeNavigation} onOpenComposer={openComposer} />
+          <NavigationContent isDrawer onNavigate={closeNavigation} onOpenComposer={openComposer} />
         </Drawer>
       </Show>
       <Show when={isFiltersOpen()}>
@@ -111,35 +118,41 @@ export function AppShell(props: AppShellProps) {
 
 function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () => void }) {
   return (
-    <header class="mobile-topbar">
-      <button type="button" class="icon-button" aria-label="Open navigation" onClick={props.onOpenNavigation}>
+    <header class="sticky top-0 z-10 col-start-2 hidden min-h-[58px] grid-cols-[minmax(0,1fr)_112px] items-center gap-2 border-b border-trauma-border bg-trauma-bg-surface px-3 py-2 max-[1040px]:grid max-[720px]:grid-cols-[96px_minmax(0,1fr)_96px]">
+      <button type="button" class={`${buttonBase} hidden w-full overflow-hidden bg-white text-trauma-accent max-[720px]:inline-flex`} aria-label="Open navigation" onClick={props.onOpenNavigation}>
         Menu
       </button>
-      <A class="mobile-brand" href="/memories">
+      <A class="inline-flex min-h-10 min-w-0 items-center text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
         Trauma
       </A>
-      <button type="button" class="icon-button" aria-label="Open filters" onClick={props.onOpenFilters}>
+      <button type="button" class={`${buttonBase} w-full overflow-hidden bg-white text-trauma-accent`} aria-label="Open filters" onClick={props.onOpenFilters}>
         Filter
       </button>
     </header>
   );
 }
 
-function NavigationContent(props: { onNavigate?: () => void; onOpenComposer: () => void }) {
+function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void; onOpenComposer: () => void }) {
   return (
-    <div class="navigation-content">
-      <A class="brand" href="/memories" onClick={props.onNavigate}>
+    <div
+      class="grid grid-rows-[auto_1fr_auto] gap-7"
+      classList={{
+        "min-h-0": props.isDrawer === true,
+        "min-h-[calc(100vh-48px)] max-[1040px]:min-h-[calc(100vh-32px)]": props.isDrawer !== true,
+      }}
+    >
+      <A class="inline-flex min-h-10 items-center text-[22px] font-extrabold max-[1040px]:w-full max-[1040px]:justify-center max-[1040px]:text-lg" href="/memories" onClick={props.onNavigate}>
         Trauma
       </A>
-      <nav class="nav-links">
-        <A href="/memories" onClick={props.onNavigate}>
+      <nav class="grid content-start gap-2">
+        <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/memories" onClick={props.onNavigate}>
           Memories
         </A>
-        <A href="/highlights" onClick={props.onNavigate}>
+        <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/highlights" onClick={props.onNavigate}>
           Highlights
         </A>
       </nav>
-      <button class="add-memory" type="button" onClick={props.onOpenComposer}>
+      <button class={`${buttonBase} w-full bg-trauma-accent text-white max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis`} type="button" onClick={props.onOpenComposer}>
         Add memory
       </button>
     </div>
@@ -148,13 +161,13 @@ function NavigationContent(props: { onNavigate?: () => void; onOpenComposer: () 
 
 function GlobalAddMemoryComposer() {
   return (
-    <form class="global-composer" aria-label="Add memory">
-      <h2>Add memory</h2>
-      <label>
-        <span>URL</span>
-        <input type="url" placeholder="https://example.com/article" />
+    <form class="grid gap-3.5" aria-label="Add memory">
+      <h2 class="mb-0 text-[22px] font-bold">Add memory</h2>
+      <label class="grid gap-2">
+        <span class="text-[13px] font-extrabold text-[#4e5a48]">URL</span>
+        <input class={surfaceInput} type="url" placeholder="https://example.com/article" />
       </label>
-      <button type="button" disabled>
+      <button class={`${buttonBase} bg-trauma-accent text-white`} type="button" disabled>
         Save memory
       </button>
     </form>
@@ -174,13 +187,14 @@ function FilterPanel(props: {
   tags: BrowseTaxonomyItem[];
 }) {
   return (
-    <div class="filter-panel">
+    <div class="grid gap-6">
       <section class="filter-section" aria-labelledby={`${props.idPrefix}-category-filters-title`}>
-        <h2 id={`${props.idPrefix}-category-filters-title`}>Categories</h2>
-        <div class="filter-list">
+        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-category-filters-title`}>Categories</h2>
+        <div class="grid gap-2">
           <For each={props.categories}>
             {(category) => (
               <button
+                class={`${buttonBase} w-full justify-start bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`}
                 type="button"
                 aria-pressed={props.activeCategory === category.id}
                 onClick={() => props.onSelectCategory(category)}
@@ -192,11 +206,11 @@ function FilterPanel(props: {
         </div>
       </section>
       <section class="filter-section" aria-labelledby={`${props.idPrefix}-tag-filters-title`}>
-        <h2 id={`${props.idPrefix}-tag-filters-title`}>Tags</h2>
-        <div class="filter-list">
+        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-tag-filters-title`}>Tags</h2>
+        <div class="grid gap-2">
           <For each={props.tags}>
             {(tag) => (
-              <button type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
+              <button class={`${buttonBase} w-full justify-start bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
                 {tag.name}
               </button>
             )}
@@ -204,17 +218,18 @@ function FilterPanel(props: {
         </div>
       </section>
       <section class="filter-section" aria-labelledby={`${props.idPrefix}-highlight-shortcuts-title`}>
-        <h2 id={`${props.idPrefix}-highlight-shortcuts-title`}>Recent highlights</h2>
-        <div class="highlight-shortcuts">
+        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-highlight-shortcuts-title`}>Recent highlights</h2>
+        <div class="grid gap-2">
           <For each={props.highlights}>
             {(highlight) => (
               <button
+                class={`${buttonBase} grid min-h-[74px] w-full justify-stretch gap-1 bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`}
                 type="button"
                 aria-pressed={props.activeHighlight === highlight.id}
                 onClick={() => props.onSelectHighlight(highlight)}
               >
-                <span>{highlight.text}</span>
-                <small>{highlight.prefix}</small>
+                <span class="wrap-anywhere">{highlight.text}</span>
+                <small class="text-xs font-semibold text-trauma-text-muted">{highlight.prefix}</small>
               </button>
             )}
           </For>
@@ -226,9 +241,9 @@ function FilterPanel(props: {
 
 function Drawer(props: { ariaLabel: string; children: JSX.Element; onClose: () => void }) {
   return (
-    <div class="drawer-backdrop">
-      <div class="drawer-panel" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
-        <button type="button" class="drawer-close" onClick={props.onClose}>
+    <div class="fixed inset-0 z-20 bg-gray-900/45">
+      <div class="max-h-screen min-h-screen w-[min(86vw,340px)] overflow-y-auto bg-trauma-bg-surface p-[18px] shadow-[0_20px_60px_rgb(17_24_39_/_24%)]" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
+        <button type="button" class={`${buttonBase} mb-5 w-full bg-trauma-accent text-white`} onClick={props.onClose}>
           Close
         </button>
         {props.children}

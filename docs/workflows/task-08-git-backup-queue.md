@@ -41,7 +41,7 @@ Do not introduce Redis, external queues, or generic lifecycle hooks.
    - Push only when `backup.git.push` is true.
 
 4. Implement startup retry.
-   - Find pending or failed eligible backups.
+   - Find pending, queued, or failed eligible backups.
    - Re-enqueue without duplicating active work.
 
 5. Add tests with temporary git repos.

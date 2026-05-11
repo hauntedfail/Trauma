@@ -21,6 +21,9 @@
   resources.
 - MUST close database handles in tests, scripts, one-shot tools, and failure
   paths.
+- MUST lazy-load runtime-adjacent tooling that is not required on the default
+  startup path. Do not import optional migration helpers, adapters, or CLIs until
+  the branch that uses them has been selected.
 - MUST NOT keep Node or proxy fallback code for Bun APIs when that fallback is
   not covered by the same behavior tests as the Bun path.
 - SHOULD use Bun runtime APIs only where they reduce maintenance or match the

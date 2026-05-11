@@ -8,9 +8,9 @@ navigation/filter drawers.
 
 ## Required Context
 
-- [UI and routing architecture](../architecture/ui-and-routing.md)
-- [Glossary](../references/glossary.md)
-- [Verification strategy](../quality/verification.md)
+- [UI and routing architecture](../../architecture/ui-and-routing.md)
+- [Glossary](../../references/glossary.md)
+- [Verification strategy](../../quality/verification.md)
 
 ## Ownership
 

@@ -47,7 +47,7 @@ Do not change application runtime behavior in this task.
    - Exempt only intentional compatibility shim docs that link to a canonical
      indexed page and are listed explicitly in the checker. The current known
      shim is `docs/references/coding-standards.md`.
-   - Check for stale references to the removed review-learning document.
+   - Check for stale references to retired review-knowledge document names.
    - Check for pull-request-number markers, merge-commit narratives, and
      commit-hash narratives in coding standards and architecture docs.
 
