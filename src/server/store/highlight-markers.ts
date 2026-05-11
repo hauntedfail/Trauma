@@ -45,6 +45,17 @@ interface MarkdownLinkProjection {
   preserveSourceRange?: MarkdownRange;
 }
 
+type FootnoteReferenceNumbers = ReadonlyMap<string, number>;
+
+const HIDDEN_RAW_HTML_TAGS = new Set([
+  "iframe",
+  "script",
+  "style",
+  "textarea",
+  "title",
+]);
+const PROTECTED_RAW_HTML_TAGS = new Set(["code", "pre"]);
+
 export class HighlightMarkerError extends Error {
   constructor(
     message: string,
@@ -564,7 +575,34 @@ function findProtectedMarkdownRanges(markdown: string): MarkdownRange[] {
     ...findFencedCodeRanges(markdown),
     ...findIndentedCodeRanges(markdown),
     ...findInlineCodeRanges(markdown),
+    ...findRawHtmlCodeRanges(markdown),
   ]);
+}
+
+function findRawHtmlCodeRanges(markdown: string): MarkdownRange[] {
+  const ranges: MarkdownRange[] = [];
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    const codeBlock = readRawHtmlElementBlock(
+      markdown,
+      cursor,
+      markdown.length,
+      PROTECTED_RAW_HTML_TAGS,
+    );
+    if (codeBlock !== undefined) {
+      ranges.push({
+        startOffset: cursor,
+        endOffset: codeBlock.endOffset,
+      });
+      cursor = codeBlock.endOffset;
+      continue;
+    }
+
+    cursor += 1;
+  }
+
+  return ranges;
 }
 
 function findFencedCodeRanges(markdown: string): MarkdownRange[] {
@@ -706,6 +744,7 @@ function projectMarkdownText(
   markdown: string,
   protectedRanges: MarkdownRange[],
 ): ProjectedMarkdownText {
+  const footnoteReferenceNumbers = collectFootnoteReferenceNumbers(markdown);
   const text: string[] = [];
   const sourceOffsets: number[] = [];
   const sourceEndOffsets: number[] = [];
@@ -722,6 +761,7 @@ function projectMarkdownText(
     const tableRow = readTableProjectionRow(markdown, cursor);
     if (tableRow !== undefined) {
       appendTableProjectionRow({
+        footnoteReferenceNumbers,
         markdown,
         protectedRanges,
         protectedOffsets,
@@ -796,6 +836,26 @@ function projectMarkdownText(
       continue;
     }
 
+    const footnoteReference = readFootnoteReference(
+      markdown,
+      cursor,
+      footnoteReferenceNumbers,
+    );
+    if (footnoteReference !== undefined) {
+      appendProjectedText({
+        protectedOffsets,
+        protectedValue: false,
+        sourceEndOffset: footnoteReference.endOffset,
+        sourceOffset: cursor,
+        sourceOffsets,
+        sourceEndOffsets,
+        text,
+        value: footnoteReference.value,
+      });
+      cursor = footnoteReference.endOffset;
+      continue;
+    }
+
     const link = parseInlineLink(markdown, cursor);
     if (
       link !== undefined &&
@@ -804,6 +864,7 @@ function projectMarkdownText(
       appendProjectedLinkLabel({
         link,
         markdown,
+        footnoteReferenceNumbers,
         protectedRanges,
         protectedValue: false,
         sourceOffsets,
@@ -879,6 +940,7 @@ function projectMarkdownText(
 }
 
 function appendTableProjectionRow(input: {
+  footnoteReferenceNumbers: FootnoteReferenceNumbers;
   markdown: string;
   protectedRanges: MarkdownRange[];
   protectedOffsets: boolean[];
@@ -889,6 +951,7 @@ function appendTableProjectionRow(input: {
 }): void {
   for (const cell of input.tableRow.cells) {
     appendProjectedSlice({
+      footnoteReferenceNumbers: input.footnoteReferenceNumbers,
       markdown: input.markdown,
       protectedRanges: input.protectedRanges,
       protectedValue: false,
@@ -916,6 +979,7 @@ function appendTableProjectionRow(input: {
 }
 
 function appendProjectedSlice(input: {
+  footnoteReferenceNumbers: FootnoteReferenceNumbers;
   markdown: string;
   protectedRanges: MarkdownRange[];
   protectedValue: boolean;
@@ -993,9 +1057,33 @@ function appendProjectedSlice(input: {
       continue;
     }
 
+    const footnoteReference = readFootnoteReference(
+      input.markdown,
+      offset,
+      input.footnoteReferenceNumbers,
+    );
+    if (
+      footnoteReference !== undefined &&
+      footnoteReference.endOffset <= input.endOffset
+    ) {
+      appendProjectedText({
+        protectedOffsets: input.protectedOffsets,
+        protectedValue: input.protectedValue,
+        sourceEndOffset: footnoteReference.endOffset,
+        sourceOffset: offset,
+        sourceOffsets: input.sourceOffsets,
+        sourceEndOffsets: input.sourceEndOffsets,
+        text: input.text,
+        value: footnoteReference.value,
+      });
+      offset = footnoteReference.endOffset;
+      continue;
+    }
+
     const link = parseInlineLink(input.markdown, offset);
     if (link !== undefined && link.endOffset <= input.endOffset) {
       appendProjectedLinkLabel({
+        footnoteReferenceNumbers: input.footnoteReferenceNumbers,
         link,
         markdown: input.markdown,
         protectedRanges: input.protectedRanges,
@@ -1075,6 +1163,7 @@ function appendProjectedSlice(input: {
 }
 
 function appendProjectedLinkLabel(input: {
+  footnoteReferenceNumbers: FootnoteReferenceNumbers;
   link: MarkdownLinkProjection;
   markdown: string;
   protectedRanges: MarkdownRange[];
@@ -1086,6 +1175,7 @@ function appendProjectedLinkLabel(input: {
 }): void {
   const projectedStartIndex = input.text.length;
   appendProjectedSlice({
+    footnoteReferenceNumbers: input.footnoteReferenceNumbers,
     markdown: input.markdown,
     protectedRanges: input.protectedRanges,
     protectedValue: input.protectedValue,
@@ -1163,23 +1253,41 @@ function readSanitizedRawHtmlBlock(
   startOffset: number,
   maximumEndOffset: number,
 ): { endOffset: number } | undefined {
+  return readRawHtmlElementBlock(
+    markdown,
+    startOffset,
+    maximumEndOffset,
+    HIDDEN_RAW_HTML_TAGS,
+  );
+}
+
+function readRawHtmlElementBlock(
+  markdown: string,
+  startOffset: number,
+  maximumEndOffset: number,
+  tagNames: ReadonlySet<string>,
+): { endOffset: number } | undefined {
   if (markdown[startOffset] !== "<") {
     return undefined;
   }
 
-  const openMatch = /^<([A-Za-z][A-Za-z0-9:-]*)(?:\s[^<>]*)?>/i.exec(
+  const openMatch = /^<([A-Za-z][A-Za-z0-9:-]*)(?:\s[^<>]*)?\/?>/i.exec(
     markdown.slice(startOffset, Math.min(maximumEndOffset, startOffset + 120)),
   );
   const tagName = openMatch?.[1]?.toLowerCase();
   if (
     openMatch === null ||
     tagName === undefined ||
-    !["script", "style", "textarea", "title"].includes(tagName)
+    !tagNames.has(tagName)
   ) {
     return undefined;
   }
 
   const openEndOffset = startOffset + openMatch[0].length;
+  if (openMatch[0].endsWith("/>")) {
+    return { endOffset: openEndOffset };
+  }
+
   const closePattern = new RegExp(`</${tagName}\\s*>`, "i");
   const closeMatch = closePattern.exec(markdown.slice(openEndOffset, maximumEndOffset));
   return {
@@ -1317,6 +1425,10 @@ function parseMarkdownLink(
   if (labelEndOffset === -1) {
     return undefined;
   }
+  const label = markdown.slice(startOffset + 1, labelEndOffset);
+  if (label.startsWith("^")) {
+    return undefined;
+  }
 
   if (markdown.slice(labelEndOffset, labelEndOffset + 2) === "](") {
     const destinationEndOffset = findLinkDestinationEndOffset(
@@ -1340,21 +1452,29 @@ function parseMarkdownLink(
     if (referenceEndOffset === -1) {
       return undefined;
     }
+    const referenceLabel = markdown.slice(labelEndOffset + 2, referenceEndOffset);
+    const effectiveReferenceLabel = referenceLabel === "" ? label : referenceLabel;
+    if (!hasReferenceDefinition(markdown, effectiveReferenceLabel)) {
+      return undefined;
+    }
 
     return {
       startOffset,
       labelStartOffset: startOffset + 1,
       labelEndOffset,
       endOffset: referenceEndOffset + 1,
+      ...(referenceLabel === ""
+        ? {
+            preserveSourceRange: {
+              startOffset,
+              endOffset: referenceEndOffset + 1,
+            },
+          }
+        : {}),
     };
   }
 
-  if (
-    hasShortcutReferenceDefinition(
-      markdown,
-      markdown.slice(startOffset + 1, labelEndOffset),
-    )
-  ) {
+  if (hasReferenceDefinition(markdown, label)) {
     return {
       startOffset,
       labelStartOffset: startOffset + 1,
@@ -1458,10 +1578,6 @@ function shouldSkipMarkdownSyntax(
     return true;
   }
 
-  if (!options.preserveBrackets && (char === "[" || char === "]")) {
-    return true;
-  }
-
   if (
     char === "~" &&
     (markdown[offset - 1] === "~" || markdown[offset + 1] === "~")
@@ -1504,14 +1620,76 @@ function readReferenceDefinition(
     return undefined;
   }
 
-  const lineEndOffset = readLineEndOffsetWithBreak(
-    markdown,
-    readLineEndOffset(markdown, startOffset),
-  );
+  const lineEndOffset = readLineEndOffset(markdown, startOffset);
   const line = markdown.slice(startOffset, lineEndOffset);
-  return /^(?: {0,3})\[[^\]\n]+\]:[^\n]*(?:\n|$)/.test(line)
-    ? { endOffset: lineEndOffset }
-    : undefined;
+  const match = /^(?: {0,3})\[(\^?[^\]\n]+)\]:[^\n]*$/.exec(line);
+  if (match === null) {
+    return undefined;
+  }
+
+  const firstLineEndOffset = readLineEndOffsetWithBreak(markdown, lineEndOffset);
+  return {
+    endOffset: match[1]?.startsWith("^") === true
+      ? readFootnoteDefinitionEndOffset(markdown, firstLineEndOffset)
+      : readLinkReferenceDefinitionEndOffset(markdown, firstLineEndOffset),
+  };
+}
+
+function readLinkReferenceDefinitionEndOffset(
+  markdown: string,
+  startOffset: number,
+): number {
+  let endOffset = startOffset;
+  let cursor = startOffset;
+
+  while (cursor < markdown.length) {
+    const lineEndOffset = readLineEndOffset(markdown, cursor);
+    const line = markdown.slice(cursor, lineEndOffset);
+    if (!isReferenceTitleContinuationLine(line)) {
+      break;
+    }
+
+    endOffset = readLineEndOffsetWithBreak(markdown, lineEndOffset);
+    cursor = endOffset;
+  }
+
+  return endOffset;
+}
+
+function readFootnoteDefinitionEndOffset(
+  markdown: string,
+  startOffset: number,
+): number {
+  let endOffset = startOffset;
+  let cursor = startOffset;
+  let pendingBlankEndOffset: number | undefined;
+
+  while (cursor < markdown.length) {
+    const lineEndOffset = readLineEndOffset(markdown, cursor);
+    const line = markdown.slice(cursor, lineEndOffset);
+    const lineEndOffsetWithBreak = readLineEndOffsetWithBreak(markdown, lineEndOffset);
+
+    if (line.trim() === "") {
+      pendingBlankEndOffset = lineEndOffsetWithBreak;
+      cursor = lineEndOffsetWithBreak;
+      continue;
+    }
+
+    if (/^(?: {4,}|\t)/.test(line)) {
+      endOffset = lineEndOffsetWithBreak;
+      pendingBlankEndOffset = undefined;
+      cursor = lineEndOffsetWithBreak;
+      continue;
+    }
+
+    break;
+  }
+
+  return pendingBlankEndOffset ?? endOffset;
+}
+
+function isReferenceTitleContinuationLine(line: string): boolean {
+  return /^ {1,3}(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\))[ \t]*$/.test(line);
 }
 
 function readBlockquoteMarker(
@@ -1629,9 +1807,85 @@ function readIndentWidth(indent: string): number {
   return width;
 }
 
-function hasShortcutReferenceDefinition(markdown: string, label: string): boolean {
+function collectFootnoteReferenceNumbers(
+  markdown: string,
+): FootnoteReferenceNumbers {
+  const numbers = new Map<string, number>();
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    const startOffset = markdown.indexOf("[^", cursor);
+    if (startOffset === -1) {
+      break;
+    }
+
+    const endOffset = markdown.indexOf("]", startOffset + 2);
+    if (endOffset === -1) {
+      break;
+    }
+
+    const label = markdown.slice(startOffset + 2, endOffset);
+    const normalizedLabel = normalizeReferenceLabel(label);
+    if (
+      normalizedLabel !== "" &&
+      !isFootnoteDefinitionAt(markdown, startOffset, endOffset) &&
+      hasFootnoteDefinition(markdown, label) &&
+      !numbers.has(normalizedLabel)
+    ) {
+      numbers.set(normalizedLabel, numbers.size + 1);
+    }
+
+    cursor = endOffset + 1;
+  }
+
+  return numbers;
+}
+
+function readFootnoteReference(
+  markdown: string,
+  startOffset: number,
+  footnoteReferenceNumbers: FootnoteReferenceNumbers,
+): { value: string; endOffset: number } | undefined {
+  if (!markdown.startsWith("[^", startOffset)) {
+    return undefined;
+  }
+
+  const endOffset = markdown.indexOf("]", startOffset + 2);
+  if (
+    endOffset === -1 ||
+    markdown.slice(startOffset + 2, endOffset).includes("\n") ||
+    isFootnoteDefinitionAt(markdown, startOffset, endOffset)
+  ) {
+    return undefined;
+  }
+
+  const normalizedLabel = normalizeReferenceLabel(
+    markdown.slice(startOffset + 2, endOffset),
+  );
+  const number = footnoteReferenceNumbers.get(normalizedLabel);
+  return number === undefined
+    ? undefined
+    : {
+        value: `[${number}]`,
+        endOffset: endOffset + 1,
+      };
+}
+
+function hasFootnoteDefinition(markdown: string, label: string): boolean {
+  return hasDefinitionMatching(markdown, label, { footnote: true });
+}
+
+function hasReferenceDefinition(markdown: string, label: string): boolean {
+  return hasDefinitionMatching(markdown, label, { footnote: false });
+}
+
+function hasDefinitionMatching(
+  markdown: string,
+  label: string,
+  options: { footnote: boolean },
+): boolean {
   const normalizedLabel = normalizeReferenceLabel(label);
-  if (normalizedLabel === "") {
+  if (normalizedLabel === "" || normalizedLabel.startsWith("^")) {
     return false;
   }
 
@@ -1639,10 +1893,12 @@ function hasShortcutReferenceDefinition(markdown: string, label: string): boolea
   while (lineStartOffset <= markdown.length) {
     const lineEndOffset = readLineEndOffset(markdown, lineStartOffset);
     const line = markdown.slice(lineStartOffset, lineEndOffset);
-    const match = /^(?: {0,3})\[([^\]\n]+)\]:/.exec(line);
+    const match = /^(?: {0,3})\[(\^?)([^\]\n]+)\]:/.exec(line);
+    const isFootnote = match?.[1] === "^";
     if (
-      match?.[1] !== undefined &&
-      normalizeReferenceLabel(match[1]) === normalizedLabel
+      match?.[2] !== undefined &&
+      isFootnote === options.footnote &&
+      normalizeReferenceLabel(match[2]) === normalizedLabel
     ) {
       return true;
     }
@@ -1654,6 +1910,20 @@ function hasShortcutReferenceDefinition(markdown: string, label: string): boolea
   }
 
   return false;
+}
+
+function isFootnoteDefinitionAt(
+  markdown: string,
+  startOffset: number,
+  endOffset: number,
+): boolean {
+  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
+  return (
+    /^(?: {0,3})$/.test(markdown.slice(lineStartOffset, startOffset)) &&
+    markdown[startOffset] === "[" &&
+    markdown[startOffset + 1] === "^" &&
+    markdown[endOffset + 1] === ":"
+  );
 }
 
 function normalizeReferenceLabel(label: string): string {

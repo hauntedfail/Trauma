@@ -455,6 +455,61 @@ describe("highlight markdown markers", () => {
       );
   });
 
+  it("maps collapsed reference link labels to the full source label", () => {
+    const markdown = [
+      "[target][] target",
+      "",
+      "[target]: https://example.test",
+    ].join("\n");
+
+    const selection = resolveHighlightSelection(markdown, {
+      text: "target",
+      prefix: "",
+      suffix: " target",
+      startOffset: 0,
+      endOffset: "target".length,
+    });
+
+    expect(selection).toEqual({
+      text: "target",
+      startOffset: 0,
+      endOffset: "[target][]".length,
+    });
+    expect(applyHighlightMarkers(markdown, [{ id: "hl-collapsed", ...selection }]))
+      .toBe(
+        [
+          '<mark data-highlight-id="hl-collapsed">[target][]</mark> target',
+          "",
+          "[target]: https://example.test",
+        ].join("\n"),
+      );
+  });
+
+  it("keeps unresolved reference syntax in the reader projection", () => {
+    const markdown = "[target][missing] target";
+    const renderedOffset = "[target][missing] ".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "[target][missing] ",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("[target][missing] target");
+  });
+
   it("parses nested brackets in link labels", () => {
     const markdown = "[see [target] details](https://long.example) target";
     const renderedOffset = "see [target] details ".length;
@@ -515,6 +570,125 @@ describe("highlight markdown markers", () => {
         suffix: "",
         startOffset: 1,
         endOffset: 1 + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("rejects selections inside raw HTML code elements", () => {
+    for (const markdown of [
+      "<code>target</code> target",
+      "<pre><code>target</code></pre> target",
+    ]) {
+      expect(() =>
+        resolveHighlightSelection(markdown, {
+          text: "target",
+          prefix: "",
+          suffix: " target",
+          startOffset: 0,
+          endOffset: "target".length,
+        }),
+      ).toThrow("Selected markdown code cannot be highlighted");
+    }
+  });
+
+  it("skips iframe fallback contents before resolving duplicate text", () => {
+    const markdown =
+      '<iframe src="https://www.youtube.com/embed/demo">target</iframe> target';
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: " ",
+        suffix: "",
+        startOffset: 1,
+        endOffset: 1 + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe(" target");
+  });
+
+  it("projects footnote references as rendered reference numbers", () => {
+    const markdown = [
+      "alpha[^long-note] omega",
+      "",
+      "[^long-note]: hidden note",
+    ].join("\n");
+
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: "alpha[^long-note] omega".length,
+      }),
+    ).toBe("alpha[1] omega");
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "alpha[1] omega",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "alpha[1] omega".length,
+      }),
+    ).toEqual({
+      text: "alpha[1] omega",
+      startOffset: 0,
+      endOffset: "alpha[^long-note] omega".length,
+    });
+  });
+
+  it("skips footnote definitions before resolving duplicate text", () => {
+    const markdown = [
+      "target",
+      "",
+      "[^long-note]: hidden target",
+      "    continuation target",
+      "",
+      "target",
+    ].join("\n");
+    const renderedOffset = "target\n\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "\n\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("consumes full multiline reference definitions", () => {
+    const markdown = [
+      "[ref]: https://example.test",
+      '  "title target"',
+      "",
+      "target",
+    ].join("\n");
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "target".length,
       }),
     ).toEqual({
       text: "target",
