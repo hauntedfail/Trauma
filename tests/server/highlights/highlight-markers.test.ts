@@ -117,6 +117,42 @@ describe("highlight markdown markers", () => {
     });
   });
 
+  it("resolves common named entities back to encoded markdown", () => {
+    const markdown = "Tom &mdash; Jerry";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "Tom \u2014 Jerry",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "Tom \u2014 Jerry".length,
+      }),
+    ).toEqual({
+      text: "Tom \u2014 Jerry",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
+  it("skips inline HTML tags when resolving rendered text", () => {
+    const markdown = "Alpha <span>target</span> omega";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "Alpha target omega",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "Alpha target omega".length,
+      }),
+    ).toEqual({
+      text: "Alpha target omega",
+      startOffset: 0,
+      endOffset: markdown.length,
+    });
+  });
+
   it("inserts mark tags without rewriting markdown outside the selection", () => {
     const markdown = "Before **bold target** after.";
     const startOffset = markdown.indexOf("target");

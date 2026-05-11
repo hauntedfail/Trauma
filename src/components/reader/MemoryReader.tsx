@@ -2,7 +2,10 @@ import { Show, createSignal } from "solid-js";
 
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
-import { isExplicitHighlightKeyboardToggle } from "./highlight-events";
+import {
+  canStartHighlightToggle,
+  isExplicitHighlightKeyboardToggle,
+} from "./highlight-events";
 import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 
@@ -106,6 +109,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
             innerHTML={props.result.rendered.html}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={handleSelectionToggle}
+            tabIndex={0}
           />
           <Show when={errorMessage()}>
             {(message) => (
@@ -158,16 +162,16 @@ async function toggleReaderSelection(input: {
   setErrorMessage: (message: string) => void;
   setPendingSelectionKey: (key: string) => void;
 }) {
+  if (!canStartHighlightToggle(input.pendingSelectionKey)) {
+    return;
+  }
+
   const selection = readReaderSelection(input.container);
   if (selection === undefined) {
     return;
   }
 
   const selectionKey = `${selection.startOffset}:${selection.endOffset}:${selection.text}`;
-  if (selectionKey === input.pendingSelectionKey) {
-    return;
-  }
-
   const previousHtml = input.container.innerHTML;
   const shouldUnhighlight = isRangeFullyMarked(selection.range, input.container);
   const operation: ReaderHighlightOperation = shouldUnhighlight
@@ -175,6 +179,7 @@ async function toggleReaderSelection(input: {
     : "highlight";
   input.setErrorMessage("");
   input.setPendingSelectionKey(selectionKey);
+  input.container.focus({ preventScroll: true });
 
   try {
     applyOptimisticHighlight(selection.range, shouldUnhighlight, input.container);

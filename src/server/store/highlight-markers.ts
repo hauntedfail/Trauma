@@ -38,10 +38,34 @@ interface ProjectedMarkdownText {
 const NAMED_HTML_ENTITIES: Record<string, string> = {
   amp: "&",
   apos: "'",
+  bull: "\u2022",
+  cent: "\u00a2",
+  copy: "\u00a9",
+  deg: "\u00b0",
+  divide: "\u00f7",
+  euro: "\u20ac",
   gt: ">",
+  hellip: "\u2026",
+  laquo: "\u00ab",
+  ldquo: "\u201c",
+  lsquo: "\u2018",
   lt: "<",
+  mdash: "\u2014",
+  middot: "\u00b7",
   nbsp: "\u00a0",
+  ndash: "\u2013",
+  para: "\u00b6",
+  plusmn: "\u00b1",
+  pound: "\u00a3",
   quot: "\"",
+  raquo: "\u00bb",
+  rdquo: "\u201d",
+  reg: "\u00ae",
+  rsquo: "\u2019",
+  sect: "\u00a7",
+  times: "\u00d7",
+  trade: "\u2122",
+  yen: "\u00a5",
 };
 
 export class HighlightMarkerError extends Error {
@@ -552,6 +576,12 @@ function projectMarkdownText(
       continue;
     }
 
+    const htmlToken = readInlineHtmlToken(markdown, cursor, markdown.length);
+    if (htmlToken !== undefined) {
+      cursor = htmlToken.endOffset;
+      continue;
+    }
+
     const protectedValue = rangeOverlapsProtectedRanges(
       protectedRanges,
       cursor,
@@ -606,6 +636,16 @@ function appendProjectedSlice(input: {
       continue;
     }
 
+    const htmlToken = readInlineHtmlToken(
+      input.markdown,
+      offset,
+      input.endOffset,
+    );
+    if (htmlToken !== undefined) {
+      offset = htmlToken.endOffset;
+      continue;
+    }
+
     const entity = readHtmlEntity(input.markdown, offset, input.endOffset);
     if (entity !== undefined) {
       appendProjectedText({
@@ -654,6 +694,38 @@ function appendProjectedText(input: {
   }
 }
 
+function readInlineHtmlToken(
+  markdown: string,
+  startOffset: number,
+  maximumEndOffset: number,
+): { endOffset: number } | undefined {
+  if (markdown.startsWith("<!--", startOffset)) {
+    const commentEndOffset = markdown.indexOf("-->", startOffset + 4);
+    if (
+      commentEndOffset !== -1 &&
+      commentEndOffset + "-->".length <= maximumEndOffset
+    ) {
+      return { endOffset: commentEndOffset + "-->".length };
+    }
+  }
+
+  if (markdown[startOffset] !== "<") {
+    return undefined;
+  }
+
+  const closeOffset = markdown.indexOf(">", startOffset + 1);
+  if (closeOffset === -1 || closeOffset + 1 > maximumEndOffset) {
+    return undefined;
+  }
+
+  const token = markdown.slice(startOffset, closeOffset + 1);
+  if (!/^<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?\/?>$/.test(token)) {
+    return undefined;
+  }
+
+  return { endOffset: closeOffset + 1 };
+}
+
 function readHtmlEntity(
   markdown: string,
   startOffset: number,
@@ -695,9 +767,12 @@ function decodeHtmlEntity(input: {
     return decodeNumericHtmlEntity(Number.parseInt(input.hexadecimal, 16));
   }
 
-  return input.named === undefined
-    ? undefined
-    : NAMED_HTML_ENTITIES[input.named];
+  if (input.named === undefined) {
+    return undefined;
+  }
+
+  return NAMED_HTML_ENTITIES[input.named] ??
+    NAMED_HTML_ENTITIES[input.named.toLowerCase()];
 }
 
 function decodeNumericHtmlEntity(codePoint: number): string | undefined {

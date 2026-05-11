@@ -20,3 +20,7 @@ export function isExplicitHighlightKeyboardToggle(
 
   return event.key === "Enter" || event.key === " ";
 }
+
+export function canStartHighlightToggle(pendingSelectionKey: string): boolean {
+  return pendingSelectionKey.length === 0;
+}

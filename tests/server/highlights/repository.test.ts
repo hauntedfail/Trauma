@@ -109,6 +109,110 @@ describe("highlight repository", () => {
       },
     ]);
   });
+
+  it("rejects replacement rows for a different memory", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-highlights-"));
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f201";
+        const otherMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f202";
+        const now = new Date("2026-05-10T01:00:00.000Z");
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          for (const id of [memoryId, otherMemoryId]) {
+            connection.sqlite
+              .prepare(\`
+                insert into memories (
+                  id,
+                  url,
+                  title,
+                  description,
+                  content_path,
+                  extraction_status,
+                  backup_status,
+                  created_at,
+                  updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                id,
+                "https://example.com/" + id,
+                "Source " + id,
+                null,
+                "memories/" + id + "/CONTENT.md",
+                "success",
+                "disabled",
+                now.getTime(),
+                now.getTime(),
+              );
+          }
+
+          let error;
+          try {
+            await connection.repositories.highlights.replaceForMemory(memoryId, [
+              {
+                id: "cross-memory-highlight",
+                memoryId: otherMemoryId,
+                text: "selected text",
+                prefix: "",
+                suffix: "",
+                startOffset: 0,
+                endOffset: 13,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ]);
+          } catch (caught) {
+            error = {
+              name: caught.name,
+              message: caught.message,
+            };
+          }
+
+          const rows = connection.sqlite
+            .prepare("select id, memory_id as memoryId from highlights order by id")
+            .all();
+          process.stdout.write(JSON.stringify({ error, rows }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    const result = JSON.parse(output);
+    expect(result).toEqual({
+      error: {
+        name: "MemoryRepositoryError",
+        message:
+          "Cannot replace highlights for one memory with rows from another memory.",
+      },
+      rows: [],
+    });
+  });
 });
 
 function runBunScript(script: string, env: Record<string, string>): string {

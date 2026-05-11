@@ -74,6 +74,15 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           orderBy: [asc(schema.highlights.startOffset)],
         }),
       replaceForMemory: async (memoryId, highlightRows) => {
+        const mismatchedRow = highlightRows.find(
+          (highlight) => highlight.memoryId !== memoryId,
+        );
+        if (mismatchedRow !== undefined) {
+          throw new MemoryRepositoryError(
+            "Cannot replace highlights for one memory with rows from another memory.",
+          );
+        }
+
         await db.transaction(async (tx) => {
           await tx
             .delete(schema.highlights)
