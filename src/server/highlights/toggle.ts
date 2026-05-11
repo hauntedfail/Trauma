@@ -7,7 +7,8 @@ import { createRepositories } from "../db/repositories";
 import {
   applyHighlightMarkers,
   HighlightMarkerError,
-  readRenderedMarkdownRangeText,
+  normalizeHighlightMarkerRanges,
+  readRenderedMarkdownRangeContext,
   resolveHighlightSelection,
   stripHighlightMarkers,
   type HighlightSelectionInput,
@@ -114,12 +115,15 @@ async function toggleMemoryHighlightUnlocked(
   const resultOperation = operation === "unhighlight"
     ? "unhighlighted"
     : "highlighted";
-  const nextRanges = operation === "unhighlight"
-    ? removeHighlightCoverage(existingRanges, selection, generatedId)
-    : currentFullyHighlighted
-      ? existingRanges
-      : addHighlightCoverage(existingRanges, selection, generatedId);
   const cleanMarkdown = stripHighlightMarkers(content.markdown);
+  const nextRanges = normalizeHighlightMarkerRanges(
+    cleanMarkdown,
+    operation === "unhighlight"
+      ? removeHighlightCoverage(existingRanges, selection, generatedId)
+      : currentFullyHighlighted
+        ? existingRanges
+        : addHighlightCoverage(existingRanges, selection, generatedId),
+  );
   const now = (input.now ?? (() => new Date()))();
   const nextHighlights = buildHighlightRows({
     cleanMarkdown,
@@ -226,31 +230,24 @@ function buildHighlightRows(input: {
 
   return input.ranges.map((range) => {
     const existing = existingById.get(range.id);
-    const text = readRenderedMarkdownRangeText(input.cleanMarkdown, range);
+    const rendered = readRenderedMarkdownRangeContext(
+      input.cleanMarkdown,
+      range,
+      CONTEXT_LIMIT,
+    );
 
     return {
       id: range.id,
       memoryId: input.memoryId,
-      text,
-      prefix: readPrefixContext(input.cleanMarkdown, range.startOffset),
-      suffix: readSuffixContext(input.cleanMarkdown, range.endOffset),
+      text: rendered.text,
+      prefix: rendered.prefix,
+      suffix: rendered.suffix,
       startOffset: range.startOffset,
       endOffset: range.endOffset,
       createdAt: existing?.createdAt ?? input.now,
       updatedAt: input.now,
     };
   });
-}
-
-function readPrefixContext(markdown: string, startOffset: number): string {
-  const lineStart = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  return markdown.slice(Math.max(lineStart, startOffset - CONTEXT_LIMIT), startOffset);
-}
-
-function readSuffixContext(markdown: string, endOffset: number): string {
-  const nextLineBreak = markdown.indexOf("\n", endOffset);
-  const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
-  return markdown.slice(endOffset, Math.min(lineEnd, endOffset + CONTEXT_LIMIT));
 }
 
 async function restorePreviousContent(input: {

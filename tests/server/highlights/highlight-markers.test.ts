@@ -329,6 +329,26 @@ describe("highlight markdown markers", () => {
     ).toThrow("Selected markdown code cannot be highlighted");
   });
 
+  it("does not treat nested list items as indented code", () => {
+    const markdown = ["- parent", "    - child target", "", "target"].join("\n");
+    const renderedOffset = "parent\n".length;
+    const childStartOffset = markdown.indexOf("child target");
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "child target",
+        prefix: "parent\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "child target".length,
+      }),
+    ).toEqual({
+      text: "child target",
+      startOffset: childStartOffset,
+      endOffset: childStartOffset + "child target".length,
+    });
+  });
+
   it("projects blockquote markers out before resolving duplicate text", () => {
     const markdown = ["target", "", "> target"].join("\n");
     const renderedOffset = "target\n\n".length;
@@ -407,6 +427,154 @@ describe("highlight markdown markers", () => {
     });
     expect(applyHighlightMarkers(markdown, [{ id: "hl-link", ...selection }]))
       .toBe('<mark data-highlight-id="hl-link"><https://example.test></mark>');
+  });
+
+  it("maps shortcut reference link labels to the full source label", () => {
+    const markdown = ["[target]", "", "[target]: https://example.test"].join("\n");
+
+    const selection = resolveHighlightSelection(markdown, {
+      text: "target",
+      prefix: "",
+      suffix: "",
+      startOffset: 0,
+      endOffset: "target".length,
+    });
+
+    expect(selection).toEqual({
+      text: "target",
+      startOffset: 0,
+      endOffset: "[target]".length,
+    });
+    expect(applyHighlightMarkers(markdown, [{ id: "hl-shortcut", ...selection }]))
+      .toBe(
+        [
+          '<mark data-highlight-id="hl-shortcut">[target]</mark>',
+          "",
+          "[target]: https://example.test",
+        ].join("\n"),
+      );
+  });
+
+  it("parses nested brackets in link labels", () => {
+    const markdown = "[see [target] details](https://long.example) target";
+    const renderedOffset = "see [target] details ".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "details ",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+    expect(
+      readRenderedMarkdownRangeText(markdown, {
+        startOffset: 0,
+        endOffset: markdown.length,
+      }),
+    ).toBe("see [target] details target");
+  });
+
+  it("projects hard-break source markers out of visible selections", () => {
+    const hardBreakWithSpaces = "line  \ntarget";
+    const hardBreakWithBackslash = "line\\\ntarget";
+
+    expect(
+      resolveHighlightSelection(hardBreakWithSpaces, {
+        text: "line\ntarget",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: "line\ntarget".length,
+      }),
+    ).toEqual({
+      text: "line\ntarget",
+      startOffset: 0,
+      endOffset: hardBreakWithSpaces.length,
+    });
+    expect(
+      readRenderedMarkdownRangeText(hardBreakWithBackslash, {
+        startOffset: 0,
+        endOffset: hardBreakWithBackslash.length,
+      }),
+    ).toBe("line\ntarget");
+  });
+
+  it("skips sanitized raw HTML block contents before resolving duplicate text", () => {
+    const markdown = "<script>target</script> target";
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: " ",
+        suffix: "",
+        startOffset: 1,
+        endOffset: 1 + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("projects thematic break lines out before resolving duplicate text", () => {
+    const markdown = ["target", "", "---", "", "target"].join("\n");
+    const renderedOffset = "target\n\n".length;
+
+    expect(
+      resolveHighlightSelection(markdown, {
+        text: "target",
+        prefix: "\n\n",
+        suffix: "",
+        startOffset: renderedOffset,
+        endOffset: renderedOffset + "target".length,
+      }),
+    ).toEqual({
+      text: "target",
+      startOffset: markdown.lastIndexOf("target"),
+      endOffset: markdown.lastIndexOf("target") + "target".length,
+    });
+  });
+
+  it("trims syntax-only edges from stored highlight ranges", () => {
+    const markdown = "a [linked](url) b";
+    const fullHighlight = resolveHighlightSelection(markdown, {
+      text: "a linked b",
+      prefix: "",
+      suffix: "",
+      startOffset: 0,
+      endOffset: "a linked b".length,
+    });
+    const linkedSelection = resolveHighlightSelection(markdown, {
+      text: "linked",
+      prefix: "a ",
+      suffix: " b",
+      startOffset: "a ".length,
+      endOffset: "a linked".length,
+    });
+
+    expect(
+      applyHighlightMarkers(markdown, [
+        {
+          id: "left",
+          startOffset: fullHighlight.startOffset,
+          endOffset: linkedSelection.startOffset,
+        },
+        {
+          id: "right",
+          startOffset: linkedSelection.endOffset,
+          endOffset: fullHighlight.endOffset,
+        },
+      ]),
+    ).toBe(
+      '<mark data-highlight-id="left">a </mark>[linked](url)<mark data-highlight-id="right"> b</mark>',
+    );
   });
 
   it("inserts mark tags without rewriting markdown outside the selection", () => {

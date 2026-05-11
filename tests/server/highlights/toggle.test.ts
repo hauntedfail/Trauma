@@ -186,7 +186,7 @@ describe("toggleMemoryHighlight", () => {
     });
   });
 
-  it("stores rendered highlight text for selections spanning markdown syntax", () => {
+  it("stores rendered highlight context around hidden markdown syntax", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-highlight-toggle-"));
     const output = runBunScript(
       `
@@ -252,11 +252,11 @@ describe("toggleMemoryHighlight", () => {
             memoryId,
             operation: "highlight",
             selection: {
-              text: "Alpha target omega",
-              prefix: "",
-              suffix: "",
-              startOffset: 0,
-              endOffset: "Alpha target omega".length,
+              text: "target",
+              prefix: "Alpha ",
+              suffix: " omega",
+              startOffset: "Alpha ".length,
+              endOffset: "Alpha target".length,
             },
             config,
             db: connection.db,
@@ -279,9 +279,9 @@ describe("toggleMemoryHighlight", () => {
     );
 
     expect(JSON.parse(output)).toEqual({
-      text: "Alpha target omega",
-      prefix: "",
-      suffix: "",
+      text: "target",
+      prefix: "Alpha ",
+      suffix: " omega",
     });
   });
 });
