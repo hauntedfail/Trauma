@@ -91,12 +91,14 @@ describe("backup failsafe CLI", () => {
     await writeFile(join(oldStore, "memories/memory-1/CONTENT.md"), "# Old\n", "utf8");
     await seedPathDriftAlert(configPath, root);
 
-    const output = await runBackupFailsafeCli([
-      "migrate",
-      "--config",
-      configPath,
-      "--apply",
-    ]);
+    const output = await withGitIdentity(() =>
+      runBackupFailsafeCli([
+        "migrate",
+        "--config",
+        configPath,
+        "--apply",
+      ]),
+    );
 
     expect(output).toContain("APPLY: Migrate backup");
     expect(output).toContain("Alert cleared.");
@@ -286,4 +288,34 @@ function createGitCommandEnv() {
   delete env.GIT_WORK_TREE;
   delete env.GIT_INDEX_FILE;
   return env;
+}
+
+async function withGitIdentity<T>(run: () => Promise<T>): Promise<T> {
+  const keys = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+  ] as const;
+  const previous = new Map<string, string | undefined>();
+  for (const key of keys) {
+    previous.set(key, process.env[key]);
+  }
+
+  process.env.GIT_AUTHOR_NAME = "Trauma Tests";
+  process.env.GIT_AUTHOR_EMAIL = "trauma@example.invalid";
+  process.env.GIT_COMMITTER_NAME = "Trauma Tests";
+  process.env.GIT_COMMITTER_EMAIL = "trauma@example.invalid";
+
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+        continue;
+      }
+      process.env[key] = value;
+    }
+  }
 }
