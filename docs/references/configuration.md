@@ -57,38 +57,20 @@ Environment variables can be specified in the project root `.env` file when
 running Trauma through `bun run` scripts. The shell environment still has
 precedence over `.env`.
 
-`TRAUMA_CONFIG_PATH` selects the runtime config file. It defaults to
-`./trauma.config.json` when unset.
-
-`TRAUMA_DATABASE_PATH` is a Drizzle Kit CLI override. Normal app runtime uses
-`databasePath` from `trauma.config.json`.
-
 Browser-assisted import is an optional local extension path. It is disabled by
 default and configured through environment variables, not `trauma.config.json`.
+Keep `.env` minimal for normal local use:
 
 ```text
 TRAUMA_BROWSER_IMPORT_ENABLED=false
 TRAUMA_BROWSER_IMPORT_TOKEN=
-TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS=
-TRAUMA_BROWSER_IMPORT_MAX_BYTES=5000000
 ```
 
 - `TRAUMA_BROWSER_IMPORT_ENABLED` must be `true` before the API accepts imports.
 - `TRAUMA_BROWSER_IMPORT_TOKEN` is a local bearer token shared with the browser
   extension settings. Do not commit it.
-- `TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS` is an optional comma-separated list of
-  exact extension origins, such as `chrome-extension://<extension-id>`. When it
-  is empty, the API still rejects ordinary web origins and accepts only
-  `chrome-extension://` origins with a valid token.
-- `TRAUMA_BROWSER_IMPORT_MAX_BYTES` bounds the JSON body and captured HTML.
 
-Dev smoke variables are also `.env` compatible:
-
-- `TRAUMA_DEV_HOST`
-- `TRAUMA_DEV_PORT`
-- `TRAUMA_DEV_SMOKE_PATH`
-- `TRAUMA_DEV_SMOKE_TIMEOUT_MS`
-- `TRAUMA_DEV_SMOKE_POLL_MS`
-
-`TRAUMA_BROWSE_FIXTURES=1` is reserved for dev smoke and Playwright fixture
-mode. Do not enable it for normal app use.
+Advanced operator and CI overrides, such as runtime config path, Drizzle CLI
+database path, dev smoke tuning, fixture mode, or browser import origin/size
+limits, should be set explicitly in the shell or CI job that needs them. They
+are intentionally not part of `.env.example`.

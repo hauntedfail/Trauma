@@ -30,13 +30,15 @@ describe("runtime command contract", () => {
 
   it("documents operator-facing environment variables in .env.example", () => {
     const expectedKeys = [
+      "TRAUMA_BROWSER_IMPORT_ENABLED",
+      "TRAUMA_BROWSER_IMPORT_TOKEN",
+    ];
+    const advancedKeys = [
       "HOST",
       "PORT",
       "TRAUMA_HMR_PORT",
       "TRAUMA_CONFIG_PATH",
       "TRAUMA_DATABASE_PATH",
-      "TRAUMA_BROWSER_IMPORT_ENABLED",
-      "TRAUMA_BROWSER_IMPORT_TOKEN",
       "TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS",
       "TRAUMA_BROWSER_IMPORT_MAX_BYTES",
       "TRAUMA_DEV_HOST",
@@ -49,6 +51,10 @@ describe("runtime command contract", () => {
 
     for (const key of expectedKeys) {
       expect(envExample).toContain(`${key}=`);
+    }
+
+    for (const key of advancedKeys) {
+      expect(envExample).not.toContain(`${key}=`);
     }
   });
 });

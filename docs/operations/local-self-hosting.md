@@ -37,45 +37,19 @@ surfaced through metadata.
 
 ## Local Dev Server Contract
 
-The dev server uses deterministic host and port settings to avoid random-port
-discovery failures. All settings come from the project root `.env` file
-(loaded automatically by Bun for `bun run` scripts). `.env.example` ships
-the safe defaults; copy it to `.env` once before running anything.
-
-Defaults from `.env.example`:
-
-- `HOST=127.0.0.1` (loopback only)
-- `PORT=3000`
-- `TRAUMA_HMR_PORT=24678` (client; server uses base+1, server-function
-  uses base+2)
-- `TRAUMA_CONFIG_PATH=./trauma.config.json`
-
-The shell environment wins over `.env`. Exporting `HOST=0.0.0.0` in the
-shell will override the loopback default, which is intentional for cases
-where the operator wants network exposure behind their own firewall or
-reverse proxy. Set explicit values in `.env` for the no-auth local model.
-
-Smoke-only overrides:
-
-- `TRAUMA_DEV_HOST` — host the smoke check probes (falls back to `HOST`,
-  then `127.0.0.1`).
-- `TRAUMA_DEV_PORT` — port the smoke check probes (falls back to `PORT`,
-  then `3000`).
-- `TRAUMA_DEV_SMOKE_PATH` — path the smoke check probes.
-- `TRAUMA_DEV_SMOKE_TIMEOUT_MS` — total readiness timeout.
-- `TRAUMA_DEV_SMOKE_POLL_MS` — readiness polling interval.
+The dev server uses the project root `.env` file only for the small set of
+operator settings documented in `.env.example`. Keep normal local configuration
+minimal; one-off host, port, HMR, smoke, and CI overrides should be supplied by
+the shell or the command that needs them.
 
 Standard commands:
 
-- `bun run dev` — start the dev server using `HOST` and `PORT` from `.env`.
+- `bun run dev` — start the dev server.
 - `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
   Fails if the requested port is occupied, the server cannot bind, exits
   early, falls back to a different port, or does not respond within the
   timeout.
-- `bun run start` — serve the production build using `HOST` and `PORT`
-  from `.env`. With the default `HOST=127.0.0.1` the Vinxi CLI binds
-  loopback only; without an explicit `HOST` the CLI would default to
-  `0.0.0.0`.
+- `bun run start` — serve the production build.
 
 The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
 real `trauma.config.json`. Run the smoke check before relying on the dev
