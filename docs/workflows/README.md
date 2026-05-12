@@ -22,6 +22,7 @@ keep each worker's context focused on its own domain.
 | 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Active triage |
 | 16b | [Drizzle and SQLite hardening](task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Triage subtask |
 | 16c | [Defuddle importer extraction refactor](task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Triage subtask |
+| 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Triage subtask |
 
 ## Archived Workflows
 
@@ -88,3 +89,4 @@ Use concise branch names that match the workflow:
 - `triage`
 - `triage-db-orm-hardening`
 - `triage-defuddle-importer`
+- `triage-browser-assisted-import`
