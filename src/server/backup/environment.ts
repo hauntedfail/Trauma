@@ -1,0 +1,501 @@
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, realpath, readdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+
+import type { ResolvedTraumaConfig } from "../config";
+import { initializeDatabase } from "../db";
+import { createRepositories, type BackupFailsafeAlert } from "../db/repositories";
+import * as schema from "../db/schema";
+import type { TraumaDatabase } from "../db/repositories";
+
+export type BackupFailsafeAlertKind =
+  | "backup_path_drift"
+  | "backup_repository_missing"
+  | "backup_push_failed";
+
+export interface BackupFailsafeAlertView {
+  id: string;
+  kind: BackupFailsafeAlertKind;
+  severity: "critical";
+  message: string;
+  previousProjectPath: string | null;
+  previousStorePath: string | null;
+  currentProjectPath: string;
+  currentStorePath: string;
+  gitRemote: string;
+  gitRemoteUrl: string | null;
+  gitBranch: string;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BackupEnvironmentResult =
+  | { ok: true; alert?: BackupFailsafeAlertView }
+  | { ok: false; alert: BackupFailsafeAlertView };
+
+export interface EnsureBackupEnvironmentInput {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  now?: () => Date;
+}
+
+const execFileAsync = promisify(execFile);
+const STAMP_ID = "default";
+const ALERT_ID = "active";
+
+export async function ensureBackupEnvironment(
+  input: EnsureBackupEnvironmentInput,
+): Promise<BackupEnvironmentResult> {
+  if (!input.config.backup.git.enabled) {
+    return { ok: true };
+  }
+
+  const now = (input.now ?? (() => new Date()))();
+  const repositories = createRepositories(input.db);
+  const stamp =
+    await repositories.backupEnvironment.getBackupEnvironmentStamp();
+  const existingAlert =
+    await repositories.backupEnvironment.getBackupFailsafeAlert();
+  const hasMemoryData = await detectMemoryData(input.config, input.db, stamp);
+  const pathsMatch =
+    stamp !== undefined &&
+    stamp.projectPath === input.config.projectPath &&
+    stamp.storePath === input.config.storePath;
+
+  if (stamp === undefined && hasMemoryData) {
+    return createAndReportPathAlert({
+      config: input.config,
+      db: input.db,
+      now,
+      previousProjectPath: null,
+      previousStorePath: null,
+    });
+  }
+
+  if (stamp !== undefined && !pathsMatch && hasMemoryData) {
+    return createAndReportPathAlert({
+      config: input.config,
+      db: input.db,
+      now,
+      previousProjectPath: stamp.projectPath,
+      previousStorePath: stamp.storePath,
+    });
+  }
+
+  const repositoryRoot = await readGitRepositoryRoot(input.config.projectPath);
+  if (!(await isSamePath(repositoryRoot, input.config.projectPath))) {
+    if (hasMemoryData) {
+      return createAndReportRepositoryAlert({
+        config: input.config,
+        db: input.db,
+        now,
+        error:
+          repositoryRoot === null
+            ? "projectPath is not a git repository"
+            : `projectPath resolves to parent git repository ${repositoryRoot}`,
+      });
+    }
+
+    await bootstrapBackupRepository(input.config);
+  }
+
+  await upsertCurrentStamp({ config: input.config, db: input.db, now });
+
+  if (
+    existingAlert !== undefined &&
+    existingAlert.kind !== "backup_push_failed"
+  ) {
+    await repositories.backupEnvironment.clearBackupFailsafeAlert();
+    return { ok: true };
+  }
+
+  return {
+    ok: true,
+    alert: existingAlert === undefined ? undefined : toAlertView(existingAlert),
+  };
+}
+
+export async function assertBackupEnvironmentReady(
+  input: EnsureBackupEnvironmentInput,
+): Promise<void> {
+  const result = await ensureBackupEnvironment(input);
+  if (!result.ok) {
+    throw new BackupEnvironmentFailsafeError(result.alert.message, result.alert);
+  }
+}
+
+export async function getBackupFailsafeStatus(
+  input: EnsureBackupEnvironmentInput,
+): Promise<{ alert: BackupFailsafeAlertView | null }> {
+  const result = await ensureBackupEnvironment(input);
+  return { alert: result.alert ?? null };
+}
+
+export async function assertBackupRepositoryRoot(
+  config: ResolvedTraumaConfig,
+): Promise<void> {
+  const repositoryRoot = await readGitRepositoryRoot(config.projectPath);
+  if (!(await isSamePath(repositoryRoot, config.projectPath))) {
+    const error =
+      repositoryRoot === null
+        ? "projectPath is not a git repository"
+        : `backup repository root mismatch: expected ${config.projectPath}, got ${repositoryRoot}`;
+    await recordBackupRepositoryMissingAlert(config, error);
+    throw new BackupEnvironmentFailsafeError(error);
+  }
+}
+
+export async function hasConfiguredRemote(config: ResolvedTraumaConfig) {
+  return (await readGitRemoteUrl(config)) !== null;
+}
+
+export async function recordBackupPushFailureAlert(
+  config: ResolvedTraumaConfig,
+  error: string,
+): Promise<void> {
+  await withBackupConnection(config, async (db) => {
+    const now = new Date();
+    const remoteUrl = await readGitRemoteUrl(config);
+    const repositories = createRepositories(db);
+    const alert = await repositories.backupEnvironment.upsertBackupFailsafeAlert({
+      id: ALERT_ID,
+      kind: "backup_push_failed",
+      severity: "critical",
+      message: "Backup push failed",
+      previousProjectPath: null,
+      previousStorePath: null,
+      currentProjectPath: config.projectPath,
+      currentStorePath: config.storePath,
+      gitRemote: config.backup.git.remote,
+      gitRemoteUrl: remoteUrl,
+      gitBranch: config.backup.git.branch,
+      error,
+      createdAt: now,
+      updatedAt: now,
+    });
+    console.warn(formatPushFailureWarning(toAlertView(alert)));
+  });
+}
+
+export async function clearBackupFailsafeAlert(
+  config: ResolvedTraumaConfig,
+): Promise<void> {
+  await withBackupConnection(config, async (db) => {
+    await createRepositories(db).backupEnvironment.clearBackupFailsafeAlert();
+  });
+}
+
+async function createAndReportPathAlert(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  now: Date;
+  previousProjectPath: string | null;
+  previousStorePath: string | null;
+}): Promise<BackupEnvironmentResult> {
+  const repositories = createRepositories(input.db);
+  const alert = await repositories.backupEnvironment.upsertBackupFailsafeAlert({
+    id: ALERT_ID,
+    kind: "backup_path_drift",
+    severity: "critical",
+    message: "Backup location changed",
+    previousProjectPath: input.previousProjectPath,
+    previousStorePath: input.previousStorePath,
+    currentProjectPath: input.config.projectPath,
+    currentStorePath: input.config.storePath,
+    gitRemote: input.config.backup.git.remote,
+    gitRemoteUrl: await readGitRemoteUrl(input.config),
+    gitBranch: input.config.backup.git.branch,
+    error: null,
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+  const view = toAlertView(alert);
+  console.warn(formatPathDriftWarning(view, input.config.configFilePath));
+  return { ok: false, alert: view };
+}
+
+async function createAndReportRepositoryAlert(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  now: Date;
+  error: string;
+}): Promise<BackupEnvironmentResult> {
+  const repositories = createRepositories(input.db);
+  const alert = await repositories.backupEnvironment.upsertBackupFailsafeAlert({
+    id: ALERT_ID,
+    kind: "backup_repository_missing",
+    severity: "critical",
+    message: "Backup repository is not initialized",
+    previousProjectPath: null,
+    previousStorePath: null,
+    currentProjectPath: input.config.projectPath,
+    currentStorePath: input.config.storePath,
+    gitRemote: input.config.backup.git.remote,
+    gitRemoteUrl: await readGitRemoteUrl(input.config),
+    gitBranch: input.config.backup.git.branch,
+    error: input.error,
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+  const view = toAlertView(alert);
+  console.warn(formatRepositoryWarning(view, input.config.configFilePath));
+  return { ok: false, alert: view };
+}
+
+async function recordBackupRepositoryMissingAlert(
+  config: ResolvedTraumaConfig,
+  error: string,
+): Promise<void> {
+  await withBackupConnection(config, async (db) => {
+    const result = await createAndReportRepositoryAlert({
+      config,
+      db,
+      now: new Date(),
+      error,
+    });
+    if (result.ok) {
+      throw new BackupEnvironmentFailsafeError(error);
+    }
+  });
+}
+
+async function upsertCurrentStamp(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  now: Date;
+}) {
+  const repositories = createRepositories(input.db);
+  const existing =
+    await repositories.backupEnvironment.getBackupEnvironmentStamp();
+  await repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+    id: STAMP_ID,
+    projectPath: input.config.projectPath,
+    storePath: input.config.storePath,
+    gitRemote: input.config.backup.git.remote,
+    gitRemoteUrl: await readGitRemoteUrl(input.config),
+    gitBranch: input.config.backup.git.branch,
+    createdAt: existing?.createdAt ?? input.now,
+    updatedAt: input.now,
+  });
+}
+
+async function detectMemoryData(
+  config: ResolvedTraumaConfig,
+  db: TraumaDatabase,
+  stamp: { storePath: string } | undefined,
+) {
+  const memoryRow = await db
+    .select({ id: schema.memories.id })
+    .from(schema.memories)
+    .limit(1)
+    .get();
+  if (memoryRow !== undefined) {
+    return true;
+  }
+
+  if (await hasContentFiles(config.storePath)) {
+    return true;
+  }
+
+  if (
+    stamp !== undefined &&
+    stamp.storePath !== config.storePath &&
+    (await hasContentFiles(stamp.storePath))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function hasContentFiles(storePath: string): Promise<boolean> {
+  const memoriesPath = join(storePath, "memories");
+  if (!existsSync(memoriesPath)) {
+    return false;
+  }
+
+  return findContentFile(memoriesPath);
+}
+
+async function findContentFile(directory: string): Promise<boolean> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  for (const entry of entries) {
+    const childPath = join(directory, entry.name);
+    if (entry.isFile() && entry.name === "CONTENT.md") {
+      return true;
+    }
+    if (entry.isDirectory() && (await findContentFile(childPath))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function bootstrapBackupRepository(config: ResolvedTraumaConfig) {
+  await mkdir(config.storePath, { recursive: true });
+  await runGit(config.projectPath, [
+    "init",
+    `--initial-branch=${config.backup.git.branch}`,
+  ]);
+}
+
+async function readGitRepositoryRoot(projectPath: string) {
+  if (!existsSync(projectPath)) {
+    return null;
+  }
+
+  try {
+    const result = await runGit(projectPath, ["rev-parse", "--show-toplevel"]);
+    return resolve(result.stdout.trim());
+  } catch {
+    return null;
+  }
+}
+
+async function isSamePath(left: string | null, right: string) {
+  if (left === null) {
+    return false;
+  }
+
+  try {
+    return (await realpath(left)) === (await realpath(right));
+  } catch {
+    return resolve(left) === resolve(right);
+  }
+}
+
+async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
+  if (!existsSync(config.projectPath)) {
+    return null;
+  }
+
+  try {
+    const result = await runGit(config.projectPath, [
+      "remote",
+      "get-url",
+      config.backup.git.remote,
+    ]);
+    const remoteUrl = result.stdout.trim();
+    return remoteUrl === "" ? null : remoteUrl;
+  } catch {
+    return null;
+  }
+}
+
+async function runGit(cwd: string, args: string[]) {
+  const result = await execFileAsync("git", args, {
+    cwd,
+    env: createGitCommandEnv(),
+  });
+  return { stdout: result.stdout, stderr: result.stderr };
+}
+
+function createGitCommandEnv() {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
+}
+
+async function withBackupConnection<T>(
+  config: ResolvedTraumaConfig,
+  callback: (db: TraumaDatabase) => Promise<T>,
+): Promise<T> {
+  const connection = initializeDatabase(config);
+  try {
+    return await callback(connection.db);
+  } finally {
+    connection.close();
+  }
+}
+
+export function toAlertView(alert: BackupFailsafeAlert): BackupFailsafeAlertView {
+  return {
+    ...alert,
+    kind: alert.kind,
+    severity: alert.severity,
+    createdAt: formatDateTime(alert.createdAt),
+    updatedAt: formatDateTime(alert.updatedAt),
+  };
+}
+
+export function formatPathDriftWarning(
+  alert: BackupFailsafeAlertView,
+  configPath: string,
+) {
+  return [
+    "Backup location changed",
+    "",
+    "TRAUMA detected that the configured backup paths no longer match the paths that already contain your memory backup data.",
+    "",
+    `Previous project path: ${alert.previousProjectPath ?? "(none)"}`,
+    `Previous store path: ${alert.previousStorePath ?? "(none)"}`,
+    `Current project path: ${alert.currentProjectPath}`,
+    `Current store path: ${alert.currentStorePath}`,
+    "",
+    "TRAUMA will not silently write memories into the new backup location until this is resolved.",
+    "",
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config ${configPath}`,
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath}`,
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config ${configPath} --apply`,
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath} --apply`,
+  ].join("\n");
+}
+
+function formatRepositoryWarning(alert: BackupFailsafeAlertView, configPath: string) {
+  return [
+    "Backup repository is not initialized",
+    "",
+    alert.error ?? "projectPath is not a git repository",
+    "",
+    `Current project path: ${alert.currentProjectPath}`,
+    `Current store path: ${alert.currentStorePath}`,
+    "",
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts status --config ${configPath}`,
+  ].join("\n");
+}
+
+function formatPushFailureWarning(alert: BackupFailsafeAlertView) {
+  return [
+    "Backup push failed",
+    "",
+    "TRAUMA committed the memory backup locally, but pushing to the configured remote failed.",
+    "",
+    `Remote: ${alert.gitRemote}`,
+    `Branch: ${alert.gitBranch}`,
+    `Error: ${alert.error ?? "unknown"}`,
+    "",
+    "Your memory content remains committed locally. Fix the remote repository and retry backup push.",
+    "",
+    alert.gitRemoteUrl === null
+      ? `git -C ${alert.currentProjectPath} remote get-url ${alert.gitRemote}`
+      : `git -C ${alert.currentProjectPath} remote set-url ${alert.gitRemote} ${alert.gitRemoteUrl}`,
+    `git -C ${alert.currentProjectPath} push ${alert.gitRemote} HEAD:${alert.gitBranch}`,
+  ].join("\n");
+}
+
+function formatDateTime(value: Date | number) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString();
+}
+
+export class BackupEnvironmentFailsafeError extends Error {
+  readonly alert?: BackupFailsafeAlertView;
+
+  constructor(message: string, alert?: BackupFailsafeAlertView) {
+    super(message);
+    this.name = "BackupEnvironmentFailsafeError";
+    this.alert = alert;
+  }
+}

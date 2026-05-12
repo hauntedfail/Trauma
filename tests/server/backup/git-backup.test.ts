@@ -11,6 +11,7 @@ import {
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
+import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
@@ -85,6 +86,33 @@ describe("git backup runner", () => {
     expect(hasRemoteMain(remotePath)).toBe(false);
   });
 
+  it("skips push without warning when the configured remote name does not exist", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Local Missing Remote", "utf8");
+    initializeGitRepository(projectPath);
+    const config = createConfig({ root, projectPath, storePath, push: true });
+
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      connection.close();
+    }
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
   it("pushes an already committed backup when retrying after a failed push", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const missingRemotePath = join(root, "missing.git");
@@ -119,6 +147,78 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("records a failsafe alert when an existing remote push fails", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const missingRemotePath = join(root, "missing.git");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Push Failure Alert", "utf8");
+    initializeGitRepository(projectPath);
+    git(projectPath, ["remote", "add", "origin", missingRemotePath]);
+    const config = createConfig({ root, projectPath, storePath, push: true });
+
+    await expect(
+      runGitBackupJob({
+        config,
+        job: createJob({ contentPaths: [contentPath] }),
+      }),
+    ).rejects.toThrow(/git push failed/);
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({
+          kind: "backup_push_failed",
+          severity: "critical",
+          currentProjectPath: projectPath,
+          currentStorePath: storePath,
+          gitRemote: "origin",
+          gitBranch: "main",
+        });
+    } finally {
+      connection.close();
+    }
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
+  it("fails before staging when projectPath is not its own git repository root", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const appRepo = join(root, "app");
+    const projectPath = join(appRepo, "data");
+    const storePath = join(projectPath, "storage");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Nested Wrong Repo", "utf8");
+    await mkdir(appRepo, { recursive: true });
+    initializeGitRepository(appRepo);
+    const config = createConfig({ root, projectPath, storePath, push: false });
+
+    await expect(
+      runGitBackupJob({
+        config,
+        job: createJob({ contentPaths: [contentPath] }),
+      }),
+    ).rejects.toThrow(/backup repository root/);
+
+    expect(git(appRepo, ["diff", "--cached", "--name-only"]).trim()).toBe("");
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({
+          kind: "backup_repository_missing",
+          severity: "critical",
+          currentProjectPath: projectPath,
+          currentStorePath: storePath,
+        });
+    } finally {
+      connection.close();
+    }
   });
 });
 

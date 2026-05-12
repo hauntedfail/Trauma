@@ -12,6 +12,8 @@ import { readBundledMigrations } from "../../../src/server/db/bundled-migrations
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
     expect(Object.keys(schema).sort()).toEqual([
+      "backupEnvironmentStamps",
+      "backupFailsafeAlerts",
       "categories",
       "highlights",
       "memories",
@@ -289,6 +291,7 @@ describe("db foundation", () => {
       { id: 1, id_type: "integer" },
       { id: 2, id_type: "integer" },
       { id: 3, id_type: "integer" },
+      { id: 4, id_type: "integer" },
     ]);
   });
 
@@ -487,7 +490,7 @@ describe("db foundation", () => {
 
     expect(result).toMatchObject({
       highlightCount: 1,
-      migrationCount: 3,
+      migrationCount: 4,
     });
     expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });

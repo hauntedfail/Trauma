@@ -142,6 +142,23 @@ describe("loadTraumaConfig", () => {
       /databasePath must be outside storePath/,
     );
   });
+
+  it("rejects literal tilde paths instead of treating them as config-relative directories", () => {
+    const root = createTempRoot();
+    const configPath = writeConfig(root, {
+      storePath: "~/trauma/storage",
+      projectPath: "~/trauma",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /projectPath must not start with ~/,
+    );
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /storePath must not start with ~/,
+    );
+  });
 });
 
 function restoreEnv(name: string, value: string | undefined): void {

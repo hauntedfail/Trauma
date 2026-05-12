@@ -31,9 +31,23 @@ needed. Trauma's built-in git backup does not commit the database file.
 Built-in backup commits markdown store changes from `storePath` using
 `projectPath` as the git working directory.
 
+`projectPath` is expected to be the backup repository root. For the default
+local setup, use `projectPath: "./data"` and `storePath: "./data/storage"`.
+Trauma treats `./data` as separate from the application repository.
+
+On a clean first start with git backup enabled, Trauma creates `projectPath`,
+creates `storePath`, and initializes a git repository under `projectPath` when
+one does not already exist. If memory rows or `CONTENT.md` files already exist,
+Trauma does not auto-initialize a new repository. It creates a critical failsafe
+alert so the operator can choose `revert` or `migrate` explicitly.
+
 Backup work is asynchronous. A failed backup does not invalidate memory
 creation, highlight creation, or markdown writes. Failures are recorded and
 surfaced through metadata.
+
+When push is enabled, a missing configured remote name is treated as local-only
+backup and does not warn. A configured remote that exists but fails to push
+creates a critical alert while keeping the local commit.
 
 ## Local Dev Server Contract
 

@@ -24,6 +24,7 @@ keep each worker's context focused on its own domain.
 | 16c | [Defuddle importer extraction refactor](task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Triage subtask |
 | 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Triage subtask |
 | 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Triage subtask |
+| 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Triage subtask |
 
 ## Archived Workflows
 
@@ -91,3 +92,4 @@ Use concise branch names that match the workflow:
 - `triage-db-orm-hardening`
 - `triage-defuddle-importer`
 - `triage-browser-assisted-import`
+- `triage-backup-environment-failsafe`

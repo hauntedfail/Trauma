@@ -2,6 +2,8 @@ import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import { AddMemoryForm } from "../memories/AddMemoryForm";
+import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
+import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { getBrowseMemories } from "../memories/browse-loader";
 import {
   buildBrowseHref,
@@ -33,6 +35,7 @@ export function AppShell(props: AppShellProps) {
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
   const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const memories = createAsync(() => getBrowseMemories());
+  const backupFailsafeAlert = createAsync(() => getBackupFailsafeAlert());
   const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
   const categories = createMemo(() => getBrowseCategories(browseMemories()));
@@ -71,6 +74,9 @@ export function AppShell(props: AppShellProps) {
         <NavigationContent onOpenComposer={openComposer} />
       </aside>
       <main class="min-w-0 max-[1040px]:col-start-2">
+        <Show when={backupFailsafeAlert()}>
+          {(alert) => <BackupFailsafeBanner alert={alert()} />}
+        </Show>
         {props.children}
       </main>
       <aside class={`${sideSurface} border-l border-trauma-border p-5 max-[1040px]:hidden`} aria-label="Browse filters">

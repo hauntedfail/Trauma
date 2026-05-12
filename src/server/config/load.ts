@@ -126,6 +126,13 @@ export function validateTraumaConfig(
     return { ok: false, errors };
   }
 
+  rejectLiteralTildePath(projectPath, "projectPath", errors);
+  rejectLiteralTildePath(storePath, "storePath", errors);
+  rejectLiteralTildePath(databasePath, "databasePath", errors);
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
   const configDir = dirname(resolve(configPath));
   const resolvedConfig: ResolvedTraumaConfig = {
     configFilePath: resolve(configPath),
@@ -160,6 +167,18 @@ export function validateTraumaConfig(
 
 function resolveConfigPath(configDir: string, pathValue: string) {
   return isAbsolute(pathValue) ? resolve(pathValue) : resolve(configDir, pathValue);
+}
+
+function rejectLiteralTildePath(
+  pathValue: string,
+  label: string,
+  errors: string[],
+) {
+  if (pathValue === "~" || pathValue.startsWith("~/")) {
+    errors.push(
+      `${label} must not start with ~; use an absolute path or a config-relative path`,
+    );
+  }
 }
 
 function requireString(

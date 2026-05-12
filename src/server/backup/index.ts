@@ -4,6 +4,11 @@ import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
+import {
+  assertBackupRepositoryRoot,
+  hasConfiguredRemote,
+  recordBackupPushFailureAlert,
+} from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 
 export { BACKUP_STATUSES };
@@ -242,6 +247,8 @@ export async function runGitBackupJob(
     return;
   }
 
+  await assertBackupRepositoryRoot(input.config);
+
   const stagePaths = input.job.contentPaths.map((contentPath) =>
     resolveStagePath(input.config, contentPath),
   );
@@ -302,11 +309,20 @@ function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
 }
 
 async function pushGitBackup(config: ResolvedTraumaConfig) {
-  await runGit(config.projectPath, [
-    "push",
-    config.backup.git.remote,
-    `HEAD:${config.backup.git.branch}`,
-  ]);
+  if (!(await hasConfiguredRemote(config))) {
+    return;
+  }
+
+  try {
+    await runGit(config.projectPath, [
+      "push",
+      config.backup.git.remote,
+      `HEAD:${config.backup.git.branch}`,
+    ]);
+  } catch (error) {
+    await recordBackupPushFailureAlert(config, formatUnknownError(error));
+    throw error;
+  }
 }
 
 function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {

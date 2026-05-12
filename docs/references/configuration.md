@@ -13,7 +13,7 @@ lifecycle hooks.
 
 ```json
 {
-  "storePath": "./data/store",
+  "storePath": "./data/storage",
   "projectPath": "./data",
   "databasePath": "./.trauma/trauma.sqlite",
   "backup": {
@@ -29,7 +29,9 @@ lifecycle hooks.
 ```
 
 The implementation resolves relative paths against the directory that contains
-the config file.
+the config file. JSON config does not perform shell expansion: `~` is rejected
+instead of being treated as a home-directory shortcut. Use an absolute path such
+as `/Users/name/trauma-data` or a config-relative path such as `./data`.
 
 ## Path Rules
 
@@ -42,12 +44,41 @@ the config file.
 
 Invalid path relationships are startup errors.
 
+## Backup Environment Failsafe
+
+When git backup is enabled, Trauma stores a backup environment stamp in SQLite
+after validating the backup location. The stamp records the resolved
+`projectPath`, `storePath`, remote name, remote URL when available, branch, and
+timestamps.
+
+If the configured paths later differ while existing memory data is present,
+Trauma creates a critical backup failsafe alert instead of silently writing
+content into the new location. The alert is shown in the app shell and logs
+terminal recovery commands:
+
+```bash
+mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config trauma.config.json
+mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json
+```
+
+Both commands are dry-run by default. Add `--apply` only after checking the
+summary.
+
 ## Backup Rules
 
 `backup.git.enabled` controls built-in markdown backup.
 
 When enabled, Trauma stages only files under `storePath`, commits with
 `commitMessageTemplate`, and pushes only when `backup.git.push` is true.
+
+`projectPath` is the backup repository root. Trauma does not use the application
+repository as an implicit backup repository. On a clean first start, Trauma may
+initialize `projectPath` as a git repository. On non-clean data, missing or
+mismatched git repository state becomes a critical failsafe alert.
+
+When `backup.git.push` is true, a missing remote name skips push without a
+warning and keeps the local backup commit. If the remote exists but push fails,
+Trauma records a critical push-failure alert.
 
 No generic command hooks are part of the initial design.
 

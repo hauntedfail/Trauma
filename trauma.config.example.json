@@ -1,5 +1,5 @@
 {
-  "storePath": "./data/store",
+  "storePath": "./data/storage",
   "projectPath": "./data",
   "databasePath": "./.trauma/trauma.sqlite",
   "backup": {

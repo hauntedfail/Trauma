@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import migration0000Sql from "../../../drizzle/0000_conscious_mikhail_rasputin.sql?raw";
 import migration0001Sql from "../../../drizzle/0001_cold_shotgun.sql?raw";
 import migration0002Sql from "../../../drizzle/0002_chilly_james_howlett.sql?raw";
+import migration0003Sql from "../../../drizzle/0003_backup_environment_failsafe.sql?raw";
 import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
@@ -19,6 +20,11 @@ const BUNDLED_MIGRATIONS = [
   {
     sql: migration0002Sql,
     folderMillis: 1778418914933,
+    bps: true,
+  },
+  {
+    sql: migration0003Sql,
+    folderMillis: 1778606982293,
     bps: true,
   },
 ] as const;
