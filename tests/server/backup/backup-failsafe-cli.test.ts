@@ -17,6 +17,32 @@ afterEach(async () => {
 });
 
 describe("backup failsafe CLI", () => {
+  it("prints active status as JSON", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    await mkdir(join(root, "old-data/storage/memories/memory-1"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "old-data/storage/memories/memory-1/CONTENT.md"),
+      "# Old\n",
+      "utf8",
+    );
+    await seedPathDriftAlert(configPath, root);
+
+    const output = await runBackupFailsafeCli([
+      "status",
+      "--config",
+      configPath,
+    ]);
+
+    expect(JSON.parse(output)).toMatchObject({
+      kind: "backup_path_drift",
+      previousStorePath: join(root, "old-data/storage"),
+      currentStorePath: join(root, "new-data/storage"),
+    });
+  });
+
   it("prints a dry-run revert summary by default and requires --apply to edit config", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root);
@@ -50,6 +76,44 @@ describe("backup failsafe CLI", () => {
     await expect(
       runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
     ).rejects.toThrow(/refusing to overwrite existing backup content/);
+  });
+
+  it("applies migration by copying content, initializing the target repo, and clearing the alert", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const oldStore = join(root, "old-data/storage");
+    const targetContent = join(
+      root,
+      "new-data/storage/memories/memory-1/CONTENT.md",
+    );
+    await mkdir(join(oldStore, "memories", "memory-1"), { recursive: true });
+    await writeFile(join(oldStore, "memories/memory-1/CONTENT.md"), "# Old\n", "utf8");
+    await seedPathDriftAlert(configPath, root);
+
+    const output = await runBackupFailsafeCli([
+      "migrate",
+      "--config",
+      configPath,
+      "--apply",
+    ]);
+
+    expect(output).toContain("APPLY: Migrate backup");
+    expect(output).toContain("Alert cleared.");
+    expect(await readFile(targetContent, "utf8")).toBe("# Old\n");
+
+    const config = loadTraumaConfig({ configPath });
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+      expect(await connection.repositories.backupEnvironment.getBackupEnvironmentStamp())
+        .toMatchObject({
+          projectPath: join(root, "new-data"),
+          storePath: join(root, "new-data/storage"),
+        });
+    } finally {
+      connection.close();
+    }
   });
 });
 
