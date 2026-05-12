@@ -53,6 +53,16 @@ No generic command hooks are part of the initial design.
 
 ## Browser-Assisted Import Environment
 
+Environment variables can be specified in the project root `.env` file when
+running Trauma through `bun run` scripts. The shell environment still has
+precedence over `.env`.
+
+`TRAUMA_CONFIG_PATH` selects the runtime config file. It defaults to
+`./trauma.config.json` when unset.
+
+`TRAUMA_DATABASE_PATH` is a Drizzle Kit CLI override. Normal app runtime uses
+`databasePath` from `trauma.config.json`.
+
 Browser-assisted import is an optional local extension path. It is disabled by
 default and configured through environment variables, not `trauma.config.json`.
 
@@ -71,3 +81,14 @@ TRAUMA_BROWSER_IMPORT_MAX_BYTES=5000000
   is empty, the API still rejects ordinary web origins and accepts only
   `chrome-extension://` origins with a valid token.
 - `TRAUMA_BROWSER_IMPORT_MAX_BYTES` bounds the JSON body and captured HTML.
+
+Dev smoke variables are also `.env` compatible:
+
+- `TRAUMA_DEV_HOST`
+- `TRAUMA_DEV_PORT`
+- `TRAUMA_DEV_SMOKE_PATH`
+- `TRAUMA_DEV_SMOKE_TIMEOUT_MS`
+- `TRAUMA_DEV_SMOKE_POLL_MS`
+
+`TRAUMA_BROWSE_FIXTURES=1` is reserved for dev smoke and Playwright fixture
+mode. Do not enable it for normal app use.

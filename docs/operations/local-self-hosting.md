@@ -48,6 +48,7 @@ Defaults from `.env.example`:
 - `PORT=3000`
 - `TRAUMA_HMR_PORT=24678` (client; server uses base+1, server-function
   uses base+2)
+- `TRAUMA_CONFIG_PATH=./trauma.config.json`
 
 The shell environment wins over `.env`. Exporting `HOST=0.0.0.0` in the
 shell will override the loopback default, which is intentional for cases
@@ -60,6 +61,9 @@ Smoke-only overrides:
   then `127.0.0.1`).
 - `TRAUMA_DEV_PORT` — port the smoke check probes (falls back to `PORT`,
   then `3000`).
+- `TRAUMA_DEV_SMOKE_PATH` — path the smoke check probes.
+- `TRAUMA_DEV_SMOKE_TIMEOUT_MS` — total readiness timeout.
+- `TRAUMA_DEV_SMOKE_POLL_MS` — readiness polling interval.
 
 Standard commands:
 

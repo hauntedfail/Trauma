@@ -9,6 +9,7 @@ interface PackageJson {
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
 const playwrightConfig = readFileSync("playwright.config.ts", "utf8");
 const devSmokeScript = readFileSync("scripts/dev-smoke.ts", "utf8");
+const envExample = readFileSync(".env.example", "utf8");
 
 describe("runtime command contract", () => {
   it("runs Vinxi server commands through Bun runtime", () => {
@@ -25,5 +26,29 @@ describe("runtime command contract", () => {
   it("runs the smoke-check Vinxi child process through Bun runtime", () => {
     expect(devSmokeScript).toContain('"--bun",');
     expect(devSmokeScript).toContain('"x", "vinxi", "dev"');
+  });
+
+  it("documents operator-facing environment variables in .env.example", () => {
+    const expectedKeys = [
+      "HOST",
+      "PORT",
+      "TRAUMA_HMR_PORT",
+      "TRAUMA_CONFIG_PATH",
+      "TRAUMA_DATABASE_PATH",
+      "TRAUMA_BROWSER_IMPORT_ENABLED",
+      "TRAUMA_BROWSER_IMPORT_TOKEN",
+      "TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS",
+      "TRAUMA_BROWSER_IMPORT_MAX_BYTES",
+      "TRAUMA_DEV_HOST",
+      "TRAUMA_DEV_PORT",
+      "TRAUMA_DEV_SMOKE_PATH",
+      "TRAUMA_DEV_SMOKE_TIMEOUT_MS",
+      "TRAUMA_DEV_SMOKE_POLL_MS",
+      "TRAUMA_BROWSE_FIXTURES",
+    ];
+
+    for (const key of expectedKeys) {
+      expect(envExample).toContain(`${key}=`);
+    }
   });
 });
