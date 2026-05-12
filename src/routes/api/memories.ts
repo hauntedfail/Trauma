@@ -7,7 +7,7 @@ import { validateImportUrl } from "~/server/importer";
 import { addMemory } from "~/server/memories/add-memory";
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseAddMemoryPayload(event.request);
+  const payload = await parseAddMemoryPayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -45,7 +45,9 @@ interface ParseAddMemoryPayloadOptions {
 
 const DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS = 10_000;
 
-export async function parseAddMemoryPayload(
+export const parseAddMemoryPayload = parseAddMemoryPayloadInternal;
+
+async function parseAddMemoryPayloadInternal(
   request: Request,
   options: ParseAddMemoryPayloadOptions = {},
 ): Promise<AddMemoryPayloadResult> {

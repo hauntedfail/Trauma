@@ -1,8 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { APIEvent } from "@solidjs/start/server";
+import { transformAsync, type PluginItem } from "@babel/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -81,6 +83,31 @@ describe("memories API route", () => {
     expect(body).toEqual({ error: "failed to load Trauma configuration" });
     expect(JSON.stringify(body)).not.toContain(root);
   });
+
+  it("keeps POST route helpers available after Vinxi pick transform", async () => {
+    const source = await readFile(
+      join(repositoryRoot, "src/routes/api/memories.ts"),
+      "utf8",
+    );
+    const treeShakePlugin = await importVinxiTreeShakePlugin();
+    const transformed = await transformAsync(source, {
+      plugins: [[treeShakePlugin, { pick: ["POST"] }]],
+      parserOpts: {
+        plugins: ["typescript"],
+      },
+      filename: "memories.ts?pick=POST",
+      ast: false,
+      configFile: false,
+      babelrc: false,
+    });
+
+    expect(transformed?.code).toContain(
+      "parseAddMemoryPayloadInternal(event.request)",
+    );
+    expect(transformed?.code).toContain(
+      "async function parseAddMemoryPayloadInternal",
+    );
+  });
 });
 
 function createApiEvent(request: Request): APIEvent {
@@ -91,4 +118,14 @@ function createApiEvent(request: Request): APIEvent {
     locals: {},
     nativeEvent: {},
   } as unknown as APIEvent;
+}
+
+async function importVinxiTreeShakePlugin(): Promise<PluginItem> {
+  const module = await import(
+    pathToFileURL(
+      join(repositoryRoot, "node_modules/vinxi/lib/plugins/tree-shake.babel.js"),
+    ).href
+  );
+
+  return module.default as PluginItem;
 }
