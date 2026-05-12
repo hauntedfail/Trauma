@@ -50,3 +50,24 @@ When enabled, Trauma stages only files under `storePath`, commits with
 `commitMessageTemplate`, and pushes only when `backup.git.push` is true.
 
 No generic command hooks are part of the initial design.
+
+## Browser-Assisted Import Environment
+
+Browser-assisted import is an optional local extension path. It is disabled by
+default and configured through environment variables, not `trauma.config.json`.
+
+```text
+TRAUMA_BROWSER_IMPORT_ENABLED=false
+TRAUMA_BROWSER_IMPORT_TOKEN=
+TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS=
+TRAUMA_BROWSER_IMPORT_MAX_BYTES=5000000
+```
+
+- `TRAUMA_BROWSER_IMPORT_ENABLED` must be `true` before the API accepts imports.
+- `TRAUMA_BROWSER_IMPORT_TOKEN` is a local bearer token shared with the browser
+  extension settings. Do not commit it.
+- `TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS` is an optional comma-separated list of
+  exact extension origins, such as `chrome-extension://<extension-id>`. When it
+  is empty, the API still rejects ordinary web origins and accepts only
+  `chrome-extension://` origins with a valid token.
+- `TRAUMA_BROWSER_IMPORT_MAX_BYTES` bounds the JSON body and captured HTML.

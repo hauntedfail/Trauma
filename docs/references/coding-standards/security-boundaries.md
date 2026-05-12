@@ -62,6 +62,20 @@
 - MUST keep auth assumptions out of the initial implementation. If auth is
   introduced later, it needs a separate design and threat model.
 
+## Browser-Assisted Import
+
+- MUST treat browser extension payloads as untrusted external input.
+- MUST require explicit local enablement and a bearer token before accepting
+  extension imports.
+- MUST reject ordinary website origins. A browser extension origin may be
+  accepted only with a valid token.
+- MUST validate extension payload shape, timestamp freshness, URL protocol,
+  URL userinfo, and body size before extraction.
+- MUST run final extraction and memory persistence on the TRAUMA server. The
+  extension may capture a tab snapshot, but it must not bypass server-side
+  sanitization or write memory content directly.
+- MUST NOT persist raw extension HTML.
+
 ## Logging And Diagnostics
 
 - MUST NOT leave `console.log` in production code.
