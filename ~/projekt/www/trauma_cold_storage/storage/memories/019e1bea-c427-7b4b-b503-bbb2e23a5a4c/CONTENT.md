@@ -9,7 +9,7 @@ extraction_status: "success"
 
 \(Update on February 19, 2026: [deep now uses GPT\-5\.3\-Codex](https://ampcode.com/news/gpt-5.3-codex)\.\)
 
-Amp has a new agent mode: deep\. It uses GPT\-5\.2\-Codex and a selection of tools that are tuned to what this model is good at\.
+<mark data-highlight-id="bde4ff79-f419-409a-93c0-7dd78805e67d">Amp has a new agent mode: deep\. It uses GPT\-5\.2\-Codex and a selection of tools that are tuned to </mark>what this model is good at\.
 
 Where smart is eager, collaborative, and happy to edit right away, deep will silently read files and move through the codebase for five, ten, sometimes fifteen minutes before making changes \- happy to be left alone\.
 
@@ -17,7 +17,7 @@ GPT\-5\.2\-Codex in deep is not an assistant that's constantly checking in with 
 
 Here are some prompts that worked really well in deep mode:
 
-- [Nicolay, changing how Skills register MCP tools](https://ampcode.com/threads/T-019c0416-78f2-7298-8926-369b325f7188): "A user has multiple skills, each skill has a mcp\.json with the same server name and url, but with different includeTools list\. So each skill uses a different subset of tools\. Each mcp can only be registered once and last registration wins\. But for each mcp within a skill we are only registering its subset of tools\. So when the user has multiple skills, it is probably only having one set of tools being registered instead of all\. How can we fix this? we could: \\[\.\.\.\\]"
+- [Nicolay, changing how Skills register MCP tools](https://ampcode.com/threads/T-019c0416-78f2-7298-8926-369b325f7188): "A user has multiple skills, <mark data-highlight-id="ee507791-5ab1-4204-9cb5-e28dd174e3ce">each skill has a mcp\.json with the same server name and url, but with different includeTools list\. So each skill uses a different subset of tools\. Each mcp can only be registered once and last registration wins\. But for each mcp within a skill we are only registering its sub</mark>set of tools\. So when the user has multiple skills, it is probably only having one set of tools being registered instead of all\. How can we fix this? we could: \\[\.\.\.\\]"
 
 - [Thorsten, fixing a theme bug, and providing a screenshot](https://ampcode.com/threads/T-019bfa3e-6b60-706f-880f-75c7fdb82ef7): "Ever since we added @doc/cli\-themes\.md there's a bug: the selected message has a different color than normal messages\. It should match\."
 
