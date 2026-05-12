@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
@@ -81,9 +81,7 @@ export async function migrateBackupFailsafeContent(input: {
   const repositories = createRepositories(input.db);
   const alert = await requireActiveAlert(input.db);
   if (alert.previousStorePath === null) {
-    throw new BackupFailsafeActionError(
-      "cannot migrate because the failsafe alert has no previous store path",
-    );
+    return acceptCurrentBackupLocation({ ...input, repositories });
   }
 
   const files = await listFiles(alert.previousStorePath);
@@ -122,30 +120,9 @@ export async function migrateBackupFailsafeContent(input: {
     await copyFile(source, destination);
   }
 
-  if (!(await isExactGitRepositoryRoot(input.config.projectPath))) {
-    await mkdir(input.config.projectPath, { recursive: true });
-    await execFileAsync("git", [
-      "init",
-      `--initial-branch=${input.config.backup.git.branch}`,
-    ], {
-      cwd: input.config.projectPath,
-      env: createGitCommandEnv(),
-    });
-  }
-
-  const now = new Date();
-  const existing =
-    await repositories.backupEnvironment.getBackupEnvironmentStamp();
-  await repositories.backupEnvironment.upsertBackupEnvironmentStamp({
-    id: "default",
-    projectPath: input.config.projectPath,
-    storePath: input.config.storePath,
-    gitRemote: input.config.backup.git.remote,
-    gitRemoteUrl: await readGitRemoteUrl(input.config),
-    gitBranch: input.config.backup.git.branch,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  });
+  await ensureBackupRepository(input.config);
+  await commitMigratedFiles(input.config, relativeFiles);
+  await stampCurrentBackupLocation(input.config, repositories);
   await repositories.backupEnvironment.clearBackupFailsafeAlert();
 
   return {
@@ -154,6 +131,42 @@ export async function migrateBackupFailsafeContent(input: {
     dryRun: false,
     summary,
     files: relativeFiles,
+  };
+}
+
+async function acceptCurrentBackupLocation(input: {
+  config: ResolvedTraumaConfig;
+  repositories: ReturnType<typeof createRepositories>;
+  apply: boolean;
+}): Promise<BackupFailsafeActionResult> {
+  const summary = [
+    input.apply
+      ? "APPLY: Accept current backup location"
+      : "DRY RUN: Accept current backup location",
+    `projectPath: ${input.config.projectPath}`,
+    `storePath: ${input.config.storePath}`,
+  ].join("\n");
+
+  if (!input.apply) {
+    return {
+      ok: true,
+      action: "migrate",
+      dryRun: true,
+      summary,
+      files: [],
+    };
+  }
+
+  await ensureBackupRepository(input.config);
+  await stampCurrentBackupLocation(input.config, input.repositories);
+  await input.repositories.backupEnvironment.clearBackupFailsafeAlert();
+
+  return {
+    ok: true,
+    action: "migrate",
+    dryRun: false,
+    summary,
+    files: [],
   };
 }
 
@@ -191,8 +204,12 @@ async function listFiles(directory: string): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
-  } catch {
-    return [];
+  } catch (error) {
+    if (isErrorWithCode(error, "ENOENT")) {
+      return [];
+    }
+
+    throw error;
   }
 
   const files: string[] = [];
@@ -207,6 +224,140 @@ async function listFiles(directory: string): Promise<string[]> {
     }
   }
   return files;
+}
+
+async function ensureBackupRepository(config: ResolvedTraumaConfig) {
+  if (await isExactGitRepositoryRoot(config.projectPath)) {
+    return;
+  }
+
+  await mkdir(config.projectPath, { recursive: true });
+  await execFileAsync("git", [
+    "init",
+    `--initial-branch=${config.backup.git.branch}`,
+  ], {
+    cwd: config.projectPath,
+    env: createGitCommandEnv(),
+  });
+}
+
+async function commitMigratedFiles(
+  config: ResolvedTraumaConfig,
+  relativeFiles: readonly string[],
+) {
+  if (relativeFiles.length === 0) {
+    return;
+  }
+
+  const stagePaths = relativeFiles.map((file) =>
+    resolveMigratedStagePath(config, file),
+  );
+  await execFileAsync("git", ["add", "--", ...stagePaths], {
+    cwd: config.projectPath,
+    env: createGitCommandEnv(),
+  });
+
+  const hasStagedChanges = await hasStagedGitChanges(config.projectPath, stagePaths);
+  if (!hasStagedChanges) {
+    return;
+  }
+
+  await execFileAsync(
+    "git",
+    ["commit", "-m", "backup migrated memory content", "--", ...stagePaths],
+    {
+      cwd: config.projectPath,
+      env: createGitCommandEnv(),
+    },
+  );
+}
+
+function resolveMigratedStagePath(config: ResolvedTraumaConfig, file: string) {
+  if (isAbsolute(file)) {
+    throw new BackupFailsafeActionError(
+      `migrated backup file must be relative: ${file}`,
+    );
+  }
+
+  const absoluteFile = resolve(config.storePath, file);
+  if (!isInside(config.storePath, absoluteFile)) {
+    throw new BackupFailsafeActionError(
+      `migrated backup file must stay under storePath: ${file}`,
+    );
+  }
+
+  if (!isInside(config.projectPath, absoluteFile)) {
+    throw new BackupFailsafeActionError(
+      `migrated backup file must stay under projectPath: ${file}`,
+    );
+  }
+
+  return relative(config.projectPath, absoluteFile).split(sep).join("/");
+}
+
+async function hasStagedGitChanges(
+  projectPath: string,
+  stagePaths: readonly string[],
+) {
+  try {
+    await execFileAsync(
+      "git",
+      ["diff", "--cached", "--quiet", "--", ...stagePaths],
+      {
+        cwd: projectPath,
+        env: createGitCommandEnv(),
+      },
+    );
+    return false;
+  } catch (error) {
+    if (isProcessExitCode(error, 1)) {
+      return true;
+    }
+
+    throw error;
+  }
+}
+
+async function stampCurrentBackupLocation(
+  config: ResolvedTraumaConfig,
+  repositories: ReturnType<typeof createRepositories>,
+) {
+  const now = new Date();
+  const existing =
+    await repositories.backupEnvironment.getBackupEnvironmentStamp();
+  await repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+    id: "default",
+    projectPath: config.projectPath,
+    storePath: config.storePath,
+    gitRemote: config.backup.git.remote,
+    gitRemoteUrl: await readGitRemoteUrl(config),
+    gitBranch: config.backup.git.branch,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  });
+}
+
+function isErrorWithCode(error: unknown, code: string) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
+}
+
+function isProcessExitCode(error: unknown, code: number) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
+}
+
+function isInside(parent: string, child: string) {
+  const path = relative(resolve(parent), resolve(child));
+  return path !== "" && !path.startsWith("..") && !isAbsolute(path);
 }
 
 async function isExactGitRepositoryRoot(projectPath: string) {

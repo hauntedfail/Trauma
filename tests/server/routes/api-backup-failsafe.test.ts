@@ -32,6 +32,7 @@ describe("backup failsafe API routes", () => {
       createApiEvent(
         new Request("http://localhost/api/backup/failsafe/revert", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ confirm: false }),
         }),
       ),
@@ -85,6 +86,7 @@ describe("backup failsafe API routes", () => {
       createApiEvent(
         new Request("http://localhost/api/backup/failsafe/revert", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ confirm: true }),
         }),
       ),
@@ -108,6 +110,7 @@ describe("backup failsafe API routes", () => {
       createApiEvent(
         new Request("http://localhost/api/backup/failsafe/migrate", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ confirm: false }),
         }),
       ),
@@ -115,6 +118,26 @@ describe("backup failsafe API routes", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "confirmation is required" });
+  });
+
+  it("rejects cross-origin simple failsafe confirmations before loading config", async () => {
+    const response = await migrate(
+      createApiEvent(
+        new Request("http://localhost/api/backup/failsafe/migrate", {
+          method: "POST",
+          headers: {
+            origin: "https://evil.example",
+            "content-type": "text/plain",
+          },
+          body: JSON.stringify({ confirm: true }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "same-origin request is required",
+    });
   });
 });
 

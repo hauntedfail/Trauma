@@ -46,9 +46,9 @@ Rules:
 
 - `TRAUMA_BROWSER_IMPORT_ENABLED` defaults to false.
 - Token is required when enabled.
-- `ALLOWED_ORIGINS` is optional for development but should be configured for a
-  packaged extension.
-- `MAX_BYTES` defaults to 5 MB.
+- `TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS` is optional for development but
+  should be configured for a packaged extension.
+- `TRAUMA_BROWSER_IMPORT_MAX_BYTES` defaults to 5 MB.
 
 ## Verification
 

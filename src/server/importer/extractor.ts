@@ -1,7 +1,9 @@
+import { isIP } from "node:net";
+
 import { Defuddle, type DefuddleResponse } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
-import { isBlockedHostname } from "./host-policy";
+import { isBlockedHostname, normalizeHostname } from "./host-policy";
 
 export interface ExtractArticleInput {
   html: string;
@@ -278,12 +280,29 @@ function resolveSafeDisplayUrl(pageUrl: string, value: string) {
       return null;
     }
 
+    if (!isTrustedDisplayHostname(pageUrl, parsed.hostname)) {
+      return null;
+    }
+
     parsed.username = "";
     parsed.password = "";
 
     return parsed.toString();
   } catch {
     return null;
+  }
+}
+
+function isTrustedDisplayHostname(pageUrl: string, hostname: string) {
+  const normalizedHostname = normalizeHostname(hostname);
+  if (isIP(normalizedHostname) !== 0) {
+    return true;
+  }
+
+  try {
+    return normalizedHostname === normalizeHostname(new URL(pageUrl).hostname);
+  } catch {
+    return false;
   }
 }
 

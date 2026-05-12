@@ -33,6 +33,10 @@ export function isBrowserImportOriginAllowed(
   }
 
   const normalized = origin.trim();
+  if (!normalized.startsWith("chrome-extension://")) {
+    return false;
+  }
+
   if (config.allowedOrigins.length > 0) {
     return config.allowedOrigins.includes(normalized);
   }

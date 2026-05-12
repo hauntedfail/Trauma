@@ -45,4 +45,18 @@ describe("browser import config", () => {
       false,
     );
   });
+
+  it("rejects ordinary web origins even when they are configured", () => {
+    const config = loadBrowserImportConfig({
+      TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS:
+        "https://evil.example, chrome-extension://allowed",
+    });
+
+    expect(isBrowserImportOriginAllowed("https://evil.example", config)).toBe(
+      false,
+    );
+    expect(isBrowserImportOriginAllowed("chrome-extension://allowed", config)).toBe(
+      true,
+    );
+  });
 });

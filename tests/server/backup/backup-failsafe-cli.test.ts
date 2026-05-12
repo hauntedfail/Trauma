@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -114,6 +115,66 @@ describe("backup failsafe CLI", () => {
     } finally {
       connection.close();
     }
+    expect(git(config.projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      "backup migrated memory content",
+    );
+    expect(
+      git(config.projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
+    expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
+  });
+
+  it("does not treat unreadable source directories as an empty migration", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const oldMemories = join(root, "old-data/storage/memories");
+    await mkdir(oldMemories, { recursive: true });
+    await chmod(oldMemories, 0);
+    await seedPathDriftAlert(configPath, root);
+
+    try {
+      await expect(
+        runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+      ).rejects.toMatchObject({ code: "EACCES" });
+    } finally {
+      await chmod(oldMemories, 0o700);
+    }
+  });
+
+  it("accepts current backup paths when existing data has no previous stamp", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const config = loadTraumaConfig({ configPath });
+    await mkdir(join(config.storePath, "memories", "memory-1"), {
+      recursive: true,
+    });
+    await writeFile(join(config.storePath, "memories/memory-1/CONTENT.md"), "# Current\n", "utf8");
+    await seedUnstampedCurrentDataAlert(configPath);
+
+    const output = await runBackupFailsafeCli([
+      "migrate",
+      "--config",
+      configPath,
+      "--apply",
+    ]);
+
+    expect(output).toContain("APPLY: Accept current backup location");
+    expect(output).toContain("Alert cleared.");
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+      expect(await connection.repositories.backupEnvironment.getBackupEnvironmentStamp())
+        .toMatchObject({
+          projectPath: config.projectPath,
+          storePath: config.storePath,
+        });
+    } finally {
+      connection.close();
+    }
   });
 });
 
@@ -183,4 +244,46 @@ async function seedPathDriftAlert(configPath: string, root: string) {
   } finally {
     connection.close();
   }
+}
+
+async function seedUnstampedCurrentDataAlert(configPath: string) {
+  const config = loadTraumaConfig({ configPath });
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+      id: "active",
+      kind: "backup_path_drift",
+      severity: "critical",
+      message: "Backup location changed",
+      previousProjectPath: null,
+      previousStorePath: null,
+      currentProjectPath: config.projectPath,
+      currentStorePath: config.storePath,
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+function git(cwd: string, args: string[]) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: createGitCommandEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function createGitCommandEnv() {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
 }

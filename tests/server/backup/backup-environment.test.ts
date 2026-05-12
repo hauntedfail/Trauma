@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -193,6 +193,27 @@ describe("backup environment failsafe", () => {
         currentProjectPath: config.projectPath,
       });
     } finally {
+      connection.close();
+    }
+  });
+
+  it("propagates filesystem errors while detecting existing content files", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const memoriesPath = join(config.storePath, "memories");
+    await mkdir(memoriesPath, { recursive: true });
+    await chmod(memoriesPath, 0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        ensureBackupEnvironment({
+          config,
+          db: connection.db,
+          now: () => now,
+        }),
+      ).rejects.toMatchObject({ code: "EACCES" });
+    } finally {
+      await chmod(memoriesPath, 0o700);
       connection.close();
     }
   });

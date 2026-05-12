@@ -38,8 +38,8 @@ export function normalizeTraumaUrl(value: string):
     return { ok: false, error: "Enter a valid TRAUMA instance URL." };
   }
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { ok: false, error: "TRAUMA URL must use http or https." };
+  if (url.protocol !== "http:") {
+    return { ok: false, error: "TRAUMA URL must use http." };
   }
 
   if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
@@ -53,6 +53,7 @@ export function normalizeTraumaUrl(value: string):
   url.password = "";
   url.hash = "";
   url.search = "";
+  url.pathname = "/";
 
   return { ok: true, value: url.toString().replace(/\/$/, "") };
 }

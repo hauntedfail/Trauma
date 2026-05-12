@@ -66,20 +66,26 @@ export function createCapturedTabSnapshot(
     return { ok: false, error: "The current page is too large to import." };
   }
 
+  const snapshot = {
+    sourceUrl: location.href,
+    canonicalUrl: readCanonicalUrl(),
+    title: normalizeText(document.title),
+    description: readDescription(),
+    articleHtml,
+    articleText,
+    selector: candidate.selector,
+    extractionStrategy: candidate.extractionStrategy,
+    capturedAt: new Date().toISOString(),
+    extensionVersion,
+  };
+
+  if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > maxBytes) {
+    return { ok: false, error: "The current page is too large to import." };
+  }
+
   return {
     ok: true,
-    snapshot: {
-      sourceUrl: location.href,
-      canonicalUrl: readCanonicalUrl(),
-      title: normalizeText(document.title),
-      description: readDescription(),
-      articleHtml,
-      articleText,
-      selector: candidate.selector,
-      extractionStrategy: candidate.extractionStrategy,
-      capturedAt: new Date().toISOString(),
-      extensionVersion,
-    },
+    snapshot,
   };
 }
 
@@ -162,15 +168,13 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
       results.push(current);
     }
 
-    const allElements = Array.from(current.querySelectorAll("*"));
-    results.push(...Array.from(current.querySelectorAll(selector)));
-
-    for (const element of allElements) {
+    for (const element of childElements(current)) {
       inspected += 1;
       if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
         break;
       }
 
+      queue.push(element);
       if (element.shadowRoot !== null && !visited.has(element.shadowRoot)) {
         queue.push(element.shadowRoot);
       }
@@ -178,6 +182,14 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
   }
 
   return results;
+}
+
+function childElements(parent: ParentNode) {
+  if (!("children" in parent)) {
+    return [];
+  }
+
+  return Array.from(parent.children as HTMLCollectionOf<Element>);
 }
 
 function selectBestElement(elements: readonly Element[]) {

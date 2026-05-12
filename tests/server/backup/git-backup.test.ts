@@ -140,6 +140,15 @@ describe("git backup runner", () => {
       job: createJob({ contentPaths: [contentPath] }),
     });
 
+    const connection = initializeDatabase(
+      createConfig({ root, projectPath, storePath, push: true }),
+    );
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      connection.close();
+    }
     expect(hasRemoteMain(remotePath)).toBe(true);
     expect(
       git(remotePath, ["show", "--name-only", "--pretty=format:", "main"])

@@ -118,6 +118,69 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).not.toContain("<script");
   });
 
+  it("does not full-scan the live document before applying the traversal cap", () => {
+    installPage({
+      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      html: `<!doctype html>
+        <html>
+          <head><title>Harness Engineering | OpenAI</title></head>
+          <body><main id="app-shell"></main></body>
+        </html>`,
+    });
+    const host = document.getElementById("app-shell");
+    if (host === null) {
+      throw new Error("missing shadow host");
+    }
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "page-content");
+    article.textContent =
+      "The OpenAI harness engineering article body is visible inside the current tab shadow root.";
+    shadowRoot.append(article);
+    const documentPrototype = Object.getPrototypeOf(document) as {
+      querySelectorAll: Document["querySelectorAll"];
+    };
+    const originalQuerySelectorAll = documentPrototype.querySelectorAll;
+    documentPrototype.querySelectorAll = function (
+      this: Document,
+      selector: string,
+    ) {
+      if (selector === "*") {
+        throw new Error("live document full scan");
+      }
+
+      return originalQuerySelectorAll.call(this, selector);
+    };
+
+    try {
+      const result = createCapturedTabSnapshot("0.1.0");
+
+      expect(result.ok).toBe(true);
+    } finally {
+      documentPrototype.querySelectorAll = originalQuerySelectorAll;
+    }
+  });
+
+  it("rejects snapshots whose full JSON payload would exceed the byte budget", () => {
+    installPage({
+      href: "https://example.com/large-text",
+      html: `<!doctype html>
+        <html>
+          <head><title>Large Text</title></head>
+          <body>
+            <article>
+              <p>${"large text ".repeat(70)}</p>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(createCapturedTabSnapshot("0.1.0", 900)).toEqual({
+      ok: false,
+      error: "The current page is too large to import.",
+    });
+  });
+
   it("rejects browser-internal pages", () => {
     installPage({
       href: "chrome://extensions",

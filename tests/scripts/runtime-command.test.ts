@@ -13,9 +13,15 @@ const envExample = readFileSync(".env.example", "utf8");
 
 describe("runtime command contract", () => {
   it("runs Vinxi server commands through Bun runtime", () => {
-    expect(packageJson.scripts.dev).toBe("bun --bun x vinxi dev");
-    expect(packageJson.scripts.start).toBe("bun --bun x vinxi start");
-    expect(packageJson.scripts.preview).toBe("bun --bun x vinxi preview");
+    expect(packageJson.scripts.dev).toBe(
+      "HOST=${HOST:-127.0.0.1} bun --bun x vinxi dev",
+    );
+    expect(packageJson.scripts.start).toBe(
+      "HOST=${HOST:-127.0.0.1} bun --bun x vinxi start",
+    );
+    expect(packageJson.scripts.preview).toBe(
+      "HOST=${HOST:-127.0.0.1} bun --bun x vinxi preview",
+    );
   });
 
   it("runs Playwright's dev web server through Bun runtime", () => {

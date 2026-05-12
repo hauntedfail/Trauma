@@ -104,13 +104,21 @@ export async function submitBackupFailsafeAction(input: {
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
 }) {
   const request = input.fetch ?? fetch;
-  const response = await request(`/api/backup/failsafe/${input.action}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ confirm: true }),
-  });
+  let response: Response;
+  try {
+    response = await request(`/api/backup/failsafe/${input.action}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ confirm: true }),
+    });
+  } catch {
+    return {
+      ok: false as const,
+      error: "Backup failsafe action request failed.",
+    };
+  }
 
   if (!response.ok) {
     const body = await readJson(response);

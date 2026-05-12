@@ -145,8 +145,8 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
         : formatUnknownError(error),
     });
   }
-  clearTimeout(timeout);
   if (!boundedBody.ok) {
+    clearTimeout(timeout);
     return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "response too large",
       detail: boundedBody.error,
@@ -155,16 +155,21 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
 
   let extracted: Awaited<ReturnType<ArticleExtractor>>;
   try {
-    extracted = await (input.extractArticle ?? extractArticleWithDefuddle)({
-      html: boundedBody.text,
-      pageUrl: currentUrl,
-    });
-  } catch (error) {
+    extracted = await rejectWhenAborted(
+      (input.extractArticle ?? extractArticleWithDefuddle)({
+        html: boundedBody.text,
+        pageUrl: currentUrl,
+      }),
+      controller.signal,
+    );
+  } catch {
+    clearTimeout(timeout);
     return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "extraction failed",
-      detail: formatUnknownError(error),
+      detail: controller.signal.aborted ? "request timed out" : undefined,
     });
   }
+  clearTimeout(timeout);
   const title = extracted.title || fallbackTitleFromUrl(currentUrl);
 
   if (readableMarkdownLength(extracted.markdown) < MINIMUM_READABLE_BODY_LENGTH) {

@@ -14,10 +14,25 @@ describe("extension settings", () => {
     });
   });
 
+  it("normalizes copied app page URLs to the instance origin", () => {
+    expect(normalizeTraumaUrl("http://127.0.0.1:3000/memories?view=grid#top"))
+      .toEqual({
+        ok: true,
+        value: "http://127.0.0.1:3000",
+      });
+  });
+
   it("rejects non-local instance addresses", () => {
-    expect(normalizeTraumaUrl("https://example.com")).toEqual({
+    expect(normalizeTraumaUrl("http://example.com")).toEqual({
       ok: false,
       error: "TRAUMA URL must use localhost or 127.0.0.1.",
+    });
+  });
+
+  it("rejects HTTPS loopback URLs that are outside extension permissions", () => {
+    expect(normalizeTraumaUrl("https://localhost:3000")).toEqual({
+      ok: false,
+      error: "TRAUMA URL must use http.",
     });
   });
 });

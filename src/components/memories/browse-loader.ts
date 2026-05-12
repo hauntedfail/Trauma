@@ -1,4 +1,4 @@
-import { query } from "@solidjs/router";
+import { query, revalidate } from "@solidjs/router";
 
 import { loadBrowseMemories } from "~/server/memories/browse";
 
@@ -7,3 +7,7 @@ export const getBrowseMemories = query(async () => {
 
   return loadBrowseMemories();
 }, "browse-memories");
+
+export function revalidateBrowseMemories() {
+  return revalidate(getBrowseMemories.key);
+}

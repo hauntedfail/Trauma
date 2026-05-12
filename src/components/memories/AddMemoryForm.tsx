@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import { submitAddMemoryUrl } from "./add-memory-submit";
+import { revalidateBrowseMemories } from "./browse-loader";
 
 export interface AddMemoryFormProps {
   formClass: string;
@@ -42,6 +43,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       }
 
       setUrl("");
+      void revalidateBrowseMemories();
       navigate(`/memories/${encodeURIComponent(result.memoryId)}`);
       props.onCreated?.(result.memoryId);
     } finally {

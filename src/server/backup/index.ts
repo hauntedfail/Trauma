@@ -6,6 +6,7 @@ import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
 import {
   assertBackupRepositoryRoot,
+  clearBackupPushFailureAlert,
   hasConfiguredRemote,
   recordBackupPushFailureAlert,
 } from "./environment";
@@ -319,6 +320,7 @@ async function pushGitBackup(config: ResolvedTraumaConfig) {
       config.backup.git.remote,
       `HEAD:${config.backup.git.branch}`,
     ]);
+    await clearBackupPushFailureAlert(config);
   } catch (error) {
     await recordBackupPushFailureAlert(config, formatUnknownError(error));
     throw error;

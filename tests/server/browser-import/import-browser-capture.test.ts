@@ -64,6 +64,35 @@ describe("browser capture import", () => {
       }),
     ).rejects.toEqual(new BrowserImportError("extracted page content is too short"));
   });
+
+  it("falls back to the captured source URL when canonical URL is private", async () => {
+    const observedUrls: string[] = [];
+
+    const memory = await importBrowserCapture({
+      payload: createPayload({
+        canonicalUrl: "http://127.0.0.1/admin",
+        articleHtml: `<article>
+          <h1>Captured Article</h1>
+          <p>This browser extracted article contains enough readable words to become a memory through the existing persistence path.</p>
+          <p>The private canonical target must not replace the user-visible source URL.</p>
+        </article>`,
+        articleText:
+          "Captured Article. This browser extracted article contains enough readable words to become a memory through the existing persistence path. The private canonical target must not replace the user-visible source URL.",
+      }),
+      config: createConfig(),
+      db: {} as never,
+      backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+      createMemory: async (input) => {
+        observedUrls.push(input.url);
+        const imported = await input.importer?.importUrl({ url: input.url });
+        expect(imported?.url).toBe("https://example.com/source");
+        return { id: "memory-id" };
+      },
+    });
+
+    expect(memory).toEqual({ id: "memory-id" });
+    expect(observedUrls).toEqual(["https://example.com/source"]);
+  });
 });
 
 function createPayload(

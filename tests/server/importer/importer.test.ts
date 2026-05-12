@@ -177,7 +177,7 @@ describe("URL importer", () => {
       status: "link_only",
       url: "https://example.com/extractor-error",
       title: "example.com",
-      extractionError: "extraction failed: Defuddle could not parse content",
+      extractionError: "extraction failed",
     });
   });
 
@@ -194,6 +194,38 @@ describe("URL importer", () => {
       url: "https://example.com/hung-fetch",
       title: "example.com",
       extractionError: "fetch failed: request timed out",
+    });
+  });
+
+  it("keeps the import timeout active while extracting article content", async () => {
+    const result = await importUrl({
+      url: "https://example.com/slow-extraction",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Slow Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return {
+          title: "Slow Extraction",
+          description: null,
+          faviconUrl: null,
+          markdown:
+            "# Slow Extraction\n\nThis delayed extraction result should not win after the configured import timeout has elapsed.",
+          wordCount: 14,
+        };
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/slow-extraction",
+      title: "example.com",
+      extractionError: "extraction failed: request timed out",
     });
   });
 
@@ -316,7 +348,9 @@ describe("URL importer", () => {
                 <p><a href="/search?q=a&#38;page=3">decimal entity query link</a></p>
                 <p><a href="/search?q=a&#x26;page=4">hex entity query link</a></p>
                 <p><a href="https://token:secret@example.com/private">credential link</a></p>
+                <p><a href="https://assets.internal.example/private">private DNS link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
+                <p><img src="https://images.internal.example/pixel.png" alt="private DNS image"></p>
               </article>
             </body>
           </html>`,
@@ -352,6 +386,10 @@ describe("URL importer", () => {
     expect(result.markdown).toContain(
       "[credential link](https://example.com/private)",
     );
+    expect(result.markdown).toContain("private DNS link");
+    expect(result.markdown).not.toContain("assets.internal.example");
+    expect(result.markdown).not.toContain("private DNS image");
+    expect(result.markdown).not.toContain("images.internal.example");
     expect(result.markdown).not.toContain("token:secret");
     expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).not.toContain("&#38;");

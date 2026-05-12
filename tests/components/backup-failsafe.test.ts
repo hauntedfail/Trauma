@@ -60,4 +60,18 @@ describe("backup failsafe banner", () => {
     expect(await requests[0]?.json()).toEqual({ confirm: true });
     expect(await requests[1]?.json()).toEqual({ confirm: true });
   });
+
+  it("returns a fallback error when the request throws", async () => {
+    const result = await submitBackupFailsafeAction({
+      action: "migrate",
+      fetch: async () => {
+        throw new Error("network unavailable");
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Backup failsafe action request failed.",
+    });
+  });
 });

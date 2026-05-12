@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
@@ -6,6 +8,7 @@ import {
   extractArticleWithDefuddle,
   readableMarkdownLength,
 } from "../importer/extractor";
+import { isBlockedHostname, normalizeHostname } from "../importer/host-policy";
 import { addMemory } from "../memories/add-memory";
 import type { AddMemoryInput } from "../memories/add-memory";
 import type { BrowserImportPayload } from "./payload";
@@ -31,7 +34,7 @@ export interface ImportBrowserCaptureInput {
 const MINIMUM_READABLE_BODY_LENGTH = 80;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
-  const selectedUrl = input.payload.canonicalUrl ?? input.payload.sourceUrl;
+  const selectedUrl = selectCaptureUrl(input.payload);
   if (readableMarkdownLength(input.payload.articleText) < MINIMUM_READABLE_BODY_LENGTH) {
     throw new BrowserImportError("extracted page content is too short");
   }
@@ -73,6 +76,55 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
       importUrl: async () => imported,
     },
   });
+}
+
+function selectCaptureUrl(payload: BrowserImportPayload) {
+  const sourceUrl = normalizeCaptureUrl(payload.sourceUrl);
+  if (sourceUrl === null) {
+    throw new BrowserImportError("source URL is not allowed");
+  }
+
+  if (payload.canonicalUrl === null) {
+    return sourceUrl.toString();
+  }
+
+  const canonicalUrl = normalizeCaptureUrl(payload.canonicalUrl);
+  if (
+    canonicalUrl === null ||
+    !isTrustedCanonicalHostname(sourceUrl, canonicalUrl.hostname)
+  ) {
+    return sourceUrl.toString();
+  }
+
+  return canonicalUrl.toString();
+}
+
+function normalizeCaptureUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    if (isBlockedHostname(url.hostname)) {
+      return null;
+    }
+
+    url.username = "";
+    url.password = "";
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedCanonicalHostname(sourceUrl: URL, hostname: string) {
+  const normalizedHostname = normalizeHostname(hostname);
+  if (normalizedHostname === normalizeHostname(sourceUrl.hostname)) {
+    return true;
+  }
+
+  return isIP(normalizedHostname) !== 0;
 }
 
 function fallbackTitleFromUrl(value: string) {

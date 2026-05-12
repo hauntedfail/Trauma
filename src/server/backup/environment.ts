@@ -188,6 +188,18 @@ export async function clearBackupFailsafeAlert(
   });
 }
 
+export async function clearBackupPushFailureAlert(
+  config: ResolvedTraumaConfig,
+): Promise<void> {
+  await withBackupConnection(config, async (db) => {
+    const repositories = createRepositories(db);
+    const alert = await repositories.backupEnvironment.getBackupFailsafeAlert();
+    if (alert?.kind === "backup_push_failed") {
+      await repositories.backupEnvironment.clearBackupFailsafeAlert();
+    }
+  });
+}
+
 async function createAndReportPathAlert(input: {
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
@@ -324,8 +336,12 @@ async function findContentFile(directory: string): Promise<boolean> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
-  } catch {
-    return false;
+  } catch (error) {
+    if (isErrorWithCode(error, "ENOENT")) {
+      return false;
+    }
+
+    throw error;
   }
 
   for (const entry of entries) {
@@ -339,6 +355,15 @@ async function findContentFile(directory: string): Promise<boolean> {
   }
 
   return false;
+}
+
+function isErrorWithCode(error: unknown, code: string) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
 }
 
 async function bootstrapBackupRepository(config: ResolvedTraumaConfig) {

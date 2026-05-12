@@ -73,7 +73,18 @@ export async function POST(event: APIEvent): Promise<Response> {
     );
   }
 
-  const parsed = parseBrowserImportPayload(await event.request.text(), {
+  const body = await readBoundedRequestText(
+    event.request,
+    browserImportConfig.maxBytes,
+  );
+  if (!body.ok) {
+    return json(
+      { error: "request body is too large" },
+      { status: 413, headers: corsHeaders },
+    );
+  }
+
+  const parsed = parseBrowserImportPayload(body.text, {
     maxBytes: browserImportConfig.maxBytes,
   });
   if (!parsed.ok) {
@@ -133,6 +144,36 @@ function createCorsHeaders(origin: string | null): HeadersInit {
 
 function isJsonContentType(contentType: string | null) {
   return contentType?.toLowerCase().split(";")[0]?.trim() === "application/json";
+}
+
+async function readBoundedRequestText(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false }> {
+  if (!request.body) {
+    return { ok: true, text: "" };
+  }
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytesRead = 0;
+
+  while (true) {
+    const read = await reader.read();
+    if (read.done) {
+      chunks.push(decoder.decode());
+      return { ok: true, text: chunks.join("") };
+    }
+
+    bytesRead += read.value.byteLength;
+    if (bytesRead > maxBytes) {
+      await reader.cancel();
+      return { ok: false };
+    }
+
+    chunks.push(decoder.decode(read.value, { stream: true }));
+  }
 }
 
 function json(body: unknown, init: ResponseInit) {

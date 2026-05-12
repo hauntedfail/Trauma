@@ -45,9 +45,9 @@ Create the local environment file from the example:
 cp .env.example .env
 ```
 
-`.env` is gitignored. It controls the dev/start bind address (`HOST`),
-listening port (`PORT`), and base HMR port (`TRAUMA_HMR_PORT`). The defaults
-in `.env.example` bind loopback only (`127.0.0.1:3000`); adjust as needed.
+`.env` is gitignored. Keep it for local TRAUMA settings such as browser import.
+The `dev`, `start`, and `preview` scripts default `HOST` to `127.0.0.1` unless
+you set another host in the shell.
 
 Run the dev server:
 
