@@ -40,6 +40,25 @@ describe("backup failsafe banner", () => {
     expect(html).not.toContain("Dismiss");
   });
 
+  it("does not render path recovery actions for push failure alerts", () => {
+    const html = renderToString(() =>
+      createComponent(BackupFailsafeBanner, {
+        alert: {
+          ...alert,
+          kind: "backup_push_failed",
+          message: "Backup push failed",
+          previousProjectPath: null,
+          previousStorePath: null,
+          error: "remote unavailable",
+        },
+      }),
+    );
+
+    expect(html).toContain("Backup push failed");
+    expect(html).not.toContain("Revert config");
+    expect(html).not.toContain("Migrate backup");
+  });
+
   it("posts confirmed revert and migrate actions to their API endpoints", async () => {
     const requests: Request[] = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {

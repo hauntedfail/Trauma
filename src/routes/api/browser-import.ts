@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import {
   BrowserImportError,
   importBrowserCapture,
@@ -115,6 +116,16 @@ export async function POST(event: APIEvent): Promise<Response> {
       { status: 201, headers: corsHeaders },
     );
   } catch (error) {
+    if (error instanceof BackupEnvironmentFailsafeError) {
+      return json(
+        {
+          error: error.message,
+          backupFailsafe: error.alert ?? null,
+        },
+        { status: 409, headers: corsHeaders },
+      );
+    }
+
     if (error instanceof BrowserImportError) {
       return json(
         { error: error.message },

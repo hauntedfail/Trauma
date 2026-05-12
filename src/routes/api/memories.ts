@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { validateImportUrl } from "~/server/importer";
@@ -29,6 +30,18 @@ export async function POST(event: APIEvent): Promise<Response> {
     });
 
     return json({ memory }, { status: 201 });
+  } catch (error) {
+    if (error instanceof BackupEnvironmentFailsafeError) {
+      return json(
+        {
+          error: error.message,
+          backupFailsafe: error.alert ?? null,
+        },
+        { status: 409 },
+      );
+    }
+
+    throw error;
   } finally {
     connection.close();
   }

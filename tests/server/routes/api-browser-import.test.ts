@@ -1,12 +1,22 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { APIEvent } from "@solidjs/start/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { OPTIONS, POST } from "../../../src/routes/api/browser-import";
+import { loadTraumaConfig } from "../../../src/server/config";
+import { initializeDatabase } from "../../../src/server/db";
 
 const originalEnv = { ...process.env };
+const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   process.env = { ...originalEnv };
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 describe("browser import API route", () => {
@@ -149,6 +159,56 @@ describe("browser import API route", () => {
     expect(pulledChunks).toBe(2);
     expect(canceled).toBe(true);
   });
+
+  it("maps backup failsafe errors to JSON responses with CORS", async () => {
+    process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    process.env.TRAUMA_CONFIG_PATH = configPath;
+    await seedPathDrift(configPath, root);
+
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/browser-import", {
+          method: "POST",
+          headers: {
+            origin: "chrome-extension://extension-id",
+            authorization: "Bearer token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            sourceUrl: "https://example.com/article",
+            canonicalUrl: null,
+            title: "Captured",
+            description: null,
+            articleHtml:
+              "<main><h1>Captured</h1><p>This captured article body is intentionally long enough to pass readable content validation before backup failsafe handling runs.</p></main>",
+            articleText:
+              "Captured article body intentionally long enough to pass readable content validation before backup failsafe handling runs.",
+            selector: "main",
+            extractionStrategy: "semantic_selector",
+            capturedAt: new Date().toISOString(),
+            extensionVersion: "0.1.0",
+          }),
+        }),
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "chrome-extension://extension-id",
+    );
+    expect(body).toMatchObject({
+      error: "Backup location changed",
+      backupFailsafe: {
+        kind: "backup_path_drift",
+        currentProjectPath: join(root, "new-data"),
+        currentStorePath: join(root, "new-data/storage"),
+      },
+    });
+  });
 });
 
 function createApiEvent(request: Request): APIEvent {
@@ -159,4 +219,72 @@ function createApiEvent(request: Request): APIEvent {
     locals: {},
     nativeEvent: {},
   } as unknown as APIEvent;
+}
+
+async function makeRoot() {
+  const root = await mkdtemp(join(tmpdir(), "trauma-browser-import-api-"));
+  tempDirs.push(root);
+  return root;
+}
+
+async function writeConfig(root: string) {
+  const configPath = join(root, "trauma.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify(
+      {
+        projectPath: "./new-data",
+        storePath: "./new-data/storage",
+        databasePath: "./.trauma/trauma.sqlite",
+        backup: {
+          git: {
+            enabled: true,
+            remote: "origin",
+            branch: "main",
+            push: false,
+            commitMessageTemplate: "backup memory {memoryId}",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  return configPath;
+}
+
+async function seedPathDrift(configPath: string, root: string) {
+  const config = loadTraumaConfig({ configPath });
+  const now = new Date("2026-05-13T00:00:00.000Z");
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+      id: "default",
+      projectPath: join(root, "old-data"),
+      storePath: join(root, "old-data/storage"),
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await connection.repositories.memories.create({
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+      url: "https://example.com/existing",
+      title: "Existing",
+      description: null,
+      faviconUrl: null,
+      contentPath: "memories/existing/CONTENT.md",
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "success",
+      lastBackupAt: now,
+      lastBackupError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
 }

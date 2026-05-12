@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
 import {
+  assertBackupEnvironmentReady,
   assertBackupRepositoryRoot,
   clearBackupPushFailureAlert,
   hasConfiguredRemote,
@@ -216,6 +217,10 @@ export function createGitMemoryBackupQueue(
 
       const connection = openConnection(input.config);
       try {
+        await assertBackupEnvironmentReady({
+          config: input.config,
+          db: connection.db,
+        });
         const backups =
           await connection.repositories.memories.listBackupsEligibleForRetry();
         let enqueued = 0;
