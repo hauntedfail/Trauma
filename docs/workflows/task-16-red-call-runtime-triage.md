@@ -13,10 +13,13 @@ loading consistently.
 - Tailwind migration was split into Task 16a and has landed on `triage`.
 - Drizzle/SQLite hardening is split into Task 16b so DB/ORM review findings do
   not expand this runtime workflow.
+- Defuddle-based importer extraction refactor is split into
+  [Task 16c](task-16c-defuddle-importer-refactor.md) so URL content extraction
+  quality does not expand this runtime workflow.
 - `src/styles/app.css` has been removed; the active global style entry is
   `src/styles/tailwind.css`.
 - Keep this workflow open for any remaining red-call triage that is not already
-  owned by Task 16b or the archived Task 16a migration record.
+  owned by Task 16b, Task 16c, or the archived Task 16a migration record.
 
 ## Initial Evidence
 
@@ -94,7 +97,8 @@ Primary implementation files:
 Out of scope:
 
 - Markdown reader library selection or decomposition.
-- Importer extraction behavior.
+- Importer extraction behavior; see
+  [Task 16c](task-16c-defuddle-importer-refactor.md) for the Defuddle refactor.
 - Database schema redesign.
 - UI redesign beyond fixing E2E-proven interaction or routing defects.
 - Git backup queue implementation.

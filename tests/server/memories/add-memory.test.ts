@@ -131,6 +131,177 @@ describe("add memory orchestration", () => {
     ]);
   });
 
+  it("imports fetched HTML through Defuddle into configured storage, SQLite, and reader output", async () => {
+    const root = await makeRoot();
+    const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef118";
+    const output = runBunScript(
+      `
+        import { readFile } from "node:fs/promises";
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { importUrl } from "./src/server/importer/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+        import { loadReaderMemory } from "./src/server/reader/page-data.ts";
+        import { readMemoryContent } from "./src/server/store/memory-content.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+        const memoryId = ${JSON.stringify(memoryId)};
+
+        try {
+          const result = await addMemory({
+            url: "https://example.com/importable-defuddle",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: (input) =>
+                importUrl({
+                  url: input.url,
+                  resolveHostname: async () => ["93.184.216.34"],
+                  fetch: async () =>
+                    new Response(
+                      \`<!doctype html>
+                      <html>
+                        <head>
+                          <title>Fallback Defuddle Title</title>
+                          <meta property="og:title" content="Defuddle Import">
+                          <meta name="description" content="Content extracted by Defuddle.">
+                          <link rel="icon" href="/favicon.ico">
+                        </head>
+                        <body>
+                          <header>global header clutter</header>
+                          <aside>sidebar clutter</aside>
+                          <article>
+                            <h1>Defuddle Import</h1>
+                            <p>This paragraph has enough readable words for the importer to preserve the article as a Markdown memory.</p>
+                            <p>The stored file should be written under the configured store path and rendered by the reader pipeline.</p>
+                            <p><a href="/reader-safe">reader safe link</a></p>
+                            <p><a href="javascript:alert(1)">unsafe link</a></p>
+                          </article>
+                        </body>
+                      </html>\`,
+                      {
+                        headers: {
+                          "content-type": "text/html; charset=utf-8",
+                        },
+                      },
+                    ),
+                }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("backup should be disabled");
+              },
+            },
+            generateId: () => memoryId,
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+          const stored = await connection.repositories.memories.findById(memoryId);
+          const sqliteRow = connection.sqlite
+            .prepare("select id, url, title, content_path as contentPath, extraction_status as extractionStatus, extraction_error as extractionError, backup_status as backupStatus from memories where id = ?")
+            .get(memoryId);
+          const content = await readMemoryContent({
+            config: { storePath: config.storePath },
+            memoryId,
+          });
+          const diskContent = await readFile(
+            join(config.storePath, stored.contentPath),
+            "utf8",
+          );
+          const reader = await loadReaderMemory(memoryId, { config });
+
+          process.stdout.write(
+            JSON.stringify({ result, stored, sqliteRow, content, diskContent, reader }),
+          );
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { result, stored, sqliteRow, content, diskContent, reader } =
+      JSON.parse(output);
+
+    expect(result).toMatchObject({
+      id: memoryId,
+      title: "Defuddle Import",
+      extractionStatus: "success",
+      backupStatus: "disabled",
+    });
+    expect(stored).toMatchObject({
+      id: memoryId,
+      url: "https://example.com/importable-defuddle",
+      title: "Defuddle Import",
+      description: "Content extracted by Defuddle.",
+      faviconUrl: "https://example.com/favicon.ico",
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "disabled",
+    });
+    expect(sqliteRow).toEqual({
+      id: memoryId,
+      url: "https://example.com/importable-defuddle",
+      title: "Defuddle Import",
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "disabled",
+    });
+    expect(content.frontmatter).toEqual({
+      id: memoryId,
+      url: "https://example.com/importable-defuddle",
+      title: "Defuddle Import",
+      capturedAt: "2026-05-09T06:00:00.000Z",
+      extractionStatus: "success",
+    });
+    expect(content.markdown).toContain("# Defuddle Import");
+    expect(content.markdown).toContain("configured store path");
+    expect(content.markdown).toContain(
+      "[reader safe link](https://example.com/reader-safe)",
+    );
+    expect(content.markdown).toContain("unsafe link");
+    expect(content.markdown).not.toContain("javascript:");
+    expect(content.markdown).not.toContain("sidebar clutter");
+    expect(content.markdown).not.toContain("<article");
+    expect(diskContent).toContain('extraction_status: "success"');
+    expect(diskContent).toContain(content.markdown);
+    expect(reader.status).toBe("ready");
+    expect(reader.memory).toMatchObject({
+      id: memoryId,
+      title: "Defuddle Import",
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+    });
+    expect(reader.content).toEqual({
+      relativePath: `memories/${memoryId}/CONTENT.md`,
+    });
+    expect(reader.rendered.html).toContain('<h1 id="defuddle-import"');
+    expect(reader.rendered.html).toContain("reader safe link");
+  });
+
   it("creates a link-only memory when extraction falls back", async () => {
     const root = await makeRoot();
     const output = runBunScript(

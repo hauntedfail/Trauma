@@ -131,6 +131,56 @@ describe("URL importer", () => {
     });
   });
 
+  it("returns a link-only fallback when extraction returns blank markdown", async () => {
+    const result = await importUrl({
+      url: "https://example.com/blank-extraction",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Blank Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => ({
+        title: "Blank Extraction",
+        description: null,
+        faviconUrl: null,
+        markdown: "",
+        wordCount: 0,
+      }),
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/blank-extraction",
+      title: "Blank Extraction",
+      extractionError: "insufficient article body",
+    });
+  });
+
+  it("returns a link-only fallback when extraction fails", async () => {
+    const result = await importUrl({
+      url: "https://example.com/extractor-error",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Extractor Error</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => {
+        throw new Error("Defuddle could not parse content");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/extractor-error",
+      title: "example.com",
+      extractionError: "extraction failed: Defuddle could not parse content",
+    });
+  });
+
   it("times out fetch implementations that ignore abort signals", async () => {
     const result = await importUrl({
       url: "https://example.com/hung-fetch",

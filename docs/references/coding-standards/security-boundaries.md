@@ -43,6 +43,9 @@
 - MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,
   local/private/link-local/non-global IP targets, URL userinfo, unsafe
   redirects, and DNS answers that resolve outside the public-host policy.
+- MUST keep third-party extractor fallback fetches disabled unless they pass
+  through the same importer public-host, timeout, redirect, and response-size
+  controls.
 - MUST bound importer fetches with timeouts, response-size limits, body
   cancellation on fallback paths, and retry over already validated public DNS
   answers before returning link-only fallback. The timeout budget must include

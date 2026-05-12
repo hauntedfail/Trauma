@@ -11,6 +11,7 @@ This reference records the selected initial stack and explicit exclusions.
 - Runtime and package manager: Bun.
 - ORM: Drizzle ORM.
 - Database: SQLite through Drizzle's Bun SQLite support.
+- Web content extraction: Defuddle with linkedom for server-side DOM parsing.
 - Unit/integration testing: Vitest.
 - E2E testing: Playwright.
 
