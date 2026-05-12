@@ -32,10 +32,14 @@ const MINIMUM_READABLE_BODY_LENGTH = 80;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
   const selectedUrl = input.payload.canonicalUrl ?? input.payload.sourceUrl;
+  if (readableMarkdownLength(input.payload.articleText) < MINIMUM_READABLE_BODY_LENGTH) {
+    throw new BrowserImportError("extracted page content is too short");
+  }
+
   let extracted: Awaited<ReturnType<typeof extractArticleWithDefuddle>>;
   try {
     extracted = await extractArticleWithDefuddle({
-      html: input.payload.html,
+      html: createExtractionDocumentHtml(input.payload),
       pageUrl: selectedUrl,
     });
   } catch {
@@ -77,4 +81,25 @@ function fallbackTitleFromUrl(value: string) {
   } catch {
     return value;
   }
+}
+
+function createExtractionDocumentHtml(payload: BrowserImportPayload) {
+  return `<!doctype html>
+<html>
+  <head>
+    <title>${escapeHtml(payload.title ?? "")}</title>
+    ${payload.description === null ? "" : `<meta name="description" content="${escapeHtml(payload.description)}">`}
+  </head>
+  <body>
+    ${payload.articleHtml}
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }

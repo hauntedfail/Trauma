@@ -3,10 +3,18 @@ export interface BrowserImportPayload {
   canonicalUrl: string | null;
   title: string | null;
   description: string | null;
-  html: string;
+  articleHtml: string;
+  articleText: string;
+  selector: string;
+  extractionStrategy: BrowserImportExtractionStrategy;
   capturedAt: string;
   extensionVersion: string;
 }
+
+export type BrowserImportExtractionStrategy =
+  | "site_selector"
+  | "semantic_selector"
+  | "body_fallback";
 
 export type BrowserImportPayloadResult =
   | { ok: true; payload: BrowserImportPayload }
@@ -14,6 +22,7 @@ export type BrowserImportPayloadResult =
 
 const MAX_TITLE_LENGTH = 500;
 const MAX_DESCRIPTION_LENGTH = 2_000;
+const MAX_SELECTOR_LENGTH = 300;
 const MAX_EXTENSION_VERSION_LENGTH = 64;
 const CAPTURE_CLOCK_SKEW_MS = 10 * 60 * 1_000;
 
@@ -41,7 +50,10 @@ export function parseBrowserImportPayload(
     "canonicalUrl",
     "title",
     "description",
-    "html",
+    "articleHtml",
+    "articleText",
+    "selector",
+    "extractionStrategy",
     "capturedAt",
     "extensionVersion",
   ]);
@@ -80,11 +92,41 @@ export function parseBrowserImportPayload(
     return { ok: false, error: description.error };
   }
 
-  if (typeof parsed.html !== "string" || parsed.html.trim() === "") {
-    return { ok: false, error: "html must be a non-empty string" };
+  const articleHtml = normalizeRequiredString(parsed.articleHtml, {
+    field: "articleHtml",
+    maxLength: options.maxBytes,
+  });
+  if (!articleHtml.ok) {
+    return { ok: false, error: articleHtml.error };
   }
-  if (new TextEncoder().encode(parsed.html).byteLength > options.maxBytes) {
-    return { ok: false, error: "html is too large" };
+  if (new TextEncoder().encode(articleHtml.value).byteLength > options.maxBytes) {
+    return { ok: false, error: "articleHtml is too large" };
+  }
+
+  const articleText = normalizeRequiredString(parsed.articleText, {
+    field: "articleText",
+    maxLength: options.maxBytes,
+  });
+  if (!articleText.ok) {
+    return { ok: false, error: articleText.error };
+  }
+  if (new TextEncoder().encode(articleText.value).byteLength > options.maxBytes) {
+    return { ok: false, error: "articleText is too large" };
+  }
+
+  const selector = normalizeRequiredString(parsed.selector, {
+    field: "selector",
+    maxLength: MAX_SELECTOR_LENGTH,
+  });
+  if (!selector.ok) {
+    return { ok: false, error: selector.error };
+  }
+
+  const extractionStrategy = normalizeExtractionStrategy(
+    parsed.extractionStrategy,
+  );
+  if (!extractionStrategy.ok) {
+    return { ok: false, error: extractionStrategy.error };
   }
 
   const capturedAt = normalizeCapturedAt(parsed.capturedAt, options.now);
@@ -107,7 +149,10 @@ export function parseBrowserImportPayload(
       canonicalUrl: canonicalUrl.value,
       title: title.value,
       description: description.value,
-      html: parsed.html,
+      articleHtml: articleHtml.value,
+      articleText: articleText.value,
+      selector: selector.value,
+      extractionStrategy: extractionStrategy.value,
       capturedAt: capturedAt.value,
       extensionVersion: extensionVersion.value,
     },
@@ -180,6 +225,22 @@ function normalizeRequiredString(
   }
 
   return { ok: true as const, value: normalized };
+}
+
+function normalizeExtractionStrategy(value: unknown) {
+  if (
+    value === "site_selector" ||
+    value === "semantic_selector" ||
+    value === "body_fallback"
+  ) {
+    return { ok: true as const, value: value as BrowserImportExtractionStrategy };
+  }
+
+  return {
+    ok: false as const,
+    error:
+      "extractionStrategy must be site_selector, semantic_selector, or body_fallback",
+  };
 }
 
 function normalizeCapturedAt(value: unknown, now: (() => Date) | undefined) {

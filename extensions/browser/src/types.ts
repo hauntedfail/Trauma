@@ -8,10 +8,18 @@ export interface CapturedTabSnapshot {
   canonicalUrl?: string;
   title?: string;
   description?: string;
-  html: string;
+  articleHtml: string;
+  articleText: string;
+  selector: string;
+  extractionStrategy: ExtractionStrategy;
   capturedAt: string;
   extensionVersion: string;
 }
+
+export type ExtractionStrategy =
+  | "site_selector"
+  | "semantic_selector"
+  | "body_fallback";
 
 export type CaptureResult =
   | { ok: true; snapshot: CapturedTabSnapshot }
@@ -76,8 +84,7 @@ export interface ChromeApi {
   scripting: {
     executeScript: <T>(details: {
       target: { tabId: number };
-      func: (...args: readonly never[]) => T;
-      args?: readonly unknown[];
+      files: readonly string[];
     }) => Promise<Array<{ result?: T }>>;
   };
 }

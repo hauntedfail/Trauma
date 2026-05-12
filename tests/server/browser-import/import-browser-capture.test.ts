@@ -7,25 +7,20 @@ import {
 } from "../../../src/server/browser-import";
 
 describe("browser capture import", () => {
-  it("extracts browser-captured HTML and creates a memory through the existing path", async () => {
+  it("uses browser-extracted article HTML without fetching the current tab URL", async () => {
     const payload = createPayload({
       canonicalUrl: "https://example.com/canonical",
       title: "Captured fallback title",
       description: "Captured fallback description",
-      html: `<!doctype html>
-        <html>
-          <head>
-            <title>Document fallback</title>
-            <meta property="og:title" content="Captured Article">
-          </head>
-          <body>
-            <article>
-              <h1>Captured Article</h1>
-              <p>This browser captured article contains enough readable words to become a memory through the existing persistence path.</p>
-              <p>The extension provides loaded HTML, but the server still owns extraction and markdown generation.</p>
-            </article>
-          </body>
-        </html>`,
+      articleHtml: `<article>
+        <h1>Captured Article</h1>
+        <p>This browser extracted article contains enough readable words to become a memory through the existing persistence path.</p>
+        <p>The extension provides selected article HTML, but the server still owns markdown generation.</p>
+      </article>`,
+      articleText:
+        "Captured Article. This browser extracted article contains enough readable words to become a memory through the existing persistence path. The extension provides selected article HTML.",
+      selector: "article",
+      extractionStrategy: "semantic_selector",
     });
     const observedUrls: string[] = [];
 
@@ -40,10 +35,10 @@ describe("browser capture import", () => {
         expect(imported).toMatchObject({
           status: "success",
           url: "https://example.com/canonical",
-          title: "Captured Article",
+          title: "Captured fallback title",
         });
         expect(imported?.status === "success" ? imported.markdown : "").toContain(
-          "server still owns extraction",
+          "server still owns markdown generation",
         );
         return { id: "memory-id" };
       },
@@ -56,7 +51,10 @@ describe("browser capture import", () => {
   it("does not create link-only memories when browser capture extraction fails", async () => {
     await expect(
       importBrowserCapture({
-        payload: createPayload({ html: "<html><body>thin</body></html>" }),
+        payload: createPayload({
+          articleHtml: "<article>thin</article>",
+          articleText: "thin",
+        }),
         config: createConfig(),
         db: {} as never,
         backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
@@ -76,7 +74,10 @@ function createPayload(
     canonicalUrl: null,
     title: null,
     description: null,
-    html: "<html></html>",
+    articleHtml: "<article></article>",
+    articleText: "",
+    selector: "article",
+    extractionStrategy: "semantic_selector",
     capturedAt: "2026-05-12T12:00:00.000Z",
     extensionVersion: "0.1.0",
     ...overrides,

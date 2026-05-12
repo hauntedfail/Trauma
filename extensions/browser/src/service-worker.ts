@@ -1,9 +1,9 @@
-import { createCapturedTabSnapshot } from "./capture";
 import { normalizeTraumaUrl } from "./settings";
 import type {
   BrowserImportResponse,
   BrowserImportSuccess,
   CapturedTabSnapshot,
+  CaptureResult,
   ExtensionSettings,
   RuntimeMessage,
 } from "./types";
@@ -52,12 +52,19 @@ async function readActiveTab() {
   return tabs[0] ?? {};
 }
 
-async function captureTab(tabId: number) {
-  const [injection] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: createCapturedTabSnapshot,
-    args: [chrome.runtime.getManifest().version],
-  });
+async function captureTab(tabId: number): Promise<CaptureResult> {
+  let injection: { result?: CaptureResult } | undefined;
+  try {
+    [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["inject.bundle.js"],
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Could not capture the page: ${formatUnknownError(error)}`,
+    };
+  }
 
   return injection?.result ?? { ok: false, error: "Could not capture the page." };
 }

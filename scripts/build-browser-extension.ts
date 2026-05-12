@@ -30,6 +30,23 @@ if (!build.success) {
   process.exit(1);
 }
 
+const injectBuild = await Bun.build({
+  entrypoints: [join(sourceRoot, "inject.ts")],
+  outdir: distRoot,
+  target: "browser",
+  format: "esm",
+  minify: false,
+  sourcemap: "external",
+  naming: "inject.bundle.js",
+});
+
+if (!injectBuild.success) {
+  for (const log of injectBuild.logs) {
+    console.error(log);
+  }
+  process.exit(1);
+}
+
 await Promise.all([
   copyFile(join(extensionRoot, "manifest.json"), join(distRoot, "manifest.json")),
   copyFile(join(sourceRoot, "popup.html"), join(distRoot, "popup.html")),

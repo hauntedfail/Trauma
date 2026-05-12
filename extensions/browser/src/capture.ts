@@ -1,4 +1,10 @@
-import type { CaptureResult, CapturedTabSnapshot } from "./types";
+import type { CaptureResult, ExtractionStrategy } from "./types";
+
+interface ExtractionCandidate {
+  element: Element;
+  selector: string;
+  extractionStrategy: ExtractionStrategy;
+}
 
 const REMOVED_SELECTORS = [
   "script",
@@ -17,6 +23,16 @@ const REMOVED_SELECTORS = [
   "button",
 ];
 
+const SITE_SPECIFIC_SELECTORS = [
+  {
+    hostnameSuffix: "openai.com",
+    selectors: ['[data-testid="page-content"]', "main article", "main"],
+  },
+] as const;
+
+const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
+const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
+
 export function createCapturedTabSnapshot(
   extensionVersion: string,
   maxBytes = 4_500_000,
@@ -34,8 +50,19 @@ export function createCapturedTabSnapshot(
   }
 
   sanitizeElement(documentElement);
-  const html = `<!doctype html>\n${documentElement.outerHTML}`;
-  if (new TextEncoder().encode(html).byteLength > maxBytes) {
+  const candidate = selectExtractionCandidate(document, documentElement);
+  if (candidate === null) {
+    return { ok: false, error: "Could not find readable page content." };
+  }
+
+  const articleHtml = candidate.element.outerHTML;
+  const articleText = normalizeReadableText(candidate.element.textContent ?? "");
+
+  if (articleText.length === 0) {
+    return { ok: false, error: "Could not find readable page content." };
+  }
+
+  if (new TextEncoder().encode(articleHtml).byteLength > maxBytes) {
     return { ok: false, error: "The current page is too large to import." };
   }
 
@@ -46,11 +73,126 @@ export function createCapturedTabSnapshot(
       canonicalUrl: readCanonicalUrl(),
       title: normalizeText(document.title),
       description: readDescription(),
-      html,
+      articleHtml,
+      articleText,
+      selector: candidate.selector,
+      extractionStrategy: candidate.extractionStrategy,
       capturedAt: new Date().toISOString(),
       extensionVersion,
     },
   };
+}
+
+function selectExtractionCandidate(
+  liveDocument: Document,
+  sanitizedDocumentElement: Element,
+): ExtractionCandidate | null {
+  const siteCandidate = selectSiteSpecificCandidate(liveDocument);
+  if (siteCandidate !== null) {
+    return siteCandidate;
+  }
+
+  for (const selector of SEMANTIC_SELECTORS) {
+    const candidate = selectBestElement(
+      Array.from(sanitizedDocumentElement.querySelectorAll(selector)),
+    );
+    if (candidate !== null) {
+      return {
+        element: candidate,
+        selector,
+        extractionStrategy: "semantic_selector",
+      };
+    }
+  }
+
+  const body = sanitizedDocumentElement.querySelector("body");
+  return body === null
+    ? null
+    : {
+        element: body,
+        selector: "body",
+        extractionStrategy: "body_fallback",
+      };
+}
+
+function selectSiteSpecificCandidate(liveDocument: Document) {
+  const hostname = location.hostname.toLowerCase();
+  const selectorGroup = SITE_SPECIFIC_SELECTORS.find(
+    (group) =>
+      hostname === group.hostnameSuffix ||
+      hostname.endsWith(`.${group.hostnameSuffix}`),
+  );
+  if (selectorGroup === undefined) {
+    return null;
+  }
+
+  for (const selector of selectorGroup.selectors) {
+    const candidate = selectBestElement(querySelectorAllDeep(liveDocument, selector));
+    if (candidate !== null) {
+      const clone = candidate.cloneNode(true);
+      if (!(clone instanceof Element)) {
+        continue;
+      }
+      sanitizeElement(clone);
+      return {
+        element: clone,
+        selector,
+        extractionStrategy: "site_selector" as const,
+      };
+    }
+  }
+
+  return null;
+}
+
+function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
+  const results: Element[] = [];
+  const queue: ParentNode[] = [root];
+  const visited = new Set<ParentNode>();
+  let inspected = 0;
+
+  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+    const current = queue.shift();
+    if (current === undefined || visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+
+    if (current instanceof Element && current.matches(selector)) {
+      results.push(current);
+    }
+
+    const allElements = Array.from(current.querySelectorAll("*"));
+    results.push(...Array.from(current.querySelectorAll(selector)));
+
+    for (const element of allElements) {
+      inspected += 1;
+      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
+        break;
+      }
+
+      if (element.shadowRoot !== null && !visited.has(element.shadowRoot)) {
+        queue.push(element.shadowRoot);
+      }
+    }
+  }
+
+  return results;
+}
+
+function selectBestElement(elements: readonly Element[]) {
+  let best: Element | null = null;
+  let bestLength = 0;
+
+  for (const element of elements) {
+    const textLength = normalizeReadableText(element.textContent ?? "").length;
+    if (textLength > bestLength) {
+      best = element;
+      bestLength = textLength;
+    }
+  }
+
+  return bestLength > 0 ? best : null;
 }
 
 function sanitizeElement(root: Element) {
@@ -60,7 +202,7 @@ function sanitizeElement(root: Element) {
     }
   }
 
-  for (const element of Array.from(root.querySelectorAll("*"))) {
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || name === "srcdoc") {
@@ -86,6 +228,10 @@ function readDescription() {
 }
 
 function normalizeText(value: string) {
-  const normalized = value.trim();
+  const normalized = normalizeReadableText(value);
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeReadableText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }

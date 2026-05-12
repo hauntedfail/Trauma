@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("extension page capture", () => {
-  it("sanitizes active content while preserving article HTML", () => {
+  it("extracts and sanitizes a generic article candidate", () => {
     installPage({
       href: "https://example.com/article",
       html: `<!doctype html>
@@ -56,13 +56,66 @@ describe("extension page capture", () => {
       canonicalUrl: "https://example.com/canonical",
       title: "Captured Article",
       description: "Useful description",
+      selector: "article",
+      extractionStrategy: "semantic_selector",
       extensionVersion: "0.1.0",
     });
-    expect(result.snapshot.html).toContain("Readable paragraph.");
-    expect(result.snapshot.html).not.toContain("<script");
-    expect(result.snapshot.html).not.toContain("onclick");
-    expect(result.snapshot.html).not.toContain("<iframe");
-    expect(result.snapshot.html).not.toContain("<button");
+    expect(result.snapshot.articleText).toContain("Readable paragraph.");
+    expect(result.snapshot.articleHtml).toContain("Readable paragraph.");
+    expect(result.snapshot.articleHtml).not.toContain("<script");
+    expect(result.snapshot.articleHtml).not.toContain("onclick");
+    expect(result.snapshot.articleHtml).not.toContain("<iframe");
+    expect(result.snapshot.articleHtml).not.toContain("<button");
+  });
+
+  it("uses site-specific selectors against open shadow roots in the live document", () => {
+    installPage({
+      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      html: `<!doctype html>
+        <html>
+          <head>
+            <title>Harness Engineering | OpenAI</title>
+            <link rel="canonical" href="https://openai.com/ja-JP/index/harness-engineering/">
+          </head>
+          <body>
+            <main id="app-shell"></main>
+          </body>
+        </html>`,
+    });
+    const host = document.getElementById("app-shell");
+    if (host === null) {
+      throw new Error("missing shadow host");
+    }
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "page-content");
+    article.innerHTML = `
+      <h1>Harness engineering</h1>
+      <p>The OpenAI harness engineering article body is visible in the current tab.</p>
+      <p>This content exists inside an open shadow root and must be read through the live document path.</p>
+      <script>window.evil = true;</script>
+    `;
+    shadowRoot.append(article);
+
+    const result = createCapturedTabSnapshot("0.1.0");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot).toMatchObject({
+      sourceUrl: "https://openai.com/ja-JP/index/harness-engineering/",
+      canonicalUrl: "https://openai.com/ja-JP/index/harness-engineering/",
+      title: "Harness Engineering | OpenAI",
+      selector: '[data-testid="page-content"]',
+      extractionStrategy: "site_selector",
+      extensionVersion: "0.1.0",
+    });
+    expect(result.snapshot.articleText).toContain(
+      "visible in the current tab",
+    );
+    expect(result.snapshot.articleHtml).toContain("Harness engineering");
+    expect(result.snapshot.articleHtml).not.toContain("<script");
   });
 
   it("rejects browser-internal pages", () => {
