@@ -7,7 +7,7 @@ import {
 
 describe("reader route state", () => {
   it("maps loading and ready results to document titles", () => {
-    expect(titleForReaderResult(undefined)).toBe("Memory | Trauma");
+    expect(titleForReaderResult(undefined)).toBe("Memory | TRAUMA");
     expect(
       titleForReaderResult({
         status: "ready",
@@ -30,7 +30,7 @@ describe("reader route state", () => {
           toc: [],
         },
       }),
-    ).toBe("Reader Title | Trauma");
+    ).toBe("Reader Title | TRAUMA");
   });
 
   it("maps reader error results to HTTP status codes", () => {

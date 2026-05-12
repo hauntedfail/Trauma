@@ -48,7 +48,7 @@ export function MemoryBrowse() {
 
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
-      <Title>Memories | Trauma</Title>
+      <Title>Memories | TRAUMA</Title>
       <header class={pageHeader}>
         <div>
           <p class={eyebrow}>Local memory archive</p>

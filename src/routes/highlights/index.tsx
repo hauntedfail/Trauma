@@ -27,7 +27,7 @@ export default function HighlightsIndex() {
 
   return (
     <section class={pageFrame} aria-labelledby="highlights-title">
-      <Title>Highlights | Trauma</Title>
+      <Title>Highlights | TRAUMA</Title>
       <header class={pageHeader}>
         <div>
           <p class={eyebrow}>Highlighted excerpts</p>

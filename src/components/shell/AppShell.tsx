@@ -124,7 +124,7 @@ function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () =
         Menu
       </button>
       <A class="inline-flex min-h-10 min-w-0 items-center text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
-        Trauma
+        TRAUMA
       </A>
       <button type="button" class={`${buttonBase} w-full overflow-hidden bg-white text-trauma-accent`} aria-label="Open filters" onClick={props.onOpenFilters}>
         Filter
@@ -143,7 +143,7 @@ function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void;
       }}
     >
       <A class="inline-flex min-h-10 items-center text-[22px] font-extrabold max-[1040px]:w-full max-[1040px]:justify-center max-[1040px]:text-lg" href="/memories" onClick={props.onNavigate}>
-        Trauma
+        TRAUMA
       </A>
       <nav class="grid content-start gap-2">
         <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/memories" onClick={props.onNavigate}>
