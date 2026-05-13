@@ -1,8 +1,27 @@
 import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+  type JSX,
+} from "solid-js";
 
 import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
+import { TraumaMark } from "../brand/TraumaMark";
+import {
+  KebabIcon,
+  LockIcon,
+  MoonIcon,
+  PageIcon,
+  PaperIcon,
+  PlusIcon,
+  SunIcon,
+  TraumaNavIcons,
+} from "../icons";
 import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { getBrowseMemories } from "../memories/browse-loader";
 import {
@@ -16,17 +35,49 @@ import {
   type BrowseQuery,
   type BrowseTaxonomyItem,
 } from "../memories/browse-data";
+import {
+  DEFAULT_BRIGHTNESS_MODE,
+  DEFAULT_SURFACE_MODE,
+  themeFromPreference,
+  type BrightnessMode,
+  type SurfaceMode,
+} from "./theme";
 
 interface AppShellProps {
   children: JSX.Element;
 }
 
 const buttonBase =
-  "inline-flex min-h-[38px] items-center justify-center rounded-lg border border-[#b8c4b1] px-3 py-2 font-bold";
+  "inline-flex min-h-[38px] items-center justify-center rounded-lg border border-trauma-border-strong px-3 py-2 font-bold";
 const surfaceInput =
-  "min-h-[42px] min-w-0 rounded-lg border border-[#b8c4b1] bg-trauma-bg-surface px-3 text-trauma-text-primary";
+  "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
   "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-surface max-[720px]:hidden";
+const iconButton =
+  "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
+const navItemBase =
+  "group grid min-h-12 grid-cols-[30px_minmax(0,1fr)] items-center gap-3 rounded-full px-3 text-[17px] font-semibold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
+const activeNavItem =
+  "bg-trauma-accent-soft text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
+const disabledNavItem =
+  "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
+const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
+const SURFACE_STORAGE_KEY = "trauma:surface";
+
+const routeNavItems = [
+  { href: "/memories", icon: "memories", label: "Memories", pip: false },
+  { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
+] as const;
+
+const filterNavItems = [
+  { icon: "categories", label: "Categories" },
+  { icon: "tags", label: "Tags" },
+] as const;
+
+const futureNavItems = [
+  { icon: "backup", label: "Backup" },
+  { icon: "settings", label: "Settings" },
+] as const;
 
 export function AppShell(props: AppShellProps) {
   const location = useLocation();
@@ -34,6 +85,11 @@ export function AppShell(props: AppShellProps) {
   const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
   const [isComposerOpen, setIsComposerOpen] = createSignal(false);
+  const [isHydrated, setIsHydrated] = createSignal(false);
+  const [brightness, setBrightness] = createSignal<BrightnessMode>(
+    DEFAULT_BRIGHTNESS_MODE,
+  );
+  const [surface, setSurface] = createSignal<SurfaceMode>(DEFAULT_SURFACE_MODE);
   const memories = createAsync(() => getBrowseMemories());
   const backupFailsafeAlert = createAsync(() => getBackupFailsafeAlert());
   const browseMemories = createMemo(() => memories() ?? []);
@@ -41,6 +97,30 @@ export function AppShell(props: AppShellProps) {
   const categories = createMemo(() => getBrowseCategories(browseMemories()));
   const tags = createMemo(() => getBrowseTags(browseMemories()));
   const highlights = createMemo(() => getRecentHighlights(browseMemories()));
+  const activePath = createMemo(() => location.pathname);
+
+  onMount(() => {
+    setBrightness(readStoredBrightness());
+    setSurface(readStoredSurface());
+    setIsHydrated(true);
+  });
+
+  createEffect(() => {
+    if (!isHydrated()) {
+      return;
+    }
+
+    const nextBrightness = brightness();
+    const nextSurface = surface();
+    const theme = themeFromPreference({
+      brightness: nextBrightness,
+      surface: nextSurface,
+    });
+
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(BRIGHTNESS_STORAGE_KEY, nextBrightness);
+    localStorage.setItem(SURFACE_STORAGE_KEY, nextSurface);
+  });
 
   const goToFilter = (patch: Parameters<typeof buildBrowseHref>[1]) => {
     navigate(buildBrowseHref(query(), patch));
@@ -64,6 +144,11 @@ export function AppShell(props: AppShellProps) {
     setIsComposerOpen(true);
   };
 
+  const openFilters = () => {
+    setIsNavigationOpen(false);
+    setIsFiltersOpen(true);
+  };
+
   return (
     <div class="grid min-h-screen grid-cols-[minmax(188px,248px)_minmax(0,1fr)_minmax(248px,328px)] bg-trauma-bg-base text-trauma-text-primary max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
@@ -71,7 +156,15 @@ export function AppShell(props: AppShellProps) {
         onOpenFilters={() => setIsFiltersOpen(true)}
       />
       <aside class={`${sideSurface} border-r border-trauma-border p-6 max-[1040px]:row-span-2 max-[1040px]:p-4 max-[1040px]:px-2.5`} aria-label="Primary navigation">
-        <NavigationContent onOpenComposer={openComposer} />
+        <NavigationContent
+          activePath={activePath()}
+          brightness={brightness()}
+          onOpenComposer={openComposer}
+          onOpenFilters={openFilters}
+          onSetBrightness={setBrightness}
+          onSetSurface={setSurface}
+          surface={surface()}
+        />
       </aside>
       <main class="min-w-0 max-[1040px]:col-start-2">
         <Show when={backupFailsafeAlert()}>
@@ -95,7 +188,17 @@ export function AppShell(props: AppShellProps) {
       </aside>
       <Show when={isNavigationOpen()}>
         <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
-          <NavigationContent isDrawer onNavigate={closeNavigation} onOpenComposer={openComposer} />
+          <NavigationContent
+            activePath={activePath()}
+            brightness={brightness()}
+            isDrawer
+            onNavigate={closeNavigation}
+            onOpenComposer={openComposer}
+            onOpenFilters={openFilters}
+            onSetBrightness={setBrightness}
+            onSetSurface={setSurface}
+            surface={surface()}
+          />
         </Drawer>
       </Show>
       <Show when={isFiltersOpen()}>
@@ -125,42 +228,87 @@ export function AppShell(props: AppShellProps) {
 
 function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () => void }) {
   return (
-    <header class="sticky top-0 z-10 col-start-2 hidden min-h-[58px] grid-cols-[minmax(0,1fr)_112px] items-center gap-2 border-b border-trauma-border bg-trauma-bg-surface px-3 py-2 max-[1040px]:grid max-[720px]:grid-cols-[96px_minmax(0,1fr)_96px]">
-      <button type="button" class={`${buttonBase} hidden w-full overflow-hidden bg-white text-trauma-accent max-[720px]:inline-flex`} aria-label="Open navigation" onClick={props.onOpenNavigation}>
-        Menu
+    <header class="sticky top-0 z-10 col-start-2 hidden min-h-[58px] grid-cols-[minmax(0,1fr)_112px] items-center gap-2 border-b border-trauma-border bg-trauma-bg-surface/95 px-3 py-2 backdrop-blur max-[1040px]:grid max-[720px]:grid-cols-[96px_minmax(0,1fr)_96px]">
+      <button type="button" class={`${iconButton} hidden w-full max-[720px]:inline-flex`} aria-label="Open navigation" onClick={props.onOpenNavigation}>
+        <TraumaMark size={24} />
       </button>
-      <A class="inline-flex min-h-10 min-w-0 items-center text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
+      <A class="inline-flex min-h-10 min-w-0 items-center gap-2 text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
+        <TraumaMark class="max-[720px]:hidden" size={28} />
         TRAUMA
       </A>
-      <button type="button" class={`${buttonBase} w-full overflow-hidden bg-white text-trauma-accent`} aria-label="Open filters" onClick={props.onOpenFilters}>
+      <button type="button" class={`${buttonBase} w-full overflow-hidden bg-trauma-bg-elev text-trauma-accent hover:bg-trauma-bg-tint`} aria-label="Open filters" onClick={props.onOpenFilters}>
         Filter
       </button>
     </header>
   );
 }
 
-function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void; onOpenComposer: () => void }) {
+function NavigationContent(props: {
+  activePath: string;
+  brightness: BrightnessMode;
+  isDrawer?: boolean;
+  onNavigate?: () => void;
+  onOpenComposer: () => void;
+  onOpenFilters: () => void;
+  onSetBrightness: (mode: BrightnessMode) => void;
+  onSetSurface: (mode: SurfaceMode) => void;
+  surface: SurfaceMode;
+}) {
   return (
     <div
-      class="grid grid-rows-[auto_1fr_auto] gap-7"
+      class="grid grid-rows-[auto_1fr_auto_auto_auto] gap-6"
       classList={{
         "min-h-0": props.isDrawer === true,
         "min-h-[calc(100vh-48px)] max-[1040px]:min-h-[calc(100vh-32px)]": props.isDrawer !== true,
       }}
     >
-      <A class="inline-flex min-h-10 items-center text-[22px] font-extrabold max-[1040px]:w-full max-[1040px]:justify-center max-[1040px]:text-lg" href="/memories" onClick={props.onNavigate}>
-        TRAUMA
+      <A
+        aria-label="TRAUMA home"
+        class="inline-flex min-h-11 items-center gap-3 rounded-full px-2 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
+        href="/memories"
+        onClick={props.onNavigate}
+      >
+        <TraumaMark size={36} />
+        <span class="max-[1040px]:sr-only">TRAUMA</span>
       </A>
-      <nav class="grid content-start gap-2">
-        <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/memories" onClick={props.onNavigate}>
-          Memories
-        </A>
-        <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/highlights" onClick={props.onNavigate}>
-          Highlights
-        </A>
+      <nav class="grid content-start gap-2" aria-label="Primary sections">
+        <For each={routeNavItems}>
+          {(item) => (
+            <RouteNavLink
+              activePath={props.activePath}
+              item={item}
+              onNavigate={props.onNavigate}
+            />
+          )}
+        </For>
+        <For each={filterNavItems}>
+          {(item) => <FilterNavButton item={item} onOpen={props.onOpenFilters} />}
+        </For>
+        <For each={futureNavItems}>
+          {(item) => <FutureNavButton item={item} />}
+        </For>
       </nav>
-      <button class={`${buttonBase} w-full bg-trauma-accent text-white max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis`} type="button" onClick={props.onOpenComposer}>
-        Add memory
+      <ThemeBlock
+        brightness={props.brightness}
+        onBrightness={props.onSetBrightness}
+        onSurface={props.onSetSurface}
+        surface={props.surface}
+      />
+      <button class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 font-bold text-trauma-accent-ink shadow-trauma-1 transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
+        <PlusIcon />
+        <span class="max-[1040px]:sr-only">Add memory</span>
+      </button>
+      <button type="button" class="grid min-h-16 grid-cols-[34px_minmax(0,1fr)_18px] items-center gap-2 rounded-full border border-trauma-border bg-trauma-bg-elev px-3 text-left text-trauma-text-secondary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
+        <span class="grid size-8 place-items-center rounded-full bg-trauma-bg-tint">
+          <TraumaMark size={24} />
+        </span>
+        <span class="min-w-0 max-[1040px]:sr-only">
+          <strong class="flex items-center gap-1 text-sm text-trauma-text-primary">
+            Local archive <LockIcon />
+          </strong>
+          <small class="block truncate text-xs text-trauma-text-muted">./data/storage</small>
+        </span>
+        <KebabIcon size={16} />
       </button>
     </div>
   );
@@ -171,7 +319,7 @@ function GlobalAddMemoryComposer(props: { onCreated: () => void }) {
     <AddMemoryForm
       formClass="grid gap-3.5"
       inputClass={surfaceInput}
-      buttonClass={`${buttonBase} bg-trauma-accent text-white`}
+      buttonClass={`${buttonBase} bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
       submitLabel="Save memory"
       title="Add memory"
       onCreated={props.onCreated}
@@ -193,13 +341,13 @@ function FilterPanel(props: {
 }) {
   return (
     <div class="grid gap-6">
-      <section class="filter-section" aria-labelledby={`${props.idPrefix}-category-filters-title`}>
+      <section aria-labelledby={`${props.idPrefix}-category-filters-title`}>
         <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-category-filters-title`}>Categories</h2>
         <div class="grid gap-2">
           <For each={props.categories}>
             {(category) => (
               <button
-                class={`${buttonBase} w-full justify-start bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`}
+                class={`${buttonBase} w-full justify-start bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
                 type="button"
                 aria-pressed={props.activeCategory === category.id}
                 onClick={() => props.onSelectCategory(category)}
@@ -210,25 +358,25 @@ function FilterPanel(props: {
           </For>
         </div>
       </section>
-      <section class="filter-section" aria-labelledby={`${props.idPrefix}-tag-filters-title`}>
+      <section aria-labelledby={`${props.idPrefix}-tag-filters-title`}>
         <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-tag-filters-title`}>Tags</h2>
         <div class="grid gap-2">
           <For each={props.tags}>
             {(tag) => (
-              <button class={`${buttonBase} w-full justify-start bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
+              <button class={`${buttonBase} w-full justify-start bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
                 {tag.name}
               </button>
             )}
           </For>
         </div>
       </section>
-      <section class="filter-section" aria-labelledby={`${props.idPrefix}-highlight-shortcuts-title`}>
+      <section aria-labelledby={`${props.idPrefix}-highlight-shortcuts-title`}>
         <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-highlight-shortcuts-title`}>Recent highlights</h2>
         <div class="grid gap-2">
           <For each={props.highlights}>
             {(highlight) => (
               <button
-                class={`${buttonBase} grid min-h-[74px] w-full justify-stretch gap-1 bg-white text-left text-[#263126] aria-pressed:bg-trauma-accent aria-pressed:text-white`}
+                class={`${buttonBase} grid min-h-[74px] w-full justify-stretch gap-1 bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
                 type="button"
                 aria-pressed={props.activeHighlight === highlight.id}
                 onClick={() => props.onSelectHighlight(highlight)}
@@ -244,15 +392,142 @@ function FilterPanel(props: {
   );
 }
 
+function RouteNavLink(props: {
+  activePath: string;
+  item: (typeof routeNavItems)[number];
+  onNavigate?: () => void;
+}) {
+  const isActive = createMemo(() => {
+    if (props.item.href === "/memories") {
+      return props.activePath === "/" || props.activePath.startsWith("/memories");
+    }
+
+    return props.activePath.startsWith(props.item.href);
+  });
+  const icon = createMemo(
+    () => TraumaNavIcons[props.item.icon][isActive() ? "filled" : "outline"],
+  );
+
+  return (
+    <A
+      aria-current={isActive() ? "page" : undefined}
+      class={`${navItemBase} ${isActive() ? activeNavItem : ""}`}
+      href={props.item.href}
+      onClick={props.onNavigate}
+    >
+      <span class="grid place-items-center">{icon()}</span>
+      <span class="min-w-0 truncate max-[1040px]:sr-only">
+        {props.item.label}
+        <Show when={props.item.pip}>
+          <span class="ml-2 inline-block size-2 rounded-full bg-trauma-accent align-middle" aria-label="unread" />
+        </Show>
+      </span>
+    </A>
+  );
+}
+
+function FilterNavButton(props: {
+  item: (typeof filterNavItems)[number];
+  onOpen: () => void;
+}) {
+  const icon = createMemo(() => TraumaNavIcons[props.item.icon].outline);
+
+  return (
+    <button class={navItemBase} type="button" onClick={props.onOpen}>
+      <span class="grid place-items-center">{icon()}</span>
+      <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
+    </button>
+  );
+}
+
+function FutureNavButton(props: { item: (typeof futureNavItems)[number] }) {
+  const icon = createMemo(() => TraumaNavIcons[props.item.icon].outline);
+
+  return (
+    <button
+      aria-disabled="true"
+      class={`${navItemBase} ${disabledNavItem}`}
+      disabled
+      type="button"
+    >
+      <span class="grid place-items-center">{icon()}</span>
+      <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
+    </button>
+  );
+}
+
+function ThemeBlock(props: {
+  brightness: BrightnessMode;
+  onBrightness: (mode: BrightnessMode) => void;
+  onSurface: (mode: SurfaceMode) => void;
+  surface: SurfaceMode;
+}) {
+  return (
+    <section class="grid gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-3 max-[1040px]:mx-auto max-[1040px]:w-12 max-[1040px]:border-0 max-[1040px]:bg-transparent max-[1040px]:p-0" aria-label="Theme">
+      <p class="text-[11px] font-bold uppercase text-trauma-text-muted max-[1040px]:sr-only">Theme</p>
+      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Brightness">
+        <button
+          aria-pressed={props.brightness === "sun"}
+          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          type="button"
+          onClick={() => props.onBrightness("sun")}
+        >
+          <SunIcon />
+          <span class="max-[1040px]:sr-only">Sun</span>
+        </button>
+        <button
+          aria-pressed={props.brightness === "night"}
+          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          type="button"
+          onClick={() => props.onBrightness("night")}
+        >
+          <MoonIcon />
+          <span class="max-[1040px]:sr-only">Night</span>
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Surface">
+        <button
+          aria-pressed={props.surface === "normal"}
+          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          type="button"
+          onClick={() => props.onSurface("normal")}
+        >
+          <PageIcon />
+          <span class="max-[1040px]:sr-only">Normal</span>
+        </button>
+        <button
+          aria-pressed={props.surface === "paper"}
+          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          type="button"
+          onClick={() => props.onSurface("paper")}
+        >
+          <PaperIcon />
+          <span class="max-[1040px]:sr-only">Paper</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function Drawer(props: { ariaLabel: string; children: JSX.Element; onClose: () => void }) {
   return (
     <div class="fixed inset-0 z-20 bg-gray-900/45">
-      <div class="max-h-screen min-h-screen w-[min(86vw,340px)] overflow-y-auto bg-trauma-bg-surface p-[18px] shadow-[0_20px_60px_rgb(17_24_39_/_24%)]" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
-        <button type="button" class={`${buttonBase} mb-5 w-full bg-trauma-accent text-white`} onClick={props.onClose}>
+      <div class="max-h-screen min-h-screen w-[min(86vw,360px)] overflow-y-auto bg-trauma-bg-surface p-[18px] shadow-trauma-drawer" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
+        <button type="button" class={`${buttonBase} mb-5 w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`} onClick={props.onClose}>
           Close
         </button>
         {props.children}
       </div>
     </div>
   );
+}
+
+function readStoredBrightness(): BrightnessMode {
+  const value = localStorage.getItem(BRIGHTNESS_STORAGE_KEY);
+  return value === "sun" || value === "night" ? value : DEFAULT_BRIGHTNESS_MODE;
+}
+
+function readStoredSurface(): SurfaceMode {
+  const value = localStorage.getItem(SURFACE_STORAGE_KEY);
+  return value === "normal" || value === "paper" ? value : DEFAULT_SURFACE_MODE;
 }

@@ -85,6 +85,35 @@ test("keeps filter controls reachable on tablet widths", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
 });
 
+test("persists shell theme controls in the browser", async ({ page }) => {
+  await page.goto("/memories");
+
+  await page
+    .getByRole("group", { name: "Brightness" })
+    .getByRole("button", { name: "Sun" })
+    .click();
+  await page
+    .getByRole("group", { name: "Surface" })
+    .getByRole("button", { name: "Paper" })
+    .click();
+
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+    .toBe("paper-warm-light");
+
+  await page.reload();
+
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+    .toBe("paper-warm-light");
+  await expect(
+    page.getByRole("group", { name: "Brightness" }).getByRole("button", { name: "Sun" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("group", { name: "Surface" }).getByRole("button", { name: "Paper" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
 test("lets active filters be cleared without resetting the rest of the query", async ({ page }) => {
   await page.goto("/memories?q=reader&view=grid");
 
