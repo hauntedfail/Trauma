@@ -19,7 +19,6 @@ import {
   PageIcon,
   PaperIcon,
   PlusIcon,
-  SearchIcon,
   SunIcon,
   TraumaNavIcons,
 } from "../icons";
@@ -53,13 +52,13 @@ const buttonBase =
 const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
-  "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-surface max-[720px]:hidden";
+  "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base max-[720px]:hidden";
 const iconButton =
   "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
 const navItemBase =
-  "group grid min-h-12 grid-cols-[30px_minmax(0,1fr)] items-center gap-3 rounded-full px-3 text-[17px] font-semibold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
+  "group grid min-h-12 w-max max-w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-3 py-2.5 pr-[18px] text-[19px] font-medium leading-none text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const activeNavItem =
-  "bg-trauma-accent-soft text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
+  "bg-trauma-accent-soft font-bold text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
 const disabledNavItem =
   "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
@@ -128,10 +127,6 @@ export function AppShell(props: AppShellProps) {
     setIsFiltersOpen(false);
   };
 
-  const updateSearch = (value: string) => {
-    navigate(buildBrowseHref(query(), { q: value }), { replace: true });
-  };
-
   const goToHighlight = (highlightId: string) => {
     navigate(buildHighlightBrowseHref(highlightId));
     setIsFiltersOpen(false);
@@ -155,12 +150,12 @@ export function AppShell(props: AppShellProps) {
   };
 
   return (
-    <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[248px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
+    <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
         onOpenNavigation={() => setIsNavigationOpen(true)}
         onOpenFilters={() => setIsFiltersOpen(true)}
       />
-      <aside class={`${sideSurface} border-r border-trauma-border px-6 py-5 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
+      <aside class={`${sideSurface} border-r border-trauma-border px-2 py-1 pb-3 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
         <NavigationContent
           activePath={activePath()}
           brightness={brightness()}
@@ -185,8 +180,6 @@ export function AppShell(props: AppShellProps) {
           categories={categories()}
           highlights={highlights()}
           idPrefix="desktop"
-          searchQuery={query().q}
-          onSearch={updateSearch}
           onSelectCategory={(category) => toggleFilter("category", category.id)}
           onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
           onSelectTag={(tag) => toggleFilter("tag", tag.id)}
@@ -217,8 +210,6 @@ export function AppShell(props: AppShellProps) {
             categories={categories()}
             highlights={highlights()}
             idPrefix="drawer"
-            searchQuery={query().q}
-            onSearch={updateSearch}
             onSelectCategory={(category) => toggleFilter("category", category.id)}
             onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
@@ -265,7 +256,7 @@ function NavigationContent(props: {
 }) {
   return (
     <div
-      class="grid grid-rows-[auto_1fr_auto_auto_auto] gap-6"
+      class="flex flex-col gap-1"
       classList={{
         "min-h-0": props.isDrawer === true,
         "min-h-[calc(100vh-48px)] max-[1040px]:min-h-[calc(100vh-32px)]": props.isDrawer !== true,
@@ -273,14 +264,14 @@ function NavigationContent(props: {
     >
       <A
         aria-label="TRAUMA home"
-        class="inline-flex min-h-11 items-center gap-3 rounded-full px-2 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
+        class="inline-flex h-[52px] w-max items-center gap-3 rounded-full px-1 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
         href="/memories"
         onClick={props.onNavigate}
       >
         <TraumaMark size={36} />
         <span class="max-[1040px]:sr-only">TRAUMA</span>
       </A>
-      <nav class="grid content-start gap-2" aria-label="Primary sections">
+      <nav class="grid content-start gap-0.5" aria-label="Primary sections">
         <For each={routeNavItems}>
           {(item) => (
             <RouteNavLink
@@ -297,19 +288,19 @@ function NavigationContent(props: {
           {(item) => <FutureNavButton item={item} />}
         </For>
       </nav>
+      <button class="mx-1 my-3 inline-flex min-h-[52px] w-[calc(100%-8px)] items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink shadow-trauma-1 transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:my-3 max-[1040px]:size-[52px] max-[1040px]:w-[52px] max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
+        <PlusIcon />
+        <span class="max-[1040px]:sr-only">Add memory</span>
+      </button>
       <ThemeBlock
         brightness={props.brightness}
         onBrightness={props.onSetBrightness}
         onSurface={props.onSetSurface}
         surface={props.surface}
       />
-      <button class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 font-bold text-trauma-accent-ink shadow-trauma-1 transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
-        <PlusIcon />
-        <span class="max-[1040px]:sr-only">Add memory</span>
-      </button>
-      <button type="button" class="grid min-h-16 grid-cols-[34px_minmax(0,1fr)_18px] items-center gap-2 rounded-full border border-trauma-border bg-trauma-bg-elev px-3 text-left text-trauma-text-secondary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
-        <span class="grid size-8 place-items-center rounded-full bg-trauma-bg-tint">
-          <TraumaMark size={24} />
+      <button type="button" class="grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
+        <span class="grid size-10 place-items-center rounded-full bg-trauma-accent-soft">
+          <TraumaMark size={26} />
         </span>
         <span class="min-w-0 max-[1040px]:sr-only">
           <strong class="flex items-center gap-1 text-sm text-trauma-text-primary">
@@ -343,8 +334,6 @@ function FilterPanel(props: {
   categories: BrowseTaxonomyItem[];
   highlights: BrowseHighlight[];
   idPrefix: string;
-  searchQuery: string;
-  onSearch: (value: string) => void;
   onSelectCategory: (category: BrowseTaxonomyItem) => void;
   onSelectHighlight: (highlight: BrowseHighlight) => void;
   onSelectTag: (tag: BrowseTaxonomyItem) => void;
@@ -352,19 +341,6 @@ function FilterPanel(props: {
 }) {
   return (
     <div class="grid gap-4">
-      <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-base px-4 text-trauma-text-muted focus-within:border-trauma-border-strong">
-        <span class="grid place-items-center">
-          <SearchIcon />
-        </span>
-        <input
-          aria-label="Search archive"
-          class="min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder"
-          type="search"
-          value={props.searchQuery}
-          placeholder="Search"
-          onInput={(event) => props.onSearch(event.currentTarget.value)}
-        />
-      </label>
       <RightPanelSection title="Categories" titleId={`${props.idPrefix}-category-filters-title`}>
         <div class="grid gap-2">
           <For each={props.categories}>
@@ -502,7 +478,7 @@ function ThemeBlock(props: {
   surface: SurfaceMode;
 }) {
   return (
-    <section class="grid gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-3 max-[1040px]:mx-auto max-[1040px]:w-12 max-[1040px]:border-0 max-[1040px]:bg-transparent max-[1040px]:p-0" aria-label="Theme">
+    <section class="mt-auto grid gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 max-[1040px]:mx-auto max-[1040px]:w-12 max-[1040px]:border-0 max-[1040px]:bg-transparent max-[1040px]:p-0" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted max-[1040px]:sr-only">Theme</p>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Brightness">
         <button

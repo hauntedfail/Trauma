@@ -37,7 +37,7 @@ describe("refined app shell contract", () => {
   });
 
   it("keeps desktop shell columns flush instead of centering panes inside gutters", () => {
-    expect(appShellSource).toContain("grid-cols-[248px_minmax(0,840px)_360px]");
+    expect(appShellSource).toContain("grid-cols-[275px_minmax(0,840px)_360px]");
     expect(appShellSource).toContain("justify-center");
     expect(appShellSource).toContain("border-r border-trauma-border");
   });
@@ -56,8 +56,16 @@ describe("refined app shell contract", () => {
 
   it("models the right rail as independent island sections", () => {
     expect(appShellSource).toContain("RightPanelSection");
-    expect(appShellSource).toContain('aria-label="Search archive"');
+    expect(appShellSource).not.toContain('aria-label="Search archive"');
     expect(appShellSource).toContain("rounded-[32px] border border-trauma-border");
     expect(appShellSource).toContain("bg-trauma-bg-base");
+  });
+
+  it("keeps the left rail scale close to the refined sample", () => {
+    expect(appShellSource).toContain("px-2 py-1 pb-3");
+    expect(appShellSource).toContain("grid-cols-[32px_minmax(0,1fr)]");
+    expect(appShellSource).toContain("gap-[18px]");
+    expect(appShellSource).toContain("text-[19px]");
+    expect(appShellSource).toContain("min-h-[52px]");
   });
 });
