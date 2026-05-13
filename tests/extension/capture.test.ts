@@ -200,6 +200,41 @@ describe("extension page capture", () => {
     }
   });
 
+  it("does not deep-clone the full document before bounded traversal", () => {
+    installPage({
+      href: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Captured Article</title></head>
+          <body>
+            <article>
+              <h1>Captured Article</h1>
+              <p>Readable paragraph that should survive a bounded shallow clone.</p>
+            </article>
+          </body>
+        </html>`,
+    });
+    const elementPrototype = Object.getPrototypeOf(document.documentElement) as {
+      cloneNode: Element["cloneNode"];
+    };
+    const originalCloneNode = elementPrototype.cloneNode;
+    elementPrototype.cloneNode = function (this: Element, deep?: boolean) {
+      if (deep === true) {
+        throw new Error("full document deep clone");
+      }
+
+      return originalCloneNode.call(this, deep);
+    };
+
+    try {
+      const result = createCapturedTabSnapshot("0.1.0");
+
+      expect(result.ok).toBe(true);
+    } finally {
+      elementPrototype.cloneNode = originalCloneNode;
+    }
+  });
+
   it("rejects snapshots whose full JSON payload would exceed the byte budget", () => {
     installPage({
       href: "https://example.com/large-text",

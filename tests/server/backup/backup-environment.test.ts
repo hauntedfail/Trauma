@@ -158,6 +158,94 @@ describe("backup environment failsafe", () => {
     }
   });
 
+  it("creates a critical alert when backup git identity drifts while successful data exists", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const previousRemoteUrl = join(root, "previous.git");
+    const currentRemoteUrl = join(root, "current.git");
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    execFileSync("git", ["remote", "add", "origin", currentRemoteUrl], {
+      cwd: config.projectPath,
+      stdio: "ignore",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        ...createMemoryRow(),
+        backupStatus: "success",
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: previousRemoteUrl,
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.alert).toMatchObject({
+        kind: "backup_path_drift",
+        previousProjectPath: null,
+        previousStorePath: null,
+        currentProjectPath: config.projectPath,
+        currentStorePath: config.storePath,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("creates a critical alert when successful content is no longer tracked by the backup repository", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        ...createMemoryRow(),
+        backupStatus: "success",
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.alert).toMatchObject({
+        kind: "backup_path_drift",
+        previousProjectPath: null,
+        previousStorePath: null,
+        currentProjectPath: config.projectPath,
+        currentStorePath: config.storePath,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("refuses to write memory content while a drift alert is active", async () => {
     const root = await makeRoot();
     const config = createConfig(root);

@@ -197,6 +197,28 @@ describe("browser capture import", () => {
     expect(memory).toEqual({ id: "memory-id" });
     expect(observedUrls).toEqual(["https://example.com/source"]);
   });
+
+  it("rejects localhost subdomain source URLs", async () => {
+    await expect(
+      importBrowserCapture({
+        payload: createPayload({
+          sourceUrl: "http://app.localhost:5173/article",
+          articleHtml: `<article>
+            <h1>Captured Article</h1>
+            <p>This browser extracted article contains enough readable words to reach source URL validation.</p>
+          </article>`,
+          articleText:
+            "Captured Article. This browser extracted article contains enough readable words to reach source URL validation.",
+        }),
+        config: createConfig(),
+        db: {} as never,
+        backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+        createMemory: async () => {
+          throw new Error("createMemory should not be called");
+        },
+      }),
+    ).rejects.toEqual(new BrowserImportError("source URL is not allowed"));
+  });
 });
 
 function createPayload(

@@ -44,8 +44,8 @@ export function createCapturedTabSnapshot(
     };
   }
 
-  const documentElement = document.documentElement.cloneNode(true);
-  if (!(documentElement instanceof Element)) {
+  const documentElement = cloneElementWithinTraversalLimit(document.documentElement);
+  if (documentElement === null) {
     return { ok: false, error: "Could not read the current page." };
   }
 
@@ -135,8 +135,8 @@ function selectSiteSpecificCandidate(liveDocument: Document) {
   for (const selector of selectorGroup.selectors) {
     const candidate = selectBestElement(querySelectorAllDeep(liveDocument, selector));
     if (candidate !== null) {
-      const clone = candidate.cloneNode(true);
-      if (!(clone instanceof Element)) {
+      const clone = cloneElementWithinTraversalLimit(candidate);
+      if (clone === null) {
         continue;
       }
       sanitizeElement(clone);
@@ -190,6 +190,50 @@ function childElements(parent: ParentNode) {
   }
 
   return Array.from(parent.children as HTMLCollectionOf<Element>);
+}
+
+function cloneElementWithinTraversalLimit(sourceRoot: Element) {
+  const rootClone = sourceRoot.cloneNode(false);
+  if (!(rootClone instanceof Element)) {
+    return null;
+  }
+
+  const queue: { source: Element; clone: Element }[] = [
+    { source: sourceRoot, clone: rootClone },
+  ];
+  let inspected = 0;
+
+  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+    const current = queue.shift();
+    if (current === undefined) {
+      continue;
+    }
+
+    inspected += 1;
+    for (const child of Array.from(current.source.childNodes)) {
+      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
+        break;
+      }
+
+      inspected += 1;
+      if (child.nodeType === 1) {
+        const childClone = child.cloneNode(false);
+        if (!(child instanceof Element) || !(childClone instanceof Element)) {
+          continue;
+        }
+
+        current.clone.appendChild(childClone);
+        queue.push({ source: child, clone: childClone });
+        continue;
+      }
+
+      if (child.nodeType === 3) {
+        current.clone.appendChild(child.cloneNode(false));
+      }
+    }
+  }
+
+  return rootClone;
 }
 
 function selectBestElement(elements: readonly Element[]) {

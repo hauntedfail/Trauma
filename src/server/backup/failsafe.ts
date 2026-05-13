@@ -85,6 +85,9 @@ export async function migrateBackupFailsafeContent(input: {
 }): Promise<BackupFailsafeActionResult> {
   const repositories = createRepositories(input.db);
   const alert = await requireActiveAlert(input.db);
+  if (alert.kind === "backup_push_failed") {
+    return retryRecoveredBackupPush({ ...input, repositories });
+  }
   if (alert.kind !== "backup_path_drift") {
     throw new BackupFailsafeActionError(
       `cannot accept current backup paths or migrate backup content while ${alert.kind} alert is active`,
@@ -185,6 +188,46 @@ async function acceptCurrentBackupLocation(input: {
     dryRun: false,
     summary,
     files: relativeFiles,
+  };
+}
+
+async function retryRecoveredBackupPush(input: {
+  config: ResolvedTraumaConfig;
+  repositories: ReturnType<typeof createRepositories>;
+  apply: boolean;
+}): Promise<BackupFailsafeActionResult> {
+  const summary = [
+    input.apply ? "APPLY: Retry backup push" : "DRY RUN: Retry backup push",
+    `projectPath: ${input.config.projectPath}`,
+    `remote: ${input.config.backup.git.remote}`,
+    `branch: ${input.config.backup.git.branch}`,
+  ].join("\n");
+
+  if (!input.apply) {
+    return {
+      ok: true,
+      action: "migrate",
+      dryRun: true,
+      summary,
+      files: [],
+    };
+  }
+
+  if (!(await isExactGitRepositoryRoot(input.config.projectPath))) {
+    throw new BackupFailsafeActionError(
+      "cannot retry backup push because projectPath is not a git repository",
+    );
+  }
+
+  await pushRecoveredBackup(input.config);
+  await input.repositories.backupEnvironment.clearBackupFailsafeAlert();
+
+  return {
+    ok: true,
+    action: "migrate",
+    dryRun: false,
+    summary,
+    files: [],
   };
 }
 

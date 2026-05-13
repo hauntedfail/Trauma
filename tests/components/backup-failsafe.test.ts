@@ -40,7 +40,7 @@ describe("backup failsafe banner", () => {
     expect(html).not.toContain("Dismiss");
   });
 
-  it("does not render path recovery actions for push failure alerts", () => {
+  it("renders a retry action for push failure alerts", () => {
     const html = renderToString(() =>
       createComponent(BackupFailsafeBanner, {
         alert: {
@@ -56,7 +56,22 @@ describe("backup failsafe banner", () => {
 
     expect(html).toContain("Backup push failed");
     expect(html).not.toContain("Revert config");
-    expect(html).not.toContain("Migrate backup");
+    expect(html).toContain("Retry backup push");
+  });
+
+  it("does not render revert when a path drift alert has no previous paths", () => {
+    const html = renderToString(() =>
+      createComponent(BackupFailsafeBanner, {
+        alert: {
+          ...alert,
+          previousProjectPath: null,
+          previousStorePath: null,
+        },
+      }),
+    );
+
+    expect(html).not.toContain("Revert config");
+    expect(html).toContain("Migrate backup");
   });
 
   it("posts confirmed revert and migrate actions to their API endpoints", async () => {

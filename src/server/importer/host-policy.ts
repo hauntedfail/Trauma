@@ -5,6 +5,7 @@ export function isBlockedHostname(hostname: string) {
   if (
     normalizedHostname === "" ||
     normalizedHostname === "localhost" ||
+    normalizedHostname.endsWith(".localhost") ||
     normalizedHostname.endsWith(".local")
   ) {
     return true;

@@ -41,7 +41,7 @@
 - MUST validate URL protocols before importer fetches. `http:` and `https:` are
   the only expected initial protocols.
 - MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,
-  local/private/link-local/non-global IP targets, URL userinfo, unsafe
+  `*.localhost`, local/private/link-local/non-global IP targets, URL userinfo, unsafe
   redirects, and DNS answers that resolve outside the public-host policy.
 - MUST keep third-party extractor fallback fetches disabled unless they pass
   through the same importer public-host, timeout, redirect, and response-size
@@ -81,7 +81,8 @@
   extension may capture a tab snapshot, but it must not bypass server-side
   sanitization or write memory content directly.
 - MUST bound browser-extension DOM traversal during capture and sanitization.
-  Avoid unbounded `querySelectorAll("*")` scans over captured page content.
+  Avoid unbounded deep clones and `querySelectorAll("*")` scans over captured
+  page content.
 - MUST resolve browser-assisted extractor workers from bundled runtime code or
   inline worker source. Standalone builds must not depend on `src/` files being
   present at runtime.

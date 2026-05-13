@@ -340,7 +340,7 @@ describe("git memory backup queue", () => {
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
-        import { mkdirSync } from "node:fs";
+        import { mkdirSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -364,6 +364,26 @@ describe("git memory backup queue", () => {
           env: createGitEnv(),
           stdio: ["ignore", "pipe", "pipe"],
         });
+        mkdirSync(join(config.storePath, "memories", ids.success), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(config.storePath, "memories", ids.success, "CONTENT.md"),
+          "# Already backed up\\n",
+        );
+        execFileSync(
+          "git",
+          [
+            "add",
+            "--",
+            join("store", "memories", ids.success, "CONTENT.md"),
+          ],
+          {
+            cwd: config.projectPath,
+            env: createGitEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
         const connection = initializeDatabase(config);
         try {
           await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({

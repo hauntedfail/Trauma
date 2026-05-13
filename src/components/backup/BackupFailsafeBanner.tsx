@@ -80,14 +80,21 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
         </dl>
         <Show when={props.alert.kind === "backup_path_drift"}>
           <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
-              disabled={pendingAction() !== null}
-              onClick={() => void submit("revert")}
+            <Show
+              when={
+                props.alert.previousProjectPath !== null &&
+                props.alert.previousStorePath !== null
+              }
             >
-              Revert config
-            </button>
+              <button
+                type="button"
+                class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
+                disabled={pendingAction() !== null}
+                onClick={() => void submit("revert")}
+              >
+                Revert config
+              </button>
+            </Show>
             <button
               type="button"
               class="min-h-10 rounded-lg border border-red-200 px-3 py-2 font-bold text-white"
@@ -95,6 +102,18 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
               onClick={() => void submit("migrate")}
             >
               Migrate backup
+            </button>
+          </div>
+        </Show>
+        <Show when={props.alert.kind === "backup_push_failed"}>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
+              disabled={pendingAction() !== null}
+              onClick={() => void submit("migrate")}
+            >
+              Retry backup push
             </button>
           </div>
         </Show>

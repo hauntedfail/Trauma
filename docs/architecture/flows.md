@@ -105,3 +105,16 @@ Backup failsafe recovery actions must be retry-safe. If migration already
 copied a file before a later git step failed, rerunning migration may accept the
 existing target only when its bytes match the source. Different target content
 remains a hard conflict.
+
+Backup readiness is tied to the full backup identity, not just filesystem
+paths. The persisted stamp must match project path, store path, git remote,
+remote URL, branch, and already-successful tracked content before new writes are
+accepted. If the repository is recreated at the same path, or the configured
+remote/branch changes while successful backup rows already exist, Trauma must
+force an explicit recovery path instead of silently treating the new repository
+as complete.
+
+If migration commits local backup content but the configured push fails, the
+operator must be able to retry that recovered push after repairing the remote.
+A push-failure alert must not turn a completed local migration into an
+unrecoverable banner state.

@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+
+import { eq } from "drizzle-orm";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
@@ -60,10 +62,16 @@ export async function ensureBackupEnvironment(
   const existingAlert =
     await repositories.backupEnvironment.getBackupFailsafeAlert();
   const hasMemoryData = await detectMemoryData(input.config, input.db, stamp);
+  const currentGitRemoteUrl = await readGitRemoteUrl(input.config);
   const pathsMatch =
     stamp !== undefined &&
     stamp.projectPath === input.config.projectPath &&
     stamp.storePath === input.config.storePath;
+  const gitIdentityMatches =
+    stamp !== undefined &&
+    stamp.gitRemote === input.config.backup.git.remote &&
+    stamp.gitRemoteUrl === currentGitRemoteUrl &&
+    stamp.gitBranch === input.config.backup.git.branch;
 
   if (stamp === undefined && hasMemoryData) {
     return createAndReportPathAlert({
@@ -85,6 +93,16 @@ export async function ensureBackupEnvironment(
     });
   }
 
+  if (stamp !== undefined && pathsMatch && !gitIdentityMatches && hasMemoryData) {
+    return createAndReportPathAlert({
+      config: input.config,
+      db: input.db,
+      now,
+      previousProjectPath: null,
+      previousStorePath: null,
+    });
+  }
+
   const repositoryRoot = await readGitRepositoryRoot(input.config.projectPath);
   if (!(await isSamePath(repositoryRoot, input.config.projectPath))) {
     if (hasMemoryData) {
@@ -100,6 +118,22 @@ export async function ensureBackupEnvironment(
     }
 
     await bootstrapBackupRepository(input.config);
+  }
+
+  if (
+    stamp !== undefined &&
+    pathsMatch &&
+    gitIdentityMatches &&
+    hasMemoryData &&
+    (await hasUntrackedSuccessfulBackupContent(input.config, input.db))
+  ) {
+    return createAndReportPathAlert({
+      config: input.config,
+      db: input.db,
+      now,
+      previousProjectPath: null,
+      previousStorePath: null,
+    });
   }
 
   await upsertCurrentStamp({ config: input.config, db: input.db, now });
@@ -357,6 +391,54 @@ async function findContentFile(directory: string): Promise<boolean> {
   return false;
 }
 
+async function hasUntrackedSuccessfulBackupContent(
+  config: ResolvedTraumaConfig,
+  db: TraumaDatabase,
+) {
+  const rows = await db
+    .select({ contentPath: schema.memories.contentPath })
+    .from(schema.memories)
+    .where(eq(schema.memories.backupStatus, "success"))
+    .all();
+
+  for (const row of rows) {
+    const stagePath = resolveBackupContentStagePath(config, row.contentPath);
+    if (stagePath === null || !(await isGitTracked(config.projectPath, stagePath))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resolveBackupContentStagePath(
+  config: ResolvedTraumaConfig,
+  contentPath: string,
+) {
+  if (isAbsolute(contentPath)) {
+    return null;
+  }
+
+  const absoluteContentPath = resolve(config.storePath, contentPath);
+  if (
+    !isInside(config.storePath, absoluteContentPath) ||
+    !isInside(config.projectPath, absoluteContentPath)
+  ) {
+    return null;
+  }
+
+  return relative(config.projectPath, absoluteContentPath).split(sep).join("/");
+}
+
+async function isGitTracked(projectPath: string, stagePath: string) {
+  try {
+    await runGit(projectPath, ["ls-files", "--error-unmatch", "--", stagePath]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isErrorWithCode(error: unknown, code: string) {
   return (
     typeof error === "object" &&
@@ -398,6 +480,11 @@ async function isSamePath(left: string | null, right: string) {
   } catch {
     return resolve(left) === resolve(right);
   }
+}
+
+function isInside(parent: string, child: string) {
+  const path = relative(resolve(parent), resolve(child));
+  return path !== "" && !path.startsWith("..") && !isAbsolute(path);
 }
 
 async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
