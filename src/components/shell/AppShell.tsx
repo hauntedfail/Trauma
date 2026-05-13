@@ -61,6 +61,8 @@ const activeNavItem =
   "bg-trauma-accent-soft font-bold text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
 const disabledNavItem =
   "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
+const themeToggleButton =
+  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong max-[1040px]:size-10 max-[1040px]:px-0";
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
 const SURFACE_STORAGE_KEY = "trauma:surface";
 
@@ -483,7 +485,7 @@ function ThemeBlock(props: {
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Brightness">
         <button
           aria-pressed={props.brightness === "sun"}
-          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          class={themeToggleButton}
           type="button"
           onClick={() => props.onBrightness("sun")}
         >
@@ -492,7 +494,7 @@ function ThemeBlock(props: {
         </button>
         <button
           aria-pressed={props.brightness === "night"}
-          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          class={themeToggleButton}
           type="button"
           onClick={() => props.onBrightness("night")}
         >
@@ -503,7 +505,7 @@ function ThemeBlock(props: {
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Surface">
         <button
           aria-pressed={props.surface === "normal"}
-          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          class={themeToggleButton}
           type="button"
           onClick={() => props.onSurface("normal")}
         >
@@ -512,7 +514,7 @@ function ThemeBlock(props: {
         </button>
         <button
           aria-pressed={props.surface === "paper"}
-          class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-surface aria-pressed:text-trauma-text-primary max-[1040px]:size-10 max-[1040px]:px-0"
+          class={themeToggleButton}
           type="button"
           onClick={() => props.onSurface("paper")}
         >

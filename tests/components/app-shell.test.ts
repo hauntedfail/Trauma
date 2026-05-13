@@ -68,4 +68,11 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("text-[19px]");
     expect(appShellSource).toContain("min-h-[52px]");
   });
+
+  it("keeps selected theme options visible on normal night mode", () => {
+    expect(appShellSource).toContain("themeToggleButton");
+    expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
+    expect(appShellSource).toContain("aria-pressed:ring-1");
+    expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
+  });
 });
