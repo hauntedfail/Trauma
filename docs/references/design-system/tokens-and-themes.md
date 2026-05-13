@@ -83,6 +83,23 @@ Current base/surface values:
 selected states, drawers, right rail islands, theme toggles, and hover states
 can stay visible.
 
+## Paper Texture
+
+Paper surface mode is more than a colour swap. Both `paper-warm-light` and
+`paper-black-dark` must render a paper-like background texture.
+
+The texture recipe is CSS-only:
+
+- Base colour from `--bg-base`.
+- Layered `radial-gradient()` washes from `--paper-texture-radials`.
+- Repeating dot grid from `--paper-dot-grid` and `--paper-dot-size`.
+- Fixed grain overlay on `body::after` using an inline SVG turbulence texture.
+- Fixed blurred glow layer on `body::before`.
+- Blend modes through `--paper-texture-blend`, `--paper-grain-blend`, and
+  `--paper-glow-blend`.
+
+Normal themes must not enable these paper texture layers.
+
 ## Typography
 
 The default UI font is:

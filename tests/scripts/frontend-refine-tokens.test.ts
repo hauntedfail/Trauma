@@ -84,6 +84,43 @@ describe("front-end refine design tokens", () => {
     }
   });
 
+  it("defines paper texture variables for both paper themes", () => {
+    for (const theme of ["paper-warm-light", "paper-black-dark"]) {
+      const body = tailwindCss.match(
+        new RegExp(`:root\\[data-theme="${theme}"\\]\\s*{(?<body>[^}]*)}`, "s"),
+      )?.groups?.body;
+
+      if (body === undefined) {
+        throw new Error(`Missing theme block ${theme}`);
+      }
+
+      for (const token of [
+        "--paper-texture-radials",
+        "--paper-dot-grid",
+        "--paper-dot-size",
+        "--paper-texture-blend",
+        "--paper-grain-opacity",
+        "--paper-grain-blend",
+        "--paper-glow-opacity",
+        "--paper-glow-blend",
+        "--paper-glow-layer",
+      ]) {
+        expect(body).toContain(token);
+      }
+    }
+  });
+
+  it("renders paper texture through layered backgrounds and fixed overlays", () => {
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] body');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .bg-trauma-bg-base');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] body::before');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] body::after');
+    expect(tailwindCss).toContain("background-image: var(--paper-texture-radials), var(--paper-dot-grid)");
+    expect(tailwindCss).toContain('url("data:image/svg+xml;utf8,');
+    expect(tailwindCss).toContain("filter: blur(120px)");
+    expect(tailwindCss).toContain("mix-blend-mode: var(--paper-grain-blend)");
+  });
+
   it("keeps refined typography local without runtime font imports or negative tracking", () => {
     expect(tailwindCss).not.toContain("fonts.googleapis.com");
     expect(tailwindCss).toContain("--font-trauma-sans: var(--font-sans)");

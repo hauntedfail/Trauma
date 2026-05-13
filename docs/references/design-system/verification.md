@@ -46,6 +46,9 @@ The token tests verify:
 - Normal night mode pane surfaces are pure black.
 - Every theme uses one pane background colour:
   `--bg-base == --bg-surface`.
+- Paper sun and paper night themes expose the full paper texture variable set.
+- Paper texture renders through layered backgrounds plus fixed grain and glow
+  overlays.
 - Typography stays local and does not use negative letter spacing.
 
 ## Current Shell Checks
