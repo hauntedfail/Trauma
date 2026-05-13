@@ -34,7 +34,11 @@ Navigation item contract:
 - Minimum height: `3rem`.
 - Text size: `19px`.
 - Shape: rounded full pill.
-- Active route: accent-soft background and bold text.
+- Active route, normal themes: accent-soft background and bold text.
+- Active route, paper themes: no pill fill. Use bold accent text with a
+  hand-drawn underline below the label/icon group.
+- Paper active underline draws from left to right on page render. Honour
+  reduced-motion by showing the completed underline without animation.
 - Disabled/future routes: disabled button, low opacity, no live link.
 
 The rail may show future controls such as Backup and Settings, but they must

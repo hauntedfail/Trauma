@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
+const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
 const memoryBrowseSource = readFileSync(
   "src/components/memories/MemoryBrowse.tsx",
   "utf8",
@@ -108,5 +109,16 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
     expect(appShellSource).toContain("aria-pressed:ring-1");
     expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
+  });
+
+  it("uses a handwritten animated underline for active nav links in paper themes", () => {
+    expect(appShellSource).toContain("trauma-active-nav-item");
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item::after');
+    expect(tailwindCss).toContain("@keyframes trauma-handwrite-underline");
+    expect(tailwindCss).toContain("animation: trauma-handwrite-underline");
+    expect(tailwindCss).toContain("-webkit-mask-image: url(\"data:image/svg+xml;utf8,");
+    expect(tailwindCss).toContain("clip-path: inset(0 100% 0 0)");
+    expect(tailwindCss).toContain("background-color: transparent");
   });
 });

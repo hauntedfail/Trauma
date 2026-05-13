@@ -65,6 +65,8 @@ The shell tests verify:
 - Right rail sections are independent islands.
 - Left rail scale and vertical rhythm stay close to the refined sample.
 - Selected theme options stay visible in normal night mode.
+- Paper themes replace the active left-rail pill with a handwritten underline
+  animation.
 
 ## Browser Verification
 
