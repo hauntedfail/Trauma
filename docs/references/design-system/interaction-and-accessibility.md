@@ -104,6 +104,7 @@ Desktop:
 - Left rail, main pane, and right rail are visible.
 - Reader TOC appears at the top of the right rail only on concrete memory
   reader routes.
+- TOC and Recent highlights scroll inside their own bounded list bodies.
 
 Tablet:
 

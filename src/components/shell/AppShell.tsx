@@ -54,6 +54,12 @@ const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
   "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base max-[720px]:hidden";
+const rightRailSurface =
+  "sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
+const rightRailStack =
+  "flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1";
+const rightRailScrollContent =
+  "max-h-[min(34vh,20rem)] overflow-y-auto overscroll-contain pr-1";
 const iconButton =
   "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
 const navItemBase =
@@ -181,22 +187,24 @@ export function AppShell(props: AppShellProps) {
         </Show>
         {props.children}
       </main>
-      <aside class="sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden" aria-label="Browse filters">
-        <Show when={rightRailContent()}>
-          {(content) => <div class="mb-4">{content()}</div>}
-        </Show>
-        <FilterPanel
-          activeCategory={query().category}
-          activeHighlight={query().highlight}
-          activeTag={query().tag}
-          categories={categories()}
-          highlights={highlights()}
-          idPrefix="desktop"
-          onSelectCategory={(category) => toggleFilter("category", category.id)}
-          onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
-          onSelectTag={(tag) => toggleFilter("tag", tag.id)}
-          tags={tags()}
-        />
+      <aside class={rightRailSurface} aria-label="Browse filters">
+        <div class={rightRailStack}>
+          <Show when={rightRailContent()}>
+            {(content) => <div class="shrink-0">{content()}</div>}
+          </Show>
+          <FilterPanel
+            activeCategory={query().category}
+            activeHighlight={query().highlight}
+            activeTag={query().tag}
+            categories={categories()}
+            highlights={highlights()}
+            idPrefix="desktop"
+            onSelectCategory={(category) => toggleFilter("category", category.id)}
+            onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
+            onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+            tags={tags()}
+          />
+        </div>
       </aside>
       <Show when={isNavigationOpen()}>
         <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
@@ -382,7 +390,7 @@ function FilterPanel(props: {
         </div>
       </RightPanelSection>
       <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
-        <div class="grid gap-3">
+        <div class={`${rightRailScrollContent} grid gap-3`}>
           <For each={props.highlights}>
             {(highlight) => (
               <button

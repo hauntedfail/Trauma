@@ -27,9 +27,16 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("useRightRailContent");
     expect(readerSource).toContain("onCleanup");
     expect(readerSource).toContain("animate-trauma-pop-bounce");
+    expect(readerSource).toContain("readerTocScrollContent");
     expect(readerSource).not.toContain(
       "grid-cols-[minmax(160px,220px)_minmax(0,1fr)]",
     );
+  });
+
+  it("keeps the reader table of contents bounded inside its own scroll body", () => {
+    expect(readerSource).toContain("max-h-[min(44vh,24rem)]");
+    expect(readerSource).toContain("overflow-y-auto");
+    expect(readerSource).toContain("overscroll-contain");
   });
 
   it("defines a reduced-motion-safe pop bounce animation for reader TOC entry", () => {

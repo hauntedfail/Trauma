@@ -105,6 +105,8 @@ Current desktop contract:
 - Width: `360px`.
 - Surface: `bg-trauma-bg-base`.
 - Padding: `px-6 py-4`.
+- Height: fixed to the viewport.
+- Overflow: the rail frame is bounded; scrollable content must be explicit.
 - Hidden on tablet and mobile.
 - Contains no search input.
 
@@ -128,6 +130,10 @@ contents on `/memories/:id`. This content is registered through the shell right
 rail context, appears before browse filters, and is cleared when the route
 unmounts. Do not show reader TOC content on `/memories`, `/highlights`, or other
 non-reader routes.
+
+Long right-rail aids must not grow the application layout by item count. TOC and
+Recent highlights render their item bodies as bounded scroll regions. The rail
+itself remains viewport-bound, and each long list owns its own scrolling.
 
 ## Tablet And Mobile
 

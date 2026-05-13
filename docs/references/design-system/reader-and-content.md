@@ -44,6 +44,8 @@ Contract:
 - Rounded island surface matching right rail section geometry.
 - Text is compact.
 - Links target generated markdown heading anchors.
+- Heading links live inside a bounded scroll body so many headings do not expand
+  the right rail or the whole app layout.
 - Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
 - Motion is disabled under `prefers-reduced-motion: reduce`.
 

@@ -76,6 +76,19 @@ describe("refined app shell contract", () => {
     expect(contextualContentIndex).toBeLessThan(browseFiltersIndex);
   });
 
+  it("keeps right rail shortcut lists as bounded independent scroll regions", () => {
+    expect(appShellSource).toContain("rightRailSurface");
+    expect(appShellSource).toContain("rightRailStack");
+    expect(appShellSource).toContain("rightRailScrollContent");
+    expect(appShellSource).toContain("overflow-hidden");
+    expect(appShellSource).toContain("max-h-[min(34vh,20rem)]");
+    expect(appShellSource).toContain("overflow-y-auto");
+    expect(appShellSource).toContain("overscroll-contain");
+    expect(appShellSource).not.toContain(
+      'h-screen overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden',
+    );
+  });
+
   it("keeps the left rail scale close to the refined sample", () => {
     expect(appShellSource).toContain("px-2 py-1 pb-3");
     expect(appShellSource).toContain("grid-cols-[32px_minmax(0,1fr)]");

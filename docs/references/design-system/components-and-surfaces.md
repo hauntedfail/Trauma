@@ -97,6 +97,10 @@ They should not become dense forms, search panels, settings pages, or broad
 route content containers. Contextual route content must stay small enough to
 act as a right rail aid rather than a second main pane.
 
+When an island contains an unbounded list, the list body must be a bounded
+scroll region. This is required for Recent highlights and reader TOC. Do not
+let those islands grow vertically for every item.
+
 ## Add Memory Composer
 
 The global composer uses the existing `AddMemoryForm` and existing
