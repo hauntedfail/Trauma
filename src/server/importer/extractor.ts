@@ -1,5 +1,3 @@
-import { isIP } from "node:net";
-
 import { Defuddle, type DefuddleResponse } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
@@ -295,10 +293,6 @@ function resolveSafeDisplayUrl(pageUrl: string, value: string) {
 
 function isTrustedDisplayHostname(pageUrl: string, hostname: string) {
   const normalizedHostname = normalizeHostname(hostname);
-  if (isIP(normalizedHostname) !== 0) {
-    return true;
-  }
-
   try {
     return normalizedHostname === normalizeHostname(new URL(pageUrl).hostname);
   } catch {

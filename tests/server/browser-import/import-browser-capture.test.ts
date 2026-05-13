@@ -160,6 +160,43 @@ describe("browser capture import", () => {
     expect(memory).toEqual({ id: "memory-id" });
     expect(observedUrls).toEqual(["https://example.com/source"]);
   });
+
+  it("falls back to the captured source URL when canonical URL is a different public IP", async () => {
+    const observedUrls: string[] = [];
+
+    const memory = await importBrowserCapture({
+      payload: createPayload({
+        canonicalUrl: "https://93.184.216.34/canonical",
+        articleHtml: `<article>
+          <h1>Captured Article</h1>
+          <p>This browser extracted article contains enough readable words to become a memory through the existing persistence path.</p>
+          <p>A canonical IP must not replace the user selected source URL.</p>
+        </article>`,
+        articleText:
+          "Captured Article. This browser extracted article contains enough readable words to become a memory through the existing persistence path. A canonical IP must not replace the user selected source URL.",
+      }),
+      config: createConfig(),
+      db: {} as never,
+      backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+      extractArticle: async () => ({
+        title: "Captured Article",
+        description: null,
+        faviconUrl: null,
+        markdown:
+          "# Captured Article\n\nThis browser extracted article contains enough readable words to become a memory through the existing persistence path.",
+        wordCount: 15,
+      }),
+      createMemory: async (input) => {
+        observedUrls.push(input.url);
+        const imported = await input.importer?.importUrl({ url: input.url });
+        expect(imported?.url).toBe("https://example.com/source");
+        return { id: "memory-id" };
+      },
+    });
+
+    expect(memory).toEqual({ id: "memory-id" });
+    expect(observedUrls).toEqual(["https://example.com/source"]);
+  });
 });
 
 function createPayload(

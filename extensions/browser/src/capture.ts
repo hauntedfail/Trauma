@@ -208,20 +208,41 @@ function selectBestElement(elements: readonly Element[]) {
 }
 
 function sanitizeElement(root: Element) {
-  for (const selector of REMOVED_SELECTORS) {
-    for (const element of Array.from(root.querySelectorAll(selector))) {
-      element.remove();
-    }
-  }
+  const queue: Element[] = [root];
+  let inspected = 0;
 
-  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+  while (queue.length > 0) {
+    if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
+      for (const element of queue) {
+        element.remove();
+      }
+      return;
+    }
+
+    const element = queue.shift();
+    if (element === undefined) {
+      continue;
+    }
+    inspected += 1;
+
+    if (isRemovedElement(element)) {
+      element.remove();
+      continue;
+    }
+
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || name === "srcdoc") {
         element.removeAttribute(attribute.name);
       }
     }
+
+    queue.push(...childElements(element));
   }
+}
+
+function isRemovedElement(element: Element) {
+  return REMOVED_SELECTORS.includes(element.localName.toLowerCase());
 }
 
 function readCanonicalUrl() {

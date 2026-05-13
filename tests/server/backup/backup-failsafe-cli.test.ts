@@ -79,6 +79,34 @@ describe("backup failsafe CLI", () => {
     ).rejects.toThrow(/refusing to overwrite existing backup content/);
   });
 
+  it("retries migration when copied target content already matches the source", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const oldStore = join(root, "old-data/storage");
+    const newStore = join(root, "new-data/storage");
+    const relativeContent = "memories/memory-1/CONTENT.md";
+    await mkdir(join(oldStore, "memories", "memory-1"), { recursive: true });
+    await mkdir(join(newStore, "memories", "memory-1"), { recursive: true });
+    await writeFile(join(oldStore, relativeContent), "# Old\n", "utf8");
+    await writeFile(join(newStore, relativeContent), "# Old\n", "utf8");
+    await seedPathDriftAlert(configPath, root);
+
+    const output = await withGitIdentity(() =>
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    );
+
+    expect(output).toContain("APPLY: Migrate backup");
+    expect(output).toContain("Alert cleared.");
+    const config = loadTraumaConfig({ configPath });
+    expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
+    expect(
+      git(config.projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
+  });
+
   it("applies migration by copying content, initializing the target repo, and clearing the alert", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root);

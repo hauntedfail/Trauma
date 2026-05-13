@@ -1,5 +1,3 @@
-import { isIP } from "node:net";
-
 import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
@@ -137,11 +135,7 @@ function normalizeCaptureUrl(value: string) {
 
 function isTrustedCanonicalHostname(sourceUrl: URL, hostname: string) {
   const normalizedHostname = normalizeHostname(hostname);
-  if (normalizedHostname === normalizeHostname(sourceUrl.hostname)) {
-    return true;
-  }
-
-  return isIP(normalizedHostname) !== 0;
+  return normalizedHostname === normalizeHostname(sourceUrl.hostname);
 }
 
 function fallbackTitleFromUrl(value: string) {

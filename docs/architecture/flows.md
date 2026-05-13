@@ -100,3 +100,8 @@ Backup failures do not roll back memory creation or highlight creation.
 On startup, Trauma should find pending, queued, or failed backup states that are
 eligible for retry and re-enqueue them. `queued` is process-local, so queued rows
 from a previous process are eligible after restart.
+
+Backup failsafe recovery actions must be retry-safe. If migration already
+copied a file before a later git step failed, rerunning migration may accept the
+existing target only when its bytes match the source. Different target content
+remains a hard conflict.

@@ -96,9 +96,11 @@ export async function migrateBackupFailsafeContent(input: {
 
   const files = await listFiles(alert.previousStorePath);
   const relativeFiles = files.map((file) => relative(alert.previousStorePath!, file));
-  const conflicts = relativeFiles.filter((file) =>
-    existsSync(join(input.config.storePath, file)),
-  );
+  const conflicts = await findMigrationConflicts({
+    sourceStorePath: alert.previousStorePath,
+    targetStorePath: input.config.storePath,
+    relativeFiles,
+  });
   if (conflicts.length > 0) {
     throw new BackupFailsafeActionError(
       `refusing to overwrite existing backup content: ${conflicts[0]}`,
@@ -240,6 +242,35 @@ async function listFiles(directory: string): Promise<string[]> {
     }
   }
   return files;
+}
+
+async function findMigrationConflicts(input: {
+  sourceStorePath: string;
+  targetStorePath: string;
+  relativeFiles: readonly string[];
+}) {
+  const conflicts: string[] = [];
+  for (const file of input.relativeFiles) {
+    const source = join(input.sourceStorePath, file);
+    const target = join(input.targetStorePath, file);
+    if (existsSync(target) && !(await hasSameFileContent(source, target))) {
+      conflicts.push(file);
+    }
+  }
+
+  return conflicts;
+}
+
+async function hasSameFileContent(left: string, right: string) {
+  try {
+    const [leftContent, rightContent] = await Promise.all([
+      readFile(left),
+      readFile(right),
+    ]);
+    return leftContent.equals(rightContent);
+  } catch {
+    return false;
+  }
 }
 
 async function ensureBackupRepository(config: ResolvedTraumaConfig) {

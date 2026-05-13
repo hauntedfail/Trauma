@@ -59,6 +59,9 @@
 - MUST decode HTML entities in extracted URL attributes before URL resolution,
   and MUST strip or reject URL userinfo before persisting display URLs,
   markdown links, favicon URLs, or API response URLs.
+- MUST keep page-provided canonical URLs and extracted display URLs on the
+  normalized source host. A public IP literal is not trusted merely because it
+  is public; it must match the source host before becoming an active URL.
 - MUST prevent XSS in markdown and extracted content rendering.
 - MUST avoid leaking stack traces, filesystem paths, or raw dependency errors to
   browser-visible responses.
@@ -77,6 +80,8 @@
 - MUST run final extraction and memory persistence on the TRAUMA server. The
   extension may capture a tab snapshot, but it must not bypass server-side
   sanitization or write memory content directly.
+- MUST bound browser-extension DOM traversal during capture and sanitization.
+  Avoid unbounded `querySelectorAll("*")` scans over captured page content.
 - MUST resolve browser-assisted extractor workers from bundled runtime code or
   inline worker source. Standalone builds must not depend on `src/` files being
   present at runtime.

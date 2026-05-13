@@ -161,6 +161,45 @@ describe("extension page capture", () => {
     }
   });
 
+  it("does not full-scan the cloned document while sanitizing", () => {
+    installPage({
+      href: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Captured Article</title></head>
+          <body>
+            <article onclick="alert(1)">
+              <h1>Captured Article</h1>
+              <p>Readable paragraph.</p>
+              <script>window.evil = true;</script>
+            </article>
+          </body>
+        </html>`,
+    });
+    const elementPrototype = Object.getPrototypeOf(document.documentElement) as {
+      querySelectorAll: Element["querySelectorAll"];
+    };
+    const originalQuerySelectorAll = elementPrototype.querySelectorAll;
+    elementPrototype.querySelectorAll = function (
+      this: Element,
+      selector: string,
+    ) {
+      if (selector === "*") {
+        throw new Error("cloned element full scan");
+      }
+
+      return originalQuerySelectorAll.call(this, selector);
+    };
+
+    try {
+      const result = createCapturedTabSnapshot("0.1.0");
+
+      expect(result.ok).toBe(true);
+    } finally {
+      elementPrototype.querySelectorAll = originalQuerySelectorAll;
+    }
+  });
+
   it("rejects snapshots whose full JSON payload would exceed the byte budget", () => {
     installPage({
       href: "https://example.com/large-text",

@@ -65,4 +65,26 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.title).toBe("Empty Page");
     expect(result.markdown).toBe("");
   });
+
+  it("does not preserve public IP links or images from a named source host", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/posts/importable",
+      html: `<!doctype html>
+        <html>
+          <head><title>IP Linked Article</title></head>
+          <body>
+            <article>
+              <h1>IP Linked Article</h1>
+              <p>This article has enough readable words to exercise extracted link sanitization for source host boundaries.</p>
+              <p><a href="https://93.184.216.34/private">public IP link</a></p>
+              <img src="https://93.184.216.34/pixel.png" alt="pixel">
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain("public IP link");
+    expect(result.markdown).not.toContain("https://93.184.216.34");
+    expect(result.markdown).not.toContain("![pixel]");
+  });
 });
