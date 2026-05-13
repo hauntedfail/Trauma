@@ -29,6 +29,12 @@ describe("front-end refine design tokens", () => {
     }
   });
 
+  it("sets normal night mode root background to pure black", () => {
+    expect(tailwindCss).toMatch(
+      /:root,\s*:root\[data-theme="black-dark"\]\s*{[^}]*--bg-base:\s*#000000;/s,
+    );
+  });
+
   it("keeps refined typography local without runtime font imports or negative tracking", () => {
     expect(tailwindCss).not.toContain("fonts.googleapis.com");
     expect(tailwindCss).toContain("--font-trauma-sans: var(--font-sans)");

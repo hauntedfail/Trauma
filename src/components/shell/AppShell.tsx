@@ -19,6 +19,7 @@ import {
   PageIcon,
   PaperIcon,
   PlusIcon,
+  SearchIcon,
   SunIcon,
   TraumaNavIcons,
 } from "../icons";
@@ -127,6 +128,10 @@ export function AppShell(props: AppShellProps) {
     setIsFiltersOpen(false);
   };
 
+  const updateSearch = (value: string) => {
+    navigate(buildBrowseHref(query(), { q: value }), { replace: true });
+  };
+
   const goToHighlight = (highlightId: string) => {
     navigate(buildHighlightBrowseHref(highlightId));
     setIsFiltersOpen(false);
@@ -150,12 +155,12 @@ export function AppShell(props: AppShellProps) {
   };
 
   return (
-    <div class="grid min-h-screen grid-cols-[minmax(188px,248px)_minmax(0,1fr)_minmax(248px,328px)] bg-trauma-bg-base text-trauma-text-primary max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
+    <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[248px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
         onOpenNavigation={() => setIsNavigationOpen(true)}
         onOpenFilters={() => setIsFiltersOpen(true)}
       />
-      <aside class={`${sideSurface} border-r border-trauma-border p-6 max-[1040px]:row-span-2 max-[1040px]:p-4 max-[1040px]:px-2.5`} aria-label="Primary navigation">
+      <aside class={`${sideSurface} border-r border-trauma-border px-6 py-5 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
         <NavigationContent
           activePath={activePath()}
           brightness={brightness()}
@@ -166,13 +171,13 @@ export function AppShell(props: AppShellProps) {
           surface={surface()}
         />
       </aside>
-      <main class="min-w-0 max-[1040px]:col-start-2">
+      <main class="min-w-0 border-r border-trauma-border max-[1040px]:col-start-2 max-[720px]:border-r-0">
         <Show when={backupFailsafeAlert()}>
           {(alert) => <BackupFailsafeBanner alert={alert()} />}
         </Show>
         {props.children}
       </main>
-      <aside class={`${sideSurface} border-l border-trauma-border p-5 max-[1040px]:hidden`} aria-label="Browse filters">
+      <aside class="sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden" aria-label="Browse filters">
         <FilterPanel
           activeCategory={query().category}
           activeHighlight={query().highlight}
@@ -180,6 +185,8 @@ export function AppShell(props: AppShellProps) {
           categories={categories()}
           highlights={highlights()}
           idPrefix="desktop"
+          searchQuery={query().q}
+          onSearch={updateSearch}
           onSelectCategory={(category) => toggleFilter("category", category.id)}
           onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
           onSelectTag={(tag) => toggleFilter("tag", tag.id)}
@@ -210,6 +217,8 @@ export function AppShell(props: AppShellProps) {
             categories={categories()}
             highlights={highlights()}
             idPrefix="drawer"
+            searchQuery={query().q}
+            onSearch={updateSearch}
             onSelectCategory={(category) => toggleFilter("category", category.id)}
             onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
@@ -334,20 +343,34 @@ function FilterPanel(props: {
   categories: BrowseTaxonomyItem[];
   highlights: BrowseHighlight[];
   idPrefix: string;
+  searchQuery: string;
+  onSearch: (value: string) => void;
   onSelectCategory: (category: BrowseTaxonomyItem) => void;
   onSelectHighlight: (highlight: BrowseHighlight) => void;
   onSelectTag: (tag: BrowseTaxonomyItem) => void;
   tags: BrowseTaxonomyItem[];
 }) {
   return (
-    <div class="grid gap-6">
-      <section aria-labelledby={`${props.idPrefix}-category-filters-title`}>
-        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-category-filters-title`}>Categories</h2>
+    <div class="grid gap-4">
+      <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-base px-4 text-trauma-text-muted focus-within:border-trauma-border-strong">
+        <span class="grid place-items-center">
+          <SearchIcon />
+        </span>
+        <input
+          aria-label="Search archive"
+          class="min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder"
+          type="search"
+          value={props.searchQuery}
+          placeholder="Search"
+          onInput={(event) => props.onSearch(event.currentTarget.value)}
+        />
+      </label>
+      <RightPanelSection title="Categories" titleId={`${props.idPrefix}-category-filters-title`}>
         <div class="grid gap-2">
           <For each={props.categories}>
             {(category) => (
               <button
-                class={`${buttonBase} w-full justify-start bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+                class={`${buttonBase} w-full justify-start border-trauma-border bg-transparent text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
                 type="button"
                 aria-pressed={props.activeCategory === category.id}
                 onClick={() => props.onSelectCategory(category)}
@@ -357,26 +380,24 @@ function FilterPanel(props: {
             )}
           </For>
         </div>
-      </section>
-      <section aria-labelledby={`${props.idPrefix}-tag-filters-title`}>
-        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-tag-filters-title`}>Tags</h2>
+      </RightPanelSection>
+      <RightPanelSection title="Tags" titleId={`${props.idPrefix}-tag-filters-title`}>
         <div class="grid gap-2">
           <For each={props.tags}>
             {(tag) => (
-              <button class={`${buttonBase} w-full justify-start bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
+              <button class={`${buttonBase} w-full justify-start border-trauma-border bg-transparent text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
                 {tag.name}
               </button>
             )}
           </For>
         </div>
-      </section>
-      <section aria-labelledby={`${props.idPrefix}-highlight-shortcuts-title`}>
-        <h2 class="mb-2.5 text-[15px] font-bold" id={`${props.idPrefix}-highlight-shortcuts-title`}>Recent highlights</h2>
-        <div class="grid gap-2">
+      </RightPanelSection>
+      <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
+        <div class="grid gap-3">
           <For each={props.highlights}>
             {(highlight) => (
               <button
-                class={`${buttonBase} grid min-h-[74px] w-full justify-stretch gap-1 bg-trauma-bg-elev text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+                class="grid w-full gap-1 rounded-2xl px-3 py-2 text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink"
                 type="button"
                 aria-pressed={props.activeHighlight === highlight.id}
                 onClick={() => props.onSelectHighlight(highlight)}
@@ -387,8 +408,26 @@ function FilterPanel(props: {
             )}
           </For>
         </div>
-      </section>
+      </RightPanelSection>
     </div>
+  );
+}
+
+function RightPanelSection(props: {
+  children: JSX.Element;
+  title: string;
+  titleId: string;
+}) {
+  return (
+    <section
+      aria-labelledby={props.titleId}
+      class="rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5"
+    >
+      <h2 class="mb-4 text-[20px] font-extrabold" id={props.titleId}>
+        {props.title}
+      </h2>
+      {props.children}
+    </section>
   );
 }
 

@@ -1,5 +1,5 @@
 export const readerFrame =
-  "mx-auto min-h-screen max-w-[920px] border-x border-trauma-border bg-trauma-bg-surface max-[720px]:border-x-0";
+  "min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
 
 export const readerPadding = "px-8 max-[720px]:px-5";
 

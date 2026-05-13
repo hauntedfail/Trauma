@@ -93,7 +93,7 @@
   :root,
   :root[data-theme="black-dark"] {
     color-scheme: dark;
-    --bg-base: #0a0a0a;
+    --bg-base: #000000;
     --bg-surface: #131313;
     --bg-elev: #181818;
     --bg-sunken: #050505;

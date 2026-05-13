@@ -7,7 +7,7 @@ import { getHighlightBrowseRows } from "~/components/highlights/highlights-loade
 import { classifyHighlightRows } from "~/components/highlights/route-state";
 
 const pageFrame =
-  "mx-auto min-h-screen w-[min(100%,840px)] border-x border-trauma-border bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)] max-[720px]:border-x-0";
+  "min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
 const pageHeader =
   "sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 p-6 backdrop-blur max-[720px]:top-[58px] max-[720px]:flex-col max-[720px]:items-start max-[720px]:p-5 max-[720px]:px-4";
 const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
