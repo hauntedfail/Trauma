@@ -1,4 +1,6 @@
 import {
+  backupEnvironmentStamps,
+  backupFailsafeAlerts,
   categories,
   highlights,
   memories,
@@ -13,6 +15,9 @@ export type {
   TraumaDatabaseConnection,
 } from "./connection";
 export type {
+  BackupEnvironmentRepository,
+  BackupEnvironmentStamp,
+  BackupFailsafeAlert,
   HighlightRepository,
   MemoryRepository,
   TraumaDatabase,
@@ -21,6 +26,8 @@ export type {
 export * from "./schema";
 
 export const schema = {
+  backupEnvironmentStamps,
+  backupFailsafeAlerts,
   categories,
   highlights,
   memories,

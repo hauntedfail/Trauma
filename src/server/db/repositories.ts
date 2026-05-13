@@ -6,6 +6,10 @@ import * as schema from "./schema";
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
 type Memory = typeof schema.memories.$inferSelect;
 type Highlight = typeof schema.highlights.$inferSelect;
+export type BackupEnvironmentStamp =
+  typeof schema.backupEnvironmentStamps.$inferSelect;
+export type BackupFailsafeAlert =
+  typeof schema.backupFailsafeAlerts.$inferSelect;
 type MemoryBackupStatusUpdate = Pick<
   Memory,
   "id" | "backupStatus" | "lastBackupAt" | "lastBackupError" | "updatedAt"
@@ -58,7 +62,20 @@ export interface HighlightRepository {
   listForBrowse: () => Promise<HighlightBrowseRow[]>;
 }
 
+export interface BackupEnvironmentRepository {
+  getBackupEnvironmentStamp: () => Promise<BackupEnvironmentStamp | undefined>;
+  upsertBackupEnvironmentStamp: (
+    input: BackupEnvironmentStamp,
+  ) => Promise<BackupEnvironmentStamp>;
+  getBackupFailsafeAlert: () => Promise<BackupFailsafeAlert | undefined>;
+  upsertBackupFailsafeAlert: (
+    input: BackupFailsafeAlert,
+  ) => Promise<BackupFailsafeAlert>;
+  clearBackupFailsafeAlert: () => Promise<void>;
+}
+
 export interface TraumaRepositories {
+  backupEnvironment: BackupEnvironmentRepository;
   memories: MemoryRepository;
   highlights: HighlightRepository;
 }
@@ -72,6 +89,64 @@ export class MemoryRepositoryError extends Error {
 
 export function createRepositories(db: TraumaDatabase): TraumaRepositories {
   return {
+    backupEnvironment: {
+      getBackupEnvironmentStamp: async () =>
+        db.query.backupEnvironmentStamps.findFirst({
+          where: eq(schema.backupEnvironmentStamps.id, "default"),
+        }),
+      upsertBackupEnvironmentStamp: async (input) => {
+        await db
+          .insert(schema.backupEnvironmentStamps)
+          .values(input)
+          .onConflictDoUpdate({
+            target: schema.backupEnvironmentStamps.id,
+            set: {
+              projectPath: input.projectPath,
+              storePath: input.storePath,
+              gitRemote: input.gitRemote,
+              gitRemoteUrl: input.gitRemoteUrl,
+              gitBranch: input.gitBranch,
+              updatedAt: input.updatedAt,
+            },
+          })
+          .run();
+        return input;
+      },
+      getBackupFailsafeAlert: async () =>
+        db.query.backupFailsafeAlerts.findFirst({
+          where: eq(schema.backupFailsafeAlerts.id, "active"),
+        }),
+      upsertBackupFailsafeAlert: async (input) => {
+        await db
+          .insert(schema.backupFailsafeAlerts)
+          .values(input)
+          .onConflictDoUpdate({
+            target: schema.backupFailsafeAlerts.id,
+            set: {
+              kind: input.kind,
+              severity: input.severity,
+              message: input.message,
+              previousProjectPath: input.previousProjectPath,
+              previousStorePath: input.previousStorePath,
+              currentProjectPath: input.currentProjectPath,
+              currentStorePath: input.currentStorePath,
+              gitRemote: input.gitRemote,
+              gitRemoteUrl: input.gitRemoteUrl,
+              gitBranch: input.gitBranch,
+              error: input.error,
+              updatedAt: input.updatedAt,
+            },
+          })
+          .run();
+        return input;
+      },
+      clearBackupFailsafeAlert: async () => {
+        await db
+          .delete(schema.backupFailsafeAlerts)
+          .where(eq(schema.backupFailsafeAlerts.id, "active"))
+          .run();
+      },
+    },
     highlights: {
       listForMemory: async (memoryId) =>
         db.query.highlights.findMany({

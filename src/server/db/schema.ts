@@ -20,6 +20,17 @@ const extractionStatusSqlList = sql.raw(
 const backupStatusSqlList = sql.raw(
   BACKUP_STATUSES.map(toSqlStringLiteral).join(", "),
 );
+const backupFailsafeAlertKindSqlList = sql.raw(
+  [
+    "backup_path_drift",
+    "backup_content_inconsistent",
+    "backup_repository_missing",
+    "backup_push_failed",
+  ].map(toSqlStringLiteral).join(", "),
+);
+const backupFailsafeSeveritySqlList = sql.raw(
+  ["critical"].map(toSqlStringLiteral).join(", "),
+);
 
 function toSqlStringLiteral(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
@@ -139,6 +150,59 @@ export const highlights = sqliteTable(
     index("highlights_created_at_idx").on(table.createdAt),
     check("highlights_start_offset_check", sql`${table.startOffset} >= 0`),
     check("highlights_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
+  ],
+);
+
+export const backupEnvironmentStamps = sqliteTable(
+  "backup_environment_stamps",
+  {
+    id: text("id").primaryKey(),
+    projectPath: text("project_path").notNull(),
+    storePath: text("store_path").notNull(),
+    gitRemote: text("git_remote").notNull(),
+    gitRemoteUrl: text("git_remote_url"),
+    gitBranch: text("git_branch").notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    check("backup_environment_stamps_id_check", sql`${table.id} = 'default'`),
+  ],
+);
+
+export const backupFailsafeAlerts = sqliteTable(
+  "backup_failsafe_alerts",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind")
+      .$type<
+        | "backup_path_drift"
+        | "backup_content_inconsistent"
+        | "backup_repository_missing"
+        | "backup_push_failed"
+      >()
+      .notNull(),
+    severity: text("severity").$type<"critical">().notNull(),
+    message: text("message").notNull(),
+    previousProjectPath: text("previous_project_path"),
+    previousStorePath: text("previous_store_path"),
+    currentProjectPath: text("current_project_path").notNull(),
+    currentStorePath: text("current_store_path").notNull(),
+    gitRemote: text("git_remote").notNull(),
+    gitRemoteUrl: text("git_remote_url"),
+    gitBranch: text("git_branch").notNull(),
+    error: text("error"),
+    ...timestamps(),
+  },
+  (table) => [
+    check("backup_failsafe_alerts_id_check", sql`${table.id} = 'active'`),
+    check(
+      "backup_failsafe_alerts_kind_check",
+      sql`${table.kind} in (${backupFailsafeAlertKindSqlList})`,
+    ),
+    check(
+      "backup_failsafe_alerts_severity_check",
+      sql`${table.severity} in (${backupFailsafeSeveritySqlList})`,
+    ),
   ],
 );
 

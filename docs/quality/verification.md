@@ -42,7 +42,23 @@ Unit or integration tests should cover:
 - Highlight marker insertion.
 - Highlight marker removal, shrink, and split behavior.
 - Backup queue behavior.
+- Backup environment failsafe drift, bootstrap, recovery, and push-failure
+  behavior.
 - Reader sanitization and rendering.
+
+For backup failsafe changes, run the focused suite before broad verification:
+
+```bash
+mise exec -- bun run test tests/server/backup/backup-environment.test.ts tests/server/backup/git-backup.test.ts tests/server/routes/api-backup-failsafe.test.ts tests/components/backup-failsafe.test.ts tests/server/backup/backup-failsafe-cli.test.ts
+```
+
+Use recovery commands in dry-run mode before applying filesystem changes:
+
+```bash
+mise exec -- bun run scripts/trauma-backup-failsafe.ts status --config trauma.config.json
+mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config trauma.config.json
+mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json
+```
 
 ## Completion Bar
 

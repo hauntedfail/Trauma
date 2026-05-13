@@ -1,6 +1,9 @@
 import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
+import { AddMemoryForm } from "../memories/AddMemoryForm";
+import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
+import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { getBrowseMemories } from "../memories/browse-loader";
 import {
   buildBrowseHref,
@@ -32,6 +35,7 @@ export function AppShell(props: AppShellProps) {
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
   const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const memories = createAsync(() => getBrowseMemories());
+  const backupFailsafeAlert = createAsync(() => getBackupFailsafeAlert());
   const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
   const categories = createMemo(() => getBrowseCategories(browseMemories()));
@@ -70,6 +74,9 @@ export function AppShell(props: AppShellProps) {
         <NavigationContent onOpenComposer={openComposer} />
       </aside>
       <main class="min-w-0 max-[1040px]:col-start-2">
+        <Show when={backupFailsafeAlert()}>
+          {(alert) => <BackupFailsafeBanner alert={alert()} />}
+        </Show>
         {props.children}
       </main>
       <aside class={`${sideSurface} border-l border-trauma-border p-5 max-[1040px]:hidden`} aria-label="Browse filters">
@@ -109,7 +116,7 @@ export function AppShell(props: AppShellProps) {
       </Show>
       <Show when={isComposerOpen()}>
         <Drawer ariaLabel="Add memory" onClose={() => setIsComposerOpen(false)}>
-          <GlobalAddMemoryComposer />
+          <GlobalAddMemoryComposer onCreated={() => setIsComposerOpen(false)} />
         </Drawer>
       </Show>
     </div>
@@ -123,7 +130,7 @@ function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () =
         Menu
       </button>
       <A class="inline-flex min-h-10 min-w-0 items-center text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
-        Trauma
+        TRAUMA
       </A>
       <button type="button" class={`${buttonBase} w-full overflow-hidden bg-white text-trauma-accent`} aria-label="Open filters" onClick={props.onOpenFilters}>
         Filter
@@ -142,7 +149,7 @@ function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void;
       }}
     >
       <A class="inline-flex min-h-10 items-center text-[22px] font-extrabold max-[1040px]:w-full max-[1040px]:justify-center max-[1040px]:text-lg" href="/memories" onClick={props.onNavigate}>
-        Trauma
+        TRAUMA
       </A>
       <nav class="grid content-start gap-2">
         <A class="min-h-10 rounded-lg px-3 py-2.5 font-bold text-[#263126] hover:bg-[#edf3e8] max-[1040px]:overflow-hidden max-[1040px]:px-2 max-[1040px]:text-center max-[1040px]:text-ellipsis" href="/memories" onClick={props.onNavigate}>
@@ -159,18 +166,16 @@ function NavigationContent(props: { isDrawer?: boolean; onNavigate?: () => void;
   );
 }
 
-function GlobalAddMemoryComposer() {
+function GlobalAddMemoryComposer(props: { onCreated: () => void }) {
   return (
-    <form class="grid gap-3.5" aria-label="Add memory">
-      <h2 class="mb-0 text-[22px] font-bold">Add memory</h2>
-      <label class="grid gap-2">
-        <span class="text-[13px] font-extrabold text-[#4e5a48]">URL</span>
-        <input class={surfaceInput} type="url" placeholder="https://example.com/article" />
-      </label>
-      <button class={`${buttonBase} bg-trauma-accent text-white`} type="button" disabled>
-        Save memory
-      </button>
-    </form>
+    <AddMemoryForm
+      formClass="grid gap-3.5"
+      inputClass={surfaceInput}
+      buttonClass={`${buttonBase} bg-trauma-accent text-white`}
+      submitLabel="Save memory"
+      title="Add memory"
+      onCreated={props.onCreated}
+    />
   );
 }
 

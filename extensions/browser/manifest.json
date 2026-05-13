@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "TRAUMA",
+  "description": "Import the current page into a local TRAUMA instance.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TRAUMA"
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"]
+}

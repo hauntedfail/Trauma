@@ -131,6 +131,56 @@ describe("URL importer", () => {
     });
   });
 
+  it("returns a link-only fallback when extraction returns blank markdown", async () => {
+    const result = await importUrl({
+      url: "https://example.com/blank-extraction",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Blank Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => ({
+        title: "Blank Extraction",
+        description: null,
+        faviconUrl: null,
+        markdown: "",
+        wordCount: 0,
+      }),
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/blank-extraction",
+      title: "Blank Extraction",
+      extractionError: "insufficient article body",
+    });
+  });
+
+  it("returns a link-only fallback when extraction fails", async () => {
+    const result = await importUrl({
+      url: "https://example.com/extractor-error",
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Extractor Error</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => {
+        throw new Error("Defuddle could not parse content");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/extractor-error",
+      title: "example.com",
+      extractionError: "extraction failed",
+    });
+  });
+
   it("times out fetch implementations that ignore abort signals", async () => {
     const result = await importUrl({
       url: "https://example.com/hung-fetch",
@@ -144,6 +194,74 @@ describe("URL importer", () => {
       url: "https://example.com/hung-fetch",
       title: "example.com",
       extractionError: "fetch failed: request timed out",
+    });
+  });
+
+  it("keeps the import timeout active while extracting article content", async () => {
+    const result = await importUrl({
+      url: "https://example.com/slow-extraction",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Slow Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return {
+          title: "Slow Extraction",
+          description: null,
+          faviconUrl: null,
+          markdown:
+            "# Slow Extraction\n\nThis delayed extraction result should not win after the configured import timeout has elapsed.",
+          wordCount: 14,
+        };
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/slow-extraction",
+      title: "example.com",
+      extractionError: "extraction failed: request timed out",
+    });
+  });
+
+  it("does not persist extraction output produced after synchronous work exceeds the import budget", async () => {
+    const result = await importUrl({
+      url: "https://example.com/slow-sync-extraction",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Slow Sync Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: () => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 25) {
+          // Intentionally block to prove late synchronous work cannot win the import.
+        }
+
+        return Promise.resolve({
+          title: "Should Not Persist",
+          description: null,
+          faviconUrl: null,
+          markdown:
+            "# Should Not Persist\n\nThis delayed synchronous extraction result should not be stored after timeout.",
+          wordCount: 13,
+        });
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/slow-sync-extraction",
+      title: "example.com",
+      extractionError: "extraction failed: request timed out",
     });
   });
 
@@ -266,7 +384,9 @@ describe("URL importer", () => {
                 <p><a href="/search?q=a&#38;page=3">decimal entity query link</a></p>
                 <p><a href="/search?q=a&#x26;page=4">hex entity query link</a></p>
                 <p><a href="https://token:secret@example.com/private">credential link</a></p>
+                <p><a href="https://assets.internal.example/private">private DNS link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
+                <p><img src="https://images.internal.example/pixel.png" alt="private DNS image"></p>
               </article>
             </body>
           </html>`,
@@ -302,6 +422,10 @@ describe("URL importer", () => {
     expect(result.markdown).toContain(
       "[credential link](https://example.com/private)",
     );
+    expect(result.markdown).toContain("private DNS link");
+    expect(result.markdown).not.toContain("assets.internal.example");
+    expect(result.markdown).not.toContain("private DNS image");
+    expect(result.markdown).not.toContain("images.internal.example");
     expect(result.markdown).not.toContain("token:secret");
     expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).not.toContain("&#38;");

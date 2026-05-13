@@ -11,6 +11,7 @@ import {
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
+import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
@@ -85,6 +86,33 @@ describe("git backup runner", () => {
     expect(hasRemoteMain(remotePath)).toBe(false);
   });
 
+  it("skips push without warning when the configured remote name does not exist", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Local Missing Remote", "utf8");
+    initializeGitRepository(projectPath);
+    const config = createConfig({ root, projectPath, storePath, push: true });
+
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      connection.close();
+    }
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
   it("pushes an already committed backup when retrying after a failed push", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const missingRemotePath = join(root, "missing.git");
@@ -112,6 +140,15 @@ describe("git backup runner", () => {
       job: createJob({ contentPaths: [contentPath] }),
     });
 
+    const connection = initializeDatabase(
+      createConfig({ root, projectPath, storePath, push: true }),
+    );
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      connection.close();
+    }
     expect(hasRemoteMain(remotePath)).toBe(true);
     expect(
       git(remotePath, ["show", "--name-only", "--pretty=format:", "main"])
@@ -119,6 +156,78 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("records a failsafe alert when an existing remote push fails", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const missingRemotePath = join(root, "missing.git");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Push Failure Alert", "utf8");
+    initializeGitRepository(projectPath);
+    git(projectPath, ["remote", "add", "origin", missingRemotePath]);
+    const config = createConfig({ root, projectPath, storePath, push: true });
+
+    await expect(
+      runGitBackupJob({
+        config,
+        job: createJob({ contentPaths: [contentPath] }),
+      }),
+    ).rejects.toThrow(/git push failed/);
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({
+          kind: "backup_push_failed",
+          severity: "critical",
+          currentProjectPath: projectPath,
+          currentStorePath: storePath,
+          gitRemote: "origin",
+          gitBranch: "main",
+        });
+    } finally {
+      connection.close();
+    }
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
+  it("fails before staging when projectPath is not its own git repository root", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const appRepo = join(root, "app");
+    const projectPath = join(appRepo, "data");
+    const storePath = join(projectPath, "storage");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Nested Wrong Repo", "utf8");
+    await mkdir(appRepo, { recursive: true });
+    initializeGitRepository(appRepo);
+    const config = createConfig({ root, projectPath, storePath, push: false });
+
+    await expect(
+      runGitBackupJob({
+        config,
+        job: createJob({ contentPaths: [contentPath] }),
+      }),
+    ).rejects.toThrow(/backup repository root/);
+
+    expect(git(appRepo, ["diff", "--cached", "--name-only"]).trim()).toBe("");
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({
+          kind: "backup_repository_missing",
+          severity: "critical",
+          currentProjectPath: projectPath,
+          currentStorePath: storePath,
+        });
+    } finally {
+      connection.close();
+    }
   });
 });
 
@@ -230,6 +339,8 @@ describe("git memory backup queue", () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(
       `
+        import { execFileSync } from "node:child_process";
+        import { mkdirSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -247,8 +358,44 @@ describe("git memory backup queue", () => {
           queued: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
           success: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef814",
         };
+        mkdirSync(config.projectPath, { recursive: true });
+        execFileSync("git", ["init", "--initial-branch=main"], {
+          cwd: config.projectPath,
+          env: createGitEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        mkdirSync(join(config.storePath, "memories", ids.success), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(config.storePath, "memories", ids.success, "CONTENT.md"),
+          "# Already backed up\\n",
+        );
+        execFileSync(
+          "git",
+          [
+            "add",
+            "--",
+            join("store", "memories", ids.success, "CONTENT.md"),
+          ],
+          {
+            cwd: config.projectPath,
+            env: createGitEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
         const connection = initializeDatabase(config);
         try {
+          await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+            id: "default",
+            projectPath: config.projectPath,
+            storePath: config.storePath,
+            gitRemote: "origin",
+            gitRemoteUrl: null,
+            gitBranch: "main",
+            createdAt: now,
+            updatedAt: now,
+          });
           for (const [statusName, id] of Object.entries(ids)) {
             await connection.repositories.memories.create({
               id,
@@ -313,6 +460,14 @@ describe("git memory backup queue", () => {
             },
           };
         }
+
+        function createGitEnv() {
+          const env = { ...process.env };
+          delete env.GIT_DIR;
+          delete env.GIT_WORK_TREE;
+          delete env.GIT_INDEX_FILE;
+          return env;
+        }
       `,
       root,
     );
@@ -346,6 +501,109 @@ describe("git memory backup queue", () => {
         lastBackupError: null,
       },
     ]);
+  });
+
+  it("does not retry eligible backups while backup environment failsafe is active", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const now = new Date(${JSON.stringify(capturedAt)});
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+        try {
+          await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+            id: "default",
+            projectPath: join(root, "old-data"),
+            storePath: join(root, "old-data/store"),
+            gitRemote: "origin",
+            gitRemoteUrl: null,
+            gitBranch: "main",
+            createdAt: now,
+            updatedAt: now,
+          });
+          await connection.repositories.memories.create({
+            id: ${JSON.stringify(memoryId)},
+            url: "https://example.com/drift-retry",
+            title: "Drift Retry",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "failed",
+            lastBackupAt: null,
+            lastBackupError: "previous failure",
+            createdAt: now,
+            updatedAt: now,
+          });
+        } finally {
+          connection.close();
+        }
+
+        const processed = [];
+        const queue = createGitMemoryBackupQueue({
+          config,
+          now: () => now,
+          runJob: async ({ job }) => {
+            processed.push(job.memoryId);
+          },
+        });
+        let errorName = null;
+        let errorMessage = null;
+        try {
+          await queue.retryEligibleBackups();
+        } catch (error) {
+          errorName = error?.name ?? null;
+          errorMessage = error?.message ?? null;
+        }
+
+        const check = initializeDatabase(config);
+        try {
+          const alert = await check.repositories.backupEnvironment.getBackupFailsafeAlert();
+          process.stdout.write(JSON.stringify({ processed, errorName, errorMessage, alert }));
+        } finally {
+          check.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { processed, errorName, errorMessage, alert } = JSON.parse(output);
+
+    expect(processed).toEqual([]);
+    expect(errorName).toBe("BackupEnvironmentFailsafeError");
+    expect(errorMessage).toBe("Backup location changed");
+    expect(alert).toMatchObject({
+      kind: "backup_path_drift",
+      currentProjectPath: join(root, "data"),
+      currentStorePath: join(root, "data/store"),
+    });
   });
 
   it("preserves follow-up backup work enqueued while the same memory is active", async () => {

@@ -4,6 +4,13 @@ import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
+import {
+  assertBackupEnvironmentReady,
+  assertBackupRepositoryRoot,
+  clearBackupPushFailureAlert,
+  hasConfiguredRemote,
+  recordBackupPushFailureAlert,
+} from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 
 export { BACKUP_STATUSES };
@@ -210,6 +217,10 @@ export function createGitMemoryBackupQueue(
 
       const connection = openConnection(input.config);
       try {
+        await assertBackupEnvironmentReady({
+          config: input.config,
+          db: connection.db,
+        });
         const backups =
           await connection.repositories.memories.listBackupsEligibleForRetry();
         let enqueued = 0;
@@ -241,6 +252,8 @@ export async function runGitBackupJob(
   if (!input.config.backup.git.enabled) {
     return;
   }
+
+  await assertBackupRepositoryRoot(input.config);
 
   const stagePaths = input.job.contentPaths.map((contentPath) =>
     resolveStagePath(input.config, contentPath),
@@ -302,11 +315,21 @@ function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
 }
 
 async function pushGitBackup(config: ResolvedTraumaConfig) {
-  await runGit(config.projectPath, [
-    "push",
-    config.backup.git.remote,
-    `HEAD:${config.backup.git.branch}`,
-  ]);
+  if (!(await hasConfiguredRemote(config))) {
+    return;
+  }
+
+  try {
+    await runGit(config.projectPath, [
+      "push",
+      config.backup.git.remote,
+      `HEAD:${config.backup.git.branch}`,
+    ]);
+    await clearBackupPushFailureAlert(config);
+  } catch (error) {
+    await recordBackupPushFailureAlert(config, formatUnknownError(error));
+    throw error;
+  }
 }
 
 function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {

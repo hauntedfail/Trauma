@@ -1,13 +1,14 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { validateImportUrl } from "~/server/importer";
 import { addMemory } from "~/server/memories/add-memory";
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseAddMemoryPayload(event.request);
+  const payload = await parseAddMemoryPayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -29,6 +30,18 @@ export async function POST(event: APIEvent): Promise<Response> {
     });
 
     return json({ memory }, { status: 201 });
+  } catch (error) {
+    if (error instanceof BackupEnvironmentFailsafeError) {
+      return json(
+        {
+          error: error.message,
+          backupFailsafe: error.alert ?? null,
+        },
+        { status: 409 },
+      );
+    }
+
+    throw error;
   } finally {
     connection.close();
   }
@@ -45,7 +58,9 @@ interface ParseAddMemoryPayloadOptions {
 
 const DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS = 10_000;
 
-export async function parseAddMemoryPayload(
+export const parseAddMemoryPayload = parseAddMemoryPayloadInternal;
+
+async function parseAddMemoryPayloadInternal(
   request: Request,
   options: ParseAddMemoryPayloadOptions = {},
 ): Promise<AddMemoryPayloadResult> {

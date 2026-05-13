@@ -24,6 +24,11 @@ link-only memory. Record extraction status and error details in SQLite.
 
 Raw HTML is not stored in the initial design.
 
+Default extraction runs behind an interruptible runtime boundary. The import
+timeout budget covers fetch, validation, parser work, and markdown conversion;
+if the budget is exhausted, the importer returns link-only fallback instead of
+persisting late extraction output.
+
 ## Browser-Assisted Import
 
 Safari, browser extension, or share-sheet assisted capture is future work.
@@ -72,6 +77,10 @@ Selection payload:
 If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.
 
+If highlight persistence returns backup failsafe metadata, the frontend must
+refresh the global backup failsafe alert before showing the local highlight
+failure state.
+
 ## Git Backup
 
 Backup is built-in git backup, not a generic hook system.
@@ -91,3 +100,31 @@ Backup failures do not roll back memory creation or highlight creation.
 On startup, Trauma should find pending, queued, or failed backup states that are
 eligible for retry and re-enqueue them. `queued` is process-local, so queued rows
 from a previous process are eligible after restart.
+
+Backup failsafe recovery actions must be retry-safe. If migration already
+copied a file before a later git step failed, rerunning migration may accept the
+existing target only when its bytes match the source. Different target content
+remains a hard conflict.
+
+Backup readiness is tied to the full backup identity, not just filesystem
+paths. The persisted stamp must match project path, store path, git remote,
+remote URL, branch, and already-successful tracked content before new writes are
+accepted. If the repository is recreated at the same path, or the configured
+remote/branch changes while successful backup rows already exist, Trauma must
+force an explicit recovery path instead of silently treating the new repository
+as complete.
+
+When already-successful backup rows point at missing, out-of-scope, or
+untracked content, the alert is a content-integrity failure rather than a path
+drift. The UI and logs must not describe this as a backup location change or
+offer path migration as a remedy.
+
+Only `missing_file` content-integrity alerts may offer deletion of the orphan
+SQLite memory record. If the content still exists but is untracked or outside
+the configured paths, recovery must preserve the record and require backup
+repository/path repair instead.
+
+If migration commits local backup content but the configured push fails, the
+operator must be able to retry that recovered push after repairing the remote.
+A push-failure alert must not turn a completed local migration into an
+unrecoverable banner state.

@@ -10,7 +10,7 @@ export default function App() {
     <Router
       root={(props) => (
         <MetaProvider>
-          <Title>Trauma</Title>
+          <Title>TRAUMA</Title>
           <Suspense>
             <AppShell>{props.children}</AppShell>
           </Suspense>

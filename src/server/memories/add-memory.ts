@@ -1,5 +1,6 @@
 import type { ResolvedTraumaConfig } from "../config";
 import type { MemoryBackupQueue } from "../backup";
+import { assertBackupEnvironmentReady } from "../backup/environment";
 import { importUrl, type ImporterResult } from "../importer";
 import type { TraumaDatabase } from "../db";
 import {
@@ -24,6 +25,11 @@ export interface AddMemoryInput {
 }
 
 export async function addMemory(input: AddMemoryInput) {
+  await assertBackupEnvironmentReady({
+    config: input.config,
+    db: input.db,
+  });
+
   const id = (input.generateId ?? generateMemoryId)();
   const capturedAt = (input.now ?? (() => new Date()))();
   const importer = input.importer ?? { importUrl };

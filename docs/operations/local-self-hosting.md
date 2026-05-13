@@ -31,47 +31,39 @@ needed. Trauma's built-in git backup does not commit the database file.
 Built-in backup commits markdown store changes from `storePath` using
 `projectPath` as the git working directory.
 
+`projectPath` is expected to be the backup repository root. For the default
+local setup, use `projectPath: "./data"` and `storePath: "./data/storage"`.
+Trauma treats `./data` as separate from the application repository.
+
+On a clean first start with git backup enabled, Trauma creates `projectPath`,
+creates `storePath`, and initializes a git repository under `projectPath` when
+one does not already exist. If memory rows or `CONTENT.md` files already exist,
+Trauma does not auto-initialize a new repository. It creates a critical failsafe
+alert so the operator can choose `revert` or `migrate` explicitly.
+
 Backup work is asynchronous. A failed backup does not invalidate memory
 creation, highlight creation, or markdown writes. Failures are recorded and
 surfaced through metadata.
 
+When push is enabled, a missing configured remote name is treated as local-only
+backup and does not warn. A configured remote that exists but fails to push
+creates a critical alert while keeping the local commit.
+
 ## Local Dev Server Contract
 
-The dev server uses deterministic host and port settings to avoid random-port
-discovery failures. All settings come from the project root `.env` file
-(loaded automatically by Bun for `bun run` scripts). `.env.example` ships
-the safe defaults; copy it to `.env` once before running anything.
-
-Defaults from `.env.example`:
-
-- `HOST=127.0.0.1` (loopback only)
-- `PORT=3000`
-- `TRAUMA_HMR_PORT=24678` (client; server uses base+1, server-function
-  uses base+2)
-
-The shell environment wins over `.env`. Exporting `HOST=0.0.0.0` in the
-shell will override the loopback default, which is intentional for cases
-where the operator wants network exposure behind their own firewall or
-reverse proxy. Set explicit values in `.env` for the no-auth local model.
-
-Smoke-only overrides:
-
-- `TRAUMA_DEV_HOST` — host the smoke check probes (falls back to `HOST`,
-  then `127.0.0.1`).
-- `TRAUMA_DEV_PORT` — port the smoke check probes (falls back to `PORT`,
-  then `3000`).
+The dev server uses the project root `.env` file only for the small set of
+operator settings documented in `.env.example`. Keep normal local configuration
+minimal; one-off host, port, HMR, smoke, and CI overrides should be supplied by
+the shell or the command that needs them.
 
 Standard commands:
 
-- `bun run dev` — start the dev server using `HOST` and `PORT` from `.env`.
+- `bun run dev` — start the dev server.
 - `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
   Fails if the requested port is occupied, the server cannot bind, exits
   early, falls back to a different port, or does not respond within the
   timeout.
-- `bun run start` — serve the production build using `HOST` and `PORT`
-  from `.env`. With the default `HOST=127.0.0.1` the Vinxi CLI binds
-  loopback only; without an explicit `HOST` the CLI would default to
-  `0.0.0.0`.
+- `bun run start` — serve the production build.
 
 The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
 real `trauma.config.json`. Run the smoke check before relying on the dev

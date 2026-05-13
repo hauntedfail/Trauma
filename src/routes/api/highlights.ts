@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
-import { createNoopMemoryBackupQueue } from "~/server/backup";
+import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import {
@@ -50,7 +51,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       selection: payload.selection,
       config,
       db: connection.db,
-      backupQueue: createNoopMemoryBackupQueue(),
+      backupQueue: getMemoryBackupQueue(config),
     });
 
     return json({ result }, { status: 200 });
@@ -182,10 +183,26 @@ function formatToggleError(error: unknown): Response {
     );
   }
 
+  if (error instanceof BackupEnvironmentFailsafeError) {
+    return json(
+      {
+        error: error.message,
+        backupFailsafe: error.alert ?? null,
+      },
+      { status: 409 },
+    );
+  }
+
   return json({ error: "failed to toggle highlight" }, { status: 500 });
 }
 
-function json(body: { error: string } | { result: ToggleMemoryHighlightResult }, init: ResponseInit) {
+function json(
+  body:
+    | { error: string }
+    | { error: string; backupFailsafe: unknown }
+    | { result: ToggleMemoryHighlightResult },
+  init: ResponseInit,
+) {
   return new Response(JSON.stringify(body), {
     ...init,
     headers: {

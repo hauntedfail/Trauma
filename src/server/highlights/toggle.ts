@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { MemoryBackupQueue } from "../backup";
+import { assertBackupEnvironmentReady } from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
 import { createRepositories } from "../db/repositories";
@@ -81,6 +82,10 @@ export async function toggleMemoryHighlight(
 async function toggleMemoryHighlightUnlocked(
   input: ToggleMemoryHighlightInput,
 ): Promise<ToggleMemoryHighlightResult> {
+  await assertBackupEnvironmentReady({
+    config: input.config,
+    db: input.db,
+  });
   const repositories = createRepositories(input.db);
   const memory = await repositories.memories.findById(input.memoryId);
   if (memory === undefined) {

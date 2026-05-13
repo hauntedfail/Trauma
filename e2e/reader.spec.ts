@@ -96,7 +96,7 @@ function createReaderFixture() {
           databasePath: "./runtime/trauma.sqlite",
           backup: {
             git: {
-              enabled: true,
+              enabled: false,
               remote: "origin",
               branch: "main",
               push: false,

@@ -41,23 +41,52 @@
 - MUST validate URL protocols before importer fetches. `http:` and `https:` are
   the only expected initial protocols.
 - MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,
-  local/private/link-local/non-global IP targets, URL userinfo, unsafe
+  `*.localhost`, local/private/link-local/non-global IP targets, URL userinfo, unsafe
   redirects, and DNS answers that resolve outside the public-host policy.
+- MUST keep third-party extractor fallback fetches disabled unless they pass
+  through the same importer public-host, timeout, redirect, and response-size
+  controls.
 - MUST bound importer fetches with timeouts, response-size limits, body
   cancellation on fallback paths, and retry over already validated public DNS
   answers before returning link-only fallback. The timeout budget must include
   initial hostname validation and redirect hostname validation, not only the
   final body read.
+- MUST include article extraction work in the same import timeout budget.
+  Default extractor parsing and conversion must run behind an interruptible
+  worker or process boundary instead of blocking the request event loop.
 - MUST request identity encoding or explicitly decode compressed bodies when
   using low-level HTTP clients that do not automatically decompress responses.
 - MUST decode HTML entities in extracted URL attributes before URL resolution,
   and MUST strip or reject URL userinfo before persisting display URLs,
   markdown links, favicon URLs, or API response URLs.
+- MUST keep page-provided canonical URLs and extracted display URLs on the
+  normalized source host. A public IP literal is not trusted merely because it
+  is public; it must match the source host before becoming an active URL.
 - MUST prevent XSS in markdown and extracted content rendering.
 - MUST avoid leaking stack traces, filesystem paths, or raw dependency errors to
   browser-visible responses.
 - MUST keep auth assumptions out of the initial implementation. If auth is
   introduced later, it needs a separate design and threat model.
+
+## Browser-Assisted Import
+
+- MUST treat browser extension payloads as untrusted external input.
+- MUST require explicit local enablement and a bearer token before accepting
+  extension imports.
+- MUST reject ordinary website origins. A browser extension origin may be
+  accepted only with a valid token.
+- MUST validate extension payload shape, timestamp freshness, URL protocol,
+  URL userinfo, and body size before extraction.
+- MUST run final extraction and memory persistence on the TRAUMA server. The
+  extension may capture a tab snapshot, but it must not bypass server-side
+  sanitization or write memory content directly.
+- MUST bound browser-extension DOM traversal during capture and sanitization.
+  Avoid unbounded deep clones and `querySelectorAll("*")` scans over captured
+  page content.
+- MUST resolve browser-assisted extractor workers from bundled runtime code or
+  inline worker source. Standalone builds must not depend on `src/` files being
+  present at runtime.
+- MUST NOT persist raw extension HTML.
 
 ## Logging And Diagnostics
 
