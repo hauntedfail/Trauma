@@ -42,6 +42,7 @@ import {
   type BrightnessMode,
   type SurfaceMode,
 } from "./theme";
+import { RightRailContentContext } from "./right-rail-context";
 
 interface AppShellProps {
   children: JSX.Element;
@@ -88,6 +89,9 @@ export function AppShell(props: AppShellProps) {
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
   const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const [isHydrated, setIsHydrated] = createSignal(false);
+  const [rightRailContent, setRightRailContent] = createSignal<
+    JSX.Element | undefined
+  >();
   const [brightness, setBrightness] = createSignal<BrightnessMode>(
     DEFAULT_BRIGHTNESS_MODE,
   );
@@ -152,7 +156,10 @@ export function AppShell(props: AppShellProps) {
   };
 
   return (
-    <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
+    <RightRailContentContext.Provider
+      value={{ rightRailContent, setRightRailContent }}
+    >
+      <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
         onOpenNavigation={() => setIsNavigationOpen(true)}
         onOpenFilters={() => setIsFiltersOpen(true)}
@@ -175,6 +182,9 @@ export function AppShell(props: AppShellProps) {
         {props.children}
       </main>
       <aside class="sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden" aria-label="Browse filters">
+        <Show when={rightRailContent()}>
+          {(content) => <div class="mb-4">{content()}</div>}
+        </Show>
         <FilterPanel
           activeCategory={query().category}
           activeHighlight={query().highlight}
@@ -224,7 +234,8 @@ export function AppShell(props: AppShellProps) {
           <GlobalAddMemoryComposer onCreated={() => setIsComposerOpen(false)} />
         </Drawer>
       </Show>
-    </div>
+      </div>
+    </RightRailContentContext.Provider>
   );
 }
 

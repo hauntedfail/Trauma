@@ -90,9 +90,12 @@ Use them for lightweight filter and shortcut groups:
 - Categories.
 - Tags.
 - Recent highlights.
+- Reader table of contents, only as route-specific right rail content on a
+  concrete memory route.
 
-They should not become dense forms, search panels, settings pages, or route
-content containers.
+They should not become dense forms, search panels, settings pages, or broad
+route content containers. Contextual route content must stay small enough to
+act as a right rail aid rather than a second main pane.
 
 ## Add Memory Composer
 

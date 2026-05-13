@@ -31,15 +31,21 @@ Contract:
 
 ## Table Of Contents
 
-The table of contents is a reader aid, not a global navigation panel.
+The table of contents is a reader aid, not a global navigation panel. It is not
+rendered inside the main reading column.
 
 Contract:
 
-- Sticky on desktop.
-- Static above content on smaller widths.
-- Rounded elevated panel.
+- Registered by `MemoryReader` into the shell right rail while a ready memory
+  route is mounted.
+- Rendered as the first right rail island on `/memories/:id`.
+- Hidden from `/memories`, `/highlights`, and other non-reader routes.
+- Removed from the right rail on reader unmount.
+- Rounded island surface matching right rail section geometry.
 - Text is compact.
 - Links target generated markdown heading anchors.
+- Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
+- Motion is disabled under `prefers-reduced-motion: reduce`.
 
 ## Markdown Prose
 

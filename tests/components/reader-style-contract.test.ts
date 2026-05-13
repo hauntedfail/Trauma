@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
 const readerStyles = readFileSync("src/components/reader/reader-styles.ts", "utf8");
 const readerRoute = readFileSync("src/routes/memories/[id].tsx", "utf8");
+const tailwindSource = readFileSync("src/styles/tailwind.css", "utf8");
 const combinedSource = [readerSource, readerStyles, readerRoute].join("\n");
 
 describe("refined reader visual contract", () => {
@@ -20,5 +21,20 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).not.toContain("contenteditable");
+  });
+
+  it("moves the reader table of contents into the contextual right rail", () => {
+    expect(readerSource).toContain("useRightRailContent");
+    expect(readerSource).toContain("onCleanup");
+    expect(readerSource).toContain("animate-trauma-pop-bounce");
+    expect(readerSource).not.toContain(
+      "grid-cols-[minmax(160px,220px)_minmax(0,1fr)]",
+    );
+  });
+
+  it("defines a reduced-motion-safe pop bounce animation for reader TOC entry", () => {
+    expect(tailwindSource).toContain("@keyframes trauma-pop-bounce");
+    expect(tailwindSource).toContain(".animate-trauma-pop-bounce");
+    expect(tailwindSource).toContain("prefers-reduced-motion: reduce");
   });
 });

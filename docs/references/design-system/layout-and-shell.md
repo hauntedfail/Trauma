@@ -122,6 +122,13 @@ Current islands:
 - Tags.
 - Recent highlights.
 
+Route-specific content may be inserted above these browse filters when a route
+has a strong contextual aid. The current example is the reader table of
+contents on `/memories/:id`. This content is registered through the shell right
+rail context, appears before browse filters, and is cleared when the route
+unmounts. Do not show reader TOC content on `/memories`, `/highlights`, or other
+non-reader routes.
+
 ## Tablet And Mobile
 
 Breakpoints:
@@ -147,6 +154,7 @@ Mobile:
 ## Route Frame Ownership
 
 Route frame classes belong to the route surface, not the shell. The shell owns
-columns, global navigation, drawers, and global composer state. Route files own
+columns, global navigation, drawers, global composer state, and the right rail
+slot. Route files own
 headers, search controls, list/grid mode, empty states, reader content, and
 route-specific loading states.

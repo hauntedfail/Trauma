@@ -102,6 +102,8 @@ Disabled future controls:
 Desktop:
 
 - Left rail, main pane, and right rail are visible.
+- Reader TOC appears at the top of the right rail only on concrete memory
+  reader routes.
 
 Tablet:
 
@@ -118,6 +120,9 @@ Mobile:
 ## Motion And Feedback
 
 Use simple transitions for hover and selected state.
+
+Reader TOC entry may use the dedicated popup-style bounce utility. Keep this
+motion short, route-entry scoped, and disabled for reduced-motion users.
 
 Do not add decorative motion or animation loops. Any future animation must
 serve an interaction state and respect readability.

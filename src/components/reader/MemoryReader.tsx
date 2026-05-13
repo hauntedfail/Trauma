@@ -1,4 +1,4 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 
 import { ChevronLeftIcon, OpenIcon } from "../icons";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
@@ -14,6 +14,7 @@ import {
 } from "./highlight-failure";
 import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
+import { useRightRailContent } from "../shell/right-rail-context";
 
 interface MemoryReaderProps {
   result: ReaderMemoryResult;
@@ -60,6 +61,13 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
+  const { setRightRailContent } = useRightRailContent();
+
+  createEffect(() => {
+    setRightRailContent(<ReaderToc toc={props.result.rendered.toc} />);
+  });
+
+  onCleanup(() => setRightRailContent(undefined));
 
   const handleSelectionToggle = () => {
     if (contentRef === undefined) {
@@ -110,8 +118,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
           </Show>
         </div>
       </header>
-      <div class={`${readerPadding} grid grid-cols-[minmax(160px,220px)_minmax(0,1fr)] gap-8 py-7 pb-14 max-[1040px]:grid-cols-1`}>
-        <ReaderToc toc={props.result.rendered.toc} />
+      <div class={`${readerPadding} py-7 pb-14`}>
         <div>
           <div
             ref={contentRef}
@@ -149,21 +156,30 @@ function ReaderState(props: { message: string }) {
 
 function ReaderToc(props: { toc: ReaderTocEntry[] }) {
   return (
-    <nav class="sticky top-24 self-start rounded-2xl border border-trauma-border bg-trauma-bg-elev p-4 text-sm text-trauma-text-secondary max-[1040px]:static" aria-label="Table of contents">
-      <h2 class="mb-3 text-[15px] font-bold text-trauma-text-primary">Contents</h2>
-      <ol class="m-0 grid gap-2 pl-[18px]">
-        {props.toc.map((entry) => (
-          <li
-            classList={{
-              "ml-2.5": entry.level === 2,
-              "ml-5": entry.level === 3,
-            }}
-          >
-            <a class="hover:text-trauma-accent" href={`#${entry.id}`}>{entry.text}</a>
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <Show when={props.toc.length > 0}>
+      <nav
+        class="animate-trauma-pop-bounce rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
+        aria-label="Table of contents"
+      >
+        <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">
+          Contents
+        </h2>
+        <ol class="m-0 grid gap-2.5 pl-[18px]">
+          {props.toc.map((entry) => (
+            <li
+              classList={{
+                "ml-2.5": entry.level === 2,
+                "ml-5": entry.level === 3,
+              }}
+            >
+              <a class="hover:text-trauma-accent" href={`#${entry.id}`}>
+                {entry.text}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+    </Show>
   );
 }
 

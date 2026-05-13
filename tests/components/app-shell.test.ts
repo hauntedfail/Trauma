@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +15,10 @@ const readerStylesSource = readFileSync(
   "src/components/reader/reader-styles.ts",
   "utf8",
 );
+const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
+const rightRailContextSource = existsSync(rightRailContextPath)
+  ? readFileSync(rightRailContextPath, "utf8")
+  : "";
 
 describe("refined app shell contract", () => {
   it("uses the refined brand mark and icon system", () => {
@@ -59,6 +63,17 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain('aria-label="Search archive"');
     expect(appShellSource).toContain("rounded-[32px] border border-trauma-border");
     expect(appShellSource).toContain("bg-trauma-bg-base");
+  });
+
+  it("supports route-specific right rail content before browse filters", () => {
+    expect(rightRailContextSource).toContain("createContext");
+    expect(appShellSource).toContain("RightRailContentContext.Provider");
+    expect(appShellSource).toContain("rightRailContent()");
+
+    const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
+    const browseFiltersIndex = appShellSource.indexOf("<FilterPanel");
+    expect(contextualContentIndex).toBeGreaterThan(-1);
+    expect(contextualContentIndex).toBeLessThan(browseFiltersIndex);
   });
 
   it("keeps the left rail scale close to the refined sample", () => {
