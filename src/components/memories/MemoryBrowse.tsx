@@ -96,7 +96,11 @@ export function MemoryBrowse() {
         <div class={isGrid() ? "memory-grid grid grid-cols-2 max-[720px]:grid-cols-1" : "grid"}>
           <For each={filteredMemories()}>
             {(memory) => (
-              <MemoryItem memory={memory} selectedHighlightId={query().highlight} view={query().view} />
+              <MemoryItem
+                memory={memory}
+                selectedHighlightId={query().highlight}
+                view={query().view}
+              />
             )}
           </For>
         </div>
@@ -105,13 +109,21 @@ export function MemoryBrowse() {
   );
 }
 
-function MemoryItem(props: { memory: BrowseMemory; selectedHighlightId: string; view: "list" | "grid" }) {
+function MemoryItem(props: {
+  memory: BrowseMemory;
+  selectedHighlightId: string;
+  view: "list" | "grid";
+}) {
   const displayHighlight = createMemo(() => getMemoryDisplayHighlight(props.memory, props.selectedHighlightId));
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
 
   return (
-    <article class={`${cardBase} ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border max-[720px]:min-h-0 max-[720px]:border-r-0" : ""}`}>
+    <A
+      aria-label={`Open memory ${props.memory.title}`}
+      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border max-[720px]:min-h-0 max-[720px]:border-r-0" : ""}`}
+      href={`/memories/${props.memory.id}`}
+    >
       <span class="mt-1 grid size-12 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-lg font-extrabold text-trauma-accent max-[720px]:size-10" aria-hidden="true">
         {initial()}
       </span>
@@ -123,15 +135,14 @@ function MemoryItem(props: { memory: BrowseMemory; selectedHighlightId: string; 
               <span class="px-1">.</span>
               <time dateTime={props.memory.capturedAt}>{formatCapturedAt(props.memory.capturedAt)}</time>
             </p>
-            <h2 class={cardTitle}>
-              <A class="hover:underline" href={`/memories/${props.memory.id}`}>
-                {props.memory.title}
-              </A>
-            </h2>
+            <h2 class={cardTitle}>{props.memory.title}</h2>
           </div>
-          <button type="button" class="grid size-9 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" aria-label={`Actions for ${props.memory.title}`}>
+          <span
+            class="grid size-9 place-items-center rounded-full text-trauma-text-muted"
+            aria-hidden="true"
+          >
             <KebabIcon />
-          </button>
+          </span>
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
         <p class={`${subduedText} wrap-anywhere inline-flex items-center gap-1.5`}>
@@ -154,12 +165,9 @@ function MemoryItem(props: { memory: BrowseMemory; selectedHighlightId: string; 
             <CheckIcon />
             saved
           </span>
-          <A class="ml-auto inline-flex min-h-8 items-center rounded-full bg-trauma-accent px-3 text-[13px] font-extrabold text-trauma-accent-ink hover:bg-trauma-accent-hover max-[720px]:ml-0" href={`/memories/${props.memory.id}`}>
-            Open
-          </A>
         </div>
       </div>
-    </article>
+    </A>
   );
 }
 

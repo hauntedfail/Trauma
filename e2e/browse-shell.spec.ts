@@ -135,10 +135,20 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
   await page.goto("/memories");
-  await page.getByRole("link", { name: "Open" }).first().click();
+  await page
+    .getByRole("link", { name: "Open memory Reader Mode Notes" })
+    .click();
   await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
+
+  await page.goto("/memories");
+  await page
+    .getByRole("link", { name: "Open memory Reader Mode Notes" })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
 
   await page.goto("/highlights");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
