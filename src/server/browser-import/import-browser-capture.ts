@@ -7,6 +7,7 @@ import type { ImporterResult } from "../importer";
 import {
   extractArticleWithDefuddle,
   readableMarkdownLength,
+  type ArticleExtractor,
 } from "../importer/extractor";
 import { isBlockedHostname, normalizeHostname } from "../importer/host-policy";
 import { addMemory } from "../memories/add-memory";
@@ -28,10 +29,13 @@ export interface ImportBrowserCaptureInput {
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
   backupQueue: MemoryBackupQueue;
+  extractArticle?: ArticleExtractor;
+  extractionTimeoutMs?: number;
   createMemory?: (input: AddMemoryInput) => Promise<{ id: string }>;
 }
 
 const MINIMUM_READABLE_BODY_LENGTH = 80;
+const DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS = 10_000;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
   const selectedUrl = selectCaptureUrl(input.payload);
@@ -41,10 +45,13 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
 
   let extracted: Awaited<ReturnType<typeof extractArticleWithDefuddle>>;
   try {
-    extracted = await extractArticleWithDefuddle({
-      html: createExtractionDocumentHtml(input.payload),
-      pageUrl: selectedUrl,
-    });
+    extracted = await withTimeout(
+      (input.extractArticle ?? extractArticleWithDefuddle)({
+        html: createExtractionDocumentHtml(input.payload),
+        pageUrl: selectedUrl,
+      }),
+      input.extractionTimeoutMs ?? DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS,
+    );
   } catch {
     throw new BrowserImportError("failed to extract readable page content");
   }
@@ -154,4 +161,20 @@ function escapeHtml(value: string) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    operation,
+    new Promise<T>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error("browser import extraction timed out"));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  });
 }

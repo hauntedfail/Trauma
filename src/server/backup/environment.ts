@@ -367,6 +367,7 @@ function isErrorWithCode(error: unknown, code: string) {
 }
 
 async function bootstrapBackupRepository(config: ResolvedTraumaConfig) {
+  await mkdir(config.projectPath, { recursive: true });
   await mkdir(config.storePath, { recursive: true });
   await runGit(config.projectPath, [
     "init",

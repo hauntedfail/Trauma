@@ -15,7 +15,12 @@ import type { ResolvedTraumaConfig } from "../config";
 import { loadTraumaConfig } from "../config";
 import { createRepositories, type TraumaDatabase } from "../db/repositories";
 import type { BackupFailsafeAlertView } from "./environment";
-import { toAlertView } from "./environment";
+import {
+  clearBackupPushFailureAlert,
+  hasConfiguredRemote,
+  recordBackupPushFailureAlert,
+  toAlertView,
+} from "./environment";
 
 export type BackupFailsafeAction = "revert" | "migrate";
 
@@ -80,6 +85,11 @@ export async function migrateBackupFailsafeContent(input: {
 }): Promise<BackupFailsafeActionResult> {
   const repositories = createRepositories(input.db);
   const alert = await requireActiveAlert(input.db);
+  if (alert.kind !== "backup_path_drift") {
+    throw new BackupFailsafeActionError(
+      `cannot accept current backup paths or migrate backup content while ${alert.kind} alert is active`,
+    );
+  }
   if (alert.previousStorePath === null) {
     return acceptCurrentBackupLocation({ ...input, repositories });
   }
@@ -123,6 +133,7 @@ export async function migrateBackupFailsafeContent(input: {
   await ensureBackupRepository(input.config);
   await commitMigratedFiles(input.config, relativeFiles);
   await stampCurrentBackupLocation(input.config, repositories);
+  await pushRecoveredBackup(input.config);
   await repositories.backupEnvironment.clearBackupFailsafeAlert();
 
   return {
@@ -139,12 +150,15 @@ async function acceptCurrentBackupLocation(input: {
   repositories: ReturnType<typeof createRepositories>;
   apply: boolean;
 }): Promise<BackupFailsafeActionResult> {
+  const files = await listFiles(input.config.storePath);
+  const relativeFiles = files.map((file) => relative(input.config.storePath, file));
   const summary = [
     input.apply
       ? "APPLY: Accept current backup location"
       : "DRY RUN: Accept current backup location",
     `projectPath: ${input.config.projectPath}`,
     `storePath: ${input.config.storePath}`,
+    `files: ${relativeFiles.length}`,
   ].join("\n");
 
   if (!input.apply) {
@@ -153,12 +167,14 @@ async function acceptCurrentBackupLocation(input: {
       action: "migrate",
       dryRun: true,
       summary,
-      files: [],
+      files: relativeFiles,
     };
   }
 
   await ensureBackupRepository(input.config);
+  await commitMigratedFiles(input.config, relativeFiles);
   await stampCurrentBackupLocation(input.config, input.repositories);
+  await pushRecoveredBackup(input.config);
   await input.repositories.backupEnvironment.clearBackupFailsafeAlert();
 
   return {
@@ -166,7 +182,7 @@ async function acceptCurrentBackupLocation(input: {
     action: "migrate",
     dryRun: false,
     summary,
-    files: [],
+    files: relativeFiles,
   };
 }
 
@@ -270,6 +286,28 @@ async function commitMigratedFiles(
       env: createGitCommandEnv(),
     },
   );
+}
+
+async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
+  if (!config.backup.git.push || !(await hasConfiguredRemote(config))) {
+    return;
+  }
+
+  try {
+    await execFileAsync("git", [
+      "push",
+      config.backup.git.remote,
+      `HEAD:${config.backup.git.branch}`,
+    ], {
+      cwd: config.projectPath,
+      env: createGitCommandEnv(),
+    });
+    await clearBackupPushFailureAlert(config);
+  } catch (error) {
+    const message = formatGitProcessError(error);
+    await recordBackupPushFailureAlert(config, message);
+    throw new BackupFailsafeActionError(`git push failed: ${message}`);
+  }
 }
 
 function resolveMigratedStagePath(config: ResolvedTraumaConfig, file: string) {
@@ -413,6 +451,35 @@ function createGitCommandEnv() {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readProcessOutput(
+  error: unknown,
+  key: "stdout" | "stderr",
+): string {
+  if (typeof error !== "object" || error === null || !(key in error)) {
+    return "";
+  }
+
+  const record = error as Partial<Record<"stdout" | "stderr", unknown>>;
+  const value = record[key];
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8");
+  }
+
+  return "";
+}
+
+function formatGitProcessError(error: unknown) {
+  const stderr = readProcessOutput(error, "stderr").trim();
+  if (stderr !== "") {
+    return stderr;
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class BackupFailsafeActionError extends Error {

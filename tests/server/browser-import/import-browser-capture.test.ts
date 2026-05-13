@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BrowserImportError,
@@ -7,6 +7,10 @@ import {
 } from "../../../src/server/browser-import";
 
 describe("browser capture import", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("uses browser-extracted article HTML without fetching the current tab URL", async () => {
     const payload = createPayload({
       canonicalUrl: "https://example.com/canonical",
@@ -63,6 +67,34 @@ describe("browser capture import", () => {
         },
       }),
     ).rejects.toEqual(new BrowserImportError("extracted page content is too short"));
+  });
+
+  it("bounds browser capture extraction time before persisting a memory", async () => {
+    vi.useFakeTimers();
+    const importPromise = importBrowserCapture({
+      payload: createPayload({
+        articleHtml: `<article>
+          <h1>Captured Article</h1>
+          <p>This browser extracted article contains enough readable words to reach the server extraction step.</p>
+        </article>`,
+        articleText:
+          "Captured Article. This browser extracted article contains enough readable words to reach the server extraction step.",
+      }),
+      config: createConfig(),
+      db: {} as never,
+      backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+      extractionTimeoutMs: 5,
+      extractArticle: async () => new Promise(() => undefined),
+      createMemory: async () => {
+        throw new Error("createMemory should not be called");
+      },
+    });
+
+    const expectation = expect(importPromise).rejects.toEqual(
+      new BrowserImportError("failed to extract readable page content"),
+    );
+    await vi.advanceTimersByTimeAsync(5);
+    await expectation;
   });
 
   it("falls back to the captured source URL when canonical URL is private", async () => {

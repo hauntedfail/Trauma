@@ -9,7 +9,8 @@ describe("toggleMemoryHighlight", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-highlight-toggle-"));
     const output = runBunScript(
       `
-        import { readFile } from "node:fs/promises";
+        import { execFileSync } from "node:child_process";
+        import { mkdir, readFile } from "node:fs/promises";
         import { join } from "node:path";
         import { initializeDatabase, schema } from "./src/server/db/index.ts";
         import { toggleMemoryHighlight } from "./src/server/highlights/toggle.ts";
@@ -67,6 +68,22 @@ describe("toggleMemoryHighlight", () => {
             lastBackupError: null,
             createdAt: new Date("2026-05-10T00:00:00.000Z"),
             updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+            id: "default",
+            projectPath: config.projectPath,
+            storePath: config.storePath,
+            gitRemote: "origin",
+            gitRemoteUrl: null,
+            gitBranch: "main",
+            createdAt: new Date("2026-05-10T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await mkdir(config.projectPath, { recursive: true });
+          execFileSync("git", ["init", "--initial-branch=main"], {
+            cwd: config.projectPath,
+            env: createGitEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
           });
           await writeMemoryContent({
             config,
@@ -154,6 +171,14 @@ describe("toggleMemoryHighlight", () => {
           }));
         } finally {
           connection.close();
+        }
+
+        function createGitEnv() {
+          const env = { ...process.env };
+          delete env.GIT_DIR;
+          delete env.GIT_WORK_TREE;
+          delete env.GIT_INDEX_FILE;
+          return env;
         }
       `,
       { TRAUMA_TEST_ROOT: root },

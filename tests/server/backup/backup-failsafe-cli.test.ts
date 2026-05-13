@@ -129,6 +129,70 @@ describe("backup failsafe CLI", () => {
     expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
   });
 
+  it("pushes migrated backup commits before clearing a path-drift alert", async () => {
+    const root = await makeRoot();
+    const remotePath = join(root, "remote.git");
+    const configPath = await writeConfig(root, { push: true });
+    const config = loadTraumaConfig({ configPath });
+    const oldStore = join(root, "old-data/storage");
+    await mkdir(join(oldStore, "memories", "memory-1"), { recursive: true });
+    await writeFile(join(oldStore, "memories/memory-1/CONTENT.md"), "# Old\n", "utf8");
+    git(root, ["init", "--bare", remotePath]);
+    await mkdir(config.projectPath, { recursive: true });
+    git(config.projectPath, ["init", "--initial-branch=main"]);
+    git(config.projectPath, ["remote", "add", "origin", remotePath]);
+    await seedPathDriftAlert(configPath, root);
+
+    await withGitIdentity(() =>
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    );
+
+    expect(hasRemoteMain(remotePath)).toBe(true);
+    expect(
+      git(remotePath, ["show", "--name-only", "--pretty=format:", "main"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
+  });
+
+  it("records a push-failure alert when migrated backup content cannot be pushed", async () => {
+    const root = await makeRoot();
+    const missingRemotePath = join(root, "missing.git");
+    const configPath = await writeConfig(root, { push: true });
+    const config = loadTraumaConfig({ configPath });
+    const oldStore = join(root, "old-data/storage");
+    await mkdir(join(oldStore, "memories", "memory-1"), { recursive: true });
+    await writeFile(join(oldStore, "memories/memory-1/CONTENT.md"), "# Old\n", "utf8");
+    await mkdir(config.projectPath, { recursive: true });
+    git(config.projectPath, ["init", "--initial-branch=main"]);
+    git(config.projectPath, ["remote", "add", "origin", missingRemotePath]);
+    await seedPathDriftAlert(configPath, root);
+
+    await expect(
+      withGitIdentity(() =>
+        runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+      ),
+    ).rejects.toThrow(/git push failed/);
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({
+          kind: "backup_push_failed",
+          currentProjectPath: config.projectPath,
+          currentStorePath: config.storePath,
+        });
+      expect(await connection.repositories.backupEnvironment.getBackupEnvironmentStamp())
+        .toMatchObject({
+          projectPath: config.projectPath,
+          storePath: config.storePath,
+        });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("does not treat unreadable source directories as an empty migration", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root);
@@ -146,7 +210,7 @@ describe("backup failsafe CLI", () => {
     }
   });
 
-  it("accepts current backup paths when existing data has no previous stamp", async () => {
+  it("accepts current backup paths by committing existing store content when data has no previous stamp", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root);
     const config = loadTraumaConfig({ configPath });
@@ -156,12 +220,14 @@ describe("backup failsafe CLI", () => {
     await writeFile(join(config.storePath, "memories/memory-1/CONTENT.md"), "# Current\n", "utf8");
     await seedUnstampedCurrentDataAlert(configPath);
 
-    const output = await runBackupFailsafeCli([
-      "migrate",
-      "--config",
-      configPath,
-      "--apply",
-    ]);
+    const output = await withGitIdentity(() =>
+      runBackupFailsafeCli([
+        "migrate",
+        "--config",
+        configPath,
+        "--apply",
+      ]),
+    );
 
     expect(output).toContain("APPLY: Accept current backup location");
     expect(output).toContain("Alert cleared.");
@@ -177,6 +243,35 @@ describe("backup failsafe CLI", () => {
     } finally {
       connection.close();
     }
+    expect(git(config.projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      "backup migrated memory content",
+    );
+    expect(
+      git(config.projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
+    expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
+  });
+
+  it("does not accept current paths for non-path-drift alerts", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    await seedPushFailureAlert(configPath);
+
+    await expect(
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    ).rejects.toThrow(/cannot accept current backup paths/);
+
+    const config = loadTraumaConfig({ configPath });
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({ kind: "backup_push_failed" });
+    } finally {
+      connection.close();
+    }
   });
 });
 
@@ -186,7 +281,7 @@ async function makeRoot() {
   return root;
 }
 
-async function writeConfig(root: string) {
+async function writeConfig(root: string, options: { push?: boolean } = {}) {
   const configPath = join(root, "trauma.config.json");
   await writeFile(
     configPath,
@@ -200,7 +295,7 @@ async function writeConfig(root: string) {
             enabled: true,
             remote: "origin",
             branch: "main",
-            push: false,
+            push: options.push ?? false,
             commitMessageTemplate: "backup memory {memoryId}",
           },
         },
@@ -273,6 +368,31 @@ async function seedUnstampedCurrentDataAlert(configPath: string) {
   }
 }
 
+async function seedPushFailureAlert(configPath: string) {
+  const config = loadTraumaConfig({ configPath });
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+      id: "active",
+      kind: "backup_push_failed",
+      severity: "critical",
+      message: "Backup push failed",
+      previousProjectPath: null,
+      previousStorePath: null,
+      currentProjectPath: config.projectPath,
+      currentStorePath: config.storePath,
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      error: "remote unavailable",
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
 function git(cwd: string, args: string[]) {
   return execFileSync("git", args, {
     cwd,
@@ -280,6 +400,15 @@ function git(cwd: string, args: string[]) {
     env: createGitCommandEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+function hasRemoteMain(remotePath: string) {
+  try {
+    git(remotePath, ["rev-parse", "--verify", "refs/heads/main"]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function createGitCommandEnv() {

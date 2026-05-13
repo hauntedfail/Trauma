@@ -16,13 +16,18 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
   const submit = async (action: BackupFailsafeActionName) => {
     setPendingAction(action);
     setError(null);
-    const result = await submitBackupFailsafeAction({ action });
-    setPendingAction(null);
-    if (!result.ok) {
-      setError(result.error);
-      return;
+    try {
+      const result = await submitBackupFailsafeAction({ action });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      globalThis.location?.reload();
+    } catch {
+      setError("Backup failsafe action request failed.");
+    } finally {
+      setPendingAction(null);
     }
-    globalThis.location?.reload();
   };
 
   return (
