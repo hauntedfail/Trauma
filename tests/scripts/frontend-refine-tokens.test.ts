@@ -96,8 +96,6 @@ describe("front-end refine design tokens", () => {
 
       for (const token of [
         "--paper-texture-radials",
-        "--paper-dot-grid",
-        "--paper-dot-size",
         "--paper-texture-blend",
         "--paper-grain-opacity",
         "--paper-grain-blend",
@@ -110,15 +108,31 @@ describe("front-end refine design tokens", () => {
     }
   });
 
-  it("renders paper texture through layered backgrounds and fixed overlays", () => {
+  it("renders paper texture through layered backgrounds without dot grid overlays", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .bg-trauma-bg-base');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body::before');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body::after');
-    expect(tailwindCss).toContain("background-image: var(--paper-texture-radials), var(--paper-dot-grid)");
+    expect(tailwindCss).toContain("background-image: var(--paper-texture-radials)");
     expect(tailwindCss).toContain('url("data:image/svg+xml;utf8,');
     expect(tailwindCss).toContain("filter: blur(120px)");
     expect(tailwindCss).toContain("mix-blend-mode: var(--paper-grain-blend)");
+    expect(tailwindCss).not.toContain("--paper-dot-grid");
+    expect(tailwindCss).not.toContain("--paper-dot-size");
+  });
+
+  it("keeps night paper grain visibly stronger than the previous weak setting", () => {
+    const body = tailwindCss.match(
+      /:root\[data-theme="paper-black-dark"\]\s*{(?<body>[^}]*)}/s,
+    )?.groups?.body;
+
+    if (body === undefined) {
+      throw new Error("Missing paper-black-dark theme block");
+    }
+
+    expect(
+      Number(readThemeToken(body, "--paper-grain-opacity")),
+    ).toBeGreaterThanOrEqual(0.4);
   });
 
   it("keeps refined typography local without runtime font imports or negative tracking", () => {

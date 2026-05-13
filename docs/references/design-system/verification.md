@@ -49,6 +49,8 @@ The token tests verify:
 - Paper sun and paper night themes expose the full paper texture variable set.
 - Paper texture renders through layered backgrounds plus fixed grain and glow
   overlays.
+- Paper texture does not include repeating dot/grid overlays.
+- Night paper grain opacity stays strong enough to be visible.
 - Typography stays local and does not use negative letter spacing.
 
 ## Current Shell Checks

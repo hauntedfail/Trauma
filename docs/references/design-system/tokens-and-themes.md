@@ -92,11 +92,16 @@ The texture recipe is CSS-only:
 
 - Base colour from `--bg-base`.
 - Layered `radial-gradient()` washes from `--paper-texture-radials`.
-- Repeating dot grid from `--paper-dot-grid` and `--paper-dot-size`.
 - Fixed grain overlay on `body::after` using an inline SVG turbulence texture.
 - Fixed blurred glow layer on `body::before`.
 - Blend modes through `--paper-texture-blend`, `--paper-grain-blend`, and
   `--paper-glow-blend`.
+
+Do not add repeating dot or grid layers to paper mode. The paper texture should
+read as organic grain, not evenly spaced graph paper.
+
+Night paper needs stronger grain than light paper because subtle dark-mode
+blend layers become visually weak faster.
 
 Normal themes must not enable these paper texture layers.
 

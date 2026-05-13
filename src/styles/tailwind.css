@@ -195,11 +195,6 @@
         rgb(255 248 225 / 20%),
         transparent 64%
       );
-    --paper-dot-grid: radial-gradient(
-      rgb(74 58 33 / 18%) 0.7px,
-      transparent 0.9px
-    );
-    --paper-dot-size: 32px 32px;
     --paper-texture-blend: multiply;
     --paper-grain-opacity: 0.38;
     --paper-grain-blend: multiply;
@@ -265,15 +260,10 @@
         rgb(74 40 24 / 24%),
         transparent 64%
       );
-    --paper-dot-grid: radial-gradient(
-      rgb(234 215 173 / 11%) 0.7px,
-      transparent 0.9px
-    );
-    --paper-dot-size: 32px 32px;
     --paper-texture-blend: soft-light;
-    --paper-grain-opacity: 0.24;
-    --paper-grain-blend: soft-light;
-    --paper-glow-opacity: 0.34;
+    --paper-grain-opacity: 0.44;
+    --paper-grain-blend: screen;
+    --paper-glow-opacity: 0.42;
     --paper-glow-blend: screen;
     --paper-glow-layer:
       radial-gradient(
@@ -316,7 +306,6 @@
   :root[data-theme^="paper"] body {
     background:
       var(--paper-texture-radials),
-      var(--paper-dot-grid) 0 0 / var(--paper-dot-size),
       var(--bg-base);
   }
 
@@ -347,10 +336,9 @@
 
   :root[data-theme^="paper"] .bg-trauma-bg-base,
   :root[data-theme^="paper"] .bg-trauma-bg-surface {
-    background-image: var(--paper-texture-radials), var(--paper-dot-grid);
-    background-size: auto, var(--paper-dot-size);
-    background-attachment: fixed, fixed;
-    background-blend-mode: var(--paper-texture-blend), normal;
+    background-image: var(--paper-texture-radials);
+    background-attachment: fixed;
+    background-blend-mode: var(--paper-texture-blend);
   }
 
   h1,
