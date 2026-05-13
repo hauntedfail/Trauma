@@ -56,8 +56,8 @@ Execute these domain plans in order:
 3. [Shell, navigation, and theme controls](task-17-front-end-refine/03-shell-navigation-and-theme.md)
 4. [Memory browse and highlight surfaces](task-17-front-end-refine/04-memory-browse-and-highlight-surfaces.md)
 5. [Reader surface](task-17-front-end-refine/05-reader-surface.md)
-6. [Visual verification and handoff](task-17-front-end-refine/06-visual-verification-and-handoff.md)
-7. [Post-PR shell spacing, right rail, and row interaction corrections](task-17-front-end-refine/07-shell-spacing-right-rail-row-interaction.md)
+6. [UI review correction: shell spacing, right rail, and row interaction](task-17-front-end-refine/07-shell-spacing-right-rail-row-interaction.md)
+7. [Visual verification and handoff](task-17-front-end-refine/06-visual-verification-and-handoff.md)
 
 ## Cross-Domain Rules
 
