@@ -4,6 +4,35 @@ import { describe, expect, it } from "vitest";
 
 const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
 
+const themeBlocks = [
+  {
+    name: "black-dark",
+    pattern: /:root,\s*:root\[data-theme="black-dark"\]\s*{(?<body>[^}]*)}/s,
+  },
+  {
+    name: "warm-light",
+    pattern: /:root\[data-theme="warm-light"\]\s*{(?<body>[^}]*)}/s,
+  },
+  {
+    name: "paper-warm-light",
+    pattern: /:root\[data-theme="paper-warm-light"\]\s*{(?<body>[^}]*)}/s,
+  },
+  {
+    name: "paper-black-dark",
+    pattern: /:root\[data-theme="paper-black-dark"\]\s*{(?<body>[^}]*)}/s,
+  },
+] as const;
+
+function readThemeToken(body: string, tokenName: string): string {
+  const match = body.match(new RegExp(`${tokenName}:\\s*([^;]+);`));
+
+  if (match === null || match[1] === undefined) {
+    throw new Error(`Missing token ${tokenName}`);
+  }
+
+  return match[1].trim();
+}
+
 describe("front-end refine design tokens", () => {
   it("defines all refined theme selectors", () => {
     for (const theme of [
@@ -39,6 +68,20 @@ describe("front-end refine design tokens", () => {
     expect(tailwindCss).toMatch(
       /:root,\s*:root\[data-theme="black-dark"\]\s*{[^}]*--bg-surface:\s*#000000;/s,
     );
+  });
+
+  it("uses one pane background color per theme", () => {
+    for (const theme of themeBlocks) {
+      const body = tailwindCss.match(theme.pattern)?.groups?.body;
+
+      if (body === undefined) {
+        throw new Error(`Missing theme block ${theme.name}`);
+      }
+
+      expect(readThemeToken(body, "--bg-surface")).toBe(
+        readThemeToken(body, "--bg-base"),
+      );
+    }
   });
 
   it("keeps refined typography local without runtime font imports or negative tracking", () => {

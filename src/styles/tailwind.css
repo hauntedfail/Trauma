@@ -126,7 +126,7 @@
   :root[data-theme="warm-light"] {
     color-scheme: light;
     --bg-base: #f6f7f4;
-    --bg-surface: #fffefa;
+    --bg-surface: #f6f7f4;
     --bg-elev: #ffffff;
     --bg-sunken: #eef0eb;
     --bg-tint: #f3f0ec;
@@ -155,7 +155,7 @@
   :root[data-theme="paper-warm-light"] {
     color-scheme: light;
     --bg-base: #ece2cc;
-    --bg-surface: #f5ecd6;
+    --bg-surface: #ece2cc;
     --bg-elev: #faf2dc;
     --bg-sunken: #e2d6bb;
     --bg-tint: #e8dcc1;
@@ -185,7 +185,7 @@
   :root[data-theme="paper-black-dark"] {
     color-scheme: dark;
     --bg-base: #14110b;
-    --bg-surface: #1c1810;
+    --bg-surface: #14110b;
     --bg-elev: #221d13;
     --bg-sunken: #0e0c08;
     --bg-tint: #2a2417;
