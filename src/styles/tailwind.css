@@ -2,38 +2,270 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-trauma-bg-base: #f6f7f4;
-  --color-trauma-bg-surface: #fffefa;
-  --color-trauma-border: #d8ded5;
-  --color-trauma-text-primary: #111827;
-  --color-trauma-text-muted: #667064;
-  --color-trauma-accent: #1e3a2f;
-  --color-trauma-accent-soft: #e2efcf;
+  --color-trauma-wine-50: #fbf2f3;
+  --color-trauma-wine-100: #f4dadd;
+  --color-trauma-wine-200: #e6b2b9;
+  --color-trauma-wine-300: #d28490;
+  --color-trauma-wine-400: #b8576a;
+  --color-trauma-wine-500: #9a334a;
+  --color-trauma-wine-600: #7a1b25;
+  --color-trauma-wine-700: #62141d;
+  --color-trauma-wine-800: #4a0f16;
+  --color-trauma-wine-900: #2e090d;
+
+  --color-trauma-bg-base: var(--bg-base);
+  --color-trauma-bg-surface: var(--bg-surface);
+  --color-trauma-bg-elev: var(--bg-elev);
+  --color-trauma-bg-sunken: var(--bg-sunken);
+  --color-trauma-bg-tint: var(--bg-tint);
+  --color-trauma-border: var(--border);
+  --color-trauma-border-strong: var(--border-strong);
+  --color-trauma-divider: var(--divider);
+  --color-trauma-text-primary: var(--fg-1);
+  --color-trauma-text-secondary: var(--fg-2);
+  --color-trauma-text-muted: var(--fg-3);
+  --color-trauma-text-placeholder: var(--fg-4);
+  --color-trauma-text-inverse: var(--fg-inverse);
+  --color-trauma-accent: var(--accent);
+  --color-trauma-accent-hover: var(--accent-hover);
+  --color-trauma-accent-press: var(--accent-press);
+  --color-trauma-accent-ink: var(--accent-ink);
+  --color-trauma-accent-soft: var(--accent-soft);
+  --color-trauma-accent-soft-ink: var(--accent-soft-ink);
+  --color-trauma-chip-bg: var(--chip-bg);
+  --color-trauma-chip-border: var(--chip-border);
+  --color-trauma-chip-ink: var(--chip-ink);
+  --color-trauma-highlight-bg: var(--hl-bg);
+  --color-trauma-highlight-ink: var(--hl-ink);
+  --color-trauma-quote-bg: var(--hl-quote-bg);
+  --color-trauma-quote-bar: var(--hl-quote-bar);
+  --color-trauma-quote-ink: var(--hl-quote-ink);
+  --color-trauma-success: var(--state-success);
+  --color-trauma-warning: var(--state-warning);
+  --color-trauma-danger: var(--state-danger);
+  --color-trauma-info: var(--state-info);
+
+  --font-trauma-sans: var(--font-sans);
+  --font-trauma-serif: var(--font-serif);
+  --font-trauma-mono: var(--font-mono);
+  --font-trauma-body: var(--font-body);
+
+  --shadow-trauma-1: var(--shadow-1);
+  --shadow-trauma-2: var(--shadow-2);
+  --shadow-trauma-drawer: var(--shadow-drawer);
 }
 
 @layer base {
   :root {
-    color-scheme: light;
-    font-family:
+    --wine-50: #fbf2f3;
+    --wine-100: #f4dadd;
+    --wine-200: #e6b2b9;
+    --wine-300: #d28490;
+    --wine-400: #b8576a;
+    --wine-500: #9a334a;
+    --wine-600: #7a1b25;
+    --wine-700: #62141d;
+    --wine-800: #4a0f16;
+    --wine-900: #2e090d;
+    --state-success: #2f7d4f;
+    --state-warning: #b7791f;
+    --state-danger: #b42121;
+    --state-info: #3b6ea8;
+    --hl-bg: #ffe2a8;
+    --hl-ink: #3d2b12;
+    --hl-quote-bg: #fff8ee;
+    --hl-quote-bar: #c57b57;
+    --hl-quote-ink: #59483d;
+    --font-sans:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
       "Segoe UI", sans-serif;
-    background: var(--color-trauma-bg-base);
-    color: var(--color-trauma-text-primary);
+    --font-serif: Newsreader, ui-serif, Georgia, "Times New Roman", serif;
+    --font-mono:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+      monospace;
+    --font-body: var(--font-sans);
+    --focus-ring: 0 0 0 3px rgb(184 87 106 / 50%);
+    --shadow-1: 0 1px 2px rgb(17 24 39 / 6%);
+    --shadow-2: 0 4px 10px rgb(17 24 39 / 8%);
+    --shadow-drawer: 0 20px 60px rgb(17 24 39 / 24%);
   }
 
-  * {
+  :root,
+  :root[data-theme="black-dark"] {
+    color-scheme: dark;
+    --bg-base: #0a0a0a;
+    --bg-surface: #131313;
+    --bg-elev: #181818;
+    --bg-sunken: #050505;
+    --bg-tint: #1f1f1f;
+    --border: #262626;
+    --border-strong: #3a3a3a;
+    --divider: #1f1f1f;
+    --fg-1: #f4f4f3;
+    --fg-2: #c8c8c5;
+    --fg-3: #8a8a86;
+    --fg-4: #5a5a56;
+    --fg-inverse: #0a0a0a;
+    --accent: #b8576a;
+    --accent-hover: #d28490;
+    --accent-press: #9a334a;
+    --accent-ink: #0a0a0a;
+    --accent-soft: #2e090d;
+    --accent-soft-ink: #f4dadd;
+    --chip-bg: #1f1f1f;
+    --chip-border: #2e2e2e;
+    --chip-ink: #d4d4d2;
+    --selection-bg: #4a0f16;
+    --selection-fg: #fbf2f3;
+    --focus-ring: 0 0 0 3px rgb(184 87 106 / 50%);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 60%);
+    --shadow-2: 0 4px 10px rgb(0 0 0 / 50%);
+    --shadow-drawer: 0 20px 60px rgb(0 0 0 / 70%);
+  }
+
+  :root[data-theme="warm-light"] {
+    color-scheme: light;
+    --bg-base: #f6f7f4;
+    --bg-surface: #fffefa;
+    --bg-elev: #ffffff;
+    --bg-sunken: #eef0eb;
+    --bg-tint: #f3f0ec;
+    --border: #d8ded5;
+    --border-strong: #b8c4b1;
+    --divider: #e5e9e1;
+    --fg-1: #111827;
+    --fg-2: #374151;
+    --fg-3: #667064;
+    --fg-4: #8a9286;
+    --fg-inverse: #fffefa;
+    --accent: var(--wine-600);
+    --accent-hover: var(--wine-700);
+    --accent-press: var(--wine-800);
+    --accent-ink: #fffefa;
+    --accent-soft: #f4dadd;
+    --accent-soft-ink: #4a0f16;
+    --chip-bg: #f3f0ec;
+    --chip-border: #ccd1c5;
+    --chip-ink: #3a3f36;
+    --selection-bg: var(--wine-100);
+    --selection-fg: var(--wine-800);
+    --focus-ring: 0 0 0 3px rgb(122 27 37 / 35%);
+  }
+
+  :root[data-theme="paper-warm-light"] {
+    color-scheme: light;
+    --bg-base: #ece2cc;
+    --bg-surface: #f5ecd6;
+    --bg-elev: #faf2dc;
+    --bg-sunken: #e2d6bb;
+    --bg-tint: #e8dcc1;
+    --border: #c9b994;
+    --border-strong: #ad9a72;
+    --divider: #d8c8a3;
+    --fg-1: #2a2114;
+    --fg-2: #4a3a21;
+    --fg-3: #7a6845;
+    --fg-4: #a3916b;
+    --fg-inverse: #faf2dc;
+    --accent: var(--wine-700);
+    --accent-hover: var(--wine-800);
+    --accent-press: var(--wine-900);
+    --accent-ink: #faf2dc;
+    --accent-soft: #e6c9b5;
+    --accent-soft-ink: #4a0f16;
+    --chip-bg: #e8dcc1;
+    --chip-border: #c9b994;
+    --chip-ink: #4a3a21;
+    --selection-bg: #e6c9b5;
+    --selection-fg: #4a0f16;
+    --focus-ring: 0 0 0 3px rgb(98 20 29 / 35%);
+    --font-body: var(--font-serif);
+  }
+
+  :root[data-theme="paper-black-dark"] {
+    color-scheme: dark;
+    --bg-base: #14110b;
+    --bg-surface: #1c1810;
+    --bg-elev: #221d13;
+    --bg-sunken: #0e0c08;
+    --bg-tint: #2a2417;
+    --border: #3a3221;
+    --border-strong: #5a4d33;
+    --divider: #2a2417;
+    --fg-1: #ead7ad;
+    --fg-2: #c4b285;
+    --fg-3: #8d7e5a;
+    --fg-4: #5f5538;
+    --fg-inverse: #14110b;
+    --accent: #c57b57;
+    --accent-hover: #d49a7d;
+    --accent-press: #a55f3e;
+    --accent-ink: #14110b;
+    --accent-soft: #3a2316;
+    --accent-soft-ink: #ead7ad;
+    --chip-bg: #2a2417;
+    --chip-border: #3a3221;
+    --chip-ink: #c4b285;
+    --selection-bg: #4a2818;
+    --selection-fg: #ead7ad;
+    --focus-ring: 0 0 0 3px rgb(197 123 87 / 40%);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 50%);
+    --shadow-2: 0 4px 10px rgb(0 0 0 / 50%);
+    --shadow-drawer: 0 20px 60px rgb(0 0 0 / 70%);
+    --font-body: var(--font-serif);
+  }
+
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    background: var(--bg-base);
   }
 
   body {
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
-    background: var(--color-trauma-bg-base);
+    background: var(--bg-base);
+    color: var(--fg-1);
+    font-family: var(--font-body);
+    letter-spacing: 0;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  p {
+    letter-spacing: 0;
+  }
+
+  ::selection {
+    background: var(--selection-bg);
+    color: var(--selection-fg);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   button,
-  input {
+  input,
+  textarea,
+  select {
+    color: inherit;
     font: inherit;
   }
 
@@ -47,8 +279,23 @@
     opacity: 0.58;
   }
 
-  a {
-    color: inherit;
-    text-decoration: none;
+  code,
+  kbd,
+  samp {
+    border-radius: 4px;
+    background: var(--bg-sunken);
+    font-family: var(--font-mono);
+  }
+
+  mark {
+    border-radius: 4px;
+    background: var(--hl-bg);
+    color: var(--hl-ink);
+    padding: 0 2px;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 }
