@@ -10,6 +10,7 @@ import {
   parseBrowseQuery,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
+import { browseFixtureMemories } from "../../src/components/memories/browse-fixtures";
 
 const fixtures: BrowseMemory[] = [
   {
@@ -160,5 +161,14 @@ describe("browse query state", () => {
 
   it("exposes reader highlight anchors for memory routes", () => {
     expect(getMemoryReaderHighlights(fixtures[0]!).map((highlight) => highlight.anchorId)).toEqual(["h-foundation"]);
+  });
+
+  it("keeps browse fixtures representative of memories without highlights", () => {
+    expect(browseFixtureMemories.some((memory) => memory.highlights.length === 0)).toBe(true);
+    expect(getRecentHighlights(browseFixtureMemories).map((highlight) => highlight.id)).toEqual([
+      "h-foundation",
+      "h-ops",
+      "h-shell",
+    ]);
   });
 });
