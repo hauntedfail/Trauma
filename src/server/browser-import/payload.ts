@@ -68,13 +68,7 @@ export function parseBrowserImportPayload(
     return { ok: false, error: sourceUrl.error };
   }
 
-  const canonicalUrl =
-    parsed.canonicalUrl === undefined || parsed.canonicalUrl === null
-      ? { ok: true as const, value: null }
-      : normalizeHttpUrl(parsed.canonicalUrl, "canonicalUrl");
-  if (!canonicalUrl.ok) {
-    return { ok: false, error: canonicalUrl.error };
-  }
+  const canonicalUrl = normalizeCanonicalUrl(parsed.canonicalUrl);
 
   const title = normalizeOptionalString(parsed.title, {
     field: "title",
@@ -146,7 +140,7 @@ export function parseBrowserImportPayload(
     ok: true,
     payload: {
       sourceUrl: sourceUrl.value,
-      canonicalUrl: canonicalUrl.value,
+      canonicalUrl,
       title: title.value,
       description: description.value,
       articleHtml: articleHtml.value,
@@ -180,6 +174,15 @@ function normalizeHttpUrl(value: unknown, field: string) {
   }
 
   return { ok: true as const, value: url.toString() };
+}
+
+function normalizeCanonicalUrl(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = normalizeHttpUrl(value, "canonicalUrl");
+  return normalized.ok ? normalized.value : null;
 }
 
 function normalizeOptionalString(

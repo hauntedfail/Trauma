@@ -133,4 +133,30 @@ describe("browser import payload validation", () => {
 
     expect(result).toEqual({ ok: false, error: "unexpected field: html" });
   });
+
+  it("treats invalid canonical metadata as absent", () => {
+    const result = parseBrowserImportPayload(
+      JSON.stringify({
+        sourceUrl: "https://example.com/article",
+        canonicalUrl: "mailto:editor@example.com",
+        title: "Example title",
+        description: null,
+        articleHtml: "<article><h1>Readable body</h1></article>",
+        articleText: "Readable body",
+        selector: "article",
+        extractionStrategy: "semantic_selector",
+        capturedAt: now.toISOString(),
+        extensionVersion: "0.1.0",
+      }),
+      { maxBytes: 5_000_000, now: () => now },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      payload: {
+        sourceUrl: "https://example.com/article",
+        canonicalUrl: null,
+      },
+    });
+  });
 });

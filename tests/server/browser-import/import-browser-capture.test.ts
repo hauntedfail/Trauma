@@ -97,6 +97,48 @@ describe("browser capture import", () => {
     await expectation;
   });
 
+  it("does not persist a memory when synchronous extraction work exceeds the timeout", async () => {
+    const startedAt = Date.now();
+
+    await expect(
+      importBrowserCapture({
+        payload: createPayload({
+          articleHtml: `<article>
+            <h1>Captured Article</h1>
+            <p>This browser extracted article contains enough readable words to reach the server extraction step.</p>
+          </article>`,
+          articleText:
+            "Captured Article. This browser extracted article contains enough readable words to reach the server extraction step.",
+        }),
+        config: createConfig(),
+        db: {} as never,
+        backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+        extractionTimeoutMs: 1,
+        extractArticle: () => {
+          const stopAt = Date.now() + 25;
+          while (Date.now() < stopAt) {
+            // Simulate synchronous parser work before the first await.
+          }
+
+          return Promise.resolve({
+            title: "Captured",
+            description: null,
+            faviconUrl: null,
+            markdown:
+              "# Captured\n\nThis browser extracted article contains enough readable words to reach the server extraction step.",
+            wordCount: 15,
+          });
+        },
+        createMemory: async () => {
+          throw new Error("createMemory should not be called");
+        },
+      }),
+    ).rejects.toEqual(
+      new BrowserImportError("failed to extract readable page content"),
+    );
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(25);
+  });
+
   it("falls back to the captured source URL when canonical URL is private", async () => {
     const observedUrls: string[] = [];
 

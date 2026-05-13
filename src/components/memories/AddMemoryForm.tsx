@@ -1,7 +1,11 @@
 import { useNavigate } from "@solidjs/router";
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
 
-import { submitAddMemoryUrl } from "./add-memory-submit";
+import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import {
+  submitAddMemoryUrl,
+  type AddMemorySubmitResult,
+} from "./add-memory-submit";
 import { revalidateBrowseMemories } from "./browse-loader";
 
 export interface AddMemoryFormProps {
@@ -39,6 +43,9 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       const result = await submitAddMemoryUrl({ url: url() });
       if (!result.ok) {
         setErrorMessage(result.error);
+        if (shouldRevalidateBackupFailsafeAlert(result)) {
+          void revalidateBackupFailsafeAlert();
+        }
         return;
       }
 
@@ -93,4 +100,10 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       </Show>
     </form>
   );
+}
+
+export function shouldRevalidateBackupFailsafeAlert(
+  result: AddMemorySubmitResult,
+) {
+  return !result.ok && result.backupFailsafe === true;
 }

@@ -1,12 +1,16 @@
+import { existsSync } from "node:fs";
 import { isIP } from "node:net";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
 import type { ImporterResult } from "../importer";
 import {
-  extractArticleWithDefuddle,
   readableMarkdownLength,
+  type ExtractedArticle,
   type ArticleExtractor,
 } from "../importer/extractor";
 import { isBlockedHostname, normalizeHostname } from "../importer/host-policy";
@@ -43,15 +47,21 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
     throw new BrowserImportError("extracted page content is too short");
   }
 
-  let extracted: Awaited<ReturnType<typeof extractArticleWithDefuddle>>;
+  const extractionInput = {
+    html: createExtractionDocumentHtml(input.payload),
+    pageUrl: selectedUrl,
+  };
+  const extractionTimeoutMs =
+    input.extractionTimeoutMs ?? DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS;
+  let extracted: ExtractedArticle;
   try {
-    extracted = await withTimeout(
-      (input.extractArticle ?? extractArticleWithDefuddle)({
-        html: createExtractionDocumentHtml(input.payload),
-        pageUrl: selectedUrl,
-      }),
-      input.extractionTimeoutMs ?? DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS,
-    );
+    extracted =
+      input.extractArticle === undefined
+        ? await extractArticleInWorker(extractionInput, extractionTimeoutMs)
+        : await runExtractorWithTimeout(
+            () => input.extractArticle!(extractionInput),
+            extractionTimeoutMs,
+          );
   } catch {
     throw new BrowserImportError("failed to extract readable page content");
   }
@@ -163,18 +173,158 @@ function escapeHtml(value: string) {
     .replaceAll('"', "&quot;");
 }
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+function runExtractorWithTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    operation,
-    new Promise<T>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        reject(new Error("browser import extraction timed out"));
-      }, timeoutMs);
-    }),
-  ]).finally(() => {
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
+  try {
+    const operationPromise = operation();
+    return Promise.race([
+      operationPromise.then((result) => {
+        if (Date.now() > deadline) {
+          throw new Error("browser import extraction timed out");
+        }
+
+        return result;
+      }),
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error("browser import extraction timed out"));
+        }, timeoutMs);
+      }),
+    ]).finally(() => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+    });
+  } catch (error) {
+    if (Date.now() > deadline) {
+      throw new Error("browser import extraction timed out");
     }
+
+    throw error;
+  }
+}
+
+function extractArticleInWorker(
+  input: { html: string; pageUrl: string },
+  timeoutMs: number,
+): Promise<ExtractedArticle> {
+  return new Promise((resolveArticle, rejectArticle) => {
+    const worker = new Worker(createExtractorWorkerSource(), {
+      eval: true,
+      workerData: input,
+    });
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settle(() => rejectArticle(new Error("browser import extraction timed out")));
+      void worker.terminate();
+    }, timeoutMs);
+
+    const settle = (finish: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      finish();
+    };
+
+    worker.once("message", (message: unknown) => {
+      settle(() => {
+        const parsed = parseExtractorWorkerMessage(message);
+        if (!parsed.ok) {
+          rejectArticle(new Error(parsed.error));
+          return;
+        }
+
+        resolveArticle(parsed.article);
+      });
+    });
+    worker.once("error", (error) => {
+      settle(() => rejectArticle(error));
+    });
+    worker.once("exit", (code) => {
+      if (code !== 0) {
+        settle(() =>
+          rejectArticle(new Error(`browser import extractor exited with ${code}`)),
+        );
+      }
+    });
   });
+}
+
+function createExtractorWorkerSource() {
+  const extractorModuleUrl = resolveExtractorModuleUrl();
+  return `
+    import { parentPort, workerData } from "node:worker_threads";
+
+    try {
+      const { extractArticleWithDefuddle } = await import(${JSON.stringify(
+        extractorModuleUrl,
+      )});
+      const article = await extractArticleWithDefuddle(workerData);
+      parentPort.postMessage({ ok: true, article });
+    } catch (error) {
+      parentPort.postMessage({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  `;
+}
+
+function resolveExtractorModuleUrl() {
+  const adjacentSourceUrl = new URL("../importer/extractor.ts", import.meta.url);
+  if (existsSync(fileURLToPath(adjacentSourceUrl))) {
+    return adjacentSourceUrl.href;
+  }
+
+  return pathToFileURL(
+    resolve(process.cwd(), "src/server/importer/extractor.ts"),
+  ).href;
+}
+
+function parseExtractorWorkerMessage(
+  message: unknown,
+):
+  | { ok: true; article: ExtractedArticle }
+  | { ok: false; error: string } {
+  if (!isRecord(message)) {
+    return { ok: false, error: "extractor worker returned invalid output" };
+  }
+
+  if (message.ok === false) {
+    return {
+      ok: false,
+      error:
+        typeof message.error === "string"
+          ? message.error
+          : "extractor worker failed",
+    };
+  }
+
+  if (message.ok === true && isExtractedArticle(message.article)) {
+    return { ok: true, article: message.article };
+  }
+
+  return { ok: false, error: "extractor worker returned invalid article" };
+}
+
+function isExtractedArticle(value: unknown): value is ExtractedArticle {
+  return (
+    isRecord(value) &&
+    typeof value.title === "string" &&
+    (typeof value.description === "string" || value.description === null) &&
+    (typeof value.faviconUrl === "string" || value.faviconUrl === null) &&
+    typeof value.markdown === "string" &&
+    (typeof value.wordCount === "number" || value.wordCount === null)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

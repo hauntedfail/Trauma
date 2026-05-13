@@ -69,4 +69,29 @@ describe("add memory submission", () => {
       error: "url must be a valid absolute URL",
     });
   });
+
+  it("marks backup failsafe errors so the shell alert can refresh", async () => {
+    const result = await submitAddMemoryUrl({
+      url: "https://example.com/article",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: "Backup location changed",
+            backupFailsafe: {
+              kind: "backup_path_drift",
+            },
+          }),
+          {
+            status: 409,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Backup location changed",
+      backupFailsafe: true,
+    });
+  });
 });

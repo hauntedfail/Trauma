@@ -1,4 +1,4 @@
-import { query } from "@solidjs/router";
+import { query, revalidate } from "@solidjs/router";
 
 import type { BackupFailsafeAlertView } from "~/server/backup/environment";
 
@@ -7,6 +7,10 @@ export const getBackupFailsafeAlert = query(async () => {
 
   return loadBackupFailsafeAlert();
 }, "backup-failsafe-alert");
+
+export function revalidateBackupFailsafeAlert() {
+  return revalidate(getBackupFailsafeAlert.key);
+}
 
 export async function loadBackupFailsafeAlert(): Promise<BackupFailsafeAlertView | null> {
   "use server";

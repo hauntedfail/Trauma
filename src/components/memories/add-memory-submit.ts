@@ -6,6 +6,7 @@ export type AddMemorySubmitResult =
   | {
       ok: false;
       error: string;
+      backupFailsafe?: boolean;
     };
 
 export interface SubmitAddMemoryUrlInput {
@@ -52,9 +53,11 @@ export async function submitAddMemoryUrl(
 
   const payload = await readJsonRecord(response);
   if (!response.ok) {
+    const isBackupFailsafe = hasBackupFailsafe(payload);
     return {
       ok: false,
       error: readErrorMessage(payload) ?? DEFAULT_SUBMISSION_ERROR,
+      ...(isBackupFailsafe ? { backupFailsafe: true } : {}),
     };
   }
 
@@ -98,6 +101,10 @@ function readCreatedMemoryId(payload: Record<string, unknown> | null) {
 
   const id = memory.id;
   return typeof id === "string" && id.trim() !== "" ? id : null;
+}
+
+function hasBackupFailsafe(payload: Record<string, unknown> | null) {
+  return isRecord(payload?.backupFailsafe);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
