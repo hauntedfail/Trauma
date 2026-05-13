@@ -46,11 +46,12 @@ The token tests verify:
 - Normal night mode pane surfaces are pure black.
 - Every theme uses one pane background colour:
   `--bg-base == --bg-surface`.
-- Paper sun and paper night themes expose the full paper texture variable set.
-- Paper texture renders through layered backgrounds plus fixed grain and glow
-  overlays.
-- Paper texture does not include repeating dot/grid overlays.
-- Night paper grain opacity stays strong enough to be visible.
+- Paper sun exposes the paper texture variable set.
+- Paper night exposes the leather texture variable set while retaining the
+  `paper-black-dark` theme name.
+- Material textures render through layered backgrounds plus fixed grain/fibre
+  and glow overlays.
+- Paper mode material textures do not include repeating dot/grid overlays.
 - Typography stays local and does not use negative letter spacing.
 
 ## Current Shell Checks

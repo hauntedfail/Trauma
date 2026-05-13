@@ -84,31 +84,60 @@ describe("front-end refine design tokens", () => {
     }
   });
 
-  it("defines paper texture variables for both paper themes", () => {
-    for (const theme of ["paper-warm-light", "paper-black-dark"]) {
-      const body = tailwindCss.match(
-        new RegExp(`:root\\[data-theme="${theme}"\\]\\s*{(?<body>[^}]*)}`, "s"),
-      )?.groups?.body;
+  it("defines paper texture variables for light paper mode", () => {
+    const body = tailwindCss.match(
+      /:root\[data-theme="paper-warm-light"\]\s*{(?<body>[^}]*)}/s,
+    )?.groups?.body;
 
-      if (body === undefined) {
-        throw new Error(`Missing theme block ${theme}`);
-      }
+    if (body === undefined) {
+      throw new Error("Missing paper-warm-light theme block");
+    }
 
-      for (const token of [
-        "--paper-texture-radials",
-        "--paper-texture-blend",
-        "--paper-grain-opacity",
-        "--paper-grain-blend",
-        "--paper-glow-opacity",
-        "--paper-glow-blend",
-        "--paper-glow-layer",
-      ]) {
-        expect(body).toContain(token);
-      }
+    for (const token of [
+      "--paper-texture-radials",
+      "--paper-texture-blend",
+      "--paper-grain-opacity",
+      "--paper-grain-blend",
+      "--paper-glow-opacity",
+      "--paper-glow-blend",
+      "--paper-glow-layer",
+    ]) {
+      expect(body).toContain(token);
     }
   });
 
-  it("renders paper texture through layered backgrounds without dot grid overlays", () => {
+  it("defines a leather texture recipe for night paper mode", () => {
+    const body = tailwindCss.match(
+      /:root\[data-theme="paper-black-dark"\]\s*{(?<body>[^}]*)}/s,
+    )?.groups?.body;
+
+    if (body === undefined) {
+      throw new Error("Missing paper-black-dark theme block");
+    }
+
+    for (const token of [
+      "--leather-texture-radials",
+      "--leather-texture-blend",
+      "--leather-grain-overlay",
+      "--leather-fiber-overlay",
+      "--leather-sheen-layer",
+      "--leather-grain-opacity",
+      "--leather-grain-blend",
+      "--leather-glow-opacity",
+      "--leather-glow-blend",
+      "--leather-glow-layer",
+    ]) {
+      expect(body).toContain(token);
+    }
+
+    expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body');
+    expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body::after');
+    expect(tailwindCss).toContain("var(--leather-sheen-layer)");
+    expect(tailwindCss).toContain("var(--leather-fiber-overlay)");
+    expect(tailwindCss).toContain("var(--leather-grain-overlay)");
+  });
+
+  it("renders material textures through layered backgrounds without dot grid overlays", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .bg-trauma-bg-base');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body::before');
@@ -121,7 +150,7 @@ describe("front-end refine design tokens", () => {
     expect(tailwindCss).not.toContain("--paper-dot-size");
   });
 
-  it("keeps night paper grain visibly stronger than the previous weak setting", () => {
+  it("keeps night paper leather grain visibly present", () => {
     const body = tailwindCss.match(
       /:root\[data-theme="paper-black-dark"\]\s*{(?<body>[^}]*)}/s,
     )?.groups?.body;
@@ -131,8 +160,8 @@ describe("front-end refine design tokens", () => {
     }
 
     expect(
-      Number(readThemeToken(body, "--paper-grain-opacity")),
-    ).toBeGreaterThanOrEqual(0.4);
+      Number(readThemeToken(body, "--leather-grain-opacity")),
+    ).toBeGreaterThanOrEqual(0.48);
   });
 
   it("keeps refined typography local without runtime font imports or negative tracking", () => {

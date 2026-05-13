@@ -83,12 +83,16 @@ Current base/surface values:
 selected states, drawers, right rail islands, theme toggles, and hover states
 can stay visible.
 
-## Paper Texture
+## Paper Material Surface
 
-Paper surface mode is more than a colour swap. Both `paper-warm-light` and
-`paper-black-dark` must render a paper-like background texture.
+Paper surface mode is more than a colour swap. The mode name stays `paper` in
+the user interface, but the material recipe differs by brightness:
 
-The texture recipe is CSS-only:
+- `paper-warm-light` renders a paper-like surface.
+- `paper-black-dark` renders a leather-like surface because subtle paper grain
+  reads too weakly on a dark background.
+
+The light paper recipe is CSS-only:
 
 - Base colour from `--bg-base`.
 - Layered `radial-gradient()` washes from `--paper-texture-radials`.
@@ -100,8 +104,19 @@ The texture recipe is CSS-only:
 Do not add repeating dot or grid layers to paper mode. The paper texture should
 read as organic grain, not evenly spaced graph paper.
 
-Night paper needs stronger grain than light paper because subtle dark-mode
-blend layers become visually weak faster.
+The night paper recipe is a leather material, not a darker copy of the paper
+grain. It uses:
+
+- Layered leather colour washes from `--leather-texture-radials`.
+- Fixed leather grain and fibre overlays from `--leather-grain-overlay` and
+  `--leather-fiber-overlay`.
+- A subdued leather sheen from `--leather-sheen-layer`.
+- Leather-specific blend and opacity tokens:
+  `--leather-texture-blend`, `--leather-grain-blend`, and
+  `--leather-glow-blend`.
+
+The leather result should read as fine pores, fibre variation, and dull shine.
+It must not introduce dot-grid, graph-paper, or evenly tiled decorative marks.
 
 Normal themes must not enable these paper texture layers.
 

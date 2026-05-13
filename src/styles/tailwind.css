@@ -244,36 +244,45 @@
     --shadow-1: 0 1px 2px rgb(0 0 0 / 50%);
     --shadow-2: 0 4px 10px rgb(0 0 0 / 50%);
     --shadow-drawer: 0 20px 60px rgb(0 0 0 / 70%);
-    --paper-texture-radials:
+    --leather-texture-radials:
       radial-gradient(
-        860px 600px at 18% 4%,
-        rgb(197 123 87 / 13%),
+        900px 620px at 16% 0%,
+        rgb(139 79 42 / 18%),
         transparent 58%
       ),
       radial-gradient(
-        900px 680px at 92% 100%,
-        rgb(234 215 173 / 8%),
+        760px 560px at 92% 88%,
+        rgb(44 26 14 / 42%),
         transparent 60%
       ),
       radial-gradient(
-        720px 480px at 48% 24%,
-        rgb(74 40 24 / 24%),
+        620px 420px at 50% 30%,
+        rgb(236 181 116 / 8%),
         transparent 64%
       );
-    --paper-texture-blend: soft-light;
-    --paper-grain-opacity: 0.44;
-    --paper-grain-blend: screen;
-    --paper-glow-opacity: 0.42;
-    --paper-glow-blend: screen;
-    --paper-glow-layer:
+    --leather-texture-blend: soft-light;
+    --leather-grain-overlay: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' seed='17' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.28 0 0 0 0 0.16 0 0 0 0 0.08 0 0 0 0.42 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    --leather-fiber-overlay: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='360' height='360'><filter id='f'><feTurbulence type='turbulence' baseFrequency='0.018 0.11' numOctaves='5' seed='29' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.34 0 0 0 0 0.20 0 0 0 0 0.11 0 0 0 0.36 0'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>");
+    --leather-sheen-layer: linear-gradient(
+      126deg,
+      transparent 0 18%,
+      rgb(255 220 154 / 7%) 25%,
+      rgb(255 220 154 / 3%) 31%,
+      transparent 43% 100%
+    );
+    --leather-grain-opacity: 0.54;
+    --leather-grain-blend: soft-light;
+    --leather-glow-opacity: 0.48;
+    --leather-glow-blend: soft-light;
+    --leather-glow-layer:
       radial-gradient(
-        circle at 18% 10%,
-        rgb(197 123 87 / 28%),
+        ellipse at 18% 8%,
+        rgb(205 124 70 / 26%),
         transparent 35%
       ),
       radial-gradient(
-        circle at 84% 86%,
-        rgb(234 215 173 / 13%),
+        ellipse at 82% 82%,
+        rgb(20 10 5 / 36%),
         transparent 40%
       );
     --font-body: var(--font-serif);
@@ -339,6 +348,39 @@
     background-image: var(--paper-texture-radials);
     background-attachment: fixed;
     background-blend-mode: var(--paper-texture-blend);
+  }
+
+  :root[data-theme="paper-black-dark"] body {
+    background:
+      var(--leather-texture-radials),
+      var(--bg-base);
+  }
+
+  :root[data-theme="paper-black-dark"] body::before {
+    background: var(--leather-glow-layer);
+    filter: blur(96px);
+    mix-blend-mode: var(--leather-glow-blend);
+    opacity: var(--leather-glow-opacity);
+  }
+
+  :root[data-theme="paper-black-dark"] body::after {
+    background-image:
+      var(--leather-sheen-layer),
+      var(--leather-fiber-overlay),
+      var(--leather-grain-overlay);
+    background-size:
+      auto,
+      360px 360px,
+      180px 180px;
+    mix-blend-mode: var(--leather-grain-blend);
+    opacity: var(--leather-grain-opacity);
+  }
+
+  :root[data-theme="paper-black-dark"] .bg-trauma-bg-base,
+  :root[data-theme="paper-black-dark"] .bg-trauma-bg-surface {
+    background-image: var(--leather-texture-radials);
+    background-attachment: fixed;
+    background-blend-mode: var(--leather-texture-blend);
   }
 
   h1,
