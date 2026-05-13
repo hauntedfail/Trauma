@@ -36,6 +36,9 @@ Bun is the only package manager for this project.
 
 Tailwind CSS is the active styling system.
 
+- Treat [the design system reference](design-system/INDEX.md) as the owning
+  documentation for token, shell, component, icon, and visual verification
+  rules.
 - Use Tailwind v4 through `@tailwindcss/vite` in `app.config.ts`.
 - Keep `src/styles/tailwind.css` as the only global stylesheet entry.
 - Do not reintroduce `src/styles/app.css`.

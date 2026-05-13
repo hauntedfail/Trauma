@@ -25,6 +25,8 @@ from the foundation design and should stay aligned with it.
 
 - [Technology stack](references/technology-stack.md): selected stack,
   exclusions, and rationale.
+- [Design system](references/design-system/INDEX.md): front-end tokens,
+  themes, shell layout, route surfaces, icons, interactions, and verification.
 - [Configuration](references/configuration.md): `trauma.config.json` shape,
   validation rules, and operational meaning.
 - [Coding standards](references/coding-standards/INDEX.md): map of
