@@ -6,6 +6,11 @@ import {
   canStartHighlightToggle,
   isExplicitHighlightKeyboardToggle,
 } from "./highlight-events";
+import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import {
+  readHighlightFailure,
+  shouldRevalidateBackupFailsafeAfterHighlightFailure,
+} from "./highlight-failure";
 import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 
@@ -197,8 +202,13 @@ async function toggleReaderSelection(input: {
       }),
     });
 
-    if (!response.ok) {
-      throw new Error("Highlight persistence failed");
+    const failure = await readHighlightFailure(response);
+    if (failure !== undefined) {
+      if (shouldRevalidateBackupFailsafeAfterHighlightFailure(failure)) {
+        void revalidateBackupFailsafeAlert();
+      }
+
+      throw new Error(failure.message);
     }
   } catch {
     input.container.innerHTML = previousHtml;

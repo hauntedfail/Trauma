@@ -229,6 +229,42 @@ describe("URL importer", () => {
     });
   });
 
+  it("does not persist extraction output produced after synchronous work exceeds the import budget", async () => {
+    const result = await importUrl({
+      url: "https://example.com/slow-sync-extraction",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () =>
+        new Response("<html><head><title>Slow Sync Extraction</title></head><body></body></html>", {
+          headers: {
+            "content-type": "text/html",
+          },
+        }),
+      extractArticle: () => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 25) {
+          // Intentionally block to prove late synchronous work cannot win the import.
+        }
+
+        return Promise.resolve({
+          title: "Should Not Persist",
+          description: null,
+          faviconUrl: null,
+          markdown:
+            "# Should Not Persist\n\nThis delayed synchronous extraction result should not be stored after timeout.",
+          wordCount: 13,
+        });
+      },
+    });
+
+    expect(result).toEqual({
+      status: "link_only",
+      url: "https://example.com/slow-sync-extraction",
+      title: "example.com",
+      extractionError: "extraction failed: request timed out",
+    });
+  });
+
   it("rejects local URLs before fetch to prevent server-side request forgery", async () => {
     await expect(
       importUrl({

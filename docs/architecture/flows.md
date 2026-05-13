@@ -24,6 +24,11 @@ link-only memory. Record extraction status and error details in SQLite.
 
 Raw HTML is not stored in the initial design.
 
+Default extraction runs behind an interruptible runtime boundary. The import
+timeout budget covers fetch, validation, parser work, and markdown conversion;
+if the budget is exhausted, the importer returns link-only fallback instead of
+persisting late extraction output.
+
 ## Browser-Assisted Import
 
 Safari, browser extension, or share-sheet assisted capture is future work.
@@ -71,6 +76,10 @@ Selection payload:
 
 If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.
+
+If highlight persistence returns backup failsafe metadata, the frontend must
+refresh the global backup failsafe alert before showing the local highlight
+failure state.
 
 ## Git Backup
 

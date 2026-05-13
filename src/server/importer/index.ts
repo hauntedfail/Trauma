@@ -4,11 +4,13 @@ import { request as requestHttps } from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 
+import { readableMarkdownLength, type ArticleExtractor } from "./extractor";
 import {
-  extractArticleWithDefuddle,
-  readableMarkdownLength,
-  type ArticleExtractor,
-} from "./extractor";
+  ArticleExtractionTimeoutError,
+  extractArticleInWorker,
+  isArticleExtractionTimeout,
+  runExtractorWithTimeout,
+} from "./extraction-runtime";
 import {
   isBlockedHostname,
   isPrivateAddress,
@@ -62,11 +64,10 @@ const MAX_REDIRECTS = 5;
 export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> {
   const fetchUrl = input.fetch ?? createPinnedFetch(input.resolveHostname);
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_IMPORT_BYTES;
+  const timeoutMs = input.timeoutMs ?? DEFAULT_IMPORT_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    input.timeoutMs ?? DEFAULT_IMPORT_TIMEOUT_MS,
-  );
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let normalizedUrl: string;
   try {
@@ -155,18 +156,30 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
 
   let extracted: Awaited<ReturnType<ArticleExtractor>>;
   try {
-    extracted = await rejectWhenAborted(
-      (input.extractArticle ?? extractArticleWithDefuddle)({
-        html: boundedBody.text,
-        pageUrl: currentUrl,
-      }),
-      controller.signal,
-    );
-  } catch {
+    const extractionInput = {
+      html: boundedBody.text,
+      pageUrl: currentUrl,
+    };
+    const remainingExtractionMs = deadline - Date.now();
+    if (remainingExtractionMs <= 0) {
+      throw new ArticleExtractionTimeoutError();
+    }
+
+    extracted =
+      input.extractArticle === undefined
+        ? await extractArticleInWorker(extractionInput, remainingExtractionMs)
+        : await runExtractorWithTimeout(
+            () => input.extractArticle!(extractionInput),
+            remainingExtractionMs,
+          );
+  } catch (error) {
     clearTimeout(timeout);
     return linkOnly(currentUrl, fallbackTitleFromUrl(currentUrl), {
       reason: "extraction failed",
-      detail: controller.signal.aborted ? "request timed out" : undefined,
+      detail:
+        controller.signal.aborted || isArticleExtractionTimeout(error)
+          ? "request timed out"
+          : undefined,
     });
   }
   clearTimeout(timeout);

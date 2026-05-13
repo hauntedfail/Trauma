@@ -51,6 +51,9 @@
   answers before returning link-only fallback. The timeout budget must include
   initial hostname validation and redirect hostname validation, not only the
   final body read.
+- MUST include article extraction work in the same import timeout budget.
+  Default extractor parsing and conversion must run behind an interruptible
+  worker or process boundary instead of blocking the request event loop.
 - MUST request identity encoding or explicitly decode compressed bodies when
   using low-level HTTP clients that do not automatically decompress responses.
 - MUST decode HTML entities in extracted URL attributes before URL resolution,
@@ -74,6 +77,9 @@
 - MUST run final extraction and memory persistence on the TRAUMA server. The
   extension may capture a tab snapshot, but it must not bypass server-side
   sanitization or write memory content directly.
+- MUST resolve browser-assisted extractor workers from bundled runtime code or
+  inline worker source. Standalone builds must not depend on `src/` files being
+  present at runtime.
 - MUST NOT persist raw extension HTML.
 
 ## Logging And Diagnostics
