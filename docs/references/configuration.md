@@ -64,6 +64,12 @@ mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.c
 Both commands are dry-run by default. Add `--apply` only after checking the
 summary.
 
+If the stamp and configured paths still match but SQLite says a memory was
+successfully backed up while its `CONTENT.md` is missing, outside the configured
+backup paths, or not tracked by the backup repository, Trauma creates a separate
+content-integrity alert. This is not a backup location change, so path migration
+actions must not be offered for that alert.
+
 ## Backup Rules
 
 `backup.git.enabled` controls built-in markdown backup.

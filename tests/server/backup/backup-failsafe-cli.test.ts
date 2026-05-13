@@ -343,6 +343,25 @@ describe("backup failsafe CLI", () => {
       connection.close();
     }
   });
+
+  it("does not accept current paths for content integrity alerts", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    await seedContentInconsistentAlert(configPath);
+
+    await expect(
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    ).rejects.toThrow(/cannot accept current backup paths/);
+
+    const config = loadTraumaConfig({ configPath });
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toMatchObject({ kind: "backup_content_inconsistent" });
+    } finally {
+      connection.close();
+    }
+  });
 });
 
 async function makeRoot() {
@@ -480,6 +499,31 @@ async function seedRepositoryMissingAlert(configPath: string) {
       gitRemoteUrl: null,
       gitBranch: "main",
       error: "projectPath is not a git repository",
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+async function seedContentInconsistentAlert(configPath: string) {
+  const config = loadTraumaConfig({ configPath });
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+      id: "active",
+      kind: "backup_content_inconsistent",
+      severity: "critical",
+      message: "Backup content is inconsistent",
+      previousProjectPath: null,
+      previousStorePath: null,
+      currentProjectPath: config.projectPath,
+      currentStorePath: config.storePath,
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      error: "successful backup content is missing or untracked: memory-1",
       createdAt: now,
       updatedAt: now,
     });

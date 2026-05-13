@@ -40,8 +40,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
         <div>
           <h2 class="text-base font-extrabold">{props.alert.message}</h2>
           <p class="mt-1 max-w-[78ch] text-sm text-red-100">
-            TRAUMA will not silently write memories into the configured backup
-            location until this is resolved.
+            {describeBackupFailsafeAlert(props.alert)}
           </p>
         </div>
         <dl class="grid gap-1 text-sm text-red-50">
@@ -167,6 +166,22 @@ async function readJson(response: Response) {
 
 function readError(value: unknown) {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
+}
+
+function describeBackupFailsafeAlert(alert: BackupFailsafeAlertView) {
+  if (alert.kind === "backup_content_inconsistent") {
+    return "TRAUMA found backup metadata marked successful while the content file is missing, outside the configured backup paths, or not tracked by the backup repository.";
+  }
+
+  if (alert.kind === "backup_push_failed") {
+    return "TRAUMA committed the memory backup locally, but pushing to the configured remote failed.";
+  }
+
+  if (alert.kind === "backup_repository_missing") {
+    return "TRAUMA cannot use the configured backup location until projectPath is an initialized backup repository.";
+  }
+
+  return "TRAUMA will not silently write memories into the configured backup location until this is resolved.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -205,7 +205,7 @@ describe("backup environment failsafe", () => {
     }
   });
 
-  it("creates a critical alert when successful content is no longer tracked by the backup repository", async () => {
+  it("creates a content integrity alert when successful content is no longer tracked by the backup repository", async () => {
     const root = await makeRoot();
     const config = createConfig(root);
     await writeContent(config.storePath, "memory-1");
@@ -235,11 +235,13 @@ describe("backup environment failsafe", () => {
 
       expect(result.ok).toBe(false);
       expect(result.alert).toMatchObject({
-        kind: "backup_path_drift",
+        kind: "backup_content_inconsistent",
+        message: "Backup content is inconsistent",
         previousProjectPath: null,
         previousStorePath: null,
         currentProjectPath: config.projectPath,
         currentStorePath: config.storePath,
+        error: expect.stringContaining("memory-1"),
       });
     } finally {
       connection.close();

@@ -292,6 +292,7 @@ describe("db foundation", () => {
       { id: 2, id_type: "integer" },
       { id: 3, id_type: "integer" },
       { id: 4, id_type: "integer" },
+      { id: 5, id_type: "integer" },
     ]);
   });
 
@@ -490,7 +491,7 @@ describe("db foundation", () => {
 
     expect(result).toMatchObject({
       highlightCount: 1,
-      migrationCount: 4,
+      migrationCount: 5,
     });
     expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });

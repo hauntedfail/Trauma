@@ -149,6 +149,28 @@ TRAUMA will not silently write memories into the new backup location until this
 is resolved.
 ```
 
+If the configured backup paths and stamp match, but a memory row marked as a
+successful backup points at missing, out-of-scope, or untracked content, use a
+different alert:
+
+```text
+Backup content is inconsistent
+
+TRAUMA found memory metadata marked as successfully backed up, but the
+corresponding content file is missing, outside the configured backup paths, or
+not tracked by the backup repository.
+
+Current project path: {currentProjectPath}
+Current store path: {currentStorePath}
+Error: {memory/content detail}
+
+TRAUMA will not silently write new memory data until this content mismatch is
+resolved.
+```
+
+Do not offer Revert config or Migrate backup for this alert. It is not a path
+drift and path migration can only hide the real metadata/content mismatch.
+
 For push failures:
 
 ```text
@@ -443,6 +465,10 @@ Manual verification:
 10. Repeat the drift setup and use Migrate backup.
 11. Confirm old memory content appears under the new storePath and the alert
    clears after reload.
+12. Create a successful backup metadata row whose `CONTENT.md` is missing or
+    untracked while the stamp still matches current config.
+13. Confirm logs and UI show "Backup content is inconsistent" without Revert
+    config or Migrate backup actions.
 12. Configure push=true with no remote and confirm local commit succeeds without
    warning.
 13. Configure a broken remote and confirm push failure creates log and UI

@@ -14,6 +14,7 @@ import type { TraumaDatabase } from "../db/repositories";
 
 export type BackupFailsafeAlertKind =
   | "backup_path_drift"
+  | "backup_content_inconsistent"
   | "backup_repository_missing"
   | "backup_push_failed";
 
@@ -120,19 +121,16 @@ export async function ensureBackupEnvironment(
     await bootstrapBackupRepository(input.config);
   }
 
-  if (
-    stamp !== undefined &&
-    pathsMatch &&
-    gitIdentityMatches &&
-    hasMemoryData &&
-    (await hasUntrackedSuccessfulBackupContent(input.config, input.db))
-  ) {
-    return createAndReportPathAlert({
+  const inconsistentContent =
+    stamp !== undefined && pathsMatch && gitIdentityMatches && hasMemoryData
+      ? await findInconsistentSuccessfulBackupContent(input.config, input.db)
+      : null;
+  if (inconsistentContent !== null) {
+    return createAndReportContentAlert({
       config: input.config,
       db: input.db,
       now,
-      previousProjectPath: null,
-      previousStorePath: null,
+      error: formatContentInconsistencyError(inconsistentContent),
     });
   }
 
@@ -291,6 +289,34 @@ async function createAndReportRepositoryAlert(input: {
   return { ok: false, alert: view };
 }
 
+async function createAndReportContentAlert(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  now: Date;
+  error: string;
+}): Promise<BackupEnvironmentResult> {
+  const repositories = createRepositories(input.db);
+  const alert = await repositories.backupEnvironment.upsertBackupFailsafeAlert({
+    id: ALERT_ID,
+    kind: "backup_content_inconsistent",
+    severity: "critical",
+    message: "Backup content is inconsistent",
+    previousProjectPath: null,
+    previousStorePath: null,
+    currentProjectPath: input.config.projectPath,
+    currentStorePath: input.config.storePath,
+    gitRemote: input.config.backup.git.remote,
+    gitRemoteUrl: await readGitRemoteUrl(input.config),
+    gitBranch: input.config.backup.git.branch,
+    error: input.error,
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+  const view = toAlertView(alert);
+  console.warn(formatContentIntegrityWarning(view, input.config.configFilePath));
+  return { ok: false, alert: view };
+}
+
 async function recordBackupRepositoryMissingAlert(
   config: ResolvedTraumaConfig,
   error: string,
@@ -391,32 +417,68 @@ async function findContentFile(directory: string): Promise<boolean> {
   return false;
 }
 
-async function hasUntrackedSuccessfulBackupContent(
+interface InconsistentBackupContent {
+  memoryId: string;
+  contentPath: string;
+  reason:
+    | "absolute_path"
+    | "outside_backup_paths"
+    | "missing_file"
+    | "untracked_file";
+  absolutePath?: string;
+  stagePath?: string;
+}
+
+async function findInconsistentSuccessfulBackupContent(
   config: ResolvedTraumaConfig,
   db: TraumaDatabase,
 ) {
   const rows = await db
-    .select({ contentPath: schema.memories.contentPath })
+    .select({ id: schema.memories.id, contentPath: schema.memories.contentPath })
     .from(schema.memories)
     .where(eq(schema.memories.backupStatus, "success"))
     .all();
 
   for (const row of rows) {
-    const stagePath = resolveBackupContentStagePath(config, row.contentPath);
-    if (stagePath === null || !(await isGitTracked(config.projectPath, stagePath))) {
-      return true;
+    const resolved = resolveBackupContentPath(config, row.contentPath);
+    if (resolved === "absolute_path" || resolved === "outside_backup_paths") {
+      return {
+        memoryId: row.id,
+        contentPath: row.contentPath,
+        reason: resolved,
+      } satisfies InconsistentBackupContent;
+    }
+
+    if (!existsSync(resolved.absolutePath)) {
+      return {
+        memoryId: row.id,
+        contentPath: row.contentPath,
+        reason: "missing_file",
+        absolutePath: resolved.absolutePath,
+        stagePath: resolved.stagePath,
+      } satisfies InconsistentBackupContent;
+    }
+
+    if (!(await isGitTracked(config.projectPath, resolved.stagePath))) {
+      return {
+        memoryId: row.id,
+        contentPath: row.contentPath,
+        reason: "untracked_file",
+        absolutePath: resolved.absolutePath,
+        stagePath: resolved.stagePath,
+      } satisfies InconsistentBackupContent;
     }
   }
 
-  return false;
+  return null;
 }
 
-function resolveBackupContentStagePath(
+function resolveBackupContentPath(
   config: ResolvedTraumaConfig,
   contentPath: string,
 ) {
   if (isAbsolute(contentPath)) {
-    return null;
+    return "absolute_path";
   }
 
   const absoluteContentPath = resolve(config.storePath, contentPath);
@@ -424,10 +486,30 @@ function resolveBackupContentStagePath(
     !isInside(config.storePath, absoluteContentPath) ||
     !isInside(config.projectPath, absoluteContentPath)
   ) {
-    return null;
+    return "outside_backup_paths";
   }
 
-  return relative(config.projectPath, absoluteContentPath).split(sep).join("/");
+  return {
+    absolutePath: absoluteContentPath,
+    stagePath: relative(config.projectPath, absoluteContentPath).split(sep).join("/"),
+  };
+}
+
+function formatContentInconsistencyError(content: InconsistentBackupContent) {
+  const details = [
+    `memoryId=${content.memoryId}`,
+    `contentPath=${content.contentPath}`,
+    `reason=${content.reason}`,
+  ];
+
+  if (content.stagePath !== undefined) {
+    details.push(`gitPath=${content.stagePath}`);
+  }
+  if (content.absolutePath !== undefined) {
+    details.push(`absolutePath=${content.absolutePath}`);
+  }
+
+  return `successful backup content is missing or untracked: ${details.join(", ")}`;
 }
 
 async function isGitTracked(projectPath: string, stagePath: string) {
@@ -563,6 +645,25 @@ export function formatPathDriftWarning(
     `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath}`,
     `mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config ${configPath} --apply`,
     `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath} --apply`,
+  ].join("\n");
+}
+
+function formatContentIntegrityWarning(
+  alert: BackupFailsafeAlertView,
+  configPath: string,
+) {
+  return [
+    "Backup content is inconsistent",
+    "",
+    "TRAUMA found memory metadata marked as successfully backed up, but the corresponding content file is missing, outside the configured backup paths, or not tracked by the backup repository.",
+    "",
+    `Current project path: ${alert.currentProjectPath}`,
+    `Current store path: ${alert.currentStorePath}`,
+    `Error: ${alert.error ?? "unknown"}`,
+    "",
+    "TRAUMA will not silently write new memory data until this content mismatch is resolved.",
+    "",
+    `mise exec -- bun run scripts/trauma-backup-failsafe.ts status --config ${configPath}`,
   ].join("\n");
 }
 

@@ -59,6 +59,28 @@ describe("backup failsafe banner", () => {
     expect(html).toContain("Retry backup push");
   });
 
+  it("renders content integrity alerts without path migration actions", () => {
+    const html = renderToString(() =>
+      createComponent(BackupFailsafeBanner, {
+        alert: {
+          ...alert,
+          kind: "backup_content_inconsistent",
+          message: "Backup content is inconsistent",
+          previousProjectPath: null,
+          previousStorePath: null,
+          error: "successful backup content is missing or untracked: memory-1",
+        },
+      }),
+    );
+
+    expect(html).toContain("Backup content is inconsistent");
+    expect(html).toContain(
+      "backup metadata marked successful while the content file is missing",
+    );
+    expect(html).not.toContain("Revert config");
+    expect(html).not.toContain("Migrate backup");
+  });
+
   it("does not render revert when a path drift alert has no previous paths", () => {
     const html = renderToString(() =>
       createComponent(BackupFailsafeBanner, {

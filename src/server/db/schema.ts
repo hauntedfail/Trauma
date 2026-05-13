@@ -23,6 +23,7 @@ const backupStatusSqlList = sql.raw(
 const backupFailsafeAlertKindSqlList = sql.raw(
   [
     "backup_path_drift",
+    "backup_content_inconsistent",
     "backup_repository_missing",
     "backup_push_failed",
   ].map(toSqlStringLiteral).join(", "),
@@ -175,6 +176,7 @@ export const backupFailsafeAlerts = sqliteTable(
     kind: text("kind")
       .$type<
         | "backup_path_drift"
+        | "backup_content_inconsistent"
         | "backup_repository_missing"
         | "backup_push_failed"
       >()

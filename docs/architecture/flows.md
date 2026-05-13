@@ -114,6 +114,11 @@ remote/branch changes while successful backup rows already exist, Trauma must
 force an explicit recovery path instead of silently treating the new repository
 as complete.
 
+When already-successful backup rows point at missing, out-of-scope, or
+untracked content, the alert is a content-integrity failure rather than a path
+drift. The UI and logs must not describe this as a backup location change or
+offer path migration as a remedy.
+
 If migration commits local backup content but the configured push fails, the
 operator must be able to retry that recovered push after repairing the remote.
 A push-failure alert must not turn a completed local migration into an
