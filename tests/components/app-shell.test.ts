@@ -69,6 +69,12 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("min-h-[52px]");
   });
 
+  it("keeps the left rail vertical rhythm slightly open", () => {
+    expect(appShellSource).toContain('class="flex flex-col gap-1.5"');
+    expect(appShellSource).toContain('nav class="grid content-start gap-1"');
+    expect(appShellSource).toContain("mx-1 my-3.5");
+  });
+
   it("keeps selected theme options visible on normal night mode", () => {
     expect(appShellSource).toContain("themeToggleButton");
     expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
