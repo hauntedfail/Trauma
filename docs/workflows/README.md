@@ -29,6 +29,7 @@ do not treat completed triage records as active work queues.
 | 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Merged into main |
 | 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Merged into main |
 | 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Merged into main |
+| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Ready |
 
 ## Archived Workflows
 
@@ -84,6 +85,9 @@ All workflows assume the bootstrap already exists:
   SQLite record deletion recovery are merged.
 - `ExtractionStatus` is shared through `src/server/memory-status.ts` and used
   by markdown frontmatter validation and SQLite constraints.
+- The front-end refine workflow uses `refined_sample/` as a design source and
+  decomposes it into existing Solid components rather than porting the sample as
+  one large component.
 
 ## Branching
 
@@ -101,6 +105,7 @@ Use concise branch names that match the workflow:
 - `chore/reader-library-decision`
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
+- `refine/frontend-sample`
 
 The historical triage branches named in Task 16 records have landed. New work
 should branch from the current target branch and use a fresh name rather than
