@@ -1,6 +1,6 @@
-# Trauma
+# TRAUMA
 
-Trauma is a personal bookmark management app. The product language uses
+TRAUMA is a personal bookmark management app. The product language uses
 `memory` for one saved bookmark and `memories` for the collection.
 
 > <span style="color: #b7791f;">⚠️ Warning:</span> This is mostly a personal
@@ -13,10 +13,15 @@ content, and git backup for the markdown store.
 
 ## Status
 
-Foundation feature work is underway. The app has the SolidStart/Bun toolchain,
-baseline routes, test configuration, Drizzle/SQLite persistence, config
-loading, markdown content store APIs, and documentation/workflow structure
-needed for the remaining implementation tasks.
+The foundation implementation is now more than scaffold. The current baseline
+includes SolidStart/Bun runtime commands, Drizzle/SQLite persistence, markdown
+content storage, add-memory import, memory browsing, reader routes, highlights,
+git backup, backup failsafe recovery, Defuddle-based extraction, Tailwind
+styling, and the local browser-assisted import extension.
+
+Some workflow documents remain as implementation records or future hardening
+plans. Treat [docs/workflows/README.md](docs/workflows/README.md) as the
+current map before starting new work.
 
 ## Stack
 
@@ -84,6 +89,6 @@ Key references:
 
 ## Initial Scope
 
-Trauma is initially single-user and local/self-hosted. Auth, public signup,
+TRAUMA is initially single-user and local/self-hosted. Auth, public signup,
 managed databases, external queues, serverless deployment, and full offline
 archival are out of scope for the foundation.

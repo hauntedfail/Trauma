@@ -1,10 +1,10 @@
 # Data And Storage Architecture
 
-Trauma separates metadata from readable content.
+TRAUMA separates metadata from readable content.
 
 SQLite is the canonical runtime metadata store. Markdown files are readable
 content artifacts and git-backup artifacts. The SQLite database file itself is
-not backed up through Trauma's git backup feature.
+not backed up through TRAUMA's git backup feature.
 
 ## Memory Content Store
 
@@ -33,12 +33,12 @@ truth.
 markdown frontmatter parser, writer, SQLite schema constraint, and tests must
 derive from that shared contract or include explicit drift coverage.
 
-Remote images stay remote in the initial design. Trauma is not a full offline
+Remote images stay remote in the initial design. TRAUMA is not a full offline
 archive.
 
 ## SQLite Model
 
-Initial tables:
+Runtime tables:
 
 - `memories`
 - `tags`
@@ -46,6 +46,8 @@ Initial tables:
 - `memory_tags`
 - `memory_categories`
 - `highlights`
+- `backup_environment_stamps`
+- `backup_failsafe_alerts`
 
 `memories` stores URL metadata, content path, extraction status, backup status,
 and timestamps.
@@ -57,6 +59,16 @@ schema.
 `tags` and `categories` are both many-to-many with memories. Category means a
 curated grouping. Tag means ad-hoc labeling. URL import does not auto-assign
 either.
+
+`backup_environment_stamps` stores the validated backup identity for the local
+markdown backup repository: resolved paths, configured remote, remote URL when
+available, branch, and timestamps. Startup and backup writes compare the current
+config against this stamp before accepting new writes.
+
+`backup_failsafe_alerts` stores the single active critical backup alert, when
+one exists. Alert kinds distinguish path drift, missing backup repository,
+remote push failure, and backup content inconsistency so the UI can offer only
+the recovery actions that are safe for that condition.
 
 ## Highlight Model
 

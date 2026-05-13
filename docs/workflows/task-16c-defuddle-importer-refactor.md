@@ -12,6 +12,10 @@ This is a triage subtask of [Task 16](task-16-red-call-runtime-triage.md).
 Task 16 owns runtime/env recovery. This workflow owns importer extraction
 quality and the Defuddle dependency boundary.
 
+Current status: this workflow has landed on `main`. Keep this file as the
+Defuddle importer execution record; create a new workflow for follow-up import
+behaviour changes.
+
 ## Research Basis
 
 - [URL import extraction research](../research/2026-05-12-url-import-content-extraction-markdown-generation.md)
@@ -150,7 +154,7 @@ mise exec -- bun run test:e2e
 
 ## Branching And PR Flow
 
-Start from `triage`:
+Historical branch flow for this merged task:
 
 ```bash
 git switch triage
@@ -158,8 +162,8 @@ git pull --ff-only origin triage
 git switch -c triage-defuddle-importer
 ```
 
-Open the PR against `triage`. If `triage` lands into `main` first, rebase onto
-`main` and retarget the PR.
+The PR targeted the active triage branch at the time. New follow-up work should
+branch from the current target branch and use a fresh branch name.
 
 ## PR Handoff
 

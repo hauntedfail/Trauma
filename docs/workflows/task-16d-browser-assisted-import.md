@@ -12,6 +12,10 @@ This is a triage subtask of [Task 16](task-16-red-call-runtime-triage.md).
 Task 16 owns runtime/env recovery. Task 16c owns server-side Defuddle import.
 This task owns the browser-assisted fallback path.
 
+Current status: this workflow has landed on `main`. Keep this file as the
+browser-assisted import execution record; create a new workflow for follow-up
+extension or import API behaviour changes.
+
 ## Required Context
 
 - [Runtime flows](../architecture/flows.md)
@@ -186,7 +190,7 @@ Manual verification:
 
 ## Branching And PR Flow
 
-Start from `triage`:
+Historical branch flow for this merged task:
 
 ```bash
 git switch triage
@@ -194,8 +198,8 @@ git pull --ff-only origin triage
 git switch -c triage-browser-assisted-import
 ```
 
-Open the PR against `triage`. If `triage` lands into `main` first, rebase onto
-`main` and retarget the PR.
+The PR targeted the active triage branch at the time. New follow-up work should
+branch from the current target branch and use a fresh branch name.
 
 ## PR Handoff
 

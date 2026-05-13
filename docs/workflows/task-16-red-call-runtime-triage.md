@@ -9,31 +9,24 @@ loading consistently.
 
 ## Current Status
 
-- Runtime command stabilization has landed on `triage`.
-- Tailwind migration was split into Task 16a and has landed on `triage`.
-- Drizzle/SQLite hardening is split into Task 16b so DB/ORM review findings do
-  not expand this runtime workflow.
-- Defuddle-based importer extraction refactor is split into
-  [Task 16c](task-16c-defuddle-importer-refactor.md) so URL content extraction
-  quality does not expand this runtime workflow.
-- Browser-assisted import extension work is split into
-  [Task 16d](task-16d-browser-assisted-import.md) so local extension/API
-  security and capture design do not expand this runtime workflow.
-- `src/styles/app.css` has been removed; the active global style entry is
+- This triage wave has landed on `main`.
+- Runtime command stabilization, Tailwind migration, Drizzle/SQLite hardening,
+  Defuddle import, browser-assisted import, live DOM extraction, and backup
+  failsafe work are represented by Task 16 and Tasks 16a through 16f.
+- `src/styles/app.css` has been removed. The active global style entry is
   `src/styles/tailwind.css`.
-- Keep this workflow open for any remaining red-call triage that is not already
-  owned by Task 16b, Task 16c, Task 16d, or the archived Task 16a migration
-  record.
+- Keep this file as the historical red-call execution record. New runtime
+  defects should get a fresh workflow instead of reopening Task 16.
 
-## Initial Evidence
+## Historical Initial Evidence
 
 - Local `.env` sets `HOST=127.0.0.1`, `PORT=9999`, and
   `TRAUMA_HMR_PORT=9911`.
 - `mise exec -- bun --print 'process.env.HOST + ":" + process.env.PORT'`
   reads `.env` and prints `127.0.0.1:9999`.
-- `mise exec -- bun run dev` starts Vinxi at `http://127.0.0.1:3000/`.
-  This proves `.env` is not reaching the `vinxi dev` subprocess from the
-  package script.
+- Before the runtime fix, `mise exec -- bun run dev` started Vinxi on the
+  default port instead of the `.env` port. That proved `.env` was not reaching
+  the `vinxi dev` subprocess from the package script.
 - `HOST=127.0.0.1 PORT=9999 TRAUMA_HMR_PORT=9911 mise exec -- bun run dev`
   starts at `http://127.0.0.1:9999/`. Vinxi honors exported variables when they
   actually reach the process.
@@ -43,9 +36,9 @@ loading consistently.
 - `mise exec -- bun run dev:smoke` passes because the smoke script is a Bun
   process and explicitly forwards host, port, HMR port, and fixtures mode to its
   child process.
-- `mise exec -- bun run test:e2e` currently fails 4 of 10 tests. The reader
-  route crashes with `Cannot find module 'bun:sqlite'`, showing that the E2E
-  web server can execute server code in Node instead of Bun.
+- Before this triage wave, `mise exec -- bun run test:e2e` failed 4 of 10 tests.
+  The reader route crashed with `Cannot find module 'bun:sqlite'`, showing that
+  the E2E web server could execute server code in Node instead of Bun.
 - `TRAUMA_CONFIG_PATH` is read by the reader route helper, but browse and add
   memory API paths call `loadTraumaConfig()` without the env path. Runtime config
   loading is split across server modules.
@@ -171,7 +164,7 @@ Out of scope:
 
 ## Verification Commands
 
-Run from the `triage` branch:
+Run from the implementation branch:
 
 ```bash
 mise exec -- bun run verify

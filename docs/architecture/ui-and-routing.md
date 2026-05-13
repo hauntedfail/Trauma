@@ -1,6 +1,6 @@
 # UI And Routing Architecture
 
-Trauma's UI direction follows the current X-style layout while staying focused
+TRAUMA's UI direction follows the current X-style layout while staying focused
 on bookmark/memory management.
 
 ## Canonical Routes

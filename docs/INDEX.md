@@ -1,6 +1,6 @@
-# Trauma Documentation Index
+# TRAUMA Documentation Index
 
-This directory is the working documentation set for Trauma.
+This directory is the working documentation set for TRAUMA.
 
 The approved foundation spec remains the design record:
 

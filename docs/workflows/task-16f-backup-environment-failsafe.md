@@ -16,6 +16,10 @@ existing backup model:
 - backup commits only content under `storePath`.
 - the application repository and the backup repository are separate by default.
 
+Current status: this workflow has landed on `main`. Keep this file as the
+execution record for the backup environment failsafe domain; create a new
+workflow for follow-up behaviour changes.
+
 ## Problem Statement
 
 Users can edit `projectPath` or `storePath` in `trauma.config.json`. If the
@@ -51,11 +55,13 @@ Primary server files:
 - `src/server/backup/status.ts` only if a new status is required.
 - `src/server/backup/environment.ts`
 - `src/server/backup/failsafe.ts`
+- `src/server/backup/content-integrity.ts`
 - `src/server/db/schema.ts`
 - `src/server/db/repositories.ts`
 - `src/routes/api/backup/failsafe.ts`
 - `src/routes/api/backup/failsafe/revert.ts`
 - `src/routes/api/backup/failsafe/migrate.ts`
+- `src/routes/api/backup/failsafe/delete-missing-record.ts`
 
 Primary UI files:
 
@@ -76,6 +82,7 @@ Primary tests:
 - `tests/server/backup/git-backup.test.ts`
 - `tests/server/routes/api-backup-failsafe.test.ts`
 - `tests/components/backup-failsafe.test.ts`
+- `tests/server/backup/backup-failsafe-cli.test.ts`
 
 Conditional docs:
 
@@ -422,8 +429,12 @@ git -C {projectPath} push {remote} HEAD:{branch}
   copy in this workflow.
 - Logs include one-command dry-run and `--apply` recovery commands for revert
   and migration.
+- Content-integrity logs include dry-run and `--apply` recovery commands for
+  `delete-missing-record` only when the reason is `missing_file`.
 - The web app shows a red, non-dismissible warning with `Revert config` and
   `Migrate backup` buttons.
+- Missing-file content-integrity alerts show `Delete missing memory record`
+  instead of path drift actions.
 - Revert restores previous `projectPath` and `storePath` in config.
 - Migrate moves or copies existing backup data into the configured target
   directory without overwriting conflicts.
@@ -448,11 +459,13 @@ Run from the implementation branch:
 
 ```bash
 mise exec -- bun run typecheck
+mise exec -- bun run test tests/server/db/schema.test.ts
 mise exec -- bun run test tests/server/config/config.test.ts
 mise exec -- bun run test tests/server/backup/backup-environment.test.ts
 mise exec -- bun run test tests/server/backup/git-backup.test.ts
 mise exec -- bun run test tests/server/routes/api-backup-failsafe.test.ts
 mise exec -- bun run test tests/components/backup-failsafe.test.ts
+mise exec -- bun run test tests/server/backup/backup-failsafe-cli.test.ts
 mise exec -- bun run verify
 ```
 
@@ -491,7 +504,7 @@ Manual verification:
 
 ## Branching And PR Flow
 
-Start from `triage`:
+Historical branch flow for this merged task:
 
 ```bash
 git switch triage
@@ -499,8 +512,8 @@ git pull --ff-only origin triage
 git switch -c triage-backup-environment-failsafe
 ```
 
-Open the PR against `triage`. If `triage` lands into `main` first, rebase onto
-`main` and retarget the PR.
+The PR targeted the active triage branch at the time. New follow-up work should
+branch from the current target branch and use a fresh branch name.
 
 ## PR Handoff
 

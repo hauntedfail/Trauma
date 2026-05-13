@@ -2,23 +2,25 @@
 
 ## Status
 
-Archived after the Tailwind migration landed on `triage`.
+Archived after the Tailwind migration landed and the triage wave merged to
+`main`.
 
 This archive preserves the styling contract and migration rules. It does not
 track PR numbers, branch history, commit hashes, or review chronology.
 
-Git branch names must not use `triage/...` while a `triage` branch exists.
+Historical branch note: this task avoided `triage/...` branch names while a
+plain `triage` branch existed.
 
 ## Goal
 
-Move Trauma's component styling from `src/styles/app.css` to Tailwind CSS.
+Move TRAUMA's component styling from `src/styles/app.css` to Tailwind CSS.
 `app.css` must stop being the place where UI behavior is encoded; styling should
 live on the component markup as readable Tailwind classes.
 
 ## Decision
 
 Tailwind is compatible with this stack because SolidStart exposes Vite config
-through `app.config.ts`, and Tailwind v4 provides a Vite plugin. Trauma uses
+through `app.config.ts`, and Tailwind v4 provides a Vite plugin. TRAUMA uses
 Tailwind v4 with `@tailwindcss/vite`. `@tailwindcss/typography` is included for
 rendered markdown because reader HTML arrives through `innerHTML`.
 
@@ -65,7 +67,7 @@ Out of scope:
   class names.
 - Keep dynamic values out of generated class names. Use literal alternatives:
   `classList={{ "bg-trauma-bg-surface": active(), "bg-transparent": !active() }}`.
-- Use Tailwind theme tokens for Trauma colors instead of raw repeated hex
+- Use Tailwind theme tokens for TRAUMA colors instead of raw repeated hex
   values.
 - Limit arbitrary selectors to rendered markdown HTML, where the element markup
   cannot be edited directly.

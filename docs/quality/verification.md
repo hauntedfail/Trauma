@@ -1,6 +1,6 @@
 # Verification Strategy
 
-Trauma uses an E2E-first verification strategy.
+TRAUMA uses an E2E-first verification strategy.
 
 ## E2E Coverage
 
@@ -49,6 +49,7 @@ Unit or integration tests should cover:
 For backup failsafe changes, run the focused suite before broad verification:
 
 ```bash
+mise exec -- bun run test tests/server/db/schema.test.ts
 mise exec -- bun run test tests/server/backup/backup-environment.test.ts tests/server/backup/git-backup.test.ts tests/server/routes/api-backup-failsafe.test.ts tests/components/backup-failsafe.test.ts tests/server/backup/backup-failsafe-cli.test.ts
 ```
 
@@ -58,6 +59,7 @@ Use recovery commands in dry-run mode before applying filesystem changes:
 mise exec -- bun run scripts/trauma-backup-failsafe.ts status --config trauma.config.json
 mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config trauma.config.json
 mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json
+mise exec -- bun run scripts/trauma-backup-failsafe.ts delete-missing-record --config trauma.config.json
 ```
 
 ## Completion Bar

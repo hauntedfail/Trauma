@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Trauma is a single-user, local-first bookmark management app that can also run
+TRAUMA is a single-user, local-first bookmark management app that can also run
 on a single VPS or home server with persistent local disk.
 
 The app uses a SolidStart monolith: UI, route handlers, server functions, and

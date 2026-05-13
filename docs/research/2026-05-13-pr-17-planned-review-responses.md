@@ -1,25 +1,26 @@
-# PR #17 Planned Review Responses
+# PR #17 Historical Planned Review Responses
 
-Status: review-response backlog snapshot
+Status: historical review-response snapshot, not an active backlog
 Branch: `triage/ui`
 PR: <https://github.com/hauntedfail/Trauma/pull/17>
 Captured at: 2026-05-13
 
-This report records the 22 unresolved review threads that still apply to the
-current diff. These are marked as planned review responses, not as accepted
-fixes. Each item still needs technical validation against the current code
-before implementation.
+This report records the 22 unresolved review threads that applied to the PR #17
+diff at capture time. PR #17 has since landed; use this file only as historical
+review context. Do not treat it as an active work queue without revalidating
+each item against current `main`.
 
-Outdated unresolved threads are intentionally excluded from this list.
+Outdated unresolved threads at capture time were intentionally excluded from
+this list.
 
 ## Summary
 
-- Current unresolved review threads: 22
-- Scope: current diff only
+- Captured unresolved review threads: 22
+- Scope: PR #17 diff at capture time
 - Excluded: outdated generated-storage and obsolete extension-injection threads
 - GitHub state at capture time: `Verify` failing, `CodeRabbit` passing
 
-## Planned Responses
+## Captured Planned Responses
 
 ### 1. Revalidate browse data after memory creation
 

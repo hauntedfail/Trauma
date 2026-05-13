@@ -1,6 +1,6 @@
 # Local And Self-Hosted Operation
 
-Trauma is designed for local use first, with a clean path to single-instance
+TRAUMA is designed for local use first, with a clean path to single-instance
 self-hosting.
 
 ## Operating Model
@@ -24,7 +24,7 @@ The markdown store owns readable memory content and is the only content area
 covered by built-in git backup.
 
 The SQLite database file should be protected by normal host backup strategy if
-needed. Trauma's built-in git backup does not commit the database file.
+needed. TRAUMA's built-in git backup does not commit the database file.
 
 ## Git Backup
 
@@ -33,12 +33,12 @@ Built-in backup commits markdown store changes from `storePath` using
 
 `projectPath` is expected to be the backup repository root. For the default
 local setup, use `projectPath: "./data"` and `storePath: "./data/storage"`.
-Trauma treats `./data` as separate from the application repository.
+TRAUMA treats `./data` as separate from the application repository.
 
-On a clean first start with git backup enabled, Trauma creates `projectPath`,
+On a clean first start with git backup enabled, TRAUMA creates `projectPath`,
 creates `storePath`, and initializes a git repository under `projectPath` when
 one does not already exist. If memory rows or `CONTENT.md` files already exist,
-Trauma does not auto-initialize a new repository. It creates a critical failsafe
+TRAUMA does not auto-initialize a new repository. It creates a critical failsafe
 alert so the operator can choose `revert` or `migrate` explicitly.
 
 Backup work is asynchronous. A failed backup does not invalidate memory
@@ -48,6 +48,13 @@ surfaced through metadata.
 When push is enabled, a missing configured remote name is treated as local-only
 backup and does not warn. A configured remote that exists but fails to push
 creates a critical alert while keeping the local commit.
+
+If SQLite records successful backup content but the corresponding `CONTENT.md`
+is missing, outside the configured paths, or untracked, TRAUMA reports a backup
+content-integrity alert. This is not a backup location change. The web UI and
+CLI offer deletion only for the `missing_file` case, and only after re-checking
+that the file is still absent. Untracked or out-of-scope content must be repaired
+as backup repository/path state so existing markdown is not discarded.
 
 ## Local Dev Server Contract
 

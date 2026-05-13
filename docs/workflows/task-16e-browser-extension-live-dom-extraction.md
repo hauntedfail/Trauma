@@ -16,6 +16,10 @@ the server must not compensate for browser import by fetching the current tab
 URL, and the injected code must run as a bundled content script with its helper
 code available in the page execution context.
 
+Current status: this workflow has landed on `main`. Keep this file as the live
+DOM extraction execution record; create a new workflow for follow-up extension
+capture changes.
+
 ## Required Context
 
 - [Task 16d Browser-assisted import extension](task-16d-browser-assisted-import.md)
@@ -246,7 +250,7 @@ Manual verification:
 
 ## Branching And PR Flow
 
-Start from `triage`:
+Historical branch flow for this merged task:
 
 ```bash
 git switch triage
@@ -254,8 +258,8 @@ git pull --ff-only origin triage
 git switch -c triage-browser-live-dom-extraction
 ```
 
-Open the PR against `triage`. If `triage` lands into `main` first, rebase onto
-`main` and retarget the PR.
+The PR targeted the active triage branch at the time. New follow-up work should
+branch from the current target branch and use a fresh branch name.
 
 ## PR Handoff
 

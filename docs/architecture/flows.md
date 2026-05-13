@@ -11,7 +11,7 @@ Flow:
 
 1. Generate a UUID v7 memory ID.
 2. Fetch the URL server-side.
-3. Run a Readability-style extraction pipeline.
+3. Run the Defuddle-backed extraction pipeline.
 4. Create SQLite metadata.
 5. Write `{storePath}/memories/{memoryId}/CONTENT.md`.
 6. Enqueue markdown backup work.
@@ -31,9 +31,27 @@ persisting late extraction output.
 
 ## Browser-Assisted Import
 
-Safari, browser extension, or share-sheet assisted capture is future work.
-Initial implementation should keep importer boundaries clean enough that this
-path can be added later without replacing the storage model.
+Browser-assisted import exists as an optional local Chrome MV3 extension path
+for pages the server cannot fetch or extract reliably.
+
+Flow:
+
+1. The operator enables browser import with local environment settings.
+2. The user opens a page in the browser and clicks the TRAUMA extension.
+3. The extension captures bounded content from the current user-visible tab.
+4. The extension sends JSON to `/api/browser-import` on the local TRAUMA server
+   with a bearer token.
+5. The server validates enablement, token, origin, content type, payload size,
+   URL shape, timestamp, and extracted text shape.
+6. The server creates the memory through the same add-memory persistence path:
+   SQLite metadata, `CONTENT.md`, and backup enqueue.
+7. The extension opens the created memory route or reports the server error.
+
+The extension is a privileged local client, not a trusted persistence layer. It
+may provide browser-only access to the visible DOM, but final validation,
+markdown creation, SQLite writes, and backup state remain server-owned. Raw
+extension HTML is untrusted and must not bypass the server sanitization and
+markdown-store contracts.
 
 ## Highlight
 
@@ -97,7 +115,7 @@ Flow:
 
 Backup failures do not roll back memory creation or highlight creation.
 
-On startup, Trauma should find pending, queued, or failed backup states that are
+On startup, TRAUMA should find pending, queued, or failed backup states that are
 eligible for retry and re-enqueue them. `queued` is process-local, so queued rows
 from a previous process are eligible after restart.
 
@@ -110,7 +128,7 @@ Backup readiness is tied to the full backup identity, not just filesystem
 paths. The persisted stamp must match project path, store path, git remote,
 remote URL, branch, and already-successful tracked content before new writes are
 accepted. If the repository is recreated at the same path, or the configured
-remote/branch changes while successful backup rows already exist, Trauma must
+remote/branch changes while successful backup rows already exist, TRAUMA must
 force an explicit recovery path instead of silently treating the new repository
 as complete.
 

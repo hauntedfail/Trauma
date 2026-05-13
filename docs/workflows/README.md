@@ -1,4 +1,4 @@
-# Trauma Execution Workflows
+# TRAUMA Execution Workflows
 
 This directory contains task-scoped execution workflows. Each file is intended
 to be read independently by a worker that owns one pull request.
@@ -8,23 +8,27 @@ keep each worker's context focused on its own domain.
 
 ## Task Map
 
+Status values describe the current `main` baseline. Workflow files may still
+contain historical branch names and evidence because they are execution records;
+do not treat completed triage records as active work queues.
+
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
-| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Ready |
-| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Ready after Tasks 4 and 7 |
-| 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Final integration pass |
-| 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Refactor wave entry point |
+| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Merged baseline |
+| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Merged baseline |
+| 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Available for further hardening |
+| 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Merged baseline |
 | 11 | [Test suite health refactor](task-11-test-suite-health-refactor.md) | Test boundaries, weak assertions, startup coverage, script normalization | Ready after Task 10 |
 | 12 | [GitHub Actions and docs health](task-12-github-actions-and-docs-health.md) | CI trigger split, docs health checks, scheduled docs maintenance workflow | Ready after Task 11 |
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | Ready after Task 10 |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
-| 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Active triage |
-| 16b | [Drizzle and SQLite hardening](task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Triage subtask |
-| 16c | [Defuddle importer extraction refactor](task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Triage subtask |
-| 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Triage subtask |
-| 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Triage subtask |
-| 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Triage subtask |
+| 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Merged into main |
+| 16b | [Drizzle and SQLite hardening](task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Merged into main |
+| 16c | [Defuddle importer extraction refactor](task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Merged into main |
+| 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Merged into main |
+| 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Merged into main |
+| 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Merged into main |
 
 ## Archived Workflows
 
@@ -69,6 +73,15 @@ All workflows assume the bootstrap already exists:
 - Browse shell and reader pipeline foundations are merged, including
   repository-backed browse rows, shared shell layout, and sanitized markdown
   rendering.
+- Highlight creation, toggle removal, `/highlights`, and highlight-aware
+  `/memories` search are merged.
+- Git backup queue and backup status tracking are merged.
+- Runtime command stabilization is merged: `dev`, `start`, and `preview` run
+  Vinxi through Bun for server code that depends on Bun APIs.
+- Defuddle v0.18+ extraction, browser-assisted import API, and the local Chrome
+  MV3 browser extension are merged.
+- Backup environment failsafe, content-integrity alerts, and missing-file
+  SQLite record deletion recovery are merged.
 - `ExtractionStatus` is shared through `src/server/memory-status.ts` and used
   by markdown frontmatter validation and SQLite constraints.
 
@@ -88,8 +101,7 @@ Use concise branch names that match the workflow:
 - `chore/reader-library-decision`
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
-- `triage`
-- `triage-db-orm-hardening`
-- `triage-defuddle-importer`
-- `triage-browser-assisted-import`
-- `triage-backup-environment-failsafe`
+
+The historical triage branches named in Task 16 records have landed. New work
+should branch from the current target branch and use a fresh name rather than
+reusing old triage branch names.
