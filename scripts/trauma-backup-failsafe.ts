@@ -1,13 +1,14 @@
 import { loadTraumaConfig } from "../src/server/config";
 import { initializeDatabase } from "../src/server/db";
 import {
+  deleteMissingBackupContentRecord,
   migrateBackupFailsafeContent,
   readActiveBackupFailsafeAlert,
   revertBackupFailsafeConfig,
 } from "../src/server/backup/failsafe";
 import { getBackupFailsafeStatus } from "../src/server/backup/environment";
 
-type Command = "status" | "revert" | "migrate";
+type Command = "status" | "revert" | "migrate" | "delete-missing-record";
 
 export async function runBackupFailsafeCli(args: readonly string[]) {
   const parsed = parseArgs(args);
@@ -33,6 +34,17 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
       return `${result.summary}\n`;
     }
 
+    if (parsed.command === "delete-missing-record") {
+      const result = await deleteMissingBackupContentRecord({
+        config,
+        db: connection.db,
+        apply: parsed.apply,
+      });
+      const alert = await readActiveBackupFailsafeAlert(connection.db);
+      const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
+      return `${result.summary}\n${suffix}`;
+    }
+
     const result = await migrateBackupFailsafeContent({
       config,
       db: connection.db,
@@ -50,7 +62,7 @@ function parseArgs(args: readonly string[]) {
   const command = args[0];
   if (!isCommand(command)) {
     throw new Error(
-      "Usage: trauma-backup-failsafe.ts <status|revert|migrate> --config <path> [--apply]",
+      "Usage: trauma-backup-failsafe.ts <status|revert|migrate|delete-missing-record> --config <path> [--apply]",
     );
   }
 
@@ -78,7 +90,12 @@ function parseArgs(args: readonly string[]) {
 }
 
 function isCommand(value: string | undefined): value is Command {
-  return value === "status" || value === "revert" || value === "migrate";
+  return (
+    value === "status" ||
+    value === "revert" ||
+    value === "migrate" ||
+    value === "delete-missing-record"
+  );
 }
 
 if (import.meta.main) {

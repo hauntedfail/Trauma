@@ -119,6 +119,11 @@ untracked content, the alert is a content-integrity failure rather than a path
 drift. The UI and logs must not describe this as a backup location change or
 offer path migration as a remedy.
 
+Only `missing_file` content-integrity alerts may offer deletion of the orphan
+SQLite memory record. If the content still exists but is untracked or outside
+the configured paths, recovery must preserve the record and require backup
+repository/path repair instead.
+
 If migration commits local backup content but the configured push fails, the
 operator must be able to retry that recovered push after repairing the remote.
 A push-failure alert must not turn a completed local migration into an

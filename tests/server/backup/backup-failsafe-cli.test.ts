@@ -362,6 +362,82 @@ describe("backup failsafe CLI", () => {
       connection.close();
     }
   });
+
+  it("deletes a missing successful memory record from a content integrity alert", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const config = loadTraumaConfig({ configPath });
+    await seedMissingContentRecord(configPath);
+
+    const dryRunOutput = await runBackupFailsafeCli([
+      "delete-missing-record",
+      "--config",
+      configPath,
+    ]);
+
+    expect(dryRunOutput).toContain("DRY RUN: Delete missing memory record");
+    let connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.memories.findById("memory-missing"))
+        .toMatchObject({ id: "memory-missing" });
+    } finally {
+      connection.close();
+    }
+
+    const output = await runBackupFailsafeCli([
+      "delete-missing-record",
+      "--config",
+      configPath,
+      "--apply",
+    ]);
+
+    expect(output).toContain("APPLY: Delete missing memory record");
+    expect(output).toContain("Alert cleared.");
+    connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.memories.findById("memory-missing"))
+        .toBeUndefined();
+      expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("does not delete content integrity records when the content file still exists", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const config = loadTraumaConfig({ configPath });
+    await mkdir(join(config.storePath, "memories", "memory-untracked"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(config.storePath, "memories/memory-untracked/CONTENT.md"),
+      "# Exists\n",
+      "utf8",
+    );
+    await seedMissingContentRecord(configPath, {
+      id: "memory-untracked",
+      contentPath: "memories/memory-untracked/CONTENT.md",
+    });
+
+    await expect(
+      runBackupFailsafeCli([
+        "delete-missing-record",
+        "--config",
+        configPath,
+        "--apply",
+      ]),
+    ).rejects.toThrow(/only missing content records can be deleted/);
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(await connection.repositories.memories.findById("memory-untracked"))
+        .toMatchObject({ id: "memory-untracked" });
+    } finally {
+      connection.close();
+    }
+  });
 });
 
 async function makeRoot() {
@@ -524,6 +600,62 @@ async function seedContentInconsistentAlert(configPath: string) {
       gitRemoteUrl: null,
       gitBranch: "main",
       error: "successful backup content is missing or untracked: memory-1",
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+async function seedMissingContentRecord(
+  configPath: string,
+  input: { id?: string; contentPath?: string } = {},
+) {
+  const config = loadTraumaConfig({ configPath });
+  const memoryId = input.id ?? "memory-missing";
+  const contentPath =
+    input.contentPath ?? `memories/${memoryId}/CONTENT.md`;
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.memories.create({
+      id: memoryId,
+      url: "https://example.com/missing",
+      title: "Missing content",
+      description: null,
+      faviconUrl: null,
+      contentPath,
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "success",
+      lastBackupAt: now,
+      lastBackupError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+      id: "default",
+      projectPath: config.projectPath,
+      storePath: config.storePath,
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+      id: "active",
+      kind: "backup_content_inconsistent",
+      severity: "critical",
+      message: "Backup content is inconsistent",
+      previousProjectPath: null,
+      previousStorePath: null,
+      currentProjectPath: config.projectPath,
+      currentStorePath: config.storePath,
+      gitRemote: "origin",
+      gitRemoteUrl: null,
+      gitBranch: "main",
+      error: `successful backup content is missing or untracked: memoryId=${memoryId}, contentPath=${contentPath}, reason=missing_file`,
       createdAt: now,
       updatedAt: now,
     });

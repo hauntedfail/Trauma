@@ -2,7 +2,10 @@ import { createSignal, Show } from "solid-js";
 
 import type { BackupFailsafeAlertView } from "~/server/backup/environment";
 
-export type BackupFailsafeActionName = "revert" | "migrate";
+export type BackupFailsafeActionName =
+  | "revert"
+  | "migrate"
+  | "delete-missing-record";
 
 interface BackupFailsafeBannerProps {
   alert: BackupFailsafeAlertView;
@@ -116,6 +119,18 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
             </button>
           </div>
         </Show>
+        <Show when={canDeleteMissingMemoryRecord(props.alert)}>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
+              disabled={pendingAction() !== null}
+              onClick={() => void submit("delete-missing-record")}
+            >
+              Delete missing memory record
+            </button>
+          </div>
+        </Show>
         <Show when={error()}>
           {(message) => <p class="text-sm font-bold text-red-100">{message()}</p>}
         </Show>
@@ -182,6 +197,13 @@ function describeBackupFailsafeAlert(alert: BackupFailsafeAlertView) {
   }
 
   return "TRAUMA will not silently write memories into the configured backup location until this is resolved.";
+}
+
+function canDeleteMissingMemoryRecord(alert: BackupFailsafeAlertView) {
+  return (
+    alert.kind === "backup_content_inconsistent" &&
+    (alert.error?.includes("reason=missing_file") ?? false)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

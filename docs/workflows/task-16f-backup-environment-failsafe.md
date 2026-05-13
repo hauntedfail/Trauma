@@ -170,6 +170,16 @@ resolved.
 
 Do not offer Revert config or Migrate backup for this alert. It is not a path
 drift and path migration can only hide the real metadata/content mismatch.
+If the alert reason is `missing_file`, offer a separate recovery action:
+
+```text
+Delete missing memory record
+```
+
+This action must re-check the current database and store path before deleting.
+It may delete the orphan SQLite `memories` row only when the corresponding
+`CONTENT.md` is still missing. Do not allow this action for `untracked_file`,
+`absolute_path`, or `outside_backup_paths`.
 
 For push failures:
 
@@ -465,13 +475,17 @@ Manual verification:
 10. Repeat the drift setup and use Migrate backup.
 11. Confirm old memory content appears under the new storePath and the alert
    clears after reload.
-12. Create a successful backup metadata row whose `CONTENT.md` is missing or
-    untracked while the stamp still matches current config.
+12. Create a successful backup metadata row whose `CONTENT.md` is missing while
+    the stamp still matches current config.
 13. Confirm logs and UI show "Backup content is inconsistent" without Revert
-    config or Migrate backup actions.
-12. Configure push=true with no remote and confirm local commit succeeds without
+    config or Migrate backup actions, and with Delete missing memory record.
+14. Confirm Delete missing memory record removes only the orphan SQLite row and
+    clears the alert when no other content-integrity issue remains.
+15. Create a successful backup metadata row whose `CONTENT.md` exists but is
+    untracked and confirm the delete action is not available.
+16. Configure push=true with no remote and confirm local commit succeeds without
    warning.
-13. Configure a broken remote and confirm push failure creates log and UI
+17. Configure a broken remote and confirm push failure creates log and UI
    warnings.
 ```
 

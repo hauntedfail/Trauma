@@ -70,6 +70,11 @@ backup paths, or not tracked by the backup repository, Trauma creates a separate
 content-integrity alert. This is not a backup location change, so path migration
 actions must not be offered for that alert.
 
+When the content-integrity reason is `missing_file`, the UI and CLI may offer a
+delete recovery that removes the orphan SQLite `memories` row. This recovery is
+not available for untracked or out-of-scope content because those cases may
+still have recoverable markdown content.
+
 ## Backup Rules
 
 `backup.git.enabled` controls built-in markdown backup.

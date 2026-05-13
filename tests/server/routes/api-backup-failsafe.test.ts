@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { POST as migrate } from "../../../src/routes/api/backup/failsafe/migrate";
 import { POST as revert } from "../../../src/routes/api/backup/failsafe/revert";
+import { POST as deleteMissingRecord } from "../../../src/routes/api/backup/failsafe/delete-missing-record";
 import { initializeDatabase } from "../../../src/server/db";
 import { loadTraumaConfig } from "../../../src/server/config";
 
@@ -138,6 +139,88 @@ describe("backup failsafe API routes", () => {
     expect(await response.json()).toEqual({
       error: "same-origin request is required",
     });
+  });
+
+  it("deletes missing content memory records through the recovery API", async () => {
+    const root = await makeRoot();
+    const configPath = await writeTraumaConfig(root, {
+      projectPath: "./new-data",
+      storePath: "./new-data/storage",
+    });
+    process.env.TRAUMA_CONFIG_PATH = configPath;
+    const config = loadTraumaConfig({ configPath });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: "memory-missing",
+        url: "https://example.com/missing",
+        title: "Missing content",
+        description: null,
+        faviconUrl: null,
+        contentPath: "memories/memory-missing/CONTENT.md",
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "success",
+        lastBackupAt: now,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+        id: "active",
+        kind: "backup_content_inconsistent",
+        severity: "critical",
+        message: "Backup content is inconsistent",
+        previousProjectPath: null,
+        previousStorePath: null,
+        currentProjectPath: config.projectPath,
+        currentStorePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        error:
+          "successful backup content is missing or untracked: memoryId=memory-missing, reason=missing_file",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const response = await deleteMissingRecord(
+      createApiEvent(
+        new Request("http://localhost/api/backup/failsafe/delete-missing-record", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirm: true }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      action: "delete-missing-record",
+    });
+    const check = initializeDatabase(config);
+    try {
+      expect(await check.repositories.memories.findById("memory-missing"))
+        .toBeUndefined();
+      expect(await check.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .toBeUndefined();
+    } finally {
+      check.close();
+    }
   });
 });
 

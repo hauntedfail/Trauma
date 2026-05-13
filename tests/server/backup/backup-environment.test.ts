@@ -248,6 +248,48 @@ describe("backup environment failsafe", () => {
     }
   });
 
+  it("prints delete recovery commands for missing successful content records", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await connection.repositories.memories.create({
+        ...createMemoryRow(),
+        backupStatus: "success",
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.alert).toMatchObject({
+        kind: "backup_content_inconsistent",
+        error: expect.stringContaining("reason=missing_file"),
+      });
+      expect(warn.mock.calls.join("\n")).toContain("Backup content is inconsistent");
+      expect(warn.mock.calls.join("\n")).toContain("delete-missing-record");
+      expect(warn.mock.calls.join("\n")).not.toContain("Backup location changed");
+    } finally {
+      connection.close();
+    }
+  });
+
   it("refuses to write memory content while a drift alert is active", async () => {
     const root = await makeRoot();
     const config = createConfig(root);

@@ -11,18 +11,26 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import { eq } from "drizzle-orm";
+
 import type { ResolvedTraumaConfig } from "../config";
 import { loadTraumaConfig } from "../config";
 import { createRepositories, type TraumaDatabase } from "../db/repositories";
+import * as schema from "../db/schema";
+import { findInconsistentSuccessfulBackupContent } from "./content-integrity";
 import type { BackupFailsafeAlertView } from "./environment";
 import {
   clearBackupPushFailureAlert,
+  ensureBackupEnvironment,
   hasConfiguredRemote,
   recordBackupPushFailureAlert,
   toAlertView,
 } from "./environment";
 
-export type BackupFailsafeAction = "revert" | "migrate";
+export type BackupFailsafeAction =
+  | "revert"
+  | "migrate"
+  | "delete-missing-record";
 
 export interface BackupFailsafeActionResult {
   ok: true;
@@ -147,6 +155,67 @@ export async function migrateBackupFailsafeContent(input: {
     dryRun: false,
     summary,
     files: relativeFiles,
+  };
+}
+
+export async function deleteMissingBackupContentRecord(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  apply: boolean;
+}): Promise<BackupFailsafeActionResult> {
+  const alert = await requireActiveAlert(input.db);
+  if (alert.kind !== "backup_content_inconsistent") {
+    throw new BackupFailsafeActionError(
+      `cannot delete missing memory records while ${alert.kind} alert is active`,
+    );
+  }
+
+  const inconsistentContent = await findInconsistentSuccessfulBackupContent(
+    input.config,
+    input.db,
+  );
+  if (inconsistentContent === null) {
+    throw new BackupFailsafeActionError(
+      "no inconsistent successful backup content was found",
+    );
+  }
+  if (inconsistentContent.reason !== "missing_file") {
+    throw new BackupFailsafeActionError(
+      `only missing content records can be deleted; current reason is ${inconsistentContent.reason}`,
+    );
+  }
+
+  const summary = [
+    input.apply
+      ? "APPLY: Delete missing memory record"
+      : "DRY RUN: Delete missing memory record",
+    `memoryId: ${inconsistentContent.memoryId}`,
+    `contentPath: ${inconsistentContent.contentPath}`,
+  ].join("\n");
+
+  if (!input.apply) {
+    return {
+      ok: true,
+      action: "delete-missing-record",
+      dryRun: true,
+      summary,
+      files: [],
+    };
+  }
+
+  await input.db
+    .delete(schema.memories)
+    .where(eq(schema.memories.id, inconsistentContent.memoryId))
+    .run();
+  await createRepositories(input.db).backupEnvironment.clearBackupFailsafeAlert();
+  await ensureBackupEnvironment({ config: input.config, db: input.db });
+
+  return {
+    ok: true,
+    action: "delete-missing-record",
+    dryRun: false,
+    summary,
+    files: [],
   };
 }
 

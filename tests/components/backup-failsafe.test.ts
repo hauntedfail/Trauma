@@ -68,7 +68,8 @@ describe("backup failsafe banner", () => {
           message: "Backup content is inconsistent",
           previousProjectPath: null,
           previousStorePath: null,
-          error: "successful backup content is missing or untracked: memory-1",
+          error:
+            "successful backup content is missing or untracked: memoryId=memory-1, reason=missing_file",
         },
       }),
     );
@@ -79,6 +80,26 @@ describe("backup failsafe banner", () => {
     );
     expect(html).not.toContain("Revert config");
     expect(html).not.toContain("Migrate backup");
+    expect(html).toContain("Delete missing memory record");
+  });
+
+  it("does not render delete action for non-missing content integrity alerts", () => {
+    const html = renderToString(() =>
+      createComponent(BackupFailsafeBanner, {
+        alert: {
+          ...alert,
+          kind: "backup_content_inconsistent",
+          message: "Backup content is inconsistent",
+          previousProjectPath: null,
+          previousStorePath: null,
+          error:
+            "successful backup content is missing or untracked: memoryId=memory-1, reason=untracked_file",
+        },
+      }),
+    );
+
+    expect(html).toContain("Backup content is inconsistent");
+    expect(html).not.toContain("Delete missing memory record");
   });
 
   it("does not render revert when a path drift alert has no previous paths", () => {
@@ -96,7 +117,7 @@ describe("backup failsafe banner", () => {
     expect(html).toContain("Migrate backup");
   });
 
-  it("posts confirmed revert and migrate actions to their API endpoints", async () => {
+  it("posts confirmed backup failsafe actions to their API endpoints", async () => {
     const requests: Request[] = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(new Request(new URL(String(input), "http://localhost"), init));
@@ -108,13 +129,19 @@ describe("backup failsafe banner", () => {
 
     await submitBackupFailsafeAction({ action: "revert", fetch });
     await submitBackupFailsafeAction({ action: "migrate", fetch });
+    await submitBackupFailsafeAction({
+      action: "delete-missing-record",
+      fetch,
+    });
 
     expect(requests.map((request) => request.url)).toEqual([
       "http://localhost/api/backup/failsafe/revert",
       "http://localhost/api/backup/failsafe/migrate",
+      "http://localhost/api/backup/failsafe/delete-missing-record",
     ]);
     expect(await requests[0]?.json()).toEqual({ confirm: true });
     expect(await requests[1]?.json()).toEqual({ confirm: true });
+    expect(await requests[2]?.json()).toEqual({ confirm: true });
   });
 
   it("returns a fallback error when the request throws", async () => {
