@@ -100,6 +100,7 @@ describe("refined app shell contract", () => {
 
   it("keeps the left rail scale close to the refined sample", () => {
     expect(appShellSource).toContain("px-2 py-1 pb-3");
+    expect(appShellSource).toContain("rounded-full px-2.5 text-[22px]");
     expect(appShellSource).toContain("grid-cols-[32px_minmax(0,1fr)]");
     expect(appShellSource).toContain("gap-[18px]");
     expect(appShellSource).toContain("text-[19px]");

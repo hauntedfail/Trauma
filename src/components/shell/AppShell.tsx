@@ -276,7 +276,7 @@ function NavigationContent(props: {
     >
       <A
         aria-label="TRAUMA home"
-        class="inline-flex h-[52px] w-max items-center gap-3 rounded-full px-1 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
+        class="inline-flex h-[52px] w-max items-center gap-3 rounded-full px-2.5 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
         href="/memories"
         onClick={props.onNavigate}
       >

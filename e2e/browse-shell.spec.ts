@@ -7,6 +7,28 @@ test("redirects the home route to the canonical memories browse route", async ({
   await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
 });
 
+test("aligns the desktop brand mark with left rail tab icons", async ({ page }) => {
+  await page.goto("/memories");
+
+  const brandBox = await page
+    .getByRole("link", { name: "TRAUMA home" })
+    .locator("img")
+    .boundingBox();
+  const memoriesIconBox = await page
+    .getByRole("navigation", { name: "Primary sections" })
+    .getByRole("link", { name: "Memories" })
+    .locator("span")
+    .first()
+    .boundingBox();
+
+  expect(brandBox).not.toBeNull();
+  expect(memoriesIconBox).not.toBeNull();
+
+  const brandCenter = brandBox!.x + brandBox!.width / 2;
+  const memoriesIconCenter = memoriesIconBox!.x + memoriesIconBox!.width / 2;
+  expect(Math.abs(brandCenter - memoriesIconCenter)).toBeLessThanOrEqual(1);
+});
+
 test("updates URL query state from search, filters, highlight shortcuts, and view controls", async ({
   page,
 }) => {

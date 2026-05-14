@@ -28,6 +28,8 @@ Current desktop contract:
 - Position: sticky, full viewport height.
 - Border: right border only.
 - Internal layout: `flex flex-col gap-1.5`.
+- Brand/home mark: use a `36px` mark with `px-2.5` so its centre aligns with
+  the `32px` navigation icon column.
 
 Navigation item contract:
 
