@@ -161,12 +161,20 @@ describe("refined app shell contract", () => {
     expect(waxRules).toContain("clip-path: polygon");
     expect(waxRules).toContain("animation: trauma-wax-edge-spread");
     expect(waxRules).toContain("animation: trauma-wax-press");
+    expect(waxRules).toContain(
+      "background: color-mix(in srgb, var(--accent-press) 86%, var(--bg-sunken) 14%);",
+    );
+    expect(waxRules).toContain("opacity: 0.86;");
+    expect(waxRules).toContain("inset: 4px 5px;");
+    expect(waxRules).toContain("inset: 5px 9px;");
     expect(waxRules).not.toContain("radial-gradient");
     expect(waxRules).not.toContain("linear-gradient(145deg");
     expect(waxRules).not.toContain("text-shadow");
     expect(waxRules).not.toContain("box-shadow");
     expect(waxRules).not.toContain("height: 0.82rem");
     expect(waxRules).not.toContain("width: 1.85rem");
+    expect(waxRules).not.toContain("background: color-mix(in srgb, var(--accent) 42%, transparent);");
+    expect(waxRules).not.toContain("inset: 6px 10px;");
     expect(appShellSource).not.toContain("shadow-trauma-1");
   });
 

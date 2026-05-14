@@ -125,14 +125,20 @@ test("persists shell theme controls in the browser", async ({ page }) => {
         backgroundImage: style.backgroundImage,
         boxShadow: style.boxShadow,
         textShadow: style.textShadow,
+        edgeBackground: edge.background,
         edgeClipPath: edge.clipPath,
         edgeContent: edge.content,
+        edgeOpacity: edge.opacity,
         stampClipPath: stamp.clipPath,
         stampContent: stamp.content,
         stampInset: stamp.inset,
+        stampBackground: stamp.background,
         stampOpacity: stamp.opacity,
       };
     });
+  await expect
+    .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::before").opacity))
+    .toBe("0.86");
   const waxStyle = await readWaxStyle();
   expect(waxStyle.backgroundImage).toBe("none");
   expect(waxStyle.boxShadow).toBe("none");
@@ -141,7 +147,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   expect(waxStyle.edgeClipPath).toContain("polygon");
   expect(waxStyle.stampContent).not.toBe("none");
   expect(waxStyle.stampClipPath).toContain("polygon");
-  expect(waxStyle.stampInset).toContain("px");
+  expect(waxStyle.edgeOpacity).toBe("0.86");
+  expect(waxStyle.stampInset).toBe("4px 5px");
+  expect(waxStyle.edgeBackground).not.toBe(waxStyle.stampBackground);
   await expect
     .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
     .toBe("1");

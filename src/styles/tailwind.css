@@ -499,7 +499,7 @@
     z-index: -1;
     inset: -3px -5px -4px -4px;
     border-radius: inherit;
-    background: color-mix(in srgb, var(--accent) 42%, transparent);
+    background: color-mix(in srgb, var(--accent-press) 86%, var(--bg-sunken) 14%);
     clip-path: polygon(
       1% 25%,
       7% 11%,
@@ -519,20 +519,14 @@
     transform: scaleX(0.97) scaleY(0.9);
   }
 
-  :root[data-theme^="paper"] .trauma-paper-wax-command::after {
-    inset: 7px 15px;
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-toggle::after {
-    inset: 5px 8px;
-  }
-
   :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
     z-index: 0;
-    inset: 6px 10px;
-    border: 1.5px solid color-mix(in srgb, var(--accent-press) 64%, transparent);
+    inset: 4px 5px;
+    border: 1.5px solid color-mix(in srgb, var(--accent-press) 78%, var(--bg-sunken) 22%);
     border-radius: inherit;
-    background: color-mix(in srgb, var(--accent-press) 16%, transparent);
+    outline: 1px solid color-mix(in srgb, var(--accent-press) 42%, transparent);
+    outline-offset: -3px;
+    background: color-mix(in srgb, var(--accent-press) 32%, transparent);
     clip-path: polygon(
       3% 22%,
       12% 10%,
@@ -549,19 +543,23 @@
       9% 83%,
       2% 58%
     );
-    transform: scaleX(0.9) scaleY(0.76);
+    transform: scaleX(0.98) scaleY(0.9);
+  }
+
+  :root[data-theme^="paper"] .trauma-paper-wax-command::after {
+    inset: 5px 9px;
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal:active,
   :root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"] {
-    transform: translateY(1px) scaleX(1.015) scaleY(0.96);
+    transform: translateY(1px) scaleX(1.012) scaleY(0.965);
     animation: trauma-wax-press 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal:active::before,
   :root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]::before {
-    opacity: 0.52;
-    transform: scaleX(1.018) scaleY(1);
+    opacity: 0.86;
+    transform: scaleX(1.024) scaleY(1.02);
     animation: trauma-wax-edge-spread 240ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -661,11 +659,11 @@
   }
 
   70% {
-    transform: translateY(1px) scaleX(1.024) scaleY(0.94);
+    transform: translateY(1px) scaleX(1.02) scaleY(0.945);
   }
 
   100% {
-    transform: translateY(1px) scaleX(1.015) scaleY(0.96);
+    transform: translateY(1px) scaleX(1.012) scaleY(0.965);
   }
 }
 
@@ -676,14 +674,14 @@
   }
 
   100% {
-    opacity: 0.52;
-    transform: scaleX(1.018) scaleY(1);
+    opacity: 0.86;
+    transform: scaleX(1.024) scaleY(1.02);
   }
 }
 
 @keyframes trauma-wax-stamp-settle {
   0% {
-    transform: scaleX(0.9) scaleY(0.76);
+    transform: scaleX(0.96) scaleY(0.86);
   }
 
   100% {

@@ -41,6 +41,9 @@ Paper themes add one deliberate material exception for archive actions:
 - Selected or pressed controls should read like wax compressed by a stamp:
   the stamp area follows the component's own dimensions, and the uneven outer
   edge can push slightly outside the button without changing its layout box.
+- The pushed outer edge should be denser and darker than the pressed face, like
+  real wax gathering at the seal boundary. The pressed face should cover almost
+  the full control instead of becoming a small circular mark.
 
 ## Form Inputs
 
