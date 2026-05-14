@@ -119,17 +119,29 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   const readWaxStyle = () =>
     gridButton.evaluate((button) => {
       const style = getComputedStyle(button);
-      const drip = getComputedStyle(button, "::before");
+      const edge = getComputedStyle(button, "::before");
+      const stamp = getComputedStyle(button, "::after");
       return {
         backgroundImage: style.backgroundImage,
-        dripContent: drip.content,
-        dripHeight: drip.height,
+        boxShadow: style.boxShadow,
+        textShadow: style.textShadow,
+        edgeClipPath: edge.clipPath,
+        edgeContent: edge.content,
+        stampClipPath: stamp.clipPath,
+        stampContent: stamp.content,
+        stampInset: stamp.inset,
+        stampOpacity: stamp.opacity,
       };
     });
   const waxStyle = await readWaxStyle();
-  expect(waxStyle.backgroundImage).toContain("radial-gradient");
-  expect(waxStyle.dripContent).not.toBe("none");
-  expect(Number.parseFloat(waxStyle.dripHeight)).toBeGreaterThan(0);
+  expect(waxStyle.backgroundImage).toBe("none");
+  expect(waxStyle.boxShadow).toBe("none");
+  expect(waxStyle.textShadow).toBe("none");
+  expect(waxStyle.edgeContent).not.toBe("none");
+  expect(waxStyle.edgeClipPath).toContain("polygon");
+  expect(waxStyle.stampContent).not.toBe("none");
+  expect(waxStyle.stampClipPath).toContain("polygon");
+  expect(waxStyle.stampInset).toContain("px");
   await expect
     .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
     .toBe("1");

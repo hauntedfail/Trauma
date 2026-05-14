@@ -479,109 +479,97 @@
     position: relative;
     isolation: isolate;
     overflow: visible;
-    border-color: color-mix(in srgb, #721715 72%, var(--accent) 28%);
-    background:
-      radial-gradient(circle at 30% 22%, rgb(255 219 163 / 0.56), transparent 21%),
-      radial-gradient(circle at 76% 78%, rgb(82 10 9 / 0.4), transparent 35%),
-      linear-gradient(145deg, #c94b39 0%, #9a251f 50%, #721715 100%);
-    color: #fff0df;
-    text-shadow: 0 1px 1px rgb(72 8 7 / 0.45);
-    box-shadow:
-      inset 0 1px 0 rgb(255 224 180 / 0.36),
-      inset 0 -7px 10px rgb(72 8 7 / 0.24),
-      0 3px 7px rgb(58 18 12 / 0.28);
-    transition-property: transform, box-shadow, background, color, border-color, filter;
+    transition-property: transform, border-color, background-color, color;
     transition-duration: 160ms;
     transition-timing-function: ease;
   }
 
-  :root[data-theme^="paper"] .trauma-paper-wax-seal:hover {
-    border-color: color-mix(in srgb, #8f211b 72%, var(--accent-hover) 28%);
-    background:
-      radial-gradient(circle at 30% 22%, rgb(255 230 178 / 0.62), transparent 22%),
-      radial-gradient(circle at 76% 78%, rgb(82 10 9 / 0.36), transparent 36%),
-      linear-gradient(145deg, #d65b45 0%, #aa2e25 50%, #7e1b17 100%);
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-seal::before {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    bottom: -0.42rem;
-    left: 1.35rem;
-    width: 0.58rem;
-    height: 0.82rem;
-    border-radius: 0 0 999px 999px;
-    background:
-      radial-gradient(circle at 42% 22%, rgb(255 218 170 / 0.28), transparent 30%),
-      linear-gradient(180deg, #a82d24 0%, #781916 100%);
-    box-shadow:
-      inset 0 2px 3px rgb(255 217 174 / 0.2),
-      0 2px 4px rgb(50 15 10 / 0.22);
-    transform: rotate(7deg);
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-toggle::before {
-    bottom: -0.34rem;
-    left: 0.7rem;
-    width: 0.46rem;
-    height: 0.62rem;
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-command::before {
-    left: 1.55rem;
-  }
-
+  :root[data-theme^="paper"] .trauma-paper-wax-seal::before,
   :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
     content: "";
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 1.85rem;
-    height: 1.85rem;
-    border-radius: 9999px;
     pointer-events: none;
     opacity: 0;
-    background:
-      radial-gradient(circle at 42% 38%, rgb(255 221 180 / 0.16), transparent 27%),
-      radial-gradient(circle, transparent 45%, rgb(72 10 8 / 0.28) 48%, transparent 59%);
-    box-shadow:
-      inset 0 0 0 1px rgb(90 12 10 / 0.42),
-      inset 0 2px 6px rgb(48 8 7 / 0.38),
-      0 1px 1px rgb(255 225 190 / 0.13);
-    transform: translate(-50%, -50%) scale(0.86);
     transition:
-      opacity 150ms ease,
-      transform 150ms ease;
+      opacity 160ms ease,
+      transform 160ms ease;
+  }
+
+  :root[data-theme^="paper"] .trauma-paper-wax-seal::before {
+    z-index: -1;
+    inset: -3px -5px -4px -4px;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--accent) 42%, transparent);
+    clip-path: polygon(
+      1% 25%,
+      7% 11%,
+      21% 5%,
+      42% 8%,
+      58% 3%,
+      79% 9%,
+      97% 23%,
+      100% 56%,
+      93% 86%,
+      74% 98%,
+      51% 94%,
+      29% 100%,
+      8% 88%,
+      0 62%
+    );
+    transform: scaleX(0.97) scaleY(0.9);
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-command::after {
-    width: 2.15rem;
-    height: 2.15rem;
+    inset: 7px 15px;
+  }
+
+  :root[data-theme^="paper"] .trauma-paper-wax-toggle::after {
+    inset: 5px 8px;
+  }
+
+  :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
+    z-index: 0;
+    inset: 6px 10px;
+    border: 1.5px solid color-mix(in srgb, var(--accent-press) 64%, transparent);
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--accent-press) 16%, transparent);
+    clip-path: polygon(
+      3% 22%,
+      12% 10%,
+      31% 7%,
+      47% 12%,
+      62% 6%,
+      84% 12%,
+      97% 28%,
+      94% 76%,
+      86% 90%,
+      65% 93%,
+      48% 87%,
+      28% 94%,
+      9% 83%,
+      2% 58%
+    );
+    transform: scaleX(0.9) scaleY(0.76);
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal:active,
   :root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"] {
-    border-color: color-mix(in srgb, #4a0f16 80%, var(--accent-press) 20%);
-    background:
-      radial-gradient(circle at 32% 24%, rgb(255 207 152 / 0.36), transparent 22%),
-      radial-gradient(circle at 72% 72%, rgb(50 6 6 / 0.5), transparent 36%),
-      linear-gradient(145deg, #a32d25 0%, #7a1b17 50%, #4a0f16 100%);
-    box-shadow:
-      inset 0 2px 7px rgb(45 6 6 / 0.45),
-      inset 0 -2px 4px rgb(255 210 165 / 0.12),
-      0 1px 3px rgb(58 18 12 / 0.2);
-    transform: translateY(1px) scale(0.985);
+    transform: translateY(1px) scaleX(1.015) scaleY(0.96);
+    animation: trauma-wax-press 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  :root[data-theme^="paper"] .trauma-paper-wax-seal:active::before,
+  :root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]::before {
+    opacity: 0.52;
+    transform: scaleX(1.018) scaleY(1);
+    animation: trauma-wax-edge-spread 240ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal:active::after,
   :root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]::after {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-seal:disabled {
-    filter: grayscale(0.26) saturate(0.82);
+    transform: scaleX(1) scaleY(1);
+    animation: trauma-wax-stamp-settle 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal:disabled::after {
@@ -590,8 +578,14 @@
 
   @media (prefers-reduced-motion: reduce) {
     :root[data-theme^="paper"] .trauma-paper-wax-seal,
+    :root[data-theme^="paper"] .trauma-paper-wax-seal::before,
     :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
       transition: none;
+      animation: none;
+    }
+
+    :root[data-theme^="paper"] .trauma-paper-wax-seal {
+      animation: none;
     }
   }
 
@@ -658,6 +652,42 @@
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes trauma-wax-press {
+  0% {
+    transform: translateY(0) scaleX(1) scaleY(1);
+  }
+
+  70% {
+    transform: translateY(1px) scaleX(1.024) scaleY(0.94);
+  }
+
+  100% {
+    transform: translateY(1px) scaleX(1.015) scaleY(0.96);
+  }
+}
+
+@keyframes trauma-wax-edge-spread {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.96) scaleY(0.88);
+  }
+
+  100% {
+    opacity: 0.52;
+    transform: scaleX(1.018) scaleY(1);
+  }
+}
+
+@keyframes trauma-wax-stamp-settle {
+  0% {
+    transform: scaleX(0.9) scaleY(0.76);
+  }
+
+  100% {
+    transform: scaleX(1) scaleY(1);
   }
 }
 

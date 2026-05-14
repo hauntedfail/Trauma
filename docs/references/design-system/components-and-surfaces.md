@@ -33,9 +33,14 @@ Paper themes add one deliberate material exception for archive actions:
 
 - Add-memory commands and List/Grid view toggles use the
   `trauma-paper-wax-seal` treatment.
-- Selected or pressed view toggles should read like a stamped wax seal.
-- The wax drip is decorative pseudo-element work and must not change the
-  control's layout box or the browse view-mode group dimensions.
+- Do not replace theme colours inside this treatment. The button's existing
+  semantic background, text, border, hover, and `aria-pressed` classes stay in
+  charge of colour.
+- Do not use gloss, floating shadows, text shadows, or liquid drips for wax
+  buttons.
+- Selected or pressed controls should read like wax compressed by a stamp:
+  the stamp area follows the component's own dimensions, and the uneven outer
+  edge can push slightly outside the button without changing its layout box.
 
 ## Form Inputs
 

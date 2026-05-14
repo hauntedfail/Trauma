@@ -146,8 +146,28 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal:active');
-    expect(tailwindCss).toContain("trauma-paper-wax-toggle::before");
-    expect(tailwindCss).toContain("trauma-paper-wax-command::after");
+
+    const waxStart = tailwindCss.indexOf(':root[data-theme^="paper"] .trauma-paper-wax-seal');
+    const activeNavStart = tailwindCss.indexOf(
+      ':root[data-theme^="paper"] .trauma-active-nav-item',
+      waxStart,
+    );
+
+    expect(waxStart).toBeGreaterThan(-1);
+    expect(activeNavStart).toBeGreaterThan(waxStart);
+
+    const waxRules = tailwindCss.slice(waxStart, activeNavStart);
+
+    expect(waxRules).toContain("clip-path: polygon");
+    expect(waxRules).toContain("animation: trauma-wax-edge-spread");
+    expect(waxRules).toContain("animation: trauma-wax-press");
+    expect(waxRules).not.toContain("radial-gradient");
+    expect(waxRules).not.toContain("linear-gradient(145deg");
+    expect(waxRules).not.toContain("text-shadow");
+    expect(waxRules).not.toContain("box-shadow");
+    expect(waxRules).not.toContain("height: 0.82rem");
+    expect(waxRules).not.toContain("width: 1.85rem");
+    expect(appShellSource).not.toContain("shadow-trauma-1");
   });
 
   it("uses a handwritten animated underline for active nav links in paper themes", () => {
