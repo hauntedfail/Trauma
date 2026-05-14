@@ -14,7 +14,7 @@ It is not a separate component package.
 - [Tokens and themes](tokens-and-themes.md): colour tokens, typography, theme
   names, background rules, and Tailwind mapping.
 - [Layout and shell](layout-and-shell.md): desktop grid, responsive shell,
-  left rail, right rail, drawers, and route frame ownership.
+  left rail, right rail, phone tabs, and route frame ownership.
 - [Components and surfaces](components-and-surfaces.md): shell controls,
   memory rows, highlight cards, forms, filter islands, and state surfaces.
 - [Reader and content](reader-and-content.md): markdown reader surface,

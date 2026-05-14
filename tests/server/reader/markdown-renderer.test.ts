@@ -85,4 +85,37 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("evil.example");
     expect(result.html).not.toContain("Blocked video");
   });
+
+  it("preserves sanitized responsive image markup", () => {
+    const result = renderMemoryMarkdown([
+      "<picture>",
+      '<source type="image/avif" media="(width <= 48rem)" srcset="https://cdn.example.test/photo-480.avif 480w, https://cdn.example.test/photo-960.avif 960w" sizes="(width <= 48rem) 90vw, 48rem">',
+      '<source type="image/webp" srcset="https://cdn.example.test/photo-480.webp 480w, https://cdn.example.test/photo-960.webp 960w" sizes="(width <= 48rem) 90vw, 48rem">',
+      '<img src="https://cdn.example.test/photo-960.jpg" srcset="https://cdn.example.test/photo-480.jpg 480w, https://cdn.example.test/photo-960.jpg 960w" sizes="(width <= 48rem) 90vw, 48rem" alt="Diagram" width="960" height="540">',
+      "</picture>",
+    ].join(""));
+
+    expect(result.html).toContain("<picture>");
+    expect(result.html).toContain('<source type="image/avif"');
+    expect(result.html).toContain(
+      'srcset="https://cdn.example.test/photo-480.avif 480w, https://cdn.example.test/photo-960.avif 960w"',
+    );
+    expect(result.html).toContain('sizes="(width &lt;= 48rem) 90vw, 48rem"');
+    expect(result.html).toContain('src="https://cdn.example.test/photo-960.jpg"');
+    expect(result.html).toContain('loading="lazy"');
+    expect(result.html).toContain('decoding="async"');
+  });
+
+  it("strips unsafe responsive image candidates", () => {
+    const result = renderMemoryMarkdown([
+      '<img src="https://cdn.example.test/photo.jpg" srcset="javascript:alert(1) 320w, https://cdn.example.test/photo-640.jpg 640w, data:image/png;base64,abc 960w" sizes="100vw" alt="Safe">',
+      '<source srcset="javascript:alert(1) 320w" type="image/webp">',
+    ].join(""));
+
+    expect(result.html).toContain('src="https://cdn.example.test/photo.jpg"');
+    expect(result.html).toContain('srcset="https://cdn.example.test/photo-640.jpg 640w"');
+    expect(result.html).not.toContain("javascript:");
+    expect(result.html).not.toContain("data:image");
+    expect(result.html).not.toContain("<source");
+  });
 });

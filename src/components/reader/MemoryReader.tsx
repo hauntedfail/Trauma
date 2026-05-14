@@ -12,7 +12,12 @@ import {
   readHighlightFailure,
   shouldRevalidateBackupFailsafeAfterHighlightFailure,
 } from "./highlight-failure";
-import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
+import {
+  readerArticle,
+  readerFrame,
+  readerPadding,
+  readerStatePanel,
+} from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 
@@ -35,8 +40,6 @@ interface ReaderSelection extends ReaderSelectionPayload {
 
 type ReaderHighlightOperation = "highlight" | "unhighlight";
 
-const readerArticle =
-  "trauma-reader-content prose max-w-none min-w-0 text-trauma-text-secondary prose-headings:text-trauma-text-primary prose-a:text-trauma-link prose-a:underline prose-a:underline-offset-[3px] prose-strong:text-trauma-text-primary prose-blockquote:border-trauma-quote-bar prose-blockquote:text-trauma-quote-ink prose-hr:border-trauma-border prose-pre:border prose-pre:border-trauma-border prose-pre:bg-trauma-bg-sunken prose-pre:text-trauma-text-secondary prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-trauma-border prose-th:bg-trauma-bg-elev prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-trauma-text-primary prose-td:border prose-td:border-trauma-border prose-td:px-2.5 prose-td:py-2 prose-mark:rounded-md prose-mark:bg-trauma-highlight-bg prose-mark:px-1 prose-mark:text-trauma-highlight-ink [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-trauma-bg-elev [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-trauma-text-primary";
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
 
@@ -95,7 +98,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
 
   return (
     <article class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur max-[720px]:top-[58px]`}>
+      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
         <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
           <ChevronLeftIcon />
         </a>
@@ -119,8 +122,8 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
           </Show>
         </div>
       </header>
-      <div class={`${readerPadding} py-7 pb-14`}>
-        <div>
+      <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+        <div class="trauma-fluid-page-shell">
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}

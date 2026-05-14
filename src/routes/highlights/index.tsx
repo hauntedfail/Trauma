@@ -7,12 +7,12 @@ import { getHighlightBrowseRows } from "~/components/highlights/highlights-loade
 import { classifyHighlightRows } from "~/components/highlights/route-state";
 
 const pageFrame =
-  "min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
+  "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const pageHeader =
-  "sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 p-6 backdrop-blur max-[720px]:top-[58px] max-[720px]:flex-col max-[720px]:items-start max-[720px]:p-5 max-[720px]:px-4";
+  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const cardBase =
-  "grid min-w-0 gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint max-[720px]:px-4";
+  "trauma-route-row grid min-w-0 gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export default function HighlightsIndex() {
   const highlights = createAsync(() => getHighlightBrowseRows());
@@ -40,7 +40,7 @@ export default function HighlightsIndex() {
             <Show
               when={readyHighlightRows()}
               fallback={
-                <div class="px-6 py-12 text-trauma-text-secondary">
+                <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
                   <h2 class="text-xl font-bold text-trauma-text-primary">No highlights yet</h2>
                   <p>Saved reader highlights will appear here.</p>
                 </div>
@@ -71,7 +71,7 @@ export default function HighlightsIndex() {
             </Show>
           }
         >
-          <div class="px-6 py-12 text-trauma-text-secondary">
+          <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
             <h2 class="text-xl font-bold text-trauma-text-primary">Loading highlights...</h2>
           </div>
         </Show>

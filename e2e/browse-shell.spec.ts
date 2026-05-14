@@ -83,34 +83,40 @@ test("renders category, tag, and highlight shortcut sections in the right panel"
   expect(sectionRadius).toBe("20px");
 });
 
-test("uses drawer controls for navigation and filters on narrow viewports", async ({ page }) => {
+test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
 
-  await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
-
-  await page.getByRole("button", { name: "Open navigation" }).click();
-  await expect(page.getByRole("dialog", { name: "Navigation" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Navigation" }).getByRole("link", { name: "Highlights" }).click();
-  await expect(page).toHaveURL(/\/highlights$/);
+  await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
+
+  const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
+  await expect(primaryTabs).toBeVisible();
+  await primaryTabs.getByRole("link", { name: "Highlights" }).click();
+  await expect(page).toHaveURL(/\/highlights$/);
 
   await page.goto("/memories");
-  await page.getByRole("button", { name: "Open filters" }).click();
-  await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
-  await expect(
-    page.getByRole("dialog", { name: "Filters" }).getByRole("button", { name: "Research" }),
-  ).toBeVisible();
+  const phoneAddMemory = primaryTabs.getByRole("button", { name: "Add memory" });
+  await expect(phoneAddMemory).toHaveAttribute("aria-expanded", "false");
+  await phoneAddMemory.click();
+  await expect(phoneAddMemory).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 });
 
-test("keeps filter controls reachable on tablet widths", async ({ page }) => {
+test("keeps tablet shell compact without duplicate header or filter drawers", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto("/memories");
 
-  await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
-  await page.getByRole("button", { name: "Open filters" }).click();
-  await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Primary sections" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "TRAUMA home" })).toHaveCount(1);
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
 });
 
 test("layers left rail popovers above the main pane", async ({ page }) => {

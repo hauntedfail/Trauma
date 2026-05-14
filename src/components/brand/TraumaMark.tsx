@@ -7,14 +7,18 @@ export function TraumaMark(props: TraumaMarkProps) {
   const size = () => props.size ?? 28;
 
   return (
-    <img
-      alt=""
-      aria-hidden="true"
-      class={props.class}
-      height={size()}
-      src="/assets/trauma-mark.png"
-      style={{ display: "block", "object-fit": "contain" }}
-      width={size()}
-    />
+    <picture>
+      <source srcset="/assets/trauma-mark.svg" type="image/svg+xml" />
+      <img
+        alt=""
+        aria-hidden="true"
+        class={props.class}
+        decoding="async"
+        height={size()}
+        src="/assets/trauma-mark.png"
+        style={{ display: "block", "object-fit": "contain" }}
+        width={size()}
+      />
+    </picture>
   );
 }

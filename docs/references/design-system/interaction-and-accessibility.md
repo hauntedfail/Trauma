@@ -75,8 +75,9 @@ Rules:
 Required shell labels:
 
 - `Primary navigation` on the left rail.
+- `Primary tabs` on the phone bottom tab bar.
 - `Browse filters` on the right rail.
-- `Navigation`, `Filters`, and `Add memory` on drawers.
+- `Add memory` on the composer popover/dialog.
 - `TRAUMA home` on the brand link.
 - `Theme` on the theme control section.
 
@@ -115,12 +116,15 @@ Tablet:
 
 - Left rail becomes compact.
 - Right rail is hidden.
-- Filter drawer remains reachable.
+- Header chrome does not duplicate the brand or filter controls.
+- Theme and Add memory stay reachable from compact rail popovers.
+- There is no filter drawer.
 
 Mobile:
 
-- Top bar provides navigation and filter access.
-- Drawers take over rail interactions.
+- Bottom `Primary tabs` provide Memories, Highlights, Add memory, and Theme.
+- Add memory and Theme popovers render above the bottom bar.
+- There is no navigation drawer or filter drawer.
 - Text and controls must not overflow their containers.
 
 ## Motion And Feedback
@@ -130,5 +134,9 @@ Use simple transitions for hover and selected state.
 Reader TOC entry may use the dedicated popup-style bounce utility. Keep this
 motion short, route-entry scoped, and disabled for reduced-motion users.
 
-Do not add decorative motion or animation loops. Any future animation must
-serve an interaction state and respect readability.
+Hover-specific affordances must be guarded by hover/pointer capability queries.
+Reduced-motion preferences must disable non-essential movement while preserving
+final selected and opened states.
+
+Do not add decorative motion or animation loops. Any future animation must serve
+an interaction state and respect readability.

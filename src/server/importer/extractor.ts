@@ -50,7 +50,14 @@ export async function extractArticleWithDefuddle(
     description: normalizeNullableMetadataText(parsed.description),
     faviconUrl: normalizeNullableDisplayUrl(input.pageUrl, parsed.favicon),
     markdown:
-      content.length > 0 ? htmlFragmentToMarkdown(content, input.pageUrl, title) : "",
+      content.length > 0
+        ? htmlFragmentToMarkdown(
+            content,
+            input.pageUrl,
+            title,
+            collectResponsivePictureMarkup(input.html, input.pageUrl),
+          )
+        : "",
     wordCount: Number.isFinite(parsed.wordCount) ? parsed.wordCount : null,
   };
 }
@@ -91,6 +98,7 @@ function htmlFragmentToMarkdown(
   html: string,
   pageUrl: string,
   title: string,
+  responsivePicturesByUrl = new Map<string, string>(),
 ): string {
   const generatedMarkdownFragments: string[] = [];
   const protectGeneratedMarkdown = (fragment: string) => {
@@ -103,6 +111,27 @@ function htmlFragmentToMarkdown(
     .replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, "")
     .replace(/<(nav|header|footer|aside|form)\b[\s\S]*?<\/\1>/gi, "");
 
+  content = content.replace(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi, (tag) => {
+    const sourceResponsiveMarkup = findResponsivePictureForTag(
+      tag,
+      pageUrl,
+      responsivePicturesByUrl,
+    );
+    if (sourceResponsiveMarkup !== null) {
+      return `\n${protectGeneratedMarkdown(sourceResponsiveMarkup)}\n`;
+    }
+
+    const responsiveMarkup = pictureHtmlToResponsiveMarkup(tag, pageUrl);
+    if (responsiveMarkup !== null) {
+      return `\n${protectGeneratedMarkdown(responsiveMarkup)}\n`;
+    }
+
+    const fallbackImage = pictureHtmlToMarkdownImage(tag, pageUrl);
+    return fallbackImage !== null
+      ? `\n${protectGeneratedMarkdown(fallbackImage)}\n`
+      : "";
+  });
+
   content = content.replace(/<img\b[^>]*>/gi, (tag) => {
     const src = readHtmlAttribute(tag, "src");
     if (!src) {
@@ -113,6 +142,11 @@ function htmlFragmentToMarkdown(
     const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
     if (!resolvedSrc) {
       return "";
+    }
+
+    const responsiveMarkup = responsivePicturesByUrl.get(resolvedSrc);
+    if (responsiveMarkup !== undefined) {
+      return `\n${protectGeneratedMarkdown(responsiveMarkup)}\n`;
     }
 
     return `\n${protectGeneratedMarkdown(
@@ -180,6 +214,210 @@ function htmlFragmentToMarkdown(
   }
 
   return markdown;
+}
+
+function collectResponsivePictureMarkup(html: string, pageUrl: string) {
+  const responsivePicturesByUrl = new Map<string, string>();
+  for (const match of html.matchAll(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi)) {
+    const pictureHtml = match[0];
+    const responsiveMarkup = pictureHtmlToResponsiveMarkup(pictureHtml, pageUrl);
+    if (responsiveMarkup === null) {
+      continue;
+    }
+
+    for (const url of collectPictureDisplayUrls(pictureHtml, pageUrl)) {
+      responsivePicturesByUrl.set(url, responsiveMarkup);
+    }
+  }
+
+  return responsivePicturesByUrl;
+}
+
+function findResponsivePictureForTag(
+  html: string,
+  pageUrl: string,
+  responsivePicturesByUrl: Map<string, string>,
+) {
+  for (const url of collectPictureDisplayUrls(html, pageUrl)) {
+    const markup = responsivePicturesByUrl.get(url);
+    if (markup !== undefined) {
+      return markup;
+    }
+  }
+
+  return null;
+}
+
+function collectPictureDisplayUrls(html: string, pageUrl: string) {
+  const urls = new Set<string>();
+  for (const tag of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
+    const src = readHtmlAttribute(tag[0], "src");
+    if (src !== null) {
+      const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+      if (resolvedSrc !== null) {
+        urls.add(resolvedSrc);
+      }
+    }
+
+    for (const candidate of collectSourceSetUrls(pageUrl, readHtmlAttribute(tag[0], "srcset"))) {
+      urls.add(candidate);
+    }
+  }
+
+  return urls;
+}
+
+function collectSourceSetUrls(pageUrl: string, value: string | null) {
+  if (value === null) {
+    return [];
+  }
+
+  return value
+    .replace(/data:[^,\s]+,[^,\s]+(?:\s+\S+)?/gi, "")
+    .split(",")
+    .map((candidate) => {
+      const [rawUrl] = candidate.trim().split(/\s+/).filter(Boolean);
+      return rawUrl === undefined ? null : resolveSafeDisplayUrl(pageUrl, rawUrl);
+    })
+    .filter((url): url is string => url !== null);
+}
+
+function pictureHtmlToResponsiveMarkup(html: string, pageUrl: string) {
+  const sourceTags = [...html.matchAll(/<source\b[^>]*>/gi)]
+    .map((match) => sourceHtmlToResponsiveMarkup(match[0], pageUrl))
+    .filter((tag): tag is string => tag !== null);
+  const imageTag = /<img\b[^>]*>/i.exec(html)?.[0];
+  if (imageTag === undefined) {
+    return null;
+  }
+
+  const image = imageHtmlToResponsiveMarkup(imageTag, pageUrl);
+  if (image === null || (sourceTags.length === 0 && image.srcset === null)) {
+    return null;
+  }
+
+  return [
+    "<picture>",
+    ...sourceTags,
+    image.markup,
+    "</picture>",
+  ].join("\n");
+}
+
+function pictureHtmlToMarkdownImage(html: string, pageUrl: string) {
+  const imageTag = /<img\b[^>]*>/i.exec(html)?.[0];
+  if (imageTag === undefined) {
+    return null;
+  }
+
+  const src = readHtmlAttribute(imageTag, "src");
+  if (src === null) {
+    return null;
+  }
+
+  const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+  if (resolvedSrc === null) {
+    return null;
+  }
+
+  const alt = readHtmlAttribute(imageTag, "alt") ?? "";
+  return `![${escapeMarkdownPlainText(decodeHtmlEntities(alt))}](${formatMarkdownDestination(resolvedSrc)})`;
+}
+
+function sourceHtmlToResponsiveMarkup(tag: string, pageUrl: string) {
+  const safeSourceSet = sanitizeSourceSetForPage(
+    pageUrl,
+    readHtmlAttribute(tag, "srcset"),
+  );
+  if (safeSourceSet === null) {
+    return null;
+  }
+
+  return formatHtmlVoidElement("source", {
+    media: readHtmlAttribute(tag, "media"),
+    sizes: readHtmlAttribute(tag, "sizes"),
+    srcset: safeSourceSet,
+    type: readHtmlAttribute(tag, "type"),
+  });
+}
+
+function imageHtmlToResponsiveMarkup(tag: string, pageUrl: string) {
+  const src = readHtmlAttribute(tag, "src");
+  if (src === null) {
+    return null;
+  }
+
+  const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+  if (resolvedSrc === null) {
+    return null;
+  }
+
+  const srcset = sanitizeSourceSetForPage(pageUrl, readHtmlAttribute(tag, "srcset"));
+
+  return {
+    markup: formatHtmlVoidElement("img", {
+      alt: decodeHtmlEntities(readHtmlAttribute(tag, "alt") ?? ""),
+      height: readHtmlAttribute(tag, "height"),
+      sizes: srcset !== null ? readHtmlAttribute(tag, "sizes") : null,
+      src: resolvedSrc,
+      srcset,
+      width: readHtmlAttribute(tag, "width"),
+    }),
+    srcset,
+  };
+}
+
+function sanitizeSourceSetForPage(pageUrl: string, value: string | null) {
+  if (value === null) {
+    return null;
+  }
+
+  const candidates = value
+    .replace(/data:[^,\s]+,[^,\s]+(?:\s+\S+)?/gi, "")
+    .split(",")
+    .map((candidate) => sanitizeSourceSetCandidateForPage(pageUrl, candidate))
+    .filter((candidate): candidate is string => candidate !== null);
+
+  return candidates.length > 0 ? candidates.join(", ") : null;
+}
+
+function sanitizeSourceSetCandidateForPage(pageUrl: string, value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const [rawUrl, descriptor] = parts;
+  if (
+    rawUrl === undefined ||
+    descriptor === undefined ||
+    parts.length !== 2 ||
+    !isSafeSourceSetDescriptor(descriptor)
+  ) {
+    return null;
+  }
+
+  const resolvedUrl = resolveSafeDisplayUrl(pageUrl, rawUrl);
+  return resolvedUrl !== null ? `${resolvedUrl} ${descriptor}` : null;
+}
+
+function isSafeSourceSetDescriptor(value: string) {
+  return /^\d+w$/.test(value) || /^(?:\d+(?:\.\d+)?)x$/.test(value);
+}
+
+function formatHtmlVoidElement(
+  tagName: "img" | "source",
+  attrs: Record<string, string | null>,
+) {
+  const formattedAttrs = Object.entries(attrs)
+    .filter((entry): entry is [string, string] => entry[1] !== null && entry[1] !== "")
+    .map(([name, value]) => `${name}="${escapeHtmlAttribute(value)}"`);
+
+  return `<${tagName}${formattedAttrs.length > 0 ? ` ${formattedAttrs.join(" ")}` : ""}>`;
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function stripHtml(html: string) {

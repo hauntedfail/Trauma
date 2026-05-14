@@ -46,7 +46,7 @@ The design system currently covers:
 - Left navigation rail.
 - Theme controls.
 - Right context/filter rail.
-- Mobile and tablet drawers.
+- Tablet icon rail and phone bottom tabs.
 - Memory browse list and grid.
 - Highlight browse page.
 - Reader mode.

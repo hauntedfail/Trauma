@@ -87,4 +87,59 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.markdown).not.toContain("https://93.184.216.34");
     expect(result.markdown).not.toContain("![pixel]");
   });
+
+  it("preserves safe responsive image variants from extracted HTML", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Responsive Image Article</title></head>
+          <body>
+            <article>
+              <h1>Responsive Image Article</h1>
+              <p>This article has enough readable words to preserve responsive image metadata without changing extraction fallback behavior.</p>
+              <picture>
+                <source type="image/avif" srcset="/photo-480.avif 480w, /photo-960.avif 960w" sizes="(width <= 48rem) 90vw, 48rem">
+                <img src="/photo-960.jpg" srcset="/photo-480.jpg 480w, /photo-960.jpg 960w" sizes="(width <= 48rem) 90vw, 48rem" alt="Diagram" width="960" height="540">
+              </picture>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain("<picture>");
+    expect(result.markdown).toContain(
+      'srcset="https://example.com/photo-480.avif 480w, https://example.com/photo-960.avif 960w"',
+    );
+    expect(result.markdown).toContain('sizes="(width &lt;= 48rem) 90vw, 48rem"');
+    expect(result.markdown).toContain('src="https://example.com/photo-960.jpg"');
+  });
+
+  it("removes unsafe responsive image candidates from extracted HTML", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Unsafe Responsive Image Article</title></head>
+          <body>
+            <article>
+              <h1>Unsafe Responsive Image Article</h1>
+              <p>This article has enough readable words to reject unsafe responsive image metadata without changing extraction fallback behavior.</p>
+              <picture>
+                <source type="image/webp" srcset="javascript:alert(1) 480w, data:image/png;base64,abc 960w">
+                <img src="/photo.jpg" srcset="javascript:alert(1) 480w, https://93.184.216.34/photo.jpg 960w" sizes="100vw" alt="Safe fallback">
+              </picture>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain("![Safe fallback](https://example.com/photo.jpg)");
+    expect(result.markdown).not.toContain("<picture>");
+    expect(result.markdown).not.toContain("<source");
+    expect(result.markdown).not.toContain("srcset=");
+    expect(result.markdown).not.toContain("javascript:");
+    expect(result.markdown).not.toContain("data:image");
+    expect(result.markdown).not.toContain("93.184.216.34");
+  });
 });

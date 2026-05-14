@@ -63,16 +63,24 @@ const rightRailStack =
   "flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1";
 const rightRailScrollContent =
   "max-h-[min(34vh,20rem)] overflow-y-auto overscroll-contain pr-1";
-const iconButton =
-  "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
 const composerSubmitButton =
   "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
+const railIconSlot = "grid size-10 place-items-center";
+const compactRailItem =
+  "max-[1040px]:mx-auto max-[1040px]:size-[52px] max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const navItemBase =
-  "group grid min-h-12 w-max max-w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-3 py-2.5 pr-[18px] text-[19px] font-medium leading-[1.22] text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
+  `group grid min-h-12 w-max max-w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-2.5 py-2.5 pr-[18px] text-[19px] font-medium leading-[1.22] text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary ${compactRailItem}`;
 const activeNavItem =
   "trauma-active-nav-item relative bg-trauma-accent-soft font-bold text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
 const disabledNavItem =
   "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
+const railPopoverRoot = "relative w-max max-w-full max-[1040px]:mx-auto";
+const railPopoverPanel =
+  "absolute left-0 top-full z-50 mt-1 w-[252px] max-w-[calc(100vw-2rem)] animate-trauma-pop-bounce max-[1040px]:left-full max-[1040px]:top-0 max-[1040px]:ml-2 max-[1040px]:mt-0";
+const phoneTabButton =
+  "trauma-capability-touch-target grid min-h-[52px] min-w-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
+const phonePopoverPanel =
+  "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
 const themeToggleButton =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong max-[1040px]:size-10 max-[1040px]:px-0";
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
@@ -83,7 +91,7 @@ const routeNavItems = [
   { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
 ] as const;
 
-const filterNavItems = [
+const desktopFilterShortcutItems = [
   { icon: "categories", label: "Categories" },
   { icon: "tags", label: "Tags" },
 ] as const;
@@ -93,11 +101,16 @@ const futureNavItems = {
   settings: { icon: "settings", label: "Settings" },
 } as const;
 
+const phoneTabItems = [
+  { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
+  { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
+  { kind: "composer", icon: "add", label: "Add memory" },
+  { kind: "theme", icon: "theme", label: "Theme" },
+] as const;
+
 export function AppShell(props: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
-  const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
   const [isHydrated, setIsHydrated] = createSignal(false);
   const [rightRailContent, setRightRailContent] = createSignal<
     JSX.Element | undefined
@@ -140,12 +153,10 @@ export function AppShell(props: AppShellProps) {
 
   const goToFilter = (patch: Parameters<typeof buildBrowseHref>[1]) => {
     navigate(buildBrowseHref(query(), patch));
-    setIsFiltersOpen(false);
   };
 
   const goToHighlight = (highlightId: string) => {
     navigate(buildHighlightBrowseHref(highlightId));
-    setIsFiltersOpen(false);
   };
 
   const toggleFilter = (key: "category" | "tag" | "highlight", value: string) => {
@@ -153,33 +164,22 @@ export function AppShell(props: AppShellProps) {
     goToFilter(patch);
   };
 
-  const closeNavigation = () => setIsNavigationOpen(false);
-
-  const openFilters = () => {
-    setIsNavigationOpen(false);
-    setIsFiltersOpen(true);
-  };
-
   return (
     <RightRailContentContext.Provider
       value={{ rightRailContent, setRightRailContent }}
     >
-      <div class="trauma-shell-frame grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
-      <MobileTopBar
-        onOpenNavigation={() => setIsNavigationOpen(true)}
-        onOpenFilters={() => setIsFiltersOpen(true)}
-      />
+      <div class="trauma-shell-frame trauma-mobile-stable-viewport grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[720px]:block">
+      <PhoneBrandHeader />
       <aside class={`${sideSurface} border-r border-trauma-border px-2 py-1 pb-3 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
         <NavigationContent
           activePath={activePath()}
           brightness={brightness()}
-          onOpenFilters={openFilters}
           onSetBrightness={setBrightness}
           onSetSurface={setSurface}
           surface={surface()}
         />
       </aside>
-      <main class="trauma-shell-main min-w-0 border-r border-trauma-border max-[1040px]:col-start-2 max-[720px]:border-r-0">
+      <main class="trauma-shell-main min-w-0 border-r border-trauma-border max-[1040px]:col-start-2 max-[720px]:border-r-0 max-[720px]:pb-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))]">
         <Show when={backupFailsafeAlert()}>
           {(alert) => <BackupFailsafeBanner alert={alert()} />}
         </Show>
@@ -190,7 +190,7 @@ export function AppShell(props: AppShellProps) {
           <Show when={rightRailContent()}>
             {(content) => <div class="shrink-0">{content()}</div>}
           </Show>
-          <FilterPanel
+          <RightRailFilters
             activeCategory={query().category}
             activeHighlight={query().highlight}
             activeTag={query().tag}
@@ -204,64 +204,138 @@ export function AppShell(props: AppShellProps) {
           />
         </div>
       </aside>
-      <Show when={isNavigationOpen()}>
-        <Drawer ariaLabel="Navigation" onClose={() => setIsNavigationOpen(false)}>
-          <NavigationContent
-            activePath={activePath()}
-            brightness={brightness()}
-            isDrawer
-            onNavigate={closeNavigation}
-            onOpenFilters={openFilters}
-            onSetBrightness={setBrightness}
-            onSetSurface={setSurface}
-            surface={surface()}
-          />
-        </Drawer>
-      </Show>
-      <Show when={isFiltersOpen()}>
-        <Drawer ariaLabel="Filters" onClose={() => setIsFiltersOpen(false)}>
-          <FilterPanel
-            activeCategory={query().category}
-            activeHighlight={query().highlight}
-            activeTag={query().tag}
-            categories={categories()}
-            highlights={highlights()}
-            idPrefix="drawer"
-            onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
-            onSelectTag={(tag) => toggleFilter("tag", tag.id)}
-            tags={tags()}
-          />
-        </Drawer>
-      </Show>
+      <PhoneTabBar
+        activePath={activePath()}
+        brightness={brightness()}
+        onSetBrightness={setBrightness}
+        onSetSurface={setSurface}
+        surface={surface()}
+      />
       </div>
     </RightRailContentContext.Provider>
   );
 }
 
-function MobileTopBar(props: { onOpenNavigation: () => void; onOpenFilters: () => void }) {
+function PhoneBrandHeader() {
   return (
-    <header class="sticky top-0 z-10 col-start-2 hidden min-h-[58px] grid-cols-[minmax(0,1fr)_112px] items-center gap-2 border-b border-trauma-border bg-trauma-bg-surface/95 px-3 py-2 backdrop-blur max-[1040px]:grid max-[720px]:grid-cols-[96px_minmax(0,1fr)_96px]">
-      <button type="button" class={`${iconButton} hidden w-full max-[720px]:inline-flex`} aria-label="Open navigation" onClick={props.onOpenNavigation}>
-        <TraumaMark size={24} />
-      </button>
-      <A class="inline-flex min-h-10 min-w-0 items-center gap-2 text-[22px] font-extrabold max-[1040px]:text-xl max-[720px]:justify-center" href="/memories">
-        <TraumaMark class="max-[720px]:hidden" size={28} />
-        TRAUMA
-      </A>
-      <button type="button" class={`${buttonBase} w-full overflow-hidden bg-trauma-bg-elev text-trauma-accent hover:bg-trauma-bg-tint`} aria-label="Open filters" onClick={props.onOpenFilters}>
-        Filter
-      </button>
+    <header class="trauma-safe-area-inline hidden min-h-[56px] items-center border-b border-trauma-border bg-trauma-bg-surface/95 px-3 py-2 backdrop-blur max-[720px]:grid">
+      <BrandHomeLink markSize={28} showLabel={false} />
     </header>
+  );
+}
+
+function BrandHomeLink(props: {
+  class?: string;
+  markSize?: number;
+  onNavigate?: () => void;
+  showLabel: boolean;
+}) {
+  return (
+    <A
+      aria-label="TRAUMA home"
+      class={`inline-grid h-[52px] w-max grid-cols-[40px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-2.5 text-[22px] font-extrabold max-[1040px]:mx-auto max-[1040px]:size-[52px] max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0 ${props.class ?? ""}`}
+      href="/memories"
+      onClick={props.onNavigate}
+    >
+      <span class={railIconSlot}>
+        <TraumaMark size={props.markSize ?? 30} />
+      </span>
+      <Show when={props.showLabel}>
+        <span class="max-[1040px]:hidden">TRAUMA</span>
+      </Show>
+    </A>
+  );
+}
+
+function PhoneTabBar(props: {
+  activePath: string;
+  brightness: BrightnessMode;
+  onCreated?: () => void;
+  onSetBrightness: (mode: BrightnessMode) => void;
+  onSetSurface: (mode: SurfaceMode) => void;
+  surface: SurfaceMode;
+}) {
+  return (
+    <nav
+      aria-label="Primary tabs"
+      class="trauma-safe-area-bottom fixed inset-x-0 bottom-0 z-40 hidden border-t border-trauma-border bg-trauma-bg-surface/95 px-2 pb-[max(0.5rem,var(--trauma-layout-safe-area-bottom))] pt-1.5 backdrop-blur max-[720px]:grid"
+    >
+      <div class="grid grid-cols-4 items-end gap-1">
+        <For each={phoneTabItems}>
+          {(item) => renderPhoneTabItem(item, props)}
+        </For>
+      </div>
+    </nav>
+  );
+}
+
+function renderPhoneTabItem(
+  item: (typeof phoneTabItems)[number],
+  props: {
+    activePath: string;
+    brightness: BrightnessMode;
+    onCreated?: () => void;
+    onSetBrightness: (mode: BrightnessMode) => void;
+    onSetSurface: (mode: SurfaceMode) => void;
+    surface: SurfaceMode;
+  },
+) {
+  switch (item.kind) {
+    case "route":
+      return <PhoneRouteTab activePath={props.activePath} item={item} />;
+    case "composer":
+      return (
+        <AddMemoryComposerButton
+          mode="phone"
+          onCreated={props.onCreated}
+          popoverId="phone-add-memory-composer"
+        />
+      );
+    case "theme":
+      return (
+        <ThemeNavButton
+          brightness={props.brightness}
+          mode="phone"
+          onBrightness={props.onSetBrightness}
+          onSurface={props.onSetSurface}
+          popoverId="phone-theme-settings"
+          surface={props.surface}
+        />
+      );
+  }
+}
+
+function PhoneRouteTab(props: {
+  activePath: string;
+  item: Extract<(typeof phoneTabItems)[number], { kind: "route" }>;
+}) {
+  const isActive = createMemo(() => {
+    if (props.item.href === "/memories") {
+      return props.activePath === "/" || props.activePath.startsWith("/memories");
+    }
+
+    return props.activePath.startsWith(props.item.href);
+  });
+  const icon = createMemo(
+    () => TraumaNavIcons[props.item.icon][isActive() ? "filled" : "outline"],
+  );
+
+  return (
+    <A
+      aria-current={isActive() ? "page" : undefined}
+      class={`${phoneTabButton} ${isActive() ? activeNavItem : ""}`}
+      href={props.item.href}
+    >
+      <span class={railIconSlot}>{icon()}</span>
+      <span class="truncate">{props.item.label}</span>
+    </A>
   );
 }
 
 function NavigationContent(props: {
   activePath: string;
   brightness: BrightnessMode;
-  isDrawer?: boolean;
   onNavigate?: () => void;
-  onOpenFilters: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
   onSetSurface: (mode: SurfaceMode) => void;
   surface: SurfaceMode;
@@ -270,19 +344,10 @@ function NavigationContent(props: {
     <div
       class="flex flex-col gap-1.5"
       classList={{
-        "min-h-0": props.isDrawer === true,
-        "min-h-[calc(100vh-48px)] max-[1040px]:min-h-[calc(100vh-32px)]": props.isDrawer !== true,
+        "min-h-[calc(100svh-48px)] max-[1040px]:min-h-[calc(100svh-32px)]": true,
       }}
     >
-      <A
-        aria-label="TRAUMA home"
-        class="inline-flex h-[52px] w-max items-center gap-3 rounded-full px-2.5 text-[22px] font-extrabold max-[1040px]:justify-center max-[1040px]:px-0"
-        href="/memories"
-        onClick={props.onNavigate}
-      >
-        <TraumaMark size={36} />
-        <span class="max-[1040px]:sr-only">TRAUMA</span>
-      </A>
+      <BrandHomeLink onNavigate={props.onNavigate} showLabel={true} />
       <nav class="grid content-start gap-1" aria-label="Primary sections">
         <For each={routeNavItems}>
           {(item) => (
@@ -293,25 +358,27 @@ function NavigationContent(props: {
             />
           )}
         </For>
-        <For each={filterNavItems}>
-          {(item) => <FilterNavButton item={item} onOpen={props.onOpenFilters} />}
+        <For each={desktopFilterShortcutItems}>
+          {(item) => <RightRailShortcutButton item={item} />}
         </For>
         <FutureNavButton item={futureNavItems.backup} />
         <ThemeNavButton
           brightness={props.brightness}
+          mode="rail"
           onBrightness={props.onSetBrightness}
           onSurface={props.onSetSurface}
-          popoverId={props.isDrawer === true ? "drawer-theme-settings" : "rail-theme-settings"}
+          popoverId="rail-theme-settings"
           surface={props.surface}
         />
         <FutureNavButton item={futureNavItems.settings} />
       </nav>
       <AddMemoryComposerButton
+        mode="rail"
         onCreated={props.onNavigate}
-        popoverId={props.isDrawer === true ? "drawer-add-memory-composer" : "rail-add-memory-composer"}
+        popoverId="rail-add-memory-composer"
       />
       <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
-        <span class="grid size-10 place-items-center rounded-full bg-trauma-accent-soft">
+        <span class={`${railIconSlot} rounded-full bg-trauma-accent-soft`}>
           <TraumaMark size={26} />
         </span>
         <span class="min-w-0 max-[1040px]:sr-only">
@@ -320,13 +387,16 @@ function NavigationContent(props: {
           </strong>
           <small class="block truncate text-xs text-trauma-text-muted">./data/storage</small>
         </span>
-        <KebabIcon size={16} />
+        <span class="max-[1040px]:hidden">
+          <KebabIcon size={16} />
+        </span>
       </button>
     </div>
   );
 }
 
 function AddMemoryComposerButton(props: {
+  mode: "phone" | "rail";
   onCreated?: () => void;
   popoverId: string;
 }) {
@@ -364,31 +434,42 @@ function AddMemoryComposerButton(props: {
     setIsComposerOpen(false);
     props.onCreated?.();
   };
+  const isPhone = () => props.mode === "phone";
 
   return (
     <div
       ref={rootRef}
-      class="relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
+      class={
+        isPhone()
+          ? "relative min-w-0"
+          : "relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
+      }
     >
       <WaxSealButton
         aria-controls={isComposerOpen() ? props.popoverId : undefined}
         aria-expanded={isComposerOpen()}
         aria-haspopup="dialog"
         aria-pressed={isComposerOpen()}
-        class="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
+        class={
+          isPhone()
+            ? `${phoneTabButton} w-full`
+            : "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
+        }
         type="button"
         variant="command"
         onClick={() => setIsComposerOpen((value) => !value)}
       >
-        <PlusIcon />
-        <WaxSealLabel class="max-[1040px]:sr-only">
+        <span class={isPhone() ? railIconSlot : ""}>
+          <PlusIcon />
+        </span>
+        <WaxSealLabel class={isPhone() ? "truncate" : "max-[1040px]:sr-only"}>
           Add memory
         </WaxSealLabel>
       </WaxSealButton>
       <Show when={isComposerOpen()}>
         <div
           aria-label="Add memory"
-          class="absolute left-0 top-full z-50 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"
+          class={isPhone() ? phonePopoverPanel : "absolute left-0 top-full z-50 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"}
           id={props.popoverId}
           role="dialog"
         >
@@ -406,7 +487,7 @@ function AddMemoryComposerButton(props: {
   );
 }
 
-function FilterPanel(props: {
+function RightRailFilters(props: {
   activeCategory: string;
   activeHighlight: string;
   activeTag: string;
@@ -509,7 +590,7 @@ function RouteNavLink(props: {
       href={props.item.href}
       onClick={props.onNavigate}
     >
-      <span class="grid place-items-center">{icon()}</span>
+      <span class={railIconSlot}>{icon()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">
         {props.item.label}
         <Show when={props.item.pip}>
@@ -520,17 +601,21 @@ function RouteNavLink(props: {
   );
 }
 
-function FilterNavButton(props: {
-  item: (typeof filterNavItems)[number];
-  onOpen: () => void;
+function RightRailShortcutButton(props: {
+  item: (typeof desktopFilterShortcutItems)[number];
 }) {
   const icon = createMemo(() => TraumaNavIcons[props.item.icon].outline);
+  const href = createMemo(() =>
+    props.item.icon === "categories"
+      ? "#desktop-category-filters-title"
+      : "#desktop-tag-filters-title",
+  );
 
   return (
-    <button class={navItemBase} type="button" onClick={props.onOpen}>
-      <span class="grid place-items-center">{icon()}</span>
+    <a class={`${navItemBase} max-[1040px]:hidden`} href={href()}>
+      <span class={railIconSlot}>{icon()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
-    </button>
+    </a>
   );
 }
 
@@ -546,7 +631,7 @@ function FutureNavButton(props: {
       disabled
       type="button"
     >
-      <span class="grid place-items-center">{icon()}</span>
+      <span class={railIconSlot}>{icon()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
     </button>
   );
@@ -554,6 +639,7 @@ function FutureNavButton(props: {
 
 function ThemeNavButton(props: {
   brightness: BrightnessMode;
+  mode: "phone" | "rail";
   onBrightness: (mode: BrightnessMode) => void;
   onSurface: (mode: SurfaceMode) => void;
   popoverId: string;
@@ -564,6 +650,7 @@ function ThemeNavButton(props: {
   const icon = createMemo(() =>
     props.brightness === "night" ? <MoonIcon /> : <SunIcon />,
   );
+  const isPhone = () => props.mode === "phone";
 
   onMount(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -593,22 +680,23 @@ function ThemeNavButton(props: {
   });
 
   return (
-    <div ref={rootRef} class="relative w-max max-w-full">
+    <div ref={rootRef} class={isPhone() ? "relative min-w-0" : railPopoverRoot}>
       <button
         aria-controls={isThemeOpen() ? props.popoverId : undefined}
         aria-expanded={isThemeOpen()}
         aria-haspopup="dialog"
-        class={`${navItemBase} ${isThemeOpen() ? activeNavItem : ""}`}
+        aria-pressed={isThemeOpen()}
+        class={`${isPhone() ? `${phoneTabButton} w-full` : navItemBase} ${isThemeOpen() ? activeNavItem : ""}`}
         type="button"
         onClick={() => setIsThemeOpen((value) => !value)}
       >
-        <span class="grid place-items-center">{icon()}</span>
-        <span class="min-w-0 truncate max-[1040px]:sr-only">Theme</span>
+        <span class={railIconSlot}>{icon()}</span>
+        <span class={isPhone() ? "truncate" : "min-w-0 truncate max-[1040px]:sr-only"}>Theme</span>
       </button>
       <Show when={isThemeOpen()}>
         <div
           aria-label="Theme settings"
-          class="absolute left-0 top-full z-50 mt-1 w-[252px] animate-trauma-pop-bounce max-w-[calc(100vw-2rem)]"
+          class={isPhone() ? phonePopoverPanel : railPopoverPanel}
           id={props.popoverId}
           role="dialog"
         >
@@ -692,19 +780,6 @@ function getNormalSurfaceLabel(brightness: BrightnessMode): "Light" | "Midnight"
 
 function getPaperSurfaceLabel(brightness: BrightnessMode): "Paper" | "Hermès" {
   return brightness === "night" ? "Hermès" : "Paper";
-}
-
-function Drawer(props: { ariaLabel: string; children: JSX.Element; onClose: () => void }) {
-  return (
-    <div class="fixed inset-0 z-20 bg-gray-900/45">
-      <div class="max-h-screen min-h-screen w-[min(86vw,360px)] overflow-y-auto bg-trauma-bg-surface p-[18px] shadow-trauma-drawer" role="dialog" aria-label={props.ariaLabel} aria-modal="true">
-        <button type="button" class={`${buttonBase} mb-5 w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`} onClick={props.onClose}>
-          Close
-        </button>
-        {props.children}
-      </div>
-    </div>
-  );
 }
 
 function readStoredBrightness(): BrightnessMode {

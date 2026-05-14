@@ -3,7 +3,7 @@ import { HttpStatusCode } from "@solidjs/start";
 
 export default function NotFound() {
   return (
-    <section class="min-h-screen w-full bg-trauma-bg-surface px-8 py-12 max-[720px]:min-h-[calc(100vh-58px)] max-[720px]:px-5" aria-labelledby="not-found-title">
+    <section class="trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface px-8 py-12 max-[720px]:px-5" aria-labelledby="not-found-title">
       <Title>Not found | TRAUMA</Title>
       <HttpStatusCode code={404} />
       <div class="text-trauma-text-secondary">

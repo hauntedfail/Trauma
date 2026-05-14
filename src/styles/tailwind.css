@@ -59,6 +59,10 @@
 
 @layer base {
   :root {
+    --trauma-layout-safe-area-top: env(safe-area-inset-top, 0px);
+    --trauma-layout-safe-area-right: env(safe-area-inset-right, 0px);
+    --trauma-layout-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --trauma-layout-safe-area-left: env(safe-area-inset-left, 0px);
     --wine-50: #fbf2f3;
     --wine-100: #f4dadd;
     --wine-200: #e6b2b9;
@@ -286,7 +290,7 @@
   body {
     margin: 0;
     min-width: 320px;
-    min-height: 100vh;
+    min-block-size: 100svh;
     background: var(--bg-base);
     color: var(--fg-1);
     font-family: var(--font-body);
@@ -423,6 +427,122 @@
 }
 
 @layer utilities {
+  .trauma-route-surface {
+    container: trauma-route-surface / inline-size;
+  }
+
+  .trauma-memory-list {
+    container: trauma-memory-list / inline-size;
+  }
+
+  .trauma-reader-surface {
+    container: trauma-reader-surface / inline-size;
+  }
+
+  .trauma-fluid-page-shell {
+    inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
+    max-inline-size: var(--trauma-page-shell-max, 52rem);
+    margin-inline: auto;
+    padding-inline: clamp(1rem, 4cqi, 2rem);
+  }
+
+  .trauma-fluid-route-padding {
+    padding-inline: clamp(1rem, 4cqi, 2rem);
+  }
+
+  .trauma-fluid-route-stack {
+    gap: clamp(0.75rem, 2cqi, 1.5rem);
+  }
+
+  .trauma-fluid-reader-title {
+    font-size: clamp(2rem, 1.1rem + 3cqi, 3rem);
+    line-height: 1.08;
+  }
+
+  .trauma-fluid-component-title {
+    font-size: clamp(1.5rem, 1rem + 4cqi, 2.5rem);
+  }
+
+  .trauma-fluid-component-gap {
+    gap: clamp(0.5rem, 2cqmin, 1rem);
+  }
+
+  .trauma-fluid-component-block-space {
+    margin-block: clamp(0.75rem, 3cqb, 1.5rem);
+  }
+
+  .trauma-mobile-stable-viewport {
+    min-block-size: 100svh;
+  }
+
+  .trauma-mobile-dynamic-viewport {
+    block-size: 100dvh;
+  }
+
+  .trauma-mobile-large-viewport {
+    block-size: 100lvh;
+  }
+
+  .trauma-safe-area-shell {
+    padding-block-start: var(--trauma-layout-safe-area-top);
+    padding-inline-end: var(--trauma-layout-safe-area-right);
+    padding-block-end: var(--trauma-layout-safe-area-bottom);
+    padding-inline-start: var(--trauma-layout-safe-area-left);
+  }
+
+  .trauma-safe-area-inline {
+    padding-inline-end: var(--trauma-layout-safe-area-right);
+    padding-inline-start: var(--trauma-layout-safe-area-left);
+  }
+
+  .trauma-safe-area-bottom {
+    padding-block-end: var(--trauma-layout-safe-area-bottom);
+  }
+
+  .trauma-local-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: clamp(0.5rem, 1.5cqi, 1rem);
+  }
+
+  .trauma-local-wrap > * {
+    min-inline-size: 0;
+  }
+
+  @container trauma-route-surface (width < 42rem) {
+    .trauma-route-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .trauma-route-row {
+      padding-inline: 1rem;
+    }
+  }
+
+  @container trauma-memory-list (width < 36rem) {
+    .trauma-memory-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .trauma-memory-card {
+      grid-template-columns: 40px minmax(0, 1fr);
+      min-height: 0;
+    }
+  }
+
+  @container trauma-reader-surface (width < 42rem) {
+    .trauma-reader-header {
+      grid-template-columns: 40px minmax(0, 1fr);
+      padding-inline: 1rem;
+    }
+
+    .trauma-reader-body {
+      padding-inline: 1rem;
+    }
+  }
+
   .animate-trauma-pop-bounce {
     animation: trauma-pop-bounce 420ms cubic-bezier(0.22, 1, 0.36, 1);
     transform-origin: top center;
@@ -574,19 +694,58 @@
     animation: trauma-handwrite-underline 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 
-  @media (max-width: 1040px) {
-    :root[data-theme^="paper"] .trauma-active-nav-item::after {
-      right: 10px;
-      bottom: 4px;
-      left: 10px;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     :root[data-theme^="paper"] .trauma-active-nav-item::after {
       animation: none;
       clip-path: inset(0 0 0 0);
     }
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trauma-capability-hover-lift:hover {
+    transform: translateY(-1px);
+  }
+
+  .trauma-capability-hover-underline:hover {
+    text-decoration-line: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+@media (pointer: coarse) {
+  .trauma-capability-touch-target {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trauma-motion-respectful,
+  .trauma-motion-respectful::before,
+  .trauma-motion-respectful::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .trauma-forced-colors-border {
+    border-color: CanvasText;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .trauma-preference-contrast-border {
+    border-width: 2px;
+  }
+}
+
+@media (orientation: landscape) {
+  .trauma-orientation-landscape-compact {
+    --trauma-orientation-density: compact;
   }
 }
 

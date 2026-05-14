@@ -89,8 +89,10 @@ function sanitizeReaderHtml(html: string) {
       "mark",
       "ol",
       "p",
+      "picture",
       "pre",
       "s",
+      "source",
       "span",
       "strong",
       "sub",
@@ -121,12 +123,23 @@ function sanitizeReaderHtml(html: string) {
         "src",
         "title",
       ],
-      img: ["alt", "height", "loading", "src", "title", "width"],
+      img: [
+        "alt",
+        "decoding",
+        "height",
+        "loading",
+        "sizes",
+        "src",
+        "srcset",
+        "title",
+        "width",
+      ],
       input: ["checked", "class", "disabled", "type"],
       li: ["class", "id"],
       mark: ["data-highlight-id", "id"],
       ol: ["class"],
       section: ["class"],
+      source: ["media", "sizes", "srcset", "type"],
       span: ["class"],
       sup: ["class", "id"],
       table: ["class"],
@@ -158,6 +171,7 @@ function sanitizeReaderHtml(html: string) {
       img: sanitizeImage,
       input: sanitizeTaskCheckbox,
       mark: sanitizeHighlightMark,
+      source: sanitizePictureSource,
     },
   });
 }
@@ -248,13 +262,86 @@ function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
 }
 
 function sanitizeImage(_tagName: string, attribs: sanitizeHtml.Attributes) {
+  const { decoding: _decoding, sizes, srcset, ...safeAttribs } = attribs;
+  const safeSourceSet = sanitizeSourceSet(srcset);
   return {
     tagName: "img",
     attribs: {
-      ...attribs,
+      ...safeAttribs,
+      ...(safeSourceSet !== undefined
+        ? {
+            srcset: safeSourceSet,
+            ...(sizes !== undefined ? { sizes } : {}),
+          }
+        : {}),
+      decoding: "async",
       loading: attribs.loading ?? "lazy",
     },
   };
+}
+
+function sanitizePictureSource(
+  _tagName: string,
+  attribs: sanitizeHtml.Attributes,
+): sanitizeHtml.Tag {
+  const safeSourceSet = sanitizeSourceSet(attribs.srcset);
+  if (safeSourceSet === undefined) {
+    return {
+      tagName: "span",
+      attribs: {},
+    };
+  }
+
+  return {
+    tagName: "source",
+    attribs: {
+      ...(attribs.type !== undefined ? { type: attribs.type } : {}),
+      ...(attribs.media !== undefined ? { media: attribs.media } : {}),
+      srcset: safeSourceSet,
+      ...(attribs.sizes !== undefined ? { sizes: attribs.sizes } : {}),
+    },
+  };
+}
+
+function sanitizeSourceSet(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const candidates = value
+    .split(",")
+    .map((candidate) => sanitizeSourceSetCandidate(candidate))
+    .filter((candidate): candidate is string => candidate !== undefined);
+
+  return candidates.length > 0 ? candidates.join(", ") : undefined;
+}
+
+function sanitizeSourceSetCandidate(value: string): string | undefined {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const [rawUrl, descriptor] = parts;
+  if (
+    rawUrl === undefined ||
+    descriptor === undefined ||
+    parts.length !== 2 ||
+    !isSafeSourceSetDescriptor(descriptor)
+  ) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+
+    return `${url.toString()} ${descriptor}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function isSafeSourceSetDescriptor(value: string): boolean {
+  return /^\d+w$/.test(value) || /^(?:\d+(?:\.\d+)?)x$/.test(value);
 }
 
 function sanitizeTaskCheckbox(_tagName: string, attribs: sanitizeHtml.Attributes) {

@@ -50,6 +50,9 @@ describe("refined app shell contract", () => {
   });
 
   it("keeps desktop shell columns flush instead of centering panes inside gutters", () => {
+    expect(appShellSource).toContain(
+      "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",
+    );
     expect(appShellSource).toContain("grid-cols-[275px_minmax(0,840px)_360px]");
     expect(appShellSource).toContain("justify-center");
     expect(appShellSource).toContain("border-r border-trauma-border");
@@ -80,7 +83,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("rightRailContent()");
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
-    const browseFiltersIndex = appShellSource.indexOf("<FilterPanel");
+    const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");
     expect(contextualContentIndex).toBeGreaterThan(-1);
     expect(contextualContentIndex).toBeLessThan(browseFiltersIndex);
   });
@@ -101,7 +104,7 @@ describe("refined app shell contract", () => {
   it("keeps the left rail scale close to the refined sample", () => {
     expect(appShellSource).toContain("px-2 py-1 pb-3");
     expect(appShellSource).toContain("rounded-full px-2.5 text-[22px]");
-    expect(appShellSource).toContain("grid-cols-[32px_minmax(0,1fr)]");
+    expect(appShellSource).toContain("grid-cols-[40px_minmax(0,1fr)]");
     expect(appShellSource).toContain("gap-[18px]");
     expect(appShellSource).toContain("text-[19px]");
     expect(appShellSource).toContain("min-h-[52px]");
@@ -164,9 +167,16 @@ describe("refined app shell contract", () => {
   });
 
   it("places the theme tab between backup and settings", () => {
-    const backupIndex = appShellSource.indexOf("item={futureNavItems.backup}");
-    const themeIndex = appShellSource.indexOf("<ThemeNavButton");
-    const settingsIndex = appShellSource.indexOf("item={futureNavItems.settings}");
+    const navigationStart = appShellSource.indexOf("aria-label=\"Primary sections\"");
+    const backupIndex = appShellSource.indexOf(
+      "item={futureNavItems.backup}",
+      navigationStart,
+    );
+    const themeIndex = appShellSource.indexOf("<ThemeNavButton", backupIndex);
+    const settingsIndex = appShellSource.indexOf(
+      "item={futureNavItems.settings}",
+      themeIndex,
+    );
 
     expect(backupIndex).toBeGreaterThan(-1);
     expect(themeIndex).toBeGreaterThan(backupIndex);
@@ -181,7 +191,8 @@ describe("refined app shell contract", () => {
 
   it("opens add memory from the left rail as a popover instead of a global drawer", () => {
     expect(appShellSource).toContain("AddMemoryComposerButton");
-    expect(appShellSource).toContain('popoverId={props.isDrawer === true ? "drawer-add-memory-composer" : "rail-add-memory-composer"}');
+    expect(appShellSource).toContain('popoverId="rail-add-memory-composer"');
+    expect(appShellSource).toContain('popoverId="phone-add-memory-composer"');
     expect(appShellSource).toContain('aria-controls={isComposerOpen() ? props.popoverId : undefined}');
     expect(appShellSource).toContain("aria-expanded={isComposerOpen()}");
     expect(appShellSource).toContain('aria-haspopup="dialog"');
@@ -209,7 +220,8 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('variant="command"');
     expect(appShellSource).toContain("composerSubmitButton");
     expect(appShellSource).toContain("rounded-full border border-trauma-border-strong");
-    expect(appShellSource).toContain('<WaxSealLabel class="max-[1040px]:sr-only">');
+    expect(appShellSource).toContain("<WaxSealLabel");
+    expect(appShellSource).toContain("max-[1040px]:sr-only");
     expect(memoryBrowseSource).toContain("<WaxSealButton");
     expect(memoryBrowseSource).toContain("<WaxSealLabel>List</WaxSealLabel>");
     expect(memoryBrowseSource).toContain("<WaxSealLabel>Grid</WaxSealLabel>");

@@ -30,7 +30,9 @@ Design contracts are guarded by focused tests:
 - `tests/scripts/frontend-refine-tokens.test.ts`
 - `tests/components/app-shell.test.ts`
 - `tests/components/shell-theme.test.ts`
+- `tests/components/mobile-responsive-contract.test.ts`
 - `e2e/browse-shell.spec.ts`
+- `e2e/cross-device-responsive.spec.ts`
 - `e2e/reader.spec.ts`
 
 When a design rule can be checked statically, add a focused contract test
@@ -76,6 +78,12 @@ The shell tests verify:
 - Selected theme options stay visible in normal night mode.
 - Paper themes replace the active left-rail pill with a handwritten underline
   animation.
+- Desktop shell grid remains `275px / minmax(0,840px) / 360px`.
+- Mobile route surfaces use container-owned responsive utilities, safe-area
+  tokens, and mobile viewport units instead of route-local `100vh`.
+- Phone shell chrome uses `Primary tabs`; stale navigation and filter drawers
+  are absent.
+- Reader and importer image handling preserve safe responsive image markup.
 
 ## Browser Verification
 
@@ -94,10 +102,15 @@ Check:
 - No horizontal overflow.
 - Left rail and route pane backgrounds match in every theme.
 - Right rail is hidden below desktop.
-- Mobile drawers are reachable.
+- Phone uses the bottom `Primary tabs` bar; mobile navigation/filter drawers are
+  not present.
+- Tablet uses the compact icon rail and does not duplicate brand/filter header
+  chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
+- On phone, Theme opens from the bottom tab bar as a popover above the bar.
 - Theme selected state is visible inside the popover in every theme.
 - Add-memory composer opens from shell routes as a popover above route panes.
+- On phone, Add memory opens from the bottom tab bar as a popover above the bar.
 - Browse filters update URL state without clearing unrelated query state.
 - Reader links remain readable in sun normal, sun paper, night normal, and
   Hermès modes.

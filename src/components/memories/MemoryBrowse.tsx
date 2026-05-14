@@ -15,16 +15,16 @@ import { getBrowseMemories } from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 const pageFrame =
-  "min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
+  "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const pageHeader =
-  "sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 p-6 backdrop-blur max-[720px]:top-[58px] max-[720px]:flex-col max-[720px]:items-start max-[720px]:p-5 max-[720px]:px-4";
+  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const controlButton =
   "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const surfaceInput =
   "min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder";
 const cardBase =
-  "grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint max-[720px]:grid-cols-[40px_minmax(0,1fr)] max-[720px]:px-4";
+  "trauma-memory-card trauma-route-row grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 const cardTitle = "mb-0 text-xl font-bold leading-tight text-trauma-text-primary";
 const subduedText = "mb-0 text-[13px] text-trauma-text-muted";
 const tagChip =
@@ -81,7 +81,7 @@ export function MemoryBrowse() {
           </WaxSealButton>
         </div>
       </header>
-      <div class="border-b border-trauma-border px-6 py-[18px] max-[720px]:px-4">
+      <div class="trauma-route-row border-b border-trauma-border px-6 py-[18px]">
         <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface">
           <span class="grid place-items-center">
             <SearchIcon />
@@ -100,13 +100,13 @@ export function MemoryBrowse() {
       <Show
         when={filteredMemories().length > 0}
         fallback={
-          <div class="px-6 py-12 text-trauma-text-secondary">
+          <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
             <h2 class="text-xl font-bold text-trauma-text-primary">No matching memories</h2>
             <p>Adjust the search, category, tag, or highlight filter.</p>
           </div>
         }
       >
-        <div class={isGrid() ? "memory-grid grid grid-cols-2 max-[720px]:grid-cols-1" : "grid"}>
+        <div class={isGrid() ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2" : "trauma-memory-list grid"}>
           <For each={filteredMemories()}>
             {(memory) => (
               <MemoryItem
@@ -134,10 +134,10 @@ function MemoryItem(props: {
   return (
     <A
       aria-label={`Open memory ${props.memory.title}`}
-      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border max-[720px]:min-h-0 max-[720px]:border-r-0" : ""}`}
+      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
       href={`/memories/${props.memory.id}`}
     >
-      <span class="mt-1 grid size-12 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-lg font-extrabold text-trauma-accent max-[720px]:size-10" aria-hidden="true">
+      <span class="mt-1 grid size-12 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-lg font-extrabold text-trauma-accent" aria-hidden="true">
         {initial()}
       </span>
       <div class="grid min-w-0 gap-3">
@@ -171,7 +171,7 @@ function MemoryItem(props: {
             />
           )}
         </Show>
-        <div class="flex flex-wrap items-center gap-2" aria-label={`${props.memory.title} filters`}>
+        <div class="trauma-local-wrap" aria-label={`${props.memory.title} filters`}>
           <For each={props.memory.categories}>{(category) => <span class={tagChip}>{category.name}</span>}</For>
           <For each={props.memory.tags}>{(tag) => <span class={tagChip}>#{tag.name}</span>}</For>
           <span class="inline-flex items-center gap-1 rounded-full bg-trauma-accent-soft px-2.5 py-1 text-xs font-bold text-trauma-accent-soft-ink">

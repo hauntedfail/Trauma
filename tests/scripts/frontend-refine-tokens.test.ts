@@ -150,40 +150,40 @@ describe("front-end refine design tokens", () => {
     }
 
     for (const token of [
-      "--leather-texture-radials",
-      "--leather-texture-blend",
       "--leather-grain-overlay",
       "--leather-fiber-overlay",
       "--leather-pore-overlay",
-      "--leather-sheen-layer",
       "--leather-grain-opacity",
       "--leather-grain-blend",
-      "--leather-glow-opacity",
-      "--leather-glow-blend",
-      "--leather-glow-layer",
     ]) {
       expect(body).toContain(token);
     }
 
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body');
+    expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body::before');
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body::after');
-    expect(tailwindCss).toContain("var(--leather-sheen-layer)");
     expect(tailwindCss).toContain("var(--leather-pore-overlay)");
     expect(tailwindCss).toContain("var(--leather-fiber-overlay)");
     expect(tailwindCss).toContain("var(--leather-grain-overlay)");
+    expect(tailwindCss).toContain("background: none");
+    expect(tailwindCss).toContain("filter: none");
     expect(body).not.toContain("--leather-crease-overlay");
+    expect(body).not.toContain("--leather-texture-radials");
+    expect(body).not.toContain("--leather-glow-layer");
+    expect(body).not.toContain("--leather-sheen-layer");
     expect(body).not.toContain("stroke='%23090704'");
   });
 
   it("renders material textures through layered backgrounds without dot grid overlays", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body');
-    expect(tailwindCss).toContain(':root[data-theme^="paper"] .bg-trauma-bg-base');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-shell-frame');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body::before');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] body::after');
-    expect(tailwindCss).toContain("background-image: var(--paper-texture-radials)");
+    expect(tailwindCss).toContain("var(--paper-texture-radials)");
     expect(tailwindCss).toContain('url("data:image/svg+xml;utf8,');
     expect(tailwindCss).toContain("filter: blur(120px)");
     expect(tailwindCss).toContain("mix-blend-mode: var(--paper-grain-blend)");
+    expect(tailwindCss).toContain("background-image: none");
     expect(tailwindCss).not.toContain("--paper-dot-grid");
     expect(tailwindCss).not.toContain("--paper-dot-size");
   });

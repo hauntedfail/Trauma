@@ -37,11 +37,11 @@ Current desktop contract:
 - Border: right border only.
 - Internal layout: `flex flex-col gap-1.5`.
 - Brand/home mark: use a `36px` mark with `px-2.5` so its centre aligns with
-  the `32px` navigation icon column.
+  the `40px` navigation icon column.
 
 Navigation item contract:
 
-- Grid: `grid-cols-[32px_minmax(0,1fr)]`.
+- Grid: `grid-cols-[40px_minmax(0,1fr)]`.
 - Icon/text gap: `18px`.
 - Minimum height: `3rem`.
 - Text size: `19px`.
@@ -123,7 +123,11 @@ Rules:
 - It must fill its grid column.
 - It must not centre itself with `mx-auto`.
 - It must not use `w-[min(...)]` or `max-w-*` route wrappers.
-- Route frames use `min-h-screen w-full bg-trauma-bg-surface`.
+- Route frames use `trauma-route-surface`, `trauma-mobile-stable-viewport`,
+  `w-full`, and `bg-trauma-bg-surface`.
+- Route headers and route rows use route-owned responsive utility classes such
+  as `trauma-fluid-route-padding`, `trauma-route-header`, and
+  `trauma-route-row`.
 
 Because `bg-surface` equals `bg-base`, route panes visually continue the page
 background in normal themes. Paper/Hermès override the shell and route frame
@@ -174,30 +178,72 @@ itself remains viewport-bound, and each long list owns its own scrolling.
 
 ## Tablet And Mobile
 
-Breakpoints:
+The shell has structural thresholds for its global chrome, but route and
+component sizing should be content-driven. Do not encode phone or iPad design
+rules inside route components when a container query, logical property, or
+fluid token can express the same behaviour.
 
-- Desktop: `min-[1041px]`.
-- Tablet: `max-[1040px]`.
-- Mobile: `max-[720px]`.
+Shell thresholds:
+
+- Desktop: `min-[1041px]`, three columns.
+- Tablet: `721px` through `1040px`, compact left rail and route content.
+- Phone: `max-[720px]`, route content plus bottom primary tabs.
+
+Responsive implementation stack:
+
+- CSS Grid for the application shell and major two-dimensional route layouts.
+- Flexbox only for local one-dimensional wraps such as toolbars, tag rows, and
+  compact button groups.
+- `clamp()`, `min()`, and `max()` for continuous spacing and typography.
+- Container queries and container query units for component-owned layout
+  changes.
+- `svh`, `dvh`, and `lvh` for mobile viewport-height surfaces.
+- `env(safe-area-inset-*)` surfaced through shell layout tokens.
+- Capability and preference media queries only, such as `hover`, `pointer`,
+  `prefers-reduced-motion`, `forced-colors`, `prefers-contrast`, and
+  `orientation`.
 
 Tablet:
 
 - Left rail collapses to an `80px` icon rail.
+- Rail labels are visually hidden; icon size, icon slot, and brand mark remain
+  aligned to the same `40px` rhythm.
 - Right rail is hidden.
 - Main pane starts at column 2.
-- Filter access is available from shell controls.
+- Header chrome does not duplicate the brand or filter affordances. There is no
+  filter drawer on tablet.
+- Theme and Add memory remain available from left-rail popovers. Those popovers
+  must render above the route pane.
 
-Mobile:
+Phone:
 
 - The persistent left rail is hidden.
-- A sticky top bar provides navigation and filter drawer access.
-- Drawers use `w-[min(86vw,360px)]`, full viewport height, and
-  `shadow-trauma-drawer`.
+- Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
+  tab layout.
+- The phone tab bar includes Memories, Highlights, Add memory, and Theme.
+- Add memory and Theme open popovers above the bottom bar.
+- Right rail content and filter drawers are not rendered as mobile chrome.
+- Phone route content reserves bottom safe-area space so the tab bar does not
+  cover interactive content.
+
+## Responsive Images
+
+Rendered markdown and brand assets must use HTML-level responsive image support
+where the source provides it. CSS `max-width: 100%` is still required, but it is
+not a replacement for `srcset`, `sizes`, and `picture/source` markup.
+
+Reader image contract:
+
+- Sanitized markdown rendering may preserve safe `picture`, `source`,
+  `srcset`, `sizes`, and `decoding` attributes.
+- Unsafe candidates are removed rather than passed through.
+- Reader images remain constrained to their content column with
+  `prose-img:max-w-full` and route-owned fluid wrappers.
 
 ## Route Frame Ownership
 
 Route frame classes belong to the route surface, not the shell. The shell owns
-columns, global navigation, mobile drawers, global composer popover state, and
-the right rail slot. Route files own
+columns, global navigation, bottom phone tabs, global composer popover state,
+and the right rail slot. Route files own
 headers, search controls, list/grid mode, empty states, reader content, and
 route-specific loading states.

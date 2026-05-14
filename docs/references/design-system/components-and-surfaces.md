@@ -16,6 +16,26 @@ Examples:
 Keep constants component-local unless two or more files genuinely share the
 same component contract.
 
+## Responsive Container Ownership
+
+Reusable route surfaces should respond to their own available inline size
+instead of assuming a device class.
+
+Current shared responsive utilities:
+
+- `trauma-route-surface` establishes a named query container for route-level
+  spacing and row density.
+- `trauma-memory-list` establishes a container for list/grid memory cards.
+- `trauma-reader-surface` establishes a reader-specific query container.
+- `trauma-fluid-route-padding`, `trauma-fluid-page-shell`,
+  `trauma-fluid-reader-title`, and `trauma-fluid-component-gap` provide
+  continuous sizing with `clamp()` and container query units.
+- `trauma-safe-area-shell`, `trauma-safe-area-inline`, and
+  `trauma-safe-area-bottom` route safe-area insets through layout tokens.
+
+Viewport media queries should not own component layout. Use them for input
+capability, user preference, or unavoidable shell chrome transitions only.
+
 ## Buttons
 
 Button shape follows the job:
@@ -154,6 +174,8 @@ Rules:
 
 - The shell opens the composer as an anchored popover/dialog from the rail
   action on desktop shell layouts.
+- On phone layouts, the same composer opens as a popover above the bottom
+  `Primary tabs` bar.
 - The composer popover renders above the rail and main pane layers and must not
   be clipped by route content.
 - The form accepts only URL input.

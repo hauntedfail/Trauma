@@ -96,7 +96,7 @@ Current base/surface values:
 | `paper-black-dark` | `#211307` |
 
 `--bg-elev`, `--bg-sunken`, and `--bg-tint` remain distinct so controls,
-selected states, drawers, right rail islands, theme toggles, and hover states
+selected states, popovers, right rail islands, theme toggles, and hover states
 can stay visible.
 
 ## Paper Material Surface
@@ -124,18 +124,17 @@ read as organic grain, not evenly spaced graph paper.
 The night paper recipe is a leather material, not a darker copy of the paper
 grain. It uses:
 
-- Layered leather colour washes from `--leather-texture-radials`.
 - Fixed leather grain, fibre, and pore overlays from
   `--leather-grain-overlay`, `--leather-fiber-overlay`, and
   `--leather-pore-overlay`.
-- A subdued leather sheen from `--leather-sheen-layer`.
 - Leather-specific blend and opacity tokens:
-  `--leather-texture-blend`, `--leather-grain-blend`, and
-  `--leather-glow-blend`.
+  `--leather-grain-blend` and `--leather-grain-opacity`.
+- Paper glow/radial layers are explicitly disabled for Hermès so the surface
+  reads as flat leather texture instead of blurred light washes.
 
 The leather result should read as fine pores, pebbled grain, fibre variation,
-and dull shine. It must not introduce black wave lines, dot-grid, graph-paper,
-or evenly tiled decorative marks.
+and muted material depth. It must not introduce black wave lines, dot-grid,
+graph-paper, broad glow gradients, or evenly tiled decorative marks.
 
 Normal themes must not enable these paper texture layers.
 
