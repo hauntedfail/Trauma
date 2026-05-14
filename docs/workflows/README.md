@@ -32,6 +32,11 @@ execution records; do not treat completed triage records as active work queues.
 | 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Merged into main |
 | 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Active on `refine/frontend-sample` |
 
+Task 17.8 is intentionally split under
+`task-17-front-end-refine/08*.md`: the parent file is an execution map, while
+strategy, tests, container ownership, implementation, E2E, and design-system
+docs each have their own focused workflow file.
+
 ## Archived Workflows
 
 | Order | Workflow | Domain | Status |

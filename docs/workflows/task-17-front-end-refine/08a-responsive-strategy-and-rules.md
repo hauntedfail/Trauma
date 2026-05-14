@@ -1,0 +1,268 @@
+# Task 17.8a: Responsive Strategy And Rules
+
+## Purpose
+
+This file defines the responsive policy for Task 17.8. Implementation workers
+must read this before changing CSS, JSX, tests, or design-system docs.
+
+## Architecture
+
+Use a container-query-first strategy for route and component responsiveness.
+Viewport breakpoints may remain only for true shell-level structure such as
+desktop/tablet/mobile navigation presence. Component density, typography,
+spacing, row/card shape, and control grouping should respond to the width of
+the component's containing pane.
+
+Use continuous sizing with `clamp()`, `min()`, and `max()` for spacing,
+font-size, radius, control size, and component min-size when a value should
+scale gradually. Use discrete `@container` branches only when layout topology
+changes, such as switching a memory card from two columns to one column.
+
+## Tech Stack
+
+- SolidStart component boundaries already used by Task 17.
+- Tailwind v4 utilities from `src/styles/tailwind.css`.
+- CSS Container Queries with `container-type: inline-size`.
+- Container query units: `cqi`, `cqb`, `cqmin`, and `cqmax`.
+- CSS math functions: `clamp()`, `min()`, and `max()`.
+- CSS Flexbox only for local one-dimensional layout with wrapping.
+- Mobile viewport units: `svh`, `dvh`, and `lvh`.
+- Vitest source-contract tests for responsive policy.
+- Playwright E2E for mobile and cross-device layout behaviour.
+
+## Source References
+
+- MDN CSS container queries:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_container_queries`
+- MDN `container-type`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/container-type`
+- web.dev CSS container queries:
+  `https://web.dev/learn/css/container-queries/`
+- web.dev CSS sizing units:
+  `https://web.dev/learn/css/sizing/`
+- MDN `clamp()`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/clamp`
+- MDN CSS `<length>` viewport units:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
+- web.dev large, small, and dynamic viewport units:
+  `https://web.dev/blog/viewport-units`
+- MDN CSS logical properties and values:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_logical_properties_and_values`
+- MDN basic concepts of flexbox:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_flexible_box_layout/Basic_concepts_of_flexbox`
+- MDN `flex-wrap`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/flex-wrap`
+
+## Worker Contract
+
+- Work on `refine/frontend-sample` or a branch based on it.
+- Do not alter desktop layout tokens unless a test proves the value also
+  controls mobile-only behaviour. If a shared token must change, add a test that
+  proves desktop shell dimensions are unchanged.
+- Do not add iPad-specific, phone-model-specific, or device-width-specific
+  branches as the primary responsive mechanism.
+- Do not use fixed viewport breakpoints for component internals when a
+  container query can express the same adaptation.
+- Do not use viewport units as the primary unit for component-internal
+  typography or spacing. Prefer container query units when the component's
+  containing pane is the relevant constraint.
+- Do not use `100vh` for mobile full-height surfaces. Use `svh`, `dvh`, or
+  `lvh` according to whether the surface must be stable, dynamic, or immersive.
+- Do not introduce fixed-width route/page shells. Route content should be
+  constrained fluid with logical sizing and spacing properties.
+- Do not use flexbox as a page, shell, route, or card-grid layout system. Flex
+  is for local one-dimensional clusters that may wrap.
+- Do not reintroduce `src/styles/app.css`.
+- Do not change server, importer, backup, extension, database, or markdown
+  reader behaviour.
+- Preserve accessibility: keyboard focus, readable text, non-overlapping
+  controls, and reachable navigation/drawer actions across narrow containers.
+
+## Container-First Responsiveness
+
+Use `container-type: inline-size` on route-level and component-level wrappers
+that own responsive child layout. Prefer named containers when the rule needs a
+specific ancestor:
+
+```css
+.trauma-memory-surface {
+  container: trauma-memory-surface / inline-size;
+}
+
+@container trauma-memory-surface (width < 36rem) {
+  .trauma-memory-card {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+Use unnamed containers only for local, unambiguous component rules. Do not make
+`body`, the whole app shell, or every element a query container.
+
+## Viewport Breakpoint Limits
+
+Viewport breakpoints are still acceptable for global shell topology:
+
+- Desktop shell: left rail + main pane + right rail.
+- Tablet shell: compact left rail + main pane + drawer filters.
+- Mobile shell: top bar + drawers.
+
+Inside route surfaces and reusable components, replace hard `max-[720px]` or
+`max-[1040px]` assumptions with container queries where the rule is about the
+available component width rather than the whole viewport.
+
+## Continuous Sizing
+
+Use CSS math for values that should scale smoothly:
+
+```css
+.trauma-fluid-route-padding {
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+
+.trauma-fluid-title {
+  font-size: clamp(1.875rem, 1.2rem + 2cqi, 3rem);
+}
+```
+
+Rules:
+
+- Keep minimum sizes large enough for touch targets and text readability.
+- Keep maximum sizes aligned with the refined desktop design.
+- Do not scale every font with viewport width. Use container-relative sizing
+  only where the component width is the correct constraint.
+- Prefer `cqi` in container-query contexts and ordinary rem-based values
+  outside them.
+
+## Container Query Units
+
+Use container query units for component-local typography and spacing when the
+component should scale with its containing pane instead of the viewport:
+
+```css
+.trauma-fluid-component-title {
+  font-size: clamp(1.5rem, 1rem + 4cqi, 2.5rem);
+}
+
+.trauma-fluid-component-gap {
+  gap: clamp(0.5rem, 2cqmin, 1rem);
+}
+
+.trauma-fluid-component-block-space {
+  margin-block: clamp(0.75rem, 3cqb, 1.5rem);
+}
+```
+
+Unit guidance:
+
+- Use `cqi` for inline-axis sizing such as readable typography, inline padding,
+  and horizontal gaps.
+- Use `cqb` for block-axis spacing only inside containers where block-size is a
+  meaningful, stable constraint.
+- Use `cqmin` for balanced spacing or radius that should respond to the smaller
+  container dimension.
+- Use `cqmax` sparingly for decorative or proportional effects that must follow
+  the larger container dimension; do not use it for core readability.
+- Always combine container query units with `clamp()` so narrow containers do
+  not create unreadably small text or touch targets, and wide containers do not
+  exceed the refined desktop design.
+- Do not use `vw`, `vh`, `vmin`, or `vmax` for component internals when a named
+  query container exists.
+
+## Mobile Viewport Height Units
+
+Mobile browser UI changes the visible viewport as address bars and toolbars
+expand or collapse. Do not use `100vh` for mobile full-height surfaces.
+
+Use these utilities instead:
+
+```css
+.trauma-mobile-stable-viewport {
+  min-block-size: 100svh;
+}
+
+.trauma-mobile-dynamic-viewport {
+  block-size: 100dvh;
+}
+
+.trauma-mobile-large-viewport {
+  block-size: 100lvh;
+}
+```
+
+Rules:
+
+- Use `svh` for stable route shells, drawers, and surfaces where content must
+  not be hidden when browser chrome is visible. This is the default mobile
+  full-height choice.
+- Use `dvh` for overlays or fixed panels that must track the currently visible
+  viewport. Avoid it on scroll-heavy route bodies because it can resize during
+  scroll as browser UI changes.
+- Use `lvh` only for immersive, non-critical full-bleed surfaces where content
+  can tolerate browser UI covering part of the large viewport. Do not use it
+  for primary controls or reader content.
+- Use logical `block-size` / `min-block-size`, not physical `height` /
+  `min-height`, unless a physical axis is semantically required.
+- Keep `vh` out of mobile code. If a viewport-height fallback is unavoidable,
+  document the reason in the PR body and place the modern unit after the
+  fallback so supported browsers use `svh`, `dvh`, or `lvh`.
+
+## Constrained Fluid Page Shells
+
+Do not build route/page shells with fixed width wrappers. Use constrained fluid
+layout:
+
+```css
+.trauma-fluid-page-shell {
+  inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
+  max-inline-size: var(--trauma-page-shell-max, 52rem);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+```
+
+Rules:
+
+- Use `max-inline-size`, `inline-size`, `margin-inline`, `padding-inline`, and
+  other logical properties where the concept is inline/block rather than
+  physical left/right/top/bottom.
+- Do not use fixed `width`, left/right-only margin shims, or viewport-width
+  page wrappers for route content.
+- The desktop shell grid remains unchanged. This rule applies to route/page
+  content shells and reusable surfaces inside the assigned shell column.
+- If a component needs a max readable measure, express it as a constrained
+  fluid wrapper rather than a fixed-width card.
+
+## Flexbox Scope
+
+Use flexbox only for local one-dimensional layouts:
+
+- Navigation item rows.
+- Tag/chip lists.
+- Toolbars.
+- Button groups.
+- Short icon+label clusters.
+
+When a local row may overflow, use wrapping rather than device-specific
+breakpoints:
+
+```css
+.trauma-local-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(0.5rem, 1.5cqi, 1rem);
+}
+```
+
+Rules:
+
+- Do not use flexbox for the app shell, route shell, page shell, memory grid, or
+  reader layout structure. Use CSS grid, block flow, or container-query-driven
+  layout for those surfaces.
+- Prefer `flex-wrap: wrap` for tag lists, toolbar actions, and button groups
+  that need to break onto another line inside a narrow container.
+- Keep flex children from forcing overflow by using `min-inline-size: 0` on
+  text-bearing child elements where truncation or wrapping is expected.
+- Do not use flexbox to emulate two-dimensional alignment. If both rows and
+  columns matter, use grid.
