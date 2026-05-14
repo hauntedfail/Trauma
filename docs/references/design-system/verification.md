@@ -77,7 +77,7 @@ The shell tests verify:
 - Left rail tab labels keep enough line-height for descenders.
 - Selected theme options stay visible in normal night mode.
 - Paper themes replace the active desktop left-rail text label with a
-  handwritten underline animation.
+  handwritten marker-like underline animation.
 - Desktop shell grid remains `275px / minmax(0,840px) / 360px`.
 - Mobile route surfaces use container-owned responsive utilities, safe-area
   tokens, and mobile viewport units instead of route-local `100vh`.

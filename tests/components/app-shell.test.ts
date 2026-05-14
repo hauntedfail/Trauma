@@ -323,6 +323,9 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain("@keyframes trauma-handwrite-underline");
     expect(tailwindCss).toContain("animation: trauma-handwrite-underline");
     expect(tailwindCss).toContain("-webkit-mask-image: url(\"data:image/svg+xml;utf8,");
+    expect(tailwindCss).toContain("fill='black'");
+    expect(tailwindCss).not.toContain("stroke-linecap");
+    expect(tailwindCss).not.toContain("stroke-width='5'");
     expect(tailwindCss).toContain("clip-path: inset(0 100% 0 0)");
     expect(tailwindCss).toContain("background-color: transparent");
   });

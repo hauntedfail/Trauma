@@ -52,8 +52,9 @@ Navigation item contract:
 - Active route, all themes: use the filled icon variant and bold visible tab
   label.
 - Active route, paper themes on desktop rail: keep the hand-drawn underline
-  below the visible text label only. Status pips and secondary adornments must
-  sit outside the underline target.
+  below the visible text label only. The underline is a marker-like filled band,
+  not a thin stroked path. Status pips and secondary adornments must sit outside
+  the underline target.
 - Paper active underline draws from left to right on page render. Honour
   reduced-motion by showing the completed underline without animation.
 - Tablet icon rail and phone bottom tabs must not render the paper underline.
