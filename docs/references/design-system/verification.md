@@ -49,7 +49,7 @@ The token tests verify:
 - Paper sun exposes the paper texture variable set.
 - Paper night exposes the leather texture variable set while retaining the
   `paper-black-dark` theme name.
-- Material textures render through layered backgrounds plus fixed grain/fibre
+- Material textures render through layered backgrounds plus fixed grain/fibre/pore
   and glow overlays.
 - Paper mode material textures do not include repeating dot/grid overlays.
 - Typography stays local and does not use negative letter spacing.

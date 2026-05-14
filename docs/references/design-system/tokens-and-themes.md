@@ -108,16 +108,16 @@ The night paper recipe is a leather material, not a darker copy of the paper
 grain. It uses:
 
 - Layered leather colour washes from `--leather-texture-radials`.
-- Fixed leather grain and fibre overlays from `--leather-grain-overlay` and
-  `--leather-fiber-overlay`.
-- Irregular crease marks from `--leather-crease-overlay`.
+- Fixed leather grain, fibre, and pore overlays from
+  `--leather-grain-overlay`, `--leather-fiber-overlay`, and
+  `--leather-pore-overlay`.
 - A subdued leather sheen from `--leather-sheen-layer`.
 - Leather-specific blend and opacity tokens:
   `--leather-texture-blend`, `--leather-grain-blend`, and
   `--leather-glow-blend`.
 
-The leather result should read as fine pores, fibre variation, irregular
-creases, and dull shine. It must not introduce dot-grid, graph-paper, or evenly
+The leather result should read as fine pores, pebbled grain, fibre variation,
+and dull shine. It must not introduce black wave lines, dot-grid, graph-paper, or evenly
 tiled decorative marks.
 
 Normal themes must not enable these paper texture layers.

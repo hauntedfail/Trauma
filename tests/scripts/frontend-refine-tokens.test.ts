@@ -120,7 +120,7 @@ describe("front-end refine design tokens", () => {
       "--leather-texture-blend",
       "--leather-grain-overlay",
       "--leather-fiber-overlay",
-      "--leather-crease-overlay",
+      "--leather-pore-overlay",
       "--leather-sheen-layer",
       "--leather-grain-opacity",
       "--leather-grain-blend",
@@ -134,9 +134,11 @@ describe("front-end refine design tokens", () => {
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body');
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body::after');
     expect(tailwindCss).toContain("var(--leather-sheen-layer)");
-    expect(tailwindCss).toContain("var(--leather-crease-overlay)");
+    expect(tailwindCss).toContain("var(--leather-pore-overlay)");
     expect(tailwindCss).toContain("var(--leather-fiber-overlay)");
     expect(tailwindCss).toContain("var(--leather-grain-overlay)");
+    expect(body).not.toContain("--leather-crease-overlay");
+    expect(body).not.toContain("stroke='%23090704'");
   });
 
   it("renders material textures through layered backgrounds without dot grid overlays", () => {
