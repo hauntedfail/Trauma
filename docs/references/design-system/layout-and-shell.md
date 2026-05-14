@@ -76,8 +76,17 @@ Current contract:
 
 ## Theme Controls
 
-Theme controls are inside the left rail and persist only to browser
-`localStorage`.
+Theme controls are opened from a normal `Theme` tab in the left rail and persist
+only to browser `localStorage`. The full control block must not be constantly
+expanded in the rail.
+
+Interaction rules:
+
+- The `Theme` tab uses the same left-rail tab scale and icon/text rhythm as
+  other navigation controls.
+- Clicking the tab opens a small popover from that tab.
+- The popover contains the existing brightness and surface controls.
+- Escape and outside pointer interaction close the popover.
 
 Selection rules:
 

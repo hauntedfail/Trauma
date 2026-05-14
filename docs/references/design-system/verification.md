@@ -88,7 +88,8 @@ Check:
 - Left rail and route pane backgrounds match in every theme.
 - Right rail is hidden below desktop.
 - Mobile drawers are reachable.
-- Theme selected state is visible in every theme.
+- Theme controls are hidden until the left-rail `Theme` tab opens their popover.
+- Theme selected state is visible inside the popover in every theme.
 - Add-memory composer opens from shell routes.
 - Browse filters update URL state without clearing unrelated query state.
 

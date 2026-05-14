@@ -5,6 +5,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  onCleanup,
   onMount,
   type JSX,
 } from "solid-js";
@@ -305,6 +306,13 @@ function NavigationContent(props: {
         <For each={filterNavItems}>
           {(item) => <FilterNavButton item={item} onOpen={props.onOpenFilters} />}
         </For>
+        <ThemeNavButton
+          brightness={props.brightness}
+          onBrightness={props.onSetBrightness}
+          onSurface={props.onSetSurface}
+          popoverId={props.isDrawer === true ? "drawer-theme-settings" : "rail-theme-settings"}
+          surface={props.surface}
+        />
         <For each={futureNavItems}>
           {(item) => <FutureNavButton item={item} />}
         </For>
@@ -313,13 +321,7 @@ function NavigationContent(props: {
         <PlusIcon />
         <span class="max-[1040px]:sr-only">Add memory</span>
       </button>
-      <ThemeBlock
-        brightness={props.brightness}
-        onBrightness={props.onSetBrightness}
-        onSurface={props.onSetSurface}
-        surface={props.surface}
-      />
-      <button type="button" class="grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
+      <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
         <span class="grid size-10 place-items-center rounded-full bg-trauma-accent-soft">
           <TraumaMark size={26} />
         </span>
@@ -492,6 +494,78 @@ function FutureNavButton(props: { item: (typeof futureNavItems)[number] }) {
   );
 }
 
+function ThemeNavButton(props: {
+  brightness: BrightnessMode;
+  onBrightness: (mode: BrightnessMode) => void;
+  onSurface: (mode: SurfaceMode) => void;
+  popoverId: string;
+  surface: SurfaceMode;
+}) {
+  let rootRef: HTMLDivElement | undefined;
+  const [isThemeOpen, setIsThemeOpen] = createSignal(false);
+  const icon = createMemo(() =>
+    props.brightness === "night" ? <MoonIcon /> : <SunIcon />,
+  );
+
+  onMount(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        rootRef === undefined ||
+        !(target instanceof Node) ||
+        rootRef.contains(target)
+      ) {
+        return;
+      }
+
+      setIsThemeOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsThemeOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    });
+  });
+
+  return (
+    <div ref={rootRef} class="relative w-max max-w-full">
+      <button
+        aria-controls={isThemeOpen() ? props.popoverId : undefined}
+        aria-expanded={isThemeOpen()}
+        aria-haspopup="dialog"
+        class={`${navItemBase} ${isThemeOpen() ? activeNavItem : ""}`}
+        type="button"
+        onClick={() => setIsThemeOpen((value) => !value)}
+      >
+        <span class="grid place-items-center">{icon()}</span>
+        <span class="min-w-0 truncate max-[1040px]:sr-only">Theme</span>
+      </button>
+      <Show when={isThemeOpen()}>
+        <div
+          aria-label="Theme settings"
+          class="absolute left-0 top-full z-30 mt-1 w-[252px] animate-trauma-pop-bounce max-w-[calc(100vw-2rem)]"
+          id={props.popoverId}
+          role="dialog"
+        >
+          <ThemeBlock
+            brightness={props.brightness}
+            onBrightness={props.onBrightness}
+            onSurface={props.onSurface}
+            surface={props.surface}
+          />
+        </div>
+      </Show>
+    </div>
+  );
+}
+
 function ThemeBlock(props: {
   brightness: BrightnessMode;
   onBrightness: (mode: BrightnessMode) => void;
@@ -499,9 +573,9 @@ function ThemeBlock(props: {
   surface: SurfaceMode;
 }) {
   return (
-    <section class="mt-auto grid gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 max-[1040px]:mx-auto max-[1040px]:w-12 max-[1040px]:border-0 max-[1040px]:bg-transparent max-[1040px]:p-0" aria-label="Theme">
-      <p class="text-[11px] font-bold uppercase text-trauma-text-muted max-[1040px]:sr-only">Theme</p>
-      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Brightness">
+    <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
+      <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
+      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Brightness">
         <button
           aria-pressed={props.brightness === "sun"}
           class={themeToggleButton}
@@ -509,7 +583,7 @@ function ThemeBlock(props: {
           onClick={() => props.onBrightness("sun")}
         >
           <SunIcon />
-          <span class="max-[1040px]:sr-only">Sun</span>
+          <span>Sun</span>
         </button>
         <button
           aria-pressed={props.brightness === "night"}
@@ -518,10 +592,10 @@ function ThemeBlock(props: {
           onClick={() => props.onBrightness("night")}
         >
           <MoonIcon />
-          <span class="max-[1040px]:sr-only">Night</span>
+          <span>Night</span>
         </button>
       </div>
-      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1 max-[1040px]:grid-cols-1" role="group" aria-label="Surface">
+      <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Surface">
         <button
           aria-pressed={props.surface === "normal"}
           class={themeToggleButton}
@@ -529,7 +603,7 @@ function ThemeBlock(props: {
           onClick={() => props.onSurface("normal")}
         >
           <PageIcon />
-          <span class="max-[1040px]:sr-only">Normal</span>
+          <span>Normal</span>
         </button>
         <button
           aria-pressed={props.surface === "paper"}
@@ -538,7 +612,7 @@ function ThemeBlock(props: {
           onClick={() => props.onSurface("paper")}
         >
           <PaperIcon />
-          <span class="max-[1040px]:sr-only">Paper</span>
+          <span>Paper</span>
         </button>
       </div>
     </section>

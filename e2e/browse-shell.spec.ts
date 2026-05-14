@@ -88,6 +88,9 @@ test("keeps filter controls reachable on tablet widths", async ({ page }) => {
 test("persists shell theme controls in the browser", async ({ page }) => {
   await page.goto("/memories");
 
+  await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
   await page
     .getByRole("group", { name: "Brightness" })
     .getByRole("button", { name: "Sun" })
@@ -100,8 +103,13 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-warm-light");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
 
   await page.reload();
+  await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Theme" }).click();
 
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))

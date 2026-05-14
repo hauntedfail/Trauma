@@ -116,6 +116,18 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
   });
 
+  it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
+    expect(appShellSource).toContain("ThemeNavButton");
+    expect(appShellSource).toContain('aria-haspopup="dialog"');
+    expect(appShellSource).toContain("aria-expanded={isThemeOpen()}");
+    expect(appShellSource).toContain('role="dialog"');
+    expect(appShellSource).toContain('aria-label="Theme settings"');
+    expect(appShellSource).toContain("animate-trauma-pop-bounce");
+    expect(appShellSource).not.toContain(
+      '<section class="mt-auto grid gap-1.5',
+    );
+  });
+
   it("uses a handwritten animated underline for active nav links in paper themes", () => {
     expect(appShellSource).toContain("trauma-active-nav-item");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');

@@ -50,10 +50,13 @@ Storage keys:
 
 Theme controls:
 
+- Open from the left-rail `Theme` tab rather than staying permanently expanded.
 - Use `aria-pressed`.
 - Persist to `localStorage`.
 - Set `data-theme` on `document.documentElement`.
 - Do not write to SQLite, markdown files, or `trauma.config.json`.
+- Expose the opened panel as a labelled dialog-like popover.
+- Close the popover with Escape and outside pointer interaction.
 
 ## Focus And Keyboard
 
