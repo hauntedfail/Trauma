@@ -49,6 +49,18 @@ Paper themes add one deliberate material exception for archive actions:
   button content layer, or `trauma-paper-wax-label` for text-only children,
   so sun paper selected controls keep high-contrast text.
 
+## Shell Popovers
+
+Left-rail transient controls open as anchored popovers rather than global
+drawers on desktop shell layouts:
+
+- Theme settings and Add memory composer use the same `role="dialog"` popup
+  pattern, `aria-haspopup="dialog"`, `aria-expanded`, and `aria-controls`.
+- Popovers close on Escape, outside pointer interaction, or successful
+  completion of the contained workflow.
+- Add memory keeps the shell-level command globally reachable, but the composer
+  itself stays attached to the rail action that opened it.
+
 ## Form Inputs
 
 Inputs use semantic surfaces:

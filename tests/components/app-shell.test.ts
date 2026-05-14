@@ -142,6 +142,18 @@ describe("refined app shell contract", () => {
     expect(settingsIndex).toBeGreaterThan(themeIndex);
   });
 
+  it("opens add memory from the left rail as a popover instead of a global drawer", () => {
+    expect(appShellSource).toContain("AddMemoryComposerButton");
+    expect(appShellSource).toContain('popoverId={props.isDrawer === true ? "drawer-add-memory-composer" : "rail-add-memory-composer"}');
+    expect(appShellSource).toContain('aria-controls={isComposerOpen() ? props.popoverId : undefined}');
+    expect(appShellSource).toContain("aria-expanded={isComposerOpen()}");
+    expect(appShellSource).toContain('aria-haspopup="dialog"');
+    expect(appShellSource).toContain('role="dialog"');
+    expect(appShellSource).toContain('aria-label="Add memory"');
+    expect(appShellSource).not.toContain('<Drawer ariaLabel="Add memory"');
+    expect(appShellSource).not.toContain("setIsComposerOpen(true)");
+  });
+
   it("uses paper-mode wax seal controls for add memory and view toggles", () => {
     expect(appShellSource).toContain("trauma-paper-wax-seal trauma-paper-wax-command");
     expect(memoryBrowseSource).toContain("trauma-paper-wax-seal trauma-paper-wax-toggle");

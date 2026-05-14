@@ -237,13 +237,24 @@ test("does not navigate shell and result links to the catch-all route", async ({
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
   await page.goto("/highlights");
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Add memory" }).getByRole("button", { name: "Close" }).click();
+  const highlightsAddButton = page.getByRole("button", { name: "Add memory" });
+  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "false");
+  await highlightsAddButton.click();
+  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "true");
+  const highlightsComposer = page.getByRole("dialog", { name: "Add memory" });
+  await expect(highlightsComposer).toBeVisible();
+  await expect(highlightsComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
+  await expect(highlightsComposer.getByRole("button", { name: "Close" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(highlightsComposer).toHaveCount(0);
+  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "false");
 
   await page.goto("/memories/memory-foundation");
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
+  const readerAddButton = page.getByRole("button", { name: "Add memory" });
+  await expect(readerAddButton).toHaveAttribute("aria-expanded", "false");
+  await readerAddButton.click();
+  await expect(readerAddButton).toHaveAttribute("aria-expanded", "true");
+  const readerComposer = page.getByRole("dialog", { name: "Add memory" });
+  await expect(readerComposer).toBeVisible();
+  await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });

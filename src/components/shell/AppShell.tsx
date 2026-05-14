@@ -94,7 +94,6 @@ export function AppShell(props: AppShellProps) {
   const navigate = useNavigate();
   const [isNavigationOpen, setIsNavigationOpen] = createSignal(false);
   const [isFiltersOpen, setIsFiltersOpen] = createSignal(false);
-  const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const [isHydrated, setIsHydrated] = createSignal(false);
   const [rightRailContent, setRightRailContent] = createSignal<
     JSX.Element | undefined
@@ -152,11 +151,6 @@ export function AppShell(props: AppShellProps) {
 
   const closeNavigation = () => setIsNavigationOpen(false);
 
-  const openComposer = () => {
-    setIsNavigationOpen(false);
-    setIsComposerOpen(true);
-  };
-
   const openFilters = () => {
     setIsNavigationOpen(false);
     setIsFiltersOpen(true);
@@ -175,7 +169,6 @@ export function AppShell(props: AppShellProps) {
         <NavigationContent
           activePath={activePath()}
           brightness={brightness()}
-          onOpenComposer={openComposer}
           onOpenFilters={openFilters}
           onSetBrightness={setBrightness}
           onSetSurface={setSurface}
@@ -214,7 +207,6 @@ export function AppShell(props: AppShellProps) {
             brightness={brightness()}
             isDrawer
             onNavigate={closeNavigation}
-            onOpenComposer={openComposer}
             onOpenFilters={openFilters}
             onSetBrightness={setBrightness}
             onSetSurface={setSurface}
@@ -236,11 +228,6 @@ export function AppShell(props: AppShellProps) {
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
             tags={tags()}
           />
-        </Drawer>
-      </Show>
-      <Show when={isComposerOpen()}>
-        <Drawer ariaLabel="Add memory" onClose={() => setIsComposerOpen(false)}>
-          <GlobalAddMemoryComposer onCreated={() => setIsComposerOpen(false)} />
         </Drawer>
       </Show>
       </div>
@@ -270,7 +257,6 @@ function NavigationContent(props: {
   brightness: BrightnessMode;
   isDrawer?: boolean;
   onNavigate?: () => void;
-  onOpenComposer: () => void;
   onOpenFilters: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
   onSetSurface: (mode: SurfaceMode) => void;
@@ -316,10 +302,10 @@ function NavigationContent(props: {
         />
         <FutureNavButton item={futureNavItems.settings} />
       </nav>
-      <button class="trauma-paper-wax-seal trauma-paper-wax-command mx-1 my-3.5 inline-flex min-h-[52px] w-[calc(100%-8px)] items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:size-[52px] max-[1040px]:w-[52px] max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
-        <PlusIcon />
-        <span class="trauma-paper-wax-label max-[1040px]:sr-only">Add memory</span>
-      </button>
+      <AddMemoryComposerButton
+        onCreated={props.onNavigate}
+        popoverId={props.isDrawer === true ? "drawer-add-memory-composer" : "rail-add-memory-composer"}
+      />
       <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
         <span class="grid size-10 place-items-center rounded-full bg-trauma-accent-soft">
           <TraumaMark size={26} />
@@ -336,16 +322,81 @@ function NavigationContent(props: {
   );
 }
 
-function GlobalAddMemoryComposer(props: { onCreated: () => void }) {
+function AddMemoryComposerButton(props: {
+  onCreated?: () => void;
+  popoverId: string;
+}) {
+  let rootRef: HTMLDivElement | undefined;
+  const [isComposerOpen, setIsComposerOpen] = createSignal(false);
+
+  onMount(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        rootRef === undefined ||
+        !(target instanceof Node) ||
+        rootRef.contains(target)
+      ) {
+        return;
+      }
+
+      setIsComposerOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsComposerOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    });
+  });
+
+  const handleCreated = () => {
+    setIsComposerOpen(false);
+    props.onCreated?.();
+  };
+
   return (
-    <AddMemoryForm
-      formClass="grid gap-3.5"
-      inputClass={surfaceInput}
-      buttonClass={`${buttonBase} trauma-paper-wax-seal trauma-paper-wax-command bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
-      submitLabel="Save memory"
-      title="Add memory"
-      onCreated={props.onCreated}
-    />
+    <div
+      ref={rootRef}
+      class="relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
+    >
+      <button
+        aria-controls={isComposerOpen() ? props.popoverId : undefined}
+        aria-expanded={isComposerOpen()}
+        aria-haspopup="dialog"
+        class="trauma-paper-wax-seal trauma-paper-wax-command inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
+        type="button"
+        onClick={() => setIsComposerOpen((value) => !value)}
+      >
+        <PlusIcon />
+        <span class="trauma-paper-wax-label max-[1040px]:sr-only">
+          Add memory
+        </span>
+      </button>
+      <Show when={isComposerOpen()}>
+        <div
+          aria-label="Add memory"
+          class="absolute left-0 top-full z-30 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"
+          id={props.popoverId}
+          role="dialog"
+        >
+          <AddMemoryForm
+            formClass="grid gap-3.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-4 shadow-trauma-2"
+            inputClass={surfaceInput}
+            buttonClass={`${buttonBase} trauma-paper-wax-seal trauma-paper-wax-command w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
+            submitLabel="Save memory"
+            title="Add memory"
+            onCreated={handleCreated}
+          />
+        </div>
+      </Show>
+    </div>
   );
 }
 
