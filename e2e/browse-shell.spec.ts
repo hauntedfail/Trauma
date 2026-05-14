@@ -62,6 +62,10 @@ test("keeps paper active nav underline while removing active tab background", as
     localStorage.setItem("trauma:surface", "paper");
   });
   await page.goto("/memories");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "paper-warm-light",
+  );
 
   const memoriesLink = page
     .getByRole("navigation", { name: "Primary sections" })
@@ -80,6 +84,37 @@ test("keeps paper active nav underline while removing active tab background", as
   expect(paperState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   expect(paperState.underlineContent).toBe('""');
   expect(paperState.animationName).toBe("trauma-handwrite-underline");
+});
+
+test("keeps paper active nav underline attached to text instead of the unread pip", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("trauma:brightness", "night");
+    localStorage.setItem("trauma:surface", "paper");
+  });
+  await page.goto("/highlights");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "paper-black-dark",
+  );
+
+  const highlightsLink = page
+    .getByRole("navigation", { name: "Primary sections" })
+    .getByRole("link", { name: "Highlights" });
+  const underlineState = await highlightsLink.evaluate((link) => {
+    const label = link.querySelector(".trauma-active-nav-label");
+    const pip = link.querySelector('[aria-label="unread"]');
+
+    return {
+      labelContainsPip: label !== null && pip !== null && label.contains(pip),
+      underlineContent:
+        label === null ? "none" : getComputedStyle(label, "::after").content,
+    };
+  });
+
+  expect(underlineState.labelContainsPip).toBe(false);
+  expect(underlineState.underlineContent).toBe('""');
 });
 
 test("updates URL query state from search, filters, highlight shortcuts, and view controls", async ({

@@ -657,10 +657,12 @@ function RouteNavLink(props: {
       onClick={props.onNavigate}
     >
       <span class={railIconSlot}>{icon()}</span>
-      <span
-        class={`trauma-active-nav-label min-w-0 truncate max-[1040px]:sr-only ${isActive() ? "font-bold" : ""}`}
-      >
-        {props.item.label}
+      <span class="min-w-0 truncate max-[1040px]:sr-only">
+        <span
+          class={`trauma-active-nav-label ${isActive() ? "font-bold" : ""}`}
+        >
+          {props.item.label}
+        </span>
         <Show when={props.item.pip}>
           <span class="ml-2 inline-block size-2 rounded-full bg-trauma-accent align-middle" aria-label="unread" />
         </Show>
@@ -770,9 +772,13 @@ function ThemeNavButton(props: {
           when={isPhone()}
           fallback={
             <span
-              class={`min-w-0 truncate max-[1040px]:sr-only ${isThemeOpen() ? "font-bold" : ""}`}
+              class="min-w-0 truncate max-[1040px]:sr-only"
             >
-              Theme
+              <span
+                class={`trauma-active-nav-label ${isThemeOpen() ? "font-bold" : ""}`}
+              >
+                Theme
+              </span>
             </span>
           }
         >

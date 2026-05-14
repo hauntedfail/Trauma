@@ -68,6 +68,27 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('[isActive() ? "filled" : "outline"]');
   });
 
+  it("keeps paper active underlines scoped to tab text only", () => {
+    const routeNavStart = appShellSource.indexOf("function RouteNavLink");
+    const routeNavEnd = appShellSource.indexOf(
+      "function RightRailShortcutButton",
+      routeNavStart,
+    );
+    const routeNavSource = appShellSource.slice(routeNavStart, routeNavEnd);
+    const activeLabelStart = routeNavSource.indexOf("trauma-active-nav-label");
+    const activeLabelEnd = routeNavSource.indexOf("</span>", activeLabelStart);
+    const activeLabelMarkup = routeNavSource.slice(activeLabelStart, activeLabelEnd);
+    const themeNavStart = appShellSource.indexOf("function ThemeNavButton");
+    const themeNavEnd = appShellSource.indexOf("function ThemeBlock", themeNavStart);
+    const themeNavSource = appShellSource.slice(themeNavStart, themeNavEnd);
+
+    expect(routeNavSource).toContain(
+      'class="min-w-0 truncate max-[1040px]:sr-only"',
+    );
+    expect(activeLabelMarkup).not.toContain("props.item.pip");
+    expect(themeNavSource).toContain("trauma-active-nav-label");
+  });
+
   it("keeps desktop shell columns flush instead of centering panes inside gutters", () => {
     expect(appShellSource).toContain(
       "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",
