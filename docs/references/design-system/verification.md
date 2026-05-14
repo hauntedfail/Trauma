@@ -65,6 +65,7 @@ The shell tests verify:
 - Route panes fill the shell column.
 - Right rail sections are independent islands.
 - Left rail scale and vertical rhythm stay close to the refined sample.
+- Left rail tab labels keep enough line-height for descenders.
 - Selected theme options stay visible in normal night mode.
 - Paper themes replace the active left-rail pill with a handwritten underline
   animation.

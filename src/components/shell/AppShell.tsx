@@ -63,7 +63,7 @@ const rightRailScrollContent =
 const iconButton =
   "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
 const navItemBase =
-  "group grid min-h-12 w-max max-w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-3 py-2.5 pr-[18px] text-[19px] font-medium leading-none text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
+  "group grid min-h-12 w-max max-w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-3 py-2.5 pr-[18px] text-[19px] font-medium leading-[1.22] text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const activeNavItem =
   "trauma-active-nav-item relative bg-trauma-accent-soft font-bold text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
 const disabledNavItem =

@@ -98,6 +98,11 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("min-h-[52px]");
   });
 
+  it("keeps left rail tab labels tall enough for descenders", () => {
+    expect(appShellSource).toContain("text-[19px] font-medium leading-[1.22]");
+    expect(appShellSource).not.toContain("text-[19px] font-medium leading-none");
+  });
+
   it("keeps the left rail vertical rhythm slightly open", () => {
     expect(appShellSource).toContain('class="flex flex-col gap-1.5"');
     expect(appShellSource).toContain('nav class="grid content-start gap-1"');

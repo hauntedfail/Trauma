@@ -33,6 +33,8 @@ Navigation item contract:
 - Icon/text gap: `18px`.
 - Minimum height: `3rem`.
 - Text size: `19px`.
+- Text line-height: at least `1.2` so descenders such as `g`, `q`, `p`, and
+  `y` are not clipped.
 - Shape: rounded full pill.
 - Active route, normal themes: accent-soft background and bold text.
 - Active route, paper themes: no pill fill. Use bold accent text with a
