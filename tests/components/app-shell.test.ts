@@ -158,15 +158,18 @@ describe("refined app shell contract", () => {
 
     const waxRules = tailwindCss.slice(waxStart, activeNavStart);
 
-    expect(waxRules).toContain("clip-path: polygon");
-    expect(waxRules).toContain("animation: trauma-wax-edge-spread");
-    expect(waxRules).toContain("animation: trauma-wax-press");
+    expect(waxRules).toContain("inset: 3px;");
     expect(waxRules).toContain(
-      "background: color-mix(in srgb, var(--accent-press) 86%, var(--bg-sunken) 14%);",
+      "border: 2px solid color-mix(in srgb, var(--accent-press) 84%, var(--bg-sunken) 16%);",
     );
-    expect(waxRules).toContain("opacity: 0.86;");
-    expect(waxRules).toContain("inset: 4px 5px;");
-    expect(waxRules).toContain("inset: 5px 9px;");
+    expect(waxRules).toContain("animation: trauma-wax-press");
+    expect(waxRules).toContain("opacity: 0.92;");
+    expect(waxRules).toContain("inset: 6px 7px;");
+    expect(waxRules).toContain("inset: 7px 10px;");
+    expect(waxRules).not.toContain("clip-path");
+    expect(waxRules).not.toContain("z-index: -1");
+    expect(waxRules).not.toContain("inset: -");
+    expect(waxRules).not.toContain("animation: trauma-wax-edge-spread");
     expect(waxRules).not.toContain("radial-gradient");
     expect(waxRules).not.toContain("linear-gradient(145deg");
     expect(waxRules).not.toContain("text-shadow");
@@ -174,7 +177,6 @@ describe("refined app shell contract", () => {
     expect(waxRules).not.toContain("height: 0.82rem");
     expect(waxRules).not.toContain("width: 1.85rem");
     expect(waxRules).not.toContain("background: color-mix(in srgb, var(--accent) 42%, transparent);");
-    expect(waxRules).not.toContain("inset: 6px 10px;");
     expect(appShellSource).not.toContain("shadow-trauma-1");
   });
 

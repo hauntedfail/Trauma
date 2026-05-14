@@ -125,31 +125,34 @@ test("persists shell theme controls in the browser", async ({ page }) => {
         backgroundImage: style.backgroundImage,
         boxShadow: style.boxShadow,
         textShadow: style.textShadow,
-        edgeBackground: edge.background,
-        edgeClipPath: edge.clipPath,
-        edgeContent: edge.content,
-        edgeOpacity: edge.opacity,
+        ringBorderColor: edge.borderColor,
+        ringBorderStyle: edge.borderStyle,
+        ringClipPath: edge.clipPath,
+        ringContent: edge.content,
+        ringInset: edge.inset,
+        ringOpacity: edge.opacity,
+        stampBorderStyle: stamp.borderStyle,
         stampClipPath: stamp.clipPath,
         stampContent: stamp.content,
         stampInset: stamp.inset,
-        stampBackground: stamp.background,
         stampOpacity: stamp.opacity,
       };
     });
   await expect
     .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::before").opacity))
-    .toBe("0.86");
+    .toBe("0.92");
   const waxStyle = await readWaxStyle();
   expect(waxStyle.backgroundImage).toBe("none");
   expect(waxStyle.boxShadow).toBe("none");
   expect(waxStyle.textShadow).toBe("none");
-  expect(waxStyle.edgeContent).not.toBe("none");
-  expect(waxStyle.edgeClipPath).toContain("polygon");
+  expect(waxStyle.ringContent).not.toBe("none");
+  expect(waxStyle.ringClipPath).toBe("none");
+  expect(waxStyle.ringInset).toBe("3px");
+  expect(waxStyle.ringBorderStyle).toBe("solid");
   expect(waxStyle.stampContent).not.toBe("none");
-  expect(waxStyle.stampClipPath).toContain("polygon");
-  expect(waxStyle.edgeOpacity).toBe("0.86");
-  expect(waxStyle.stampInset).toBe("4px 5px");
-  expect(waxStyle.edgeBackground).not.toBe(waxStyle.stampBackground);
+  expect(waxStyle.stampClipPath).toBe("none");
+  expect(waxStyle.stampBorderStyle).toBe("solid");
+  expect(waxStyle.stampInset).toBe("6px 7px");
   await expect
     .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
     .toBe("1");
