@@ -209,7 +209,16 @@ export function SunIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
       <circle {...stroke} cx="12" cy="12" r="4" />
-      <path {...stroke} d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      <g {...stroke}>
+        <line x1="12" y1="2" x2="12" y2="5" />
+        <line x1="12" y1="19" x2="12" y2="22" />
+        <line x1="2" y1="12" x2="5" y2="12" />
+        <line x1="19" y1="12" x2="22" y2="12" />
+        <line x1="4.5" y1="4.5" x2="6.7" y2="6.7" />
+        <line x1="17.3" y1="17.3" x2="19.5" y2="19.5" />
+        <line x1="4.5" y1="19.5" x2="6.7" y2="17.3" />
+        <line x1="17.3" y1="6.7" x2="19.5" y2="4.5" />
+      </g>
     </svg>
   );
 }
@@ -217,7 +226,7 @@ export function SunIcon(props: IconProps) {
 export function MoonIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
-      <path {...stroke} d="M20 15.5A8 8 0 0 1 8.5 4 8.2 8.2 0 1 0 20 15.5z" />
+      <path {...stroke} d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
     </svg>
   );
 }
@@ -225,8 +234,10 @@ export function MoonIcon(props: IconProps) {
 export function PageIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
-      <path {...stroke} d="M6 3h9l3 3v15H6z" />
-      <path {...stroke} d="M14 3v4h4M9 12h6M9 16h6" />
+      <rect {...stroke} height="18" rx="1.5" width="14" x="5" y="3" />
+      <line {...stroke} x1="8" y1="8" x2="16" y2="8" />
+      <line {...stroke} x1="8" y1="12" x2="16" y2="12" />
+      <line {...stroke} x1="8" y1="16" x2="13" y2="16" />
     </svg>
   );
 }
@@ -234,8 +245,30 @@ export function PageIcon(props: IconProps) {
 export function PaperIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
-      <path {...stroke} d="M5 4h14v16H5z" />
-      <path {...stroke} d="M8 8h8M8 12h8M8 16h5" />
+      <path {...stroke} d="M5 3h9l5 5v13a0 0 0 0 1 0 0H5z" />
+      <path {...stroke} d="M14 3v5h5" />
+    </svg>
+  );
+}
+
+export function HermesIcon(props: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      height={props.size ?? 16}
+      viewBox="0 0 24 24"
+      width={props.size ?? 16}
+    >
+      <path {...stroke} d="M5 9h14v10.5H5z" />
+      <path
+        {...stroke}
+        d="M8 9V7.7C8 4.7 9.7 2.5 12 2.5s4 2.2 4 5.2V9"
+      />
+      <path
+        {...stroke}
+        d="M9.6 9V7.9c0-2 1-3.4 2.4-3.4s2.4 1.4 2.4 3.4V9"
+      />
+      <path {...stroke} d="M8 9v2.2M16 9v2.2" />
     </svg>
   );
 }

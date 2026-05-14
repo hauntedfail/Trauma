@@ -15,6 +15,7 @@ import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import { TraumaMark } from "../brand/TraumaMark";
 import {
   KebabIcon,
+  HermesIcon,
   LockIcon,
   MoonIcon,
   PageIcon,
@@ -630,6 +631,9 @@ function ThemeBlock(props: {
   const paperSurfaceLabel = createMemo(() =>
     getPaperSurfaceLabel(props.brightness),
   );
+  const paperSurfaceIcon = createMemo(() =>
+    props.brightness === "night" ? <HermesIcon /> : <PaperIcon />,
+  );
   return (
     <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
@@ -669,7 +673,7 @@ function ThemeBlock(props: {
           type="button"
           onClick={() => props.onSurface("paper")}
         >
-          <PaperIcon />
+          {paperSurfaceIcon()}
           <span>{paperSurfaceLabel()}</span>
         </button>
       </div>

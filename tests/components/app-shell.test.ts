@@ -150,7 +150,10 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("getPaperSurfaceLabel");
     expect(appShellSource).toContain('return brightness === "night" ? "Hermès" : "Paper";');
     expect(appShellSource).toContain("const paperSurfaceLabel = createMemo");
+    expect(appShellSource).toContain("const paperSurfaceIcon = createMemo");
+    expect(appShellSource).toContain('props.brightness === "night" ? <HermesIcon /> : <PaperIcon />');
     expect(appShellSource).toContain("<span>{paperSurfaceLabel()}</span>");
+    expect(appShellSource).toContain("{paperSurfaceIcon()}");
   });
 
   it("places the theme tab between backup and settings", () => {

@@ -2,6 +2,7 @@ export {
   CheckIcon,
   ChevronLeftIcon,
   KebabIcon,
+  HermesIcon,
   LockIcon,
   MoonIcon,
   OpenIcon,

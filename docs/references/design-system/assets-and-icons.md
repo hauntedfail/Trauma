@@ -74,6 +74,7 @@ Current utility icons include:
 - Moon.
 - Page.
 - Paper.
+- Hermès shopping bag silhouette for night paper surface mode.
 
 Prefer these over ad hoc inline SVGs. If a new icon is needed, add it to the
 local icon module with the same `currentColor` and `aria-hidden` conventions.
