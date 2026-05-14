@@ -101,6 +101,10 @@ When an island contains an unbounded list, the list body must be a bounded
 scroll region. This is required for Recent highlights and reader TOC. Do not
 let those islands grow vertically for every item.
 
+Reader TOC should make overflow discoverable. When its bounded list can still
+scroll downward, use a low-contrast bottom spotlight shadow inside the list
+rather than adding external decoration to the right rail island.
+
 ## Add Memory Composer
 
 The global composer uses the existing `AddMemoryForm` and existing

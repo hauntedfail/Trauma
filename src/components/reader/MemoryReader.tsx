@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 
 import { ChevronLeftIcon, OpenIcon } from "../icons";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
@@ -157,6 +157,31 @@ function ReaderState(props: { message: string }) {
 }
 
 function ReaderToc(props: { toc: ReaderTocEntry[] }) {
+  let scrollRef: HTMLOListElement | undefined;
+  const [showTocScrollHint, setShowTocScrollHint] = createSignal(false);
+  const updateTocScrollHint = () => {
+    if (scrollRef === undefined) {
+      setShowTocScrollHint(false);
+      return;
+    }
+
+    const hasOverflow = scrollRef.scrollHeight > scrollRef.clientHeight + 1;
+    const hasMoreBelow =
+      scrollRef.scrollTop + scrollRef.clientHeight < scrollRef.scrollHeight - 1;
+    setShowTocScrollHint(hasOverflow && hasMoreBelow);
+  };
+
+  createEffect(() => {
+    props.toc.length;
+    queueMicrotask(updateTocScrollHint);
+  });
+
+  onMount(() => {
+    updateTocScrollHint();
+    window.addEventListener("resize", updateTocScrollHint);
+    onCleanup(() => window.removeEventListener("resize", updateTocScrollHint));
+  });
+
   return (
     <Show when={props.toc.length > 0}>
       <nav
@@ -166,20 +191,29 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
         <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">
           Contents
         </h2>
-        <ol class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}>
-          {props.toc.map((entry) => (
-            <li
-              classList={{
-                "ml-2.5": entry.level === 2,
-                "ml-5": entry.level === 3,
-              }}
-            >
-              <a class="hover:text-trauma-accent" href={`#${entry.id}`}>
-                {entry.text}
-              </a>
-            </li>
-          ))}
-        </ol>
+        <div class="trauma-toc-scroll-shell relative">
+          <ol
+            ref={scrollRef}
+            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
+            onScroll={updateTocScrollHint}
+          >
+            {props.toc.map((entry) => (
+              <li
+                classList={{
+                  "ml-2.5": entry.level === 2,
+                  "ml-5": entry.level === 3,
+                }}
+              >
+                <a class="hover:text-trauma-accent" href={`#${entry.id}`}>
+                  {entry.text}
+                </a>
+              </li>
+            ))}
+          </ol>
+          <Show when={showTocScrollHint()}>
+            <div class="trauma-toc-scroll-spotlight" aria-hidden="true" />
+          </Show>
+        </div>
       </nav>
     </Show>
   );

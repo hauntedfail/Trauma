@@ -39,6 +39,20 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("overscroll-contain");
   });
 
+  it("shows a subtle bottom spotlight when the reader TOC can scroll further", () => {
+    expect(readerSource).toContain("showTocScrollHint");
+    expect(readerSource).toContain("updateTocScrollHint");
+    expect(readerSource).toContain("scrollHeight");
+    expect(readerSource).toContain("clientHeight");
+    expect(readerSource).toContain("scrollTop");
+    expect(readerSource).toContain("trauma-toc-scroll-shell");
+    expect(readerSource).toContain("trauma-toc-scroll-spotlight");
+    expect(readerSource).toContain("onScroll={updateTocScrollHint}");
+    expect(tailwindSource).toContain(".trauma-toc-scroll-spotlight");
+    expect(tailwindSource).toContain("radial-gradient(ellipse at 50% 100%");
+    expect(tailwindSource).toContain("color-mix(in srgb, var(--accent)");
+  });
+
   it("defines a reduced-motion-safe pop bounce animation for reader TOC entry", () => {
     expect(tailwindSource).toContain("@keyframes trauma-pop-bounce");
     expect(tailwindSource).toContain(".animate-trauma-pop-bounce");
