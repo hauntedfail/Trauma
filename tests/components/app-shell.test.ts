@@ -138,6 +138,18 @@ describe("refined app shell contract", () => {
     expect(settingsIndex).toBeGreaterThan(themeIndex);
   });
 
+  it("uses paper-mode wax seal controls for add memory and view toggles", () => {
+    expect(appShellSource).toContain("trauma-paper-wax-seal trauma-paper-wax-command");
+    expect(memoryBrowseSource).toContain("trauma-paper-wax-seal trauma-paper-wax-toggle");
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::before');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]');
+    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal:active');
+    expect(tailwindCss).toContain("trauma-paper-wax-toggle::before");
+    expect(tailwindCss).toContain("trauma-paper-wax-command::after");
+  });
+
   it("uses a handwritten animated underline for active nav links in paper themes", () => {
     expect(appShellSource).toContain("trauma-active-nav-item");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');

@@ -316,7 +316,7 @@ function NavigationContent(props: {
         />
         <FutureNavButton item={futureNavItems.settings} />
       </nav>
-      <button class="mx-1 my-3.5 inline-flex min-h-[52px] w-[calc(100%-8px)] items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink shadow-trauma-1 transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:size-[52px] max-[1040px]:w-[52px] max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
+      <button class="trauma-paper-wax-seal trauma-paper-wax-command mx-1 my-3.5 inline-flex min-h-[52px] w-[calc(100%-8px)] items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink shadow-trauma-1 transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:size-[52px] max-[1040px]:w-[52px] max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
         <PlusIcon />
         <span class="max-[1040px]:sr-only">Add memory</span>
       </button>
@@ -341,7 +341,7 @@ function GlobalAddMemoryComposer(props: { onCreated: () => void }) {
     <AddMemoryForm
       formClass="grid gap-3.5"
       inputClass={surfaceInput}
-      buttonClass={`${buttonBase} bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
+      buttonClass={`${buttonBase} trauma-paper-wax-seal trauma-paper-wax-command bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
       submitLabel="Save memory"
       title="Add memory"
       onCreated={props.onCreated}

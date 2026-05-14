@@ -29,6 +29,14 @@ Button shape follows the job:
 Use icons inside buttons when an icon exists. Do not replace familiar icon
 actions with verbose text-only controls.
 
+Paper themes add one deliberate material exception for archive actions:
+
+- Add-memory commands and List/Grid view toggles use the
+  `trauma-paper-wax-seal` treatment.
+- Selected or pressed view toggles should read like a stamped wax seal.
+- The wax drip is decorative pseudo-element work and must not change the
+  control's layout box or the browse view-mode group dimensions.
+
 ## Form Inputs
 
 Inputs use semantic surfaces:

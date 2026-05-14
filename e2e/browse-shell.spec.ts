@@ -112,6 +112,27 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-warm-light");
+
+  const gridButton = page.getByRole("button", { name: "Grid" });
+  await gridButton.click();
+  await expect(gridButton).toHaveAttribute("aria-pressed", "true");
+  const readWaxStyle = () =>
+    gridButton.evaluate((button) => {
+      const style = getComputedStyle(button);
+      const drip = getComputedStyle(button, "::before");
+      return {
+        backgroundImage: style.backgroundImage,
+        dripContent: drip.content,
+        dripHeight: drip.height,
+      };
+    });
+  const waxStyle = await readWaxStyle();
+  expect(waxStyle.backgroundImage).toContain("radial-gradient");
+  expect(waxStyle.dripContent).not.toBe("none");
+  expect(Number.parseFloat(waxStyle.dripHeight)).toBeGreaterThan(0);
+  await expect
+    .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
+    .toBe("1");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);

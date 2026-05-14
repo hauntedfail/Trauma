@@ -60,10 +60,10 @@ export function MemoryBrowse() {
           </h1>
         </div>
         <div class="grid w-[152px] grid-cols-[72px_72px] gap-2" role="group" aria-label="View mode">
-          <button class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={!isGrid()} onClick={() => updateQuery({ view: "list" })}>
+          <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={!isGrid()} onClick={() => updateQuery({ view: "list" })}>
             List
           </button>
-          <button class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={isGrid()} onClick={() => updateQuery({ view: "grid" })}>
+          <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={isGrid()} onClick={() => updateQuery({ view: "grid" })}>
             Grid
           </button>
         </div>
