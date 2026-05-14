@@ -183,6 +183,8 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .poll(() => readLeftRailMaterial(page))
     .toMatchObject({
       backgroundColor: "rgb(236, 226, 204)",
+      afterUsesFixedAttachment: true,
+      beforeUsesFixedAttachment: true,
       beforeContent: '""',
       afterContent: '""',
     });
@@ -278,6 +280,8 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .poll(() => readLeftRailMaterial(page))
     .toMatchObject({
       backgroundColor: "rgb(33, 19, 7)",
+      afterUsesFixedAttachment: true,
+      beforeUsesFixedAttachment: true,
       beforeContent: '""',
       afterContent: '""',
     });
@@ -422,10 +426,17 @@ async function readLeftRailMaterial(page: Page) {
     const style = getComputedStyle(rail);
     const before = getComputedStyle(rail, "::before");
     const after = getComputedStyle(rail, "::after");
+    const isEveryAttachmentFixed = (value: string) =>
+      value
+        .split(",")
+        .map((attachment) => attachment.trim())
+        .every((attachment) => attachment === "fixed");
 
     return {
       afterContent: after.content,
+      afterUsesFixedAttachment: isEveryAttachmentFixed(after.backgroundAttachment),
       backgroundColor: style.backgroundColor,
+      beforeUsesFixedAttachment: isEveryAttachmentFixed(before.backgroundAttachment),
       beforeContent: before.content,
     };
   });

@@ -24,6 +24,9 @@ Current desktop contract:
 - Surface: `bg-trauma-bg-base`.
 - Paper/Hermès material: match the app background material. Do not let the
   sticky rail render as a separate colour field from the route pane.
+- Paper/Hermès rail overlays must use fixed background attachment so grain,
+  glow, and leather texture share the same viewport origin as the app
+  background.
 - Padding: `px-2 py-1 pb-3`.
 - Position: sticky, full viewport height.
 - Border: right border only.

@@ -299,6 +299,8 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain(
       ':root[data-theme="paper-black-dark"] .trauma-shell-left-rail::after',
     );
+    expect(tailwindCss).toContain("background-attachment: fixed");
+    expect(tailwindCss).toContain("fixed,\n      fixed,\n      fixed,\n      fixed");
     expect(tailwindCss).toContain("var(--leather-grain-overlay)");
   });
 });
