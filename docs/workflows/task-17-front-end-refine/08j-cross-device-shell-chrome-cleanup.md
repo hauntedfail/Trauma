@@ -25,12 +25,15 @@ before starting, and execute this after
 - Tablet keeps the left pane but renders it as an icon-only rail.
 - Tablet header follows desktop shell behaviour: no mobile top header, no
   duplicated brand group, and no filter button.
-- Phone uses a minimal logo-only navigation trigger. It must not render TRAUMA
-  brand text in the header.
+- Phone uses a native-app-style bottom tab bar for actionable left-pane tabs.
+  It must not render TRAUMA brand text in the header.
 - Tablet and phone do not display a right rail, filter button, or filter drawer.
-- Delete the filter drawer path instead of hiding a broken menu.
+- Delete the filter drawer path and mobile navigation drawer path instead of
+  hiding broken menus.
 - Align the brand mark, route icons, disabled icons, theme icon, add-memory
   icon, archive icon, and kebab icon to a shared rail icon slot.
+- Align phone bottom tab icons to the same icon geometry used by the tablet
+  rail. Phone bottom tabs should use safe-area bottom padding.
 - Theme popover must render cleanly from the icon rail and layer above the main
   pane. The add-memory composer popup is the reference for working layering.
 
@@ -41,8 +44,13 @@ before starting, and execute this after
 In `tests/components/app-shell.test.ts`, add:
 
 ```ts
-it("keeps tablet shell icon-only without duplicate header brand chrome", () => {
+it("keeps cross-device shell chrome clean and non-duplicated", () => {
   expect(appShellSource).toContain("BrandHomeLink");
+  expect(appShellSource).toContain("PhoneTabBar");
+  expect(appShellSource).toContain("phoneTabItems");
+  expect(appShellSource).toContain('aria-label="Primary tabs"');
+  expect(appShellSource).toContain("bottom-0");
+  expect(appShellSource).toContain("trauma-safe-area-bottom");
   expect(appShellSource).toContain("showLabel={true}");
   expect(appShellSource).toContain("showLabel={false}");
   expect(appShellSource).toContain("railIconSlot");
@@ -52,12 +60,15 @@ it("keeps tablet shell icon-only without duplicate header brand chrome", () => {
   expect(appShellSource).not.toContain('aria-label="Open filters"');
 });
 
-it("removes the mobile/tablet filter drawer path", () => {
+it("removes mobile/tablet navigation and filter drawer paths", () => {
   expect(appShellSource).not.toContain("isFiltersOpen");
   expect(appShellSource).not.toContain("setIsFiltersOpen");
+  expect(appShellSource).not.toContain("isNavigationOpen");
+  expect(appShellSource).not.toContain("setIsNavigationOpen");
   expect(appShellSource).not.toContain("openFilters");
   expect(appShellSource).not.toContain("FilterNavButton");
   expect(appShellSource).not.toContain("filterNavItems");
+  expect(appShellSource).not.toContain('<Drawer ariaLabel="Navigation"');
   expect(appShellSource).not.toContain('<Drawer ariaLabel="Filters"');
   expect(appShellSource).toContain("RightRailFilters");
 });
@@ -114,25 +125,52 @@ Use it in `NavigationContent`:
 <BrandHomeLink onNavigate={props.onNavigate} showLabel={true} />
 ```
 
-Use logo-only rendering in the phone top bar:
+Use the same helper only where a brand mark is still needed. Do not use it as a
+phone navigation trigger; phone navigation is handled by `PhoneTabBar`.
 
-```tsx
-<button
-  aria-label="Open navigation"
-  class={`${iconButton} trauma-safe-area-inline`}
-  type="button"
-  onClick={props.onOpenNavigation}
->
-  <span class={railIconSlot}>
-    <TraumaMark size={30} />
-  </span>
-</button>
+- [ ] **Step 3: Add a native-app-style phone tab bar**
+
+Add a dedicated phone tab model in `src/components/shell/AppShell.tsx`:
+
+```ts
+const phoneTabItems = [
+  { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
+  { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
+  { kind: "composer", icon: "add", label: "Add" },
+  { kind: "theme", icon: "theme", label: "Theme" },
+] as const;
 ```
 
-Do not render a separate `<A>` brand group or TRAUMA text inside the responsive
-top bar.
+Add a bottom tab component:
 
-- [ ] **Step 3: Align tablet rail icon slots**
+```tsx
+function PhoneTabBar(props: {
+  activePath: string;
+  brightness: BrightnessMode;
+  onCreated?: () => void;
+  onSetBrightness: (mode: BrightnessMode) => void;
+  onSetSurface: (mode: SurfaceMode) => void;
+  surface: SurfaceMode;
+}) {
+  return (
+    <nav
+      aria-label="Primary tabs"
+      class="trauma-safe-area-bottom fixed inset-x-0 bottom-0 z-40 hidden border-t border-trauma-border bg-trauma-bg-surface/95 px-2 pb-[max(0.5rem,var(--trauma-layout-safe-area-bottom))] pt-1.5 backdrop-blur max-[720px]:block"
+    >
+      <div class="grid grid-cols-4 items-end gap-1">
+        ...
+      </div>
+    </nav>
+  );
+}
+```
+
+The route tabs use the same `TraumaNavIcons` entries as the left rail. Add and
+Theme tabs open the existing add-memory composer and theme popover. Backup,
+Settings, Categories, and Tags are not rendered in the phone bottom bar because
+they are disabled or filter-only chrome, not available phone routes.
+
+- [ ] **Step 4: Align tablet rail icon slots**
 
 Update shared nav/button constants so tablet icon-only rail items use the same
 slot size and visual center:
@@ -147,10 +185,11 @@ const navItemBase =
 
 Use `<span class={railIconSlot}>` for route links, disabled buttons,
 `ThemeNavButton`, `AddMemoryComposerButton`, the local archive icon, and the
-brand helper. Text labels should use `max-[1040px]:hidden`, not visual offsets
-or mismatched spacing hacks.
+brand helper. Phone bottom tabs should reuse the same icon sizing. Text labels
+should use explicit phone tab labels or `max-[1040px]:hidden`, not visual
+offsets or mismatched spacing hacks.
 
-- [ ] **Step 4: Remove the filter drawer and redundant filter controls**
+- [ ] **Step 5: Remove the filter drawer and redundant filter controls**
 
 In `src/components/shell/AppShell.tsx`, delete:
 
@@ -160,8 +199,10 @@ In `src/components/shell/AppShell.tsx`, delete:
 - `filterNavItems`
 - `FilterNavButton`
 - `<Drawer ariaLabel="Filters" ...>`
-- `MobileTopBar` `onOpenFilters` prop
+- `<Drawer ariaLabel="Navigation" ...>`
+- `MobileTopBar` `onOpenNavigation` and `onOpenFilters` props
 - the `Open filters` button
+- the `Open navigation` button
 
 Keep desktop filter content by renaming `FilterPanel` to `RightRailFilters`:
 
@@ -183,21 +224,17 @@ Keep desktop filter content by renaming `FilterPanel` to `RightRailFilters`:
 `goToFilter` and `goToHighlight` should only navigate. They should not close a
 deleted filter drawer.
 
-- [ ] **Step 5: Restrict responsive top bar to phone layout**
+- [ ] **Step 6: Remove the phone navigation drawer top bar**
 
-`MobileTopBar` should render only for phone/narrow layout:
+Delete `MobileTopBar` if it only exists to open navigation or filters. If a
+small brand-only phone header remains for visual balance, it must not contain
+TRAUMA text, `Open navigation`, `Open filters`, or any duplicated brand group.
 
-```tsx
-<header class="sticky top-0 z-10 hidden min-h-[58px] grid-cols-[64px_minmax(0,1fr)] items-center border-b border-trauma-border bg-trauma-bg-surface/95 px-3 py-2 backdrop-blur max-[720px]:grid">
-  ...
-</header>
-```
+Tablet layout must not render top header chrome. Tablet uses the visible
+icon-only left pane and main pane. Phone uses the bottom tab bar for primary
+tabs.
 
-Tablet layout must not render the top bar. Tablet uses the visible icon-only
-left pane and main pane. Do not place a brand group or filter button in the
-tablet header.
-
-- [ ] **Step 6: Repair theme popover positioning**
+- [ ] **Step 7: Repair theme popover positioning**
 
 Add shared popover placement constants:
 
@@ -228,19 +265,20 @@ Use them in `ThemeNavButton`:
 Do not change add-memory composer behaviour unless a shared constant is needed
 to keep both popovers layered above route panes.
 
-- [ ] **Step 7: Update cross-device E2E expectations**
+- [ ] **Step 8: Update cross-device E2E expectations**
 
 Update `e2e/cross-device-responsive.spec.ts` as shown in
 [08e Cross-Device E2E](08e-cross-device-e2e.md):
 
-- Phone view has `Open navigation`.
+- Phone view has a `Primary tabs` bottom navigation and no `Open navigation`
+  button or navigation drawer.
 - Tablet view has no `Open navigation` top-bar button and uses the visible
   `TRAUMA home` rail link.
 - Neither phone nor tablet has `Open filters` or a `Filters` dialog.
 - Neither phone nor tablet displays the `Browse filters` complementary region.
 - Add memory remains reachable.
 
-- [ ] **Step 8: Run focused tests**
+- [ ] **Step 9: Run focused tests**
 
 ```bash
 mise exec -- bun --bun x vitest run tests/components/app-shell.test.ts tests/components/mobile-responsive-contract.test.ts
@@ -249,7 +287,7 @@ mise exec -- bun run test:e2e -- e2e/cross-device-responsive.spec.ts
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit shell chrome cleanup**
+- [ ] **Step 10: Commit shell chrome cleanup**
 
 ```bash
 git add src/components/shell/AppShell.tsx tests/components/app-shell.test.ts tests/components/mobile-responsive-contract.test.ts e2e/cross-device-responsive.spec.ts

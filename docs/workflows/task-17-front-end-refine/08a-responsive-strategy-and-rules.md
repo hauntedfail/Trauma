@@ -166,9 +166,9 @@ Viewport breakpoints are still acceptable for global shell topology:
 - Desktop shell: left rail + main pane + right rail.
 - Tablet shell: compact icon-only left rail + main pane. Header chrome, right
   rail, filter button, and filter drawer are not displayed for tablet layout.
-- Mobile shell: minimal logo-only navigation trigger + main pane. Brand text,
-  right rail, filter button, and filter drawer are not displayed for mobile
-  layout.
+- Mobile shell: main pane + native-app-style bottom tab bar. Brand text, side
+  rail, right rail, filter button, and navigation/filter drawers are not
+  displayed for mobile layout.
 
 Inside route surfaces and reusable components, replace hard `max-[720px]` or
 `max-[1040px]` assumptions with container queries where the rule is about the
@@ -190,10 +190,13 @@ Rules:
   one brand mark should be visible in a mobile/tablet shell region.
 - Tablet should not render the mobile top header; its shell follows the desktop
   pattern: left rail + main pane.
+- Phone should not render the tablet/desktop left pane. It renders the
+  actionable left-pane tabs in a fixed bottom tab bar with safe-area bottom
+  padding.
 - The right rail is desktop-only. Tablet and phone do not need right-rail
   content or a filter drawer substitute.
-- Delete the filter button/drawer path instead of hiding a broken menu behind
-  another breakpoint.
+- Delete the filter button/drawer path and the mobile navigation drawer path
+  instead of hiding broken menus behind another breakpoint.
 - Theme popover must be anchored to the rail icon and layer above the main pane
   without clipping. It should behave as cleanly as the add-memory composer
   popover.

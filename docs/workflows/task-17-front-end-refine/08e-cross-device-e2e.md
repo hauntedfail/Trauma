@@ -37,12 +37,14 @@ for (const viewport of cases) {
     await page.goto("/memories");
 
     if (viewport.shell === "mobile") {
-      await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "Primary tabs" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
     } else {
       await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "TRAUMA home" })).toBeVisible();
     }
 
+    await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();

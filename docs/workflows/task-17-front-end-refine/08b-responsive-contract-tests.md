@@ -146,6 +146,11 @@ describe("mobile and cross-device responsive contract", () => {
 
   it("keeps tablet and mobile shell chrome clean and non-duplicated", () => {
     expect(appShellSource).toContain("BrandHomeLink");
+    expect(appShellSource).toContain("PhoneTabBar");
+    expect(appShellSource).toContain("phoneTabItems");
+    expect(appShellSource).toContain('aria-label="Primary tabs"');
+    expect(appShellSource).toContain("bottom-0");
+    expect(appShellSource).toContain("trauma-safe-area-bottom");
     expect(appShellSource).toContain("showLabel={true}");
     expect(appShellSource).toContain("showLabel={false}");
     expect(appShellSource).toContain("railIconSlot");
@@ -154,8 +159,12 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).toContain("max-[720px]:grid");
     expect(appShellSource).not.toContain("isFiltersOpen");
     expect(appShellSource).not.toContain("setIsFiltersOpen");
+    expect(appShellSource).not.toContain("isNavigationOpen");
+    expect(appShellSource).not.toContain("setIsNavigationOpen");
+    expect(appShellSource).not.toContain('aria-label="Open navigation"');
     expect(appShellSource).not.toContain('aria-label="Open filters"');
     expect(appShellSource).not.toContain('<Drawer ariaLabel="Filters"');
+    expect(appShellSource).not.toContain('<Drawer ariaLabel="Navigation"');
     expect(appShellSource).not.toContain("FilterNavButton");
   });
 

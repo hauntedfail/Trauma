@@ -151,6 +151,8 @@ For final handoff, include:
   brand and tab icon slots.
 - Mobile/tablet shell removes redundant brand groups, filter buttons, and the
   filter drawer path.
+- Phone shell renders left-pane tabs as a native-app-style bottom tab bar
+  instead of a side rail or navigation drawer.
 - Theme popover renders cleanly from the icon rail without clipping or layering
   under the main pane.
 - Container-query classes and ownership added.

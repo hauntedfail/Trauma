@@ -42,8 +42,9 @@ Use Flexbox only for local one-dimensional clusters that can wrap.
 Tablet shell keeps the existing left pane but renders it as an icon-only rail:
 brand mark and tab icons share one aligned icon slot, labels are hidden, no
 responsive header is rendered, and the desktop right rail/filter drawer is not
-available. Mobile shell renders only one logo-only navigation trigger and does
-not duplicate TRAUMA brand text or filter controls. Theme and add-memory
+available. Phone shell renders actionable left-pane tabs as a native-app-style
+bottom tab bar with safe-area bottom padding. It does not render a side rail,
+navigation drawer, TRAUMA brand text, or filter controls. Theme and add-memory
 popovers must layer above the main pane and remain visually intact.
 
 Route/page shells should be constrained fluid rather than fixed-width:
