@@ -34,6 +34,14 @@ const readerStylesSource = readFileSync(
   "src/components/reader/reader-styles.ts",
   "utf8",
 );
+const markdownRendererSource = readFileSync(
+  "src/server/reader/markdown-renderer.ts",
+  "utf8",
+);
+const traumaMarkSource = readFileSync(
+  "src/components/brand/TraumaMark.tsx",
+  "utf8",
+);
 const highlightsRouteSource = readFileSync(
   "src/routes/highlights/index.tsx",
   "utf8",
@@ -126,6 +134,17 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).toContain("margin-inline: auto");
     expect(tailwindCss).toContain("padding-inline: clamp(");
     expect(tailwindCss).not.toContain("width: 840px");
+  });
+
+  it("does not rely on CSS-only responsive image sizing", () => {
+    expect(readerStylesSource).toContain("prose-img:max-w-full");
+    expect(markdownRendererSource).toContain("srcset");
+    expect(markdownRendererSource).toContain("sizes");
+    expect(markdownRendererSource).toContain("picture");
+    expect(markdownRendererSource).toContain("source");
+    expect(markdownRendererSource).toContain("decoding");
+    expect(traumaMarkSource).toContain("<picture");
+    expect(traumaMarkSource).toContain("<source");
   });
 
   it("limits flex utilities to local one-dimensional wrapping clusters", () => {

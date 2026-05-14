@@ -27,6 +27,8 @@ changes, such as switching a memory card from two columns to one column.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
 - CSS Flexbox only for local one-dimensional layout with wrapping.
 - Mobile viewport units: `svh`, `dvh`, and `lvh`.
+- HTML responsive image primitives: `srcset`, `sizes`, `<picture>`, and
+  `<source>`.
 - CSS environment variables through `env(safe-area-inset-*)` for safe-area
   layout tokens.
 - Vitest source-contract tests for responsive policy.
@@ -48,6 +50,10 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
 - web.dev large, small, and dynamic viewport units:
   `https://web.dev/blog/viewport-units`
+- MDN responsive images:
+  `https://developer.mozilla.org/docs/Web/HTML/Guides/Responsive_images`
+- MDN `<picture>` element:
+  `https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/picture`
 - MDN CSS `env()`:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/env`
 - MDN using CSS environment variables:
@@ -78,6 +84,13 @@ changes, such as switching a memory card from two columns to one column.
   route-local style blocks. Define safe-area layout tokens and reusable
   utilities in `src/styles/tailwind.css`, then apply those utilities to shell,
   drawer, fixed toolbar, and bottom action surfaces.
+- Do not treat `max-width: 100%` as the complete image responsiveness strategy.
+  Use `srcset`, `sizes`, and `<picture>` for owned images and reader content
+  when trustworthy variants exist.
+- Do not fabricate `srcset` entries by repeating the same URL with different
+  descriptors. If the app has only one trustworthy source URL, keep a plain
+  `img` and document the limitation instead of pretending to optimize network
+  cost.
 - Do not introduce fixed-width route/page shells. Route content should be
   constrained fluid with logical sizing and spacing properties.
 - Do not use flexbox as a page, shell, route, or card-grid layout system. Flex
@@ -266,6 +279,26 @@ Rules:
   `trauma-safe-area-*` utilities.
 - Use logical padding properties in utilities even though the environment
   variables are physical viewport insets.
+
+## Responsive Image Markup
+
+CSS image sizing keeps rendered media from overflowing, but it does not reduce
+network cost. HTML must describe available image candidates so the browser can
+choose an appropriate resource for viewport width and device pixel ratio.
+
+Rules:
+
+- Keep `prose-img:max-w-full` or equivalent CSS as a visual overflow guard, not
+  as the network optimization mechanism.
+- Owned app images should prefer vector assets or real generated variants. If
+  no variants exist, do not invent a `srcset`.
+- Reader markdown rendering may preserve safe `srcset`, `sizes`, `<picture>`,
+  and `<source>` markup only after URL and attribute sanitization.
+- Imported article extraction should preserve responsive image metadata when
+  the source document already provides it and the existing public URL policy can
+  validate every candidate URL.
+- Detailed implementation steps live in
+  [08h Responsive Image Markup](08h-responsive-image-markup.md).
 
 ## Constrained Fluid Page Shells
 
