@@ -72,6 +72,17 @@ Paper themes add one deliberate material exception for archive actions:
   the raw `trauma-paper-wax-*` class contract in route or shell components
   unless the shared component cannot express the required element.
 
+## Browse Header
+
+The Memories browse header owns the list/grid view toggle. Keep the title block
+and view toggle in one two-column grid row at every route width:
+
+- Title/eyebrow column: `minmax(0, 1fr)` so it can shrink.
+- View mode column: `auto`, aligned to the inline end.
+- Do not let phone layout push List/Grid below the `Memories` title.
+- The shared narrow-route header container query can stack other route headers,
+  but `MemoryBrowse` uses its own header marker to remain a single row.
+
 ## Shell Popovers
 
 Left-rail transient controls open as anchored popovers rather than global

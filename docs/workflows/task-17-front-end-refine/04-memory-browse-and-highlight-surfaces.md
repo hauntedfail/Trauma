@@ -61,6 +61,8 @@ Conditional files:
    Required structure:
 
    - sticky pane header with eyebrow and title
+   - list/grid view toggle aligned to the header right edge, including phone
+     widths
    - search pill with search icon and `Search memories` accessible name
    - stable list/grid segmented control
    - timeline-like memory rows
@@ -110,4 +112,6 @@ Conditional files:
   functionality.
 - `/highlights` reads like a source-linked excerpt list.
 - View mode controls keep stable dimensions across state changes.
+- View mode controls stay on the right side of the Memories header on phone
+  instead of consuming an extra row under the title.
 - Existing E2E query/filter/navigation assertions still pass.

@@ -516,6 +516,10 @@
       flex-direction: column;
     }
 
+    .trauma-route-header.trauma-memory-browse-header {
+      align-items: center;
+    }
+
     .trauma-route-row {
       padding-inline: 1rem;
     }

@@ -187,6 +187,20 @@ describe("mobile and cross-device responsive contract", () => {
     );
   });
 
+  it("keeps phone memories view controls on the header right edge", () => {
+    expect(memoryBrowseSource).toContain("trauma-memory-browse-header");
+    expect(tailwindCss).toContain(
+      ".trauma-route-header.trauma-memory-browse-header",
+    );
+    expect(memoryBrowseSource).toContain(
+      "grid-cols-[minmax(0,1fr)_auto]",
+    );
+    expect(memoryBrowseSource).toContain("justify-self-end");
+    expect(memoryBrowseSource).not.toContain(
+      "flex items-center justify-between gap-4 border-b",
+    );
+  });
+
   it("keeps compact tablet add-memory controls centered without wax seal chrome", () => {
     expect(appShellSource).toContain("compactAddMemoryButton");
     expect(appShellSource).toContain("max-[1040px]:grid");

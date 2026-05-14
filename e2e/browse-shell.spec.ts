@@ -106,6 +106,33 @@ test("uses bottom primary tabs without drawer chrome on phone viewports", async 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 });
 
+test("keeps phone browse view controls on the memories header right edge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/memories");
+
+  const header = page.locator(".trauma-route-header").first();
+  const title = page.getByRole("heading", { name: "Memories", exact: true });
+  const viewModeGroup = page.getByRole("group", { name: "View mode" });
+
+  const headerBox = await header.boundingBox();
+  const titleBox = await title.boundingBox();
+  const viewModeBox = await viewModeGroup.boundingBox();
+
+  expect(headerBox).not.toBeNull();
+  expect(titleBox).not.toBeNull();
+  expect(viewModeBox).not.toBeNull();
+
+  expect(viewModeBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
+  expect(Math.abs(viewModeBox!.y + viewModeBox!.height / 2 - (titleBox!.y + titleBox!.height / 2))).toBeLessThanOrEqual(
+    12,
+  );
+  expect(Math.abs(headerBox!.x + headerBox!.width - (viewModeBox!.x + viewModeBox!.width))).toBeLessThanOrEqual(
+    32,
+  );
+});
+
 test("keeps tablet shell compact without duplicate header or filter drawers", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto("/memories");
