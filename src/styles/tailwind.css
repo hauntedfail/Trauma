@@ -499,7 +499,7 @@
   :root[data-theme^="paper"] .trauma-paper-wax-seal::before {
     z-index: 0;
     inset: 3px;
-    border: 2px solid color-mix(in srgb, var(--accent-press) 84%, var(--bg-sunken) 16%);
+    background: color-mix(in srgb, var(--accent-press) 52%, transparent);
     transform: scaleX(0.985) scaleY(0.92);
   }
 

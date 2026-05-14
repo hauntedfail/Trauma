@@ -41,10 +41,10 @@ Paper themes add one deliberate material exception for archive actions:
 - Selected or pressed controls should read like wax compressed by a stamp:
   the stamp area follows the component's own dimensions, and the uneven outer
   edge effect is not used.
-- The raised wax boundary is an inset border that follows the component shape.
-  It must not expand outside the control box. The pressed face should cover
-  almost the full control instead of becoming a small circular mark, and it
-  should not add another inner border or outline.
+- The raised wax boundary is an inset band that follows the component shape.
+  It is filled wax, not a line border, and must not expand outside the control
+  box. The pressed face should cover almost the full control instead of
+  becoming a small circular mark.
 
 ## Form Inputs
 

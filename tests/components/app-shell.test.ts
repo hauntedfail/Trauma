@@ -160,8 +160,9 @@ describe("refined app shell contract", () => {
 
     expect(waxRules).toContain("inset: 3px;");
     expect(waxRules).toContain(
-      "border: 2px solid color-mix(in srgb, var(--accent-press) 84%, var(--bg-sunken) 16%);",
+      "background: color-mix(in srgb, var(--accent-press) 52%, transparent);",
     );
+    expect(waxRules).not.toContain("border:");
     expect(waxRules).toContain("animation: trauma-wax-press");
     expect(waxRules).toContain("opacity: 0.92;");
     expect(waxRules).toContain("inset: 6px 7px;");

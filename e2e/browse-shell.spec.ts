@@ -127,11 +127,12 @@ test("persists shell theme controls in the browser", async ({ page }) => {
         textShadow: style.textShadow,
         ringBorderColor: edge.borderColor,
         ringBorderStyle: edge.borderStyle,
+        ringBorderWidth: edge.borderWidth,
+        ringBackgroundColor: edge.backgroundColor,
         ringClipPath: edge.clipPath,
         ringContent: edge.content,
         ringInset: edge.inset,
         ringOpacity: edge.opacity,
-        stampBorderStyle: stamp.borderStyle,
         stampBorderWidth: stamp.borderWidth,
         stampClipPath: stamp.clipPath,
         stampOutlineStyle: stamp.outlineStyle,
@@ -150,7 +151,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   expect(waxStyle.ringContent).not.toBe("none");
   expect(waxStyle.ringClipPath).toBe("none");
   expect(waxStyle.ringInset).toBe("3px");
-  expect(waxStyle.ringBorderStyle).toBe("solid");
+  expect(waxStyle.ringBorderWidth).toBe("0px");
+  expect(waxStyle.ringBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(waxStyle.ringBackgroundColor).not.toBe("transparent");
   expect(waxStyle.stampContent).not.toBe("none");
   expect(waxStyle.stampClipPath).toBe("none");
   expect(waxStyle.stampBorderWidth).toBe("0px");
