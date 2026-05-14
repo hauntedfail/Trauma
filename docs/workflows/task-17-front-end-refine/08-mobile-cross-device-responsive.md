@@ -1,0 +1,584 @@
+# Task 17.8: Mobile And Cross-Device Responsive Refactor
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to execute this workflow task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+## Goal
+
+Refactor TRAUMA's mobile and cross-device responsive behaviour so reusable UI
+surfaces adapt to their own container width instead of relying primarily on
+device-width breakpoints.
+
+Desktop is out of scope. Do not redesign or resize the existing desktop shell,
+desktop rail, desktop main column, or desktop right rail.
+
+## Architecture
+
+Use a container-query-first strategy for route and component responsiveness.
+Viewport breakpoints may remain only for true shell-level structure such as
+desktop/tablet/mobile navigation presence. Component density, typography,
+spacing, row/card shape, and control grouping should respond to the width of
+the component's containing pane.
+
+Use continuous sizing with `clamp()`, `min()`, and `max()` for spacing,
+font-size, radius, control size, and component min-size when a value should
+scale gradually. Use discrete `@container` branches only when layout topology
+changes, such as switching a memory card from two columns to one column.
+
+## Tech Stack
+
+- SolidStart component boundaries already used by Task 17.
+- Tailwind v4 utilities from `src/styles/tailwind.css`.
+- CSS Container Queries with `container-type: inline-size`.
+- CSS math functions: `clamp()`, `min()`, and `max()`.
+- Vitest source-contract tests for responsive policy.
+- Playwright E2E for mobile and cross-device layout behaviour.
+
+## Source References
+
+- MDN CSS container queries:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_container_queries`
+- MDN `container-type`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/container-type`
+- MDN `clamp()`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/clamp`
+- `docs/references/design-system/layout-and-shell.md`
+- `docs/references/design-system/components-and-surfaces.md`
+- `docs/references/design-system/interaction-and-accessibility.md`
+- `docs/references/design-system/verification.md`
+- `docs/workflows/task-17-front-end-refine/03-shell-navigation-and-theme.md`
+- `docs/workflows/task-17-front-end-refine/04-memory-browse-and-highlight-surfaces.md`
+- `docs/workflows/task-17-front-end-refine/05-reader-surface.md`
+
+## Worker Contract
+
+- Work on `refine/frontend-sample` or a branch based on it.
+- Do not alter desktop layout tokens unless a test proves the value also
+  controls mobile-only behaviour. If a shared token must change, add a test that
+  proves desktop shell dimensions are unchanged.
+- Do not add iPad-specific, phone-model-specific, or device-width-specific
+  branches as the primary responsive mechanism.
+- Do not use fixed viewport breakpoints for component internals when a
+  container query can express the same adaptation.
+- Do not reintroduce `src/styles/app.css`.
+- Do not change server, importer, backup, extension, database, or markdown
+  reader behaviour.
+- Preserve accessibility: keyboard focus, readable text, non-overlapping
+  controls, and reachable navigation/drawer actions across narrow containers.
+
+## Design Rules
+
+### Container-First Responsiveness
+
+Use `container-type: inline-size` on route-level and component-level wrappers
+that own responsive child layout. Prefer named containers when the rule needs a
+specific ancestor:
+
+```css
+.trauma-memory-surface {
+  container: trauma-memory-surface / inline-size;
+}
+
+@container trauma-memory-surface (width < 36rem) {
+  .trauma-memory-card {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+Use unnamed containers only for local, unambiguous component rules. Do not make
+`body`, the whole app shell, or every element a query container.
+
+### Viewport Breakpoint Limits
+
+Viewport breakpoints are still acceptable for global shell topology:
+
+- Desktop shell: left rail + main pane + right rail.
+- Tablet shell: compact left rail + main pane + drawer filters.
+- Mobile shell: top bar + drawers.
+
+Inside route surfaces and reusable components, replace hard `max-[720px]` or
+`max-[1040px]` assumptions with container queries where the rule is about the
+available component width rather than the whole viewport.
+
+### Continuous Sizing
+
+Use CSS math for values that should scale smoothly:
+
+```css
+.trauma-fluid-route-padding {
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+
+.trauma-fluid-title {
+  font-size: clamp(1.875rem, 1.2rem + 2cqi, 3rem);
+}
+```
+
+Rules:
+
+- Keep minimum sizes large enough for touch targets and text readability.
+- Keep maximum sizes aligned with the refined desktop design.
+- Do not scale every font with viewport width. Use container-relative sizing
+  only where the component width is the correct constraint.
+- Prefer `cqi` in container-query contexts and ordinary rem-based values
+  outside them.
+
+## File Ownership
+
+Primary files:
+
+- `src/styles/tailwind.css`
+- `src/components/shell/AppShell.tsx`
+- `src/components/memories/MemoryBrowse.tsx`
+- `src/components/reader/reader-styles.ts`
+- `src/components/reader/MemoryReader.tsx`
+- `src/routes/highlights/index.tsx`
+- `src/routes/[...404].tsx`
+- `tests/components/app-shell.test.ts`
+- `tests/components/mobile-responsive-contract.test.ts`
+- `e2e/cross-device-responsive.spec.ts`
+- `docs/references/design-system/layout-and-shell.md`
+- `docs/references/design-system/components-and-surfaces.md`
+- `docs/references/design-system/interaction-and-accessibility.md`
+- `docs/references/design-system/verification.md`
+
+Do not edit files outside this list unless a failing test proves the
+responsive boundary lives elsewhere. Document any extra file in the PR body.
+
+## Task 1: Add Responsive Policy Contract Tests
+
+**Intent:** Lock the strategic shift before changing UI code: components should
+gain container-query affordances, and desktop dimensions must stay unchanged.
+
+**Files:**
+
+- Create: `tests/components/mobile-responsive-contract.test.ts`
+- Modify: `tests/components/app-shell.test.ts`
+
+- [ ] **Step 1: Create a source-contract test for container-first responsive CSS**
+
+Create `tests/components/mobile-responsive-contract.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
+const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
+const memoryBrowseSource = readFileSync(
+  "src/components/memories/MemoryBrowse.tsx",
+  "utf8",
+);
+const readerStylesSource = readFileSync(
+  "src/components/reader/reader-styles.ts",
+  "utf8",
+);
+const highlightsRouteSource = readFileSync(
+  "src/routes/highlights/index.tsx",
+  "utf8",
+);
+
+describe("mobile and cross-device responsive contract", () => {
+  it("keeps desktop shell dimensions unchanged", () => {
+    expect(appShellSource).toContain(
+      "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",
+    );
+  });
+
+  it("defines route and component containers for responsive internals", () => {
+    expect(tailwindCss).toContain("container: trauma-route-surface / inline-size");
+    expect(tailwindCss).toContain("container: trauma-memory-list / inline-size");
+    expect(tailwindCss).toContain("container: trauma-reader-surface / inline-size");
+    expect(tailwindCss).toContain("@container trauma-route-surface");
+    expect(tailwindCss).toContain("@container trauma-memory-list");
+    expect(tailwindCss).toContain("@container trauma-reader-surface");
+  });
+
+  it("uses continuous sizing for route padding and reader headings", () => {
+    expect(tailwindCss).toMatch(/clamp\([^)]*cqi[^)]*\)/);
+    expect(tailwindCss).toContain(".trauma-fluid-route-padding");
+    expect(tailwindCss).toContain(".trauma-fluid-reader-title");
+  });
+
+  it("marks route surfaces with responsive container classes", () => {
+    expect(memoryBrowseSource).toContain("trauma-route-surface");
+    expect(memoryBrowseSource).toContain("trauma-memory-list");
+    expect(readerStylesSource).toContain("trauma-route-surface");
+    expect(readerStylesSource).toContain("trauma-reader-surface");
+    expect(highlightsRouteSource).toContain("trauma-route-surface");
+  });
+});
+```
+
+- [ ] **Step 2: Run the new test and confirm it fails**
+
+```bash
+mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts
+```
+
+Expected before implementation: FAIL because the container classes and
+container-query CSS do not exist.
+
+- [ ] **Step 3: Add desktop preservation assertions to the existing shell test**
+
+In `tests/components/app-shell.test.ts`, add an assertion to the desktop shell
+contract test that keeps the desktop grid columns unchanged:
+
+```ts
+expect(appShellSource).toContain(
+  "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",
+);
+```
+
+- [ ] **Step 4: Commit the failing responsive contract**
+
+```bash
+git add tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
+git commit -m "test: define cross-device responsive contract"
+```
+
+## Task 2: Add Container Ownership Classes
+
+**Intent:** Add explicit container boundaries without changing layout yet.
+
+**Files:**
+
+- Modify: `src/components/memories/MemoryBrowse.tsx`
+- Modify: `src/components/reader/reader-styles.ts`
+- Modify: `src/routes/highlights/index.tsx`
+- Modify: `src/routes/[...404].tsx`
+- Modify: `src/styles/tailwind.css`
+
+- [ ] **Step 1: Add route container classes to route frames**
+
+Route frame constants should include `trauma-route-surface`. For example:
+
+```ts
+const pageShell =
+  "trauma-route-surface min-h-screen w-full bg-trauma-bg-surface";
+```
+
+For the reader frame:
+
+```ts
+export const readerFrame =
+  "trauma-route-surface trauma-reader-surface min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
+```
+
+Keep existing desktop sizing and route ownership unchanged.
+
+- [ ] **Step 2: Add memory list container ownership**
+
+In `MemoryBrowse`, add `trauma-memory-list` to the element that owns the memory
+list/grid layout:
+
+```tsx
+<div class={isGrid() ? "trauma-memory-list memory-grid grid grid-cols-2" : "trauma-memory-list grid"}>
+```
+
+Keep the existing list/grid state logic unchanged.
+
+- [ ] **Step 3: Define container contexts**
+
+In `src/styles/tailwind.css`, add these component-scoped classes in
+`@layer utilities`:
+
+```css
+.trauma-route-surface {
+  container: trauma-route-surface / inline-size;
+}
+
+.trauma-memory-list {
+  container: trauma-memory-list / inline-size;
+}
+
+.trauma-reader-surface {
+  container: trauma-reader-surface / inline-size;
+}
+```
+
+- [ ] **Step 4: Verify the focused source-contract test still fails only on missing responsive rules**
+
+```bash
+mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts
+```
+
+Expected: FAIL remains until the next task adds the `@container` rules and
+fluid sizing utilities.
+
+- [ ] **Step 5: Commit container ownership markers**
+
+```bash
+git add src/components/memories/MemoryBrowse.tsx src/components/reader/reader-styles.ts src/routes/highlights/index.tsx src/routes/[...404].tsx src/styles/tailwind.css
+git commit -m "style: add responsive container boundaries"
+```
+
+## Task 3: Replace Component-Internal Width Breakpoints
+
+**Intent:** Convert component-internal mobile adaptations from viewport/device
+breakpoints to container queries. Do not change desktop shell topology.
+
+**Files:**
+
+- Modify: `src/styles/tailwind.css`
+- Modify: `src/components/memories/MemoryBrowse.tsx`
+- Modify: `src/components/reader/reader-styles.ts`
+- Modify: `src/components/reader/MemoryReader.tsx`
+- Modify: `src/routes/highlights/index.tsx`
+
+- [ ] **Step 1: Add fluid route spacing utilities**
+
+Add:
+
+```css
+.trauma-fluid-route-padding {
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+
+.trauma-fluid-route-stack {
+  gap: clamp(0.75rem, 2cqi, 1.5rem);
+}
+
+.trauma-fluid-reader-title {
+  font-size: clamp(2rem, 1.1rem + 3cqi, 3rem);
+  line-height: 1.08;
+}
+```
+
+Keep desktop maximums aligned with current refined desktop values.
+
+- [ ] **Step 2: Add route container rules for header stacking and padding**
+
+Add:
+
+```css
+@container trauma-route-surface (width < 42rem) {
+  .trauma-route-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .trauma-route-row {
+    padding-inline: 1rem;
+  }
+}
+```
+
+Use these classes on browse/highlights route headers and rows instead of adding
+new `max-[720px]` branches for those internals.
+
+- [ ] **Step 3: Add memory list container rules**
+
+Add:
+
+```css
+@container trauma-memory-list (width < 36rem) {
+  .trauma-memory-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trauma-memory-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    min-height: 0;
+  }
+}
+```
+
+Rename the JSX class from `memory-grid` to include `trauma-memory-grid`, and
+add `trauma-memory-card` to memory card links. Keep any existing class needed by
+tests until tests are updated in the same commit.
+
+- [ ] **Step 4: Add reader container rules**
+
+Add:
+
+```css
+@container trauma-reader-surface (width < 42rem) {
+  .trauma-reader-header {
+    grid-template-columns: 40px minmax(0, 1fr);
+    padding-inline: 1rem;
+  }
+
+  .trauma-reader-body {
+    padding-inline: 1rem;
+  }
+}
+```
+
+Apply `trauma-reader-header`, `trauma-reader-body`, and
+`trauma-fluid-reader-title` in `MemoryReader`. Do not change markdown
+sanitisation, highlight selection, or ToC behaviour.
+
+- [ ] **Step 5: Run focused tests**
+
+```bash
+mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit responsive component internals**
+
+```bash
+git add src/styles/tailwind.css src/components/memories/MemoryBrowse.tsx src/components/reader/reader-styles.ts src/components/reader/MemoryReader.tsx src/routes/highlights/index.tsx tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
+git commit -m "style: make route surfaces container responsive"
+```
+
+## Task 4: Add Cross-Device E2E Coverage
+
+**Intent:** Verify user-visible behaviour across narrow and mid-width layouts
+without making the implementation device-model-specific.
+
+**Files:**
+
+- Create: `e2e/cross-device-responsive.spec.ts`
+- Modify: `docs/references/design-system/verification.md`
+
+- [ ] **Step 1: Add Playwright coverage**
+
+Create `e2e/cross-device-responsive.spec.ts`:
+
+```ts
+import { expect, test } from "@playwright/test";
+
+const cases = [
+  { name: "phone narrow", width: 390, height: 844 },
+  { name: "phone wide", width: 430, height: 932 },
+  { name: "tablet portrait", width: 820, height: 1180 },
+  { name: "tablet split", width: 700, height: 900 },
+] as const;
+
+for (const viewport of cases) {
+  test(`keeps primary flows usable on ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/memories");
+
+    await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add memory" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Open filters" }).click();
+    await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.goto("/memories/memory-foundation");
+    await expect(page.getByRole("article", { name: "Memory" })).toBeVisible();
+    await expect(page.getByText("Memory")).toBeVisible();
+  });
+}
+```
+
+If the existing accessible names differ after implementation, update the test to
+the actual stable labels rather than using positional selectors.
+
+- [ ] **Step 2: Run the new E2E test**
+
+```bash
+mise exec -- bun run test:e2e -- e2e/cross-device-responsive.spec.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 3: Update verification docs**
+
+In `docs/references/design-system/verification.md`, add the new E2E command
+under design-system verification:
+
+```bash
+mise exec -- bun run test:e2e -- e2e/cross-device-responsive.spec.ts
+```
+
+- [ ] **Step 4: Commit E2E coverage**
+
+```bash
+git add e2e/cross-device-responsive.spec.ts docs/references/design-system/verification.md
+git commit -m "test: cover cross-device responsive flows"
+```
+
+## Task 5: Update Design-System Guidance
+
+**Intent:** Make the responsive strategy durable so future UI work does not
+return to device-specific breakpoint sprawl.
+
+**Files:**
+
+- Modify: `docs/references/design-system/layout-and-shell.md`
+- Modify: `docs/references/design-system/components-and-surfaces.md`
+- Modify: `docs/references/design-system/interaction-and-accessibility.md`
+- Modify: `docs/references/design-system/verification.md`
+
+- [ ] **Step 1: Document the responsive rule**
+
+Add a section to `layout-and-shell.md`:
+
+```md
+## Mobile And Cross-Device Responsiveness
+
+Desktop shell dimensions are stable and should not be redesigned as part of
+mobile responsive work.
+
+Use viewport breakpoints only for global shell topology. Component internals
+should respond to their container width with container queries. Prefer
+`clamp()`, `min()`, and `max()` for fluid spacing, font-size, radius, and
+control sizing.
+```
+
+- [ ] **Step 2: Document component container ownership**
+
+In `components-and-surfaces.md`, list the responsive containers:
+
+```md
+Responsive container ownership:
+
+- `trauma-route-surface`: route-level width context.
+- `trauma-memory-list`: memory list/grid context.
+- `trauma-reader-surface`: reader content context.
+```
+
+- [ ] **Step 3: Document accessibility constraints**
+
+In `interaction-and-accessibility.md`, add:
+
+```md
+Responsive changes must preserve reachable controls, visible focus states,
+touch target size, readable text, and non-overlapping content at narrow and
+split-view widths.
+```
+
+- [ ] **Step 4: Run documentation checks**
+
+```bash
+git diff --check
+rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md
+```
+
+Expected: no placeholders.
+
+- [ ] **Step 5: Commit design-system guidance**
+
+```bash
+git add docs/references/design-system/layout-and-shell.md docs/references/design-system/components-and-surfaces.md docs/references/design-system/interaction-and-accessibility.md docs/references/design-system/verification.md
+git commit -m "docs: define responsive design strategy"
+```
+
+## Final Verification
+
+Run:
+
+```bash
+mise exec -- bun run typecheck
+mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
+mise exec -- bun run test:e2e -- e2e/cross-device-responsive.spec.ts
+mise exec -- bun run build
+```
+
+For final handoff, include:
+
+- Confirmation that desktop shell dimensions were not changed.
+- Container-query classes and ownership added.
+- Remaining viewport breakpoint usage and why each usage is shell-topology
+  rather than component-internal device targeting.
+- Mobile/cross-device viewport evidence.
+- Exact command outputs.
