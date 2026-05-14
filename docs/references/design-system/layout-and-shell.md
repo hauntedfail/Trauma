@@ -22,6 +22,8 @@ Current desktop contract:
 
 - Width: `275px`.
 - Surface: `bg-trauma-bg-base`.
+- Paper/Hermès material: match the app background material. Do not let the
+  sticky rail render as a separate colour field from the route pane.
 - Padding: `px-2 py-1 pb-3`.
 - Position: sticky, full viewport height.
 - Border: right border only.
@@ -130,7 +132,7 @@ Current desktop contract:
 Island contract:
 
 - Component: `RightPanelSection`.
-- Radius: `rounded-[32px]`.
+- Radius: `rounded-[20px]`.
 - Border: `border-trauma-border`.
 - Background: `bg-trauma-bg-base`.
 - Padding: `p-5`.

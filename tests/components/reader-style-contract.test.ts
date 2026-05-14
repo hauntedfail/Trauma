@@ -23,6 +23,10 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).toContain("text-trauma-link");
+    expect(readerSource).toContain('aria-label="Memory"');
+    expect(readerSource).toContain(">Memory</p>");
+    expect(readerSource).not.toContain(">Reader mode</p>");
+    expect(readerSource).not.toContain("props.result.memory.title}</h1>");
     expect(readerSource).not.toContain("contenteditable");
   });
 
@@ -51,7 +55,7 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("trauma-toc-scroll-shell");
     expect(readerSource).toContain("trauma-toc-scroll-spotlight");
     expect(readerSource).toContain(
-      "animate-trauma-pop-bounce relative overflow-hidden",
+      "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
     );
     expect(readerSource).toContain('class="trauma-toc-scroll-shell"');
     expect(readerSource).not.toContain('class="trauma-toc-scroll-shell relative"');

@@ -337,7 +337,7 @@ Append these tests to `tests/components/app-shell.test.ts`:
 describe("refined right rail contract", () => {
   it("renders the right rail as rounded islands without search", () => {
     expect(appShell).toContain("function RightPanelSection");
-    expect(appShell).toContain("rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5");
+    expect(appShell).toContain("rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5");
     expect(appShell).toContain("Recent highlights");
     expect(appShell).not.toContain("aria-label=\"Search archive\"");
   });
@@ -439,7 +439,7 @@ function RightPanelSection(props: {
   return (
     <section
       aria-labelledby={props.titleId}
-      class="rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5"
+      class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5"
     >
       <h2 class="mb-4 text-[20px] font-extrabold" id={props.titleId}>
         {props.title}

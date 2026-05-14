@@ -56,7 +56,7 @@ const buttonBase =
 const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
-  "sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden";
+  "trauma-shell-left-rail sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden";
 const rightRailSurface =
   "sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
 const rightRailStack =
@@ -65,6 +65,8 @@ const rightRailScrollContent =
   "max-h-[min(34vh,20rem)] overflow-y-auto overscroll-contain pr-1";
 const iconButton =
   "inline-flex size-11 items-center justify-center rounded-full border border-trauma-border bg-trauma-bg-elev text-trauma-text-primary transition hover:bg-trauma-bg-tint";
+const composerSubmitButton =
+  "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const navItemBase =
   "group grid min-h-12 w-max max-w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-3 py-2.5 pr-[18px] text-[19px] font-medium leading-[1.22] text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const activeNavItem =
@@ -393,7 +395,7 @@ function AddMemoryComposerButton(props: {
           <AddMemoryForm
             formClass="grid gap-3.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-4 shadow-trauma-2"
             inputClass={surfaceInput}
-            buttonClass={`${buttonBase} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
+            buttonClass={`${composerSubmitButton} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
             submitLabel="Save memory"
             title="Add memory"
             onCreated={handleCreated}
@@ -474,7 +476,7 @@ function RightPanelSection(props: {
   return (
     <section
       aria-labelledby={props.titleId}
-      class="rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5"
+      class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5"
     >
       <h2 class="mb-4 text-[20px] font-extrabold" id={props.titleId}>
         {props.title}

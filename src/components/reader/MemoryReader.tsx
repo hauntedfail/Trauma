@@ -94,14 +94,13 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   };
 
   return (
-    <article class={readerFrame} aria-labelledby="reader-title">
+    <article class={readerFrame} aria-label="Memory">
       <header class={`${readerPadding} sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur max-[720px]:top-[58px]`}>
         <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
           <ChevronLeftIcon />
         </a>
         <div class="min-w-0">
-          <p class="mb-1 text-[13px] font-bold uppercase text-trauma-text-muted">Reader mode</p>
-          <h1 class="mb-2.5 text-3xl font-bold leading-tight text-trauma-text-primary" id="reader-title">{props.result.memory.title}</h1>
+          <p class="mb-2 text-[15px] font-bold text-trauma-text-primary">Memory</p>
           <Show
             when={sourceHref()}
             fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
@@ -185,7 +184,7 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
   return (
     <Show when={props.toc.length > 0}>
       <nav
-        class="animate-trauma-pop-bounce relative overflow-hidden rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
+        class="animate-trauma-pop-bounce relative overflow-hidden rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
         aria-label="Table of contents"
       >
         <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">

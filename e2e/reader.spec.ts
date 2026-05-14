@@ -14,7 +14,8 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
 
-  await expect(page.locator("#reader-title")).toHaveText("Fixture Reader");
+  await expect(page.getByText("Memory", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Details" })).toBeVisible();
   await expect(page.locator("#details")).toBeVisible();
   await page.getByRole("link", { name: "Details" }).click();
@@ -33,7 +34,7 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await page.getByRole("link", { name: "Open second reader fixture" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/memories/${SECOND_READER_MEMORY_ID}$`));
-  await expect(page.locator("#reader-title")).toHaveText("Second Fixture Reader");
+  await expect(page.getByRole("heading", { name: "Second Fixture Reader" })).toBeVisible();
   await expect(page.getByText("Second reader body")).toBeVisible();
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });

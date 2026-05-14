@@ -70,9 +70,11 @@ Conditional files:
 
    Required visible content:
 
-   - eyebrow: `Reader mode`
-   - title from memory metadata
+   - header label: `Memory`
    - safe source URL link or non-clickable fallback
+
+   Do not render `Reader mode` copy or repeat the memory title in this header.
+   The extracted markdown body owns the visible content title.
 
 4. Keep the table of contents.
 

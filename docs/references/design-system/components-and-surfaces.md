@@ -157,6 +157,8 @@ Rules:
 - The composer popover renders above the rail and main pane layers and must not
   be clipped by route content.
 - The form accepts only URL input.
+- The submit button uses the same rounded-full pill geometry as the rail
+  `Add memory` action.
 - Successful creation navigates to the created memory.
 - On backup-failsafe errors, revalidate the backup alert.
 - Do not add edit fields for title/body/tags in this composer.

@@ -53,6 +53,12 @@ test("renders category, tag, and highlight shortcut sections in the right panel"
   await expect(filters.getByRole("button", { name: "Research" })).toBeVisible();
   await expect(filters.getByRole("button", { name: "solidstart" })).toBeVisible();
   await expect(filters.getByRole("button", { name: /highlight-aware results/i })).toBeVisible();
+
+  const sectionRadius = await filters
+    .locator("section")
+    .first()
+    .evaluate((section) => getComputedStyle(section).borderTopLeftRadius);
+  expect(sectionRadius).toBe("20px");
 });
 
 test("uses drawer controls for navigation and filters on narrow viewports", async ({ page }) => {
@@ -103,6 +109,16 @@ test("layers left rail popovers above the main pane", async ({ page }) => {
   await addMemoryButton.click();
   await expect(addMemoryButton).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  const addMemoryRadius = await addMemoryButton.evaluate(
+    (button) => getComputedStyle(button).borderTopLeftRadius,
+  );
+  await expect
+    .poll(() =>
+      page
+        .getByRole("button", { name: "Save memory" })
+        .evaluate((button) => getComputedStyle(button).borderTopLeftRadius),
+    )
+    .toBe(addMemoryRadius);
   await expectRailDialogAboveMain(page, "Add memory");
   await page.keyboard.press("Escape");
   await expect(addMemoryButton).toHaveAttribute("aria-pressed", "false");
@@ -138,6 +154,13 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-warm-light");
+  await expect
+    .poll(() => readLeftRailMaterial(page))
+    .toMatchObject({
+      backgroundColor: "rgb(236, 226, 204)",
+      beforeContent: '""',
+      afterContent: '""',
+    });
 
   const gridButton = page.getByRole("button", { name: "Grid" });
   await gridButton.click();
@@ -223,6 +246,13 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-black-dark");
+  await expect
+    .poll(() => readLeftRailMaterial(page))
+    .toMatchObject({
+      backgroundColor: "rgb(33, 19, 7)",
+      beforeContent: '""',
+      afterContent: '""',
+    });
   await expect(surfaceGroup.getByRole("button", { name: "Hermès" })).toHaveAttribute("aria-pressed", "true");
   await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveCount(0);
 
@@ -347,5 +377,26 @@ async function expectRailDialogAboveMain(page: Page, dialogName: string) {
     primaryOverflowY: "visible",
     primaryZIndex: "40",
     topElementInsideDialog: true,
+  });
+}
+
+async function readLeftRailMaterial(page: Page) {
+  return page.evaluate(() => {
+    const rail = document.querySelector<HTMLElement>(
+      'aside[aria-label="Primary navigation"]',
+    );
+    if (rail === null) {
+      throw new Error("Primary navigation rail is missing");
+    }
+
+    const style = getComputedStyle(rail);
+    const before = getComputedStyle(rail, "::before");
+    const after = getComputedStyle(rail, "::after");
+
+    return {
+      afterContent: after.content,
+      backgroundColor: style.backgroundColor,
+      beforeContent: before.content,
+    };
   });
 }

@@ -84,7 +84,9 @@ Route surfaces should use `aria-labelledby` and stable headings:
 
 - `memories-title`.
 - `highlights-title`.
-- `reader-title`.
+- Reader fallback states use `reader-state-title`; ready reader content uses
+  the markdown heading from the stored content rather than a duplicate shell
+  header title.
 
 ## Selected And Disabled State
 

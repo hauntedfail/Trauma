@@ -70,7 +70,7 @@ describe("refined app shell contract", () => {
   it("models the right rail as independent island sections", () => {
     expect(appShellSource).toContain("RightPanelSection");
     expect(appShellSource).not.toContain('aria-label="Search archive"');
-    expect(appShellSource).toContain("rounded-[32px] border border-trauma-border");
+    expect(appShellSource).toContain("rounded-[20px] border border-trauma-border");
     expect(appShellSource).toContain("bg-trauma-bg-base");
   });
 
@@ -138,7 +138,7 @@ describe("refined app shell contract", () => {
 
   it("keeps rail popovers layered above route panes", () => {
     expect(appShellSource).toContain(
-      '"sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
+      '"trauma-shell-left-rail sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
     );
     expect(appShellSource).toContain("z-50 mt-1");
     expect(appShellSource).not.toContain(
@@ -200,6 +200,8 @@ describe("refined app shell contract", () => {
     expect(waxSealButtonSource).toContain("trauma-paper-wax-toggle");
     expect(waxSealButtonSource).toContain("trauma-paper-wax-label");
     expect(appShellSource).toContain('variant="command"');
+    expect(appShellSource).toContain("composerSubmitButton");
+    expect(appShellSource).toContain("rounded-full border border-trauma-border-strong");
     expect(appShellSource).toContain('<WaxSealLabel class="max-[1040px]:sr-only">');
     expect(memoryBrowseSource).toContain("<WaxSealButton");
     expect(memoryBrowseSource).toContain("<WaxSealLabel>List</WaxSealLabel>");
@@ -276,5 +278,20 @@ describe("refined app shell contract", () => {
 
     expect(spotlightRule).toContain("rgb(0 0 0 /");
     expect(spotlightRule).not.toContain("var(--accent)");
+  });
+
+  it("keeps paper-mode left rail material aligned with the app background", () => {
+    expect(appShellSource).toContain("trauma-shell-left-rail");
+    expect(tailwindCss).toContain(".trauma-shell-left-rail > *");
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-shell-left-rail::before',
+    );
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-shell-left-rail::after',
+    );
+    expect(tailwindCss).toContain(
+      ':root[data-theme="paper-black-dark"] .trauma-shell-left-rail::after',
+    );
+    expect(tailwindCss).toContain("var(--leather-grain-overlay)");
   });
 });

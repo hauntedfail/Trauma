@@ -25,7 +25,10 @@ Contract:
 
 - Back control links to `/memories`.
 - Header uses the route frame background with backdrop blur.
-- Title uses route-scale text.
+- Header label is exactly `Memory`.
+- Do not repeat the memory title in the header; the markdown body already owns
+  the visible content title.
+- Do not render `Reader mode` copy.
 - Source URL is visible and opens in a new tab only when safe.
 - Source URL links use `text-trauma-link` and `hover:text-trauma-link-hover`.
 - Unsafe or non-linkable source values render as text.
