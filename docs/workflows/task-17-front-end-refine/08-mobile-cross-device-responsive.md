@@ -11,6 +11,23 @@ device-width breakpoints.
 Desktop is out of scope. Do not redesign or resize the existing desktop shell,
 desktop rail, desktop main column, or desktop right rail.
 
+## Strategic Direction
+
+Move TRAUMA from viewport breakpoint-driven design to content-driven and
+component-driven intrinsic responsive design.
+
+The core implementation stack is:
+
+- CSS Grid for two-dimensional shell, route, card-grid, and reader structure.
+- Flexbox for local one-dimensional clusters that can wrap.
+- `clamp()`, `min()`, and `max()` for continuous sizing.
+- Container Queries for component layout decisions.
+- Container Query Units for component-local typography and spacing.
+- `svh`, `dvh`, and `lvh` for mobile viewport height.
+- `env(safe-area-inset-*)` through layout tokens.
+- Responsive image markup with `srcset`, `sizes`, and `<picture>`.
+- Capability and user-preference media queries.
+
 ## Domain Files
 
 Read and execute these files in order:
@@ -120,6 +137,8 @@ responsive boundary lives elsewhere. Document any extra file in the PR body.
 For final handoff, include:
 
 - Confirmation that desktop shell dimensions were not changed.
+- Confirmation that implementation follows content-driven and component-driven
+  intrinsic responsive design rather than viewport breakpoint-driven design.
 - Container-query classes and ownership added.
 - Container query units used for component-local typography/spacing, with any
   remaining viewport-unit component usage justified.

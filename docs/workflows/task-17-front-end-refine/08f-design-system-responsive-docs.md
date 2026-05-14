@@ -28,10 +28,16 @@ Add a section to `layout-and-shell.md`:
 Desktop shell dimensions are stable and should not be redesigned as part of
 mobile responsive work.
 
+The responsive direction is content-driven and component-driven intrinsic
+responsive design, not viewport breakpoint-driven design.
+
 Use viewport breakpoints only for global shell topology. Component internals
 should respond to their container width with container queries. Prefer
 `clamp()`, `min()`, and `max()` for fluid spacing, font-size, radius, and
 control sizing.
+
+Use CSS Grid for two-dimensional shell, route, card-grid, and reader structure.
+Use Flexbox only for local one-dimensional clusters that can wrap.
 
 Route/page shells should be constrained fluid rather than fixed-width:
 combine `max-inline-size`, `inline-size`, `margin-inline`, and

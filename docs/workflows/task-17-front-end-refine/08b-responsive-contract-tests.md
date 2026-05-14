@@ -136,6 +136,14 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).not.toContain("width: 840px");
   });
 
+  it("uses CSS Grid for structural layout", () => {
+    expect(appShellSource).toContain("grid");
+    expect(tailwindCss).toContain(".trauma-memory-grid");
+    expect(tailwindCss).toContain("grid-template-columns");
+    expect(tailwindCss).not.toContain(".trauma-route-surface {\n  display: flex");
+    expect(tailwindCss).not.toContain(".trauma-reader-surface {\n  display: flex");
+  });
+
   it("does not rely on CSS-only responsive image sizing", () => {
     expect(readerStylesSource).toContain("prose-img:max-w-full");
     expect(markdownRendererSource).toContain("srcset");

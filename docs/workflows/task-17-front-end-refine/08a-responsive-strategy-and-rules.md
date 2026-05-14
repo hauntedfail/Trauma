@@ -18,10 +18,17 @@ font-size, radius, control size, and component min-size when a value should
 scale gradually. Use discrete `@container` branches only when layout topology
 changes, such as switching a memory card from two columns to one column.
 
+The strategic shift is from viewport breakpoint-driven design to
+content-driven and component-driven intrinsic responsive design. Viewport width
+may still choose global shell topology, but reusable surfaces should respond to
+their own content, available container space, input capabilities, and user
+preferences.
+
 ## Tech Stack
 
 - SolidStart component boundaries already used by Task 17.
 - Tailwind v4 utilities from `src/styles/tailwind.css`.
+- CSS Grid for two-dimensional shell, route, card-grid, and reader structure.
 - CSS Container Queries with `container-type: inline-size`.
 - Container query units: `cqi`, `cqb`, `cqmin`, and `cqmax`.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
@@ -79,6 +86,9 @@ changes, such as switching a memory card from two columns to one column.
   proves desktop shell dimensions are unchanged.
 - Do not add iPad-specific, phone-model-specific, or device-width-specific
   branches as the primary responsive mechanism.
+- Do not implement responsive behaviour as viewport breakpoint-driven design
+  when content-driven or component-driven intrinsic layout can express the same
+  behaviour.
 - Do not use fixed viewport breakpoints for component internals when a
   container query can express the same adaptation.
 - Do not use CSS `@media` or JavaScript `matchMedia()` as phone, tablet, iPad,
@@ -132,6 +142,22 @@ specific ancestor:
 
 Use unnamed containers only for local, unambiguous component rules. Do not make
 `body`, the whole app shell, or every element a query container.
+
+## Grid-First Structural Layout
+
+Use CSS Grid for two-dimensional structure: app shell columns, route scaffolds,
+memory grids, reader layout, and any layout where rows and columns both matter.
+Grid is the default structural tool for content-driven responsive design because
+it lets the layout adapt to available space without turning every component into
+a device-width branch.
+
+Rules:
+
+- Prefer grid for shell, route, page, card-grid, and reader structure.
+- Use intrinsic grid tracks such as `minmax(0, 1fr)`, `auto`, and content-sized
+  columns instead of hard device assumptions.
+- Keep Flexbox for local one-dimensional clusters; do not use flex to emulate
+  two-dimensional layout.
 
 ## Viewport Breakpoint Limits
 
