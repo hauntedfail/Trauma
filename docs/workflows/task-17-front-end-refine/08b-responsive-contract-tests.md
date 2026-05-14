@@ -144,6 +144,21 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).not.toContain(".trauma-reader-surface {\n  display: flex");
   });
 
+  it("keeps tablet and mobile shell chrome clean and non-duplicated", () => {
+    expect(appShellSource).toContain("BrandHomeLink");
+    expect(appShellSource).toContain("showLabel={true}");
+    expect(appShellSource).toContain("showLabel={false}");
+    expect(appShellSource).toContain("railIconSlot");
+    expect(appShellSource).toContain("railPopoverPanel");
+    expect(appShellSource).toContain("max-[1040px]:hidden");
+    expect(appShellSource).toContain("max-[720px]:grid");
+    expect(appShellSource).not.toContain("isFiltersOpen");
+    expect(appShellSource).not.toContain("setIsFiltersOpen");
+    expect(appShellSource).not.toContain('aria-label="Open filters"');
+    expect(appShellSource).not.toContain('<Drawer ariaLabel="Filters"');
+    expect(appShellSource).not.toContain("FilterNavButton");
+  });
+
   it("does not rely on CSS-only responsive image sizing", () => {
     expect(readerStylesSource).toContain("prose-img:max-w-full");
     expect(markdownRendererSource).toContain("srcset");

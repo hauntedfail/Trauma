@@ -164,12 +164,42 @@ Rules:
 Viewport breakpoints are still acceptable for global shell topology:
 
 - Desktop shell: left rail + main pane + right rail.
-- Tablet shell: compact left rail + main pane + drawer filters.
-- Mobile shell: top bar + drawers.
+- Tablet shell: compact icon-only left rail + main pane. Header chrome, right
+  rail, filter button, and filter drawer are not displayed for tablet layout.
+- Mobile shell: minimal logo-only navigation trigger + main pane. Brand text,
+  right rail, filter button, and filter drawer are not displayed for mobile
+  layout.
 
 Inside route surfaces and reusable components, replace hard `max-[720px]` or
 `max-[1040px]` assumptions with container queries where the rule is about the
 available component width rather than the whole viewport.
+
+## Cross-Device Shell Chrome
+
+This task does not redesign the desktop shell or alter the primary visual
+design. It only makes the existing design system render cleanly across tablet,
+mobile, split-view, and narrow containers.
+
+Rules:
+
+- Tablet uses the left pane as an icon-only rail. Text labels are not visible,
+  and every nav icon, disabled icon, theme icon, add-memory icon, archive icon,
+  and brand mark shares the same visual slot and alignment.
+- The TRAUMA brand name is desktop-only. Tablet and mobile use the mark only.
+- Do not render duplicate brand logo groups in the responsive header. At most
+  one brand mark should be visible in a mobile/tablet shell region.
+- Tablet should not render the mobile top header; its shell follows the desktop
+  pattern: left rail + main pane.
+- The right rail is desktop-only. Tablet and phone do not need right-rail
+  content or a filter drawer substitute.
+- Delete the filter button/drawer path instead of hiding a broken menu behind
+  another breakpoint.
+- Theme popover must be anchored to the rail icon and layer above the main pane
+  without clipping. It should behave as cleanly as the add-memory composer
+  popover.
+
+Detailed implementation steps live in
+[08j Cross-Device Shell Chrome Cleanup](08j-cross-device-shell-chrome-cleanup.md).
 
 ## Continuous Sizing
 

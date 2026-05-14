@@ -35,8 +35,9 @@ execution records; do not treat completed triage records as active work queues.
 Task 17.8 is intentionally split under
 `task-17-front-end-refine/08*.md`: the parent file is an execution map, while
 strategy, tests, container ownership, safe-area layout tokens, implementation,
-capability/preference media queries, responsive image markup, E2E, and
-design-system docs each have their own focused workflow file.
+cross-device shell chrome cleanup, capability/preference media queries,
+responsive image markup, E2E, and design-system docs each have their own
+focused workflow file.
 
 ## Archived Workflows
 

@@ -25,10 +25,10 @@ Create `e2e/cross-device-responsive.spec.ts`:
 import { expect, test } from "@playwright/test";
 
 const cases = [
-  { name: "phone narrow", width: 390, height: 844 },
-  { name: "phone wide", width: 430, height: 932 },
-  { name: "tablet portrait", width: 820, height: 1180 },
-  { name: "tablet split", width: 700, height: 900 },
+  { name: "phone narrow", shell: "mobile", width: 390, height: 844 },
+  { name: "phone wide", shell: "mobile", width: 430, height: 932 },
+  { name: "tablet portrait", shell: "tablet", width: 820, height: 1180 },
+  { name: "tablet split", shell: "mobile", width: 700, height: 900 },
 ] as const;
 
 for (const viewport of cases) {
@@ -36,14 +36,18 @@ for (const viewport of cases) {
     await page.setViewportSize(viewport);
     await page.goto("/memories");
 
-    await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
+    if (viewport.shell === "mobile") {
+      await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+    } else {
+      await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "TRAUMA home" })).toBeVisible();
+    }
+
+    await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
     await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Add memory" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Open filters" }).click();
-    await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
-    await page.keyboard.press("Escape");
 
     await page.goto("/memories/memory-foundation");
     await expect(page.getByRole("article", { name: "Memory" })).toBeVisible();

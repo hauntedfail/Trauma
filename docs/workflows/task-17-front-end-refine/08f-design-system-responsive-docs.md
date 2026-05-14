@@ -39,6 +39,13 @@ control sizing.
 Use CSS Grid for two-dimensional shell, route, card-grid, and reader structure.
 Use Flexbox only for local one-dimensional clusters that can wrap.
 
+Tablet shell keeps the existing left pane but renders it as an icon-only rail:
+brand mark and tab icons share one aligned icon slot, labels are hidden, no
+responsive header is rendered, and the desktop right rail/filter drawer is not
+available. Mobile shell renders only one logo-only navigation trigger and does
+not duplicate TRAUMA brand text or filter controls. Theme and add-memory
+popovers must layer above the main pane and remain visually intact.
+
 Route/page shells should be constrained fluid rather than fixed-width:
 combine `max-inline-size`, `inline-size`, `margin-inline`, and
 `padding-inline` so layout follows writing direction instead of physical
@@ -102,7 +109,7 @@ split-view widths.
 
 ```bash
 git diff --check
-rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md docs/workflows/task-17-front-end-refine/08g-safe-area-layout-tokens.md docs/workflows/task-17-front-end-refine/08h-responsive-image-markup.md docs/workflows/task-17-front-end-refine/08i-capability-preference-media-queries.md
+rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md docs/workflows/task-17-front-end-refine/08g-safe-area-layout-tokens.md docs/workflows/task-17-front-end-refine/08h-responsive-image-markup.md docs/workflows/task-17-front-end-refine/08i-capability-preference-media-queries.md docs/workflows/task-17-front-end-refine/08j-cross-device-shell-chrome-cleanup.md
 ```
 
 Expected: no placeholders.
