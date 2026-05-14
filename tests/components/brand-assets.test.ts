@@ -19,17 +19,15 @@ describe("TRAUMA brand assets", () => {
     expect(appSource).toContain("/favicon.ico");
   });
 
-  it("renders responsive decorative mark chrome with a PNG fallback", () => {
+  it("renders the existing decorative PNG mark without changing brand chrome", () => {
     const html = renderToString(() =>
       createComponent(TraumaMark, { class: "brand-mark", size: 36 }),
     );
 
-    expect(html).toContain("<picture");
-    expect(html).toContain("<source");
-    expect(html).toContain('srcset="/assets/trauma-mark.svg"');
-    expect(html).toContain('type="image/svg+xml"');
+    expect(html).not.toContain("<picture");
+    expect(html).not.toContain("<source");
+    expect(html).not.toContain('srcset="/assets/trauma-mark.svg"');
     expect(html).toContain('src="/assets/trauma-mark.png"');
-    expect(html).toContain('decoding="async"');
     expect(html).toContain('aria-hidden="true"');
     expect(html).toMatch(/\salt(=("|'')?)?\s/);
     expect(html).toContain("brand-mark");

@@ -676,12 +676,17 @@
     text-decoration: none;
   }
 
-  :root[data-theme^="paper"] .trauma-active-nav-item::after {
+  :root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label {
+    position: relative;
+    display: inline-block;
+  }
+
+  :root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after {
     content: "";
     position: absolute;
-    right: 18px;
-    bottom: 5px;
-    left: 62px;
+    right: 0;
+    bottom: -5px;
+    left: 0;
     height: 9px;
     pointer-events: none;
     background-color: currentColor;
@@ -695,7 +700,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    :root[data-theme^="paper"] .trauma-active-nav-item::after {
+    :root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after {
       animation: none;
       clip-path: inset(0 0 0 0);
     }

@@ -76,14 +76,18 @@ The shell tests verify:
 - Left rail scale and vertical rhythm stay close to the refined sample.
 - Left rail tab labels keep enough line-height for descenders.
 - Selected theme options stay visible in normal night mode.
-- Paper themes replace the active left-rail pill with a handwritten underline
-  animation.
+- Paper themes replace the active desktop left-rail text label with a
+  handwritten underline animation.
 - Desktop shell grid remains `275px / minmax(0,840px) / 360px`.
 - Mobile route surfaces use container-owned responsive utilities, safe-area
   tokens, and mobile viewport units instead of route-local `100vh`.
 - Phone shell chrome uses `Primary tabs`; stale navigation and filter drawers
   are absent.
 - Reader and importer image handling preserve safe responsive image markup.
+- The brand mark remains the existing PNG-only chrome.
+- Phone tabs use larger dedicated icon slots and do not render paper/Hermès
+  underline decoration.
+- Tablet and phone theme popovers keep readable labelled toggle buttons.
 
 ## Browser Verification
 
@@ -109,6 +113,7 @@ Check:
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
 - On phone, Theme opens from the bottom tab bar as a popover above the bar.
 - Theme selected state is visible inside the popover in every theme.
+- Theme popover buttons remain labelled and readable below desktop.
 - Add-memory composer opens from shell routes as a popover above route panes.
 - On phone, Add memory opens from the bottom tab bar as a popover above the bar.
 - Browse filters update URL state without clearing unrelated query state.

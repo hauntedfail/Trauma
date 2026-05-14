@@ -49,10 +49,11 @@ Navigation item contract:
   `y` are not clipped.
 - Shape: rounded full pill.
 - Active route, normal themes: accent-soft background and bold text.
-- Active route, paper themes: no pill fill. Use bold accent text with a
-  hand-drawn underline below the label/icon group.
+- Active route, paper themes on desktop rail: no pill fill. Use bold accent
+  text with a hand-drawn underline below the visible text label only.
 - Paper active underline draws from left to right on page render. Honour
   reduced-motion by showing the completed underline without animation.
+- Tablet icon rail and phone bottom tabs must not render the paper underline.
 - Disabled/future routes: disabled button, low opacity, no live link.
 
 The rail may show future controls such as Backup and Settings, but they must
@@ -221,6 +222,7 @@ Phone:
 - Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
   tab layout.
 - The phone tab bar includes Memories, Highlights, Add memory, and Theme.
+- Phone tab icons use a dedicated larger icon slot than the compact tablet rail.
 - Add memory and Theme open popovers above the bottom bar.
 - Right rail content and filter drawers are not rendered as mobile chrome.
 - Phone route content reserves bottom safe-area space so the tab bar does not
@@ -228,9 +230,10 @@ Phone:
 
 ## Responsive Images
 
-Rendered markdown and brand assets must use HTML-level responsive image support
-where the source provides it. CSS `max-width: 100%` is still required, but it is
-not a replacement for `srcset`, `sizes`, and `picture/source` markup.
+Rendered markdown must use HTML-level responsive image support where the source
+provides it. CSS `max-width: 100%` is still required, but it is not a replacement
+for `srcset`, `sizes`, and `picture/source` markup. The TRAUMA brand mark remains
+the existing PNG chrome and should not be changed as part of reader image work.
 
 Reader image contract:
 

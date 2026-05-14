@@ -126,6 +126,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
     expect(appShellSource).toContain("aria-pressed:ring-1");
     expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
+    expect(appShellSource).not.toContain("max-[1040px]:size-10 max-[1040px]:px-0");
   });
 
   it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
@@ -275,7 +276,10 @@ describe("refined app shell contract", () => {
   it("uses a handwritten animated underline for active nav links in paper themes", () => {
     expect(appShellSource).toContain("trauma-active-nav-item");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');
-    expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item::after');
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
+    );
+    expect(tailwindCss).not.toContain(':root[data-theme^="paper"] .trauma-active-nav-item::after');
     expect(tailwindCss).toContain("@keyframes trauma-handwrite-underline");
     expect(tailwindCss).toContain("animation: trauma-handwrite-underline");
     expect(tailwindCss).toContain("-webkit-mask-image: url(\"data:image/svg+xml;utf8,");

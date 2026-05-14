@@ -146,15 +146,31 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).not.toContain("FilterNavButton");
   });
 
-  it("does not rely on CSS-only responsive image sizing", () => {
+  it("keeps phone tabs readable with larger dedicated icon slots", () => {
+    expect(appShellSource).toContain("phoneIconSlot");
+    expect(appShellSource).toContain("grid size-9 place-items-center");
+    expect(appShellSource).toContain("[&>svg]:size-8");
+    expect(appShellSource).toContain("<PlusIcon size={isPhone() ? 28 : undefined}");
+    expect(appShellSource).toContain("<MoonIcon size={isPhone() ? 28 : undefined}");
+    expect(appShellSource).toContain("<SunIcon size={isPhone() ? 28 : undefined}");
+  });
+
+  it("keeps reader chrome legible outside desktop", () => {
+    expect(readFileSync("src/components/reader/MemoryReader.tsx", "utf8")).toContain(
+      "text-[20px] font-bold",
+    );
+  });
+
+  it("keeps the brand mark contract stable while reader images stay responsive", () => {
     expect(readerStylesSource).toContain("prose-img:max-w-full");
     expect(markdownRendererSource).toContain("srcset");
     expect(markdownRendererSource).toContain("sizes");
     expect(markdownRendererSource).toContain("picture");
     expect(markdownRendererSource).toContain("source");
     expect(markdownRendererSource).toContain("decoding");
-    expect(traumaMarkSource).toContain("<picture");
-    expect(traumaMarkSource).toContain("<source");
+    expect(traumaMarkSource).not.toContain("<picture");
+    expect(traumaMarkSource).not.toContain("<source");
+    expect(traumaMarkSource).toContain('src="/assets/trauma-mark.png"');
   });
 
   it("uses media queries for capabilities and preferences only", () => {
@@ -182,5 +198,18 @@ describe("mobile and cross-device responsive contract", () => {
     expect(readerStylesSource).toContain("trauma-route-surface");
     expect(readerStylesSource).toContain("trauma-reader-surface");
     expect(highlightsRouteSource).toContain("trauma-route-surface");
+  });
+
+  it("keeps paper active underline scoped to desktop rail labels only", () => {
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
+    );
+    expect(tailwindCss).not.toContain(
+      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
+    );
+    expect(appShellSource).toContain("trauma-active-nav-label");
+    expect(appShellSource).not.toContain(
+      '<span class="trauma-active-nav-label truncate">{props.item.label}</span>',
+    );
   });
 });

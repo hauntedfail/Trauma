@@ -66,6 +66,7 @@ const rightRailScrollContent =
 const composerSubmitButton =
   "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const railIconSlot = "grid size-10 place-items-center";
+const phoneIconSlot = "grid size-9 place-items-center [&>svg]:size-8";
 const compactRailItem =
   "max-[1040px]:mx-auto max-[1040px]:size-[52px] max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const navItemBase =
@@ -82,7 +83,7 @@ const phoneTabButton =
 const phonePopoverPanel =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
 const themeToggleButton =
-  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong max-[1040px]:size-10 max-[1040px]:px-0";
+  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong";
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
 const SURFACE_STORAGE_KEY = "trauma:surface";
 
@@ -326,7 +327,7 @@ function PhoneRouteTab(props: {
       class={`${phoneTabButton} ${isActive() ? activeNavItem : ""}`}
       href={props.item.href}
     >
-      <span class={railIconSlot}>{icon()}</span>
+      <span class={phoneIconSlot}>{icon()}</span>
       <span class="truncate">{props.item.label}</span>
     </A>
   );
@@ -459,8 +460,8 @@ function AddMemoryComposerButton(props: {
         variant="command"
         onClick={() => setIsComposerOpen((value) => !value)}
       >
-        <span class={isPhone() ? railIconSlot : ""}>
-          <PlusIcon />
+        <span class={isPhone() ? phoneIconSlot : ""}>
+          <PlusIcon size={isPhone() ? 28 : undefined} />
         </span>
         <WaxSealLabel class={isPhone() ? "truncate" : "max-[1040px]:sr-only"}>
           Add memory
@@ -591,7 +592,7 @@ function RouteNavLink(props: {
       onClick={props.onNavigate}
     >
       <span class={railIconSlot}>{icon()}</span>
-      <span class="min-w-0 truncate max-[1040px]:sr-only">
+      <span class="trauma-active-nav-label min-w-0 truncate max-[1040px]:sr-only">
         {props.item.label}
         <Show when={props.item.pip}>
           <span class="ml-2 inline-block size-2 rounded-full bg-trauma-accent align-middle" aria-label="unread" />
@@ -647,10 +648,14 @@ function ThemeNavButton(props: {
 }) {
   let rootRef: HTMLDivElement | undefined;
   const [isThemeOpen, setIsThemeOpen] = createSignal(false);
-  const icon = createMemo(() =>
-    props.brightness === "night" ? <MoonIcon /> : <SunIcon />,
-  );
   const isPhone = () => props.mode === "phone";
+  const icon = createMemo(() =>
+    props.brightness === "night" ? (
+      <MoonIcon size={isPhone() ? 28 : undefined} />
+    ) : (
+      <SunIcon size={isPhone() ? 28 : undefined} />
+    ),
+  );
 
   onMount(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -690,7 +695,7 @@ function ThemeNavButton(props: {
         type="button"
         onClick={() => setIsThemeOpen((value) => !value)}
       >
-        <span class={railIconSlot}>{icon()}</span>
+        <span class={isPhone() ? phoneIconSlot : railIconSlot}>{icon()}</span>
         <span class={isPhone() ? "truncate" : "min-w-0 truncate max-[1040px]:sr-only"}>Theme</span>
       </button>
       <Show when={isThemeOpen()}>

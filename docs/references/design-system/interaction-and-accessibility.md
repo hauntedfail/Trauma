@@ -118,12 +118,17 @@ Tablet:
 - Right rail is hidden.
 - Header chrome does not duplicate the brand or filter controls.
 - Theme and Add memory stay reachable from compact rail popovers.
+- Theme popover controls keep readable text labels and must not collapse into
+  icon-only pills inside the popover.
 - There is no filter drawer.
 
 Mobile:
 
 - Bottom `Primary tabs` provide Memories, Highlights, Add memory, and Theme.
+- Phone tab icons use a larger dedicated icon slot so the tab bar remains
+  scannable without enlarging desktop rail icons.
 - Add memory and Theme popovers render above the bottom bar.
+- Paper/Hermès active underline decoration is not rendered in the phone tab bar.
 - There is no navigation drawer or filter drawer.
 - Text and controls must not overflow their containers.
 

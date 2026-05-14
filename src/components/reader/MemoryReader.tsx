@@ -103,7 +103,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
           <ChevronLeftIcon />
         </a>
         <div class="min-w-0">
-          <p class="mb-2 text-[15px] font-bold text-trauma-text-primary">Memory</p>
+          <p class="mb-2 text-[20px] font-bold text-trauma-text-primary">Memory</p>
           <Show
             when={sourceHref()}
             fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}

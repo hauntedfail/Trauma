@@ -55,6 +55,56 @@ test("keeps phone primary actions reachable from the bottom tab bar", async ({ p
   await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
+test("keeps phone tabs large and free of paper underline decoration", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/memories");
+  await page.evaluate(() => {
+    localStorage.setItem("trauma:brightness", "sun");
+    localStorage.setItem("trauma:surface", "paper");
+    document.documentElement.dataset.theme = "paper-warm-light";
+  });
+  await page.reload();
+
+  const memoriesTab = page
+    .getByRole("navigation", { name: "Primary tabs" })
+    .getByRole("link", { name: "Memories" });
+  const iconBox = await memoriesTab.locator("span").first().boundingBox();
+  const underlineContent = await memoriesTab.evaluate((tab) =>
+    getComputedStyle(tab, "::after").content,
+  );
+
+  expect(iconBox).not.toBeNull();
+  expect(iconBox!.width).toBeGreaterThanOrEqual(34);
+  expect(iconBox!.height).toBeGreaterThanOrEqual(34);
+  expect(underlineContent).toBe("none");
+});
+
+test("keeps non-desktop theme box readable", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.addInitScript(() => {
+    localStorage.setItem("trauma:brightness", "sun");
+    localStorage.setItem("trauma:surface", "normal");
+  });
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "Theme" }).click();
+  const themeDialog = page.getByRole("dialog", { name: "Theme settings" });
+  await expect(themeDialog).toBeVisible();
+  const sunButton = themeDialog.getByRole("button", { name: "Sun" });
+  const paperButton = themeDialog.getByRole("button", { name: "Paper" });
+
+  await expect(sunButton).toBeVisible();
+  await expect(paperButton).toBeVisible();
+
+  const sunBox = await sunButton.boundingBox();
+  const paperBox = await paperButton.boundingBox();
+
+  expect(sunBox).not.toBeNull();
+  expect(paperBox).not.toBeNull();
+  expect(sunBox!.width).toBeGreaterThan(80);
+  expect(paperBox!.width).toBeGreaterThan(80);
+});
+
 test("keeps tablet navigation icon-only and browse content fluid", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.goto("/memories");
