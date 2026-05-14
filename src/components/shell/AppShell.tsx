@@ -73,14 +73,14 @@ const compactRailItem =
 const navItemBase =
   `group grid min-h-12 w-max max-w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-[18px] rounded-full px-2.5 py-2.5 pr-[18px] text-[19px] font-medium leading-[1.22] text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary ${compactRailItem}`;
 const activeNavItem =
-  "trauma-active-nav-item relative bg-trauma-accent-soft font-bold text-trauma-accent-soft-ink hover:bg-trauma-accent-soft hover:text-trauma-accent-soft-ink";
+  "trauma-active-nav-item relative text-trauma-text-primary";
 const disabledNavItem =
   "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
 const railPopoverRoot = "relative w-max max-w-full max-[1040px]:mx-auto";
 const railPopoverPanel =
   "absolute left-0 top-full z-50 mt-1 w-[252px] max-w-[calc(100vw-2rem)] animate-trauma-pop-bounce max-[1040px]:left-full max-[1040px]:top-0 max-[1040px]:ml-2 max-[1040px]:mt-0";
 const phoneTabButton =
-  "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
+  "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:text-trauma-text-primary";
 const phonePopoverPanel =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
 const themeToggleButton =
@@ -657,7 +657,9 @@ function RouteNavLink(props: {
       onClick={props.onNavigate}
     >
       <span class={railIconSlot}>{icon()}</span>
-      <span class="trauma-active-nav-label min-w-0 truncate max-[1040px]:sr-only">
+      <span
+        class={`trauma-active-nav-label min-w-0 truncate max-[1040px]:sr-only ${isActive() ? "font-bold" : ""}`}
+      >
         {props.item.label}
         <Show when={props.item.pip}>
           <span class="ml-2 inline-block size-2 rounded-full bg-trauma-accent align-middle" aria-label="unread" />
@@ -767,7 +769,11 @@ function ThemeNavButton(props: {
         <Show
           when={isPhone()}
           fallback={
-            <span class="min-w-0 truncate max-[1040px]:sr-only">Theme</span>
+            <span
+              class={`min-w-0 truncate max-[1040px]:sr-only ${isThemeOpen() ? "font-bold" : ""}`}
+            >
+              Theme
+            </span>
           }
         >
           <span class={phoneTabLabel} data-phone-tab-label>

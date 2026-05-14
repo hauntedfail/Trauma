@@ -49,6 +49,25 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain('href="/settings"');
   });
 
+  it("uses filled icons and bold labels for active tabs without active background fills", () => {
+    const activeNavStart = appShellSource.indexOf("const activeNavItem =");
+    const activeNavEnd = appShellSource.indexOf("const disabledNavItem =", activeNavStart);
+    const activeNavDeclaration = appShellSource.slice(activeNavStart, activeNavEnd);
+    const phoneTabStart = appShellSource.indexOf("const phoneTabButton =");
+    const phoneTabEnd = appShellSource.indexOf("const phonePopoverPanel =", phoneTabStart);
+    const phoneTabDeclaration = appShellSource.slice(phoneTabStart, phoneTabEnd);
+
+    expect(activeNavDeclaration).toContain("trauma-active-nav-item");
+    expect(appShellSource).toContain('${isActive() ? "font-bold" : ""}');
+    expect(activeNavDeclaration).not.toContain("bg-trauma-accent-soft");
+    expect(activeNavDeclaration).not.toContain("text-trauma-accent-soft-ink");
+    expect(activeNavDeclaration).not.toContain("hover:bg-trauma-accent-soft");
+    expect(activeNavDeclaration).not.toContain("hover:text-trauma-accent-soft-ink");
+    expect(phoneTabDeclaration).not.toContain("aria-pressed:bg-trauma-accent-soft");
+    expect(phoneTabDeclaration).not.toContain("aria-pressed:text-trauma-accent-soft-ink");
+    expect(appShellSource).toContain('[isActive() ? "filled" : "outline"]');
+  });
+
   it("keeps desktop shell columns flush instead of centering panes inside gutters", () => {
     expect(appShellSource).toContain(
       "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",

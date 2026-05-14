@@ -29,6 +29,59 @@ test("aligns the desktop brand mark with left rail tab icons", async ({ page }) 
   expect(Math.abs(brandCenter - memoriesIconCenter)).toBeLessThanOrEqual(1);
 });
 
+test("uses filled active nav icons without active tab background", async ({ page }) => {
+  await page.goto("/memories");
+
+  const memoriesLink = page
+    .getByRole("navigation", { name: "Primary sections" })
+    .getByRole("link", { name: "Memories" });
+  const normalState = await memoriesLink.evaluate((link) => {
+    const label = link.querySelector(".trauma-active-nav-label");
+    const firstFilledShape = link.querySelector("svg [fill]");
+
+    return {
+      backgroundColor: getComputedStyle(link).backgroundColor,
+      fill: firstFilledShape?.getAttribute("fill") ?? "",
+      fontWeight: Number.parseInt(
+        label === null ? "0" : getComputedStyle(label).fontWeight,
+        10,
+      ),
+    };
+  });
+
+  expect(normalState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(normalState.fill).toBe("currentColor");
+  expect(normalState.fontWeight).toBeGreaterThanOrEqual(700);
+});
+
+test("keeps paper active nav underline while removing active tab background", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("trauma:brightness", "sun");
+    localStorage.setItem("trauma:surface", "paper");
+  });
+  await page.goto("/memories");
+
+  const memoriesLink = page
+    .getByRole("navigation", { name: "Primary sections" })
+    .getByRole("link", { name: "Memories" });
+  const paperState = await memoriesLink.evaluate((link) => {
+    const label = link.querySelector(".trauma-active-nav-label");
+    const underline = label === null ? undefined : getComputedStyle(label, "::after");
+
+    return {
+      animationName: underline?.animationName ?? "",
+      backgroundColor: getComputedStyle(link).backgroundColor,
+      underlineContent: underline?.content ?? "none",
+    };
+  });
+
+  expect(paperState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(paperState.underlineContent).toBe('""');
+  expect(paperState.animationName).toBe("trauma-handwrite-underline");
+});
+
 test("updates URL query state from search, filters, highlight shortcuts, and view controls", async ({
   page,
 }) => {

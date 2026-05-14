@@ -67,7 +67,8 @@ Check all of these:
    Minimum visual checks:
 
    - TRAUMA mark is visible in the rail.
-   - Active nav item uses the filled icon variant.
+   - Active nav item uses the filled icon variant and bold label without a
+     selected pill/background highlight.
    - Search pill, memory rows, and highlight quotes match the sample direction.
    - Theme controls fit inside the rail without text overflow.
    - No button text overflows on mobile.

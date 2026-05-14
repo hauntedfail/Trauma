@@ -57,7 +57,8 @@ Rules:
 - Settings.
 
 Active route links use the filled variant. Inactive links and future controls
-use outline variants.
+use outline variants. Active route selection is not shown with a surrounding
+primary-colour fill; the filled icon and bold tab label carry the state.
 
 ## Utility Icons
 

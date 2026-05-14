@@ -47,10 +47,12 @@ Navigation item contract:
 - Text size: `19px`.
 - Text line-height: at least `1.2` so descenders such as `g`, `q`, `p`, and
   `y` are not clipped.
-- Shape: rounded full pill.
-- Active route, normal themes: accent-soft background and bold text.
-- Active route, paper themes on desktop rail: no pill fill. Use bold accent
-  text with a hand-drawn underline below the visible text label only.
+- Shape: rounded full pill for hit area only; active state must not add a
+  selected pill fill or surrounding primary-colour highlight.
+- Active route, all themes: use the filled icon variant and bold visible tab
+  label.
+- Active route, paper themes on desktop rail: keep the hand-drawn underline
+  below the visible text label only.
 - Paper active underline draws from left to right on page render. Honour
   reduced-motion by showing the completed underline without animation.
 - Tablet icon rail and phone bottom tabs must not render the paper underline.
