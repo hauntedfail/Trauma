@@ -51,8 +51,9 @@ The token tests verify:
 - Paper sun exposes the paper texture variable set.
 - Paper night exposes the leather texture variable set while retaining the
   `paper-black-dark` theme name.
-- The surface toggle label is Paper in sun brightness and Hermès in night
-  brightness while the stored surface value remains `paper`.
+- The surface toggle labels are Light/Paper in sun brightness and
+  Midnight/Hermès in night brightness while stored surface values remain
+  `normal` and `paper`.
 - Linked highlight anchor tokens exist per theme and are not reused blindly from
   the default yellow highlight colours.
 - Material textures render through layered backgrounds plus fixed grain/fibre/pore

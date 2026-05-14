@@ -67,6 +67,14 @@ Defaults:
 - Surface: `normal`.
 - Theme: `black-dark`.
 
+Surface display labels are brightness-specific while stored values remain
+stable:
+
+- `normal` is labelled Light in sun brightness.
+- `normal` is labelled Midnight in night brightness.
+- `paper` is labelled Paper in sun brightness.
+- `paper` is labelled Hermès in night brightness.
+
 ## Background Contract
 
 Every theme must use one pane background colour:

@@ -144,6 +144,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .getByRole("button", { name: "Sun" })
     .click();
   const surfaceGroup = page.getByRole("group", { name: "Surface" });
+  await expect(surfaceGroup.getByRole("button", { name: "Light" })).toBeVisible();
+  await expect(surfaceGroup.getByRole("button", { name: "Midnight" })).toHaveCount(0);
+  await expect(surfaceGroup.getByRole("button", { name: "Normal" })).toHaveCount(0);
   await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toBeVisible();
   await expect(surfaceGroup.getByRole("button", { name: "Hermès" })).toHaveCount(0);
   await page
@@ -246,6 +249,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-black-dark");
+  await expect(surfaceGroup.getByRole("button", { name: "Midnight" })).toBeVisible();
+  await expect(surfaceGroup.getByRole("button", { name: "Light" })).toHaveCount(0);
+  await expect(surfaceGroup.getByRole("button", { name: "Normal" })).toHaveCount(0);
   await expect
     .poll(() => readLeftRailMaterial(page))
     .toMatchObject({
@@ -260,6 +266,8 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .getByRole("group", { name: "Brightness" })
     .getByRole("button", { name: "Sun" })
     .click();
+  await expect(surfaceGroup.getByRole("button", { name: "Light" })).toBeVisible();
+  await expect(surfaceGroup.getByRole("button", { name: "Midnight" })).toHaveCount(0);
   await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveAttribute("aria-pressed", "true");
 });
 

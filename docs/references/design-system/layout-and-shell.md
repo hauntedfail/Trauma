@@ -95,6 +95,10 @@ Interaction rules:
 Selection rules:
 
 - Use `aria-pressed`.
+- The stored `normal` surface value is labelled Light in sun brightness and
+  Midnight in night brightness.
+- The stored `paper` surface value is labelled Paper in sun brightness and
+  Hermès in night brightness.
 - Selected options must use `bg-trauma-bg-elev` plus an inset strong-border
   ring.
 - Do not use `bg-trauma-bg-surface` for selected state because surface equals

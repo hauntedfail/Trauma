@@ -146,7 +146,11 @@ describe("refined app shell contract", () => {
     );
   });
 
-  it("labels paper surface as Hermès in night brightness only", () => {
+  it("labels surface options by brightness while preserving stored values", () => {
+    expect(appShellSource).toContain("getNormalSurfaceLabel");
+    expect(appShellSource).toContain('return brightness === "night" ? "Midnight" : "Light";');
+    expect(appShellSource).toContain("const normalSurfaceLabel = createMemo");
+    expect(appShellSource).toContain("<span>{normalSurfaceLabel()}</span>");
     expect(appShellSource).toContain("getPaperSurfaceLabel");
     expect(appShellSource).toContain('return brightness === "night" ? "Hermès" : "Paper";');
     expect(appShellSource).toContain("const paperSurfaceLabel = createMemo");
@@ -154,6 +158,8 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('props.brightness === "night" ? <HermesIcon /> : <PaperIcon />');
     expect(appShellSource).toContain("<span>{paperSurfaceLabel()}</span>");
     expect(appShellSource).toContain("{paperSurfaceIcon()}");
+    expect(appShellSource).toContain('onClick={() => props.onSurface("normal")}');
+    expect(appShellSource).not.toContain("<span>Normal</span>");
   });
 
   it("places the theme tab between backup and settings", () => {

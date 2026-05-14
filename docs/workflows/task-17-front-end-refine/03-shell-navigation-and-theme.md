@@ -69,6 +69,13 @@ Primary files:
    - `sun` + `paper` -> `paper-warm-light`
    - `night` + `paper` -> `paper-black-dark`
 
+   Surface labels are presentation-only:
+
+   - `normal` is labelled Light when brightness is `sun`
+   - `normal` is labelled Midnight when brightness is `night`
+   - `paper` is labelled Paper when brightness is `sun`
+   - `paper` is labelled Hermès when brightness is `night`
+
 2. In `AppShell`, initialize theme controls with Solid state.
 
    Use `onMount` for browser-only reads and writes:

@@ -630,6 +630,9 @@ function ThemeBlock(props: {
   onSurface: (mode: SurfaceMode) => void;
   surface: SurfaceMode;
 }) {
+  const normalSurfaceLabel = createMemo(() =>
+    getNormalSurfaceLabel(props.brightness),
+  );
   const paperSurfaceLabel = createMemo(() =>
     getPaperSurfaceLabel(props.brightness),
   );
@@ -667,7 +670,7 @@ function ThemeBlock(props: {
           onClick={() => props.onSurface("normal")}
         >
           <PageIcon />
-          <span>Normal</span>
+          <span>{normalSurfaceLabel()}</span>
         </button>
         <button
           aria-pressed={props.surface === "paper"}
@@ -681,6 +684,10 @@ function ThemeBlock(props: {
       </div>
     </section>
   );
+}
+
+function getNormalSurfaceLabel(brightness: BrightnessMode): "Light" | "Midnight" {
+  return brightness === "night" ? "Midnight" : "Light";
 }
 
 function getPaperSurfaceLabel(brightness: BrightnessMode): "Paper" | "Hermès" {
