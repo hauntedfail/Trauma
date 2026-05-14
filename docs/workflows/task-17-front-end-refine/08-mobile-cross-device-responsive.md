@@ -41,6 +41,8 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/container-type`
 - MDN `clamp()`:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/clamp`
+- MDN CSS logical properties and values:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_logical_properties_and_values`
 - `docs/references/design-system/layout-and-shell.md`
 - `docs/references/design-system/components-and-surfaces.md`
 - `docs/references/design-system/interaction-and-accessibility.md`
@@ -59,6 +61,8 @@ changes, such as switching a memory card from two columns to one column.
   branches as the primary responsive mechanism.
 - Do not use fixed viewport breakpoints for component internals when a
   container query can express the same adaptation.
+- Do not introduce fixed-width route/page shells. Route content should be
+  constrained fluid with logical sizing and spacing properties.
 - Do not reintroduce `src/styles/app.css`.
 - Do not change server, importer, backup, extension, database, or markdown
   reader behaviour.
@@ -122,6 +126,32 @@ Rules:
   only where the component width is the correct constraint.
 - Prefer `cqi` in container-query contexts and ordinary rem-based values
   outside them.
+
+### Constrained Fluid Page Shells
+
+Do not build route/page shells with fixed width wrappers. Use constrained fluid
+layout:
+
+```css
+.trauma-fluid-page-shell {
+  inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
+  max-inline-size: var(--trauma-page-shell-max, 52rem);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+```
+
+Rules:
+
+- Use `max-inline-size`, `inline-size`, `margin-inline`, `padding-inline`, and
+  other logical properties where the concept is inline/block rather than
+  physical left/right/top/bottom.
+- Do not use fixed `width`, left/right-only margin shims, or viewport-width
+  page wrappers for route content.
+- The desktop shell grid remains unchanged. This rule applies to route/page
+  content shells and reusable surfaces inside the assigned shell column.
+- If a component needs a max readable measure, express it as a constrained
+  fluid wrapper rather than a fixed-width card.
 
 ## File Ownership
 
@@ -201,6 +231,14 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).toContain(".trauma-fluid-reader-title");
   });
 
+  it("uses logical properties for constrained fluid page shells", () => {
+    expect(tailwindCss).toContain(".trauma-fluid-page-shell");
+    expect(tailwindCss).toContain("max-inline-size");
+    expect(tailwindCss).toContain("margin-inline: auto");
+    expect(tailwindCss).toContain("padding-inline: clamp(");
+    expect(tailwindCss).not.toContain("width: 840px");
+  });
+
   it("marks route surfaces with responsive container classes", () => {
     expect(memoryBrowseSource).toContain("trauma-route-surface");
     expect(memoryBrowseSource).toContain("trauma-memory-list");
@@ -268,6 +306,9 @@ export const readerFrame =
 
 Keep existing desktop sizing and route ownership unchanged.
 
+Do not add fixed-width wrappers around these route frames. Any inner readable
+measure added later must use the `trauma-fluid-page-shell` utility from Task 3.
+
 - [ ] **Step 2: Add memory list container ownership**
 
 In `MemoryBrowse`, add `trauma-memory-list` to the element that owns the memory
@@ -332,6 +373,13 @@ breakpoints to container queries. Do not change desktop shell topology.
 Add:
 
 ```css
+.trauma-fluid-page-shell {
+  inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
+  max-inline-size: var(--trauma-page-shell-max, 52rem);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4cqi, 2rem);
+}
+
 .trauma-fluid-route-padding {
   padding-inline: clamp(1rem, 4cqi, 2rem);
 }
@@ -347,6 +395,9 @@ Add:
 ```
 
 Keep desktop maximums aligned with current refined desktop values.
+Use logical properties for route/page shell sizing and spacing. Do not replace
+this with `width`, `margin-left`, `margin-right`, `padding-left`, or
+`padding-right` unless a physical direction is semantically required.
 
 - [ ] **Step 2: Add route container rules for header stacking and padding**
 
@@ -410,7 +461,27 @@ Apply `trauma-reader-header`, `trauma-reader-body`, and
 `trauma-fluid-reader-title` in `MemoryReader`. Do not change markdown
 sanitisation, highlight selection, or ToC behaviour.
 
-- [ ] **Step 5: Run focused tests**
+- [ ] **Step 5: Apply constrained fluid shells only where route content needs a readable measure**
+
+Use `trauma-fluid-page-shell` for inner page content that should be readable but
+not fixed-width. Do not apply it to the desktop shell grid or to full-column
+frames that must remain flush with pane borders.
+
+Examples:
+
+```tsx
+<div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+  <div class="trauma-fluid-page-shell">
+    ...
+  </div>
+</div>
+```
+
+If the browse timeline must continue touching the pane edge, do not wrap it in
+`trauma-fluid-page-shell`; instead keep the full-width frame and use
+container-query padding on rows.
+
+- [ ] **Step 6: Run focused tests**
 
 ```bash
 mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -418,7 +489,7 @@ mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit responsive component internals**
+- [ ] **Step 7: Commit responsive component internals**
 
 ```bash
 git add src/styles/tailwind.css src/components/memories/MemoryBrowse.tsx src/components/reader/reader-styles.ts src/components/reader/MemoryReader.tsx src/routes/highlights/index.tsx tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -523,6 +594,11 @@ Use viewport breakpoints only for global shell topology. Component internals
 should respond to their container width with container queries. Prefer
 `clamp()`, `min()`, and `max()` for fluid spacing, font-size, radius, and
 control sizing.
+
+Route/page shells should be constrained fluid rather than fixed-width:
+combine `max-inline-size`, `inline-size`, `margin-inline`, and
+`padding-inline` so layout follows writing direction instead of physical
+left/right assumptions.
 ```
 
 - [ ] **Step 2: Document component container ownership**
@@ -578,6 +654,7 @@ For final handoff, include:
 
 - Confirmation that desktop shell dimensions were not changed.
 - Container-query classes and ownership added.
+- Constrained fluid page-shell utility added with logical properties.
 - Remaining viewport breakpoint usage and why each usage is shell-topology
   rather than component-internal device targeting.
 - Mobile/cross-device viewport evidence.
