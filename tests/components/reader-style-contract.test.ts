@@ -55,7 +55,16 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("onScroll={updateTocScrollHint}");
     expect(tailwindSource).toContain(".trauma-toc-scroll-spotlight");
     expect(tailwindSource).toContain("radial-gradient(ellipse at 50% 100%");
-    expect(tailwindSource).toContain("color-mix(in srgb, var(--accent)");
+
+    const spotlightStart = tailwindSource.indexOf(".trauma-toc-scroll-spotlight");
+    const nextRuleStart = tailwindSource.indexOf(
+      ':root[data-theme^="paper"] .trauma-paper-wax-seal',
+      spotlightStart,
+    );
+    const spotlightRule = tailwindSource.slice(spotlightStart, nextRuleStart);
+
+    expect(spotlightRule).toContain("rgb(0 0 0 /");
+    expect(spotlightRule).not.toContain("var(--accent)");
   });
 
   it("defines a reduced-motion-safe pop bounce animation for reader TOC entry", () => {

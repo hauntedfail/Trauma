@@ -111,8 +111,9 @@ let those islands grow vertically for every item.
 
 Reader TOC should make overflow discoverable. When its bounded list can still
 scroll downward, use a low-contrast bottom spotlight shadow anchored to the
-bottom of the TOC island itself. Do not anchor that shadow to the inner list
-body, because the island padding makes it appear detached from the component.
+bottom of the TOC island itself. The spotlight shadow is neutral black, not the
+primary/accent colour. Do not anchor that shadow to the inner list body,
+because the island padding makes it appear detached from the component.
 
 ## Add Memory Composer
 

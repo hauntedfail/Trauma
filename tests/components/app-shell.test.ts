@@ -160,4 +160,20 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain("clip-path: inset(0 100% 0 0)");
     expect(tailwindCss).toContain("background-color: transparent");
   });
+
+  it("keeps the reader TOC overflow spotlight shadow neutral black", () => {
+    const spotlightStart = tailwindCss.indexOf(".trauma-toc-scroll-spotlight");
+    const nextRuleStart = tailwindCss.indexOf(
+      ':root[data-theme^="paper"] .trauma-paper-wax-seal',
+      spotlightStart,
+    );
+
+    expect(spotlightStart).toBeGreaterThan(-1);
+    expect(nextRuleStart).toBeGreaterThan(spotlightStart);
+
+    const spotlightRule = tailwindCss.slice(spotlightStart, nextRuleStart);
+
+    expect(spotlightRule).toContain("rgb(0 0 0 /");
+    expect(spotlightRule).not.toContain("var(--accent)");
+  });
 });
