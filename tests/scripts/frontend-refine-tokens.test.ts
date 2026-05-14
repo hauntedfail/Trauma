@@ -120,6 +120,7 @@ describe("front-end refine design tokens", () => {
       "--leather-texture-blend",
       "--leather-grain-overlay",
       "--leather-fiber-overlay",
+      "--leather-crease-overlay",
       "--leather-sheen-layer",
       "--leather-grain-opacity",
       "--leather-grain-blend",
@@ -133,6 +134,7 @@ describe("front-end refine design tokens", () => {
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body');
     expect(tailwindCss).toContain(':root[data-theme="paper-black-dark"] body::after');
     expect(tailwindCss).toContain("var(--leather-sheen-layer)");
+    expect(tailwindCss).toContain("var(--leather-crease-overlay)");
     expect(tailwindCss).toContain("var(--leather-fiber-overlay)");
     expect(tailwindCss).toContain("var(--leather-grain-overlay)");
   });
@@ -161,7 +163,7 @@ describe("front-end refine design tokens", () => {
 
     expect(
       Number(readThemeToken(body, "--leather-grain-opacity")),
-    ).toBeGreaterThanOrEqual(0.48);
+    ).toBeGreaterThanOrEqual(0.62);
   });
 
   it("keeps refined typography local without runtime font imports or negative tracking", () => {
