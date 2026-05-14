@@ -13,6 +13,7 @@ describe("refined reader visual contract", () => {
     expect(combinedSource).toContain("text-trauma-text-primary");
     expect(combinedSource).toContain("bg-trauma-bg-surface");
     expect(combinedSource).toContain("prose-mark:bg-trauma-highlight-bg");
+    expect(combinedSource).toContain("trauma-reader-content");
     expect(combinedSource).not.toMatch(/text-slate|border-slate|bg-slate|text-blue|bg-white|yellow-/);
   });
 
@@ -65,6 +66,21 @@ describe("refined reader visual contract", () => {
 
     expect(spotlightRule).toContain("rgb(0 0 0 /");
     expect(spotlightRule).not.toContain("var(--accent)");
+  });
+
+  it("gives linked highlight anchors a target-specific contrast treatment", () => {
+    expect(tailwindSource).toContain("--anchor-highlight-bg");
+    expect(tailwindSource).toContain("--anchor-highlight-ink");
+    expect(tailwindSource).toContain("--anchor-highlight-ring");
+    expect(tailwindSource).toContain(
+      ".trauma-reader-content mark[data-highlight-id]:target",
+    );
+    expect(tailwindSource).toContain(
+      "background-color: var(--anchor-highlight-bg)",
+    );
+    expect(tailwindSource).toContain("color: var(--anchor-highlight-ink)");
+    expect(tailwindSource).toContain("var(--anchor-highlight-ring)");
+    expect(tailwindSource).toContain("scroll-margin-block");
   });
 
   it("defines a reduced-motion-safe pop bounce animation for reader TOC entry", () => {

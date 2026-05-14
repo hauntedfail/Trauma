@@ -85,6 +85,9 @@ Visual contract:
 - `bg-trauma-highlight-bg`.
 - `text-trauma-highlight-ink`.
 - Small horizontal padding.
+- When a persisted highlight is the URL hash target, the reader scopes the
+  target treatment to `.trauma-reader-content mark[data-highlight-id]:target`
+  and uses anchor highlight tokens so every theme keeps the linked quote legible.
 
 Highlight excerpts use `HighlightExcerpt`, not the reader prose mark style.
 

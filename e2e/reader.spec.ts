@@ -38,6 +38,45 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });
 
+test("keeps linked reader highlight anchors readable in non-normal themes", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  for (const theme of [
+    { brightness: "sun", name: "warm-light", surface: "normal" },
+    { brightness: "sun", name: "paper-warm-light", surface: "paper" },
+    { brightness: "night", name: "paper-black-dark", surface: "paper" },
+  ] as const) {
+    await setReaderTheme(page, theme.brightness, theme.surface);
+    await page.goto(`/memories/${READER_MEMORY_ID}#hl-fixture`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
+
+    const targetStyle = await page.locator("mark#hl-fixture").evaluate((mark) => {
+      const style = getComputedStyle(mark);
+      const rootStyle = getComputedStyle(document.documentElement);
+
+      return {
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+        color: style.color,
+        expectedBackground: rootStyle.getPropertyValue("--anchor-highlight-bg").trim(),
+        expectedInk: rootStyle.getPropertyValue("--anchor-highlight-ink").trim(),
+        expectedRing: rootStyle.getPropertyValue("--anchor-highlight-ring").trim(),
+      };
+    });
+
+    expect(targetStyle.expectedBackground, theme.name).not.toBe("");
+    expect(targetStyle.expectedInk, theme.name).not.toBe("");
+    expect(targetStyle.expectedRing, theme.name).not.toBe("");
+    expect(targetStyle.boxShadow, theme.name).not.toBe("none");
+    expect(targetStyle.expectedBackground, theme.name).not.toBe("#ffe2a8");
+    expect(targetStyle.expectedInk, theme.name).not.toBe("#3d2b12");
+    expect(targetStyle.backgroundColor, theme.name).not.toBe("rgb(255, 226, 168)");
+    expect(targetStyle.color, theme.name).not.toBe("rgb(61, 43, 18)");
+  }
+});
+
 test("toggles selected reader text as a persisted highlight", async ({ page }) => {
   createReaderFixture();
   const selectedText = "Curated markdown body";
@@ -118,6 +157,21 @@ test("anchors the reader toc scroll spotlight to the toc island bottom", async (
   expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
   expect(Math.abs(geometry.spotlightBottomGap)).toBeLessThanOrEqual(1);
 });
+
+async function setReaderTheme(
+  page: Page,
+  brightness: "night" | "sun",
+  surface: "normal" | "paper",
+) {
+  await page.goto("/memories");
+  await page.evaluate(
+    ({ brightness: nextBrightness, surface: nextSurface }) => {
+      localStorage.setItem("trauma:brightness", nextBrightness);
+      localStorage.setItem("trauma:surface", nextSurface);
+    },
+    { brightness, surface },
+  );
+}
 
 function createReaderFixture() {
   execFileSync(

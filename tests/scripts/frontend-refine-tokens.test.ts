@@ -84,6 +84,20 @@ describe("front-end refine design tokens", () => {
     }
   });
 
+  it("defines readable linked-highlight anchor tokens outside normal night mode", () => {
+    for (const theme of themeBlocks.filter((item) => item.name !== "black-dark")) {
+      const body = tailwindCss.match(theme.pattern)?.groups?.body;
+
+      if (body === undefined) {
+        throw new Error(`Missing theme block ${theme.name}`);
+      }
+
+      expect(readThemeToken(body, "--anchor-highlight-bg")).not.toBe("#ffe2a8");
+      expect(readThemeToken(body, "--anchor-highlight-ink")).not.toBe("#3d2b12");
+      expect(readThemeToken(body, "--anchor-highlight-ring")).not.toBe("");
+    }
+  });
+
   it("defines paper texture variables for light paper mode", () => {
     const body = tailwindCss.match(
       /:root\[data-theme="paper-warm-light"\]\s*{(?<body>[^}]*)}/s,

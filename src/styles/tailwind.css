@@ -73,6 +73,9 @@
     --state-info: #3b6ea8;
     --hl-bg: #ffe2a8;
     --hl-ink: #3d2b12;
+    --anchor-highlight-bg: #ffe2a8;
+    --anchor-highlight-ink: #3d2b12;
+    --anchor-highlight-ring: rgb(255 226 168 / 44%);
     --hl-quote-bg: #fff8ee;
     --hl-quote-bar: #c57b57;
     --hl-quote-ink: #59483d;
@@ -150,6 +153,9 @@
     --selection-bg: var(--wine-100);
     --selection-fg: var(--wine-800);
     --focus-ring: 0 0 0 3px rgb(122 27 37 / 35%);
+    --anchor-highlight-bg: #7a1b25;
+    --anchor-highlight-ink: #fffefa;
+    --anchor-highlight-ring: rgb(122 27 37 / 30%);
   }
 
   :root[data-theme="paper-warm-light"] {
@@ -179,6 +185,9 @@
     --selection-bg: #e6c9b5;
     --selection-fg: #4a0f16;
     --focus-ring: 0 0 0 3px rgb(98 20 29 / 35%);
+    --anchor-highlight-bg: #6d411c;
+    --anchor-highlight-ink: #fff3cf;
+    --anchor-highlight-ring: rgb(109 65 28 / 38%);
     --paper-texture-radials:
       radial-gradient(
         900px 620px at 18% 4%,
@@ -244,6 +253,9 @@
     --shadow-1: 0 1px 2px rgb(0 0 0 / 50%);
     --shadow-2: 0 4px 10px rgb(0 0 0 / 50%);
     --shadow-drawer: 0 20px 60px rgb(0 0 0 / 70%);
+    --anchor-highlight-bg: #f0d2a3;
+    --anchor-highlight-ink: #211307;
+    --anchor-highlight-ring: rgb(240 210 163 / 38%);
     --leather-texture-radials:
       radial-gradient(
         900px 620px at 16% 0%,
@@ -663,4 +675,13 @@
     animation: none;
     will-change: auto;
   }
+}
+
+.trauma-reader-content mark[data-highlight-id]:target {
+  scroll-margin-block: 6rem;
+  background-color: var(--anchor-highlight-bg);
+  color: var(--anchor-highlight-ink);
+  box-shadow:
+    0 0 0 2px var(--bg-surface),
+    0 0 0 5px var(--anchor-highlight-ring);
 }
