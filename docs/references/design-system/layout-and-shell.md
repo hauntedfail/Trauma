@@ -9,9 +9,11 @@ The desktop shell is a three-column grid:
 ```
 
 The shell is centred with `justify-center`, but panes themselves are flush.
-There must be no contrasting gutter between the left rail and main pane.
+There must be no contrasting gutter or material seam between the left rail,
+main pane, and right rail.
 
-Column separation is done with `border-trauma-border`.
+Column separation is always done with `border-trauma-border`. Paper/Hermès
+must keep those borders while avoiding pane-local background seams.
 
 ## Left Rail
 
@@ -22,11 +24,14 @@ Current desktop contract:
 
 - Width: `275px`.
 - Surface: `bg-trauma-bg-base`.
-- Paper/Hermès material: match the app background material. Do not let the
-  sticky rail render as a separate colour field from the route pane.
-- Paper/Hermès rail overlays must use fixed background attachment so grain,
-  glow, and leather texture share the same viewport origin as the app
-  background.
+- Paper/Hermès material: the app background is one global body-level material.
+  Shell panes and route panes must stay transparent so the material reads as a
+  continuous surface.
+- Do not add pane-local paper/leather background images or rail-only overlays;
+  those create visible material seams between major panes. Keep the intended
+  column borders as borders, not as background colour changes.
+- Hermès uses leather pore/fiber/grain noise over a flat base. Do not add broad
+  radial glow, blob, or vignette gradients.
 - Padding: `px-2 py-1 pb-3`.
 - Position: sticky, full viewport height.
 - Border: right border only.
@@ -121,12 +126,16 @@ Rules:
 - Route frames use `min-h-screen w-full bg-trauma-bg-surface`.
 
 Because `bg-surface` equals `bg-base`, route panes visually continue the page
-background in all themes.
+background in normal themes. Paper/Hermès override the shell and route frame
+backgrounds to transparent so the single body-level material remains
+continuous.
 
 ## Right Rail
 
-The right rail is not a mirrored left rail. It is a base-colour column with
-independent rounded islands.
+The right rail is not a mirrored left rail. In normal themes it is a base-colour
+column with independent rounded islands. In Paper/Hermès, the column frame is
+transparent over the global material and the islands keep their own framed
+surfaces.
 
 Current desktop contract:
 

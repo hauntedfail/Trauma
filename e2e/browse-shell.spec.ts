@@ -180,13 +180,20 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
     .toBe("paper-warm-light");
   await expect
-    .poll(() => readLeftRailMaterial(page))
+    .poll(() => readPaperShellMaterial(page))
     .toMatchObject({
-      backgroundColor: "rgb(236, 226, 204)",
-      afterUsesFixedAttachment: true,
-      beforeUsesFixedAttachment: true,
-      beforeContent: '""',
-      afterContent: '""',
+      bodyAfterContent: '""',
+      bodyBeforeContent: '""',
+      mainBackgroundColor: "rgba(0, 0, 0, 0)",
+      mainBackgroundImage: "none",
+      mainBorderRightWidth: "1px",
+      railBackgroundColor: "rgba(0, 0, 0, 0)",
+      railBackgroundImage: "none",
+      railBorderRightWidth: "1px",
+      rightRailBackgroundColor: "rgba(0, 0, 0, 0)",
+      rightRailBackgroundImage: "none",
+      routeBackgroundColor: "rgba(0, 0, 0, 0)",
+      routeBackgroundImage: "none",
     });
 
   const gridButton = page.getByRole("button", { name: "Grid" });
@@ -277,13 +284,21 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect(surfaceGroup.getByRole("button", { name: "Light" })).toHaveCount(0);
   await expect(surfaceGroup.getByRole("button", { name: "Normal" })).toHaveCount(0);
   await expect
-    .poll(() => readLeftRailMaterial(page))
+    .poll(() => readPaperShellMaterial(page))
     .toMatchObject({
-      backgroundColor: "rgb(33, 19, 7)",
-      afterUsesFixedAttachment: true,
-      beforeUsesFixedAttachment: true,
-      beforeContent: '""',
-      afterContent: '""',
+      bodyAfterContent: '""',
+      bodyBeforeBackgroundImage: "none",
+      bodyBeforeContent: '""',
+      mainBackgroundColor: "rgba(0, 0, 0, 0)",
+      mainBackgroundImage: "none",
+      mainBorderRightWidth: "1px",
+      railBackgroundColor: "rgba(0, 0, 0, 0)",
+      railBackgroundImage: "none",
+      railBorderRightWidth: "1px",
+      rightRailBackgroundColor: "rgba(0, 0, 0, 0)",
+      rightRailBackgroundImage: "none",
+      routeBackgroundColor: "rgba(0, 0, 0, 0)",
+      routeBackgroundImage: "none",
     });
   await expect(surfaceGroup.getByRole("button", { name: "Hermès" })).toHaveAttribute("aria-pressed", "true");
   await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveCount(0);
@@ -414,30 +429,50 @@ async function expectRailDialogAboveMain(page: Page, dialogName: string) {
   });
 }
 
-async function readLeftRailMaterial(page: Page) {
+async function readPaperShellMaterial(page: Page) {
   return page.evaluate(() => {
     const rail = document.querySelector<HTMLElement>(
       'aside[aria-label="Primary navigation"]',
     );
-    if (rail === null) {
-      throw new Error("Primary navigation rail is missing");
+    const main = document.querySelector<HTMLElement>("main");
+    const rightRail = document.querySelector<HTMLElement>(
+      'aside[aria-label="Browse filters"]',
+    );
+    const routePane = document.querySelector<HTMLElement>(
+      ".trauma-shell-main > .bg-trauma-bg-surface",
+    );
+
+    if (
+      rail === null ||
+      main === null ||
+      rightRail === null ||
+      routePane === null
+    ) {
+      throw new Error("Paper shell material targets are missing");
     }
 
-    const style = getComputedStyle(rail);
-    const before = getComputedStyle(rail, "::before");
-    const after = getComputedStyle(rail, "::after");
-    const isEveryAttachmentFixed = (value: string) =>
-      value
-        .split(",")
-        .map((attachment) => attachment.trim())
-        .every((attachment) => attachment === "fixed");
+    const bodyBefore = getComputedStyle(document.body, "::before");
+    const bodyAfter = getComputedStyle(document.body, "::after");
+    const railStyle = getComputedStyle(rail);
+    const mainStyle = getComputedStyle(main);
+    const rightRailStyle = getComputedStyle(rightRail);
+    const routePaneStyle = getComputedStyle(routePane);
 
     return {
-      afterContent: after.content,
-      afterUsesFixedAttachment: isEveryAttachmentFixed(after.backgroundAttachment),
-      backgroundColor: style.backgroundColor,
-      beforeUsesFixedAttachment: isEveryAttachmentFixed(before.backgroundAttachment),
-      beforeContent: before.content,
+      bodyAfterContent: bodyAfter.content,
+      bodyAfterBackgroundImage: bodyAfter.backgroundImage,
+      bodyBeforeContent: bodyBefore.content,
+      bodyBeforeBackgroundImage: bodyBefore.backgroundImage,
+      mainBackgroundColor: mainStyle.backgroundColor,
+      mainBackgroundImage: mainStyle.backgroundImage,
+      mainBorderRightWidth: mainStyle.borderRightWidth,
+      railBackgroundColor: railStyle.backgroundColor,
+      railBackgroundImage: railStyle.backgroundImage,
+      railBorderRightWidth: railStyle.borderRightWidth,
+      rightRailBackgroundColor: rightRailStyle.backgroundColor,
+      rightRailBackgroundImage: rightRailStyle.backgroundImage,
+      routeBackgroundColor: routePaneStyle.backgroundColor,
+      routeBackgroundImage: routePaneStyle.backgroundImage,
     };
   });
 }

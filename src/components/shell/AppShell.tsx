@@ -58,7 +58,7 @@ const surfaceInput =
 const sideSurface =
   "trauma-shell-left-rail sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden";
 const rightRailSurface =
-  "sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
+  "trauma-shell-right-rail sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
 const rightRailStack =
   "flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1";
 const rightRailScrollContent =
@@ -164,7 +164,7 @@ export function AppShell(props: AppShellProps) {
     <RightRailContentContext.Provider
       value={{ rightRailContent, setRightRailContent }}
     >
-      <div class="grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
+      <div class="trauma-shell-frame grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[1040px]:grid-rows-[auto_1fr] max-[720px]:block">
       <MobileTopBar
         onOpenNavigation={() => setIsNavigationOpen(true)}
         onOpenFilters={() => setIsFiltersOpen(true)}
@@ -179,7 +179,7 @@ export function AppShell(props: AppShellProps) {
           surface={surface()}
         />
       </aside>
-      <main class="min-w-0 border-r border-trauma-border max-[1040px]:col-start-2 max-[720px]:border-r-0">
+      <main class="trauma-shell-main min-w-0 border-r border-trauma-border max-[1040px]:col-start-2 max-[720px]:border-r-0">
         <Show when={backupFailsafeAlert()}>
           {(alert) => <BackupFailsafeBanner alert={alert()} />}
         </Show>

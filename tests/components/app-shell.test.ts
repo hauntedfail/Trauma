@@ -287,20 +287,32 @@ describe("refined app shell contract", () => {
     expect(spotlightRule).not.toContain("var(--accent)");
   });
 
-  it("keeps paper-mode left rail material aligned with the app background", () => {
+  it("keeps paper-mode shell panes transparent over the global material background", () => {
+    expect(appShellSource).toContain("trauma-shell-frame");
     expect(appShellSource).toContain("trauma-shell-left-rail");
+    expect(appShellSource).toContain("trauma-shell-main");
+    expect(appShellSource).toContain("trauma-shell-right-rail");
     expect(tailwindCss).toContain(".trauma-shell-left-rail > *");
     expect(tailwindCss).toContain(
-      ':root[data-theme^="paper"] .trauma-shell-left-rail::before',
+      ':root[data-theme^="paper"] body::before',
     );
     expect(tailwindCss).toContain(
-      ':root[data-theme^="paper"] .trauma-shell-left-rail::after',
+      ':root[data-theme^="paper"] body::after',
     );
     expect(tailwindCss).toContain(
-      ':root[data-theme="paper-black-dark"] .trauma-shell-left-rail::after',
+      ':root[data-theme="paper-black-dark"] body::after',
     );
-    expect(tailwindCss).toContain("background-attachment: fixed");
-    expect(tailwindCss).toContain("fixed,\n      fixed,\n      fixed,\n      fixed");
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-shell-frame',
+    );
+    expect(tailwindCss).toContain(":root[data-theme^=\"paper\"] .trauma-shell-main");
+    expect(tailwindCss).toContain(":root[data-theme^=\"paper\"] .trauma-shell-right-rail");
+    expect(tailwindCss).toContain("background-color: transparent");
+    expect(tailwindCss).toContain("background-image: none");
+    expect(tailwindCss).not.toContain("border-right-color: transparent");
+    expect(tailwindCss).not.toContain("border-right-width: 0");
+    expect(tailwindCss).not.toContain(".trauma-shell-left-rail::before");
+    expect(tailwindCss).not.toContain(".trauma-shell-left-rail::after");
     expect(tailwindCss).toContain("var(--leather-grain-overlay)");
   });
 });
