@@ -102,8 +102,9 @@ scroll region. This is required for Recent highlights and reader TOC. Do not
 let those islands grow vertically for every item.
 
 Reader TOC should make overflow discoverable. When its bounded list can still
-scroll downward, use a low-contrast bottom spotlight shadow inside the list
-rather than adding external decoration to the right rail island.
+scroll downward, use a low-contrast bottom spotlight shadow anchored to the
+bottom of the TOC island itself. Do not anchor that shadow to the inner list
+body, because the island padding makes it appear detached from the component.
 
 ## Add Memory Composer
 

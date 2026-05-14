@@ -47,8 +47,8 @@ Contract:
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
 - When the bounded TOC body overflows and still has content below, show a subtle
-  bottom spotlight shadow inside the TOC body so the user can discover the
-  scrollable content without a heavy visual block.
+  bottom spotlight shadow anchored to the whole TOC island's bottom edge so the
+  user can discover the scrollable content without a heavy visual block.
 - Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
 - Motion is disabled under `prefers-reduced-motion: reduce`.
 

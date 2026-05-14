@@ -457,7 +457,7 @@
   .trauma-toc-scroll-spotlight {
     position: absolute;
     right: 0;
-    bottom: 0;
+    bottom: -1px;
     left: 0;
     height: 3.25rem;
     pointer-events: none;

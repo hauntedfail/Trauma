@@ -5,6 +5,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
+const TOC_SCROLL_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
+
+test.describe.configure({ mode: "serial" });
 
 test("renders a fixture memory in reader mode", async ({ page }) => {
   createReaderFixture();
@@ -75,6 +78,47 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
   await expect(page.getByText(selectedText)).toBeVisible();
 });
 
+test("anchors the reader toc scroll spotlight to the toc island bottom", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+
+  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(toc).toBeVisible();
+
+  const spotlight = toc.locator(".trauma-toc-scroll-spotlight");
+  await expect(spotlight).toBeVisible();
+
+  const geometry = await toc.evaluate((nav) => {
+    const spotlightElement = nav.querySelector(".trauma-toc-scroll-spotlight");
+    const listElement = nav.querySelector("ol");
+
+    if (
+      !(spotlightElement instanceof HTMLElement) ||
+      !(listElement instanceof HTMLElement)
+    ) {
+      throw new Error("TOC spotlight or list element is missing");
+    }
+
+    const navRect = nav.getBoundingClientRect();
+    const spotlightRect = spotlightElement.getBoundingClientRect();
+
+    return {
+      listClientHeight: listElement.clientHeight,
+      listScrollHeight: listElement.scrollHeight,
+      spotlightBottomGap: Number(
+        (navRect.bottom - spotlightRect.bottom).toFixed(2),
+      ),
+    };
+  });
+
+  expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
+  expect(Math.abs(geometry.spotlightBottomGap)).toBeLessThanOrEqual(1);
+});
+
 function createReaderFixture() {
   execFileSync(
     resolveBunExecutable(),
@@ -90,6 +134,7 @@ function createReaderFixture() {
         const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
         const memoryId = "${READER_MEMORY_ID}";
         const secondMemoryId = "${SECOND_READER_MEMORY_ID}";
+        const tocScrollMemoryId = "${TOC_SCROLL_MEMORY_ID}";
         const config = {
           storePath: "./project/store",
           projectPath: "./project",
@@ -138,6 +183,7 @@ function createReaderFixture() {
         try {
           await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
+          await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
         } finally {
           connection.close();
         }
@@ -185,6 +231,22 @@ function createReaderFixture() {
             "## Follow Up",
             "",
             "Ready-to-ready navigation should replace the rendered article.",
+          ].join("\\n"),
+        );
+        await writeFixtureContent(
+          tocScrollMemoryId,
+          "Long Contents Fixture",
+          "https://example.com/long-contents",
+          [
+            "# Long Contents Fixture",
+            "",
+            "This reader exists to make the right-rail table of contents overflow.",
+            "",
+            ...Array.from({ length: 48 }, (_, index) => [
+              \`## Section \${index + 1}\`,
+              "",
+              \`Body \${index + 1}.\`,
+            ]).flat(),
           ].join("\\n"),
         );
       `,

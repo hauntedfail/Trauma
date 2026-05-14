@@ -47,6 +47,11 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("scrollTop");
     expect(readerSource).toContain("trauma-toc-scroll-shell");
     expect(readerSource).toContain("trauma-toc-scroll-spotlight");
+    expect(readerSource).toContain(
+      "animate-trauma-pop-bounce relative overflow-hidden",
+    );
+    expect(readerSource).toContain('class="trauma-toc-scroll-shell"');
+    expect(readerSource).not.toContain('class="trauma-toc-scroll-shell relative"');
     expect(readerSource).toContain("onScroll={updateTocScrollHint}");
     expect(tailwindSource).toContain(".trauma-toc-scroll-spotlight");
     expect(tailwindSource).toContain("radial-gradient(ellipse at 50% 100%");

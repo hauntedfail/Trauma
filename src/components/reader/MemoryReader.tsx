@@ -185,13 +185,13 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
   return (
     <Show when={props.toc.length > 0}>
       <nav
-        class="animate-trauma-pop-bounce rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
+        class="animate-trauma-pop-bounce relative overflow-hidden rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
         aria-label="Table of contents"
       >
         <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">
           Contents
         </h2>
-        <div class="trauma-toc-scroll-shell relative">
+        <div class="trauma-toc-scroll-shell">
           <ol
             ref={scrollRef}
             class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
@@ -210,10 +210,10 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
               </li>
             ))}
           </ol>
-          <Show when={showTocScrollHint()}>
-            <div class="trauma-toc-scroll-spotlight" aria-hidden="true" />
-          </Show>
         </div>
+        <Show when={showTocScrollHint()}>
+          <div class="trauma-toc-scroll-spotlight" aria-hidden="true" />
+        </Show>
       </nav>
     </Show>
   );
