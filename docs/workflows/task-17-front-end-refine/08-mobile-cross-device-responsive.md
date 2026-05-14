@@ -30,6 +30,7 @@ changes, such as switching a memory card from two columns to one column.
 - Tailwind v4 utilities from `src/styles/tailwind.css`.
 - CSS Container Queries with `container-type: inline-size`.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
+- CSS Flexbox only for local one-dimensional layout with wrapping.
 - Vitest source-contract tests for responsive policy.
 - Playwright E2E for mobile and cross-device layout behaviour.
 
@@ -43,6 +44,10 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/clamp`
 - MDN CSS logical properties and values:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_logical_properties_and_values`
+- MDN basic concepts of flexbox:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_flexible_box_layout/Basic_concepts_of_flexbox`
+- MDN `flex-wrap`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/flex-wrap`
 - `docs/references/design-system/layout-and-shell.md`
 - `docs/references/design-system/components-and-surfaces.md`
 - `docs/references/design-system/interaction-and-accessibility.md`
@@ -63,6 +68,8 @@ changes, such as switching a memory card from two columns to one column.
   container query can express the same adaptation.
 - Do not introduce fixed-width route/page shells. Route content should be
   constrained fluid with logical sizing and spacing properties.
+- Do not use flexbox as a page, shell, route, or card-grid layout system. Flex
+  is for local one-dimensional clusters that may wrap.
 - Do not reintroduce `src/styles/app.css`.
 - Do not change server, importer, backup, extension, database, or markdown
   reader behaviour.
@@ -153,6 +160,40 @@ Rules:
 - If a component needs a max readable measure, express it as a constrained
   fluid wrapper rather than a fixed-width card.
 
+### Flexbox Scope
+
+Use flexbox only for local one-dimensional layouts:
+
+- Navigation item rows.
+- Tag/chip lists.
+- Toolbars.
+- Button groups.
+- Short icon+label clusters.
+
+When a local row may overflow, use wrapping rather than device-specific
+breakpoints:
+
+```css
+.trauma-local-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(0.5rem, 1.5cqi, 1rem);
+}
+```
+
+Rules:
+
+- Do not use flexbox for the app shell, route shell, page shell, memory grid, or
+  reader layout structure. Use CSS grid, block flow, or container-query-driven
+  layout for those surfaces.
+- Prefer `flex-wrap: wrap` for tag lists, toolbar actions, and button groups
+  that need to break onto another line inside a narrow container.
+- Keep flex children from forcing overflow by using `min-inline-size: 0` on
+  text-bearing child elements where truncation or wrapping is expected.
+- Do not use flexbox to emulate two-dimensional alignment. If both rows and
+  columns matter, use grid.
+
 ## File Ownership
 
 Primary files:
@@ -237,6 +278,15 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).toContain("margin-inline: auto");
     expect(tailwindCss).toContain("padding-inline: clamp(");
     expect(tailwindCss).not.toContain("width: 840px");
+  });
+
+  it("limits flex utilities to local one-dimensional wrapping clusters", () => {
+    expect(tailwindCss).toContain(".trauma-local-wrap");
+    expect(tailwindCss).toContain("display: flex");
+    expect(tailwindCss).toContain("flex-wrap: wrap");
+    expect(tailwindCss).toContain("min-inline-size: 0");
+    expect(tailwindCss).not.toContain(".trauma-route-surface {\n  display: flex");
+    expect(tailwindCss).not.toContain(".trauma-fluid-page-shell {\n  display: flex");
   });
 
   it("marks route surfaces with responsive container classes", () => {
@@ -392,12 +442,25 @@ Add:
   font-size: clamp(2rem, 1.1rem + 3cqi, 3rem);
   line-height: 1.08;
 }
+
+.trauma-local-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(0.5rem, 1.5cqi, 1rem);
+}
+
+.trauma-local-wrap > * {
+  min-inline-size: 0;
+}
 ```
 
 Keep desktop maximums aligned with current refined desktop values.
 Use logical properties for route/page shell sizing and spacing. Do not replace
 this with `width`, `margin-left`, `margin-right`, `padding-left`, or
 `padding-right` unless a physical direction is semantically required.
+Use `trauma-local-wrap` only for local navigation, tag, toolbar, and button
+clusters. Do not use it for shell, route, card-grid, or reader structure.
 
 - [ ] **Step 2: Add route container rules for header stacking and padding**
 
@@ -481,7 +544,24 @@ If the browse timeline must continue touching the pane edge, do not wrap it in
 `trauma-fluid-page-shell`; instead keep the full-width frame and use
 container-query padding on rows.
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Step 6: Audit existing flex usage and keep it local**
+
+Run:
+
+```bash
+rg -n "flex|inline-flex" src/components src/routes
+```
+
+Expected review outcome:
+
+- Keep flex for one-dimensional rows, icon+label groups, navigation controls,
+  tag lists, toolbars, and button groups.
+- Replace or avoid flex for page shells, route structure, memory grids, and
+  reader structure when those layouts need two-dimensional control.
+- If a kept flex row can overflow on narrow containers, add `trauma-local-wrap`
+  or an equivalent local `flex-wrap` rule.
+
+- [ ] **Step 7: Run focused tests**
 
 ```bash
 mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -489,7 +569,7 @@ mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit responsive component internals**
+- [ ] **Step 8: Commit responsive component internals**
 
 ```bash
 git add src/styles/tailwind.css src/components/memories/MemoryBrowse.tsx src/components/reader/reader-styles.ts src/components/reader/MemoryReader.tsx src/routes/highlights/index.tsx tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -599,6 +679,11 @@ Route/page shells should be constrained fluid rather than fixed-width:
 combine `max-inline-size`, `inline-size`, `margin-inline`, and
 `padding-inline` so layout follows writing direction instead of physical
 left/right assumptions.
+
+Flexbox is limited to local one-dimensional layout such as navigation rows, tag
+lists, toolbars, and button groups. Use `flex-wrap: wrap` for local overflow,
+and use grid/block/container-query layout for page, route, card-grid, and
+reader structure.
 ```
 
 - [ ] **Step 2: Document component container ownership**
@@ -655,6 +740,8 @@ For final handoff, include:
 - Confirmation that desktop shell dimensions were not changed.
 - Container-query classes and ownership added.
 - Constrained fluid page-shell utility added with logical properties.
+- Flexbox audit outcome, including which flex uses were kept because they are
+  local one-dimensional layouts.
 - Remaining viewport breakpoint usage and why each usage is shell-topology
   rather than component-internal device targeting.
 - Mobile/cross-device viewport evidence.
