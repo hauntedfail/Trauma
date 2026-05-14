@@ -152,7 +152,10 @@ The global composer uses the existing `AddMemoryForm` and existing
 
 Rules:
 
-- The shell opens the drawer.
+- The shell opens the composer as an anchored popover/dialog from the rail
+  action on desktop shell layouts.
+- The composer popover renders above the rail and main pane layers and must not
+  be clipped by route content.
 - The form accepts only URL input.
 - Successful creation navigates to the created memory.
 - On backup-failsafe errors, revalidate the backup alert.

@@ -27,6 +27,7 @@ Contract:
 - Header uses the route frame background with backdrop blur.
 - Title uses route-scale text.
 - Source URL is visible and opens in a new tab only when safe.
+- Source URL links use `text-trauma-link` and `hover:text-trauma-link-hover`.
 - Unsafe or non-linkable source values render as text.
 
 ## Table Of Contents
@@ -43,7 +44,8 @@ Contract:
 - Removed from the right rail on reader unmount.
 - Rounded island surface matching right rail section geometry.
 - Text is compact.
-- Links target generated markdown heading anchors.
+- Links target generated markdown heading anchors and use the reader link
+  token on hover.
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
 - When the bounded TOC body overflows and still has content below, show a subtle
@@ -88,6 +90,8 @@ Visual contract:
 - When a persisted highlight is the URL hash target, the reader scopes the
   target treatment to `.trauma-reader-content mark[data-highlight-id]:target`
   and uses anchor highlight tokens so every theme keeps the linked quote legible.
+  Keep this target treatment in the reader scope rather than as a generic mark
+  rule.
 
 Highlight excerpts use `HighlightExcerpt`, not the reader prose mark style.
 

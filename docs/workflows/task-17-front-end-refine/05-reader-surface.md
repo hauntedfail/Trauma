@@ -51,7 +51,8 @@ Conditional files:
    - `text-trauma-text-muted`
    - `border-trauma-border`
    - `bg-trauma-bg-elev`
-   - `text-trauma-accent`
+   - `text-trauma-link`
+   - `hover:text-trauma-link-hover`
    - `prose-mark:bg-trauma-highlight-bg`
 
 2. Update `reader-styles.ts`.
@@ -77,8 +78,15 @@ Conditional files:
 
    Required behaviour:
 
-   - sticky on desktop
-   - inline/static on tablet and mobile
+   - registered into the shell right rail while the concrete memory reader is
+     mounted
+   - rendered as the first right rail island on `/memories/:id`
+   - hidden on non-reader routes and when the right rail is hidden by the
+     responsive shell
+   - bounded internal scroll body when the heading list overflows
+   - subtle neutral-black bottom spotlight on the whole TOC island when more
+     content can be scrolled
+   - popup-style bounce animation on entry, with reduced-motion support
    - links use existing rendered heading IDs
 
 5. Preserve highlight toggle implementation.

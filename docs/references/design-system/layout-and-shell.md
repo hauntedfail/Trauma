@@ -48,7 +48,8 @@ remain disabled until their routes exist.
 
 ## Add Memory Action
 
-`Add memory` is a global shell action and opens the shared composer drawer.
+`Add memory` is a global shell action and opens the shared composer popover
+from the rail action on desktop shell layouts.
 
 Current rail button contract:
 
@@ -176,7 +177,7 @@ Mobile:
 ## Route Frame Ownership
 
 Route frame classes belong to the route surface, not the shell. The shell owns
-columns, global navigation, drawers, global composer state, and the right rail
-slot. Route files own
+columns, global navigation, mobile drawers, global composer popover state, and
+the right rail slot. Route files own
 headers, search controls, list/grid mode, empty states, reader content, and
 route-specific loading states.

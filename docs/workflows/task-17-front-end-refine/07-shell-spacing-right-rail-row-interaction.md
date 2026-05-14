@@ -5,7 +5,7 @@
 ## Goal
 
 Correct the first front-end refine pass so TRAUMA matches the refined sample's
-black desktop shell more closely: pure black night mode, no visual gutter
+desktop shell more closely: pure black normal night mode, no visual gutter
 between the left rail and main pane, X-style right rail islands, and
 whole-row memory navigation without an explicit `Open` button.
 
@@ -43,16 +43,18 @@ browse surface.
 
 ## Visual Intent
 
-The target desktop shell has three touching columns on a pure black page. The
+The target desktop shell has three touching columns on one theme background.
+Normal night uses a pure black page; other themes use their own base token. The
 left rail and main pane are separated by borders, not by a visible background
 gutter. The main pane fills its assigned grid column; it must not remain a
 centered `mx-auto` route card inside the shell.
 
-The right rail differs from the left rail. It is a black column that contains a
-search pill and separate rounded islands. Each island has a thin border,
-large-radius corners, internal padding, and transparent or lightly tinted
-controls. The space between islands reads as the same black page background,
-not as a contrasting panel.
+The right rail differs from the left rail. It is a base-colour column that
+contains separate rounded islands, not a search panel. Each island has a thin
+border, large-radius corners, internal padding, and transparent or lightly
+tinted controls. The space between islands reads as the same page background,
+not as a contrasting panel. Browse search remains route-owned inside the main
+pane.
 
 Memory rows behave like timeline items. The row itself opens the memory. There
 is no standalone `Open` button competing with the row body. Keyboard users must
@@ -317,8 +319,9 @@ Expected: PASS.
 ## Task 3: Rebuild The Right Rail As Rounded Islands
 
 **Intent:** The right rail should not reuse the left rail surface. It should be
-a black column with a search pill followed by separate rounded island sections
-for categories, tags, and highlights.
+a base-colour column with separate rounded island sections for categories,
+tags, recent highlights, and optional route-specific content such as the reader
+TOC.
 
 **Files:**
 
@@ -332,14 +335,14 @@ Append these tests to `tests/components/app-shell.test.ts`:
 
 ```ts
 describe("refined right rail contract", () => {
-  it("renders the right rail as search plus rounded islands", () => {
-    expect(appShell).toContain("aria-label=\"Search archive\"");
+  it("renders the right rail as rounded islands without search", () => {
     expect(appShell).toContain("function RightPanelSection");
     expect(appShell).toContain("rounded-[32px] border border-trauma-border bg-trauma-bg-base p-5");
-    expect(appShell).toContain("SearchIcon");
+    expect(appShell).toContain("Recent highlights");
+    expect(appShell).not.toContain("aria-label=\"Search archive\"");
   });
 
-  it("keeps right rail controls on the black rail surface", () => {
+  it("keeps right rail controls on the base rail surface", () => {
     expect(appShell).toContain("hover:bg-trauma-bg-tint");
     expect(appShell).not.toContain("filter-section");
     expect(appShell).not.toContain("bg-white text-left text-[#263126]");
@@ -356,55 +359,12 @@ bun run test tests/components/app-shell.test.ts
 Expected before implementation: FAIL because the right rail still uses the old
 `filter-section` structure or white button treatment.
 
-- [ ] **Step 3: Add search state wiring to `FilterPanel`**
+- [ ] **Step 3: Keep search route-owned**
 
-In `src/components/shell/AppShell.tsx`, import the search icon from the project
-icon set. Use the actual exported icon name if Task 17.2 created a different
-name, but keep the rendered import local to the shell:
-
-```ts
-import { SearchIcon } from "../icons/TraumaIcons";
-```
-
-Extend both desktop and drawer `FilterPanel` calls:
-
-```tsx
-<FilterPanel
-  activeCategory={query().category}
-  activeHighlight={query().highlight}
-  activeTag={query().tag}
-  categories={categories()}
-  highlights={highlights()}
-  idPrefix="desktop"
-  searchQuery={query().q}
-  onSearch={(value) => goToFilter({ q: value })}
-  onSelectCategory={(category) => toggleFilter("category", category.id)}
-  onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
-  onSelectTag={(tag) => toggleFilter("tag", tag.id)}
-  tags={tags()}
-/>
-```
-
-Add the same `searchQuery` and `onSearch` props to the drawer `FilterPanel`.
-
-Update the `FilterPanel` props type:
-
-```ts
-function FilterPanel(props: {
-  activeCategory: string;
-  activeHighlight: string;
-  activeTag: string;
-  categories: BrowseTaxonomyItem[];
-  highlights: BrowseHighlight[];
-  idPrefix: string;
-  searchQuery: string;
-  onSearch: (value: string) => void;
-  onSelectCategory: (category: BrowseTaxonomyItem) => void;
-  onSelectHighlight: (highlight: BrowseHighlight) => void;
-  onSelectTag: (tag: BrowseTaxonomyItem) => void;
-  tags: BrowseTaxonomyItem[];
-}) {
-```
+Do not add a right-rail search field or search icon. Memory search remains in
+the browse route header and continues to update the route query state from the
+main pane. `FilterPanel` should only receive category, tag, highlight, and
+route-specific right-rail content inputs.
 
 - [ ] **Step 4: Replace the right rail structure**
 
@@ -413,20 +373,6 @@ Inside `FilterPanel`, use this top-level structure:
 ```tsx
 return (
   <div class="grid gap-4">
-    <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-base px-4 text-trauma-text-muted focus-within:border-trauma-border-strong">
-      <span class="grid place-items-center">
-        <SearchIcon />
-      </span>
-      <input
-        aria-label="Search archive"
-        class="min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder"
-        type="search"
-        value={props.searchQuery}
-        placeholder="Search"
-        onInput={(event) => props.onSearch(event.currentTarget.value)}
-      />
-    </label>
-
     <RightPanelSection title="Categories" titleId={`${props.idPrefix}-category-filters-title`}>
       <div class="grid gap-2">
         <For each={props.categories}>
@@ -704,8 +650,9 @@ Required visual observations:
 - Left rail and main pane touch; no contrasting gutter is visible between them.
 - Main route panes fill the center shell column rather than appearing as
   centered route cards.
-- Right rail background is black and contains separate rounded search/category/
-  tag/highlight islands.
+- Right rail background uses the same base token and contains separate rounded
+  category, tag, and highlight islands, plus reader TOC only on concrete memory
+  routes.
 - Island spacing and surrounding rail background are visually unified.
 - Memory rows do not display an `Open` button.
 - Clicking the row body opens the memory.
@@ -728,8 +675,8 @@ verification commands passed, report the exact hook failure before using
 - Desktop shell uses flush columns with borders, not background gutters.
 - `MemoryBrowse`, `/highlights`, reader, and not-found route panes do not use
   `mx-auto`, `w-[min(100%,840px)]`, or `max-w-[920px]` as shell frames.
-- Right rail contains a search pill and rounded island sections for categories,
-  tags, and recent highlights.
+- Right rail contains rounded island sections for categories, tags, and recent
+  highlights, with no right-rail search field.
 - Existing category, tag, highlight, search, and view query behaviours still
   work.
 - Memory rows have no explicit `Open` button and are reachable as row-level

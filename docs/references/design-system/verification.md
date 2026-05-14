@@ -42,6 +42,8 @@ The token tests verify:
 
 - All refined theme selectors exist.
 - Semantic Tailwind colour variables are exposed.
+- Reader link tokens `--color-trauma-link` and
+  `--color-trauma-link-hover` are exposed.
 - Normal night mode uses pure black root background.
 - Normal night mode pane surfaces are pure black.
 - Every theme uses one pane background colour:
@@ -51,6 +53,8 @@ The token tests verify:
   `paper-black-dark` theme name.
 - The surface toggle label is Paper in sun brightness and Hermès in night
   brightness while the stored surface value remains `paper`.
+- Linked highlight anchor tokens exist per theme and are not reused blindly from
+  the default yellow highlight colours.
 - Material textures render through layered backgrounds plus fixed grain/fibre/pore
   and glow overlays.
 - Paper mode material textures do not include repeating dot/grid overlays.
@@ -92,8 +96,11 @@ Check:
 - Mobile drawers are reachable.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
 - Theme selected state is visible inside the popover in every theme.
-- Add-memory composer opens from shell routes.
+- Add-memory composer opens from shell routes as a popover above route panes.
 - Browse filters update URL state without clearing unrelated query state.
+- Reader links remain readable in sun normal, sun paper, night normal, and
+  Hermès modes.
+- Linked highlight hash targets remain readable in every theme.
 
 ## Screenshot Review
 

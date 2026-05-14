@@ -8,7 +8,9 @@ backup behaviour.
 
 ## Current Status
 
-Ready for implementation. This workflow should run on a `refine/*` branch.
+Implementation is active on `refine/frontend-sample`. Keep this workflow and
+the design-system reference docs aligned with the current Solid/Tailwind
+implementation as the branch evolves.
 
 ## Source Sample
 

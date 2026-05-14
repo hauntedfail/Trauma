@@ -8,9 +8,10 @@ keep each worker's context focused on its own domain.
 
 ## Task Map
 
-Status values describe the current `main` baseline. Workflow files may still
-contain historical branch names and evidence because they are execution records;
-do not treat completed triage records as active work queues.
+Status values usually describe the current `main` baseline. When a workflow is
+active on a named branch, the status names that branch explicitly. Workflow
+files may still contain historical branch names and evidence because they are
+execution records; do not treat completed triage records as active work queues.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
@@ -29,7 +30,7 @@ do not treat completed triage records as active work queues.
 | 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Merged into main |
 | 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Merged into main |
 | 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Merged into main |
-| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Ready |
+| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Active on `refine/frontend-sample` |
 
 ## Archived Workflows
 

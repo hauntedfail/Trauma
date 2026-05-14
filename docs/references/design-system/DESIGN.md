@@ -45,7 +45,7 @@ The design system currently covers:
 - App shell.
 - Left navigation rail.
 - Theme controls.
-- Right filter rail.
+- Right context/filter rail.
 - Mobile and tablet drawers.
 - Memory browse list and grid.
 - Highlight browse page.

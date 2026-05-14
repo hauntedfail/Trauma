@@ -3,7 +3,7 @@
 ## Goal
 
 Rebuild the app shell from the sample's X-style left rail while preserving
-TRAUMA's existing Solid route ownership, global add-memory drawer, right-side
+TRAUMA's existing Solid route ownership, global add-memory popover, right-side
 filter panel, and backup failsafe banner.
 
 ## Ownership
@@ -22,7 +22,7 @@ Primary files:
 - Sample `Sidebar` maps to `NavigationContent` and shell layout.
 - Sample `ThemeBlock` maps to a Solid theme control inside the rail.
 - Sample rail `Add memory` button maps to the existing
-  `GlobalAddMemoryComposer` drawer.
+  shell add-memory composer popover.
 - Sample `profile` maps to a local archive status surface. It must not imply
   auth or account management.
 - Sample `Tweaks` and `tweaks-panel.jsx` are out of scope.
