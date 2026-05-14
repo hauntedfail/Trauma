@@ -88,6 +88,15 @@ test("keeps filter controls reachable on tablet widths", async ({ page }) => {
 test("persists shell theme controls in the browser", async ({ page }) => {
   await page.goto("/memories");
 
+  const primarySections = page.getByRole("navigation", { name: "Primary sections" });
+  const navLabels = await primarySections.locator("a, button").evaluateAll((nodes) =>
+    nodes
+      .map((node) => node.textContent?.trim().replace(/\s+/g, " "))
+      .filter((text): text is string => text !== undefined && text.length > 0),
+  );
+  expect(navLabels.indexOf("Backup")).toBeLessThan(navLabels.indexOf("Theme"));
+  expect(navLabels.indexOf("Theme")).toBeLessThan(navLabels.indexOf("Settings"));
+
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
   await page.getByRole("button", { name: "Theme" }).click();
   await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();

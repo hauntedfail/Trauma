@@ -84,6 +84,7 @@ Interaction rules:
 
 - The `Theme` tab uses the same left-rail tab scale and icon/text rhythm as
   other navigation controls.
+- The `Theme` tab sits between `Backup` and `Settings`.
 - Clicking the tab opens a small popover from that tab.
 - The popover contains the existing brightness and surface controls.
 - Escape and outside pointer interaction close the popover.

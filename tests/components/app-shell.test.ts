@@ -128,6 +128,16 @@ describe("refined app shell contract", () => {
     );
   });
 
+  it("places the theme tab between backup and settings", () => {
+    const backupIndex = appShellSource.indexOf("item={futureNavItems.backup}");
+    const themeIndex = appShellSource.indexOf("<ThemeNavButton");
+    const settingsIndex = appShellSource.indexOf("item={futureNavItems.settings}");
+
+    expect(backupIndex).toBeGreaterThan(-1);
+    expect(themeIndex).toBeGreaterThan(backupIndex);
+    expect(settingsIndex).toBeGreaterThan(themeIndex);
+  });
+
   it("uses a handwritten animated underline for active nav links in paper themes", () => {
     expect(appShellSource).toContain("trauma-active-nav-item");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');
