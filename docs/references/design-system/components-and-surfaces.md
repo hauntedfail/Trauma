@@ -45,6 +45,9 @@ Paper themes add one deliberate material exception for archive actions:
   It is filled wax, not a line border, and must not expand outside the control
   box. The pressed face should cover almost the full control instead of
   becoming a small circular mark.
+- Wax material layers must stay behind readable labels and icons. Use the
+  button content layer, or `trauma-paper-wax-label` for text-only children,
+  so sun paper selected controls keep high-contrast text.
 
 ## Form Inputs
 

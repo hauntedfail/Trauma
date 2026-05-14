@@ -118,9 +118,13 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect(gridButton).toHaveAttribute("aria-pressed", "true");
   const readWaxStyle = () =>
     gridButton.evaluate((button) => {
+      const label = button.querySelector(".trauma-paper-wax-label");
       const style = getComputedStyle(button);
       const edge = getComputedStyle(button, "::before");
       const stamp = getComputedStyle(button, "::after");
+      const labelStyle =
+        label instanceof HTMLElement ? getComputedStyle(label) : undefined;
+
       return {
         backgroundImage: style.backgroundImage,
         boxShadow: style.boxShadow,
@@ -133,6 +137,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
         ringContent: edge.content,
         ringInset: edge.inset,
         ringOpacity: edge.opacity,
+        labelColor: labelStyle?.color,
+        labelPosition: labelStyle?.position,
+        labelZIndex: labelStyle?.zIndex,
         stampBorderWidth: stamp.borderWidth,
         stampClipPath: stamp.clipPath,
         stampOutlineStyle: stamp.outlineStyle,
@@ -154,6 +161,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   expect(waxStyle.ringBorderWidth).toBe("0px");
   expect(waxStyle.ringBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(waxStyle.ringBackgroundColor).not.toBe("transparent");
+  expect(waxStyle.labelColor).toBe("rgb(250, 242, 220)");
+  expect(waxStyle.labelPosition).toBe("relative");
+  expect(waxStyle.labelZIndex).toBe("1");
   expect(waxStyle.stampContent).not.toBe("none");
   expect(waxStyle.stampClipPath).toBe("none");
   expect(waxStyle.stampBorderWidth).toBe("0px");

@@ -89,7 +89,9 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
         />
       </label>
       <button class={props.buttonClass} type="submit" disabled={!canSubmit()}>
-        {isSubmitting() ? "Saving..." : props.submitLabel}
+        <span class="trauma-paper-wax-label">
+          {isSubmitting() ? "Saving..." : props.submitLabel}
+        </span>
       </button>
       <Show when={errorMessage()}>
         {(message) => (

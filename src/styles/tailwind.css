@@ -484,6 +484,12 @@
     transition-timing-function: ease;
   }
 
+  :root[data-theme^="paper"] .trauma-paper-wax-seal > *,
+  :root[data-theme^="paper"] .trauma-paper-wax-label {
+    position: relative;
+    z-index: 1;
+  }
+
   :root[data-theme^="paper"] .trauma-paper-wax-seal::before,
   :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
     content: "";

@@ -8,6 +8,10 @@ const memoryBrowseSource = readFileSync(
   "src/components/memories/MemoryBrowse.tsx",
   "utf8",
 );
+const addMemoryFormSource = readFileSync(
+  "src/components/memories/AddMemoryForm.tsx",
+  "utf8",
+);
 const highlightsRouteSource = readFileSync(
   "src/routes/highlights/index.tsx",
   "utf8",
@@ -146,6 +150,10 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal:active');
+    expect(appShellSource).toContain("trauma-paper-wax-label max-[1040px]:sr-only");
+    expect(addMemoryFormSource).toContain('class="trauma-paper-wax-label"');
+    expect(memoryBrowseSource).toContain('<span class="trauma-paper-wax-label">List</span>');
+    expect(memoryBrowseSource).toContain('<span class="trauma-paper-wax-label">Grid</span>');
 
     const waxStart = tailwindCss.indexOf(':root[data-theme^="paper"] .trauma-paper-wax-seal');
     const activeNavStart = tailwindCss.indexOf(
@@ -167,6 +175,11 @@ describe("refined app shell contract", () => {
     expect(waxRules).toContain("opacity: 0.92;");
     expect(waxRules).toContain("inset: 6px 7px;");
     expect(waxRules).toContain("inset: 7px 10px;");
+    expect(waxRules).toContain(
+      ':root[data-theme^="paper"] .trauma-paper-wax-seal > *',
+    );
+    expect(waxRules).toContain("position: relative;");
+    expect(waxRules).toContain("z-index: 1;");
     expect(waxRules).not.toContain("clip-path");
     expect(waxRules).not.toContain("z-index: -1");
     expect(waxRules).not.toContain("inset: -");

@@ -61,10 +61,10 @@ export function MemoryBrowse() {
         </div>
         <div class="grid w-[152px] grid-cols-[72px_72px] gap-2" role="group" aria-label="View mode">
           <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={!isGrid()} onClick={() => updateQuery({ view: "list" })}>
-            List
+            <span class="trauma-paper-wax-label">List</span>
           </button>
           <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={isGrid()} onClick={() => updateQuery({ view: "grid" })}>
-            Grid
+            <span class="trauma-paper-wax-label">Grid</span>
           </button>
         </div>
       </header>

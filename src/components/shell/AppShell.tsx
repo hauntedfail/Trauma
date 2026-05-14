@@ -318,7 +318,7 @@ function NavigationContent(props: {
       </nav>
       <button class="trauma-paper-wax-seal trauma-paper-wax-command mx-1 my-3.5 inline-flex min-h-[52px] w-[calc(100%-8px)] items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:size-[52px] max-[1040px]:w-[52px] max-[1040px]:px-0" type="button" onClick={props.onOpenComposer}>
         <PlusIcon />
-        <span class="max-[1040px]:sr-only">Add memory</span>
+        <span class="trauma-paper-wax-label max-[1040px]:sr-only">Add memory</span>
       </button>
       <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive">
         <span class="grid size-10 place-items-center rounded-full bg-trauma-accent-soft">
