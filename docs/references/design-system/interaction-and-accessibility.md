@@ -132,6 +132,8 @@ Mobile:
   action contracts are implemented.
 - Phone tab icons use a larger dedicated icon slot so the tab bar remains
   scannable without enlarging desktop rail icons.
+- Phone tab text labels are `sr-only`: names must remain available to assistive
+  technology, but labels must not be visible in the bottom bar.
 - Add memory and Theme popovers render above the bottom bar.
 - Paper/Hermès active underline decoration is not rendered in the phone tab bar.
 - There is no navigation drawer or filter drawer.

@@ -112,6 +112,39 @@ test("keeps phone tabs large and free of paper underline decoration", async ({ p
   expect(underlineContent).toBe("none");
 });
 
+test("keeps phone tab labels visually hidden while preserving names", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/memories");
+
+  const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
+  await expect(primaryTabs.getByRole("link", { name: "Memories" })).toBeVisible();
+  await expect(primaryTabs.getByRole("button", { name: "Theme" })).toBeVisible();
+
+  const labels = primaryTabs.locator("[data-phone-tab-label]");
+  await expect(labels).toHaveCount(8);
+
+  const labelBoxes = await labels.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+
+      return {
+        height: rect.height,
+        overflow: style.overflow,
+        position: style.position,
+        width: rect.width,
+      };
+    }),
+  );
+
+  for (const box of labelBoxes) {
+    expect(box.position).toBe("absolute");
+    expect(box.overflow).toBe("hidden");
+    expect(box.width).toBeLessThanOrEqual(1);
+    expect(box.height).toBeLessThanOrEqual(1);
+  }
+});
+
 test("keeps tablet paper add-memory icon centered in the compact rail", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.addInitScript(() => {

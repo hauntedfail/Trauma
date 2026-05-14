@@ -169,11 +169,22 @@ describe("mobile and cross-device responsive contract", () => {
 
   it("keeps phone tabs readable with larger dedicated icon slots", () => {
     expect(appShellSource).toContain("phoneIconSlot");
+    expect(appShellSource).toContain("phoneTabLabel");
     expect(appShellSource).toContain("grid size-9 place-items-center");
     expect(appShellSource).toContain("[&>svg]:size-8");
     expect(appShellSource).toContain("<PlusIcon size={28} />");
     expect(appShellSource).toContain("<MoonIcon size={isPhone() ? 28 : undefined}");
     expect(appShellSource).toContain("<SunIcon size={isPhone() ? 28 : undefined}");
+  });
+
+  it("keeps phone tab text labels accessible but visually hidden", () => {
+    expect(appShellSource).toContain('const phoneTabLabel = "sr-only"');
+    expect(appShellSource).toContain("data-phone-tab-label");
+    expect(appShellSource).not.toContain('<span class="truncate">{props.item.label}</span>');
+    expect(appShellSource).not.toContain('<span class="truncate">Add memory</span>');
+    expect(appShellSource).not.toContain(
+      'isPhone() ? "truncate" : "min-w-0 truncate max-[1040px]:sr-only"',
+    );
   });
 
   it("keeps compact tablet add-memory controls centered without wax seal chrome", () => {

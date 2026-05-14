@@ -67,6 +67,7 @@ const composerSubmitButton =
   "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const railIconSlot = "grid size-10 place-items-center";
 const phoneIconSlot = "grid size-9 place-items-center [&>svg]:size-8";
+const phoneTabLabel = "sr-only";
 const compactRailItem =
   "max-[1040px]:mx-auto max-[1040px]:size-[52px] max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:gap-0 max-[1040px]:px-0";
 const navItemBase =
@@ -341,7 +342,9 @@ function PhoneRouteTab(props: {
       href={props.item.href}
     >
       <span class={phoneIconSlot}>{icon()}</span>
-      <span class="truncate">{props.item.label}</span>
+      <span class={phoneTabLabel} data-phone-tab-label>
+        {props.item.label}
+      </span>
     </A>
   );
 }
@@ -359,7 +362,9 @@ function PhoneDisabledTab(props: {
       type="button"
     >
       <span class={phoneIconSlot}>{icon()}</span>
-      <span class="truncate">{props.item.label}</span>
+      <span class={phoneTabLabel} data-phone-tab-label>
+        {props.item.label}
+      </span>
     </button>
   );
 }
@@ -522,7 +527,9 @@ function AddMemoryComposerButton(props: {
           <span class={phoneIconSlot}>
             <PlusIcon size={28} />
           </span>
-          <span class="truncate">Add memory</span>
+          <span class={phoneTabLabel} data-phone-tab-label>
+            Add memory
+          </span>
         </button>
       </Show>
       <Show when={isComposerOpen()}>
@@ -757,7 +764,16 @@ function ThemeNavButton(props: {
         onClick={() => setIsThemeOpen((value) => !value)}
       >
         <span class={isPhone() ? phoneIconSlot : railIconSlot}>{icon()}</span>
-        <span class={isPhone() ? "truncate" : "min-w-0 truncate max-[1040px]:sr-only"}>Theme</span>
+        <Show
+          when={isPhone()}
+          fallback={
+            <span class="min-w-0 truncate max-[1040px]:sr-only">Theme</span>
+          }
+        >
+          <span class={phoneTabLabel} data-phone-tab-label>
+            Theme
+          </span>
+        </Show>
       </button>
       <Show when={isThemeOpen()}>
         <div

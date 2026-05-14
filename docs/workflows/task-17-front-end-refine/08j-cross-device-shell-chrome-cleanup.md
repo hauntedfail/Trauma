@@ -177,6 +177,8 @@ Theme tabs open the existing add-memory composer and theme popover. Categories,
 Tags, Backup, and Settings are rendered as disabled tabs until their route or
 action contracts exist. If the tab list does not fit, the tab bar itself scrolls
 horizontally; the page must not gain horizontal overflow.
+Bottom-bar text labels must be visually hidden with an `sr-only` label helper so
+the accessible tab names remain intact without rendering text in the bar.
 
 - [ ] **Step 4: Align tablet rail icon slots**
 

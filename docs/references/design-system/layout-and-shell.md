@@ -228,6 +228,8 @@ Phone:
 - Future or unavailable sections are rendered as disabled tabs rather than live
   links to routes that do not exist.
 - Phone tab icons use a dedicated larger icon slot than the compact tablet rail.
+- Phone tab text labels are visually hidden. Keep accessible names on the tabs,
+  but do not render visible text in the bottom bar.
 - Add memory and Theme open popovers above the bottom bar.
 - Right rail content and filter drawers are not rendered as mobile chrome.
 - Phone route content reserves bottom safe-area space so the tab bar does not

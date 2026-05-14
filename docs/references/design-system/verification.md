@@ -110,6 +110,7 @@ Check:
   not present.
 - Phone `Primary tabs` render every rail item and use tab-bar-only horizontal
   scrolling when constrained.
+- Phone tab labels are visually hidden while role names remain available.
 - Tablet uses the compact icon rail and does not duplicate brand/filter header
   chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
