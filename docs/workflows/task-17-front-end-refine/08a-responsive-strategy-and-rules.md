@@ -25,6 +25,8 @@ changes, such as switching a memory card from two columns to one column.
 - CSS Container Queries with `container-type: inline-size`.
 - Container query units: `cqi`, `cqb`, `cqmin`, and `cqmax`.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
+- CSS Media Queries for input capability, orientation, and user preference
+  detection.
 - CSS Flexbox only for local one-dimensional layout with wrapping.
 - Mobile viewport units: `svh`, `dvh`, and `lvh`.
 - HTML responsive image primitives: `srcset`, `sizes`, `<picture>`, and
@@ -50,6 +52,10 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
 - web.dev large, small, and dynamic viewport units:
   `https://web.dev/blog/viewport-units`
+- MDN using media queries:
+  `https://developer.mozilla.org/docs/Web/CSS/CSS_media_queries/Using_media_queries`
+- MDN `@media`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/%40media`
 - MDN responsive images:
   `https://developer.mozilla.org/docs/Web/HTML/Guides/Responsive_images`
 - MDN `<picture>` element:
@@ -75,6 +81,11 @@ changes, such as switching a memory card from two columns to one column.
   branches as the primary responsive mechanism.
 - Do not use fixed viewport breakpoints for component internals when a
   container query can express the same adaptation.
+- Do not use CSS `@media` or JavaScript `matchMedia()` as phone, tablet, iPad,
+  or arbitrary viewport-width detection. Use them for capabilities and
+  preferences such as `hover`, `pointer`, `prefers-reduced-motion`,
+  `forced-colors`, `prefers-contrast`, `prefers-color-scheme`, and
+  `orientation`.
 - Do not use viewport units as the primary unit for component-internal
   typography or spacing. Prefer container query units when the component's
   containing pane is the relevant constraint.
@@ -299,6 +310,35 @@ Rules:
   validate every candidate URL.
 - Detailed implementation steps live in
   [08h Responsive Image Markup](08h-responsive-image-markup.md).
+
+## Capability And Preference Media Queries
+
+Media queries remain valid, but their role is capability and preference
+detection. They should not replace container queries for component layout.
+
+Allowed use cases:
+
+- `@media (hover: hover) and (pointer: fine)` for hover-only affordances.
+- `@media (pointer: coarse)` for touch target spacing or interaction density.
+- `@media (prefers-reduced-motion: reduce)` for disabling non-essential motion.
+- `@media (forced-colors: active)` and `@media (prefers-contrast: more)` for
+  accessibility adjustments.
+- `@media (prefers-color-scheme: dark)` only when integrating with system
+  preference before TRAUMA's explicit theme state takes over.
+- `@media (orientation: landscape)` only when physical orientation affects a
+  viewport-edge affordance; do not use it as a tablet/phone proxy.
+
+Disallowed use cases:
+
+- Component internals branching on `@media (max-width: ...)`,
+  `@media (min-width: ...)`, `device-width`, or `device-height`.
+- JavaScript `matchMedia()` branches for arbitrary viewport widths when
+  container queries or route state can express the behaviour.
+- Naming selectors or utilities after devices such as phone, tablet, iPad, or
+  desktop when the condition is really width, input capability, or preference.
+
+Detailed implementation steps live in
+[08i Capability And Preference Media Queries](08i-capability-preference-media-queries.md).
 
 ## Constrained Fluid Page Shells
 

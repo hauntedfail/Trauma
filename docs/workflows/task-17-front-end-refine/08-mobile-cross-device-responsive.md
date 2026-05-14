@@ -27,11 +27,14 @@ Read and execute these files in order:
 5. [08d Component Responsive Implementation](08d-component-responsive-implementation.md)
    migrates component internals to container queries, fluid logical sizing,
    scoped flex wrapping, and mobile viewport units.
-6. [08h Responsive Image Markup](08h-responsive-image-markup.md) makes owned and
+6. [08i Capability And Preference Media Queries](08i-capability-preference-media-queries.md)
+   restricts `@media` usage to input capability, orientation, and user
+   preference detection instead of phone/tablet breakpoints.
+7. [08h Responsive Image Markup](08h-responsive-image-markup.md) makes owned and
    reader images responsive in HTML instead of relying on CSS sizing alone.
-7. [08e Cross-Device E2E](08e-cross-device-e2e.md) adds Playwright coverage for
+8. [08e Cross-Device E2E](08e-cross-device-e2e.md) adds Playwright coverage for
    narrow and mid-width user flows.
-8. [08f Design System Responsive Docs](08f-design-system-responsive-docs.md)
+9. [08f Design System Responsive Docs](08f-design-system-responsive-docs.md)
    records the durable design-system guidance and final verification contract.
 
 ## Execution Order
@@ -46,6 +49,8 @@ Read and execute these files in order:
   tokens.
 - [ ] Execute `08d-component-responsive-implementation.md` and commit the CSS
   and component refactor.
+- [ ] Execute `08i-capability-preference-media-queries.md` and commit
+  capability/preference media-query rules.
 - [ ] Execute `08h-responsive-image-markup.md` and commit responsive image
   markup support.
 - [ ] Execute `08e-cross-device-e2e.md` and commit E2E coverage.
@@ -69,6 +74,10 @@ Read and execute these files in order:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
 - web.dev large, small, and dynamic viewport units:
   `https://web.dev/blog/viewport-units`
+- MDN using media queries:
+  `https://developer.mozilla.org/docs/Web/CSS/CSS_media_queries/Using_media_queries`
+- MDN `@media`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/%40media`
 - MDN responsive images:
   `https://developer.mozilla.org/docs/Web/HTML/Guides/Responsive_images`
 - MDN `<picture>` element:
@@ -118,6 +127,8 @@ For final handoff, include:
   `svh`/`dvh`/`lvh` use justified by surface intent.
 - Safe-area insets integrated through layout tokens and utilities rather than
   component-local `env(safe-area-inset-*)` calls.
+- Media queries limited to capabilities and preferences such as hover, pointer,
+  reduced motion, forced colors, contrast, color scheme, and orientation.
 - Reader and owned images use HTML responsive image primitives when variants
   exist, and no fake `srcset` is generated from duplicate URLs.
 - Constrained fluid page-shell utility added with logical properties.

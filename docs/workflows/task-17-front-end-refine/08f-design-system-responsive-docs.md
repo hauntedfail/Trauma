@@ -59,6 +59,11 @@ Use `srcset` and `sizes` when trustworthy width variants exist, and use
 fake `srcset` entries from duplicate URLs. Reader content may preserve
 responsive image markup only after sanitizing every URL candidate.
 
+Media queries are reserved for capability and preference detection: hover,
+pointer, reduced motion, forced colors, contrast, color scheme, and orientation.
+Do not use media queries or `matchMedia()` as phone, iPad, tablet, or arbitrary
+viewport-width detection for component layout.
+
 Flexbox is limited to local one-dimensional layout such as navigation rows, tag
 lists, toolbars, and button groups. Use `flex-wrap: wrap` for local overflow,
 and use grid/block/container-query layout for page, route, card-grid, and
@@ -91,7 +96,7 @@ split-view widths.
 
 ```bash
 git diff --check
-rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md docs/workflows/task-17-front-end-refine/08g-safe-area-layout-tokens.md docs/workflows/task-17-front-end-refine/08h-responsive-image-markup.md
+rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md docs/workflows/task-17-front-end-refine/08g-safe-area-layout-tokens.md docs/workflows/task-17-front-end-refine/08h-responsive-image-markup.md docs/workflows/task-17-front-end-refine/08i-capability-preference-media-queries.md
 ```
 
 Expected: no placeholders.

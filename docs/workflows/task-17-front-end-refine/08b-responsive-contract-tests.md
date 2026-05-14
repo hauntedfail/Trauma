@@ -147,6 +147,16 @@ describe("mobile and cross-device responsive contract", () => {
     expect(traumaMarkSource).toContain("<source");
   });
 
+  it("uses media queries for capabilities and preferences only", () => {
+    expect(tailwindCss).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(tailwindCss).toContain("@media (pointer: coarse)");
+    expect(tailwindCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(tailwindCss).toContain("@media (forced-colors: active)");
+    expect(tailwindCss).toContain("@media (prefers-contrast: more)");
+    expect(tailwindCss).toContain("@media (orientation: landscape)");
+    expect(tailwindCss).not.toMatch(/@media\s*\([^)]*(min-width|max-width|device-width|device-height)/i);
+  });
+
   it("limits flex utilities to local one-dimensional wrapping clusters", () => {
     expect(tailwindCss).toContain(".trauma-local-wrap");
     expect(tailwindCss).toContain("display: flex");
