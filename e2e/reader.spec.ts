@@ -77,6 +77,35 @@ test("keeps linked reader highlight anchors readable in non-normal themes", asyn
   }
 });
 
+test("keeps sun reader links bright in normal and paper themes", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  for (const theme of [
+    { brightness: "sun", name: "warm-light", surface: "normal" },
+    { brightness: "sun", name: "paper-warm-light", surface: "paper" },
+  ] as const) {
+    await setReaderTheme(page, theme.brightness, theme.surface);
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
+
+    const sourceLinkColor = await page
+      .getByRole("link", { name: "https://example.com/reader" })
+      .evaluate((link) => getComputedStyle(link).color);
+    const proseLinkColor = await page
+      .getByRole("link", { name: "Reference link" })
+      .evaluate((link) => getComputedStyle(link).color);
+    const linkToken = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--link").trim(),
+    );
+
+    expect(linkToken, theme.name).toBe("#9a334a");
+    expect(sourceLinkColor, theme.name).toBe("rgb(154, 51, 74)");
+    expect(proseLinkColor, theme.name).toBe("rgb(154, 51, 74)");
+  }
+});
+
 test("toggles selected reader text as a persisted highlight", async ({ page }) => {
   createReaderFixture();
   const selectedText = "Curated markdown body";
@@ -265,6 +294,8 @@ function createReaderFixture() {
             "# Fixture Reader",
             "",
             "Curated markdown body with <mark data-highlight-id=\\"hl-fixture\\">saved highlight</mark>.",
+            "",
+            "A [Reference link](https://example.com/reference) belongs to the reader content.",
             "",
             "## Details",
             "",

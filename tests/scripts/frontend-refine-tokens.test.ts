@@ -53,6 +53,8 @@ describe("front-end refine design tokens", () => {
       "--color-trauma-accent-ink: var(--accent-ink)",
       "--color-trauma-highlight-bg: var(--hl-bg)",
       "--color-trauma-quote-bar: var(--hl-quote-bar)",
+      "--color-trauma-link: var(--link)",
+      "--color-trauma-link-hover: var(--link-hover)",
     ]) {
       expect(tailwindCss).toContain(token);
     }
@@ -81,6 +83,24 @@ describe("front-end refine design tokens", () => {
       expect(readThemeToken(body, "--bg-surface")).toBe(
         readThemeToken(body, "--bg-base"),
       );
+    }
+  });
+
+  it("uses brighter reader link colors in both sun themes", () => {
+    for (const themeName of ["warm-light", "paper-warm-light"] as const) {
+      const theme = themeBlocks.find((item) => item.name === themeName);
+      if (theme === undefined) {
+        throw new Error(`Missing theme entry ${themeName}`);
+      }
+
+      const body = tailwindCss.match(theme.pattern)?.groups?.body;
+      if (body === undefined) {
+        throw new Error(`Missing theme block ${theme.name}`);
+      }
+
+      expect(readThemeToken(body, "--link")).toBe("var(--wine-500)");
+      expect(readThemeToken(body, "--link-hover")).toBe("var(--wine-600)");
+      expect(readThemeToken(body, "--link")).not.toBe(readThemeToken(body, "--accent"));
     }
   });
 

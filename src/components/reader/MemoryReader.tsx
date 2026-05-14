@@ -36,7 +36,7 @@ interface ReaderSelection extends ReaderSelectionPayload {
 type ReaderHighlightOperation = "highlight" | "unhighlight";
 
 const readerArticle =
-  "trauma-reader-content prose max-w-none min-w-0 text-trauma-text-secondary prose-headings:text-trauma-text-primary prose-a:text-trauma-accent prose-a:underline prose-a:underline-offset-[3px] prose-strong:text-trauma-text-primary prose-blockquote:border-trauma-quote-bar prose-blockquote:text-trauma-quote-ink prose-hr:border-trauma-border prose-pre:border prose-pre:border-trauma-border prose-pre:bg-trauma-bg-sunken prose-pre:text-trauma-text-secondary prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-trauma-border prose-th:bg-trauma-bg-elev prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-trauma-text-primary prose-td:border prose-td:border-trauma-border prose-td:px-2.5 prose-td:py-2 prose-mark:rounded-md prose-mark:bg-trauma-highlight-bg prose-mark:px-1 prose-mark:text-trauma-highlight-ink [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-trauma-bg-elev [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-trauma-text-primary";
+  "trauma-reader-content prose max-w-none min-w-0 text-trauma-text-secondary prose-headings:text-trauma-text-primary prose-a:text-trauma-link prose-a:underline prose-a:underline-offset-[3px] prose-strong:text-trauma-text-primary prose-blockquote:border-trauma-quote-bar prose-blockquote:text-trauma-quote-ink prose-hr:border-trauma-border prose-pre:border prose-pre:border-trauma-border prose-pre:bg-trauma-bg-sunken prose-pre:text-trauma-text-secondary prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-trauma-border prose-th:bg-trauma-bg-elev prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-trauma-text-primary prose-td:border prose-td:border-trauma-border prose-td:px-2.5 prose-td:py-2 prose-mark:rounded-md prose-mark:bg-trauma-highlight-bg prose-mark:px-1 prose-mark:text-trauma-highlight-ink [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-trauma-bg-elev [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-trauma-text-primary";
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
 
@@ -104,11 +104,11 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
           <h1 class="mb-2.5 text-3xl font-bold leading-tight text-trauma-text-primary" id="reader-title">{props.result.memory.title}</h1>
           <Show
             when={sourceHref()}
-            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-accent"><OpenIcon />{sourceUrl()}</span>}
+            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
           >
             {(href) => (
               <a
-                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-accent hover:underline"
+                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
                 href={href()}
                 rel="noreferrer"
                 target="_blank"
@@ -204,7 +204,7 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
                   "ml-5": entry.level === 3,
                 }}
               >
-                <a class="hover:text-trauma-accent" href={`#${entry.id}`}>
+                <a class="hover:text-trauma-link" href={`#${entry.id}`}>
                   {entry.text}
                 </a>
               </li>

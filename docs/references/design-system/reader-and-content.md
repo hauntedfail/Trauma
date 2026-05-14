@@ -61,7 +61,7 @@ Reader prose rules:
 - `prose max-w-none min-w-0`.
 - Headings use `text-trauma-text-primary`.
 - Body text uses `text-trauma-text-secondary`.
-- Links use `text-trauma-accent` and underline offset.
+- Links use `text-trauma-link` and underline offset.
 - Inline code uses the mono font and elevated token background.
 - Code blocks use `bg-trauma-bg-sunken` and border tokens.
 - Tables use full width and tokenised borders.

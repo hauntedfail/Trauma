@@ -14,6 +14,7 @@ describe("refined reader visual contract", () => {
     expect(combinedSource).toContain("bg-trauma-bg-surface");
     expect(combinedSource).toContain("prose-mark:bg-trauma-highlight-bg");
     expect(combinedSource).toContain("trauma-reader-content");
+    expect(combinedSource).toContain("prose-a:text-trauma-link");
     expect(combinedSource).not.toMatch(/text-slate|border-slate|bg-slate|text-blue|bg-white|yellow-/);
   });
 
@@ -21,6 +22,7 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("toSafeReaderSourceHref");
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
+    expect(readerSource).toContain("text-trauma-link");
     expect(readerSource).not.toContain("contenteditable");
   });
 
