@@ -12,6 +12,7 @@ import {
   type BrowseMemory,
 } from "./browse-data";
 import { getBrowseMemories } from "./browse-loader";
+import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 const pageFrame =
   "min-h-screen w-full bg-trauma-bg-surface max-[720px]:min-h-[calc(100vh-58px)]";
@@ -60,12 +61,24 @@ export function MemoryBrowse() {
           </h1>
         </div>
         <div class="grid w-[152px] grid-cols-[72px_72px] gap-2" role="group" aria-label="View mode">
-          <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={!isGrid()} onClick={() => updateQuery({ view: "list" })}>
-            <span class="trauma-paper-wax-label">List</span>
-          </button>
-          <button class={`${controlButton} trauma-paper-wax-seal trauma-paper-wax-toggle w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={isGrid()} onClick={() => updateQuery({ view: "grid" })}>
-            <span class="trauma-paper-wax-label">Grid</span>
-          </button>
+          <WaxSealButton
+            aria-pressed={!isGrid()}
+            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+            type="button"
+            variant="toggle"
+            onClick={() => updateQuery({ view: "list" })}
+          >
+            <WaxSealLabel>List</WaxSealLabel>
+          </WaxSealButton>
+          <WaxSealButton
+            aria-pressed={isGrid()}
+            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+            type="button"
+            variant="toggle"
+            onClick={() => updateQuery({ view: "grid" })}
+          >
+            <WaxSealLabel>Grid</WaxSealLabel>
+          </WaxSealButton>
         </div>
       </header>
       <div class="border-b border-trauma-border px-6 py-[18px] max-[720px]:px-4">

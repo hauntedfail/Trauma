@@ -44,6 +44,7 @@ import {
   type SurfaceMode,
 } from "./theme";
 import { RightRailContentContext } from "./right-rail-context";
+import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 interface AppShellProps {
   children: JSX.Element;
@@ -54,7 +55,7 @@ const buttonBase =
 const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
-  "sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base max-[720px]:hidden";
+  "sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden";
 const rightRailSurface =
   "sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
 const rightRailStack =
@@ -366,30 +367,32 @@ function AddMemoryComposerButton(props: {
       ref={rootRef}
       class="relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
     >
-      <button
+      <WaxSealButton
         aria-controls={isComposerOpen() ? props.popoverId : undefined}
         aria-expanded={isComposerOpen()}
         aria-haspopup="dialog"
-        class="trauma-paper-wax-seal trauma-paper-wax-command inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
+        aria-pressed={isComposerOpen()}
+        class="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
         type="button"
+        variant="command"
         onClick={() => setIsComposerOpen((value) => !value)}
       >
         <PlusIcon />
-        <span class="trauma-paper-wax-label max-[1040px]:sr-only">
+        <WaxSealLabel class="max-[1040px]:sr-only">
           Add memory
-        </span>
-      </button>
+        </WaxSealLabel>
+      </WaxSealButton>
       <Show when={isComposerOpen()}>
         <div
           aria-label="Add memory"
-          class="absolute left-0 top-full z-30 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"
+          class="absolute left-0 top-full z-50 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"
           id={props.popoverId}
           role="dialog"
         >
           <AddMemoryForm
             formClass="grid gap-3.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-4 shadow-trauma-2"
             inputClass={surfaceInput}
-            buttonClass={`${buttonBase} trauma-paper-wax-seal trauma-paper-wax-command w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
+            buttonClass={`${buttonBase} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
             submitLabel="Save memory"
             title="Add memory"
             onCreated={handleCreated}
@@ -602,7 +605,7 @@ function ThemeNavButton(props: {
       <Show when={isThemeOpen()}>
         <div
           aria-label="Theme settings"
-          class="absolute left-0 top-full z-30 mt-1 w-[252px] animate-trauma-pop-bounce max-w-[calc(100vw-2rem)]"
+          class="absolute left-0 top-full z-50 mt-1 w-[252px] animate-trauma-pop-bounce max-w-[calc(100vw-2rem)]"
           id={props.popoverId}
           role="dialog"
         >

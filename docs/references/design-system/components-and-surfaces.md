@@ -48,6 +48,9 @@ Paper themes add one deliberate material exception for archive actions:
 - Wax material layers must stay behind readable labels and icons. Use the
   button content layer, or `trauma-paper-wax-label` for text-only children,
   so sun paper selected controls keep high-contrast text.
+- Use `WaxSealButton` and `WaxSealLabel` for new wax controls. Do not repeat
+  the raw `trauma-paper-wax-*` class contract in route or shell components
+  unless the shared component cannot express the required element.
 
 ## Shell Popovers
 
@@ -60,6 +63,9 @@ drawers on desktop shell layouts:
   completion of the contained workflow.
 - Add memory keeps the shell-level command globally reachable, but the composer
   itself stays attached to the rail action that opened it.
+- The primary rail must allow visible overflow and sit above route panes.
+  Anchored popovers use a higher layer than the rail and main pane so their
+  content is never clipped beneath the current route.
 
 ## Form Inputs
 

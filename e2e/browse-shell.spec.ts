@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test("redirects the home route to the canonical memories browse route", async ({ page }) => {
   await page.goto("/");
@@ -83,6 +83,29 @@ test("keeps filter controls reachable on tablet widths", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Open filters" })).toBeVisible();
   await page.getByRole("button", { name: "Open filters" }).click();
   await expect(page.getByRole("dialog", { name: "Filters" })).toBeVisible();
+});
+
+test("layers left rail popovers above the main pane", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/memories");
+
+  const themeButton = page.getByRole("button", { name: "Theme" });
+  await expect(themeButton).toHaveCount(1);
+  await themeButton.click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
+  await expectRailDialogAboveMain(page, "Theme settings");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
+
+  const addMemoryButton = page.getByRole("button", { name: "Add memory" });
+  await expect(addMemoryButton).toHaveCount(1);
+  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "false");
+  await addMemoryButton.click();
+  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await expectRailDialogAboveMain(page, "Add memory");
+  await page.keyboard.press("Escape");
+  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "false");
 });
 
 test("persists shell theme controls in the browser", async ({ page }) => {
@@ -258,8 +281,10 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
 
   const highlightsAddButton = page.getByRole("button", { name: "Add memory" });
   await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "false");
+  await expect(highlightsAddButton).toHaveAttribute("aria-pressed", "false");
   await highlightsAddButton.click();
   await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "true");
+  await expect(highlightsAddButton).toHaveAttribute("aria-pressed", "true");
   const highlightsComposer = page.getByRole("dialog", { name: "Add memory" });
   await expect(highlightsComposer).toBeVisible();
   await expect(highlightsComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
@@ -271,9 +296,56 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await page.goto("/memories/memory-foundation");
   const readerAddButton = page.getByRole("button", { name: "Add memory" });
   await expect(readerAddButton).toHaveAttribute("aria-expanded", "false");
+  await expect(readerAddButton).toHaveAttribute("aria-pressed", "false");
   await readerAddButton.click();
   await expect(readerAddButton).toHaveAttribute("aria-expanded", "true");
+  await expect(readerAddButton).toHaveAttribute("aria-pressed", "true");
   const readerComposer = page.getByRole("dialog", { name: "Add memory" });
   await expect(readerComposer).toBeVisible();
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
+
+async function expectRailDialogAboveMain(page: Page, dialogName: string) {
+  const layer = await page.evaluate((name) => {
+    const dialog = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+    ).find((element) => element.getAttribute("aria-label") === name);
+    const main = document.querySelector<HTMLElement>("main");
+    const primaryRail = document.querySelector<HTMLElement>(
+      'aside[aria-label="Primary navigation"]',
+    );
+
+    if (dialog === undefined || main === null || primaryRail === null) {
+      return { missing: true };
+    }
+
+    const dialogRect = dialog.getBoundingClientRect();
+    const mainRect = main.getBoundingClientRect();
+    const probeX = Math.max(
+      mainRect.left + 8,
+      Math.min(dialogRect.right - 8, mainRect.left + 32),
+    );
+    const probeY = Math.min(dialogRect.bottom - 8, dialogRect.top + 24);
+    const topElement = document.elementFromPoint(probeX, probeY);
+    const railStyle = getComputedStyle(primaryRail);
+
+    return {
+      dialogExtendsIntoMain: dialogRect.right > mainRect.left + 8,
+      missing: false,
+      primaryOverflowX: railStyle.overflowX,
+      primaryOverflowY: railStyle.overflowY,
+      primaryZIndex: railStyle.zIndex,
+      topElementInsideDialog:
+        topElement instanceof Element && dialog.contains(topElement),
+    };
+  }, dialogName);
+
+  expect(layer).toEqual({
+    dialogExtendsIntoMain: true,
+    missing: false,
+    primaryOverflowX: "visible",
+    primaryOverflowY: "visible",
+    primaryZIndex: "40",
+    topElementInsideDialog: true,
+  });
+}

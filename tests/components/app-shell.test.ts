@@ -20,6 +20,10 @@ const readerStylesSource = readFileSync(
   "src/components/reader/reader-styles.ts",
   "utf8",
 );
+const waxSealButtonPath = "src/components/ui/WaxSealButton.tsx";
+const waxSealButtonSource = existsSync(waxSealButtonPath)
+  ? readFileSync(waxSealButtonPath, "utf8")
+  : "";
 const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const rightRailContextSource = existsSync(rightRailContextPath)
   ? readFileSync(rightRailContextPath, "utf8")
@@ -132,6 +136,16 @@ describe("refined app shell contract", () => {
     );
   });
 
+  it("keeps rail popovers layered above route panes", () => {
+    expect(appShellSource).toContain(
+      '"sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
+    );
+    expect(appShellSource).toContain("z-50 mt-1");
+    expect(appShellSource).not.toContain(
+      '"sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base max-[720px]:hidden"',
+    );
+  });
+
   it("labels paper surface as Hermès in night brightness only", () => {
     expect(appShellSource).toContain("getPaperSurfaceLabel");
     expect(appShellSource).toContain('return brightness === "night" ? "Hermès" : "Paper";');
@@ -159,20 +173,32 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('aria-label="Add memory"');
     expect(appShellSource).not.toContain('<Drawer ariaLabel="Add memory"');
     expect(appShellSource).not.toContain("setIsComposerOpen(true)");
+    expect(appShellSource).toContain("aria-pressed={isComposerOpen()}");
+    expect(appShellSource).toContain("<WaxSealButton");
+    expect(appShellSource).toContain("<WaxSealLabel");
   });
 
   it("uses paper-mode wax seal controls for add memory and view toggles", () => {
-    expect(appShellSource).toContain("trauma-paper-wax-seal trauma-paper-wax-command");
-    expect(memoryBrowseSource).toContain("trauma-paper-wax-seal trauma-paper-wax-toggle");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::before');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal[aria-pressed="true"]');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal:active');
-    expect(appShellSource).toContain("trauma-paper-wax-label max-[1040px]:sr-only");
-    expect(addMemoryFormSource).toContain('class="trauma-paper-wax-label"');
-    expect(memoryBrowseSource).toContain('<span class="trauma-paper-wax-label">List</span>');
-    expect(memoryBrowseSource).toContain('<span class="trauma-paper-wax-label">Grid</span>');
+    expect(waxSealButtonSource).toContain("export function WaxSealButton");
+    expect(waxSealButtonSource).toContain("export function WaxSealLabel");
+    expect(waxSealButtonSource).toContain("trauma-paper-wax-seal");
+    expect(waxSealButtonSource).toContain("trauma-paper-wax-command");
+    expect(waxSealButtonSource).toContain("trauma-paper-wax-toggle");
+    expect(waxSealButtonSource).toContain("trauma-paper-wax-label");
+    expect(appShellSource).toContain('variant="command"');
+    expect(appShellSource).toContain('<WaxSealLabel class="max-[1040px]:sr-only">');
+    expect(memoryBrowseSource).toContain("<WaxSealButton");
+    expect(memoryBrowseSource).toContain("<WaxSealLabel>List</WaxSealLabel>");
+    expect(memoryBrowseSource).toContain("<WaxSealLabel>Grid</WaxSealLabel>");
+    expect(addMemoryFormSource).toContain("<WaxSealButton");
+    expect(addMemoryFormSource).toContain("<WaxSealLabel>");
+    expect(appShellSource).not.toContain("trauma-paper-wax-seal trauma-paper-wax-command");
+    expect(memoryBrowseSource).not.toContain("trauma-paper-wax-seal trauma-paper-wax-toggle");
 
     const waxStart = tailwindCss.indexOf(':root[data-theme^="paper"] .trauma-paper-wax-seal');
     const activeNavStart = tailwindCss.indexOf(
