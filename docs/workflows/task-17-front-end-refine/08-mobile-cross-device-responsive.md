@@ -22,12 +22,14 @@ Read and execute these files in order:
    source-contract tests that lock the policy before implementation.
 3. [08c Container Ownership](08c-container-ownership.md) adds route and
    component query-container boundaries without changing layout behaviour.
-4. [08d Component Responsive Implementation](08d-component-responsive-implementation.md)
+4. [08g Safe-Area Layout Tokens](08g-safe-area-layout-tokens.md) integrates
+   notch, rounded-corner, and home-indicator insets through layout tokens.
+5. [08d Component Responsive Implementation](08d-component-responsive-implementation.md)
    migrates component internals to container queries, fluid logical sizing,
    scoped flex wrapping, and mobile viewport units.
-5. [08e Cross-Device E2E](08e-cross-device-e2e.md) adds Playwright coverage for
+6. [08e Cross-Device E2E](08e-cross-device-e2e.md) adds Playwright coverage for
    narrow and mid-width user flows.
-6. [08f Design System Responsive Docs](08f-design-system-responsive-docs.md)
+7. [08f Design System Responsive Docs](08f-design-system-responsive-docs.md)
    records the durable design-system guidance and final verification contract.
 
 ## Execution Order
@@ -38,6 +40,8 @@ Read and execute these files in order:
   contract.
 - [ ] Execute `08c-container-ownership.md` and commit container ownership
   markers.
+- [ ] Execute `08g-safe-area-layout-tokens.md` and commit safe-area layout
+  tokens.
 - [ ] Execute `08d-component-responsive-implementation.md` and commit the CSS
   and component refactor.
 - [ ] Execute `08e-cross-device-e2e.md` and commit E2E coverage.
@@ -61,6 +65,10 @@ Read and execute these files in order:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
 - web.dev large, small, and dynamic viewport units:
   `https://web.dev/blog/viewport-units`
+- MDN CSS `env()`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/env`
+- MDN using CSS environment variables:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Environment_variables/Using`
 - MDN CSS logical properties and values:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_logical_properties_and_values`
 - MDN basic concepts of flexbox:
@@ -100,6 +108,8 @@ For final handoff, include:
   remaining viewport-unit component usage justified.
 - Mobile full-height surfaces migrated away from `100vh`, with each
   `svh`/`dvh`/`lvh` use justified by surface intent.
+- Safe-area insets integrated through layout tokens and utilities rather than
+  component-local `env(safe-area-inset-*)` calls.
 - Constrained fluid page-shell utility added with logical properties.
 - Flexbox audit outcome, including which flex uses were kept because they are
   local one-dimensional layouts.

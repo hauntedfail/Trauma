@@ -27,6 +27,8 @@ changes, such as switching a memory card from two columns to one column.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
 - CSS Flexbox only for local one-dimensional layout with wrapping.
 - Mobile viewport units: `svh`, `dvh`, and `lvh`.
+- CSS environment variables through `env(safe-area-inset-*)` for safe-area
+  layout tokens.
 - Vitest source-contract tests for responsive policy.
 - Playwright E2E for mobile and cross-device layout behaviour.
 
@@ -46,6 +48,10 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length`
 - web.dev large, small, and dynamic viewport units:
   `https://web.dev/blog/viewport-units`
+- MDN CSS `env()`:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/env`
+- MDN using CSS environment variables:
+  `https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Environment_variables/Using`
 - MDN CSS logical properties and values:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_logical_properties_and_values`
 - MDN basic concepts of flexbox:
@@ -68,6 +74,10 @@ changes, such as switching a memory card from two columns to one column.
   containing pane is the relevant constraint.
 - Do not use `100vh` for mobile full-height surfaces. Use `svh`, `dvh`, or
   `lvh` according to whether the surface must be stable, dynamic, or immersive.
+- Do not call `env(safe-area-inset-*)` directly from component class strings or
+  route-local style blocks. Define safe-area layout tokens and reusable
+  utilities in `src/styles/tailwind.css`, then apply those utilities to shell,
+  drawer, fixed toolbar, and bottom action surfaces.
 - Do not introduce fixed-width route/page shells. Route content should be
   constrained fluid with logical sizing and spacing properties.
 - Do not use flexbox as a page, shell, route, or card-grid layout system. Flex
@@ -206,6 +216,56 @@ Rules:
 - Keep `vh` out of mobile code. If a viewport-height fallback is unavoidable,
   document the reason in the PR body and place the modern unit after the
   fallback so supported browsers use `svh`, `dvh`, or `lvh`.
+
+## Safe-Area Layout Tokens
+
+Devices with notches, rounded corners, and bottom home indicators can obscure
+content at viewport edges. Integrate `env(safe-area-inset-*)` once as layout
+tokens, then consume those tokens through utilities.
+
+Define physical inset tokens with fallback values:
+
+```css
+:root {
+  --trauma-layout-safe-area-top: env(safe-area-inset-top, 0px);
+  --trauma-layout-safe-area-right: env(safe-area-inset-right, 0px);
+  --trauma-layout-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --trauma-layout-safe-area-left: env(safe-area-inset-left, 0px);
+}
+```
+
+Use utilities for surfaces that touch viewport edges:
+
+```css
+.trauma-safe-area-shell {
+  padding-block-start: var(--trauma-layout-safe-area-top);
+  padding-inline-end: var(--trauma-layout-safe-area-right);
+  padding-block-end: var(--trauma-layout-safe-area-bottom);
+  padding-inline-start: var(--trauma-layout-safe-area-left);
+}
+
+.trauma-safe-area-inline {
+  padding-inline-end: var(--trauma-layout-safe-area-right);
+  padding-inline-start: var(--trauma-layout-safe-area-left);
+}
+
+.trauma-safe-area-bottom {
+  padding-block-end: var(--trauma-layout-safe-area-bottom);
+}
+```
+
+Rules:
+
+- Apply safe-area utilities to mobile shell wrappers, drawers, fixed/sticky
+  bottom action bars, and full-height overlays that can touch viewport edges.
+- Do not add safe-area padding to desktop-only pane interiors or ordinary
+  component cards. Safe-area is a viewport-edge concern, not a generic spacing
+  token.
+- Keep the raw `env(safe-area-inset-*)` calls centralized in
+  `src/styles/tailwind.css`. Component and route files should use
+  `trauma-safe-area-*` utilities.
+- Use logical padding properties in utilities even though the environment
+  variables are physical viewport insets.
 
 ## Constrained Fluid Page Shells
 

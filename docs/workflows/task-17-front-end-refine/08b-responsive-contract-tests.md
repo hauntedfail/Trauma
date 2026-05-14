@@ -91,6 +91,35 @@ describe("mobile and cross-device responsive contract", () => {
     }
   });
 
+  it("centralizes safe-area insets as layout tokens and utilities", () => {
+    expect(tailwindCss).toContain(
+      "--trauma-layout-safe-area-top: env(safe-area-inset-top, 0px)",
+    );
+    expect(tailwindCss).toContain(
+      "--trauma-layout-safe-area-right: env(safe-area-inset-right, 0px)",
+    );
+    expect(tailwindCss).toContain(
+      "--trauma-layout-safe-area-bottom: env(safe-area-inset-bottom, 0px)",
+    );
+    expect(tailwindCss).toContain(
+      "--trauma-layout-safe-area-left: env(safe-area-inset-left, 0px)",
+    );
+    expect(tailwindCss).toContain(".trauma-safe-area-shell");
+    expect(tailwindCss).toContain(".trauma-safe-area-inline");
+    expect(tailwindCss).toContain(".trauma-safe-area-bottom");
+    expect(appShellSource).toContain("trauma-safe-area-");
+
+    for (const source of [
+      appShellSource,
+      memoryBrowseSource,
+      readerStylesSource,
+      highlightsRouteSource,
+      notFoundRouteSource,
+    ]) {
+      expect(source).not.toContain("env(safe-area-inset-");
+    }
+  });
+
   it("uses logical properties for constrained fluid page shells", () => {
     expect(tailwindCss).toContain(".trauma-fluid-page-shell");
     expect(tailwindCss).toContain("max-inline-size");

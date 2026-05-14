@@ -47,6 +47,12 @@ Mobile full-height surfaces should not use `100vh`. Use `svh` for stable
 route/drawer height, `dvh` for dynamic overlays that must track visible
 viewport changes, and `lvh` only for non-critical immersive surfaces.
 
+Safe-area handling belongs in layout tokens and utilities. Define
+`env(safe-area-inset-*)` once in `src/styles/tailwind.css` as
+`--trauma-layout-safe-area-*`, then apply `trauma-safe-area-*` utilities to
+mobile shell wrappers, drawers, fixed/sticky bars, and full-height overlays that
+touch viewport edges.
+
 Flexbox is limited to local one-dimensional layout such as navigation rows, tag
 lists, toolbars, and button groups. Use `flex-wrap: wrap` for local overflow,
 and use grid/block/container-query layout for page, route, card-grid, and
@@ -79,7 +85,7 @@ split-view widths.
 
 ```bash
 git diff --check
-rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md
+rg -n 'T''BD|implement ''later|fill in ''details' docs/references/design-system docs/workflows/task-17-front-end-refine/08-mobile-cross-device-responsive.md docs/workflows/task-17-front-end-refine/08a-responsive-strategy-and-rules.md docs/workflows/task-17-front-end-refine/08b-responsive-contract-tests.md docs/workflows/task-17-front-end-refine/08c-container-ownership.md docs/workflows/task-17-front-end-refine/08d-component-responsive-implementation.md docs/workflows/task-17-front-end-refine/08e-cross-device-e2e.md docs/workflows/task-17-front-end-refine/08f-design-system-responsive-docs.md docs/workflows/task-17-front-end-refine/08g-safe-area-layout-tokens.md
 ```
 
 Expected: no placeholders.
