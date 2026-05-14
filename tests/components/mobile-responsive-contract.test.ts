@@ -128,6 +128,9 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).toContain("phoneTabItems");
     expect(appShellSource).toContain('aria-label="Primary tabs"');
     expect(appShellSource).toContain("bottom-0");
+    expect(appShellSource).toContain("overflow-x-auto");
+    expect(appShellSource).toContain("data-phone-tab-scroll");
+    expect(appShellSource).not.toContain("grid grid-cols-4 items-end gap-1");
     expect(appShellSource).toContain("trauma-safe-area-bottom");
     expect(appShellSource).toContain("showLabel={true}");
     expect(appShellSource).toContain("showLabel={false}");
@@ -146,13 +149,39 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).not.toContain("FilterNavButton");
   });
 
+  it("renders every primary tab on phone instead of dropping low-priority tabs", () => {
+    for (const label of [
+      "Memories",
+      "Highlights",
+      "Categories",
+      "Tags",
+      "Backup",
+      "Add memory",
+      "Theme",
+      "Settings",
+    ]) {
+      expect(appShellSource).toContain(`label: "${label}"`);
+    }
+
+    expect(appShellSource).toContain('kind: "disabled"');
+    expect(appShellSource).toContain("PhoneDisabledTab");
+  });
+
   it("keeps phone tabs readable with larger dedicated icon slots", () => {
     expect(appShellSource).toContain("phoneIconSlot");
     expect(appShellSource).toContain("grid size-9 place-items-center");
     expect(appShellSource).toContain("[&>svg]:size-8");
-    expect(appShellSource).toContain("<PlusIcon size={isPhone() ? 28 : undefined}");
+    expect(appShellSource).toContain("<PlusIcon size={28} />");
     expect(appShellSource).toContain("<MoonIcon size={isPhone() ? 28 : undefined}");
     expect(appShellSource).toContain("<SunIcon size={isPhone() ? 28 : undefined}");
+  });
+
+  it("keeps compact tablet add-memory controls centered without wax seal chrome", () => {
+    expect(appShellSource).toContain("compactAddMemoryButton");
+    expect(appShellSource).toContain("max-[1040px]:grid");
+    expect(appShellSource).toContain("min-[1041px]:inline-flex");
+    expect(appShellSource).toContain("max-[1040px]:hidden");
+    expect(appShellSource).toContain("max-[1040px]:size-[52px]");
   });
 
   it("keeps reader chrome legible outside desktop", () => {

@@ -41,6 +41,39 @@ test("keeps phone primary actions reachable from the bottom tab bar", async ({ p
   await page.goto("/memories");
 
   const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
+  for (const tabName of [
+    "Memories",
+    "Highlights",
+    "Categories",
+    "Tags",
+    "Backup",
+    "Add memory",
+    "Theme",
+    "Settings",
+  ]) {
+    await expect(primaryTabs.getByText(tabName, { exact: true })).toBeAttached();
+  }
+
+  const scrollState = await primaryTabs.evaluate((nav) => {
+    const scroller = nav.querySelector("[data-phone-tab-scroll]");
+
+    if (scroller === null) {
+      return null;
+    }
+
+    const style = getComputedStyle(scroller);
+
+    return {
+      clientWidth: scroller.clientWidth,
+      overflowX: style.overflowX,
+      scrollWidth: scroller.scrollWidth,
+    };
+  });
+
+  expect(scrollState).not.toBeNull();
+  expect(["auto", "scroll"]).toContain(scrollState!.overflowX);
+  expect(scrollState!.scrollWidth).toBeGreaterThan(scrollState!.clientWidth);
+
   await primaryTabs.getByRole("link", { name: "Highlights" }).click();
   await expect(page).toHaveURL(/\/highlights$/);
   await expect(page.getByRole("heading", { name: "Highlights", exact: true })).toBeVisible();
@@ -77,6 +110,34 @@ test("keeps phone tabs large and free of paper underline decoration", async ({ p
   expect(iconBox!.width).toBeGreaterThanOrEqual(34);
   expect(iconBox!.height).toBeGreaterThanOrEqual(34);
   expect(underlineContent).toBe("none");
+});
+
+test("keeps tablet paper add-memory icon centered in the compact rail", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.addInitScript(() => {
+    localStorage.setItem("trauma:brightness", "sun");
+    localStorage.setItem("trauma:surface", "paper");
+  });
+  await page.goto("/memories");
+
+  const addMemory = page
+    .locator('aside[aria-label="Primary navigation"]')
+    .getByRole("button", { name: "Add memory" });
+  const delta = await addMemory.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const iconRect = button.querySelector("svg")?.getBoundingClientRect();
+
+    if (iconRect === undefined) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const buttonCenter = buttonRect.left + buttonRect.width / 2;
+    const iconCenter = iconRect.left + iconRect.width / 2;
+
+    return Math.abs(buttonCenter - iconCenter);
+  });
+
+  expect(delta).toBeLessThanOrEqual(1);
 });
 
 test("keeps non-desktop theme box readable", async ({ page }) => {

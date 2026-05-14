@@ -79,11 +79,15 @@ const railPopoverRoot = "relative w-max max-w-full max-[1040px]:mx-auto";
 const railPopoverPanel =
   "absolute left-0 top-full z-50 mt-1 w-[252px] max-w-[calc(100vw-2rem)] animate-trauma-pop-bounce max-[1040px]:left-full max-[1040px]:top-0 max-[1040px]:ml-2 max-[1040px]:mt-0";
 const phoneTabButton =
-  "trauma-capability-touch-target grid min-h-[52px] min-w-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
+  "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
 const phonePopoverPanel =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
 const themeToggleButton =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong";
+const railAddMemoryButton =
+  "min-[1041px]:inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:hidden";
+const compactAddMemoryButton =
+  "min-[1041px]:hidden max-[1040px]:grid max-[1040px]:size-[52px] place-items-center rounded-full bg-trauma-accent text-trauma-accent-ink transition hover:bg-trauma-accent-hover aria-pressed:bg-trauma-accent-hover";
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
 const SURFACE_STORAGE_KEY = "trauma:surface";
 
@@ -105,8 +109,12 @@ const futureNavItems = {
 const phoneTabItems = [
   { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
   { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
+  { kind: "disabled", icon: "categories", label: "Categories" },
+  { kind: "disabled", icon: "tags", label: "Tags" },
+  { kind: "disabled", icon: "backup", label: "Backup" },
   { kind: "composer", icon: "add", label: "Add memory" },
   { kind: "theme", icon: "theme", label: "Theme" },
+  { kind: "disabled", icon: "settings", label: "Settings" },
 ] as const;
 
 export function AppShell(props: AppShellProps) {
@@ -259,9 +267,12 @@ function PhoneTabBar(props: {
   return (
     <nav
       aria-label="Primary tabs"
-      class="trauma-safe-area-bottom fixed inset-x-0 bottom-0 z-40 hidden border-t border-trauma-border bg-trauma-bg-surface/95 px-2 pb-[max(0.5rem,var(--trauma-layout-safe-area-bottom))] pt-1.5 backdrop-blur max-[720px]:grid"
+      class="trauma-safe-area-bottom fixed inset-x-0 bottom-0 z-40 hidden border-t border-trauma-border bg-trauma-bg-surface/95 px-2 pb-[max(0.5rem,var(--trauma-layout-safe-area-bottom))] pt-1.5 backdrop-blur max-[720px]:block"
     >
-      <div class="grid grid-cols-4 items-end gap-1">
+      <div
+        class="flex items-end gap-1 overflow-x-auto overscroll-x-contain px-1 pb-0.5"
+        data-phone-tab-scroll
+      >
         <For each={phoneTabItems}>
           {(item) => renderPhoneTabItem(item, props)}
         </For>
@@ -284,6 +295,8 @@ function renderPhoneTabItem(
   switch (item.kind) {
     case "route":
       return <PhoneRouteTab activePath={props.activePath} item={item} />;
+    case "disabled":
+      return <PhoneDisabledTab item={item} />;
     case "composer":
       return (
         <AddMemoryComposerButton
@@ -330,6 +343,24 @@ function PhoneRouteTab(props: {
       <span class={phoneIconSlot}>{icon()}</span>
       <span class="truncate">{props.item.label}</span>
     </A>
+  );
+}
+
+function PhoneDisabledTab(props: {
+  item: Extract<(typeof phoneTabItems)[number], { kind: "disabled" }>;
+}) {
+  const icon = createMemo(() => TraumaNavIcons[props.item.icon].outline);
+
+  return (
+    <button
+      aria-disabled="true"
+      class={`${phoneTabButton} cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary`}
+      disabled
+      type="button"
+    >
+      <span class={phoneIconSlot}>{icon()}</span>
+      <span class="truncate">{props.item.label}</span>
+    </button>
   );
 }
 
@@ -436,37 +467,64 @@ function AddMemoryComposerButton(props: {
     props.onCreated?.();
   };
   const isPhone = () => props.mode === "phone";
+  const toggleComposer = () => setIsComposerOpen((value) => !value);
 
   return (
     <div
       ref={rootRef}
       class={
         isPhone()
-          ? "relative min-w-0"
+          ? "relative min-w-[4.75rem] shrink-0"
           : "relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
       }
     >
-      <WaxSealButton
-        aria-controls={isComposerOpen() ? props.popoverId : undefined}
-        aria-expanded={isComposerOpen()}
-        aria-haspopup="dialog"
-        aria-pressed={isComposerOpen()}
-        class={
-          isPhone()
-            ? `${phoneTabButton} w-full`
-            : "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:size-[52px] max-[1040px]:px-0"
+      <Show
+        when={isPhone()}
+        fallback={
+          <>
+            <WaxSealButton
+              aria-controls={isComposerOpen() ? props.popoverId : undefined}
+              aria-expanded={isComposerOpen()}
+              aria-haspopup="dialog"
+              aria-pressed={isComposerOpen()}
+              class={railAddMemoryButton}
+              type="button"
+              variant="command"
+              onClick={toggleComposer}
+            >
+              <PlusIcon />
+              <WaxSealLabel>Add memory</WaxSealLabel>
+            </WaxSealButton>
+            <button
+              aria-controls={isComposerOpen() ? props.popoverId : undefined}
+              aria-expanded={isComposerOpen()}
+              aria-haspopup="dialog"
+              aria-pressed={isComposerOpen()}
+              class={compactAddMemoryButton}
+              type="button"
+              onClick={toggleComposer}
+            >
+              <PlusIcon size={28} />
+              <span class="sr-only">Add memory</span>
+            </button>
+          </>
         }
-        type="button"
-        variant="command"
-        onClick={() => setIsComposerOpen((value) => !value)}
       >
-        <span class={isPhone() ? phoneIconSlot : ""}>
-          <PlusIcon size={isPhone() ? 28 : undefined} />
-        </span>
-        <WaxSealLabel class={isPhone() ? "truncate" : "max-[1040px]:sr-only"}>
-          Add memory
-        </WaxSealLabel>
-      </WaxSealButton>
+        <button
+          aria-controls={isComposerOpen() ? props.popoverId : undefined}
+          aria-expanded={isComposerOpen()}
+          aria-haspopup="dialog"
+          aria-pressed={isComposerOpen()}
+          class={`${phoneTabButton} w-full`}
+          type="button"
+          onClick={toggleComposer}
+        >
+          <span class={phoneIconSlot}>
+            <PlusIcon size={28} />
+          </span>
+          <span class="truncate">Add memory</span>
+        </button>
+      </Show>
       <Show when={isComposerOpen()}>
         <div
           aria-label="Add memory"
@@ -685,7 +743,10 @@ function ThemeNavButton(props: {
   });
 
   return (
-    <div ref={rootRef} class={isPhone() ? "relative min-w-0" : railPopoverRoot}>
+    <div
+      ref={rootRef}
+      class={isPhone() ? "relative min-w-[4.75rem] shrink-0" : railPopoverRoot}
+    >
       <button
         aria-controls={isThemeOpen() ? props.popoverId : undefined}
         aria-expanded={isThemeOpen()}

@@ -124,7 +124,12 @@ Tablet:
 
 Mobile:
 
-- Bottom `Primary tabs` provide Memories, Highlights, Add memory, and Theme.
+- Bottom `Primary tabs` render Memories, Highlights, Categories, Tags, Backup,
+  Add memory, Theme, and Settings.
+- The tab list scrolls horizontally when space is constrained. The page itself
+  must not gain horizontal overflow from the tab bar.
+- Categories, Tags, Backup, and Settings stay disabled until their route or
+  action contracts are implemented.
 - Phone tab icons use a larger dedicated icon slot so the tab bar remains
   scannable without enlarging desktop rail icons.
 - Add memory and Theme popovers render above the bottom bar.

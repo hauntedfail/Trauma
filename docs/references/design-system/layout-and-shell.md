@@ -221,7 +221,12 @@ Phone:
 - The persistent left rail is hidden.
 - Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
   tab layout.
-- The phone tab bar includes Memories, Highlights, Add memory, and Theme.
+- The phone tab bar renders every primary rail item: Memories, Highlights,
+  Categories, Tags, Backup, Add memory, Theme, and Settings.
+- When all tabs do not fit, only the tab bar scrolls horizontally. Do not drop
+  tabs or reintroduce navigation/filter drawers.
+- Future or unavailable sections are rendered as disabled tabs rather than live
+  links to routes that do not exist.
 - Phone tab icons use a dedicated larger icon slot than the compact tablet rail.
 - Add memory and Theme open popovers above the bottom bar.
 - Right rail content and filter drawers are not rendered as mobile chrome.

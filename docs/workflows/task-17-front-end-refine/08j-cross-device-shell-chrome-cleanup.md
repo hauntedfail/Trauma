@@ -136,8 +136,12 @@ Add a dedicated phone tab model in `src/components/shell/AppShell.tsx`:
 const phoneTabItems = [
   { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
   { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
-  { kind: "composer", icon: "add", label: "Add" },
+  { kind: "disabled", icon: "categories", label: "Categories" },
+  { kind: "disabled", icon: "tags", label: "Tags" },
+  { kind: "disabled", icon: "backup", label: "Backup" },
+  { kind: "composer", icon: "add", label: "Add memory" },
   { kind: "theme", icon: "theme", label: "Theme" },
+  { kind: "disabled", icon: "settings", label: "Settings" },
 ] as const;
 ```
 
@@ -157,7 +161,10 @@ function PhoneTabBar(props: {
       aria-label="Primary tabs"
       class="trauma-safe-area-bottom fixed inset-x-0 bottom-0 z-40 hidden border-t border-trauma-border bg-trauma-bg-surface/95 px-2 pb-[max(0.5rem,var(--trauma-layout-safe-area-bottom))] pt-1.5 backdrop-blur max-[720px]:block"
     >
-      <div class="grid grid-cols-4 items-end gap-1">
+      <div
+        class="flex items-end gap-1 overflow-x-auto overscroll-x-contain px-1 pb-0.5"
+        data-phone-tab-scroll
+      >
         ...
       </div>
     </nav>
@@ -166,9 +173,10 @@ function PhoneTabBar(props: {
 ```
 
 The route tabs use the same `TraumaNavIcons` entries as the left rail. Add and
-Theme tabs open the existing add-memory composer and theme popover. Backup,
-Settings, Categories, and Tags are not rendered in the phone bottom bar because
-they are disabled or filter-only chrome, not available phone routes.
+Theme tabs open the existing add-memory composer and theme popover. Categories,
+Tags, Backup, and Settings are rendered as disabled tabs until their route or
+action contracts exist. If the tab list does not fit, the tab bar itself scrolls
+horizontally; the page must not gain horizontal overflow.
 
 - [ ] **Step 4: Align tablet rail icon slots**
 
@@ -188,6 +196,11 @@ Use `<span class={railIconSlot}>` for route links, disabled buttons,
 brand helper. Phone bottom tabs should reuse the same icon sizing. Text labels
 should use explicit phone tab labels or `max-[1040px]:hidden`, not visual
 offsets or mismatched spacing hacks.
+
+The compact tablet `AddMemoryComposerButton` must not apply paper/Hermès
+`WaxSealButton` chrome to the `52px` icon-only control. Keep wax treatment on
+the full desktop rail button, and use a simple centred icon button for the
+tablet compact rail so the plus icon remains visually centred.
 
 - [ ] **Step 5: Remove the filter drawer and redundant filter controls**
 

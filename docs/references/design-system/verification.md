@@ -108,6 +108,8 @@ Check:
 - Right rail is hidden below desktop.
 - Phone uses the bottom `Primary tabs` bar; mobile navigation/filter drawers are
   not present.
+- Phone `Primary tabs` render every rail item and use tab-bar-only horizontal
+  scrolling when constrained.
 - Tablet uses the compact icon rail and does not duplicate brand/filter header
   chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
@@ -116,6 +118,8 @@ Check:
 - Theme popover buttons remain labelled and readable below desktop.
 - Add-memory composer opens from shell routes as a popover above route panes.
 - On phone, Add memory opens from the bottom tab bar as a popover above the bar.
+- Tablet compact Add memory uses a centered icon-only control without paper or
+  Hermès wax-seal chrome shifting the icon.
 - Browse filters update URL state without clearing unrelated query state.
 - Reader links remain readable in sun normal, sun paper, night normal, and
   Hermès modes.
