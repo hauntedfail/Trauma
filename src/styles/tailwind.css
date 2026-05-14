@@ -506,9 +506,6 @@
   :root[data-theme^="paper"] .trauma-paper-wax-seal::after {
     z-index: 0;
     inset: 6px 7px;
-    border: 1px solid color-mix(in srgb, var(--accent-press) 64%, var(--bg-sunken) 36%);
-    outline: 1px solid color-mix(in srgb, var(--accent-press) 42%, transparent);
-    outline-offset: -3px;
     background: color-mix(in srgb, var(--accent-press) 24%, transparent);
     transform: scaleX(0.985) scaleY(0.92);
   }

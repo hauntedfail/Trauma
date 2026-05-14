@@ -43,7 +43,8 @@ Paper themes add one deliberate material exception for archive actions:
   edge effect is not used.
 - The raised wax boundary is an inset border that follows the component shape.
   It must not expand outside the control box. The pressed face should cover
-  almost the full control instead of becoming a small circular mark.
+  almost the full control instead of becoming a small circular mark, and it
+  should not add another inner border or outline.
 
 ## Form Inputs
 

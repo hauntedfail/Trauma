@@ -170,6 +170,9 @@ describe("refined app shell contract", () => {
     expect(waxRules).not.toContain("z-index: -1");
     expect(waxRules).not.toContain("inset: -");
     expect(waxRules).not.toContain("animation: trauma-wax-edge-spread");
+    expect(waxRules).not.toContain("border: 1px solid");
+    expect(waxRules).not.toContain("outline:");
+    expect(waxRules).not.toContain("outline-offset:");
     expect(waxRules).not.toContain("radial-gradient");
     expect(waxRules).not.toContain("linear-gradient(145deg");
     expect(waxRules).not.toContain("text-shadow");

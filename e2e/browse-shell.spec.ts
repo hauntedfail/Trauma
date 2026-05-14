@@ -132,7 +132,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
         ringInset: edge.inset,
         ringOpacity: edge.opacity,
         stampBorderStyle: stamp.borderStyle,
+        stampBorderWidth: stamp.borderWidth,
         stampClipPath: stamp.clipPath,
+        stampOutlineStyle: stamp.outlineStyle,
         stampContent: stamp.content,
         stampInset: stamp.inset,
         stampOpacity: stamp.opacity,
@@ -151,7 +153,8 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   expect(waxStyle.ringBorderStyle).toBe("solid");
   expect(waxStyle.stampContent).not.toBe("none");
   expect(waxStyle.stampClipPath).toBe("none");
-  expect(waxStyle.stampBorderStyle).toBe("solid");
+  expect(waxStyle.stampBorderWidth).toBe("0px");
+  expect(waxStyle.stampOutlineStyle).toBe("none");
   expect(waxStyle.stampInset).toBe("6px 7px");
   await expect
     .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
