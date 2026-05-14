@@ -49,6 +49,8 @@ The token tests verify:
 - Paper sun exposes the paper texture variable set.
 - Paper night exposes the leather texture variable set while retaining the
   `paper-black-dark` theme name.
+- The surface toggle label is Paper in sun brightness and Hermès in night
+  brightness while the stored surface value remains `paper`.
 - Material textures render through layered backgrounds plus fixed grain/fibre/pore
   and glow overlays.
 - Paper mode material textures do not include repeating dot/grid overlays.

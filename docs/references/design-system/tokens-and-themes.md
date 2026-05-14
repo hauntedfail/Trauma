@@ -85,12 +85,13 @@ can stay visible.
 
 ## Paper Material Surface
 
-Paper surface mode is more than a colour swap. The mode name stays `paper` in
-the user interface, but the material recipe differs by brightness:
+Paper surface mode is more than a colour swap. The stored surface preference
+stays `paper`, but the user-facing label and material recipe differ by
+brightness:
 
-- `paper-warm-light` renders a paper-like surface.
-- `paper-black-dark` renders a leather-like surface because subtle paper grain
-  reads too weakly on a dark background.
+- In sun brightness, `paper-warm-light` is labelled Paper and renders a paper-like surface.
+- In night brightness, `paper-black-dark` is labelled Hermès and renders a
+  leather-like surface because subtle paper grain reads too weakly on a dark background.
 
 The light paper recipe is CSS-only:
 

@@ -104,6 +104,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
     .getByRole("group", { name: "Brightness" })
     .getByRole("button", { name: "Sun" })
     .click();
+  const surfaceGroup = page.getByRole("group", { name: "Surface" });
+  await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toBeVisible();
+  await expect(surfaceGroup.getByRole("button", { name: "Hermès" })).toHaveCount(0);
   await page
     .getByRole("group", { name: "Surface" })
     .getByRole("button", { name: "Paper" })
@@ -189,6 +192,22 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect(
     page.getByRole("group", { name: "Surface" }).getByRole("button", { name: "Paper" }),
   ).toHaveAttribute("aria-pressed", "true");
+
+  await page
+    .getByRole("group", { name: "Brightness" })
+    .getByRole("button", { name: "Night" })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+    .toBe("paper-black-dark");
+  await expect(surfaceGroup.getByRole("button", { name: "Hermès" })).toHaveAttribute("aria-pressed", "true");
+  await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveCount(0);
+
+  await page
+    .getByRole("group", { name: "Brightness" })
+    .getByRole("button", { name: "Sun" })
+    .click();
+  await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("lets active filters be cleared without resetting the rest of the query", async ({ page }) => {

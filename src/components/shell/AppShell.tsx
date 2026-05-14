@@ -624,6 +624,9 @@ function ThemeBlock(props: {
   onSurface: (mode: SurfaceMode) => void;
   surface: SurfaceMode;
 }) {
+  const paperSurfaceLabel = createMemo(() =>
+    getPaperSurfaceLabel(props.brightness),
+  );
   return (
     <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
@@ -664,11 +667,15 @@ function ThemeBlock(props: {
           onClick={() => props.onSurface("paper")}
         >
           <PaperIcon />
-          <span>Paper</span>
+          <span>{paperSurfaceLabel()}</span>
         </button>
       </div>
     </section>
   );
+}
+
+function getPaperSurfaceLabel(brightness: BrightnessMode): "Paper" | "Hermès" {
+  return brightness === "night" ? "Hermès" : "Paper";
 }
 
 function Drawer(props: { ariaLabel: string; children: JSX.Element; onClose: () => void }) {

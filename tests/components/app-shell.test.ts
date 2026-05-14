@@ -132,6 +132,13 @@ describe("refined app shell contract", () => {
     );
   });
 
+  it("labels paper surface as Hermès in night brightness only", () => {
+    expect(appShellSource).toContain("getPaperSurfaceLabel");
+    expect(appShellSource).toContain('return brightness === "night" ? "Hermès" : "Paper";');
+    expect(appShellSource).toContain("const paperSurfaceLabel = createMemo");
+    expect(appShellSource).toContain("<span>{paperSurfaceLabel()}</span>");
+  });
+
   it("places the theme tab between backup and settings", () => {
     const backupIndex = appShellSource.indexOf("item={futureNavItems.backup}");
     const themeIndex = appShellSource.indexOf("<ThemeNavButton");
