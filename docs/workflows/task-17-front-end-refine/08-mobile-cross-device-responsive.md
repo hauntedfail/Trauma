@@ -29,6 +29,7 @@ changes, such as switching a memory card from two columns to one column.
 - SolidStart component boundaries already used by Task 17.
 - Tailwind v4 utilities from `src/styles/tailwind.css`.
 - CSS Container Queries with `container-type: inline-size`.
+- Container query units: `cqi`, `cqb`, `cqmin`, and `cqmax`.
 - CSS math functions: `clamp()`, `min()`, and `max()`.
 - CSS Flexbox only for local one-dimensional layout with wrapping.
 - Vitest source-contract tests for responsive policy.
@@ -40,6 +41,10 @@ changes, such as switching a memory card from two columns to one column.
   `https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_container_queries`
 - MDN `container-type`:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/container-type`
+- web.dev CSS container queries:
+  `https://web.dev/learn/css/container-queries/`
+- web.dev CSS sizing units:
+  `https://web.dev/learn/css/sizing/`
 - MDN `clamp()`:
   `https://developer.mozilla.org/en-US/docs/Web/CSS/clamp`
 - MDN CSS logical properties and values:
@@ -66,6 +71,9 @@ changes, such as switching a memory card from two columns to one column.
   branches as the primary responsive mechanism.
 - Do not use fixed viewport breakpoints for component internals when a
   container query can express the same adaptation.
+- Do not use viewport units as the primary unit for component-internal
+  typography or spacing. Prefer container query units when the component's
+  containing pane is the relevant constraint.
 - Do not introduce fixed-width route/page shells. Route content should be
   constrained fluid with logical sizing and spacing properties.
 - Do not use flexbox as a page, shell, route, or card-grid layout system. Flex
@@ -133,6 +141,41 @@ Rules:
   only where the component width is the correct constraint.
 - Prefer `cqi` in container-query contexts and ordinary rem-based values
   outside them.
+
+### Container Query Units
+
+Use container query units for component-local typography and spacing when the
+component should scale with its containing pane instead of the viewport:
+
+```css
+.trauma-fluid-component-title {
+  font-size: clamp(1.5rem, 1rem + 4cqi, 2.5rem);
+}
+
+.trauma-fluid-component-gap {
+  gap: clamp(0.5rem, 2cqmin, 1rem);
+}
+
+.trauma-fluid-component-block-space {
+  margin-block: clamp(0.75rem, 3cqb, 1.5rem);
+}
+```
+
+Unit guidance:
+
+- Use `cqi` for inline-axis sizing such as readable typography, inline padding,
+  and horizontal gaps.
+- Use `cqb` for block-axis spacing only inside containers where block-size is a
+  meaningful, stable constraint.
+- Use `cqmin` for balanced spacing or radius that should respond to the smaller
+  container dimension.
+- Use `cqmax` sparingly for decorative or proportional effects that must follow
+  the larger container dimension; do not use it for core readability.
+- Always combine container query units with `clamp()` so narrow containers do
+  not create unreadably small text or touch targets, and wide containers do not
+  exceed the refined desktop design.
+- Do not use `vw`, `vh`, `vmin`, or `vmax` for component internals when a named
+  query container exists.
 
 ### Constrained Fluid Page Shells
 
@@ -268,8 +311,19 @@ describe("mobile and cross-device responsive contract", () => {
 
   it("uses continuous sizing for route padding and reader headings", () => {
     expect(tailwindCss).toMatch(/clamp\([^)]*cqi[^)]*\)/);
+    expect(tailwindCss).toContain("cqmin");
+    expect(tailwindCss).toContain("cqb");
     expect(tailwindCss).toContain(".trauma-fluid-route-padding");
     expect(tailwindCss).toContain(".trauma-fluid-reader-title");
+  });
+
+  it("prefers container query units over viewport units for component internals", () => {
+    expect(tailwindCss).toContain(".trauma-fluid-component-title");
+    expect(tailwindCss).toContain(".trauma-fluid-component-gap");
+    expect(tailwindCss).toContain(".trauma-fluid-component-block-space");
+    expect(tailwindCss).toContain("4cqi");
+    expect(tailwindCss).toContain("2cqmin");
+    expect(tailwindCss).toContain("3cqb");
   });
 
   it("uses logical properties for constrained fluid page shells", () => {
@@ -443,6 +497,18 @@ Add:
   line-height: 1.08;
 }
 
+.trauma-fluid-component-title {
+  font-size: clamp(1.5rem, 1rem + 4cqi, 2.5rem);
+}
+
+.trauma-fluid-component-gap {
+  gap: clamp(0.5rem, 2cqmin, 1rem);
+}
+
+.trauma-fluid-component-block-space {
+  margin-block: clamp(0.75rem, 3cqb, 1.5rem);
+}
+
 .trauma-local-wrap {
   display: flex;
   flex-wrap: wrap;
@@ -459,6 +525,8 @@ Keep desktop maximums aligned with current refined desktop values.
 Use logical properties for route/page shell sizing and spacing. Do not replace
 this with `width`, `margin-left`, `margin-right`, `padding-left`, or
 `padding-right` unless a physical direction is semantically required.
+Use container query units for component-local typography and spacing. Do not use
+viewport units for component internals when a named query container exists.
 Use `trauma-local-wrap` only for local navigation, tag, toolbar, and button
 clusters. Do not use it for shell, route, card-grid, or reader structure.
 
@@ -561,7 +629,24 @@ Expected review outcome:
 - If a kept flex row can overflow on narrow containers, add `trauma-local-wrap`
   or an equivalent local `flex-wrap` rule.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: Audit viewport-unit usage in component internals**
+
+Run:
+
+```bash
+rg -n "vw|vh|vmin|vmax|svw|svh|dvw|dvh|lvw|lvh" src/components src/routes src/styles/tailwind.css
+```
+
+Expected review outcome:
+
+- Viewport units may remain for true viewport-level shell behaviour.
+- Component-internal typography, spacing, radius, and local sizing should use
+  `cqi`, `cqb`, `cqmin`, or `cqmax` with `clamp()` when the containing pane is
+  the relevant constraint.
+- Any remaining viewport unit in component code must be listed in the PR body
+  with why container query units are not the right fit.
+
+- [ ] **Step 8: Run focused tests**
 
 ```bash
 mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -569,7 +654,7 @@ mise exec -- bun --bun x vitest run tests/components/mobile-responsive-contract.
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit responsive component internals**
+- [ ] **Step 9: Commit responsive component internals**
 
 ```bash
 git add src/styles/tailwind.css src/components/memories/MemoryBrowse.tsx src/components/reader/reader-styles.ts src/components/reader/MemoryReader.tsx src/routes/highlights/index.tsx tests/components/mobile-responsive-contract.test.ts tests/components/app-shell.test.ts
@@ -680,6 +765,11 @@ combine `max-inline-size`, `inline-size`, `margin-inline`, and
 `padding-inline` so layout follows writing direction instead of physical
 left/right assumptions.
 
+Component typography and spacing should use container query units when the
+container is the relevant constraint: `cqi` for inline sizing, `cqb` for
+block-axis spacing, `cqmin` for balanced scale, and `cqmax` only for
+non-critical proportional effects. Combine these units with `clamp()`.
+
 Flexbox is limited to local one-dimensional layout such as navigation rows, tag
 lists, toolbars, and button groups. Use `flex-wrap: wrap` for local overflow,
 and use grid/block/container-query layout for page, route, card-grid, and
@@ -739,6 +829,8 @@ For final handoff, include:
 
 - Confirmation that desktop shell dimensions were not changed.
 - Container-query classes and ownership added.
+- Container query units used for component-local typography/spacing, with any
+  remaining viewport-unit component usage justified.
 - Constrained fluid page-shell utility added with logical properties.
 - Flexbox audit outcome, including which flex uses were kept because they are
   local one-dimensional layouts.
