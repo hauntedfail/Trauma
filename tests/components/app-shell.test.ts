@@ -166,6 +166,12 @@ describe("refined app shell contract", () => {
     expect(settingsIndex).toBeGreaterThan(themeIndex);
   });
 
+  it("keeps add-memory URL label colour theme-tokenized", () => {
+    expect(addMemoryFormSource).toContain("text-trauma-text-muted");
+    expect(addMemoryFormSource).not.toContain("text-[#4e5a48]");
+    expect(addMemoryFormSource).not.toContain("color:");
+  });
+
   it("opens add memory from the left rail as a popover instead of a global drawer", () => {
     expect(appShellSource).toContain("AddMemoryComposerButton");
     expect(appShellSource).toContain('popoverId={props.isDrawer === true ? "drawer-add-memory-composer" : "rail-add-memory-composer"}');

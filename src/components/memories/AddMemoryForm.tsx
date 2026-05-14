@@ -74,7 +74,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
           class={
             props.showVisibleLabel === false
               ? "sr-only"
-              : "text-[13px] font-extrabold text-[#4e5a48]"
+              : "text-[13px] font-extrabold text-trauma-text-muted"
           }
         >
           URL
