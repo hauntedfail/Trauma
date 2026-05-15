@@ -82,6 +82,14 @@ Rules:
 - `prefix` and `suffix` are display context for highlight-only rendering. They are not the primary anchor and must not be treated as sufficient disambiguation data.
 - `contentHash` is recommended if the current schema does not already detect stale offset mappings.
 - If adding `contentHash`, compute it from canonical reader text, not from the raw markdown file.
+- Use `sha256:<hex>` as the `contentHash` format.
+- Hash the UTF-8 bytes of the exact canonical reader text used for offset calculation.
+- Normalize line endings to `\n` before both offset calculation and hashing.
+- Do not trim leading/trailing text for hashing.
+- Do not apply Unicode compatibility normalization for hashing unless the same
+  normalization is also applied before offset calculation and rendering; if a
+  Unicode normalization step is later introduced, document it beside the shared
+  text-walker utility and keep one canonical implementation.
 - If content hash mismatches later, do not silently apply a highlight to the wrong occurrence.
 
 Canonical reader text:
@@ -223,6 +231,8 @@ Persistence tests:
 Record tests:
 
 - duplicate selected text with different offsets creates distinct records
+- `contentHash` uses `sha256:<hex>` from the same canonical reader text used for offsets
+- line-ending normalization is consistent between hash creation and validation
 - overlapping ranges continue to follow existing range rules
 - exact existing highlight selection preserves existing toggle/remove semantics if supported
 

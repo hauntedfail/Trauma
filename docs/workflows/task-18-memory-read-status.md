@@ -68,4 +68,9 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 10. [18.11 Imported media display policy](task-18-memory-actions/11-imported-media-display-policy.md)
 11. [18.12 Integration verification and handoff](task-18-memory-actions/12-integration-verification-and-handoff.md)
 
+Subtask number 18.7 is intentionally unused. The settings subtask keeps the
+`18.8` label and `08-...` filename because it was defined after the reader
+actions slice and before the highlight slice; do not infer a missing execution
+file.
+
 Each subtask file is written so an implementation agent can own that slice without guessing the broader intent. Later subtasks may reference earlier contracts, but should not reopen completed domain decisions unless implementation evidence proves the plan wrong.

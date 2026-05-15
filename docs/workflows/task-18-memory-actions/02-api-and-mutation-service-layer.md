@@ -143,6 +143,7 @@ Deletion must remove:
 - SQLite cascaded `memory_tags`
 - SQLite cascaded `memory_categories`
 - filesystem directory for the memory under `storePath`
+- git backup tracking for the deleted memory content when backup is enabled
 
 Deletion must not remove:
 
@@ -158,8 +159,24 @@ Recommended safe flow:
 4. Assert the resolved directory is inside `storePath`.
 5. Move the directory to a delete-staging path under `storePath` if feasible.
 6. Delete the SQLite row.
-7. Remove the staged directory.
-8. If SQLite deletion fails after staging, restore the staged directory.
+7. Queue or execute a backup deletion job for the removed content path when git backup is enabled.
+8. Remove the staged directory.
+9. If SQLite deletion fails after staging, restore the staged directory.
+
+Backup deletion strategy:
+
+- A normal memory delete must not leave the deleted `CONTENT.md` tracked in the
+  backup repository.
+- Prefer adding an explicit backup job type for deleted content paths, for
+  example `{ kind: "delete", contentPaths: [...] }`, so the backup worker can
+  stage removals and commit them.
+- If the current backup queue only supports changed content paths, extend it in
+  the same subtask or document why deletion backup is deferred and surface the
+  risk in the PR.
+- The route should return success only after the local SQLite/filesystem delete
+  succeeds. Backup push failure may be reported through the existing backup
+  warning channel, but it must not silently resurrect or retain deleted content
+  in the backup contract.
 
 If implementation chooses a simpler direct delete flow, document why the consistency tradeoff is acceptable and add tests for the failure mode that remains.
 
@@ -192,6 +209,7 @@ Cover:
 - delete memory success
 - delete missing memory
 - delete removes content directory
+- delete queues or records backup deletion for the removed content path when backup is enabled
 - delete does not remove global tags/categories
 - delete does not accept path traversal through content path
 
@@ -209,5 +227,5 @@ mise exec -- bun run typecheck
 - Public mutation routes exist and match the contracts above.
 - Route files delegate persistence to repositories/services.
 - Filesystem deletion is constrained to the configured store path.
+- Memory deletion has an explicit backup deletion strategy for removed content paths.
 - No UI code is introduced in this subtask.
-

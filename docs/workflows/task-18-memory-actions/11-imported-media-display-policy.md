@@ -99,10 +99,22 @@ Required iframe preservation rules:
 Recommended initial sandbox:
 
 ```html
-sandbox="allow-scripts allow-same-origin allow-presentation"
+sandbox="allow-scripts allow-presentation"
 ```
 
-If this breaks common embeds, loosen only with tests and a documented reason.
+Do not include `allow-same-origin` by default. Combining `allow-scripts` and
+`allow-same-origin` materially weakens the sandbox boundary for third-party
+content. If a specific allowlisted provider demonstrably requires
+`allow-same-origin`, add it only for that provider with tests and a documented
+reason.
+
+Initial iframe permission matrix:
+
+| Embed type | Initial sandbox | Rationale |
+| --- | --- | --- |
+| YouTube/Vimeo-style video embed | `allow-scripts allow-presentation` | Supports script-driven player boot while avoiding same-origin storage access by default. |
+| Generic article embed | `allow-scripts allow-presentation` | Treat as untrusted executable content; do not grant same-origin unless provider-specific tests prove it is required. |
+| X/Twitter timeline/post embed | Not guaranteed in this subtask | If it fails without `allow-same-origin`, keep it blocked or add a provider-specific policy with tests rather than broadening the default. |
 
 Reader sanitizer alignment:
 
@@ -169,6 +181,8 @@ Iframe tests:
 - unsafe iframe attributes are removed.
 - reader sanitizer applies `loading="lazy"` and `referrerpolicy="no-referrer"`.
 - reader sanitizer applies or preserves the required sandbox.
+- default iframe sandbox omits `allow-same-origin`.
+- any provider-specific use of `allow-same-origin` has explicit tests and a documented reason.
 
 Extension capture tests:
 
@@ -196,4 +210,3 @@ mise exec -- bun run typecheck
 - Unsafe iframe forms are still rejected or sanitized.
 - Reader sanitizer and importer/capture media policy do not drift.
 - Link validation is not accidentally relaxed unless explicitly tested.
-

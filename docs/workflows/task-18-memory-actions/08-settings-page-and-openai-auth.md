@@ -65,6 +65,13 @@ Recommended initial language options use BCP 47 language codes:
 
 If implementation adds a shared language tuple, both UI and API should import from it.
 
+Canonical API format:
+
+- Persist and return BCP 47 language codes exactly as listed above.
+- Do not return ISO 639-1 short codes such as `ja` from settings APIs.
+- If implementation accepts a short code for compatibility, normalize it before
+  storage and always return the supported BCP 47 value, for example `ja-JP`.
+
 ## OpenAI Auth UI
 
 Default disabled state:
@@ -143,7 +150,7 @@ Response:
 
 ```json
 {
-  "translationTargetLanguage": "ja",
+  "translationTargetLanguage": "ja-JP",
   "openaiAuth": {
     "status": "disabled"
   }
@@ -154,7 +161,7 @@ or:
 
 ```json
 {
-  "translationTargetLanguage": "ja",
+  "translationTargetLanguage": "ja-JP",
   "openaiAuth": {
     "status": "enabled"
   }
@@ -188,12 +195,14 @@ Responses:
 
 - `200` with `{ "status": "enabled", "alreadyEnabled": false }` after a successful enable operation
 - `200` with `{ "status": "enabled", "alreadyEnabled": true, "message": "OpenAI auth is already enabled." }` if already enabled
-- `409` or `503` only when auth cannot be enabled because a real provider/configuration is unavailable
+- `409` or `503` with a clear `not_configured`-style response when auth cannot be enabled because a real provider/configuration is unavailable
 
 Security rule:
 
 - The route must load current auth state server-side before mutation.
 - If already enabled, return the idempotent already-enabled response and do not overwrite credential state.
+- If no real auth provider exists yet, do not create a cosmetic enabled row.
+  Return `not_configured` and keep status disabled.
 
 ### Delete OpenAI auth
 
@@ -278,7 +287,8 @@ Backend tests:
 - valid translation language update persists
 - unsupported translation language is rejected
 - malformed translation body is rejected
-- OpenAI auth enable succeeds from disabled state
+- OpenAI auth enable succeeds from disabled state only when a real provider or stored auth record is available
+- OpenAI auth enable from disabled state returns `not_configured` without enabling auth when no provider exists
 - OpenAI auth enable while already enabled returns `alreadyEnabled: true`
 - OpenAI auth enable while already enabled does not overwrite auth state
 - OpenAI auth delete succeeds from enabled state
@@ -310,9 +320,11 @@ mise exec -- bun run typecheck
 - `/settings` route exists.
 - App navigation exposes Settings.
 - Translation target language is selectable and persisted.
+- Settings APIs persist and return BCP 47 language codes such as `ja-JP`.
 - Unsupported languages are rejected server-side.
 - OpenAI auth disabled state shows clickable `Enable`.
 - OpenAI auth enabled state shows disabled `Enabled`, enabled hint text, and danger `Delete auth`.
 - Direct API enable requests while already enabled return a successful already-enabled response and do not mutate credential state.
+- If no real OpenAI auth provider exists, enable returns a clear not-configured response and does not fake enabled state.
 - Deleting OpenAI auth removes only auth state.
 - No secret material is rendered or returned by the settings API.
