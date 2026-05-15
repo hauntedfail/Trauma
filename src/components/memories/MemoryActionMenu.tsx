@@ -25,7 +25,7 @@ export interface ConfirmAndDeleteMemoryInput {
 
 const rootClass = "relative inline-grid";
 const triggerClass =
-  "grid size-9 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:opacity-50";
+  "grid size-9 place-items-center rounded-full text-trauma-text-muted transition-colors hover:bg-trauma-bg-elev hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:opacity-50";
 const menuClass =
   "absolute right-0 top-10 z-[60] grid min-w-[180px] gap-1 rounded-[20px] border border-trauma-border bg-trauma-bg-elev p-2 text-sm font-bold text-trauma-text-primary shadow-lg";
 const menuItemClass =

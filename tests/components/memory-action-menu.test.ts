@@ -21,6 +21,18 @@ describe("memory action menu", () => {
     expect(html).toContain("Add category");
   });
 
+  it("renders a shared trigger with visible hover affordance", () => {
+    const html = renderToString(() =>
+      createComponent(MemoryActionMenu, {
+        memoryId: "memory-1",
+        memoryTitle: "Memory One",
+      }),
+    );
+
+    expect(html).toContain("hover:bg-trauma-bg-elev");
+    expect(html).toContain("hover:text-trauma-text-primary");
+  });
+
   it("asks for confirmation before deleting", async () => {
     const calls: string[] = [];
     const deleted = await confirmAndDeleteMemory({
