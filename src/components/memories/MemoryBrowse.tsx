@@ -1,19 +1,23 @@
 import { Title } from "@solidjs/meta";
-import { A, createAsync, useLocation, useNavigate } from "@solidjs/router";
+import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { HighlightExcerpt } from "../highlights/HighlightExcerpt";
-import { CheckIcon, KebabIcon, OpenIcon, SearchIcon } from "../icons";
+import { OpenIcon, PlusIcon, SearchIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
   getMemoryDisplayHighlight,
   parseBrowseQuery,
+  type BrowseTaxonomyItem,
   type BrowseMemory,
 } from "./browse-data";
 import { getBrowseMemories } from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { formatCapturedAtForDisplay } from "./captured-at";
+import { MemoryActionMenu } from "./MemoryActionMenu";
+import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
+import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -37,7 +41,13 @@ export function MemoryBrowse() {
   const memories = createAsync(() => getBrowseMemories());
   const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const filteredMemories = createMemo(() => filterBrowseMemories(browseMemories(), query()));
+  const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
+  const visibleMemories = createMemo(() =>
+    browseMemories().filter((memory) => !removedMemoryIds().has(memory.id)),
+  );
+  const filteredMemories = createMemo(() => filterBrowseMemories(visibleMemories(), query()));
   const isGrid = createMemo(() => query().view === "grid");
   const [isClientReady, setIsClientReady] = createSignal(false);
 
@@ -114,6 +124,10 @@ export function MemoryBrowse() {
                 memory={memory}
                 selectedHighlightId={query().highlight}
                 view={query().view}
+                onOpen={(href) => navigate(href)}
+                onDeleted={(memoryId) =>
+                  setRemovedMemoryIds((current) => new Set([...current, memoryId]))
+                }
               />
             )}
           </For>
@@ -123,20 +137,89 @@ export function MemoryBrowse() {
   );
 }
 
-function MemoryItem(props: {
+export function MemoryItem(props: {
   memory: BrowseMemory;
   selectedHighlightId: string;
   view: "list" | "grid";
+  onOpen?: (href: string) => void;
+  onDeleted?: (memoryId: string) => void;
 }) {
   const displayHighlight = createMemo(() => getMemoryDisplayHighlight(props.memory, props.selectedHighlightId));
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
+  const [tags, setTags] = createSignal<BrowseTaxonomyItem[]>(props.memory.tags);
+  const [categories, setCategories] = createSignal<BrowseTaxonomyItem[]>(
+    props.memory.categories,
+  );
+  const [tagPopoverOpen, setTagPopoverOpen] = createSignal(false);
+  const [actionError, setActionError] = createSignal("");
+  const href = () => `/memories/${props.memory.id}`;
+
+  const openMemory = (): void => {
+    if (props.onOpen !== undefined) {
+      props.onOpen(href());
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      window.location.href = href();
+    }
+  };
+
+  const submitTag = async (name: string): Promise<void> => {
+    setActionError("");
+    try {
+      const tag = await attachTagToMemoryByName({
+        memoryId: props.memory.id,
+        name,
+      });
+      setTags((current) => mergeTaxonomyItem(current, tag));
+      setTagPopoverOpen(false);
+    } catch {
+      setActionError("Failed to add tag.");
+    }
+  };
+
+  const submitCategory = async (input: {
+    memoryId: string;
+    name: string;
+  }): Promise<void> => {
+    setActionError("");
+    try {
+      const category = await attachCategoryToMemoryByName(input);
+      setCategories((current) => mergeTaxonomyItem(current, category));
+    } catch {
+      setActionError("Failed to add category.");
+    }
+  };
+
+  const deleteMemory = async (memoryId: string): Promise<void> => {
+    setActionError("");
+    try {
+      await deleteBrowseMemory({ memoryId });
+      props.onDeleted?.(memoryId);
+    } catch {
+      setActionError("Failed to delete memory.");
+    }
+  };
 
   return (
-    <A
+    <article
       aria-label={`Open memory ${props.memory.title}`}
+      role="link"
+      tabIndex={0}
       class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
-      href={`/memories/${props.memory.id}`}
+      onClick={(event) => {
+        if (!isInteractiveTarget(event.target)) {
+          openMemory();
+        }
+      }}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && !isInteractiveTarget(event.target)) {
+          event.preventDefault();
+          openMemory();
+        }
+      }}
     >
       <span class="mt-1 grid size-12 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-lg font-extrabold text-trauma-accent" aria-hidden="true">
         {initial()}
@@ -151,18 +234,24 @@ function MemoryItem(props: {
             </p>
             <h2 class={cardTitle}>{props.memory.title}</h2>
           </div>
-          <span
-            class="grid size-9 place-items-center rounded-full text-trauma-text-muted"
-            aria-hidden="true"
-          >
-            <KebabIcon />
-          </span>
+          <MemoryActionMenu
+            memoryId={props.memory.id}
+            memoryTitle={props.memory.title}
+            onDelete={deleteMemory}
+            onAttachCategoryByName={submitCategory}
+          />
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
-        <p class={`${subduedText} wrap-anywhere inline-flex items-center gap-1.5`}>
+        <a
+          class={`${subduedText} wrap-anywhere inline-flex items-center gap-1.5 no-underline hover:text-trauma-accent`}
+          href={props.memory.url}
+          rel="noreferrer"
+          target="_blank"
+          onClick={(event) => event.stopPropagation()}
+        >
           <OpenIcon />
           {props.memory.url}
-        </p>
+        </a>
         <Show when={displayHighlight()}>
           {(highlight) => (
             <HighlightExcerpt
@@ -172,16 +261,55 @@ function MemoryItem(props: {
             />
           )}
         </Show>
-        <div class="trauma-local-wrap" aria-label={`${props.memory.title} filters`}>
-          <For each={props.memory.categories}>{(category) => <span class={tagChip}>{category.name}</span>}</For>
-          <For each={props.memory.tags}>{(tag) => <span class={tagChip}>#{tag.name}</span>}</For>
-          <span class="inline-flex items-center gap-1 rounded-full bg-trauma-accent-soft px-2.5 py-1 text-xs font-bold text-trauma-accent-soft-ink">
-            <CheckIcon />
-            saved
-          </span>
-        </div>
+        <footer class="grid gap-3">
+          <div class="trauma-local-wrap" aria-label={`${props.memory.title} filters`}>
+            <For each={categories()}>{(category) => <span class={tagChip}>{category.name}</span>}</For>
+            <For each={tags()}>{(tag) => <span class={tagChip}>#{tag.name}</span>}</For>
+            <Show when={props.memory.extractionStatus === "link_only"}>
+              <span class="inline-flex items-center gap-1 rounded-full bg-trauma-accent-soft px-2.5 py-1 text-xs font-bold text-trauma-accent-soft-ink">
+                <span aria-hidden="true">!</span>
+                Link-only
+              </span>
+            </Show>
+            <span class="relative inline-grid">
+              <button
+                class="inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTagPopoverOpen(true);
+                }}
+              >
+                <PlusIcon />
+                Add tag
+              </button>
+              <Show when={tagPopoverOpen()}>
+                <TaxonomyCreatePopover
+                  title="Add tag"
+                  label="Tag name"
+                  placeholder="sqlite"
+                  submitLabel="Add tag"
+                  onSubmitName={submitTag}
+                  onClose={() => setTagPopoverOpen(false)}
+                />
+              </Show>
+            </span>
+          </div>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+            <Show when={actionError() !== ""}>
+              <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
+            </Show>
+            <MemoryReadStatusControl
+              class="justify-self-end"
+              memoryId={props.memory.id}
+              initialRead={props.memory.read}
+              compact
+            />
+          </div>
+        </footer>
       </div>
-    </A>
+    </article>
   );
 }
 
@@ -191,4 +319,117 @@ function getHostLabel(value: string): string {
   } catch {
     return value;
   }
+}
+
+type FetchFunction = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export async function attachTagToMemoryByName(input: {
+  memoryId: string;
+  name: string;
+  fetch?: FetchFunction;
+}): Promise<BrowseTaxonomyItem> {
+  const body = await postJson({
+    url: "/api/memories/tags",
+    body: {
+      memoryId: input.memoryId,
+      name: input.name,
+    },
+    fetch: input.fetch,
+  });
+  return readTaxonomyResponse(body, "tag");
+}
+
+export async function attachCategoryToMemoryByName(input: {
+  memoryId: string;
+  name: string;
+  fetch?: FetchFunction;
+}): Promise<BrowseTaxonomyItem> {
+  const body = await postJson({
+    url: "/api/memories/categories",
+    body: {
+      memoryId: input.memoryId,
+      name: input.name,
+    },
+    fetch: input.fetch,
+  });
+  return readTaxonomyResponse(body, "category");
+}
+
+export async function deleteBrowseMemory(input: {
+  memoryId: string;
+  fetch?: FetchFunction;
+}): Promise<void> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(`/api/memories/${input.memoryId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error("failed to delete memory");
+  }
+}
+
+async function postJson(input: {
+  url: string;
+  body: unknown;
+  fetch?: FetchFunction;
+}): Promise<unknown> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(input.url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input.body),
+  });
+  if (!response.ok) {
+    throw new Error("memory action request failed");
+  }
+
+  return response.json() as Promise<unknown>;
+}
+
+function readTaxonomyResponse(
+  body: unknown,
+  key: "tag" | "category",
+): BrowseTaxonomyItem {
+  if (!isRecord(body)) {
+    throw new Error("memory action response was malformed");
+  }
+
+  const item = body[key];
+  if (
+    isRecord(item) &&
+    typeof item.id === "string" &&
+    typeof item.name === "string"
+  ) {
+    return {
+      id: item.id,
+      name: item.name,
+    };
+  }
+
+  throw new Error("memory action response was malformed");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeTaxonomyItem(
+  current: BrowseTaxonomyItem[],
+  next: BrowseTaxonomyItem,
+): BrowseTaxonomyItem[] {
+  if (current.some((item) => item.id === next.id)) {
+    return current;
+  }
+  return [...current, next];
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    ? target.closest("a,button,input,select,textarea,[role='menu']") !== null
+    : false;
 }
