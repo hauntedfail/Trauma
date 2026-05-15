@@ -1,5 +1,7 @@
 import { createSignal } from "solid-js";
 
+import { CheckIcon } from "../icons/TraumaIcons";
+
 export interface MemoryReadStatusControlProps {
   memoryId: string;
   initialRead: boolean;
@@ -26,6 +28,7 @@ type FetchFunction = (
 
 const buttonClass =
   "inline-grid min-h-9 grid-cols-[auto_auto] items-center gap-2 rounded-full border border-trauma-border-strong px-3 py-1.5 text-xs font-bold text-trauma-text-primary disabled:opacity-60";
+const statusIconClass = "grid size-4 place-items-center";
 const statusDotClass = "size-2 rounded-full bg-current";
 
 export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
@@ -64,7 +67,13 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
         disabled={pending()}
         onClick={() => void toggle()}
       >
-        <span class={statusDotClass} aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          class={statusIconClass}
+          data-read-status-icon={read() ? "read" : "unread"}
+        >
+          {read() ? <CheckIcon size={16} /> : <span class={statusDotClass} />}
+        </span>
         <span>{read() ? "Read" : "Unread"}</span>
         <span class={props.compact ? "sr-only" : "text-trauma-text-muted"}>
           {read() ? "Mark unread" : "Mark read"}
