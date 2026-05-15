@@ -67,7 +67,7 @@ Paper themes add one deliberate material exception for archive actions:
   becoming a small circular mark.
 - Wax material layers must stay behind readable labels and icons. Use the
   button content layer, or `trauma-paper-wax-label` for text-only children,
-  so sun paper selected controls keep high-contrast text.
+  so Paper selected controls keep high-contrast text.
 - Use `WaxSealButton` and `WaxSealLabel` for new wax controls. Do not repeat
   the raw `trauma-paper-wax-*` class contract in route or shell components
   unless the shared component cannot express the required element.

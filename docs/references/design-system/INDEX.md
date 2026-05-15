@@ -2,7 +2,7 @@
 
 This directory is the reference map for TRAUMA's front-end design system.
 Use it when changing UI, adding route surfaces, reviewing theme work, or
-translating future sample designs into the SolidStart app.
+translating future design references into the SolidStart app.
 
 The design system is implemented in Tailwind classes and semantic CSS tokens.
 It is not a separate component package.

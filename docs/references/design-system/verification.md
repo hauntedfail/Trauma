@@ -46,8 +46,8 @@ The token tests verify:
 - Semantic Tailwind colour variables are exposed.
 - Reader link tokens `--color-trauma-link` and
   `--color-trauma-link-hover` are exposed.
-- Normal night mode uses pure black root background.
-- Normal night mode pane surfaces are pure black.
+- Midnight uses pure black root background.
+- Midnight pane surfaces are pure black.
 - Every theme uses one pane background colour:
   `--bg-base == --bg-surface`.
 - Paper sun exposes the paper texture variable set.
@@ -73,9 +73,10 @@ The shell tests verify:
 - Desktop shell columns use `275px / minmax(0,840px) / 360px`.
 - Route panes fill the shell column.
 - Right rail sections are independent islands.
-- Left rail scale and vertical rhythm stay close to the refined sample.
+- Left rail scale and vertical rhythm stay within the documented design-system
+  contract.
 - Left rail tab labels keep enough line-height for descenders.
-- Selected theme options stay visible in normal night mode.
+- Selected theme options stay visible in Midnight.
 - Paper themes render the active desktop left-rail underline from the rail item
   geometry, gated by the left-rail container width, not from the text span
   width.
@@ -125,8 +126,7 @@ Check:
 - Tablet compact Add memory uses a centered icon-only control without paper or
   Hermès wax-seal chrome shifting the icon.
 - Browse filters update URL state without clearing unrelated query state.
-- Reader links remain readable in sun normal, sun paper, night normal, and
-  Hermès modes.
+- Reader links remain readable in Light, Paper, Midnight, and Hermès modes.
 - Linked highlight hash targets remain readable in every theme.
 - Reader TOC scroll fades appear only on scrollable edges. The top fade begins
   at the bounded list edge after scrolling down, and CSS mask gradients soften
@@ -135,7 +135,8 @@ Check:
 ## Screenshot Review
 
 For substantial UI changes, capture or inspect desktop and mobile screenshots.
-Compare them to the refined sample and to this design-system reference.
+Compare them to this design-system reference and the implemented route
+contracts.
 
 Do not accept screenshots where:
 

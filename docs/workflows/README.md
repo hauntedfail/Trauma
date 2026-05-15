@@ -8,10 +8,10 @@ keep each worker's context focused on its own domain.
 
 ## Task Map
 
-Status values usually describe the current `main` baseline. When a workflow is
-active on a named branch, the status names that branch explicitly. Workflow
-files may still contain historical branch names and evidence because they are
-execution records; do not treat completed triage records as active work queues.
+Status values describe the current `main` baseline. This directory is for
+active or ready execution plans, not for long-term storage of completed PR
+history. Once a workflow lands, keep only durable semantic knowledge in
+architecture, reference, quality, or operations docs.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
@@ -22,37 +22,16 @@ execution records; do not treat completed triage records as active work queues.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | Ready after Task 10 |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
-| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Merged baseline |
 | 18 | [Memory read status and memory actions](task-18-memory-read-status.md) | Persistent read/unread metadata, taxonomy creation/assignment, link-only status, reader action menu, memory deletion, settings page, explicit highlight selection, Flashback bookmarks, and imported media policy | Ready |
 | 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
 
-Task 17.8 is intentionally split under
-`task-17-front-end-refine/08*.md`: the parent file is an execution map, while
-strategy, tests, container ownership, safe-area layout tokens, implementation,
-cross-device shell chrome cleanup, capability/preference media queries,
-responsive image markup, E2E, and design-system docs each have their own
-focused workflow file.
-
 ## Archived Workflows
 
-| Order | Workflow | Domain | Status |
-| --- | --- | --- | --- |
-| 1 | [Project bootstrap](archive/task-01-project-bootstrap.md) | Toolchain, scaffold, baseline verification | Archived |
-| 2 | [Config and persistence](archive/task-02-config-persistence.md) | Config loader, path validation, Drizzle schema, repositories | Archived |
-| 2.5 | [Coding standards refactor](archive/task-02-5-coding-standards-refactor.md) | Standards audit, vulnerability cleanup, readability refactor | Archived |
-| 3 | [Markdown store](archive/task-03-markdown-store.md) | `CONTENT.md` writer/reader and frontmatter contract | Archived |
-| 4 | [Importer and add memory](archive/task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Archived |
-| 5 | [Browse shell and filters](archive/task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Archived |
-| 6 | [Reader pipeline](archive/task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Archived |
-| 7 | [Highlight system](archive/task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Archived |
-| 8 | [Git backup queue](archive/task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Archived |
-| 16a | [Tailwind migration](archive/task-16a-tailwind-migration.md) | Tailwind v4 Vite plugin, `app.css` removal, component-local styling | Archived |
-| 16 | [Red call runtime triage](archive/task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Archived |
-| 16b | [Drizzle and SQLite hardening](archive/task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Archived |
-| 16c | [Defuddle importer extraction refactor](archive/task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Archived |
-| 16d | [Browser-assisted import extension](archive/task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Archived |
-| 16e | [Browser extension live DOM extraction](archive/task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Archived |
-| 16f | [Backup environment failsafe](archive/task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Archived |
+`docs/workflows/archive/` is intentionally retained only as a tracked
+placeholder. Completed workflow records, one-off review captures, branch
+history, and implementation diaries should not accumulate here. If a completed
+task reveals a durable rule, move that rule into the owning semantic document
+instead of preserving the old execution plan.
 
 ## Worker Rules
 
@@ -95,9 +74,10 @@ All workflows assume the bootstrap already exists:
   SQLite record deletion recovery are merged.
 - `ExtractionStatus` is shared through `src/server/memory-status.ts` and used
   by markdown frontmatter validation and SQLite constraints.
-- The front-end refine workflow uses `refined_sample/` as a design source and
-  decomposes it into existing Solid components rather than porting the sample as
-  one large component.
+- The refined frontend baseline is merged: design tokens, theme surfaces,
+  brand assets, shell layout, browse/highlight surfaces, reader right rail,
+  TOC behaviour, wax controls, and cross-device chrome are documented under
+  [design system](../references/design-system/INDEX.md).
 
 ## Branching
 
@@ -115,10 +95,5 @@ Use concise branch names that match the workflow:
 - `chore/reader-library-decision`
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
-- `refine/frontend-sample`
 - `feat/memory-actions`
 - `feat/codex-translation`
-
-The historical triage branches named in Task 16 records have landed. New work
-should branch from the current target branch and use a fresh name rather than
-reusing old triage branch names.

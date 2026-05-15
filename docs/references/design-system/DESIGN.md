@@ -81,5 +81,5 @@ and tests are the executable source of truth.
 - Do not create a separate design-token build pipeline.
 - Do not add a component storybook until there is a real maintenance need.
 - Do not bring back `src/styles/app.css`.
-- Do not introduce React patterns from the original sample.
+- Do not port external prototype component structure directly into the app.
 - Do not turn `AGENTS.md` into design documentation.
