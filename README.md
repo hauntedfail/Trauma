@@ -1,7 +1,13 @@
-# TRAUMA
-
-TRAUMA is a personal bookmark management app. The product language uses
-`memory` for one saved bookmark and `memories` for the collection.
+<div align="center">
+    <p align="center">
+        <img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
+    </p>
+    <h1>TRAUMA</h1>
+    <br/>
+    <p>TRAUMA is a personal bookmark management app. The product language uses
+`memory` for one saved bookmark and `memories` for the collection.</p>
+    <br/>
+</div>
 
 > <span style="color: #b7791f;">⚠️ Warning:</span> This is mostly a personal
 > project that I work on in the margins of another project, so please do not
@@ -22,6 +28,16 @@ styling, and the local browser-assisted import extension.
 Some workflow documents remain as implementation records or future hardening
 plans. Treat [docs/workflows/README.md](docs/workflows/README.md) as the
 current map before starting new work.
+
+## Proves
+
+| Sun Light | Sun Paper |
+| --- | --- |
+| <img width="540" alt="TRAUMA Sun Light theme" src="https://github.com/user-attachments/assets/e511eafb-9509-43ea-9020-9cf7e63d72fa" /> | <img width="540" alt="TRAUMA Sun Paper theme" src="https://github.com/user-attachments/assets/951925b4-d274-4e45-9c40-00d6e29ac76a" /> |
+
+| Night Midnight | Night Hermès |
+| --- | --- |
+| <img width="540" alt="TRAUMA Night Midnight theme" src="https://github.com/user-attachments/assets/02f45a5f-a8b6-47bf-80c5-3ce019e41c87" /> | <img width="540" alt="TRAUMA Night Hermès theme" src="https://github.com/user-attachments/assets/94f0b53f-da17-485a-a4da-a8857d7da94d" /> |
 
 ## Stack
 
