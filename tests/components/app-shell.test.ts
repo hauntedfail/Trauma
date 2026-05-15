@@ -24,6 +24,10 @@ const waxSealButtonPath = "src/components/ui/WaxSealButton.tsx";
 const waxSealButtonSource = existsSync(waxSealButtonPath)
   ? readFileSync(waxSealButtonPath, "utf8")
   : "";
+const segmentedToggleButtonPath = "src/components/ui/SegmentedToggleButton.tsx";
+const segmentedToggleButtonSource = existsSync(segmentedToggleButtonPath)
+  ? readFileSync(segmentedToggleButtonPath, "utf8")
+  : "";
 const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const rightRailContextSource = existsSync(rightRailContextPath)
   ? readFileSync(rightRailContextPath, "utf8")
@@ -170,9 +174,9 @@ describe("refined app shell contract", () => {
   });
 
   it("keeps selected theme options visible on normal night mode", () => {
-    expect(appShellSource).toContain("themeToggleButton");
-    expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
-    expect(appShellSource).toContain("aria-pressed:ring-1");
+    expect(appShellSource).toContain("SegmentedToggleButton");
+    expect(segmentedToggleButtonSource).toContain("aria-pressed:bg-trauma-bg-elev");
+    expect(segmentedToggleButtonSource).toContain("aria-pressed:ring-1");
     expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
     expect(appShellSource).not.toContain("max-[1040px]:size-10 max-[1040px]:px-0");
   });

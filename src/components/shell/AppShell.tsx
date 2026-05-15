@@ -49,6 +49,7 @@ import {
   type SurfaceMode,
 } from "./theme";
 import { RightRailContentContext } from "./right-rail-context";
+import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 interface RouteNavItem {
@@ -94,8 +95,6 @@ const phoneTabButton =
   "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:text-trauma-text-primary";
 const phonePopoverPanel =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
-const themeToggleButton =
-  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong";
 const railAddMemoryButton =
   "min-[1041px]:inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:hidden";
 const compactAddMemoryButton =
@@ -1038,44 +1037,36 @@ function ThemeBlock(props: {
     <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Brightness">
-        <button
-          aria-pressed={props.brightness === "sun"}
-          class={themeToggleButton}
-          type="button"
+        <SegmentedToggleButton
+          active={props.brightness === "sun"}
           onClick={() => props.onBrightness("sun")}
         >
           <SunIcon />
           <span>Sun</span>
-        </button>
-        <button
-          aria-pressed={props.brightness === "night"}
-          class={themeToggleButton}
-          type="button"
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={props.brightness === "night"}
           onClick={() => props.onBrightness("night")}
         >
           <MoonIcon />
           <span>Night</span>
-        </button>
+        </SegmentedToggleButton>
       </div>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Surface">
-        <button
-          aria-pressed={props.surface === "normal"}
-          class={themeToggleButton}
-          type="button"
+        <SegmentedToggleButton
+          active={props.surface === "normal"}
           onClick={() => props.onSurface("normal")}
         >
           <PageIcon />
           <span>{normalSurfaceLabel()}</span>
-        </button>
-        <button
-          aria-pressed={props.surface === "paper"}
-          class={themeToggleButton}
-          type="button"
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={props.surface === "paper"}
           onClick={() => props.onSurface("paper")}
         >
           {paperSurfaceIcon()}
           <span>{paperSurfaceLabel()}</span>
-        </button>
+        </SegmentedToggleButton>
       </div>
     </section>
   );

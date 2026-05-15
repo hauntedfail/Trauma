@@ -37,6 +37,7 @@ import {
   isExplicitHighlightKeyboardToggle,
 } from "./highlight-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import {
   readHighlightFailure,
   shouldRevalidateBackupFailsafeAfterHighlightFailure,
@@ -614,16 +615,18 @@ export function ReaderHighlightTabs(props: {
         Highlights
       </h2>
       <div class="mb-4 grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1">
-        <ReaderHighlightTabButton
+        <SegmentedToggleButton
           active={activeTab() === "all"}
-          label="All highlights"
           onClick={() => setActiveTab("all")}
-        />
-        <ReaderHighlightTabButton
+        >
+          All highlights
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
           active={activeTab() === "memory"}
-          label="This memory"
           onClick={() => setActiveTab("memory")}
-        />
+        >
+          This memory
+        </SegmentedToggleButton>
       </div>
       <Show
         when={activeTab() === "memory"}
@@ -648,23 +651,6 @@ export function ReaderHighlightTabs(props: {
         />
       </Show>
     </section>
-  );
-}
-
-function ReaderHighlightTabButton(props: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-pressed={props.active}
-      class="min-h-9 rounded-full px-3 text-sm font-extrabold text-trauma-text-secondary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary"
-      type="button"
-      onClick={props.onClick}
-    >
-      {props.label}
-    </button>
   );
 }
 

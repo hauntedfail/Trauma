@@ -50,6 +50,15 @@ describe("reader highlight tabs", () => {
     expect(memoryIndex).toBeGreaterThan(allIndex);
   });
 
+  it("uses the same segmented toggle button styling as the theme box", () => {
+    const html = renderTabs({ initialTab: "memory" });
+
+    expect(html).toContain("inline-flex min-h-9 items-center justify-center");
+    expect(html).toContain("aria-pressed:ring-1");
+    expect(html).toContain("aria-pressed:ring-inset");
+    expect(html).toContain("aria-pressed:ring-trauma-border-strong");
+  });
+
   it("defaults to This memory when the active memory has highlights", () => {
     const html = renderTabs();
 
