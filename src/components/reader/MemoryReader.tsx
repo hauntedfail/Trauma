@@ -1,5 +1,6 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 
+import { ChevronLeftIcon, OpenIcon } from "../icons";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import {
@@ -11,8 +12,14 @@ import {
   readHighlightFailure,
   shouldRevalidateBackupFailsafeAfterHighlightFailure,
 } from "./highlight-failure";
-import { readerFrame, readerPadding, readerStatePanel } from "./reader-styles";
+import {
+  readerArticle,
+  readerFrame,
+  readerPadding,
+  readerStatePanel,
+} from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
+import { useRightRailContent } from "../shell/right-rail-context";
 
 interface MemoryReaderProps {
   result: ReaderMemoryResult;
@@ -32,9 +39,18 @@ interface ReaderSelection extends ReaderSelectionPayload {
 }
 
 type ReaderHighlightOperation = "highlight" | "unhighlight";
+interface TocScrollState {
+  canScrollDown: boolean;
+  canScrollUp: boolean;
+}
 
-const readerArticle =
-  "prose max-w-none min-w-0 text-slate-800 prose-headings:text-slate-900 prose-a:text-blue-600 prose-a:underline prose-a:underline-offset-[3px] prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-900 prose-pre:text-slate-200 prose-code:font-mono prose-code:text-[0.92em] prose-img:max-w-full prose-table:my-5 prose-table:w-full prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-2.5 prose-th:py-2 prose-th:text-left prose-th:text-slate-900 prose-td:border prose-td:border-slate-300 prose-td:px-2.5 prose-td:py-2 prose-mark:rounded prose-mark:bg-yellow-200 prose-mark:px-0.5 prose-mark:text-inherit [&_iframe]:aspect-video [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:border-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-slate-700";
+const noTocScrollState: TocScrollState = {
+  canScrollDown: false,
+  canScrollUp: false,
+};
+
+const readerTocScrollContent =
+  "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -59,6 +75,13 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
+  const { setRightRailContent } = useRightRailContent();
+
+  createEffect(() => {
+    setRightRailContent(<ReaderToc toc={props.result.rendered.toc} />);
+  });
+
+  onCleanup(() => setRightRailContent(undefined));
 
   const handleSelectionToggle = () => {
     if (contentRef === undefined) {
@@ -83,29 +106,33 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   };
 
   return (
-    <article class={readerFrame} aria-labelledby="reader-title">
-      <header class={`${readerPadding} border-b border-slate-200 py-7`}>
-        <p class="mb-1 text-[13px] font-bold uppercase text-trauma-text-muted">Reader mode</p>
-        <h1 class="mb-2.5 text-3xl font-bold leading-tight" id="reader-title">{props.result.memory.title}</h1>
-        <Show
-          when={sourceHref()}
-          fallback={<span class="wrap-anywhere text-sm text-blue-600">{sourceUrl()}</span>}
-        >
-          {(href) => (
-            <a
-              class="wrap-anywhere text-sm text-blue-600"
-              href={href()}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {sourceUrl()}
-            </a>
-          )}
-        </Show>
+    <article class={readerFrame} aria-label="Memory">
+      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
+        <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
+          <ChevronLeftIcon />
+        </a>
+        <div class="min-w-0">
+          <p class="mb-2 text-[20px] font-bold text-trauma-text-primary">Memory</p>
+          <Show
+            when={sourceHref()}
+            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
+          >
+            {(href) => (
+              <a
+                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
+                href={href()}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <OpenIcon />
+                {sourceUrl()}
+              </a>
+            )}
+          </Show>
+        </div>
       </header>
-      <div class={`${readerPadding} grid grid-cols-[minmax(160px,220px)_minmax(0,1fr)] gap-8 py-7 pb-14 max-[1040px]:grid-cols-1`}>
-        <ReaderToc toc={props.result.rendered.toc} />
-        <div>
+      <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+        <div class="trauma-fluid-page-shell">
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
@@ -118,7 +145,7 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
           />
           <Show when={errorMessage()}>
             {(message) => (
-              <p class="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" role="status">
+              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="status">
                 {message()}
               </p>
             )}
@@ -133,7 +160,7 @@ function ReaderState(props: { message: string }) {
   return (
     <section class={readerFrame} aria-labelledby="reader-state-title">
       <div class={readerStatePanel}>
-        <h1 class="mb-2 text-3xl font-bold text-slate-900" id="reader-state-title">{props.message}</h1>
+        <h1 class="mb-2 text-3xl font-bold text-trauma-text-primary" id="reader-state-title">{props.message}</h1>
         <p>Open another memory from the archive.</p>
       </div>
     </section>
@@ -141,22 +168,90 @@ function ReaderState(props: { message: string }) {
 }
 
 function ReaderToc(props: { toc: ReaderTocEntry[] }) {
+  let scrollRef: HTMLOListElement | undefined;
+  const [tocScrollState, setTocScrollState] =
+    createSignal<TocScrollState>(noTocScrollState);
+  const updateTocScrollHint = () => {
+    if (scrollRef === undefined) {
+      setTocScrollState(noTocScrollState);
+      return;
+    }
+
+    const hasOverflow = scrollRef.scrollHeight > scrollRef.clientHeight + 1;
+    const canScrollUp = hasOverflow && scrollRef.scrollTop > 1;
+    const canScrollDown =
+      hasOverflow &&
+      scrollRef.scrollTop + scrollRef.clientHeight < scrollRef.scrollHeight - 1;
+
+    setTocScrollState((current) => {
+      if (
+        current.canScrollDown === canScrollDown &&
+        current.canScrollUp === canScrollUp
+      ) {
+        return current;
+      }
+
+      return {
+        canScrollDown,
+        canScrollUp,
+      };
+    });
+  };
+
+  createEffect(() => {
+    props.toc.length;
+    queueMicrotask(updateTocScrollHint);
+  });
+
+  onMount(() => {
+    updateTocScrollHint();
+    window.addEventListener("resize", updateTocScrollHint);
+    onCleanup(() => window.removeEventListener("resize", updateTocScrollHint));
+  });
+
   return (
-    <nav class="sticky top-6 self-start text-sm text-slate-600 max-[1040px]:static" aria-label="Table of contents">
-      <h2 class="mb-3 text-[15px] font-bold text-slate-900">Contents</h2>
-      <ol class="m-0 grid gap-2 pl-[18px]">
-        {props.toc.map((entry) => (
-          <li
-            classList={{
-              "ml-2.5": entry.level === 2,
-              "ml-5": entry.level === 3,
-            }}
+    <Show when={props.toc.length > 0}>
+      <nav
+        class="animate-trauma-pop-bounce relative overflow-hidden rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
+        aria-label="Table of contents"
+      >
+        <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">
+          Contents
+        </h2>
+        <div class="trauma-toc-scroll-shell">
+          <ol
+            ref={scrollRef}
+            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
+            onScroll={updateTocScrollHint}
           >
-            <a class="hover:text-blue-600" href={`#${entry.id}`}>{entry.text}</a>
-          </li>
-        ))}
-      </ol>
-    </nav>
+            {props.toc.map((entry) => (
+              <li
+                classList={{
+                  "ml-2.5": entry.level === 2,
+                  "ml-5": entry.level === 3,
+                }}
+              >
+                <a class="hover:text-trauma-link" href={`#${entry.id}`}>
+                  {entry.text}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <Show when={tocScrollState().canScrollUp}>
+          <div
+            class="trauma-toc-scroll-fade trauma-toc-scroll-fade-top"
+            aria-hidden="true"
+          />
+        </Show>
+        <Show when={tocScrollState().canScrollDown}>
+          <div
+            class="trauma-toc-scroll-fade trauma-toc-scroll-fade-bottom"
+            aria-hidden="true"
+          />
+        </Show>
+      </nav>
+    </Show>
   );
 }
 

@@ -38,7 +38,7 @@ function ReaderBody(props: { result: ReaderMemoryResult | undefined }) {
       fallback={
         <section class={readerFrame} aria-labelledby="reader-loading-title">
           <div class={readerStatePanel}>
-            <h1 class="mb-2 text-3xl font-bold text-slate-900" id="reader-loading-title">Loading memory...</h1>
+            <h1 class="mb-2 text-3xl font-bold text-trauma-text-primary" id="reader-loading-title">Loading memory...</h1>
           </div>
         </section>
       }
