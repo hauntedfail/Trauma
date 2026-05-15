@@ -137,7 +137,7 @@ The leather result should read as fine pores, pebbled grain, fibre variation,
 and muted material depth. It must not introduce black wave lines, dot-grid,
 graph-paper, broad glow gradients, or evenly tiled decorative marks.
 
-Normal themes must not enable these paper texture layers.
+Light and Midnight themes must not enable these material texture layers.
 
 ## Typography
 
@@ -163,7 +163,7 @@ Code uses:
 Rules:
 
 - Keep `letter-spacing: 0`.
-- Do not use negative tracking from the source sample.
+- Do not use negative tracking.
 - Do not scale font size with viewport width.
 - Match type scale to context: large route titles, compact panel headings,
   dense row metadata, readable reader prose.
@@ -186,7 +186,6 @@ Reader links, highlights, and highlight excerpts use stable semantic tokens:
 
 Do not replace these with ad hoc yellow or paper colours inside components.
 
-Default and night-normal links follow the accent tokens. Sun normal and sun
-paper intentionally use `--link: var(--wine-500)` and
-`--link-hover: var(--wine-600)` so reader links stay readable while remaining
-brighter than the command accent treatment.
+Midnight links follow the accent tokens. Light and Paper intentionally use
+`--link: var(--wine-500)` and `--link-hover: var(--wine-600)` so reader links
+stay readable while remaining brighter than the command accent treatment.

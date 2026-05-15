@@ -136,16 +136,16 @@ Rules:
   `trauma-route-row`.
 
 Because `bg-surface` equals `bg-base`, route panes visually continue the page
-background in normal themes. Paper/Hermès override the shell and route frame
-backgrounds to transparent so the single body-level material remains
+background in Light and Midnight. Paper/Hermès override the shell and route
+frame backgrounds to transparent so the single body-level material remains
 continuous.
 
 ## Right Rail
 
-The right rail is not a mirrored left rail. In normal themes it is a base-colour
-column with independent rounded islands. In Paper/Hermès, the column frame is
-transparent over the global material and the islands keep their own framed
-surfaces.
+The right rail is not a mirrored left rail. In Light and Midnight it is a
+base-colour column with independent rounded islands. In Paper/Hermès, the
+column frame is transparent over the global material and the islands keep their
+own framed surfaces.
 
 Current desktop contract:
 
