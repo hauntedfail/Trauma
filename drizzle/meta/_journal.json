@@ -36,6 +36,13 @@
       "when": 1778682602024,
       "tag": "0004_perfect_galactus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1778858393843,
+      "tag": "0005_pretty_colossus",
+      "breakpoints": true
     }
   ]
 }

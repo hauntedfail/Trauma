@@ -66,6 +66,7 @@ export async function addMemory(input: AddMemoryInput) {
       extractionStatus: imported.status,
       extractionError:
         imported.status === "link_only" ? imported.extractionError : null,
+      read: false,
       backupStatus: initialBackupStatus,
       lastBackupAt: null,
       lastBackupError: null,

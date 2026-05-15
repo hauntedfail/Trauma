@@ -56,6 +56,7 @@ export const memories = sqliteTable(
       .$type<ExtractionStatus>()
       .notNull(),
     extractionError: text("extraction_error"),
+    read: integer("read", { mode: "boolean" }).notNull().default(false),
     backupStatus: text("backup_status").$type<BackupStatus>().notNull(),
     lastBackupAt: integer("last_backup_at", { mode: "timestamp_ms" }),
     lastBackupError: text("last_backup_error"),

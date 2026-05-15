@@ -165,6 +165,8 @@ describe("db foundation", () => {
         url: "https://example.com/real-memory",
         description: "Saved from the repository",
         capturedAt: memories[0].capturedAt,
+        read: false,
+        extractionStatus: "success",
         categories: [{ id: "research", name: "Research" }],
         tags: [{ id: "sqlite", name: "sqlite" }],
         highlights: [
@@ -293,7 +295,62 @@ describe("db foundation", () => {
       { id: 3, id_type: "integer" },
       { id: 4, id_type: "integer" },
       { id: 5, id_type: "integer" },
+      { id: 6, id_type: "integer" },
     ]);
+  });
+
+  it("migrates existing memories to unread", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.slice(0, -1);
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const now = Date.now();
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f008", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f008/CONTENT.md", "success", "pending", now, now);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            process.stdout.write(JSON.stringify({
+              memory: sqlite.prepare("select id, read from memories where id = ?").get("018f04a2-3c6f-7c88-9a8b-8c99a9b7f008"),
+              migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      memory: {
+        id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f008",
+        read: 0,
+      },
+      migrationCount: 6,
+    });
   });
 
   it("rejects orphan highlights before recording the rebuilt highlights table", () => {
@@ -491,7 +548,7 @@ describe("db foundation", () => {
 
     expect(result).toMatchObject({
       highlightCount: 1,
-      migrationCount: 5,
+      migrationCount: 6,
     });
     expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });

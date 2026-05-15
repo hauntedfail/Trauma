@@ -24,6 +24,9 @@ describe("loadReaderMemory", () => {
     expect(result.status).toBe("ready");
     expect(result.memory.title).toBe("Fixture Reader");
     expect(result.memory.url).toBe("https://example.com/reader");
+    expect(result.memory.read).toBe(false);
+    expect(result.memory.categories).toEqual([{ id: "reader-category", name: "Reader" }]);
+    expect(result.memory.tags).toEqual([{ id: "reader-tag", name: "reader" }]);
     expect(result.content).toEqual({
       relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
     });
@@ -139,6 +142,30 @@ function runReaderFixture(input: {
           backupStatus: "disabled",
           lastBackupAt: null,
           lastBackupError: null,
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.categories).values({
+          id: "reader-category",
+          name: "Reader",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.tags).values({
+          id: "reader-tag",
+          name: "reader",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.memoryCategories).values({
+          memoryId,
+          categoryId: "reader-category",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.memoryTags).values({
+          memoryId,
+          tagId: "reader-tag",
           createdAt: new Date("2026-05-09T00:00:00.000Z"),
           updatedAt: new Date("2026-05-09T00:00:00.000Z"),
         });

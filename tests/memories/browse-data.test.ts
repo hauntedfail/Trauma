@@ -19,6 +19,8 @@ const fixtures: BrowseMemory[] = [
     url: "https://example.com/reader-mode",
     description: "SolidStart route data and shell architecture notes.",
     capturedAt: "2026-05-09",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
     tags: [{ id: "solidstart", name: "solidstart" }],
     highlights: [
@@ -37,6 +39,8 @@ const fixtures: BrowseMemory[] = [
     url: "https://example.com/local-hosting",
     description: "Single Bun process and persistent disk assumptions.",
     capturedAt: "2026-05-08",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [{ id: "sqlite", name: "sqlite" }],
     highlights: [],

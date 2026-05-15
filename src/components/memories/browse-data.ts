@@ -1,3 +1,5 @@
+import type { ExtractionStatus } from "../../server/memory-status";
+
 export type BrowseView = "list" | "grid";
 
 export interface BrowseTaxonomyItem {
@@ -23,6 +25,8 @@ export interface BrowseMemory {
   url: string;
   description: string;
   capturedAt: string;
+  read: boolean;
+  extractionStatus: ExtractionStatus;
   categories: BrowseTaxonomyItem[];
   tags: BrowseTaxonomyItem[];
   highlights: BrowseHighlight[];

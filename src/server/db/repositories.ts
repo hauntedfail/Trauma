@@ -1,10 +1,14 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
+import type { ExtractionStatus } from "../memory-status";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
 type Memory = typeof schema.memories.$inferSelect;
+type NewMemory = typeof schema.memories.$inferInsert;
+type Tag = typeof schema.tags.$inferSelect;
+type Category = typeof schema.categories.$inferSelect;
 type Highlight = typeof schema.highlights.$inferSelect;
 export type BackupEnvironmentStamp =
   typeof schema.backupEnvironmentStamps.$inferSelect;
@@ -25,6 +29,8 @@ export interface MemoryBrowseRow {
   url: string;
   description: string;
   capturedAt: string;
+  read: boolean;
+  extractionStatus: ExtractionStatus;
   categories: { id: string; name: string }[];
   tags: { id: string; name: string }[];
   highlights: { id: string; text: string; prefix: string; suffix: string; createdAt: string }[];
@@ -44,7 +50,16 @@ export interface HighlightBrowseRow {
 
 export interface MemoryRepository {
   findById: (id: string) => Promise<Memory | undefined>;
-  create: (input: Memory) => Promise<Memory>;
+  create: (input: NewMemory) => Promise<Memory>;
+  setReadStatus: (input: {
+    memoryId: string;
+    read: boolean;
+    updatedAt: Date;
+  }) => Promise<Memory | undefined>;
+  findDeletionTarget: (
+    memoryId: string,
+  ) => Promise<{ id: string; contentPath: string } | undefined>;
+  deleteMemoryRecord: (memoryId: string) => Promise<boolean>;
   updateBackupStatus: (input: {
     id: string;
     backupStatus: schema.BackupStatus;
@@ -54,6 +69,36 @@ export interface MemoryRepository {
   }) => Promise<MemoryBackupStatusUpdate>;
   listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
+}
+
+export interface TaxonomyBrowseRow {
+  id: string;
+  name: string;
+  memoryCount: number;
+  lastAssignedAt: string | null;
+}
+
+export interface TaxonomyRepository {
+  createTag: (input: { id: string; name: string; now: Date }) => Promise<Tag>;
+  createCategory: (input: {
+    id: string;
+    name: string;
+    now: Date;
+  }) => Promise<Category>;
+  findTagByName: (name: string) => Promise<Tag | undefined>;
+  findCategoryByName: (name: string) => Promise<Category | undefined>;
+  attachTagToMemory: (input: {
+    memoryId: string;
+    tagId: string;
+    now: Date;
+  }) => Promise<void>;
+  attachCategoryToMemory: (input: {
+    memoryId: string;
+    categoryId: string;
+    now: Date;
+  }) => Promise<void>;
+  listTagsForBrowse: () => Promise<TaxonomyBrowseRow[]>;
+  listCategoriesForBrowse: () => Promise<TaxonomyBrowseRow[]>;
 }
 
 export interface HighlightRepository {
@@ -78,6 +123,7 @@ export interface TraumaRepositories {
   backupEnvironment: BackupEnvironmentRepository;
   memories: MemoryRepository;
   highlights: HighlightRepository;
+  taxonomy: TaxonomyRepository;
 }
 
 export class MemoryRepositoryError extends Error {
@@ -209,7 +255,48 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }),
       create: async (input) => {
         await db.insert(schema.memories).values(input).run();
-        return input;
+        return {
+          id: input.id,
+          url: input.url,
+          title: input.title,
+          description: input.description ?? null,
+          faviconUrl: input.faviconUrl ?? null,
+          contentPath: input.contentPath,
+          extractionStatus: input.extractionStatus,
+          extractionError: input.extractionError ?? null,
+          read: input.read ?? false,
+          backupStatus: input.backupStatus,
+          lastBackupAt: input.lastBackupAt ?? null,
+          lastBackupError: input.lastBackupError ?? null,
+          createdAt: input.createdAt,
+          updatedAt: input.updatedAt,
+        };
+      },
+      setReadStatus: async (input) =>
+        db
+          .update(schema.memories)
+          .set({
+            read: input.read,
+            updatedAt: input.updatedAt,
+          })
+          .where(eq(schema.memories.id, input.memoryId))
+          .returning()
+          .get(),
+      findDeletionTarget: async (memoryId) =>
+        db.query.memories.findFirst({
+          columns: {
+            id: true,
+            contentPath: true,
+          },
+          where: eq(schema.memories.id, memoryId),
+        }),
+      deleteMemoryRecord: async (memoryId) => {
+        const deleted = await db
+          .delete(schema.memories)
+          .where(eq(schema.memories.id, memoryId))
+          .returning({ id: schema.memories.id })
+          .get();
+        return deleted !== undefined;
       },
       updateBackupStatus: async (input) => {
         const values: {
@@ -284,6 +371,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           url: memory.url,
           description: memory.description ?? "",
           capturedAt: formatDate(memory.createdAt),
+          read: memory.read,
+          extractionStatus: memory.extractionStatus,
           categories: memory.memoryCategories.map(({ category }) => ({
             id: category.id,
             name: category.name,
@@ -302,6 +391,211 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }));
       },
     },
+    taxonomy: {
+      createTag: async (input) => {
+        await db
+          .insert(schema.tags)
+          .values({
+            id: input.id,
+            name: input.name,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .onConflictDoNothing({ target: schema.tags.name })
+          .run();
+        return requireTagByName(db, input.name);
+      },
+      createCategory: async (input) => {
+        await db
+          .insert(schema.categories)
+          .values({
+            id: input.id,
+            name: input.name,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .onConflictDoNothing({ target: schema.categories.name })
+          .run();
+        return requireCategoryByName(db, input.name);
+      },
+      findTagByName: async (name) =>
+        db.query.tags.findFirst({
+          where: eq(schema.tags.name, name),
+        }),
+      findCategoryByName: async (name) =>
+        db.query.categories.findFirst({
+          where: eq(schema.categories.name, name),
+        }),
+      attachTagToMemory: async (input) => {
+        await assertMemoryExists(db, input.memoryId, "attach tag to");
+        await assertTagExists(db, input.tagId);
+        await db
+          .insert(schema.memoryTags)
+          .values({
+            memoryId: input.memoryId,
+            tagId: input.tagId,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.memoryTags.memoryId, schema.memoryTags.tagId],
+            set: {
+              updatedAt: input.now,
+            },
+          })
+          .run();
+      },
+      attachCategoryToMemory: async (input) => {
+        await assertMemoryExists(db, input.memoryId, "attach category to");
+        await assertCategoryExists(db, input.categoryId);
+        await db
+          .insert(schema.memoryCategories)
+          .values({
+            memoryId: input.memoryId,
+            categoryId: input.categoryId,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.memoryCategories.memoryId,
+              schema.memoryCategories.categoryId,
+            ],
+            set: {
+              updatedAt: input.now,
+            },
+          })
+          .run();
+      },
+      listTagsForBrowse: async () => listTagsForBrowse(db),
+      listCategoriesForBrowse: async () => listCategoriesForBrowse(db),
+    },
+  };
+}
+
+async function requireTagByName(db: TraumaDatabase, name: string): Promise<Tag> {
+  const tag = await db.query.tags.findFirst({
+    where: eq(schema.tags.name, name),
+  });
+  if (tag === undefined) {
+    throw new MemoryRepositoryError(`Cannot find tag after create: ${name}`);
+  }
+  return tag;
+}
+
+async function requireCategoryByName(
+  db: TraumaDatabase,
+  name: string,
+): Promise<Category> {
+  const category = await db.query.categories.findFirst({
+    where: eq(schema.categories.name, name),
+  });
+  if (category === undefined) {
+    throw new MemoryRepositoryError(`Cannot find category after create: ${name}`);
+  }
+  return category;
+}
+
+async function assertMemoryExists(
+  db: TraumaDatabase,
+  memoryId: string,
+  action: "attach tag to" | "attach category to",
+): Promise<void> {
+  const memory = await db.query.memories.findFirst({
+    columns: {
+      id: true,
+    },
+    where: eq(schema.memories.id, memoryId),
+  });
+  if (memory === undefined) {
+    throw new MemoryRepositoryError(`Cannot ${action} missing memory: ${memoryId}`);
+  }
+}
+
+async function assertTagExists(db: TraumaDatabase, tagId: string): Promise<void> {
+  const tag = await db.query.tags.findFirst({
+    columns: {
+      id: true,
+    },
+    where: eq(schema.tags.id, tagId),
+  });
+  if (tag === undefined) {
+    throw new MemoryRepositoryError(`Cannot attach missing tag: ${tagId}`);
+  }
+}
+
+async function assertCategoryExists(
+  db: TraumaDatabase,
+  categoryId: string,
+): Promise<void> {
+  const category = await db.query.categories.findFirst({
+    columns: {
+      id: true,
+    },
+    where: eq(schema.categories.id, categoryId),
+  });
+  if (category === undefined) {
+    throw new MemoryRepositoryError(`Cannot attach missing category: ${categoryId}`);
+  }
+}
+
+async function listTagsForBrowse(db: TraumaDatabase): Promise<TaxonomyBrowseRow[]> {
+  const rows = await db
+    .select({
+      id: schema.tags.id,
+      name: schema.tags.name,
+      memoryCount: sql<number>`count(${schema.memoryTags.memoryId})`,
+      lastAssignedAt: sql<Date | number | null>`max(${schema.memoryTags.updatedAt})`,
+    })
+    .from(schema.tags)
+    .leftJoin(schema.memoryTags, eq(schema.tags.id, schema.memoryTags.tagId))
+    .groupBy(schema.tags.id, schema.tags.name)
+    .orderBy(
+      desc(sql`count(${schema.memoryTags.memoryId})`),
+      desc(sql`max(${schema.memoryTags.updatedAt})`),
+      asc(schema.tags.name),
+    );
+
+  return rows.map(formatTaxonomyBrowseRow);
+}
+
+async function listCategoriesForBrowse(
+  db: TraumaDatabase,
+): Promise<TaxonomyBrowseRow[]> {
+  const rows = await db
+    .select({
+      id: schema.categories.id,
+      name: schema.categories.name,
+      memoryCount: sql<number>`count(${schema.memoryCategories.memoryId})`,
+      lastAssignedAt: sql<Date | number | null>`max(${schema.memoryCategories.updatedAt})`,
+    })
+    .from(schema.categories)
+    .leftJoin(
+      schema.memoryCategories,
+      eq(schema.categories.id, schema.memoryCategories.categoryId),
+    )
+    .groupBy(schema.categories.id, schema.categories.name)
+    .orderBy(
+      desc(sql`count(${schema.memoryCategories.memoryId})`),
+      desc(sql`max(${schema.memoryCategories.updatedAt})`),
+      asc(schema.categories.name),
+    );
+
+  return rows.map(formatTaxonomyBrowseRow);
+}
+
+function formatTaxonomyBrowseRow(row: {
+  id: string;
+  name: string;
+  memoryCount: number;
+  lastAssignedAt: Date | number | null;
+}): TaxonomyBrowseRow {
+  return {
+    id: row.id,
+    name: row.name,
+    memoryCount: row.memoryCount,
+    lastAssignedAt:
+      row.lastAssignedAt === null ? null : formatDateTime(row.lastAssignedAt),
   };
 }
 

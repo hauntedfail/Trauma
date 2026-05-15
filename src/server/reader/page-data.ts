@@ -1,5 +1,6 @@
-import type { schema } from "../db";
-import { initializeDatabase } from "../db";
+import { eq } from "drizzle-orm";
+
+import { initializeDatabase, schema } from "../db";
 import {
   loadRuntimeTraumaConfig,
   TraumaConfigError,
@@ -12,6 +13,12 @@ import {
 } from "./markdown-renderer";
 
 type MemoryRow = typeof schema.memories.$inferSelect;
+type CategoryRow = typeof schema.categories.$inferSelect;
+type TagRow = typeof schema.tags.$inferSelect;
+type ReaderMemoryRow = MemoryRow & {
+  memoryCategories: { category: CategoryRow }[];
+  memoryTags: { tag: TagRow }[];
+};
 
 export type ReaderMemoryResult =
   | {
@@ -35,8 +42,16 @@ export interface ReaderMemory {
   faviconUrl: string | null;
   extractionStatus: MemoryRow["extractionStatus"];
   contentPath: string;
+  read: boolean;
+  categories: ReaderTaxonomyItem[];
+  tags: ReaderTaxonomyItem[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ReaderTaxonomyItem {
+  id: string;
+  name: string;
 }
 
 export interface LoadReaderMemoryOptions {
@@ -52,7 +67,21 @@ export async function loadReaderMemory(
   try {
     const config = options.config ?? loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    const memory = await connection.repositories.memories.findById(memoryId);
+    const memory = await connection.db.query.memories.findFirst({
+      where: eq(schema.memories.id, memoryId),
+      with: {
+        memoryCategories: {
+          with: {
+            category: true,
+          },
+        },
+        memoryTags: {
+          with: {
+            tag: true,
+          },
+        },
+      },
+    });
     if (memory === undefined) {
       return {
         status: "not_found",
@@ -96,7 +125,7 @@ export async function loadReaderMemory(
   }
 }
 
-function toReaderMemory(memory: MemoryRow): ReaderMemory {
+function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
   return {
     id: memory.id,
     url: memory.url,
@@ -105,6 +134,15 @@ function toReaderMemory(memory: MemoryRow): ReaderMemory {
     faviconUrl: memory.faviconUrl,
     extractionStatus: memory.extractionStatus,
     contentPath: memory.contentPath,
+    read: memory.read,
+    categories: memory.memoryCategories.map(({ category }) => ({
+      id: category.id,
+      name: category.name,
+    })),
+    tags: memory.memoryTags.map(({ tag }) => ({
+      id: tag.id,
+      name: tag.name,
+    })),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,
   };

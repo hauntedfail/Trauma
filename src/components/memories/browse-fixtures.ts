@@ -7,6 +7,8 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/reader-mode",
     description: "SolidStart route data and shell architecture notes for the canonical reader.",
     capturedAt: "2026-05-09",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
     tags: [
       { id: "solidstart", name: "solidstart" },
@@ -28,6 +30,8 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/local-hosting",
     description: "Single Bun process and persistent disk assumptions for self-hosted operation.",
     capturedAt: "2026-05-08",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [
       { id: "sqlite", name: "sqlite" },
@@ -49,6 +53,8 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/browse-shell",
     description: "X-like layout notes for navigation, filters, and dense memory browsing.",
     capturedAt: "2026-05-07",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "product", name: "Product" }],
     tags: [
       { id: "shell", name: "shell" },
@@ -70,6 +76,8 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/archive-import",
     description: "Operational notes for adding a memory that has no saved highlights yet.",
     capturedAt: "2026-05-06",
+    read: false,
+    extractionStatus: "link_only",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [
       { id: "import", name: "import" },
