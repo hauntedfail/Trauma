@@ -20,6 +20,7 @@ describe("TRAUMA icon system", () => {
     for (const name of [
       "memories",
       "highlights",
+      "flashback",
       "categories",
       "tags",
       "backup",

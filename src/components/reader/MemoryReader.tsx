@@ -7,10 +7,12 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  type JSX,
 } from "solid-js";
 
 import { ChevronLeftIcon, OpenIcon, TraumaNavIcons } from "../icons";
 import type {
+  ReaderFlashbackItem,
   ReaderHighlightItem,
   ReaderMemoryResult,
   ReaderTaxonomyItem,
@@ -26,6 +28,10 @@ import {
   deleteMemoryById,
   type FetchFunction,
 } from "../memories/memory-action-requests";
+import {
+  createFlashbackForSection,
+  type ReaderFlashbackSection,
+} from "./flashback-requests";
 import {
   canStartHighlightToggle,
   isExplicitHighlightKeyboardToggle,
@@ -43,6 +49,7 @@ import {
 } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
+import { revalidateFlashbackBrowseRows } from "../flashback/flashbacks-loader";
 
 interface MemoryReaderProps {
   highlightRows?: HighlightBrowseRow[];
@@ -69,6 +76,12 @@ interface ReaderSelectionMenuState {
   selection: ReaderSelection;
 }
 
+interface ReaderSectionMenuState {
+  key: string;
+  position: ReaderSelectionMenuPosition;
+  section: ReaderFlashbackSection;
+}
+
 interface ReaderSelectionMenuPosition {
   left: number;
   placement: "above" | "below";
@@ -76,6 +89,7 @@ interface ReaderSelectionMenuPosition {
 }
 
 type ReaderHighlightOperation = "highlight" | "unhighlight";
+type ReaderMenuElement = HTMLDivElement | undefined;
 interface TocScrollState {
   canScrollDown: boolean;
   canScrollUp: boolean;
@@ -118,18 +132,25 @@ function ReadyMemoryReader(props: {
   result: ReadyReaderMemoryResult;
 }) {
   let contentRef: HTMLDivElement | undefined;
-  let selectionMenuRef: HTMLDivElement | undefined;
+  let selectionMenuRef: ReaderMenuElement;
+  let sectionMenuRef: ReaderMenuElement;
+  let sectionLongPressTimer: number | undefined;
   const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
   ]);
+  const [flashbacks, setFlashbacks] = createSignal([
+    ...props.result.memory.flashbacks,
+  ]);
   const allHighlights = props.highlightRows === undefined
     ? createAsync(() => getHighlightBrowseRows())
     : () => props.highlightRows;
   const [selectionMenu, setSelectionMenu] =
     createSignal<ReaderSelectionMenuState>();
+  const [sectionMenu, setSectionMenu] = createSignal<ReaderSectionMenuState>();
+  const [pendingFlashbackKey, setPendingFlashbackKey] = createSignal("");
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
@@ -139,7 +160,11 @@ function ReadyMemoryReader(props: {
       <ReaderRightRailContent
         allHighlights={allHighlights()}
         currentHighlights={props.result.memory.highlights}
+        flashbacks={flashbacks()}
         memoryId={props.result.memory.id}
+        onCreateFlashback={(section) => void createFlashback(section)}
+        onOpenSectionMenu={openSectionMenu}
+        pendingFlashbackKey={pendingFlashbackKey()}
         toc={props.result.rendered.toc}
       />,
     );
@@ -150,33 +175,39 @@ function ReadyMemoryReader(props: {
   onMount(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        closeSelectionMenu();
+        closeReaderMenus();
       }
     };
     const closeOnPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (
         target instanceof Node &&
-        selectionMenuRef !== undefined &&
-        selectionMenuRef.contains(target)
+        ((selectionMenuRef !== undefined && selectionMenuRef.contains(target)) ||
+          (sectionMenuRef !== undefined && sectionMenuRef.contains(target)))
       ) {
         return;
       }
 
-      closeSelectionMenu();
+      closeReaderMenus();
     };
 
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOnPointerDown);
-    window.addEventListener("scroll", closeSelectionMenu, true);
+    window.addEventListener("scroll", closeReaderMenus, true);
     onCleanup(() => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnPointerDown);
-      window.removeEventListener("scroll", closeSelectionMenu, true);
+      window.removeEventListener("scroll", closeReaderMenus, true);
+      clearSectionLongPress();
     });
   });
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
+  const closeSectionMenu = () => setSectionMenu(undefined);
+  const closeReaderMenus = () => {
+    closeSelectionMenu();
+    closeSectionMenu();
+  };
   const openSelectionMenu = () => {
     const selection = readReaderSelection(contentRef);
     if (selection === undefined) {
@@ -184,6 +215,7 @@ function ReadyMemoryReader(props: {
       return;
     }
 
+    closeSectionMenu();
     setSelectionMenu({
       key: getReaderSelectionKey(selection),
       position: positionReaderSelectionMenu(
@@ -194,6 +226,17 @@ function ReadyMemoryReader(props: {
         },
       ),
       selection,
+    });
+  };
+  const openSectionMenu = (section: ReaderFlashbackSection, rect: DOMRect) => {
+    closeSelectionMenu();
+    setSectionMenu({
+      key: getReaderFlashbackKey(section),
+      position: positionReaderSelectionMenu(rect, {
+        height: window.innerHeight,
+        width: window.innerWidth,
+      }),
+      section,
     });
   };
   const commitSelectionMenu = () => {
@@ -211,6 +254,15 @@ function ReadyMemoryReader(props: {
       setErrorMessage,
       setPendingSelectionKey,
     });
+  };
+  const commitSectionMenu = () => {
+    const menu = sectionMenu();
+    if (menu === undefined) {
+      return;
+    }
+
+    closeSectionMenu();
+    void createFlashback(menu.section);
   };
   const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
     if (!isExplicitHighlightKeyboardToggle(event)) {
@@ -232,6 +284,74 @@ function ReadyMemoryReader(props: {
   }): Promise<void> => {
     const category = await attachReaderCategoryByName(input);
     setCategories((current) => mergeReaderTaxonomyItem(current, category));
+  };
+  const createFlashback = async (
+    section: ReaderFlashbackSection,
+  ): Promise<void> => {
+    const sectionKey = getReaderFlashbackKey(section);
+    if (pendingFlashbackKey().length > 0) {
+      return;
+    }
+
+    setErrorMessage("");
+    setPendingFlashbackKey(sectionKey);
+    try {
+      const result = await createFlashbackForSection({
+        memoryId: props.result.memory.id,
+        section,
+      });
+      setFlashbacks((current) =>
+        mergeReaderFlashbackItem(current, result.flashback),
+      );
+      void revalidateFlashbackBrowseRows();
+    } catch {
+      setErrorMessage("Flashback failed");
+    } finally {
+      setPendingFlashbackKey("");
+    }
+  };
+  const handleReaderContentClick = (event: MouseEvent) => {
+    const sectionElement = findReaderSectionElement(event.target, contentRef);
+    if (
+      sectionElement === undefined ||
+      !isSectionFlashbackClick(event, sectionElement)
+    ) {
+      return;
+    }
+
+    const section = readReaderSection(sectionElement);
+    if (section === undefined) {
+      return;
+    }
+
+    event.preventDefault();
+    void createFlashback(section);
+  };
+  const handleReaderContentPointerDown = (event: PointerEvent) => {
+    clearSectionLongPress();
+    if (event.button !== 0) {
+      return;
+    }
+
+    const sectionElement = findReaderSectionElement(event.target, contentRef);
+    const section = sectionElement === undefined
+      ? undefined
+      : readReaderSection(sectionElement);
+    if (section === undefined || sectionElement === undefined) {
+      return;
+    }
+
+    sectionLongPressTimer = window.setTimeout(() => {
+      openSectionMenu(section, sectionElement.getBoundingClientRect());
+    }, 500);
+  };
+  const clearSectionLongPress = () => {
+    if (sectionLongPressTimer === undefined) {
+      return;
+    }
+
+    window.clearTimeout(sectionLongPressTimer);
+    sectionLongPressTimer = undefined;
   };
 
   return (
@@ -285,20 +405,24 @@ function ReadyMemoryReader(props: {
             class={readerArticle}
             data-reader-content
             innerHTML={props.result.rendered.html}
+            onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
+            onPointerCancel={clearSectionLongPress}
+            onPointerLeave={clearSectionLongPress}
+            onPointerMove={clearSectionLongPress}
+            onPointerUp={clearSectionLongPress}
+            onPointerDown={handleReaderContentPointerDown}
             tabIndex={0}
           />
           <Show when={selectionMenu()}>
             {(menu) => (
-              <div
-                ref={selectionMenuRef}
-                class="fixed z-[70] rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
-                role="menu"
-                style={{
-                  left: `${menu().position.left}px`,
-                  top: `${menu().position.top}px`,
+              <ReaderContextMenu
+                label="Reader text selection actions"
+                menuRef={(element) => {
+                  selectionMenuRef = element;
                 }}
+                position={menu().position}
               >
                 <button
                   aria-label="Highlight selection"
@@ -309,7 +433,28 @@ function ReadyMemoryReader(props: {
                 >
                   {TraumaNavIcons.highlights.filled({ size: 18 })}
                 </button>
-              </div>
+              </ReaderContextMenu>
+            )}
+          </Show>
+          <Show when={sectionMenu()}>
+            {(menu) => (
+              <ReaderContextMenu
+                label="Reader section actions"
+                menuRef={(element) => {
+                  sectionMenuRef = element;
+                }}
+                position={menu().position}
+              >
+                <button
+                  aria-label="Flashback section"
+                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  disabled={pendingFlashbackKey() === menu().key}
+                  type="button"
+                  onClick={commitSectionMenu}
+                >
+                  {TraumaNavIcons.flashback.filled({ size: 18 })}
+                </button>
+              </ReaderContextMenu>
             )}
           </Show>
           <Show when={errorMessage()}>
@@ -382,15 +527,66 @@ function mergeReaderTaxonomyItem(
   return [...current, next];
 }
 
+function mergeReaderFlashbackItem(
+  current: ReaderFlashbackItem[],
+  next: ReaderFlashbackItem,
+): ReaderFlashbackItem[] {
+  if (
+    current.some(
+      (item) => item.id === next.id || item.sectionAnchor === next.sectionAnchor,
+    )
+  ) {
+    return current.map((item) =>
+      item.id === next.id || item.sectionAnchor === next.sectionAnchor
+        ? next
+        : item,
+    );
+  }
+
+  return [next, ...current];
+}
+
+function ReaderContextMenu(props: {
+  children: JSX.Element;
+  label: string;
+  menuRef: (element: HTMLDivElement) => void;
+  position: ReaderSelectionMenuPosition;
+}) {
+  return (
+    <div
+      ref={props.menuRef}
+      aria-label={props.label}
+      class="fixed z-[70] rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
+      role="menu"
+      style={{
+        left: `${props.position.left}px`,
+        top: `${props.position.top}px`,
+      }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
 function ReaderRightRailContent(props: {
   allHighlights: HighlightBrowseRow[] | undefined;
   currentHighlights: ReaderHighlightItem[];
+  flashbacks: ReaderFlashbackItem[];
   memoryId: string;
+  onCreateFlashback: (section: ReaderFlashbackSection) => void;
+  onOpenSectionMenu: (section: ReaderFlashbackSection, rect: DOMRect) => void;
+  pendingFlashbackKey: string;
   toc: ReaderTocEntry[];
 }) {
   return (
     <div class="grid gap-4">
-      <ReaderToc toc={props.toc} />
+      <ReaderToc
+        flashbacks={props.flashbacks}
+        onCreateFlashback={props.onCreateFlashback}
+        onOpenSectionMenu={props.onOpenSectionMenu}
+        pendingFlashbackKey={props.pendingFlashbackKey}
+        toc={props.toc}
+      />
       <ReaderHighlightTabs
         allHighlights={props.allHighlights}
         currentHighlights={props.currentHighlights}
@@ -508,6 +704,66 @@ function getReaderSelectionKey(selection: ReaderSelectionPayload): string {
   return `${selection.startOffset}:${selection.endOffset}:${selection.text}`;
 }
 
+function getReaderFlashbackKey(section: ReaderFlashbackSection): string {
+  return `${section.id}:${section.path}`;
+}
+
+function findReaderSectionElement(
+  target: EventTarget | null,
+  container: HTMLElement | undefined,
+): HTMLElement | undefined {
+  if (!(target instanceof Element) || container === undefined) {
+    return undefined;
+  }
+
+  const section = target.closest<HTMLElement>("[data-reader-section-anchor]");
+  if (section === null || !container.contains(section)) {
+    return undefined;
+  }
+
+  return section;
+}
+
+function readReaderSection(
+  sectionElement: HTMLElement,
+): ReaderFlashbackSection | undefined {
+  const id = sectionElement.dataset.readerSectionAnchor;
+  const path = sectionElement.dataset.readerSectionPath;
+  const title = sectionElement.dataset.readerSectionTitle
+    ?? sectionElement.textContent
+    ?? "";
+  const level = Number.parseInt(
+    sectionElement.dataset.readerSectionLevel ?? "",
+    10,
+  );
+
+  if (
+    id === undefined ||
+    id.trim() === "" ||
+    path === undefined ||
+    path.trim() === "" ||
+    title.trim() === "" ||
+    !Number.isInteger(level)
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: id.trim(),
+    level,
+    path: path.trim(),
+    text: title.trim(),
+  };
+}
+
+function isSectionFlashbackClick(
+  event: MouseEvent,
+  sectionElement: HTMLElement,
+): boolean {
+  const rect = sectionElement.getBoundingClientRect();
+  return event.clientX <= rect.left + 32;
+}
+
 export function positionReaderSelectionMenu(
   rect: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width">,
   viewport: { height: number; width: number },
@@ -544,7 +800,13 @@ function ReaderState(props: { message: string }) {
   );
 }
 
-function ReaderToc(props: { toc: ReaderTocEntry[] }) {
+function ReaderToc(props: {
+  flashbacks: ReaderFlashbackItem[];
+  onCreateFlashback: (section: ReaderFlashbackSection) => void;
+  onOpenSectionMenu: (section: ReaderFlashbackSection, rect: DOMRect) => void;
+  pendingFlashbackKey: string;
+  toc: ReaderTocEntry[];
+}) {
   let scrollRef: HTMLOListElement | undefined;
   const [tocScrollState, setTocScrollState] =
     createSignal<TocScrollState>(noTocScrollState);
@@ -602,16 +864,15 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
             onScroll={updateTocScrollHint}
           >
             {props.toc.map((entry) => (
-              <li
-                classList={{
-                  "ml-2.5": entry.level === 2,
-                  "ml-5": entry.level === 3,
-                }}
-              >
-                <a class="hover:text-trauma-link" href={`#${entry.id}`}>
-                  {entry.text}
-                </a>
-              </li>
+              <ReaderTocEntryRow
+                active={props.flashbacks.some(
+                  (flashback) => flashback.sectionAnchor === entry.id,
+                )}
+                entry={entry}
+                onCreateFlashback={props.onCreateFlashback}
+                onOpenSectionMenu={props.onOpenSectionMenu}
+                pending={props.pendingFlashbackKey === getReaderFlashbackKey(entry)}
+              />
             ))}
           </ol>
         </div>
@@ -629,6 +890,76 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
         </Show>
       </nav>
     </Show>
+  );
+}
+
+function ReaderTocEntryRow(props: {
+  active: boolean;
+  entry: ReaderTocEntry;
+  onCreateFlashback: (section: ReaderFlashbackSection) => void;
+  onOpenSectionMenu: (section: ReaderFlashbackSection, rect: DOMRect) => void;
+  pending: boolean;
+}) {
+  let rowRef: HTMLLIElement | undefined;
+  let longPressTimer: number | undefined;
+  const clearLongPress = () => {
+    if (longPressTimer === undefined) {
+      return;
+    }
+
+    window.clearTimeout(longPressTimer);
+    longPressTimer = undefined;
+  };
+  const openLongPressMenu = () => {
+    if (rowRef === undefined) {
+      return;
+    }
+
+    props.onOpenSectionMenu(props.entry, rowRef.getBoundingClientRect());
+  };
+
+  onCleanup(clearLongPress);
+
+  return (
+    <li
+      ref={rowRef}
+      class="group grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-1.5"
+      classList={{
+        "ml-2.5": props.entry.level === 2,
+        "ml-5": props.entry.level === 3,
+      }}
+      onPointerCancel={clearLongPress}
+      onPointerLeave={clearLongPress}
+      onPointerMove={clearLongPress}
+      onPointerUp={clearLongPress}
+      onPointerDown={(event) => {
+        clearLongPress();
+        if (event.button !== 0) {
+          return;
+        }
+
+        longPressTimer = window.setTimeout(openLongPressMenu, 500);
+      }}
+    >
+      <button
+        aria-label={`Flashback ${props.entry.text}`}
+        aria-pressed={props.active}
+        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
+        disabled={props.pending}
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          props.onCreateFlashback(props.entry);
+        }}
+      >
+        {props.active
+          ? TraumaNavIcons.flashback.filled({ size: 14 })
+          : TraumaNavIcons.flashback.outline({ size: 14 })}
+      </button>
+      <a class="hover:text-trauma-link" href={`#${props.entry.id}`}>
+        {props.entry.text}
+      </a>
+    </li>
   );
 }
 

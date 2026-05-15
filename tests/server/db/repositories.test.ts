@@ -247,6 +247,152 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
+  it("creates, lists, and deletes Flashbacks idempotently", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const later = new Date("2026-05-10T02:00:00.000Z");
+          await connection.repositories.memories.create({
+            id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
+            url: "https://example.com/flashback",
+            title: "Flashback Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f104/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const created = await connection.repositories.flashbacks.create({
+            id: "flashback-1",
+            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
+            sectionAnchor: "chapter-one",
+            sectionTitle: "Chapter One",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: null,
+            sectionEndOffset: null,
+            contentHash: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          const duplicate = await connection.repositories.flashbacks.create({
+            id: "flashback-duplicate",
+            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
+            sectionAnchor: "chapter-one",
+            sectionTitle: "Chapter One",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: null,
+            sectionEndOffset: null,
+            contentHash: null,
+            createdAt: later,
+            updatedAt: later,
+          });
+          const movedAnchor = await connection.repositories.flashbacks.create({
+            id: "flashback-moved",
+            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
+            sectionAnchor: "chapter-one-renamed",
+            sectionTitle: "Chapter One Renamed",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: null,
+            sectionEndOffset: null,
+            contentHash: "hash",
+            createdAt: later,
+            updatedAt: later,
+          });
+          const listed = await connection.repositories.flashbacks.listForBrowse();
+          const deleted = await connection.repositories.flashbacks.deleteById("flashback-1");
+          const missingDeleted = await connection.repositories.flashbacks.deleteById("missing-flashback");
+
+          process.stdout.write(JSON.stringify({
+            created,
+            duplicate,
+            movedAnchor,
+            listed,
+            deleted,
+            missingDeleted,
+            count: connection.sqlite.prepare("select count(*) as count from flashbacks").get().count,
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      created: {
+        alreadyExists: false,
+        flashback: {
+          id: "flashback-1",
+          sectionAnchor: "chapter-one",
+          sectionTitle: "Chapter One",
+        },
+      },
+      duplicate: {
+        alreadyExists: true,
+        flashback: {
+          id: "flashback-1",
+          sectionAnchor: "chapter-one",
+        },
+      },
+      movedAnchor: {
+        alreadyExists: true,
+        flashback: {
+          id: "flashback-1",
+          sectionAnchor: "chapter-one-renamed",
+          sectionTitle: "Chapter One Renamed",
+          contentHash: "hash",
+        },
+      },
+      listed: [
+        {
+          id: "flashback-1",
+          memoryTitle: "Flashback Memory",
+          memoryUrl: "https://example.com/flashback",
+          sectionAnchor: "chapter-one-renamed",
+          sectionTitle: "Chapter One Renamed",
+        },
+      ],
+      deleted: true,
+      missingDeleted: false,
+      count: 0,
+    });
+  });
+
   it("deletes memory rows while preserving global taxonomy records", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(
@@ -306,6 +452,8 @@ describe("memory and taxonomy repositories", () => {
           });
           connection.sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .run("highlight-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "delete", "", "", 0, 6, now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into flashbacks (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "chapter", "Chapter", 2, "1/1", now.getTime(), now.getTime());
 
           const target = await connection.repositories.memories.findDeletionTarget("018f04a2-3c6f-7c88-9a8b-8c99a9b7f103");
           const deleted = await connection.repositories.memories.deleteMemoryRecord("018f04a2-3c6f-7c88-9a8b-8c99a9b7f103");
@@ -316,6 +464,7 @@ describe("memory and taxonomy repositories", () => {
             deleted,
             missingDeleted,
             memories: connection.sqlite.prepare("select count(*) as count from memories").get().count,
+            flashbacks: connection.sqlite.prepare("select count(*) as count from flashbacks").get().count,
             highlights: connection.sqlite.prepare("select count(*) as count from highlights").get().count,
             memoryTags: connection.sqlite.prepare("select count(*) as count from memory_tags").get().count,
             memoryCategories: connection.sqlite.prepare("select count(*) as count from memory_categories").get().count,
@@ -337,6 +486,7 @@ describe("memory and taxonomy repositories", () => {
       deleted: true,
       missingDeleted: false,
       memories: 0,
+      flashbacks: 0,
       highlights: 0,
       memoryTags: 0,
       memoryCategories: 0,

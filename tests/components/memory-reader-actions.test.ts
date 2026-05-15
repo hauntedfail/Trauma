@@ -22,6 +22,7 @@ const readyResult = {
     contentPath: "memories/memory-reader/CONTENT.md",
     read: true,
     categories: [{ id: "category-reader", name: "Reader" }],
+    flashbacks: [],
     tags: [{ id: "tag-solid", name: "solid" }],
     highlights: [
       {
@@ -42,7 +43,7 @@ const readyResult = {
   },
   rendered: {
     html: '<h1 id="reader-memory">Reader Memory</h1><p>A <mark data-highlight-id="highlight-1" id="highlight-1">highlight</mark>.</p>',
-    toc: [{ id: "reader-memory", level: 1, text: "Reader Memory" }],
+    toc: [{ id: "reader-memory", level: 1, path: "1", text: "Reader Memory" }],
   },
 } satisfies ReaderMemoryResult;
 

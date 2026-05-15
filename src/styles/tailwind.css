@@ -388,6 +388,31 @@
     text-underline-offset: 3px;
   }
 
+  .trauma-reader-content [data-reader-section-anchor] {
+    margin-inline-start: -1.75rem;
+    padding-inline-start: 1.75rem;
+    position: relative;
+  }
+
+  .trauma-reader-content [data-reader-section-anchor]::before {
+    content: "⌑";
+    position: absolute;
+    inset-block-start: 0.05em;
+    inset-inline-start: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.72em;
+    line-height: 1;
+    opacity: 0;
+    transition:
+      color 140ms ease,
+      opacity 140ms ease;
+  }
+
+  .trauma-reader-content [data-reader-section-anchor]:hover::before {
+    color: var(--link);
+    opacity: 1;
+  }
+
   button,
   input,
   textarea,

@@ -30,10 +30,12 @@ describe("renderMemoryMarkdown", () => {
     ].join("\n"));
 
     expect(result.toc).toEqual([
-      { id: "reader-title", level: 1, text: "Reader Title" },
-      { id: "details", level: 2, text: "Details" },
+      { id: "reader-title", level: 1, path: "1", text: "Reader Title" },
+      { id: "details", level: 2, path: "1/1", text: "Details" },
     ]);
     expect(result.html).toContain('<h1 id="reader-title"');
+    expect(result.html).toContain('data-reader-section-anchor="reader-title"');
+    expect(result.html).toContain('data-reader-section-path="1"');
     expect(result.html).toContain('<a href="https://example.com"');
     expect(result.html).toContain('<a href="https://example.org"');
     expect(result.html).toContain("<s>old text</s>");

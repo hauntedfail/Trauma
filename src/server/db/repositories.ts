@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ExtractionStatus } from "../memory-status";
@@ -13,6 +13,8 @@ type Memory = typeof schema.memories.$inferSelect;
 type NewMemory = typeof schema.memories.$inferInsert;
 type Tag = typeof schema.tags.$inferSelect;
 type Category = typeof schema.categories.$inferSelect;
+type Flashback = typeof schema.flashbacks.$inferSelect;
+type NewFlashback = typeof schema.flashbacks.$inferInsert;
 type Highlight = typeof schema.highlights.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
@@ -51,6 +53,21 @@ export interface HighlightBrowseRow {
   suffix: string;
   startOffset: number;
   endOffset: number;
+  createdAt: string;
+}
+
+export interface FlashbackBrowseRow {
+  id: string;
+  memoryId: string;
+  memoryTitle: string;
+  memoryUrl: string;
+  sectionAnchor: string;
+  sectionTitle: string;
+  sectionLevel: number;
+  sectionPath: string;
+  sectionStartOffset: number | null;
+  sectionEndOffset: number | null;
+  contentHash: string | null;
   createdAt: string;
 }
 
@@ -113,6 +130,15 @@ export interface HighlightRepository {
   listForBrowse: () => Promise<HighlightBrowseRow[]>;
 }
 
+export interface FlashbackRepository {
+  create: (
+    input: NewFlashback,
+  ) => Promise<{ flashback: Flashback; alreadyExists: boolean }>;
+  deleteById: (flashbackId: string) => Promise<boolean>;
+  listForMemory: (memoryId: string) => Promise<Flashback[]>;
+  listForBrowse: () => Promise<FlashbackBrowseRow[]>;
+}
+
 export interface BackupEnvironmentRepository {
   getBackupEnvironmentStamp: () => Promise<BackupEnvironmentStamp | undefined>;
   upsertBackupEnvironmentStamp: (
@@ -142,6 +168,7 @@ export interface SettingsRepository {
 
 export interface TraumaRepositories {
   backupEnvironment: BackupEnvironmentRepository;
+  flashbacks: FlashbackRepository;
   memories: MemoryRepository;
   highlights: HighlightRepository;
   settings: SettingsRepository;
@@ -213,6 +240,106 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .delete(schema.backupFailsafeAlerts)
           .where(eq(schema.backupFailsafeAlerts.id, "active"))
           .run();
+      },
+    },
+    flashbacks: {
+      create: async (input) => {
+        await assertMemoryExists(db, input.memoryId, "create flashback for");
+        const existingByAnchor = await db.query.flashbacks.findFirst({
+          where: and(
+            eq(schema.flashbacks.memoryId, input.memoryId),
+            eq(schema.flashbacks.sectionAnchor, input.sectionAnchor),
+          ),
+        });
+        if (existingByAnchor !== undefined) {
+          return { flashback: existingByAnchor, alreadyExists: true };
+        }
+
+        const existingByPath = await db.query.flashbacks.findFirst({
+          where: and(
+            eq(schema.flashbacks.memoryId, input.memoryId),
+            eq(schema.flashbacks.sectionPath, input.sectionPath),
+          ),
+        });
+        if (existingByPath !== undefined) {
+          const updated = await db
+            .update(schema.flashbacks)
+            .set({
+              sectionAnchor: input.sectionAnchor,
+              sectionTitle: input.sectionTitle,
+              sectionLevel: input.sectionLevel,
+              sectionStartOffset: input.sectionStartOffset ?? null,
+              sectionEndOffset: input.sectionEndOffset ?? null,
+              contentHash: input.contentHash ?? null,
+              updatedAt: input.updatedAt,
+            })
+            .where(eq(schema.flashbacks.id, existingByPath.id))
+            .returning()
+            .get();
+          return {
+            flashback: updated ?? existingByPath,
+            alreadyExists: true,
+          };
+        }
+
+        await db.insert(schema.flashbacks).values(input).run();
+        return {
+          flashback: {
+            id: input.id,
+            memoryId: input.memoryId,
+            sectionAnchor: input.sectionAnchor,
+            sectionTitle: input.sectionTitle,
+            sectionLevel: input.sectionLevel,
+            sectionPath: input.sectionPath,
+            sectionStartOffset: input.sectionStartOffset ?? null,
+            sectionEndOffset: input.sectionEndOffset ?? null,
+            contentHash: input.contentHash ?? null,
+            createdAt: input.createdAt,
+            updatedAt: input.updatedAt,
+          },
+          alreadyExists: false,
+        };
+      },
+      deleteById: async (flashbackId) => {
+        const deleted = await db
+          .delete(schema.flashbacks)
+          .where(eq(schema.flashbacks.id, flashbackId))
+          .returning({ id: schema.flashbacks.id })
+          .get();
+        return deleted !== undefined;
+      },
+      listForMemory: async (memoryId) =>
+        db.query.flashbacks.findMany({
+          where: eq(schema.flashbacks.memoryId, memoryId),
+          orderBy: [desc(schema.flashbacks.createdAt)],
+        }),
+      listForBrowse: async () => {
+        const rows = await db
+          .select({
+            id: schema.flashbacks.id,
+            memoryId: schema.flashbacks.memoryId,
+            memoryTitle: schema.memories.title,
+            memoryUrl: schema.memories.url,
+            sectionAnchor: schema.flashbacks.sectionAnchor,
+            sectionTitle: schema.flashbacks.sectionTitle,
+            sectionLevel: schema.flashbacks.sectionLevel,
+            sectionPath: schema.flashbacks.sectionPath,
+            sectionStartOffset: schema.flashbacks.sectionStartOffset,
+            sectionEndOffset: schema.flashbacks.sectionEndOffset,
+            contentHash: schema.flashbacks.contentHash,
+            createdAt: schema.flashbacks.createdAt,
+          })
+          .from(schema.flashbacks)
+          .innerJoin(
+            schema.memories,
+            eq(schema.flashbacks.memoryId, schema.memories.id),
+          )
+          .orderBy(desc(schema.flashbacks.createdAt));
+
+        return rows.map((row) => ({
+          ...row,
+          createdAt: formatDateTime(row.createdAt),
+        }));
       },
     },
     highlights: {
@@ -593,7 +720,7 @@ async function requireCategoryByName(
 async function assertMemoryExists(
   db: TraumaDatabase,
   memoryId: string,
-  action: "attach tag to" | "attach category to",
+  action: "attach tag to" | "attach category to" | "create flashback for",
 ): Promise<void> {
   const memory = await db.query.memories.findFirst({
     columns: {

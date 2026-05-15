@@ -50,6 +50,13 @@
       "when": 1778864600344,
       "tag": "0006_sweet_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1778868234166,
+      "tag": "0007_empty_starbolt",
+      "breakpoints": true
     }
   ]
 }

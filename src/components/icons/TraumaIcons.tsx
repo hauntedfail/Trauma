@@ -7,6 +7,7 @@ interface IconProps {
 type NavIconName =
   | "memories"
   | "highlights"
+  | "flashback"
   | "categories"
   | "tags"
   | "backup"
@@ -84,6 +85,20 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
       <Svg {...props}>
         <path {...fill} d="m5 14 8-8 5 5-8 8H5v-5z" />
         <path {...stroke} d="m13 6 3-3 5 5-3 3M4 22h18" />
+      </Svg>
+    ),
+  },
+  flashback: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <path {...stroke} d="M7 4h12v18l-6-3.5L7 22V4z" />
+        <path {...stroke} d="M10 8h6M10 11h5" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <path {...fill} d="M7 4h12v18l-6-3.5L7 22V4z" />
+        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-width="1.7" d="M10 8h6M10 11h5" />
       </Svg>
     ),
   },

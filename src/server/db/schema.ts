@@ -164,6 +164,48 @@ export const highlights = sqliteTable(
   ],
 );
 
+export const flashbacks = sqliteTable(
+  "flashbacks",
+  {
+    id: text("id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    sectionAnchor: text("section_anchor").notNull(),
+    sectionTitle: text("section_title").notNull(),
+    sectionLevel: integer("section_level").notNull(),
+    sectionPath: text("section_path").notNull(),
+    sectionStartOffset: integer("section_start_offset"),
+    sectionEndOffset: integer("section_end_offset"),
+    contentHash: text("content_hash"),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("flashbacks_memory_section_anchor_unique").on(
+      table.memoryId,
+      table.sectionAnchor,
+    ),
+    index("flashbacks_memory_id_idx").on(table.memoryId),
+    index("flashbacks_created_at_idx").on(table.createdAt),
+    check(
+      "flashbacks_section_anchor_check",
+      sql`length(${table.sectionAnchor}) > 0`,
+    ),
+    check(
+      "flashbacks_section_title_check",
+      sql`length(${table.sectionTitle}) > 0`,
+    ),
+    check(
+      "flashbacks_section_level_check",
+      sql`${table.sectionLevel} >= 1 and ${table.sectionLevel} <= 6`,
+    ),
+    check(
+      "flashbacks_section_offset_check",
+      sql`(${table.sectionStartOffset} is null and ${table.sectionEndOffset} is null) or (${table.sectionStartOffset} is not null and ${table.sectionEndOffset} is not null and ${table.sectionStartOffset} >= 0 and ${table.sectionEndOffset} > ${table.sectionStartOffset})`,
+    ),
+  ],
+);
+
 export const backupEnvironmentStamps = sqliteTable(
   "backup_environment_stamps",
   {
@@ -250,6 +292,7 @@ export const openaiAuthCredentials = sqliteTable(
 );
 
 export const memoriesRelations = relations(memories, ({ many }) => ({
+  flashbacks: many(flashbacks),
   highlights: many(highlights),
   memoryCategories: many(memoryCategories),
   memoryTags: many(memoryTags),
@@ -291,6 +334,13 @@ export const memoryCategoriesRelations = relations(
 export const highlightsRelations = relations(highlights, ({ one }) => ({
   memory: one(memories, {
     fields: [highlights.memoryId],
+    references: [memories.id],
+  }),
+}));
+
+export const flashbacksRelations = relations(flashbacks, ({ one }) => ({
+  memory: one(memories, {
+    fields: [flashbacks.memoryId],
     references: [memories.id],
   }),
 }));

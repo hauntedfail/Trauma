@@ -106,6 +106,7 @@ const SURFACE_STORAGE_KEY = "trauma:surface";
 const routeNavItems = [
   { href: "/memories", icon: "memories", label: "Memories", pip: false },
   { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
+  { href: "/flashback", icon: "flashback", label: "Flashback", pip: false },
 ] as const satisfies readonly RouteNavItem[];
 
 const settingsNavItem = {
@@ -127,6 +128,7 @@ const futureNavItems = {
 const phoneTabItems = [
   { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
   { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
+  { kind: "route", href: "/flashback", icon: "flashback", label: "Flashback" },
   { kind: "disabled", icon: "categories", label: "Categories" },
   { kind: "disabled", icon: "tags", label: "Tags" },
   { kind: "disabled", icon: "backup", label: "Backup" },

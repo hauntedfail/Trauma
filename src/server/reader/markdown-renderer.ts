@@ -7,6 +7,9 @@ import sanitizeHtml from "sanitize-html";
 export interface ReaderTocEntry {
   id: string;
   level: number;
+  path: string;
+  startOffset?: number;
+  endOffset?: number;
   text: string;
 }
 
@@ -33,6 +36,8 @@ export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
 }
 
 function createMarkdownIt(toc: ReaderTocEntry[]) {
+  const headingPathTracker = createHeadingPathTracker();
+
   return new MarkdownIt({
     html: true,
     linkify: true,
@@ -45,10 +50,18 @@ function createMarkdownIt(toc: ReaderTocEntry[]) {
       level: [1, 2, 3],
       slugify,
       tabIndex: false,
-      callback: (_token, info) => {
+      callback: (token, info) => {
+        const level = readHeadingLevel(token.tag);
+        const path = nextHeadingPath(headingPathTracker, level);
+        token.attrJoin("class", "trauma-reader-section-heading");
+        token.attrSet("data-reader-section-anchor", info.slug);
+        token.attrSet("data-reader-section-title", info.title);
+        token.attrSet("data-reader-section-level", String(level));
+        token.attrSet("data-reader-section-path", path);
         toc.push({
           id: info.slug,
-          level: readHeadingLevel(_token.tag),
+          level,
+          path,
           text: info.title,
         });
       },
@@ -110,9 +123,30 @@ function sanitizeReaderHtml(html: string) {
       a: ["aria-label", "class", "href", "id", "name", "rel"],
       code: ["class"],
       div: ["class"],
-      h1: ["id"],
-      h2: ["id"],
-      h3: ["id"],
+      h1: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
+      h2: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
+      h3: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
       h4: ["id"],
       h5: ["id"],
       h6: ["id"],
@@ -212,6 +246,27 @@ function taskListPlugin(md: MarkdownIt) {
 }
 
 type MarkdownToken = ReturnType<MarkdownIt["parse"]>[number];
+type HeadingPathTracker = Map<number, number>;
+
+function createHeadingPathTracker(): HeadingPathTracker {
+  return new Map<number, number>();
+}
+
+function nextHeadingPath(tracker: HeadingPathTracker, level: number): string {
+  const normalizedLevel = Math.max(1, Math.min(6, level));
+  tracker.set(normalizedLevel, (tracker.get(normalizedLevel) ?? 0) + 1);
+
+  for (const key of [...tracker.keys()]) {
+    if (key > normalizedLevel) {
+      tracker.delete(key);
+    }
+  }
+
+  return Array.from({ length: normalizedLevel }, (_value, index) => {
+    const key = index + 1;
+    return String(tracker.get(key) ?? 0);
+  }).join("/");
+}
 
 function findOpenToken(
   tokens: MarkdownToken[],

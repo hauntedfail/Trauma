@@ -171,6 +171,7 @@ describe("mobile and cross-device responsive contract", () => {
     for (const label of [
       "Memories",
       "Highlights",
+      "Flashback",
       "Categories",
       "Tags",
       "Backup",

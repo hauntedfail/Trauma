@@ -27,6 +27,19 @@ describe("loadReaderMemory", () => {
     expect(result.memory.read).toBe(false);
     expect(result.memory.categories).toEqual([{ id: "reader-category", name: "Reader" }]);
     expect(result.memory.tags).toEqual([{ id: "reader-tag", name: "reader" }]);
+    expect(result.memory.flashbacks).toEqual([
+      {
+        id: "flashback-reader",
+        sectionAnchor: "fixture-reader",
+        sectionTitle: "Fixture Reader",
+        sectionLevel: 1,
+        sectionPath: "1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
     expect(result.memory.highlights).toEqual([
       {
         id: "hl-1",
@@ -43,7 +56,7 @@ describe("loadReaderMemory", () => {
     });
     expect("markdown" in result.content).toBe(false);
     expect(result.rendered.toc).toEqual([
-      { id: "fixture-reader", level: 1, text: "Fixture Reader" },
+      { id: "fixture-reader", level: 1, path: "1", text: "Fixture Reader" },
     ]);
     expect(result.rendered.html).toContain('<h1 id="fixture-reader"');
     expect(result.rendered.html).toContain(
@@ -194,6 +207,19 @@ function runReaderFixture(input: {
             updatedAt: new Date("2026-05-09T00:00:00.000Z"),
           });
         }
+        await connection.db.insert(schema.flashbacks).values({
+          id: "flashback-reader",
+          memoryId,
+          sectionAnchor: "fixture-reader",
+          sectionTitle: "Fixture Reader",
+          sectionLevel: 1,
+          sectionPath: "1",
+          sectionStartOffset: null,
+          sectionEndOffset: null,
+          contentHash: null,
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
       } finally {
         connection.close();
       }

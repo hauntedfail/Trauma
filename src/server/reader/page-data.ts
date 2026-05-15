@@ -15,9 +15,11 @@ import { renderMarkdownWithHighlightRecords } from "../highlights/toggle";
 
 type MemoryRow = typeof schema.memories.$inferSelect;
 type CategoryRow = typeof schema.categories.$inferSelect;
+type FlashbackRow = typeof schema.flashbacks.$inferSelect;
 type TagRow = typeof schema.tags.$inferSelect;
 type HighlightRow = typeof schema.highlights.$inferSelect;
 type ReaderMemoryRow = MemoryRow & {
+  flashbacks: FlashbackRow[];
   highlights: HighlightRow[];
   memoryCategories: { category: CategoryRow }[];
   memoryTags: { tag: TagRow }[];
@@ -47,6 +49,7 @@ export interface ReaderMemory {
   contentPath: string;
   read: boolean;
   categories: ReaderTaxonomyItem[];
+  flashbacks: ReaderFlashbackItem[];
   tags: ReaderTaxonomyItem[];
   highlights: ReaderHighlightItem[];
   createdAt: Date;
@@ -56,6 +59,18 @@ export interface ReaderMemory {
 export interface ReaderTaxonomyItem {
   id: string;
   name: string;
+}
+
+export interface ReaderFlashbackItem {
+  id: string;
+  sectionAnchor: string;
+  sectionTitle: string;
+  sectionLevel: number;
+  sectionPath: string;
+  sectionStartOffset: number | null;
+  sectionEndOffset: number | null;
+  contentHash: string | null;
+  createdAt: string;
 }
 
 export interface ReaderHighlightItem {
@@ -84,6 +99,7 @@ export async function loadReaderMemory(
     const memory = await connection.db.query.memories.findFirst({
       where: eq(schema.memories.id, memoryId),
       with: {
+        flashbacks: true,
         highlights: true,
         memoryCategories: {
           with: {
@@ -155,6 +171,17 @@ function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
     categories: memory.memoryCategories.map(({ category }) => ({
       id: category.id,
       name: category.name,
+    })),
+    flashbacks: memory.flashbacks.map((flashback) => ({
+      id: flashback.id,
+      sectionAnchor: flashback.sectionAnchor,
+      sectionTitle: flashback.sectionTitle,
+      sectionLevel: flashback.sectionLevel,
+      sectionPath: flashback.sectionPath,
+      sectionStartOffset: flashback.sectionStartOffset,
+      sectionEndOffset: flashback.sectionEndOffset,
+      contentHash: flashback.contentHash,
+      createdAt: flashback.createdAt.toISOString(),
     })),
     tags: memory.memoryTags.map(({ tag }) => ({
       id: tag.id,
