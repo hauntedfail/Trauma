@@ -31,6 +31,21 @@ timeout.
 Use the smoke check before E2E runs and after toolchain or config changes
 that could affect dev startup.
 
+## Release Automation
+
+`.github/workflows/release.yml` creates a GitHub Release from tag pushes after
+running the same baseline verification and E2E smoke suite as CI.
+
+Release tags must be three-part numeric semantic versions with an optional
+leading `v`:
+
+- `0.1.111`
+- `v0.1.111`
+
+The workflow intentionally ignores non-matching tag names before checkout or
+dependency installation. Release titles use the normalized version without the
+optional leading `v`.
+
 ## Focused Tests
 
 Unit or integration tests should cover:
