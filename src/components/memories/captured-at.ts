@@ -16,19 +16,22 @@ const shortMonthNames = [
 
 export function formatCapturedAtForDisplay(value: string): string {
   if (capturedAtDateOnlyPattern.test(value)) {
-    const [, rawMonth, rawDay] = value.split("-");
+    const [rawYear, rawMonth, rawDay] = value.split("-");
+    const year = Number(rawYear);
     const monthIndex = Number(rawMonth) - 1;
     const day = Number(rawDay);
+    const maxDay = daysInMonth(year, monthIndex);
 
     if (
+      maxDay !== null &&
       Number.isInteger(day) &&
       day >= 1 &&
-      day <= 31 &&
-      monthIndex >= 0 &&
-      monthIndex < shortMonthNames.length
+      day <= maxDay
     ) {
       return `${day} ${shortMonthNames[monthIndex]}`;
     }
+
+    return value;
   }
 
   const date = new Date(value);
@@ -40,4 +43,33 @@ export function formatCapturedAtForDisplay(value: string): string {
     day: "numeric",
     month: "short",
   });
+}
+
+function daysInMonth(year: number, monthIndex: number) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    monthIndex < 0 ||
+    monthIndex >= shortMonthNames.length
+  ) {
+    return null;
+  }
+
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const maxDaysByMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ] as const;
+
+  return maxDaysByMonth[monthIndex] ?? null;
 }

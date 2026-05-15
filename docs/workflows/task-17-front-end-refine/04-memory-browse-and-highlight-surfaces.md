@@ -14,6 +14,7 @@ Primary files:
 - `src/components/memories/browse-data.ts`
 - `src/components/memories/browse-fixtures.ts`
 - `tests/memories/browse-data.test.ts`
+- `tests/components/highlights-route-state.test.ts`
 - `e2e/browse-shell.spec.ts`
 
 Conditional files:

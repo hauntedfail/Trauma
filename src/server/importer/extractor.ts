@@ -64,6 +64,9 @@ export async function extractArticleWithDefuddle(
 
 export function readableMarkdownLength(markdown: string) {
   return markdown
+    .replace(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi, "")
+    .replace(/<(?:source|img)\b[^>]*>/gi, "")
+    .replace(/<[^>]+>/g, "")
     .replace(/!\[[^\]]*]\([^)]+\)/g, "")
     .replace(/\[[^\]]+]\([^)]+\)/g, "")
     .replace(/[#*_`>\-[\]()]/g, "")

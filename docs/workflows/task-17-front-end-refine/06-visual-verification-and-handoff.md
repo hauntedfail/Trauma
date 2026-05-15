@@ -76,13 +76,20 @@ Check all of these:
    - Reader content and table of contents do not overlap.
    - Backup failsafe banner still appears above route content when active.
 
-5. Compare against sample screenshots:
+5. Compare against sample screenshots if they are available locally.
 
    ```bash
-   find refined_sample/screenshots -maxdepth 1 -type f -print
+   if test -d refined_sample/screenshots; then
+     find refined_sample/screenshots -maxdepth 1 -type f -print
+   else
+     echo "refined_sample/screenshots is not available in this checkout"
+   fi
    ```
 
-   Use the screenshots as visual direction, not as pixel-perfect golden files.
+   `refined_sample/screenshots` is local sample material and is not required to
+   exist in a clean checkout. When it is present, use the screenshots as visual
+   direction, not as pixel-perfect golden files. Otherwise rely on the browser
+   or Playwright viewport checks above and the acceptance criteria below.
 
 ## Acceptance Criteria
 

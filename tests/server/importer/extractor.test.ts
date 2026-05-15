@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { extractArticleWithDefuddle } from "../../../src/server/importer/extractor";
+import {
+  extractArticleWithDefuddle,
+  readableMarkdownLength,
+} from "../../../src/server/importer/extractor";
 
 describe("extractArticleWithDefuddle", () => {
   it("extracts readable content and serializes safe markdown from Defuddle HTML", async () => {
@@ -165,5 +168,14 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.markdown).not.toContain("javascript:");
     expect(result.markdown).not.toContain("data:image");
     expect(result.markdown).not.toContain("93.184.216.34");
+  });
+
+  it("does not count preserved responsive picture markup as readable body text", () => {
+    const markdown = `<picture>
+<source srcset="https://example.com/empty-480.avif 480w, https://example.com/empty-960.avif 960w" sizes="100vw" type="image/avif">
+<img src="https://example.com/empty.jpg" srcset="https://example.com/empty-480.jpg 480w, https://example.com/empty-960.jpg 960w" sizes="100vw" alt="Decorative image">
+</picture>`;
+
+    expect(readableMarkdownLength(markdown)).toBe(0);
   });
 });
