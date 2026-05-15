@@ -133,6 +133,7 @@ describe("refined app shell contract", () => {
     expect(rightRailContextSource).toContain("createContext");
     expect(appShellSource).toContain("RightRailContentContext.Provider");
     expect(appShellSource).toContain("rightRailContent()");
+    expect(appShellSource).toContain("showHighlights={rightRailContent() === undefined}");
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");

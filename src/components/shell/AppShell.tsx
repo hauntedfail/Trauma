@@ -40,6 +40,7 @@ import {
   type BrowseQuery,
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
+import { HighlightShortcutList } from "../highlights/HighlightShortcutList";
 import {
   DEFAULT_BRIGHTNESS_MODE,
   DEFAULT_SURFACE_MODE,
@@ -231,6 +232,7 @@ export function AppShell(props: AppShellProps) {
             onSelectCategory={(category) => toggleFilter("category", category.id)}
             onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+            showHighlights={rightRailContent() === undefined}
             tags={tags()}
           />
         </div>
@@ -590,6 +592,7 @@ export function RightRailFilters(props: {
   onSelectCategory: (category: BrowseTaxonomySummaryItem) => void;
   onSelectHighlight: (highlight: BrowseHighlight) => void;
   onSelectTag: (tag: BrowseTaxonomySummaryItem) => void;
+  showHighlights?: boolean;
   tags: BrowseTaxonomySummaryItem[];
 }) {
   const [openCreateKind, setOpenCreateKind] = createSignal<
@@ -690,23 +693,21 @@ export function RightRailFilters(props: {
           </Show>
         </div>
       </RightPanelSection>
-      <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
-        <div class={`${rightRailScrollContent} grid gap-3`}>
-          <For each={props.highlights}>
-            {(highlight) => (
-              <button
-                class="grid w-full gap-1 rounded-2xl px-3 py-2 text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink"
-                type="button"
-                aria-pressed={props.activeHighlight === highlight.id}
-                onClick={() => props.onSelectHighlight(highlight)}
-              >
-                <span class="wrap-anywhere">{highlight.text}</span>
-                <small class="text-xs font-semibold text-trauma-text-muted">{highlight.prefix}</small>
-              </button>
-            )}
-          </For>
-        </div>
-      </RightPanelSection>
+      <Show when={props.showHighlights !== false}>
+        <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
+          <HighlightShortcutList
+            class={`${rightRailScrollContent} grid gap-3`}
+            emptyLabel="No highlights yet"
+            highlights={props.highlights.map((highlight) => ({
+              active: props.activeHighlight === highlight.id,
+              id: highlight.id,
+              onSelect: () => props.onSelectHighlight(highlight),
+              prefix: highlight.prefix,
+              text: highlight.text,
+            }))}
+          />
+        </RightPanelSection>
+      </Show>
     </div>
   );
 }

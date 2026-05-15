@@ -59,6 +59,14 @@ describe("reader highlight tabs", () => {
     expect(html).toContain("aria-pressed:ring-trauma-border-strong");
   });
 
+  it("uses the Recent highlights row design for highlight lists", () => {
+    const html = renderTabs({ initialTab: "all" });
+
+    expect(html).toContain("grid w-full gap-1 rounded-2xl px-3 py-2 text-left");
+    expect(html).toContain("hover:bg-trauma-bg-tint");
+    expect(html).not.toContain("<blockquote");
+  });
+
   it("defaults to This memory when the active memory has highlights", () => {
     const html = renderTabs();
 

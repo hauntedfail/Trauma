@@ -19,7 +19,7 @@ import type {
 } from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { HighlightBrowseRow } from "../../server/db/repositories";
-import { HighlightExcerpt } from "../highlights/HighlightExcerpt";
+import { HighlightShortcutList } from "../highlights/HighlightShortcutList";
 import { getHighlightBrowseRows } from "../highlights/highlights-loader";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
@@ -631,58 +631,30 @@ export function ReaderHighlightTabs(props: {
       <Show
         when={activeTab() === "memory"}
         fallback={
-          <ReaderHighlightList
+          <HighlightShortcutList
             emptyLabel="No highlights yet"
-            highlights={allRows()}
+            highlights={allRows().map((highlight) => ({
+              id: highlight.id,
+              href: `/memories/${highlight.memoryId}#${highlight.id}`,
+              prefix: highlight.prefix,
+              text: highlight.text,
+            }))}
             isLoading={isLoadingAll()}
-            linkFor={(highlight) =>
-              "memoryId" in highlight
-                ? `/memories/${highlight.memoryId}#${highlight.id}`
-                : `#${highlight.id}`
-            }
           />
         }
       >
-        <ReaderHighlightList
+        <HighlightShortcutList
           emptyLabel="No highlights for this memory yet"
-          highlights={props.currentHighlights}
+          highlights={props.currentHighlights.map((highlight) => ({
+            id: highlight.id,
+            href: `#${highlight.id}`,
+            prefix: highlight.prefix,
+            text: highlight.text,
+          }))}
           isLoading={false}
-          linkFor={(highlight) => `#${highlight.id}`}
         />
       </Show>
     </section>
-  );
-}
-
-function ReaderHighlightList(props: {
-  emptyLabel: string;
-  highlights: Array<ReaderHighlightItem | HighlightBrowseRow>;
-  isLoading: boolean;
-  linkFor: (highlight: ReaderHighlightItem | HighlightBrowseRow) => string;
-}) {
-  return (
-    <Show
-      when={!props.isLoading}
-      fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">Loading highlights...</p>}
-    >
-      <Show
-        when={props.highlights.length > 0}
-        fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">{props.emptyLabel}</p>}
-      >
-        <div class="grid gap-3">
-          <For each={props.highlights}>
-            {(highlight) => (
-              <HighlightExcerpt
-                href={props.linkFor(highlight)}
-                prefix={highlight.prefix}
-                suffix={highlight.suffix}
-                text={highlight.text}
-              />
-            )}
-          </For>
-        </div>
-      </Show>
-    </Show>
   );
 }
 
