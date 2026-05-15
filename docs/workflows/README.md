@@ -35,6 +35,8 @@ instead of preserving the old execution plan.
 
 ## Worker Rules
 
+- Start at [docs/INDEX.md](../INDEX.md) for orientation before touching files;
+  all durable project detail lives under `docs/`.
 - Own only the files listed in the workflow unless the PR description explains
   why a boundary change is required.
 - Read the workflow file, its referenced docs, and

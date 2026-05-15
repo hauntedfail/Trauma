@@ -176,7 +176,23 @@ Responses:
 - `201` when created
 - `200` with `alreadyExists: true` when the Flashback already exists
 - `400` for malformed payload
+- `400` when the supplied section does not resolve uniquely in the memory reader section model
 - `404` for missing memory
+
+Server validation:
+
+- Do not trust client-supplied `sectionAnchor`, `sectionTitle`, `sectionPath`,
+  or offsets as proof that a valid section exists.
+- The create route must load the target memory's reader section model before
+  insertion.
+- The route must verify that the supplied section identity resolves uniquely for
+  the memory.
+- Prefer validating by `sectionAnchor` first, then by `sectionPath`; use title
+  and offsets as guards, not as sufficient identity on their own.
+- Reject the request if the section is missing, ambiguous, or belongs to a
+  different memory.
+- Store normalized section metadata from the server-resolved section, not
+  blindly from the request body.
 
 ### Delete Flashback
 
@@ -280,6 +296,8 @@ Backend tests:
 - create Flashback succeeds
 - create same `(memoryId, sectionAnchor)` is idempotent
 - create missing memory returns `404`
+- create missing or ambiguous section identity returns `400`
+- create stores server-resolved section metadata rather than blindly trusting the request body
 - list Flashbacks includes memory metadata
 - delete Flashback succeeds
 - deleting a memory removes its Flashbacks
@@ -326,4 +344,3 @@ mise exec -- bun run typecheck
 - Ordinary text selection does not expose Flashback.
 - Flashback list items navigate to the target memory section.
 - Memory deletion cascades Flashbacks.
-

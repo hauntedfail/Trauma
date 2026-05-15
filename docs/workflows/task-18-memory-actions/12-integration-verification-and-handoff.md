@@ -33,45 +33,55 @@ Manual smoke:
 17. Confirm it disappears without refresh.
 18. Confirm SQLite memory metadata is gone.
 19. Confirm the content directory under `storePath` is gone.
-20. Delete a memory from reader mode.
-21. Confirm the app navigates to `/memories`.
-22. Open `/settings`.
-23. Change translation target language and confirm it persists after refresh.
-24. Enable OpenAI auth from disabled state.
-25. Send a direct enable request while already enabled and confirm the response is already-enabled without mutation.
-26. Delete OpenAI auth and confirm UI returns to disabled state.
-27. Select repeated text in reader content and confirm no highlight is created until the highlight icon is clicked.
-28. Click the highlight icon and confirm only the selected occurrence is highlighted.
-29. Confirm `CONTENT.md` did not change after creating/removing the highlight.
-30. Confirm reader highlight tabs render `All highlights` on the left and `This memory` second.
-31. Confirm `/memories` recent highlight component is unchanged.
-32. Create a Flashback from a reader section hover icon.
-33. Create a Flashback from a ToC chapter hover icon.
-34. Long-press a reader section and confirm the shared contextual menu contains Flashback.
-35. Select arbitrary body text and confirm the contextual menu does not contain Flashback.
-36. Open `/flashback` and confirm the saved Flashbacks are listed.
-37. Click a Flashback and confirm it navigates to the memory section anchor.
-38. Import content containing a cross-host HTTPS image and confirm the image is preserved.
-39. Import content containing a Medium-style `<picture>` with `miro.medium.com` image fallback and confirm the image is preserved.
-40. Import content containing a controlled HTTPS iframe and confirm the reader sanitizer renders it with sandbox/referrer controls.
-41. Confirm unsafe iframe forms such as `srcdoc`, `http:`, event handlers, or local hosts are rejected or stripped.
+20. Confirm git backup records a deletion for the removed content path when backup is enabled.
+21. Delete a memory from reader mode.
+22. Confirm the app navigates to `/memories`.
+23. Open `/settings`.
+24. Change translation target language and confirm the persisted API response uses BCP 47, for example `ja-JP`.
+25. Enable OpenAI auth from disabled state only when a real provider or stored auth record is available.
+26. If no real OpenAI auth provider exists, confirm enable returns not-configured and does not fake enabled state.
+27. Send a direct enable request while already enabled and confirm the response is already-enabled without mutation.
+28. Delete OpenAI auth and confirm UI returns to disabled state.
+29. Select repeated text in reader content and confirm no highlight is created until the highlight icon is clicked.
+30. Click the highlight icon and confirm only the selected occurrence is highlighted.
+31. Confirm `CONTENT.md` did not change after creating/removing the highlight.
+32. Confirm highlight `contentHash` uses the documented `sha256:<hex>` canonical-text format.
+33. Confirm SQLite-only highlight metadata has a backup/export path, or that restore-risk is explicitly documented if deferred.
+34. Confirm reader highlight tabs render `All highlights` on the left and `This memory` second.
+35. Confirm `/memories` recent highlight component is unchanged.
+36. Create a Flashback from a reader section hover icon.
+37. Create a Flashback from a ToC chapter hover icon.
+38. Long-press a reader section and confirm the shared contextual menu contains Flashback.
+39. Select arbitrary body text and confirm the contextual menu does not contain Flashback.
+40. Confirm the Flashback create API rejects missing or ambiguous section anchors/paths.
+41. Open `/flashback` and confirm the saved Flashbacks are listed.
+42. Click a Flashback and confirm it navigates to the memory section anchor.
+43. Import content containing a cross-host HTTPS image and confirm the image is preserved.
+44. Import content containing a Medium-style `<picture>` with `miro.medium.com` image fallback and confirm the image is preserved.
+45. Import content containing a controlled HTTPS iframe and confirm the reader sanitizer renders it with sandbox/referrer controls.
+46. Confirm default iframe sandbox does not include `allow-same-origin`.
+47. Confirm unsafe iframe forms such as `srcdoc`, `http:`, event handlers, or local hosts are rejected or stripped.
 
 ## Regression risks to check
 
 - `CONTENT.md` frontmatter did not gain tags/categories/read.
 - `CONTENT.md` body is not rewritten for highlight persistence.
+- SQLite-only highlight persistence has backup/export coverage or an explicit restore-risk note.
 - Highlights still render in reader mode.
 - Highlight toggle/removal still persists if existing behaviour supports it.
 - Browse category/tag filters still work.
 - Browser import/add memory flow still creates memories.
 - Backup queue still stages content paths only.
+- Normal memory deletion has an explicit backup deletion path and does not leave deleted `CONTENT.md` tracked for restore.
 - Backup failsafe delete-missing-record remains distinct from normal memory delete.
 - Full taxonomy right pane does not disappear under active filters.
 - Settings API does not return OpenAI credential material.
 - Flashbacks do not modify `CONTENT.md`.
 - Flashbacks cascade when the owning memory is deleted.
+- Flashback create validates section identity server-side before insert.
 - Cross-host HTTPS article images are preserved.
 - Controlled HTTPS iframes are preserved without unsafe attributes.
+- Controlled HTTPS iframes do not use `allow-same-origin` by default.
 
 ## Commands
 
@@ -128,7 +138,9 @@ PR body must include:
 - schema/migration summary
 - API summary
 - deletion consistency strategy
+- backup deletion strategy for removed memory content
 - highlight record strategy
+- highlight metadata backup/export strategy or explicit restore-risk
 - Flashback section identity strategy
 - settings/OpenAI auth validation strategy
 - UI summary
