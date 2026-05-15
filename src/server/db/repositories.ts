@@ -2,6 +2,10 @@ import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ExtractionStatus } from "../memory-status";
+import {
+  DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+  type SupportedLanguageCode,
+} from "../../settings/languages";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
@@ -10,6 +14,8 @@ type NewMemory = typeof schema.memories.$inferInsert;
 type Tag = typeof schema.tags.$inferSelect;
 type Category = typeof schema.categories.$inferSelect;
 type Highlight = typeof schema.highlights.$inferSelect;
+type AppSettings = typeof schema.appSettings.$inferSelect;
+type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 export type BackupEnvironmentStamp =
   typeof schema.backupEnvironmentStamps.$inferSelect;
 export type BackupFailsafeAlert =
@@ -119,10 +125,26 @@ export interface BackupEnvironmentRepository {
   clearBackupFailsafeAlert: () => Promise<void>;
 }
 
+export interface SettingsRepository {
+  getSettings: (now: Date) => Promise<AppSettings>;
+  updateTranslationTargetLanguage: (input: {
+    language: SupportedLanguageCode;
+    updatedAt: Date;
+  }) => Promise<AppSettings>;
+  getOpenAiAuthCredential: () => Promise<OpenAiAuthCredential | undefined>;
+  createOpenAiAuthCredential: (input: {
+    provider: string;
+    credentialReference: string;
+    now: Date;
+  }) => Promise<OpenAiAuthCredential>;
+  deleteOpenAiAuthCredential: () => Promise<boolean>;
+}
+
 export interface TraumaRepositories {
   backupEnvironment: BackupEnvironmentRepository;
   memories: MemoryRepository;
   highlights: HighlightRepository;
+  settings: SettingsRepository;
   taxonomy: TaxonomyRepository;
 }
 
@@ -470,7 +492,79 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       listTagsForBrowse: async () => listTagsForBrowse(db),
       listCategoriesForBrowse: async () => listCategoriesForBrowse(db),
     },
+    settings: {
+      getSettings: async (now) => getOrCreateSettings(db, now),
+      updateTranslationTargetLanguage: async (input) => {
+        await getOrCreateSettings(db, input.updatedAt);
+        const updated = await db
+          .update(schema.appSettings)
+          .set({
+            translationTargetLanguage: input.language,
+            updatedAt: input.updatedAt,
+          })
+          .where(eq(schema.appSettings.id, "default"))
+          .returning()
+          .get();
+        if (updated === undefined) {
+          throw new MemoryRepositoryError("Cannot update app settings.");
+        }
+        return updated;
+      },
+      getOpenAiAuthCredential: async () =>
+        db.query.openaiAuthCredentials.findFirst({
+          where: eq(schema.openaiAuthCredentials.id, "default"),
+        }),
+      createOpenAiAuthCredential: async (input) => {
+        await db
+          .insert(schema.openaiAuthCredentials)
+          .values({
+            id: "default",
+            provider: input.provider,
+            credentialReference: input.credentialReference,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .onConflictDoNothing({ target: schema.openaiAuthCredentials.id })
+          .run();
+        const credential = await db.query.openaiAuthCredentials.findFirst({
+          where: eq(schema.openaiAuthCredentials.id, "default"),
+        });
+        if (credential === undefined) {
+          throw new MemoryRepositoryError("Cannot create OpenAI auth state.");
+        }
+        return credential;
+      },
+      deleteOpenAiAuthCredential: async () => {
+        const deleted = await db
+          .delete(schema.openaiAuthCredentials)
+          .where(eq(schema.openaiAuthCredentials.id, "default"))
+          .returning({ id: schema.openaiAuthCredentials.id })
+          .get();
+        return deleted !== undefined;
+      },
+    },
   };
+}
+
+async function getOrCreateSettings(
+  db: TraumaDatabase,
+  now: Date,
+): Promise<AppSettings> {
+  const existing = await db.query.appSettings.findFirst({
+    where: eq(schema.appSettings.id, "default"),
+  });
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const settings = {
+    id: "default",
+    translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+    createdAt: now,
+    updatedAt: now,
+  } satisfies typeof schema.appSettings.$inferInsert;
+  await db.insert(schema.appSettings).values(settings).run();
+  return settings;
 }
 
 async function requireTagByName(db: TraumaDatabase, name: string): Promise<Tag> {

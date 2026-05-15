@@ -57,7 +57,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain('href="/category"');
     expect(appShellSource).not.toContain('href="/tags"');
     expect(appShellSource).not.toContain('href="/backup"');
-    expect(appShellSource).not.toContain('href="/settings"');
+    expect(appShellSource).toContain('href: "/settings"');
   });
 
   it("uses filled icons and bold labels for active tabs without active background fills", () => {
@@ -228,7 +228,7 @@ describe("refined app shell contract", () => {
     );
     const themeIndex = appShellSource.indexOf("<ThemeNavButton", backupIndex);
     const settingsIndex = appShellSource.indexOf(
-      "item={futureNavItems.settings}",
+      "item={settingsNavItem}",
       themeIndex,
     );
 

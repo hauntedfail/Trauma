@@ -51,6 +51,13 @@ import {
 import { RightRailContentContext } from "./right-rail-context";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
+interface RouteNavItem {
+  href: string;
+  icon: keyof typeof TraumaNavIcons;
+  label: string;
+  pip: boolean;
+}
+
 interface AppShellProps {
   children: JSX.Element;
 }
@@ -99,7 +106,14 @@ const SURFACE_STORAGE_KEY = "trauma:surface";
 const routeNavItems = [
   { href: "/memories", icon: "memories", label: "Memories", pip: false },
   { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
-] as const;
+] as const satisfies readonly RouteNavItem[];
+
+const settingsNavItem = {
+  href: "/settings",
+  icon: "settings",
+  label: "Settings",
+  pip: false,
+} as const satisfies RouteNavItem;
 
 const desktopFilterShortcutItems = [
   { icon: "categories", label: "Categories" },
@@ -108,7 +122,6 @@ const desktopFilterShortcutItems = [
 
 const futureNavItems = {
   backup: { icon: "backup", label: "Backup" },
-  settings: { icon: "settings", label: "Settings" },
 } as const;
 
 const phoneTabItems = [
@@ -119,7 +132,7 @@ const phoneTabItems = [
   { kind: "disabled", icon: "backup", label: "Backup" },
   { kind: "composer", icon: "add", label: "Add memory" },
   { kind: "theme", icon: "theme", label: "Theme" },
-  { kind: "disabled", icon: "settings", label: "Settings" },
+  { kind: "route", href: "/settings", icon: "settings", label: "Settings" },
 ] as const;
 
 export function AppShell(props: AppShellProps) {
@@ -414,7 +427,11 @@ function NavigationContent(props: {
           popoverId="rail-theme-settings"
           surface={props.surface}
         />
-        <FutureNavButton item={futureNavItems.settings} />
+        <RouteNavLink
+          activePath={props.activePath}
+          item={settingsNavItem}
+          onNavigate={props.onNavigate}
+        />
       </nav>
       <AddMemoryComposerButton
         mode="rail"
@@ -829,7 +846,7 @@ function RightPanelSection(props: {
 
 function RouteNavLink(props: {
   activePath: string;
-  item: (typeof routeNavItems)[number];
+  item: RouteNavItem;
   onNavigate?: () => void;
 }) {
   const isActive = createMemo(() => {

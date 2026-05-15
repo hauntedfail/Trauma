@@ -1,4 +1,5 @@
 import {
+  appSettings,
   backupEnvironmentStamps,
   backupFailsafeAlerts,
   categories,
@@ -6,6 +7,7 @@ import {
   memories,
   memoryCategories,
   memoryTags,
+  openaiAuthCredentials,
   tags,
 } from "./schema";
 
@@ -26,6 +28,7 @@ export type {
 export * from "./schema";
 
 export const schema = {
+  appSettings,
   backupEnvironmentStamps,
   backupFailsafeAlerts,
   categories,
@@ -33,5 +36,6 @@ export const schema = {
   memories,
   memoryCategories,
   memoryTags,
+  openaiAuthCredentials,
   tags,
 };

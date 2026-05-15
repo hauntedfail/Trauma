@@ -11,6 +11,11 @@ import {
 
 import { BACKUP_STATUSES, type BackupStatus } from "../backup/status";
 import { EXTRACTION_STATUSES, type ExtractionStatus } from "../memory-status";
+import {
+  DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+  SUPPORTED_TRANSLATION_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../../settings/languages";
 
 export type { BackupStatus } from "../backup/status";
 
@@ -30,6 +35,11 @@ const backupFailsafeAlertKindSqlList = sql.raw(
 );
 const backupFailsafeSeveritySqlList = sql.raw(
   ["critical"].map(toSqlStringLiteral).join(", "),
+);
+const supportedLanguageSqlList = sql.raw(
+  SUPPORTED_TRANSLATION_LANGUAGES.map((language) =>
+    toSqlStringLiteral(language.code),
+  ).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -204,6 +214,38 @@ export const backupFailsafeAlerts = sqliteTable(
       "backup_failsafe_alerts_severity_check",
       sql`${table.severity} in (${backupFailsafeSeveritySqlList})`,
     ),
+  ],
+);
+
+export const appSettings = sqliteTable(
+  "app_settings",
+  {
+    id: text("id").primaryKey(),
+    translationTargetLanguage: text("translation_target_language")
+      .$type<SupportedLanguageCode>()
+      .notNull()
+      .default(DEFAULT_TRANSLATION_TARGET_LANGUAGE),
+    ...timestamps(),
+  },
+  (table) => [
+    check("app_settings_id_check", sql`${table.id} = 'default'`),
+    check(
+      "app_settings_translation_target_language_check",
+      sql`${table.translationTargetLanguage} in (${supportedLanguageSqlList})`,
+    ),
+  ],
+);
+
+export const openaiAuthCredentials = sqliteTable(
+  "openai_auth_credentials",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    credentialReference: text("credential_reference").notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    check("openai_auth_credentials_id_check", sql`${table.id} = 'default'`),
   ],
 );
 
