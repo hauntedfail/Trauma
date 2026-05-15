@@ -72,6 +72,19 @@ Run E2E smoke tests:
 bun run test:e2e
 ```
 
+## Proves
+
+<table_layout>
+Sun Light <img width="2307" height="1920" alt="image" src="https://github.com/user-attachments/assets/e511eafb-9509-43ea-9020-9cf7e63d72fa" />
+Sun Paper <img width="2307" height="1920" alt="image" src="https://github.com/user-attachments/assets/951925b4-d274-4e45-9c40-00d6e29ac76a" />
+Night Midnight <img width="2307" height="1920" alt="image" src="https://github.com/user-attachments/assets/02f45a5f-a8b6-47bf-80c5-3ce019e41c87" />
+Night Hermès <img width="2307" height="1920" alt="image" src="https://github.com/user-attachments/assets/94f0b53f-da17-485a-a4da-a8857d7da94d" />
+
+
+
+
+</table_layout>
+
 ## Documentation
 
 Start with [docs/INDEX.md](docs/INDEX.md).
