@@ -41,13 +41,14 @@ const currentHighlights = [
 ];
 
 describe("reader highlight tabs", () => {
-  it("renders All highlights as the left tab and This memory as the second tab", () => {
+  it("renders All as the left tab and This memory as the second tab", () => {
     const html = renderTabs({ initialTab: "memory" });
-    const allIndex = html.indexOf("All highlights");
+    const allIndex = html.indexOf(">All<");
     const memoryIndex = html.indexOf("This memory");
 
     expect(allIndex).toBeGreaterThan(-1);
     expect(memoryIndex).toBeGreaterThan(allIndex);
+    expect(html).not.toContain("All highlights");
   });
 
   it("uses the same segmented toggle button styling as the theme box", () => {

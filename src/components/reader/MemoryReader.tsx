@@ -619,7 +619,7 @@ export function ReaderHighlightTabs(props: {
           active={activeTab() === "all"}
           onClick={() => setActiveTab("all")}
         >
-          All highlights
+          All
         </SegmentedToggleButton>
         <SegmentedToggleButton
           active={activeTab() === "memory"}
