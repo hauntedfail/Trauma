@@ -1,8 +1,26 @@
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 import { ChevronLeftIcon, OpenIcon } from "../icons";
-import type { ReaderMemoryResult } from "../../server/reader/page-data";
+import type {
+  ReaderMemoryResult,
+  ReaderTaxonomyItem,
+} from "../../server/reader/page-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
+import { MemoryActionMenu } from "../memories/MemoryActionMenu";
+import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
+import {
+  attachCategoryToMemoryByName,
+  deleteMemoryById,
+  type FetchFunction,
+} from "../memories/memory-action-requests";
 import {
   canStartHighlightToggle,
   isExplicitHighlightKeyboardToggle,
@@ -22,6 +40,7 @@ import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 
 interface MemoryReaderProps {
+  navigate?: (path: string) => void;
   result: ReaderMemoryResult;
 }
 
@@ -64,15 +83,24 @@ export function MemoryReader(props: MemoryReaderProps) {
       when={readyResult()}
       fallback={<ReaderState message={stateMessage()} />}
     >
-      {(result) => <ReadyMemoryReader result={result} />}
+      {(result) => (
+        <ReadyMemoryReader navigate={props.navigate} result={result} />
+      )}
     </Show>
   );
 }
 
-function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
+function ReadyMemoryReader(props: {
+  navigate?: (path: string) => void;
+  result: ReadyReaderMemoryResult;
+}) {
   let contentRef: HTMLDivElement | undefined;
+  const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+  const [categories, setCategories] = createSignal([
+    ...props.result.memory.categories,
+  ]);
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
@@ -104,10 +132,23 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
     event.preventDefault();
     handleSelectionToggle();
   };
+  const deleteMemory = async (memoryId: string): Promise<void> => {
+    await deleteReaderMemory({
+      memoryId,
+      navigate,
+    });
+  };
+  const attachCategory = async (input: {
+    memoryId: string;
+    name: string;
+  }): Promise<void> => {
+    const category = await attachReaderCategoryByName(input);
+    setCategories((current) => mergeReaderTaxonomyItem(current, category));
+  };
 
   return (
     <article class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
+      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)_auto] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
         <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
           <ChevronLeftIcon />
         </a>
@@ -129,6 +170,23 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
               </a>
             )}
           </Show>
+          <ReaderTaxonomyChips
+            categories={categories()}
+            tags={props.result.memory.tags}
+          />
+        </div>
+        <div class="flex items-start gap-2">
+          <MemoryReadStatusControl
+            compact
+            initialRead={props.result.memory.read}
+            memoryId={props.result.memory.id}
+          />
+          <MemoryActionMenu
+            memoryId={props.result.memory.id}
+            memoryTitle={props.result.memory.title}
+            onAttachCategoryByName={attachCategory}
+            onDelete={deleteMemory}
+          />
         </div>
       </header>
       <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
@@ -154,6 +212,63 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
       </div>
     </article>
   );
+}
+
+function ReaderTaxonomyChips(props: {
+  categories: ReaderTaxonomyItem[];
+  tags: ReaderTaxonomyItem[];
+}) {
+  return (
+    <Show when={props.categories.length + props.tags.length > 0}>
+      <div class="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+        <For each={props.categories}>
+          {(category) => (
+            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
+              {category.name}
+            </span>
+          )}
+        </For>
+        <For each={props.tags}>
+          {(tag) => (
+            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
+              #{tag.name}
+            </span>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+}
+
+export async function deleteReaderMemory(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  navigate: (path: string) => void;
+}): Promise<void> {
+  await deleteMemoryById({
+    memoryId: input.memoryId,
+    fetch: input.fetch,
+  });
+  input.navigate("/memories");
+}
+
+export async function attachReaderCategoryByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return attachCategoryToMemoryByName(input);
+}
+
+function mergeReaderTaxonomyItem(
+  current: ReaderTaxonomyItem[],
+  next: ReaderTaxonomyItem,
+): ReaderTaxonomyItem[] {
+  if (current.some((item) => item.id === next.id)) {
+    return current;
+  }
+
+  return [...current, next];
 }
 
 function ReaderState(props: { message: string }) {
