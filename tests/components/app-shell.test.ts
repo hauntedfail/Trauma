@@ -68,25 +68,22 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('[isActive() ? "filled" : "outline"]');
   });
 
-  it("keeps paper active underlines scoped to tab text only", () => {
-    const routeNavStart = appShellSource.indexOf("function RouteNavLink");
-    const routeNavEnd = appShellSource.indexOf(
-      "function RightRailShortcutButton",
-      routeNavStart,
+  it("keeps paper active underlines on the desktop rail item geometry", () => {
+    expect(tailwindCss).toContain(
+      "container: trauma-left-rail / inline-size",
     );
-    const routeNavSource = appShellSource.slice(routeNavStart, routeNavEnd);
-    const activeLabelStart = routeNavSource.indexOf("trauma-active-nav-label");
-    const activeLabelEnd = routeNavSource.indexOf("</span>", activeLabelStart);
-    const activeLabelMarkup = routeNavSource.slice(activeLabelStart, activeLabelEnd);
-    const themeNavStart = appShellSource.indexOf("function ThemeNavButton");
-    const themeNavEnd = appShellSource.indexOf("function ThemeBlock", themeNavStart);
-    const themeNavSource = appShellSource.slice(themeNavStart, themeNavEnd);
-
-    expect(routeNavSource).toContain(
-      'class="min-w-0 truncate max-[1040px]:sr-only"',
+    expect(tailwindCss).toContain(
+      "@container trauma-left-rail (width > 16rem)",
     );
-    expect(activeLabelMarkup).not.toContain("props.item.pip");
-    expect(themeNavSource).toContain("trauma-active-nav-label");
+    expect(tailwindCss).toContain(
+      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
+    );
+    expect(tailwindCss).toContain("right: 18px;");
+    expect(tailwindCss).toContain("bottom: 5px;");
+    expect(tailwindCss).toContain("left: 62px;");
+    expect(tailwindCss).not.toContain(
+      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
+    );
   });
 
   it("keeps desktop shell columns flush instead of centering panes inside gutters", () => {
@@ -317,15 +314,13 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("trauma-active-nav-item");
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-active-nav-item');
     expect(tailwindCss).toContain(
-      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
+      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
     );
-    expect(tailwindCss).not.toContain(':root[data-theme^="paper"] .trauma-active-nav-item::after');
     expect(tailwindCss).toContain("@keyframes trauma-handwrite-underline");
     expect(tailwindCss).toContain("animation: trauma-handwrite-underline");
     expect(tailwindCss).toContain("-webkit-mask-image: url(\"data:image/svg+xml;utf8,");
-    expect(tailwindCss).toContain("fill='black'");
-    expect(tailwindCss).not.toContain("stroke-linecap");
-    expect(tailwindCss).not.toContain("stroke-width='5'");
+    expect(tailwindCss).toContain("stroke-linecap='round'");
+    expect(tailwindCss).toContain("stroke-width='5'");
     expect(tailwindCss).toContain("clip-path: inset(0 100% 0 0)");
     expect(tailwindCss).toContain("background-color: transparent");
   });

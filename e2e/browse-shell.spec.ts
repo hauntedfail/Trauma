@@ -72,21 +72,30 @@ test("keeps paper active nav underline while removing active tab background", as
     .getByRole("link", { name: "Memories" });
   const paperState = await memoriesLink.evaluate((link) => {
     const label = link.querySelector(".trauma-active-nav-label");
-    const underline = label === null ? undefined : getComputedStyle(label, "::after");
+    const linkUnderline = getComputedStyle(link, "::after");
 
     return {
-      animationName: underline?.animationName ?? "",
+      animationName: linkUnderline.animationName,
       backgroundColor: getComputedStyle(link).backgroundColor,
-      underlineContent: underline?.content ?? "none",
+      labelUnderlineContent:
+        label === null ? "none" : getComputedStyle(label, "::after").content,
+      underlineBottom: linkUnderline.bottom,
+      underlineContent: linkUnderline.content,
+      underlineLeft: linkUnderline.left,
+      underlineRight: linkUnderline.right,
     };
   });
 
   expect(paperState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(paperState.labelUnderlineContent).toBe("none");
   expect(paperState.underlineContent).toBe('""');
+  expect(paperState.underlineLeft).toBe("62px");
+  expect(paperState.underlineRight).toBe("18px");
+  expect(paperState.underlineBottom).toBe("5px");
   expect(paperState.animationName).toBe("trauma-handwrite-underline");
 });
 
-test("keeps paper active nav underline attached to text instead of the unread pip", async ({
+test("keeps paper active nav underline on the desktop rail item for pip tabs", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -104,17 +113,23 @@ test("keeps paper active nav underline attached to text instead of the unread pi
     .getByRole("link", { name: "Highlights" });
   const underlineState = await highlightsLink.evaluate((link) => {
     const label = link.querySelector(".trauma-active-nav-label");
-    const pip = link.querySelector('[aria-label="unread"]');
+    const linkUnderline = getComputedStyle(link, "::after");
 
     return {
-      labelContainsPip: label !== null && pip !== null && label.contains(pip),
-      underlineContent:
+      labelUnderlineContent:
         label === null ? "none" : getComputedStyle(label, "::after").content,
+      underlineBottom: linkUnderline.bottom,
+      underlineContent: linkUnderline.content,
+      underlineLeft: linkUnderline.left,
+      underlineRight: linkUnderline.right,
     };
   });
 
-  expect(underlineState.labelContainsPip).toBe(false);
+  expect(underlineState.labelUnderlineContent).toBe("none");
   expect(underlineState.underlineContent).toBe('""');
+  expect(underlineState.underlineLeft).toBe("62px");
+  expect(underlineState.underlineRight).toBe("18px");
+  expect(underlineState.underlineBottom).toBe("5px");
 });
 
 test("updates URL query state from search, filters, highlight shortcuts, and view controls", async ({

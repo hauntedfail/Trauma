@@ -51,10 +51,11 @@ Navigation item contract:
   selected pill fill or surrounding primary-colour highlight.
 - Active route, all themes: use the filled icon variant and bold visible tab
   label.
-- Active route, paper themes on desktop rail: keep the hand-drawn underline
-  below the visible text label only. The underline is a marker-like filled band,
-  not a thin stroked path. Status pips and secondary adornments must sit outside
-  the underline target.
+- Active route, paper themes on desktop rail: draw the hand-written underline
+  from the active rail item, using the historical desktop geometry
+  `left: 62px`, `right: 18px`, and `bottom: 5px` so the line keeps a stable
+  width independent of the text span. Scope this with the left-rail container
+  width, not a viewport breakpoint.
 - Paper active underline draws from left to right on page render. Honour
   reduced-motion by showing the completed underline without animation.
 - Tablet icon rail and phone bottom tabs must not render the paper underline.

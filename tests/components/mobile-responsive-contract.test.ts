@@ -254,12 +254,14 @@ describe("mobile and cross-device responsive contract", () => {
     expect(highlightsRouteSource).toContain("trauma-route-surface");
   });
 
-  it("keeps paper active underline scoped to desktop rail labels only", () => {
+  it("keeps paper active underline scoped to desktop rail container width only", () => {
+    expect(tailwindCss).toContain("container: trauma-left-rail / inline-size");
+    expect(tailwindCss).toContain("@container trauma-left-rail (width > 16rem)");
     expect(tailwindCss).toContain(
-      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
+      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
     );
     expect(tailwindCss).not.toContain(
-      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
+      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
     );
     expect(appShellSource).toContain("trauma-active-nav-label");
     expect(appShellSource).not.toContain(
