@@ -23,6 +23,8 @@ execution records; do not treat completed triage records as active work queues.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Merged baseline |
+| 18 | [Memory read status and memory actions](task-18-memory-read-status.md) | Persistent read/unread metadata, taxonomy creation/assignment, link-only status, reader action menu, memory deletion, settings page, explicit highlight selection, Flashback bookmarks, and imported media policy | Ready |
+| 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
 
 Task 17.8 is intentionally split under
 `task-17-front-end-refine/08*.md`: the parent file is an execution map, while
@@ -114,6 +116,8 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `refine/frontend-sample`
+- `feat/memory-actions`
+- `feat/codex-translation`
 
 The historical triage branches named in Task 16 records have landed. New work
 should branch from the current target branch and use a fresh name rather than
