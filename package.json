@@ -1,6 +1,7 @@
 {
   "name": "trauma",
   "private": true,
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "HOST=${HOST:-127.0.0.1} bun --bun x vinxi dev",
