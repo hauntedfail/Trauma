@@ -89,7 +89,7 @@ this with `width`, `margin-left`, `margin-right`, `padding-left`, or
 Use container query units for component-local typography and spacing. Do not use
 viewport units for component internals when a named query container exists.
 
-Use `trauma-mobile-stable-viewport` for mobile route and drawer full-height
+Use `trauma-mobile-stable-viewport` for mobile route and full-height shell
 surfaces instead of `100vh` or `min-h-screen` when the surface must account for
 browser chrome. Use `trauma-mobile-dynamic-viewport` only for fixed overlays
 that must track the current visible viewport, and `trauma-mobile-large-viewport`
@@ -208,11 +208,11 @@ rg -n "svh|dvh|lvh" src/components src/routes src/styles/tailwind.css
 
 Expected review outcome:
 
-- No mobile route, drawer, or full-height surface uses `100vh`.
+- No mobile route, shell, or full-height surface uses `100vh`.
 - `min-h-screen` may remain only where the implementation proves it does not
   affect mobile browser chrome behaviour; otherwise replace it with a
   `svh`/`dvh`/`lvh` utility.
-- `svh` is the default for stable mobile route and drawer height.
+- `svh` is the default for stable mobile route and shell height.
 - `dvh` is limited to overlays or fixed panels that must track the current
   visible viewport.
 - `lvh` is limited to non-critical immersive surfaces.

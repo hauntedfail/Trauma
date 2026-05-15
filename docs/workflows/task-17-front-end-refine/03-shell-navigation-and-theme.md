@@ -20,7 +20,8 @@ Primary files:
 ## Source Mapping
 
 - Sample `Sidebar` maps to `NavigationContent` and shell layout.
-- Sample `ThemeBlock` maps to a Solid theme control inside the rail.
+- Sample `ThemeBlock` maps to the Solid theme popover opened from the rail
+  `Theme` tab. It is not permanently expanded inside the rail.
 - Sample rail `Add memory` button maps to the existing
   shell add-memory composer popover.
 - Sample `profile` maps to a local archive status surface. It must not imply
@@ -111,13 +112,17 @@ Primary files:
    - theme group: `Theme`
    - add memory button: `Add memory`
 
-4. Keep mobile and tablet reachability.
+4. Keep tablet and phone reachability aligned with the current responsive shell.
 
-   Required breakpoints:
+   Required topology:
 
-   - desktop: left rail, main pane, right filter panel visible
-   - tablet: compact left rail, main pane, filter drawer button
-   - mobile: top bar controls, drawers for nav and filters
+   - desktop: left rail, main pane, and right rail visible
+   - tablet: compact icon-only left rail and main pane visible; right rail,
+     filter button, and filter drawer absent
+   - phone: bottom `Primary tabs` bar visible; persistent side rail, navigation
+     drawer, filter drawer, duplicate brand header, and filter button absent
+   - Theme and Add memory remain reachable from popovers that layer above the
+     current pane or bottom tab bar.
 
 5. Convert fixed colors in shell component classes to token utilities.
 

@@ -87,6 +87,10 @@ Conditional files:
      responsive shell
    - bounded internal scroll body when the heading list overflows
    - subtle neutral blur fades only on currently scrollable TOC edges
+   - top fade starts at the bounded scroll body's top edge after the user has
+     scrolled down; bottom fade disappears when no content remains below
+   - fade boundaries are softened with CSS gradients and masks, not JavaScript
+     drawing or heavy box shadows
    - popup-style bounce animation on entry, with reduced-motion support
    - links use existing rendered heading IDs
 

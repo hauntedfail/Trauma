@@ -41,11 +41,12 @@ Use Flexbox only for local one-dimensional clusters that can wrap.
 
 Tablet shell keeps the existing left pane but renders it as an icon-only rail:
 brand mark and tab icons share one aligned icon slot, labels are hidden, no
-responsive header is rendered, and the desktop right rail/filter drawer is not
-available. Phone shell renders actionable left-pane tabs as a native-app-style
-bottom tab bar with safe-area bottom padding. It does not render a side rail,
-navigation drawer, TRAUMA brand text, or filter controls. Theme and add-memory
-popovers must layer above the main pane and remain visually intact.
+responsive header is rendered, and the desktop right rail, filter button, and
+filter drawer are not available. Phone shell renders actionable left-pane tabs
+as a native-app-style bottom tab bar with safe-area bottom padding. It does not
+render a side rail, navigation drawer, filter drawer, TRAUMA brand text, or
+filter controls. Theme and add-memory popovers must layer above the main pane
+or bottom bar and remain visually intact.
 
 Route/page shells should be constrained fluid rather than fixed-width:
 combine `max-inline-size`, `inline-size`, `margin-inline`, and
@@ -57,15 +58,15 @@ container is the relevant constraint: `cqi` for inline sizing, `cqb` for
 block-axis spacing, `cqmin` for balanced scale, and `cqmax` only for
 non-critical proportional effects. Combine these units with `clamp()`.
 
-Mobile full-height surfaces should not use `100vh`. Use `svh` for stable
-route/drawer height, `dvh` for dynamic overlays that must track visible
+Mobile full-height surfaces should not use `100vh`. Use `svh` for stable route
+and shell surface height, `dvh` for dynamic overlays that must track visible
 viewport changes, and `lvh` only for non-critical immersive surfaces.
 
 Safe-area handling belongs in layout tokens and utilities. Define
 `env(safe-area-inset-*)` once in `src/styles/tailwind.css` as
 `--trauma-layout-safe-area-*`, then apply `trauma-safe-area-*` utilities to
-mobile shell wrappers, drawers, fixed/sticky bars, and full-height overlays that
-touch viewport edges.
+mobile shell wrappers, fixed/sticky bars, bottom tab bars, and full-height
+overlays that touch viewport edges.
 
 Image responsiveness is HTML-level behaviour, not only CSS overflow control.
 Use `srcset` and `sizes` when trustworthy width variants exist, and use

@@ -237,8 +237,9 @@ old centered-pane classes or the old desktop shell grid.
 - [ ] **Step 3: Update the shell grid and column borders**
 
 In `src/components/shell/AppShell.tsx`, replace only the class strings for the
-root grid and desktop column surfaces in this step. Keep the existing
-`MobileTopBar`, `FilterPanel`, drawer, and composer children in place.
+root grid and desktop column surfaces in this step. Keep route content,
+`FilterPanel`, and composer behaviour in place. Do not reintroduce the stale
+mobile navigation or filter drawer paths.
 
 Root grid class:
 

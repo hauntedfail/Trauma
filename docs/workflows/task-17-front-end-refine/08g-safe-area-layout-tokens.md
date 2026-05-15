@@ -96,10 +96,10 @@ Keep raw `env(safe-area-inset-*)` calls in this file only.
 
 In `src/components/shell/AppShell.tsx`, apply:
 
-- `trauma-safe-area-shell` to the top-level mobile shell wrapper or drawer
-  container that can touch every viewport edge.
-- `trauma-safe-area-inline` to mobile top bars or drawer interiors that need
-  left/right protection without changing block spacing.
+- `trauma-safe-area-shell` to any top-level mobile shell surface that can touch
+  every viewport edge.
+- `trauma-safe-area-inline` to fixed/sticky mobile bars that need left/right
+  protection without changing block spacing.
 - `trauma-safe-area-bottom` to bottom action bars or fixed composer surfaces.
 
 Do not apply safe-area utilities to desktop-only pane interiors, list rows,
@@ -121,7 +121,7 @@ Expected review outcome:
 - Components and routes use `trauma-safe-area-shell`,
   `trauma-safe-area-inline`, or `trauma-safe-area-bottom`.
 - Safe-area utilities appear only on viewport-edge surfaces: mobile shell
-  wrappers, drawers, fixed/sticky bars, or full-height overlays.
+  wrappers, fixed/sticky bars, bottom tab bars, or full-height overlays.
 
 - [ ] **Step 5: Run focused tests**
 

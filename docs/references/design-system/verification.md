@@ -128,6 +128,9 @@ Check:
 - Reader links remain readable in sun normal, sun paper, night normal, and
   Hermès modes.
 - Linked highlight hash targets remain readable in every theme.
+- Reader TOC scroll fades appear only on scrollable edges. The top fade begins
+  at the bounded list edge after scrolling down, and CSS mask gradients soften
+  the transition into unblurred content.
 
 ## Screenshot Review
 

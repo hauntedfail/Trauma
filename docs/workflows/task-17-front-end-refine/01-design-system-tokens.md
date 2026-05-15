@@ -20,7 +20,9 @@ Optional test file:
 ## Decisions To Preserve
 
 - Keep Tailwind v4 through `@tailwindcss/vite`.
-- Keep `src/styles/tailwind.css` as the only global stylesheet entry.
+- Keep `src/styles/tailwind.css` as the only global stylesheet entry. It owns
+  tokens, base rules, and named design-system utilities used across the shell,
+  reader, and responsive surfaces.
 - Use four supported theme names:
   - `warm-light`
   - `black-dark`
@@ -109,5 +111,7 @@ Optional test file:
 
 - The refined brand palette is available through Tailwind utilities.
 - Theme switching can be driven by `document.documentElement.dataset.theme`.
-- The global CSS remains token/base only, not component styling.
+- The global CSS remains the shared design-system layer. Component-specific
+  behavior may live there only when it is expressed as a named reusable utility
+  or documented shell/reader surface contract.
 - The app has no runtime dependency on Google Fonts.

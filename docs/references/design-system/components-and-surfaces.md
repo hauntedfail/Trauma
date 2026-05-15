@@ -86,7 +86,7 @@ and view toggle in one two-column grid row at every route width:
 ## Shell Popovers
 
 Left-rail transient controls open as anchored popovers rather than global
-drawers on desktop shell layouts:
+drawers:
 
 - Theme settings and Add memory composer use the same `role="dialog"` popup
   pattern, `aria-haspopup="dialog"`, `aria-expanded`, and `aria-controls`.

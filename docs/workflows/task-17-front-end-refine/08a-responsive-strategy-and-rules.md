@@ -104,7 +104,7 @@ preferences.
 - Do not call `env(safe-area-inset-*)` directly from component class strings or
   route-local style blocks. Define safe-area layout tokens and reusable
   utilities in `src/styles/tailwind.css`, then apply those utilities to shell,
-  drawer, fixed toolbar, and bottom action surfaces.
+  fixed toolbar, bottom tab bar, and bottom action surfaces.
 - Do not treat `max-width: 100%` as the complete image responsiveness strategy.
   Use `srcset`, `sizes`, and `<picture>` for owned images and reader content
   when trustworthy variants exist.
@@ -120,7 +120,7 @@ preferences.
 - Do not change server, importer, backup, extension, database, or markdown
   reader behaviour.
 - Preserve accessibility: keyboard focus, readable text, non-overlapping
-  controls, and reachable navigation/drawer actions across narrow containers.
+  controls, and reachable navigation/popover actions across narrow containers.
 
 ## Container-First Responsiveness
 
@@ -285,9 +285,9 @@ Use these utilities instead:
 
 Rules:
 
-- Use `svh` for stable route shells, drawers, and surfaces where content must
-  not be hidden when browser chrome is visible. This is the default mobile
-  full-height choice.
+- Use `svh` for stable route shells and surfaces where content must not be
+  hidden when browser chrome is visible. This is the default mobile full-height
+  choice.
 - Use `dvh` for overlays or fixed panels that must track the currently visible
   viewport. Avoid it on scroll-heavy route bodies because it can resize during
   scroll as browser UI changes.
@@ -339,8 +339,9 @@ Use utilities for surfaces that touch viewport edges:
 
 Rules:
 
-- Apply safe-area utilities to mobile shell wrappers, drawers, fixed/sticky
-  bottom action bars, and full-height overlays that can touch viewport edges.
+- Apply safe-area utilities to mobile shell wrappers, fixed/sticky bottom
+  action bars, bottom tab bars, and full-height overlays that can touch
+  viewport edges.
 - Do not add safe-area padding to desktop-only pane interiors or ordinary
   component cards. Safe-area is a viewport-edge concern, not a generic spacing
   token.
