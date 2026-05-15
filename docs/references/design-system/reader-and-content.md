@@ -51,9 +51,10 @@ Contract:
   token on hover.
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
-- When the bounded TOC body overflows and still has content below, show a subtle
-  bottom spotlight shadow anchored to the whole TOC island's bottom edge so the
-  user can discover the scrollable content without a heavy visual block.
+- When the bounded TOC body can scroll further, show a subtle blur fade only on
+  the available scroll edge. At the top of the list this appears only after the
+  user has scrolled down; at the bottom it disappears when no more content
+  remains below.
 - Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
 - Motion is disabled under `prefers-reduced-motion: reduce`.
 

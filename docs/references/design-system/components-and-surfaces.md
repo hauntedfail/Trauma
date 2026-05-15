@@ -171,10 +171,10 @@ scroll region. This is required for Recent highlights and reader TOC. Do not
 let those islands grow vertically for every item.
 
 Reader TOC should make overflow discoverable. When its bounded list can still
-scroll downward, use a low-contrast bottom spotlight shadow anchored to the
-bottom of the TOC island itself. The spotlight shadow is neutral black, not the
-primary/accent colour. Do not anchor that shadow to the inner list body,
-because the island padding makes it appear detached from the component.
+scroll in a direction, show a low-contrast blur fade on that edge only. The
+fade should make the edge entries look slightly hazy, not like a heavy shadow
+or spotlight. Use neutral black in the fade recipe, not the primary/accent
+colour. Do not render a fade for a direction that is not currently scrollable.
 
 ## Add Memory Composer
 

@@ -86,8 +86,7 @@ Conditional files:
    - hidden on non-reader routes and when the right rail is hidden by the
      responsive shell
    - bounded internal scroll body when the heading list overflows
-   - subtle neutral-black bottom spotlight on the whole TOC island when more
-     content can be scrolled
+   - subtle neutral blur fades only on currently scrollable TOC edges
    - popup-style bounce animation on entry, with reduced-motion support
    - links use existing rendered heading IDs
 

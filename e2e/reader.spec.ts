@@ -147,7 +147,7 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
   await expect(page.getByText(selectedText)).toBeVisible();
 });
 
-test("anchors the reader toc scroll spotlight to the toc island bottom", async ({
+test("shows reader toc scroll blur fades only for available scroll directions", async ({
   page,
 }) => {
   createReaderFixture();
@@ -158,34 +158,57 @@ test("anchors the reader toc scroll spotlight to the toc island bottom", async (
   const toc = page.getByRole("navigation", { name: "Table of contents" });
   await expect(toc).toBeVisible();
 
-  const spotlight = toc.locator(".trauma-toc-scroll-spotlight");
-  await expect(spotlight).toBeVisible();
+  const topFade = toc.locator(".trauma-toc-scroll-fade-top");
+  const bottomFade = toc.locator(".trauma-toc-scroll-fade-bottom");
+  await expect(topFade).toHaveCount(0);
+  await expect(bottomFade).toBeVisible();
 
   const geometry = await toc.evaluate((nav) => {
-    const spotlightElement = nav.querySelector(".trauma-toc-scroll-spotlight");
+    const bottomFadeElement = nav.querySelector(".trauma-toc-scroll-fade-bottom");
     const listElement = nav.querySelector("ol");
 
     if (
-      !(spotlightElement instanceof HTMLElement) ||
+      !(bottomFadeElement instanceof HTMLElement) ||
       !(listElement instanceof HTMLElement)
     ) {
-      throw new Error("TOC spotlight or list element is missing");
+      throw new Error("TOC bottom fade or list element is missing");
     }
 
     const navRect = nav.getBoundingClientRect();
-    const spotlightRect = spotlightElement.getBoundingClientRect();
+    const bottomFadeRect = bottomFadeElement.getBoundingClientRect();
+    const bottomFadeStyle = getComputedStyle(bottomFadeElement);
 
     return {
       listClientHeight: listElement.clientHeight,
       listScrollHeight: listElement.scrollHeight,
-      spotlightBottomGap: Number(
-        (navRect.bottom - spotlightRect.bottom).toFixed(2),
+      bottomFadeBottomGap: Number(
+        (navRect.bottom - bottomFadeRect.bottom).toFixed(2),
       ),
+      bottomFadeBackdropFilter: bottomFadeStyle.backdropFilter,
+      bottomFadeBoxShadow: bottomFadeStyle.boxShadow,
     };
   });
 
   expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
-  expect(Math.abs(geometry.spotlightBottomGap)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.bottomFadeBottomGap)).toBeLessThanOrEqual(1);
+  expect(geometry.bottomFadeBackdropFilter).toContain("blur(");
+  expect(geometry.bottomFadeBoxShadow).toBe("none");
+
+  await toc.locator("ol").evaluate((list) => {
+    list.scrollTop = Math.floor(list.scrollHeight / 2);
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toBeVisible();
+
+  await toc.locator("ol").evaluate((list) => {
+    list.scrollTop = list.scrollHeight;
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toHaveCount(0);
 });
 
 async function setReaderTheme(

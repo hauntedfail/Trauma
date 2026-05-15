@@ -39,6 +39,15 @@ interface ReaderSelection extends ReaderSelectionPayload {
 }
 
 type ReaderHighlightOperation = "highlight" | "unhighlight";
+interface TocScrollState {
+  canScrollDown: boolean;
+  canScrollUp: boolean;
+}
+
+const noTocScrollState: TocScrollState = {
+  canScrollDown: false,
+  canScrollUp: false,
+};
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
@@ -160,17 +169,33 @@ function ReaderState(props: { message: string }) {
 
 function ReaderToc(props: { toc: ReaderTocEntry[] }) {
   let scrollRef: HTMLOListElement | undefined;
-  const [showTocScrollHint, setShowTocScrollHint] = createSignal(false);
+  const [tocScrollState, setTocScrollState] =
+    createSignal<TocScrollState>(noTocScrollState);
   const updateTocScrollHint = () => {
     if (scrollRef === undefined) {
-      setShowTocScrollHint(false);
+      setTocScrollState(noTocScrollState);
       return;
     }
 
     const hasOverflow = scrollRef.scrollHeight > scrollRef.clientHeight + 1;
-    const hasMoreBelow =
+    const canScrollUp = hasOverflow && scrollRef.scrollTop > 1;
+    const canScrollDown =
+      hasOverflow &&
       scrollRef.scrollTop + scrollRef.clientHeight < scrollRef.scrollHeight - 1;
-    setShowTocScrollHint(hasOverflow && hasMoreBelow);
+
+    setTocScrollState((current) => {
+      if (
+        current.canScrollDown === canScrollDown &&
+        current.canScrollUp === canScrollUp
+      ) {
+        return current;
+      }
+
+      return {
+        canScrollDown,
+        canScrollUp,
+      };
+    });
   };
 
   createEffect(() => {
@@ -213,8 +238,17 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
             ))}
           </ol>
         </div>
-        <Show when={showTocScrollHint()}>
-          <div class="trauma-toc-scroll-spotlight" aria-hidden="true" />
+        <Show when={tocScrollState().canScrollUp}>
+          <div
+            class="trauma-toc-scroll-fade trauma-toc-scroll-fade-top"
+            aria-hidden="true"
+          />
+        </Show>
+        <Show when={tocScrollState().canScrollDown}>
+          <div
+            class="trauma-toc-scroll-fade trauma-toc-scroll-fade-bottom"
+            aria-hidden="true"
+          />
         </Show>
       </nav>
     </Show>

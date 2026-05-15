@@ -325,20 +325,23 @@ describe("refined app shell contract", () => {
     expect(tailwindCss).toContain("background-color: transparent");
   });
 
-  it("keeps the reader TOC overflow spotlight shadow neutral black", () => {
-    const spotlightStart = tailwindCss.indexOf(".trauma-toc-scroll-spotlight");
+  it("keeps the reader TOC overflow fades as subtle neutral blur overlays", () => {
+    const fadeStart = tailwindCss.indexOf(".trauma-toc-scroll-fade");
     const nextRuleStart = tailwindCss.indexOf(
       ':root[data-theme^="paper"] .trauma-paper-wax-seal',
-      spotlightStart,
+      fadeStart,
     );
 
-    expect(spotlightStart).toBeGreaterThan(-1);
-    expect(nextRuleStart).toBeGreaterThan(spotlightStart);
+    expect(fadeStart).toBeGreaterThan(-1);
+    expect(nextRuleStart).toBeGreaterThan(fadeStart);
 
-    const spotlightRule = tailwindCss.slice(spotlightStart, nextRuleStart);
+    const fadeRule = tailwindCss.slice(fadeStart, nextRuleStart);
 
-    expect(spotlightRule).toContain("rgb(0 0 0 /");
-    expect(spotlightRule).not.toContain("var(--accent)");
+    expect(fadeRule).toContain("backdrop-filter: blur(");
+    expect(fadeRule).toContain("rgb(0 0 0 /");
+    expect(fadeRule).not.toContain("box-shadow");
+    expect(fadeRule).not.toContain("radial-gradient");
+    expect(fadeRule).not.toContain("var(--accent)");
   });
 
   it("keeps paper-mode shell panes transparent over the global material background", () => {

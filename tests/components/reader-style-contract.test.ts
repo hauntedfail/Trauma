@@ -46,32 +46,40 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("overscroll-contain");
   });
 
-  it("shows a subtle bottom spotlight when the reader TOC can scroll further", () => {
-    expect(readerSource).toContain("showTocScrollHint");
+  it("shows subtle top and bottom blur fades only when the reader TOC can scroll in that direction", () => {
+    expect(readerSource).toContain("tocScrollState");
     expect(readerSource).toContain("updateTocScrollHint");
     expect(readerSource).toContain("scrollHeight");
     expect(readerSource).toContain("clientHeight");
     expect(readerSource).toContain("scrollTop");
+    expect(readerSource).toContain("canScrollUp");
+    expect(readerSource).toContain("canScrollDown");
     expect(readerSource).toContain("trauma-toc-scroll-shell");
-    expect(readerSource).toContain("trauma-toc-scroll-spotlight");
+    expect(readerSource).toContain("trauma-toc-scroll-fade");
+    expect(readerSource).toContain("trauma-toc-scroll-fade-top");
+    expect(readerSource).toContain("trauma-toc-scroll-fade-bottom");
     expect(readerSource).toContain(
       "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
     );
     expect(readerSource).toContain('class="trauma-toc-scroll-shell"');
     expect(readerSource).not.toContain('class="trauma-toc-scroll-shell relative"');
     expect(readerSource).toContain("onScroll={updateTocScrollHint}");
-    expect(tailwindSource).toContain(".trauma-toc-scroll-spotlight");
-    expect(tailwindSource).toContain("radial-gradient(ellipse at 50% 100%");
+    expect(tailwindSource).toContain(".trauma-toc-scroll-fade");
+    expect(tailwindSource).toContain(".trauma-toc-scroll-fade-top");
+    expect(tailwindSource).toContain(".trauma-toc-scroll-fade-bottom");
+    expect(tailwindSource).toContain("backdrop-filter: blur(");
 
-    const spotlightStart = tailwindSource.indexOf(".trauma-toc-scroll-spotlight");
+    const fadeStart = tailwindSource.indexOf(".trauma-toc-scroll-fade");
     const nextRuleStart = tailwindSource.indexOf(
       ':root[data-theme^="paper"] .trauma-paper-wax-seal',
-      spotlightStart,
+      fadeStart,
     );
-    const spotlightRule = tailwindSource.slice(spotlightStart, nextRuleStart);
+    const fadeRule = tailwindSource.slice(fadeStart, nextRuleStart);
 
-    expect(spotlightRule).toContain("rgb(0 0 0 /");
-    expect(spotlightRule).not.toContain("var(--accent)");
+    expect(fadeRule).toContain("rgb(0 0 0 /");
+    expect(fadeRule).not.toContain("box-shadow");
+    expect(fadeRule).not.toContain("radial-gradient");
+    expect(fadeRule).not.toContain("var(--accent)");
   });
 
   it("gives linked highlight anchors a target-specific contrast treatment", () => {
