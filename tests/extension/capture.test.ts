@@ -68,6 +68,51 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).not.toContain("<button");
   });
 
+  it("preserves controlled HTTPS media while removing unsafe iframe forms", () => {
+    installPage({
+      href: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Captured Media Article</title></head>
+          <body>
+            <article>
+              <h1>Captured Media Article</h1>
+              <p>Readable media paragraph.</p>
+              <img src="https://pbs.twimg.com/media/photo.jpg" alt="tweet image" onclick="evil()">
+              <img src="http://cdn.example.net/http.jpg" alt="http image">
+              <iframe src="https://embed.example.net/player" title="Video" onclick="evil()" allow="camera" width="640" height="360"></iframe>
+              <iframe src="https://embed.example.net/inline" title="Inline" srcdoc="<p>inline</p>"></iframe>
+              <iframe src="http://embed.example.net/player" title="HTTP"></iframe>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleHtml).toContain(
+      'src="https://pbs.twimg.com/media/photo.jpg"',
+    );
+    expect(result.snapshot.articleHtml).toContain(
+      'src="https://embed.example.net/player"',
+    );
+    expect(result.snapshot.articleHtml).toContain('loading="lazy"');
+    expect(result.snapshot.articleHtml).toContain('referrerpolicy="no-referrer"');
+    expect(result.snapshot.articleHtml).toContain(
+      'sandbox="allow-scripts allow-same-origin allow-presentation"',
+    );
+    expect(result.snapshot.articleHtml).not.toContain("onclick");
+    expect(result.snapshot.articleHtml).not.toContain("allow=\"camera\"");
+    expect(result.snapshot.articleHtml).not.toContain("http.jpg");
+    expect(result.snapshot.articleHtml).not.toContain("srcdoc");
+    expect(result.snapshot.articleHtml).not.toContain("Inline");
+    expect(result.snapshot.articleHtml).not.toContain("HTTP");
+  });
+
   it("uses site-specific selectors against open shadow roots in the live document", () => {
     installPage({
       href: "https://openai.com/ja-JP/index/harness-engineering/",

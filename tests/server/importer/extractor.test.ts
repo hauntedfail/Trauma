@@ -91,6 +91,76 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.markdown).not.toContain("![pixel]");
   });
 
+  it("preserves cross-host HTTPS article images without relaxing links", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/posts/importable",
+      html: `<!doctype html>
+        <html>
+          <head><title>Cross Host Media Article</title></head>
+          <body>
+            <article>
+              <h1>Cross Host Media Article</h1>
+              <p>This article has enough readable words to preserve cross host article media without changing clickable link policy.</p>
+              <p><a href="https://cdn.example.net/page">cross host link</a></p>
+              <img src="https://pbs.twimg.com/media/photo.jpg" alt="tweet image">
+              <picture>
+                <source srcset="https://miro.medium.com/v2/resize:fit:960/format:webp/image.webp 960w" type="image/webp">
+                <img src="https://miro.medium.com/v2/resize:fit:960/image.jpg" alt="medium image">
+              </picture>
+              <img src="http://cdn.example.net/http.jpg" alt="http image">
+              <img src="data:image/png;base64,abc" alt="data image">
+              <img src="https://token:secret@cdn.example.net/private.jpg" alt="userinfo image">
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain(
+      "![tweet image](https://pbs.twimg.com/media/photo.jpg)",
+    );
+    expect(result.markdown).toContain("<picture>");
+    expect(result.markdown).toContain("https://miro.medium.com/v2/resize");
+    expect(result.markdown).toContain("cross host link");
+    expect(result.markdown).not.toContain("https://cdn.example.net/page");
+    expect(result.markdown).not.toContain("http image");
+    expect(result.markdown).not.toContain("data image");
+    expect(result.markdown).not.toContain("userinfo image");
+    expect(result.markdown).not.toContain("token:secret");
+  });
+
+  it("preserves controlled HTTPS iframes while stripping unsafe embed forms", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/posts/importable",
+      html: `<!doctype html>
+        <html>
+          <head><title>Iframe Media Article</title></head>
+          <body>
+            <article>
+              <h1>Iframe Media Article</h1>
+              <p>This article has enough readable words to preserve controlled iframe embeds without accepting inline iframe HTML.</p>
+              <iframe src="https://embed.example.net/player" title="Playable embed" onclick="evil()" srcdoc="<p>ignore</p>"></iframe>
+              <iframe src="https://embed.example.net/player" title="Playable embed" allow="camera" width="640" height="360"></iframe>
+              <iframe src="http://embed.example.net/player" title="HTTP embed"></iframe>
+              <iframe src="https://localhost/player" title="Local embed"></iframe>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain("https://embed.example.net/player");
+    expect(result.markdown).toContain('title="Playable embed"');
+    expect(result.markdown).toContain('loading="lazy"');
+    expect(result.markdown).toContain('referrerpolicy="no-referrer"');
+    expect(result.markdown).toContain(
+      'sandbox="allow-scripts allow-same-origin allow-presentation"',
+    );
+    expect(result.markdown).not.toContain("onclick");
+    expect(result.markdown).not.toContain("srcdoc");
+    expect(result.markdown).not.toContain("allow=\"camera\"");
+    expect(result.markdown).not.toContain("HTTP embed");
+    expect(result.markdown).not.toContain("Local embed");
+  });
+
   it("preserves safe responsive image variants from extracted HTML", async () => {
     const result = await extractArticleWithDefuddle({
       pageUrl: "https://example.com/article",

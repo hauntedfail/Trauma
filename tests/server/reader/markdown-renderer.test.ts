@@ -67,25 +67,32 @@ describe("renderMemoryMarkdown", () => {
     );
   });
 
-  it("allows only controlled external embeds", () => {
+  it("allows controlled HTTPS iframes through the shared reader policy", () => {
     const result = renderMemoryMarkdown([
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video" referrerpolicy="unsafe-url"></iframe>',
-      '<iframe src="https://player.vimeo.com/video/123" title="Allowed Vimeo" allow="camera; microphone; geolocation; clipboard-write"></iframe>',
-      '<iframe src="https://evil.example/embed" title="Blocked video"></iframe>',
+      '<iframe src="https://embed.example.test/player" title="Allowed video" referrerpolicy="unsafe-url" sandbox="allow-forms" onclick="evil()" width="640" height="360"></iframe>',
+      '<iframe src="http://embed.example.test/player" title="HTTP blocked"></iframe>',
+      '<iframe src="https://localhost/player" title="Local blocked"></iframe>',
+      '<iframe srcdoc="<p>inline</p>" src="https://embed.example.test/inline" title="Srcdoc blocked"></iframe>',
     ].join("\n"));
 
     expect(result.html).toContain(
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video"',
+      '<iframe src="https://embed.example.test/player" title="Allowed video"',
     );
+    expect(result.html).toContain('width="640"');
+    expect(result.html).toContain('height="360"');
+    expect(result.html).toContain(
+      'sandbox="allow-scripts allow-same-origin allow-presentation"',
+    );
+    expect(result.html).toContain('loading="lazy"');
     expect(result.html).toContain('referrerpolicy="no-referrer"');
     expect(result.html).not.toContain('referrerpolicy="unsafe-url"');
-    expect(result.html).not.toContain("camera");
-    expect(result.html).not.toContain("microphone");
-    expect(result.html).not.toContain("geolocation");
-    expect(result.html).not.toContain("clipboard-write");
+    expect(result.html).not.toContain("onclick");
+    expect(result.html).not.toContain("allow-forms");
     expect(result.html).not.toContain(" allow=");
-    expect(result.html).not.toContain("evil.example");
-    expect(result.html).not.toContain("Blocked video");
+    expect(result.html).not.toContain("http://embed.example.test");
+    expect(result.html).not.toContain("localhost");
+    expect(result.html).not.toContain("srcdoc");
+    expect(result.html).not.toContain("Srcdoc blocked");
   });
 
   it("preserves sanitized responsive image markup", () => {

@@ -386,7 +386,7 @@ describe("URL importer", () => {
                 <p><a href="https://token:secret@example.com/private">credential link</a></p>
                 <p><a href="https://assets.internal.example/private">private DNS link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
-                <p><img src="https://images.internal.example/pixel.png" alt="private DNS image"></p>
+                <p><img src="https://localhost/pixel.png" alt="local image"></p>
               </article>
             </body>
           </html>`,
@@ -424,8 +424,8 @@ describe("URL importer", () => {
     );
     expect(result.markdown).toContain("private DNS link");
     expect(result.markdown).not.toContain("assets.internal.example");
-    expect(result.markdown).not.toContain("private DNS image");
-    expect(result.markdown).not.toContain("images.internal.example");
+    expect(result.markdown).not.toContain("local image");
+    expect(result.markdown).not.toContain("localhost/pixel.png");
     expect(result.markdown).not.toContain("token:secret");
     expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).not.toContain("&#38;");

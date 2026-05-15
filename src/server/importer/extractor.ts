@@ -1,7 +1,12 @@
 import { Defuddle, type DefuddleResponse } from "defuddle/node";
 import { parseHTML } from "linkedom";
 
-import { isBlockedHostname, normalizeHostname } from "./host-policy";
+import {
+  READER_IFRAME_SANDBOX,
+  resolveSafeIframeUrl,
+  resolveSafeImageUrl,
+  resolveTrustedDisplayUrl,
+} from "../media-policy";
 
 export interface ExtractArticleInput {
   html: string;
@@ -90,7 +95,7 @@ function normalizeNullableMetadataText(value: string) {
 
 function normalizeNullableDisplayUrl(pageUrl: string, value: string) {
   const normalized = value.trim();
-  return normalized.length > 0 ? resolveSafeDisplayUrl(pageUrl, normalized) : null;
+  return normalized.length > 0 ? resolveSafeImageUrl(pageUrl, normalized) : null;
 }
 
 function normalizeContent(value: string) {
@@ -135,6 +140,13 @@ function htmlFragmentToMarkdown(
       : "";
   });
 
+  content = content.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, (tag) => {
+    const iframeMarkup = iframeHtmlToMarkup(tag, pageUrl);
+    return iframeMarkup !== null
+      ? `\n${protectGeneratedMarkdown(iframeMarkup)}\n`
+      : "";
+  });
+
   content = content.replace(/<img\b[^>]*>/gi, (tag) => {
     const src = readHtmlAttribute(tag, "src");
     if (!src) {
@@ -142,7 +154,7 @@ function htmlFragmentToMarkdown(
     }
 
     const alt = readHtmlAttribute(tag, "alt") ?? "";
-    const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+    const resolvedSrc = resolveSafeImageUrl(pageUrl, src);
     if (!resolvedSrc) {
       return "";
     }
@@ -165,7 +177,7 @@ function htmlFragmentToMarkdown(
         return "";
       }
 
-      const resolvedHref = resolveSafeDisplayUrl(pageUrl, href);
+      const resolvedHref = resolveTrustedDisplayUrl(pageUrl, href);
       if (!resolvedHref) {
         return label;
       }
@@ -256,7 +268,7 @@ function collectPictureDisplayUrls(html: string, pageUrl: string) {
   for (const tag of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
     const src = readHtmlAttribute(tag[0], "src");
     if (src !== null) {
-      const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+      const resolvedSrc = resolveSafeImageUrl(pageUrl, src);
       if (resolvedSrc !== null) {
         urls.add(resolvedSrc);
       }
@@ -280,7 +292,7 @@ function collectSourceSetUrls(pageUrl: string, value: string | null) {
     .split(",")
     .map((candidate) => {
       const [rawUrl] = candidate.trim().split(/\s+/).filter(Boolean);
-      return rawUrl === undefined ? null : resolveSafeDisplayUrl(pageUrl, rawUrl);
+      return rawUrl === undefined ? null : resolveSafeImageUrl(pageUrl, rawUrl);
     })
     .filter((url): url is string => url !== null);
 }
@@ -318,7 +330,7 @@ function pictureHtmlToMarkdownImage(html: string, pageUrl: string) {
     return null;
   }
 
-  const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+  const resolvedSrc = resolveSafeImageUrl(pageUrl, src);
   if (resolvedSrc === null) {
     return null;
   }
@@ -350,7 +362,7 @@ function imageHtmlToResponsiveMarkup(tag: string, pageUrl: string) {
     return null;
   }
 
-  const resolvedSrc = resolveSafeDisplayUrl(pageUrl, src);
+  const resolvedSrc = resolveSafeImageUrl(pageUrl, src);
   if (resolvedSrc === null) {
     return null;
   }
@@ -368,6 +380,34 @@ function imageHtmlToResponsiveMarkup(tag: string, pageUrl: string) {
     }),
     srcset,
   };
+}
+
+function iframeHtmlToMarkup(tag: string, pageUrl: string) {
+  if (readHtmlAttribute(tag, "srcdoc") !== null) {
+    return null;
+  }
+
+  const src = readHtmlAttribute(tag, "src");
+  if (src === null) {
+    return null;
+  }
+
+  const resolvedSrc = resolveSafeIframeUrl(pageUrl, src);
+  if (resolvedSrc === null) {
+    return null;
+  }
+
+  return formatHtmlElement("iframe", {
+    allowfullscreen:
+      readHtmlAttribute(tag, "allowfullscreen") !== null ? "true" : null,
+    height: sanitizeDimension(readHtmlAttribute(tag, "height")),
+    loading: "lazy",
+    referrerpolicy: "no-referrer",
+    sandbox: READER_IFRAME_SANDBOX,
+    src: resolvedSrc,
+    title: decodeHtmlEntities(readHtmlAttribute(tag, "title") ?? ""),
+    width: sanitizeDimension(readHtmlAttribute(tag, "width")),
+  });
 }
 
 function sanitizeSourceSetForPage(pageUrl: string, value: string | null) {
@@ -391,7 +431,7 @@ function sanitizeSourceSetCandidateForPage(pageUrl: string, value: string) {
     return null;
   }
 
-  const resolvedUrl = resolveSafeDisplayUrl(pageUrl, rawUrl);
+  const resolvedUrl = resolveSafeImageUrl(pageUrl, rawUrl);
   if (resolvedUrl === null) {
     return null;
   }
@@ -418,6 +458,18 @@ function formatHtmlVoidElement(
     .map(([name, value]) => `${name}="${escapeHtmlAttribute(value)}"`);
 
   return `<${tagName}${formattedAttrs.length > 0 ? ` ${formattedAttrs.join(" ")}` : ""}>`;
+}
+
+function formatHtmlElement(tagName: "iframe", attrs: Record<string, string | null>) {
+  const formattedAttrs = Object.entries(attrs)
+    .filter((entry): entry is [string, string] => entry[1] !== null && entry[1] !== "")
+    .map(([name, value]) => `${name}="${escapeHtmlAttribute(value)}"`);
+
+  return `<${tagName}${formattedAttrs.length > 0 ? ` ${formattedAttrs.join(" ")}` : ""}></${tagName}>`;
+}
+
+function sanitizeDimension(value: string | null) {
+  return value !== null && /^\d{1,5}$/.test(value) ? value : null;
 }
 
 function escapeHtmlAttribute(value: string) {
@@ -511,39 +563,6 @@ function restoreGeneratedMarkdown(
 
   output += escapeMarkdownPlainText(value.slice(lastIndex));
   return output;
-}
-
-function resolveSafeDisplayUrl(pageUrl: string, value: string) {
-  try {
-    const parsed = new URL(decodeHtmlEntities(value), pageUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-
-    if (isBlockedHostname(parsed.hostname)) {
-      return null;
-    }
-
-    if (!isTrustedDisplayHostname(pageUrl, parsed.hostname)) {
-      return null;
-    }
-
-    parsed.username = "";
-    parsed.password = "";
-
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
-function isTrustedDisplayHostname(pageUrl: string, hostname: string) {
-  const normalizedHostname = normalizeHostname(hostname);
-  try {
-    return normalizedHostname === normalizeHostname(new URL(pageUrl).hostname);
-  } catch {
-    return false;
-  }
 }
 
 function formatMarkdownDestination(url: string) {

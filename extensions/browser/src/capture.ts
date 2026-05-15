@@ -11,7 +11,6 @@ const REMOVED_SELECTORS = [
   "style",
   "noscript",
   "template",
-  "iframe",
   "object",
   "embed",
   "canvas",
@@ -32,6 +31,8 @@ const SITE_SPECIFIC_SELECTORS = [
 
 const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
 const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
+const CAPTURE_IFRAME_SANDBOX =
+  "allow-scripts allow-same-origin allow-presentation";
 
 export function createCapturedTabSnapshot(
   extensionVersion: string,
@@ -274,6 +275,16 @@ function sanitizeElement(root: Element) {
       continue;
     }
 
+    if (element.localName.toLowerCase() === "iframe" && !sanitizeIframeElement(element)) {
+      element.remove();
+      continue;
+    }
+
+    if (element.localName.toLowerCase() === "img" && !sanitizeImageElement(element)) {
+      element.remove();
+      continue;
+    }
+
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || name === "srcdoc") {
@@ -287,6 +298,106 @@ function sanitizeElement(root: Element) {
 
 function isRemovedElement(element: Element) {
   return REMOVED_SELECTORS.includes(element.localName.toLowerCase());
+}
+
+function sanitizeIframeElement(element: Element) {
+  if (element.getAttribute("srcdoc") !== null) {
+    return false;
+  }
+
+  const src = resolveCaptureMediaUrl(element.getAttribute("src"));
+  if (src === null) {
+    return false;
+  }
+
+  const title = element.getAttribute("title");
+  const width = sanitizeDimension(element.getAttribute("width"));
+  const height = sanitizeDimension(element.getAttribute("height"));
+  const allowfullscreen = element.getAttribute("allowfullscreen") !== null;
+  clearAttributes(element);
+  element.setAttribute("src", src);
+  element.setAttribute("loading", "lazy");
+  element.setAttribute("referrerpolicy", "no-referrer");
+  element.setAttribute("sandbox", CAPTURE_IFRAME_SANDBOX);
+  if (title !== null && title.trim() !== "") {
+    element.setAttribute("title", title.trim());
+  }
+  if (width !== null) {
+    element.setAttribute("width", width);
+  }
+  if (height !== null) {
+    element.setAttribute("height", height);
+  }
+  if (allowfullscreen) {
+    element.setAttribute("allowfullscreen", "");
+  }
+
+  return true;
+}
+
+function sanitizeImageElement(element: Element) {
+  const src = resolveCaptureMediaUrl(element.getAttribute("src"));
+  if (src === null) {
+    return false;
+  }
+
+  element.setAttribute("src", src);
+  return true;
+}
+
+function clearAttributes(element: Element) {
+  for (const attribute of Array.from(element.attributes)) {
+    element.removeAttribute(attribute.name);
+  }
+}
+
+function resolveCaptureMediaUrl(value: string | null) {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const url = new URL(value, location.href);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      isBlockedCaptureHostname(url.hostname)
+    ) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeDimension(value: string | null) {
+  return value !== null && /^\d{1,5}$/.test(value) ? value : null;
+}
+
+function isBlockedCaptureHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  return (
+    normalized === "" ||
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".local") ||
+    isIpv4CaptureHostname(normalized) ||
+    normalized.includes(":")
+  );
+}
+
+function isIpv4CaptureHostname(hostname: string) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+    return false;
+  }
+
+  const octets = hostname.split(".").map((part) => Number.parseInt(part, 10));
+  return octets.every(
+    (octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255,
+  );
 }
 
 function readCanonicalUrl() {

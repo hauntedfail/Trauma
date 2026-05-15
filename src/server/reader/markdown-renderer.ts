@@ -4,6 +4,11 @@ import anchor from "markdown-it-anchor";
 import footnote from "markdown-it-footnote";
 import sanitizeHtml from "sanitize-html";
 
+import {
+  isSafeReaderIframeUrl,
+  READER_IFRAME_SANDBOX,
+} from "../media-policy";
+
 export interface ReaderTocEntry {
   id: string;
   level: number;
@@ -17,12 +22,6 @@ export interface RenderedMemoryMarkdown {
   html: string;
   toc: ReaderTocEntry[];
 }
-
-const ALLOWED_IFRAME_HOSTNAMES = new Set([
-  "player.vimeo.com",
-  "www.youtube-nocookie.com",
-  "www.youtube.com",
-]);
 
 export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
   const toc: ReaderTocEntry[] = [];
@@ -77,7 +76,12 @@ function highlightCode(code: string, language: string) {
 }
 
 function sanitizeReaderHtml(html: string) {
-  return sanitizeHtml(html, {
+  const htmlWithoutSrcdocIframes = html.replace(
+    /<iframe\b(?=[^>]*\ssrcdoc\s*=)[\s\S]*?<\/iframe>/gi,
+    "",
+  );
+
+  return sanitizeHtml(htmlWithoutSrcdocIframes, {
     allowedTags: [
       "a",
       "blockquote",
@@ -152,10 +156,13 @@ function sanitizeReaderHtml(html: string) {
       h6: ["id"],
       iframe: [
         "allowfullscreen",
+        "height",
         "loading",
         "referrerpolicy",
+        "sandbox",
         "src",
         "title",
+        "width",
       ],
       img: [
         "alt",
@@ -190,14 +197,15 @@ function sanitizeReaderHtml(html: string) {
       sup: ["footnote-ref"],
       ul: ["contains-task-list"],
     },
-    allowedIframeHostnames: [...ALLOWED_IFRAME_HOSTNAMES],
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: {
       img: ["http", "https"],
     },
     allowProtocolRelative: false,
     exclusiveFilter: (frame) =>
-      (frame.tag === "iframe" && !isAllowedIframeSource(frame.attribs.src)) ||
+      (frame.tag === "iframe" &&
+        (frame.attribs.srcdoc !== undefined ||
+          !isSafeReaderIframeUrl(frame.attribs.src))) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: sanitizeAnchor,
@@ -305,13 +313,27 @@ function sanitizeAnchor(_tagName: string, attribs: sanitizeHtml.Attributes) {
 }
 
 function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const { allow: _allow, ...safeAttribs } = attribs;
+  const {
+    allow: _allow,
+    height,
+    referrerpolicy: _referrerpolicy,
+    sandbox: _sandbox,
+    width,
+    ...safeAttribs
+  } = attribs;
   return {
     tagName: "iframe",
     attribs: {
       ...safeAttribs,
-      loading: attribs.loading ?? "lazy",
+      ...(sanitizeDimension(width) !== undefined
+        ? { width: sanitizeDimension(width) }
+        : {}),
+      ...(sanitizeDimension(height) !== undefined
+        ? { height: sanitizeDimension(height) }
+        : {}),
+      loading: "lazy",
       referrerpolicy: "no-referrer",
+      sandbox: READER_IFRAME_SANDBOX,
     },
   };
 }
@@ -369,6 +391,10 @@ function sanitizeSourceSet(value: string | undefined): string | undefined {
     .filter((candidate): candidate is string => candidate !== undefined);
 
   return candidates.length > 0 ? candidates.join(", ") : undefined;
+}
+
+function sanitizeDimension(value: string | undefined): string | undefined {
+  return value !== undefined && /^\d{1,5}$/.test(value) ? value : undefined;
 }
 
 function sanitizeSourceSetCandidate(value: string): string | undefined {
@@ -431,23 +457,6 @@ function sanitizeHighlightMark(
       id: highlightId,
     },
   };
-}
-
-function isAllowedIframeSource(src: string | undefined) {
-  if (src === undefined) {
-    return false;
-  }
-
-  try {
-    const url = new URL(src);
-    return (
-      url.protocol === "https:" &&
-      ALLOWED_IFRAME_HOSTNAMES.has(url.hostname) &&
-      (url.pathname.startsWith("/embed/") || url.hostname === "player.vimeo.com")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function readHeadingLevel(tag: string) {
