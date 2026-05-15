@@ -11,11 +11,14 @@ import {
   renderMemoryMarkdown,
   type RenderedMemoryMarkdown,
 } from "./markdown-renderer";
+import { renderMarkdownWithHighlightRecords } from "../highlights/toggle";
 
 type MemoryRow = typeof schema.memories.$inferSelect;
 type CategoryRow = typeof schema.categories.$inferSelect;
 type TagRow = typeof schema.tags.$inferSelect;
+type HighlightRow = typeof schema.highlights.$inferSelect;
 type ReaderMemoryRow = MemoryRow & {
+  highlights: HighlightRow[];
   memoryCategories: { category: CategoryRow }[];
   memoryTags: { tag: TagRow }[];
 };
@@ -45,6 +48,7 @@ export interface ReaderMemory {
   read: boolean;
   categories: ReaderTaxonomyItem[];
   tags: ReaderTaxonomyItem[];
+  highlights: ReaderHighlightItem[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +56,16 @@ export interface ReaderMemory {
 export interface ReaderTaxonomyItem {
   id: string;
   name: string;
+}
+
+export interface ReaderHighlightItem {
+  id: string;
+  text: string;
+  prefix: string;
+  suffix: string;
+  startOffset: number;
+  endOffset: number;
+  createdAt: string;
 }
 
 export interface LoadReaderMemoryOptions {
@@ -70,6 +84,7 @@ export async function loadReaderMemory(
     const memory = await connection.db.query.memories.findFirst({
       where: eq(schema.memories.id, memoryId),
       with: {
+        highlights: true,
         memoryCategories: {
           with: {
             category: true,
@@ -96,7 +111,9 @@ export async function loadReaderMemory(
       content: {
         relativePath: content.relativePath,
       },
-      rendered: renderMemoryMarkdown(content.markdown),
+      rendered: renderMemoryMarkdown(
+        renderMarkdownWithHighlightRecords(content.markdown, memory.highlights),
+      ),
     };
   } catch (error) {
     if (
@@ -142,6 +159,15 @@ function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
     tags: memory.memoryTags.map(({ tag }) => ({
       id: tag.id,
       name: tag.name,
+    })),
+    highlights: memory.highlights.map((highlight) => ({
+      id: highlight.id,
+      text: highlight.text,
+      prefix: highlight.prefix,
+      suffix: highlight.suffix,
+      startOffset: highlight.startOffset,
+      endOffset: highlight.endOffset,
+      createdAt: highlight.createdAt.toISOString(),
     })),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,

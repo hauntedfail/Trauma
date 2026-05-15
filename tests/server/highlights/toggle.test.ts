@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("toggleMemoryHighlight", () => {
-  it("persists highlight toggles to SQLite, CONTENT.md, and backup enqueue", () => {
+  it("persists highlight toggles to SQLite without mutating CONTENT.md", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-highlight-toggle-"));
     const output = runBunScript(
       `
@@ -196,14 +196,15 @@ describe("toggleMemoryHighlight", () => {
         end_offset: 59,
       },
     ]);
+    expect(result.fileAfterCreate).not.toContain("<mark data-highlight-id");
     expect(result.fileAfterCreate).toContain(
-      'Beta <mark data-highlight-id="highlight-created">target</mark> appears',
+      "Beta target appears in the detail paragraph.",
     );
     expect(result.removed.operation).toBe("unhighlighted");
     expect(result.fileAfterRemove).not.toContain("<mark data-highlight-id");
     expect(result.rowsAfterRemove).toEqual([]);
-    expect(result.enqueuedWithMarkedContent).toEqual([true, false]);
-    expect(result.memory).toEqual({ backup_status: "queued" });
+    expect(result.enqueuedWithMarkedContent).toEqual([]);
+    expect(result.memory).toEqual({ backup_status: "pending" });
     expect(result.staleError).toEqual({
       name: "HighlightToggleError",
       code: "stale_selection",

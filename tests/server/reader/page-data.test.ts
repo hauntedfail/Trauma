@@ -18,7 +18,7 @@ describe("loadReaderMemory", () => {
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,
-      markdown: "# Fixture Reader\n\nA saved <mark data-highlight-id=\"hl-1\">highlight</mark>.",
+      markdown: "# Fixture Reader\n\nA saved highlight.",
     });
 
     expect(result.status).toBe("ready");
@@ -27,6 +27,17 @@ describe("loadReaderMemory", () => {
     expect(result.memory.read).toBe(false);
     expect(result.memory.categories).toEqual([{ id: "reader-category", name: "Reader" }]);
     expect(result.memory.tags).toEqual([{ id: "reader-tag", name: "reader" }]);
+    expect(result.memory.highlights).toEqual([
+      {
+        id: "hl-1",
+        text: "highlight",
+        prefix: "A saved ",
+        suffix: ".",
+        startOffset: 26,
+        endOffset: 35,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
     expect(result.content).toEqual({
       relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
     });
@@ -169,6 +180,20 @@ function runReaderFixture(input: {
           createdAt: new Date("2026-05-09T00:00:00.000Z"),
           updatedAt: new Date("2026-05-09T00:00:00.000Z"),
         });
+        const highlightStartOffset = markdown.indexOf("highlight");
+        if (highlightStartOffset >= 0) {
+          await connection.db.insert(schema.highlights).values({
+            id: "hl-1",
+            memoryId,
+            text: "highlight",
+            prefix: "A saved ",
+            suffix: ".",
+            startOffset: highlightStartOffset,
+            endOffset: highlightStartOffset + "highlight".length,
+            createdAt: new Date("2026-05-09T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+          });
+        }
       } finally {
         connection.close();
       }

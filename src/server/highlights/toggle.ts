@@ -12,11 +12,11 @@ import {
   readRenderedMarkdownRangeContext,
   resolveHighlightSelection,
   stripHighlightMarkers,
+  type HighlightMarkerRange,
   type HighlightSelectionInput,
 } from "../store/highlight-markers";
 import {
   readMemoryContent,
-  writeMemoryContent,
 } from "../store/memory-content";
 import {
   addHighlightCoverage,
@@ -137,34 +137,7 @@ async function toggleMemoryHighlightUnlocked(
     now,
     ranges: nextRanges,
   });
-  const markedMarkdown = applyHighlightMarkers(content.markdown, nextHighlights);
-
-  await writeMemoryContent({
-    config: { storePath: input.config.storePath },
-    memoryId: input.memoryId,
-    frontmatter: content.frontmatter,
-    markdown: markedMarkdown,
-  });
-
-  try {
-    await repositories.highlights.replaceForMemory(input.memoryId, nextHighlights);
-  } catch (error) {
-    await restorePreviousContent({
-      config: input.config,
-      content,
-      memoryId: input.memoryId,
-    });
-    throw error;
-  }
-
-  await enqueueBackup({
-    backupQueue: input.backupQueue,
-    contentPath: content.relativePath,
-    memoryId: input.memoryId,
-    now,
-    repositories,
-    shouldEnqueue: input.config.backup.git.enabled,
-  });
+  await repositories.highlights.replaceForMemory(input.memoryId, nextHighlights);
 
   return {
     operation: resultOperation,
@@ -255,63 +228,9 @@ function buildHighlightRows(input: {
   });
 }
 
-async function restorePreviousContent(input: {
-  config: ResolvedTraumaConfig;
-  content: Awaited<ReturnType<typeof readMemoryContent>>;
-  memoryId: string;
-}): Promise<void> {
-  try {
-    await writeMemoryContent({
-      config: { storePath: input.config.storePath },
-      memoryId: input.memoryId,
-      frontmatter: input.content.frontmatter,
-      markdown: input.content.markdown,
-    });
-  } catch {
-    // The database remains canonical. If restore fails, surface the original
-    // database error while leaving the attempted content repair best-effort.
-  }
-}
-
-async function enqueueBackup(input: {
-  backupQueue: MemoryBackupQueue;
-  contentPath: string;
-  memoryId: string;
-  now: Date;
-  repositories: ReturnType<typeof createRepositories>;
-  shouldEnqueue: boolean;
-}): Promise<void> {
-  if (!input.shouldEnqueue) {
-    return;
-  }
-
-  try {
-    const queued = await input.backupQueue.enqueue({
-      memoryId: input.memoryId,
-      contentPath: input.contentPath,
-    });
-    await input.repositories.memories.updateBackupStatus({
-      id: input.memoryId,
-      backupStatus: queued.backupStatus,
-      lastBackupAt: null,
-      lastBackupError: null,
-      updatedAt: input.now,
-    });
-  } catch (error) {
-    try {
-      await input.repositories.memories.updateBackupStatus({
-        id: input.memoryId,
-        backupStatus: "failed",
-        lastBackupAt: null,
-        lastBackupError: formatUnknownError(error),
-        updatedAt: input.now,
-      });
-    } catch {
-      // Highlight persistence succeeded; backup status is best effort here.
-    }
-  }
-}
-
-function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+export function renderMarkdownWithHighlightRecords(
+  markdown: string,
+  highlights: HighlightMarkerRange[],
+): string {
+  return applyHighlightMarkers(markdown, highlights);
 }

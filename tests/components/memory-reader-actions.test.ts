@@ -23,6 +23,17 @@ const readyResult = {
     read: true,
     categories: [{ id: "category-reader", name: "Reader" }],
     tags: [{ id: "tag-solid", name: "solid" }],
+    highlights: [
+      {
+        id: "highlight-1",
+        text: "highlight",
+        prefix: "A ",
+        suffix: ".",
+        startOffset: 2,
+        endOffset: 11,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ],
     createdAt: new Date("2026-05-09T00:00:00.000Z"),
     updatedAt: new Date("2026-05-09T00:00:00.000Z"),
   },
@@ -55,6 +66,7 @@ describe("memory reader actions", () => {
       memory: {
         ...readyResult.memory,
         categories: [],
+        highlights: [],
         tags: [],
       },
     });
@@ -138,7 +150,11 @@ function renderReader(result: ReaderMemoryResult): string {
         setRightRailContent,
       },
       get children() {
-        return createComponent(MemoryReader, { navigate: () => {}, result });
+        return createComponent(MemoryReader, {
+          highlightRows: [],
+          navigate: () => {},
+          result,
+        });
       },
     });
   });
