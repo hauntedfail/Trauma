@@ -1,7 +1,13 @@
-# TRAUMA
-
-TRAUMA is a personal bookmark management app. The product language uses
-`memory` for one saved bookmark and `memories` for the collection.
+<div align="center">
+    <p align="center">
+        <img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
+    </p>
+    <h1>TRAUMA</h1>
+    <br/>
+    <p>TRAUMA is a personal bookmark management app. The product language uses
+`memory` for one saved bookmark and `memories` for the collection.</p>
+    <br/>
+</div>
 
 > <span style="color: #b7791f;">⚠️ Warning:</span> This is mostly a personal
 > project that I work on in the margins of another project, so please do not
