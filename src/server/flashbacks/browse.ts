@@ -9,7 +9,8 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   try {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    return connection.repositories.flashbacks.listForBrowse();
+    const rows = await connection.repositories.flashbacks.listForBrowse();
+    return rows;
   } finally {
     connection?.close();
   }

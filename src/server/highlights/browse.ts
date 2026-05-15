@@ -30,7 +30,8 @@ export async function loadHighlightBrowseRows(): Promise<HighlightBrowseRow[]> {
   try {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    return connection.repositories.highlights.listForBrowse();
+    const rows = await connection.repositories.highlights.listForBrowse();
+    return rows;
   } finally {
     connection?.close();
   }
