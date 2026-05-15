@@ -59,7 +59,7 @@ The app supports four themes:
 | sun + normal | `light` | `warm-light` | sans |
 | night + normal | `midnight` | `black-dark` | sans |
 | sun + paper | `paper` | `paper-warm-light` | serif |
-| night + paper | `Hermès` | `paper-black-dark` | serif |
+| night + paper | `hermes` | `paper-black-dark` | serif |
 
 Defaults:
 
@@ -94,7 +94,7 @@ Current base/surface values:
 | `midnight` | `black-dark` | `#000000` |
 | `light` | `warm-light` | `#f6f7f4` |
 | `paper` | `paper-warm-light` | `#ece2cc` |
-| `Hermès` | `paper-black-dark` | `#211307` |
+| `hermes` | `paper-black-dark` | `#211307` |
 
 `--bg-elev`, `--bg-sunken`, and `--bg-tint` remain distinct so controls,
 selected states, popovers, right rail islands, theme toggles, and hover states
