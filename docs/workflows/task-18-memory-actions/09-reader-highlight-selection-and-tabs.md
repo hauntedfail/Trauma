@@ -149,6 +149,21 @@ If existing code currently writes highlight marks back into markdown:
 - Render highlight marks at read time by applying records to canonical reader text/HTML.
 - Keep any markdown-marker utilities only if needed for migration, tests, or legacy compatibility.
 
+Backup/export requirement:
+
+- Do not rely on `CONTENT.md` mutation as the backup representation for new highlights.
+- If the built-in git backup does not back up SQLite, add a metadata backup/export
+  path for highlight rows before removing markdown marker writes from the normal
+  highlight flow.
+- The backup representation must be deterministic and restorable enough to
+  preserve highlight records, including `memoryId`, `text`, offsets, guard
+  context, and `contentHash`.
+- Prefer a small metadata export file under the memory's backup scope, or a
+  documented backup job that serializes highlight metadata with tests.
+- If highlight metadata backup is intentionally deferred, the implementation PR
+  must state the restore-risk explicitly and should not claim full backup
+  parity for SQLite-only highlights.
+
 ## API contract
 
 The existing highlight API may be reused, but its semantics must match explicit menu action.
@@ -163,7 +178,7 @@ Expected create/toggle payload:
   "endOffset": 133,
   "prefix": "before ",
   "suffix": " after",
-  "contentHash": "optional-canonical-text-hash"
+  "contentHash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
 
@@ -227,6 +242,8 @@ Persistence tests:
 - creating a highlight does not modify `CONTENT.md`
 - removing a highlight does not modify `CONTENT.md`
 - existing highlight rendering still works from SQLite rows
+- highlight metadata is exported or queued for backup when SQLite is not backed up directly
+- restore-risk is documented if metadata backup is deliberately deferred
 
 Record tests:
 

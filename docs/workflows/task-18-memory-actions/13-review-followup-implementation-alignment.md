@@ -133,9 +133,12 @@ Required behaviour:
 
 - If a real provider or stored auth record exists, enable may return enabled.
 - If no real provider exists, enable returns a clear not-configured response.
+- The canonical HTTP status for provider-missing `not_configured` is `409`.
 - Provider-missing enable attempts must leave auth status disabled.
 - Already-enabled requests remain idempotent and do not overwrite auth state.
 - API responses must never include secret material.
+- The service result type must represent `not_configured` explicitly as a normal
+  outcome, not as an exception and not as a fake enabled state.
 
 Implementation targets:
 
@@ -148,7 +151,8 @@ Implementation targets:
 
 Acceptance criteria:
 
-- Provider-missing enable does not create a cosmetic enabled row.
+- Provider-missing enable returns `409` with `not_configured` and does not
+  create a cosmetic enabled row.
 - Already-enabled enable returns the documented already-enabled response.
 - Delete auth clears only auth state.
 - Tests prove no secret material is returned.
@@ -226,6 +230,44 @@ Acceptance criteria:
 - `contentHash` uses `sha256:<hex>`.
 - Hash and offset calculations share one canonical text path.
 - Stale/hash-mismatched highlights are not rendered at the wrong occurrence.
+
+## 5a. Highlight metadata backup/export
+
+Problem:
+
+Task 18 makes highlight persistence SQLite-only and stops writing highlight
+markers into `CONTENT.md`. If the built-in git backup still backs up only
+Markdown content and not SQLite, new highlights can be lost on restore.
+
+Required behaviour:
+
+- Do not reintroduce `CONTENT.md` mutation as the normal highlight persistence
+  mechanism.
+- Add a backup/export strategy for highlight metadata when SQLite is not backed
+  up directly.
+- The backup representation must preserve enough data to restore highlight
+  records: `memoryId`, selected `text`, offsets, `prefix`, `suffix`,
+  `contentHash`, and timestamps where useful.
+- Prefer a deterministic metadata export under the memory backup scope, or a
+  backup job that serializes highlight metadata with tests.
+- If full metadata restore is intentionally deferred, the implementation PR must
+  state the restore-risk explicitly and must not claim full backup parity for
+  SQLite-only highlights.
+
+Implementation targets:
+
+- Highlight creation/removal service.
+- Backup queue/export layer.
+- Restore or import path if one exists.
+- Highlight backup/export tests.
+
+Acceptance criteria:
+
+- Creating/removing highlights does not modify `CONTENT.md`.
+- Highlight metadata is backed up/exported or the restore-risk is explicitly
+  documented in the PR.
+- Tests cover the chosen backup/export behaviour, or the PR records the
+  intentionally deferred risk.
 
 ## 6. Flashback server-side section validation
 

@@ -195,7 +195,7 @@ Responses:
 
 - `200` with `{ "status": "enabled", "alreadyEnabled": false }` after a successful enable operation
 - `200` with `{ "status": "enabled", "alreadyEnabled": true, "message": "OpenAI auth is already enabled." }` if already enabled
-- `409` or `503` with a clear `not_configured`-style response when auth cannot be enabled because a real provider/configuration is unavailable
+- `409` with a clear `not_configured` response when auth cannot be enabled because a real provider/configuration is unavailable
 
 Security rule:
 
@@ -271,6 +271,20 @@ enableOpenAiAuth(): Promise<{ status: "enabled"; alreadyEnabled: boolean }>
 deleteOpenAiAuth(): Promise<{ status: "disabled"; alreadyDisabled: boolean }>
 ```
 
+If a real auth provider is unavailable, the enable service must return an
+explicit non-exception result rather than throwing or faking enabled state:
+
+```ts
+enableOpenAiAuth(): Promise<
+  | { status: "enabled"; alreadyEnabled: boolean }
+  | { status: "disabled"; code: "not_configured"; message: string }
+>
+```
+
+The route maps `code: "not_configured"` to HTTP `409`. Do not use `503` for
+this provider-missing condition; reserve `503` for a distinct transient service
+outage if such a state is implemented later.
+
 Validation:
 
 - Shared supported-language guard.
@@ -288,7 +302,7 @@ Backend tests:
 - unsupported translation language is rejected
 - malformed translation body is rejected
 - OpenAI auth enable succeeds from disabled state only when a real provider or stored auth record is available
-- OpenAI auth enable from disabled state returns `not_configured` without enabling auth when no provider exists
+- OpenAI auth enable from disabled state returns `409` with `not_configured` without enabling auth when no provider exists
 - OpenAI auth enable while already enabled returns `alreadyEnabled: true`
 - OpenAI auth enable while already enabled does not overwrite auth state
 - OpenAI auth delete succeeds from enabled state
@@ -325,6 +339,6 @@ mise exec -- bun run typecheck
 - OpenAI auth disabled state shows clickable `Enable`.
 - OpenAI auth enabled state shows disabled `Enabled`, enabled hint text, and danger `Delete auth`.
 - Direct API enable requests while already enabled return a successful already-enabled response and do not mutate credential state.
-- If no real OpenAI auth provider exists, enable returns a clear not-configured response and does not fake enabled state.
+- If no real OpenAI auth provider exists, enable returns a clear `409` not-configured response and does not fake enabled state.
 - Deleting OpenAI auth removes only auth state.
 - No secret material is rendered or returned by the settings API.

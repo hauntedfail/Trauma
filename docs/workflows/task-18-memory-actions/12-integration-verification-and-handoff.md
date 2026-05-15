@@ -46,25 +46,27 @@ Manual smoke:
 30. Click the highlight icon and confirm only the selected occurrence is highlighted.
 31. Confirm `CONTENT.md` did not change after creating/removing the highlight.
 32. Confirm highlight `contentHash` uses the documented `sha256:<hex>` canonical-text format.
-33. Confirm reader highlight tabs render `All highlights` on the left and `This memory` second.
-34. Confirm `/memories` recent highlight component is unchanged.
-35. Create a Flashback from a reader section hover icon.
-36. Create a Flashback from a ToC chapter hover icon.
-37. Long-press a reader section and confirm the shared contextual menu contains Flashback.
-38. Select arbitrary body text and confirm the contextual menu does not contain Flashback.
-39. Confirm the Flashback create API rejects missing or ambiguous section anchors/paths.
-40. Open `/flashback` and confirm the saved Flashbacks are listed.
-41. Click a Flashback and confirm it navigates to the memory section anchor.
-42. Import content containing a cross-host HTTPS image and confirm the image is preserved.
-43. Import content containing a Medium-style `<picture>` with `miro.medium.com` image fallback and confirm the image is preserved.
-44. Import content containing a controlled HTTPS iframe and confirm the reader sanitizer renders it with sandbox/referrer controls.
-45. Confirm default iframe sandbox does not include `allow-same-origin`.
-46. Confirm unsafe iframe forms such as `srcdoc`, `http:`, event handlers, or local hosts are rejected or stripped.
+33. Confirm SQLite-only highlight metadata has a backup/export path, or that restore-risk is explicitly documented if deferred.
+34. Confirm reader highlight tabs render `All highlights` on the left and `This memory` second.
+35. Confirm `/memories` recent highlight component is unchanged.
+36. Create a Flashback from a reader section hover icon.
+37. Create a Flashback from a ToC chapter hover icon.
+38. Long-press a reader section and confirm the shared contextual menu contains Flashback.
+39. Select arbitrary body text and confirm the contextual menu does not contain Flashback.
+40. Confirm the Flashback create API rejects missing or ambiguous section anchors/paths.
+41. Open `/flashback` and confirm the saved Flashbacks are listed.
+42. Click a Flashback and confirm it navigates to the memory section anchor.
+43. Import content containing a cross-host HTTPS image and confirm the image is preserved.
+44. Import content containing a Medium-style `<picture>` with `miro.medium.com` image fallback and confirm the image is preserved.
+45. Import content containing a controlled HTTPS iframe and confirm the reader sanitizer renders it with sandbox/referrer controls.
+46. Confirm default iframe sandbox does not include `allow-same-origin`.
+47. Confirm unsafe iframe forms such as `srcdoc`, `http:`, event handlers, or local hosts are rejected or stripped.
 
 ## Regression risks to check
 
 - `CONTENT.md` frontmatter did not gain tags/categories/read.
 - `CONTENT.md` body is not rewritten for highlight persistence.
+- SQLite-only highlight persistence has backup/export coverage or an explicit restore-risk note.
 - Highlights still render in reader mode.
 - Highlight toggle/removal still persists if existing behaviour supports it.
 - Browse category/tag filters still work.
@@ -138,6 +140,7 @@ PR body must include:
 - deletion consistency strategy
 - backup deletion strategy for removed memory content
 - highlight record strategy
+- highlight metadata backup/export strategy or explicit restore-risk
 - Flashback section identity strategy
 - settings/OpenAI auth validation strategy
 - UI summary
