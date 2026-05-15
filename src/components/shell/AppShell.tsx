@@ -57,9 +57,9 @@ const buttonBase =
 const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =
-  "trauma-shell-left-rail sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden";
+  "trauma-shell-left-rail sticky top-0 z-40 h-[100svh] overflow-visible bg-trauma-bg-base max-[720px]:hidden";
 const rightRailSurface =
-  "trauma-shell-right-rail sticky top-0 h-screen overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
+  "trauma-shell-right-rail sticky top-0 h-[100svh] overflow-hidden bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden";
 const rightRailStack =
   "flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1";
 const rightRailScrollContent =
@@ -179,7 +179,7 @@ export function AppShell(props: AppShellProps) {
     <RightRailContentContext.Provider
       value={{ rightRailContent, setRightRailContent }}
     >
-      <div class="trauma-shell-frame trauma-mobile-stable-viewport grid min-h-screen justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[720px]:block">
+      <div class="trauma-shell-frame trauma-mobile-stable-viewport grid justify-center bg-trauma-bg-base text-trauma-text-primary min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px] max-[1040px]:grid-cols-[80px_minmax(0,1fr)] max-[720px]:block">
       <PhoneBrandHeader />
       <aside class={`${sideSurface} border-r border-trauma-border px-2 py-1 pb-3 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
         <NavigationContent

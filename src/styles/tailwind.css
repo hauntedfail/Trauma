@@ -383,7 +383,7 @@
     text-decoration: none;
   }
 
-  a:hover {
+  .trauma-reader-content a:hover {
     text-decoration: underline;
     text-underline-offset: 3px;
   }

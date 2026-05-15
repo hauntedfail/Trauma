@@ -24,6 +24,10 @@ const highlightsRouteSource = readFileSync(
   "src/routes/highlights/index.tsx",
   "utf8",
 );
+const highlightExcerptSource = readFileSync(
+  "src/components/highlights/HighlightExcerpt.tsx",
+  "utf8",
+);
 const notFoundRouteSource = readFileSync("src/routes/[...404].tsx", "utf8");
 
 describe("mobile and cross-device responsive contract", () => {
@@ -68,6 +72,7 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).toContain("block-size: 100lvh");
 
     for (const source of [
+      appShellSource,
       memoryBrowseSource,
       readerStylesSource,
       highlightsRouteSource,
@@ -75,6 +80,19 @@ describe("mobile and cross-device responsive contract", () => {
     ]) {
       expect(source).not.toContain("100vh");
     }
+
+    for (const source of [appShellSource, memoryBrowseSource, readerStylesSource]) {
+      expect(source).not.toContain("min-h-screen");
+      expect(source).not.toContain("h-screen");
+      expect(source).not.toContain("min-h-[calc(100vh");
+    }
+  });
+
+  it("scopes hover underlines to prose links instead of all anchors", () => {
+    expect(tailwindCss).not.toMatch(/^\s*a:hover\s*{/m);
+    expect(tailwindCss).toContain(".trauma-reader-content a:hover");
+    expect(memoryBrowseSource).toContain("no-underline");
+    expect(highlightExcerptSource).toContain("no-underline");
   });
 
   it("centralizes safe-area insets as layout tokens and utilities", () => {

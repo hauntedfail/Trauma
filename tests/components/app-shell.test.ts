@@ -145,7 +145,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("overflow-y-auto");
     expect(appShellSource).toContain("overscroll-contain");
     expect(appShellSource).not.toContain(
-      'h-screen overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden',
+      'overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden',
     );
   });
 
@@ -191,11 +191,11 @@ describe("refined app shell contract", () => {
 
   it("keeps rail popovers layered above route panes", () => {
     expect(appShellSource).toContain(
-      '"trauma-shell-left-rail sticky top-0 z-40 h-screen overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
+      '"trauma-shell-left-rail sticky top-0 z-40 h-[100svh] overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
     );
     expect(appShellSource).toContain("z-50 mt-1");
     expect(appShellSource).not.toContain(
-      '"sticky top-0 h-screen overflow-y-auto bg-trauma-bg-base max-[720px]:hidden"',
+      '"sticky top-0 overflow-y-auto bg-trauma-bg-base max-[720px]:hidden"',
     );
   });
 
