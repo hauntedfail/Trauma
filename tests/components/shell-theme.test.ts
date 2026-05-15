@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { themeFromPreference } from "../../src/components/shell/theme";
+import {
+  themeFromPreference,
+  themeNameFromPreference,
+} from "../../src/components/shell/theme";
 
 describe("shell theme preference", () => {
   it("maps brightness and surface preferences to refined theme names", () => {
@@ -16,5 +19,20 @@ describe("shell theme preference", () => {
     expect(themeFromPreference({ brightness: "night", surface: "paper" })).toBe(
       "paper-black-dark",
     );
+  });
+
+  it("maps brightness and surface preferences to presentation theme names", () => {
+    expect(
+      themeNameFromPreference({ brightness: "sun", surface: "normal" }),
+    ).toBe("light");
+    expect(
+      themeNameFromPreference({ brightness: "night", surface: "normal" }),
+    ).toBe("midnight");
+    expect(themeNameFromPreference({ brightness: "sun", surface: "paper" })).toBe(
+      "paper",
+    );
+    expect(
+      themeNameFromPreference({ brightness: "night", surface: "paper" }),
+    ).toBe("hermes");
   });
 });

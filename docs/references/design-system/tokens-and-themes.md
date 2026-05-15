@@ -54,18 +54,19 @@ Prefer these utilities in components.
 
 The app supports four themes:
 
-| Preference | Theme name | Body font |
-| --- | --- | --- |
-| night + normal | `black-dark` | sans |
-| sun + normal | `warm-light` | sans |
-| sun + paper | `paper-warm-light` | serif |
-| night + paper | `paper-black-dark` | serif |
+| Preference | Theme name | Theme token (`data-theme`) | Body font |
+| --- | --- | --- | --- |
+| sun + normal | `light` | `warm-light` | sans |
+| night + normal | `midnight` | `black-dark` | sans |
+| sun + paper | `paper` | `paper-warm-light` | serif |
+| night + paper | `Hermès` | `paper-black-dark` | serif |
 
 Defaults:
 
 - Brightness: `night`.
 - Surface: `normal`.
-- Theme: `black-dark`.
+- Theme name: `midnight`.
+- Theme token (`data-theme`): `black-dark`.
 
 Surface display labels are brightness-specific while stored values remain
 stable:
@@ -88,12 +89,12 @@ unified. Borders, not background gutters, separate shell columns.
 
 Current base/surface values:
 
-| Theme | `--bg-base` and `--bg-surface` |
-| --- | --- |
-| `black-dark` | `#000000` |
-| `warm-light` | `#f6f7f4` |
-| `paper-warm-light` | `#ece2cc` |
-| `paper-black-dark` | `#211307` |
+| Theme name | Theme token (`data-theme`) | `--bg-base` and `--bg-surface` |
+| --- | --- | --- |
+| `midnight` | `black-dark` | `#000000` |
+| `light` | `warm-light` | `#f6f7f4` |
+| `paper` | `paper-warm-light` | `#ece2cc` |
+| `Hermès` | `paper-black-dark` | `#211307` |
 
 `--bg-elev`, `--bg-sunken`, and `--bg-tint` remain distinct so controls,
 selected states, popovers, right rail islands, theme toggles, and hover states

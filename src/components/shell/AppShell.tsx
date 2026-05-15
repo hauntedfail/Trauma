@@ -40,6 +40,7 @@ import {
 import {
   DEFAULT_BRIGHTNESS_MODE,
   DEFAULT_SURFACE_MODE,
+  themeNameFromPreference,
   themeFromPreference,
   type BrightnessMode,
   type SurfaceMode,
@@ -869,11 +870,15 @@ function ThemeBlock(props: {
 }
 
 function getNormalSurfaceLabel(brightness: BrightnessMode): "Light" | "Midnight" {
-  return brightness === "night" ? "Midnight" : "Light";
+  return themeNameFromPreference({ brightness, surface: "normal" }) === "midnight"
+    ? "Midnight"
+    : "Light";
 }
 
 function getPaperSurfaceLabel(brightness: BrightnessMode): "Paper" | "Hermès" {
-  return brightness === "night" ? "Hermès" : "Paper";
+  return themeNameFromPreference({ brightness, surface: "paper" }) === "hermes"
+    ? "Hermès"
+    : "Paper";
 }
 
 function readStoredBrightness(): BrightnessMode {

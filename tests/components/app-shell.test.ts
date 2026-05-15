@@ -190,11 +190,16 @@ describe("refined app shell contract", () => {
 
   it("labels surface options by brightness while preserving stored values", () => {
     expect(appShellSource).toContain("getNormalSurfaceLabel");
-    expect(appShellSource).toContain('return brightness === "night" ? "Midnight" : "Light";');
+    expect(appShellSource).toContain("themeNameFromPreference");
+    expect(appShellSource).toContain(
+      'themeNameFromPreference({ brightness, surface: "normal" }) === "midnight"',
+    );
     expect(appShellSource).toContain("const normalSurfaceLabel = createMemo");
     expect(appShellSource).toContain("<span>{normalSurfaceLabel()}</span>");
     expect(appShellSource).toContain("getPaperSurfaceLabel");
-    expect(appShellSource).toContain('return brightness === "night" ? "Hermès" : "Paper";');
+    expect(appShellSource).toContain(
+      'themeNameFromPreference({ brightness, surface: "paper" }) === "hermes"',
+    );
     expect(appShellSource).toContain("const paperSurfaceLabel = createMemo");
     expect(appShellSource).toContain("const paperSurfaceIcon = createMemo");
     expect(appShellSource).toContain('props.brightness === "night" ? <HermesIcon /> : <PaperIcon />');

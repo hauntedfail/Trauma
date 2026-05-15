@@ -48,26 +48,41 @@ Primary files:
    Required exports:
 
    ```ts
-   export type BrightnessMode = "sun" | "night";
-   export type SurfaceMode = "normal" | "paper";
-   export type TraumaTheme =
-     | "warm-light"
-     | "black-dark"
-     | "paper-warm-light"
-     | "paper-black-dark";
+    export type BrightnessMode = "sun" | "night";
+    export type SurfaceMode = "normal" | "paper";
+    export type ThemeName = "light" | "midnight" | "paper" | "hermes";
+    export type TraumaTheme =
+      | "warm-light"
+      | "black-dark"
+      | "paper-warm-light"
+      | "paper-black-dark";
 
-   export function themeFromPreference(input: {
-     brightness: BrightnessMode;
-     surface: SurfaceMode;
-   }): TraumaTheme;
-   ```
+    export function themeNameFromPreference(input: {
+      brightness: BrightnessMode;
+      surface: SurfaceMode;
+    }): ThemeName;
 
-   Mapping:
+    export function themeFromPreference(input: {
+      brightness: BrightnessMode;
+      surface: SurfaceMode;
+    }): TraumaTheme;
+    ```
 
-   - `sun` + `normal` -> `warm-light`
-   - `night` + `normal` -> `black-dark`
-   - `sun` + `paper` -> `paper-warm-light`
-   - `night` + `paper` -> `paper-black-dark`
+    Mapping:
+
+    Theme names:
+
+    - `sun` + `normal` -> `light`
+    - `night` + `normal` -> `midnight`
+    - `sun` + `paper` -> `paper`
+    - `night` + `paper` -> `hermes`
+
+    Theme tokens (`data-theme`):
+
+    - `sun` + `normal` -> `warm-light`
+    - `night` + `normal` -> `black-dark`
+    - `sun` + `paper` -> `paper-warm-light`
+    - `night` + `paper` -> `paper-black-dark`
 
    Surface labels are presentation-only:
 
