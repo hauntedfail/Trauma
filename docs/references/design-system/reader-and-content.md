@@ -54,7 +54,8 @@ Contract:
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
   the available scroll edge. At the top of the list this appears only after the
   user has scrolled down; at the bottom it disappears when no more content
-  remains below.
+  remains below. The fade starts at the scroll body edge and uses CSS mask
+  gradients so the transition into unblurred content is soft.
 - Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
 - Motion is disabled under `prefers-reduced-motion: reduce`.
 

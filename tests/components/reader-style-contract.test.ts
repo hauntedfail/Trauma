@@ -68,6 +68,8 @@ describe("refined reader visual contract", () => {
     expect(tailwindSource).toContain(".trauma-toc-scroll-fade-top");
     expect(tailwindSource).toContain(".trauma-toc-scroll-fade-bottom");
     expect(tailwindSource).toContain("backdrop-filter: blur(");
+    expect(tailwindSource).toContain("top: 4rem");
+    expect(tailwindSource).toContain("mask-image: linear-gradient");
 
     const fadeStart = tailwindSource.indexOf(".trauma-toc-scroll-fade");
     const nextRuleStart = tailwindSource.indexOf(

@@ -202,6 +202,32 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
   await expect(topFade).toBeVisible();
   await expect(bottomFade).toBeVisible();
 
+  const topFadeGeometry = await toc.evaluate((nav) => {
+    const topFadeElement = nav.querySelector(".trauma-toc-scroll-fade-top");
+    const listElement = nav.querySelector("ol");
+
+    if (
+      !(topFadeElement instanceof HTMLElement) ||
+      !(listElement instanceof HTMLElement)
+    ) {
+      throw new Error("TOC top fade or list element is missing");
+    }
+
+    const topFadeRect = topFadeElement.getBoundingClientRect();
+    const listRect = listElement.getBoundingClientRect();
+    const topFadeStyle = getComputedStyle(topFadeElement);
+
+    return {
+      topFadeTopGap: Number((topFadeRect.top - listRect.top).toFixed(2)),
+      topFadeMaskImage:
+        topFadeStyle.getPropertyValue("mask-image") ||
+        topFadeStyle.getPropertyValue("-webkit-mask-image"),
+    };
+  });
+
+  expect(Math.abs(topFadeGeometry.topFadeTopGap)).toBeLessThanOrEqual(1);
+  expect(topFadeGeometry.topFadeMaskImage).toContain("linear-gradient");
+
   await toc.locator("ol").evaluate((list) => {
     list.scrollTop = list.scrollHeight;
     list.dispatchEvent(new Event("scroll", { bubbles: true }));

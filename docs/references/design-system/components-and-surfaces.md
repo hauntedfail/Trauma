@@ -174,7 +174,10 @@ Reader TOC should make overflow discoverable. When its bounded list can still
 scroll in a direction, show a low-contrast blur fade on that edge only. The
 fade should make the edge entries look slightly hazy, not like a heavy shadow
 or spotlight. Use neutral black in the fade recipe, not the primary/accent
-colour. Do not render a fade for a direction that is not currently scrollable.
+colour. The top fade must start at the scroll body edge so text cannot appear
+unblurred between the TOC heading and the fade. Use CSS gradients and masks to
+soften the fade boundary; do not use JavaScript to paint the effect. Do not
+render a fade for a direction that is not currently scrollable.
 
 ## Add Memory Composer
 
