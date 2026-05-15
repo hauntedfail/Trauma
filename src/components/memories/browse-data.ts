@@ -7,6 +7,16 @@ export interface BrowseTaxonomyItem {
   name: string;
 }
 
+export interface BrowseTaxonomySummaryItem extends BrowseTaxonomyItem {
+  memoryCount: number;
+  lastAssignedAt: string | null;
+}
+
+export interface BrowseTaxonomySummary {
+  categories: BrowseTaxonomySummaryItem[];
+  tags: BrowseTaxonomySummaryItem[];
+}
+
 export interface BrowseHighlight {
   id: string;
   text: string;
