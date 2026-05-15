@@ -20,7 +20,7 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.locator("#details")).toBeVisible();
   await page.getByRole("link", { name: "Details" }).click();
   await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
-  await expect(page.getByText("Curated markdown body")).toBeVisible();
+  await expect(page.locator("[data-reader-content]").getByText("Curated markdown body")).toBeVisible();
   await expect(page.locator("mark[data-highlight-id='hl-fixture']")).toContainText(
     "saved highlight",
   );
@@ -119,6 +119,7 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Highlight selection" }).click();
   await expect(
     page.locator("mark[data-highlight-id]", { hasText: selectedText }),
   ).toBeVisible();
@@ -135,6 +136,7 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Highlight selection" }).click();
   await expect(
     page.locator("mark[data-highlight-id]", { hasText: selectedText }),
   ).toHaveCount(0);
@@ -144,7 +146,7 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
   await expect(
     page.locator("mark[data-highlight-id]", { hasText: selectedText }),
   ).toHaveCount(0);
-  await expect(page.getByText(selectedText)).toBeVisible();
+  await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
 });
 
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
@@ -289,6 +291,19 @@ function createReaderFixture() {
           databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
           backup: config.backup,
         };
+        const readerMarkdown = [
+          "# Fixture Reader",
+          "",
+          "Curated markdown body with saved highlight.",
+          "",
+          "A [Reference link](https://example.com/reference) belongs to the reader content.",
+          "",
+          "## Details",
+          "",
+          "| Kind | Value |",
+          "| --- | --- |",
+          "| reader | smoke |",
+        ].join("\\n");
 
         await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
         await mkdir(dirname(configPath), { recursive: true });
@@ -317,6 +332,18 @@ function createReaderFixture() {
           await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
           await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
+          const highlightStartOffset = readerMarkdown.indexOf("saved highlight");
+          await connection.db.insert(schema.highlights).values({
+            id: "hl-fixture",
+            memoryId,
+            text: "saved highlight",
+            prefix: "Curated markdown body with ",
+            suffix: ".",
+            startOffset: highlightStartOffset,
+            endOffset: highlightStartOffset + "saved highlight".length,
+            createdAt: new Date("2026-05-09T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+          });
         } finally {
           connection.close();
         }
@@ -340,19 +367,7 @@ function createReaderFixture() {
           memoryId,
           "Fixture Reader",
           "https://example.com/reader",
-          [
-            "# Fixture Reader",
-            "",
-            "Curated markdown body with <mark data-highlight-id=\\"hl-fixture\\">saved highlight</mark>.",
-            "",
-            "A [Reference link](https://example.com/reference) belongs to the reader content.",
-            "",
-            "## Details",
-            "",
-            "| Kind | Value |",
-            "| --- | --- |",
-            "| reader | smoke |",
-          ].join("\\n"),
+          readerMarkdown,
         );
         await writeFixtureContent(
           secondMemoryId,

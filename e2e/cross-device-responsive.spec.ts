@@ -121,7 +121,7 @@ test("keeps phone tab labels visually hidden while preserving names", async ({ p
   await expect(primaryTabs.getByRole("button", { name: "Theme" })).toBeVisible();
 
   const labels = primaryTabs.locator("[data-phone-tab-label]");
-  await expect(labels).toHaveCount(8);
+  await expect(labels).toHaveCount(9);
 
   const labelBoxes = await labels.evaluateAll((elements) =>
     elements.map((element) => {

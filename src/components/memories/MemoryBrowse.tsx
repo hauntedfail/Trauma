@@ -215,18 +215,9 @@ export function MemoryItem(props: {
 
   return (
     <article
-      aria-label={`Open memory ${props.memory.title}`}
-      role="link"
-      tabIndex={0}
       class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
       onClick={(event) => {
         if (!isInteractiveTarget(event.target)) {
-          openMemory();
-        }
-      }}
-      onKeyDown={(event) => {
-        if ((event.key === "Enter" || event.key === " ") && !isInteractiveTarget(event.target)) {
-          event.preventDefault();
           openMemory();
         }
       }}
@@ -242,7 +233,16 @@ export function MemoryItem(props: {
               <span class="px-1">.</span>
               <time dateTime={props.memory.capturedAt}>{formatCapturedAtForDisplay(props.memory.capturedAt)}</time>
             </p>
-            <h2 class={cardTitle}>{props.memory.title}</h2>
+            <h2 class={cardTitle}>
+              <a
+                aria-label={`Open memory ${props.memory.title}`}
+                class="text-trauma-text-primary no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-trauma-accent"
+                href={href()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {props.memory.title}
+              </a>
+            </h2>
           </div>
           <MemoryActionMenu
             memoryId={props.memory.id}

@@ -839,7 +839,7 @@ function RightPanelSection(props: {
         <h2 class="mb-0 text-[20px] font-extrabold" id={props.titleId}>
           {props.title}
         </h2>
-        <Show when={props.action}>{(action) => action()}</Show>
+        {props.action}
       </div>
       {props.children}
     </section>
