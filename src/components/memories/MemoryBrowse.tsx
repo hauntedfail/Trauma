@@ -13,6 +13,7 @@ import {
 } from "./browse-data";
 import { getBrowseMemories } from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
+import { formatCapturedAtForDisplay } from "./captured-at";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -146,7 +147,7 @@ function MemoryItem(props: {
             <p class={subduedText}>
               <span class="font-bold text-trauma-text-primary">{host()}</span>
               <span class="px-1">.</span>
-              <time dateTime={props.memory.capturedAt}>{formatCapturedAt(props.memory.capturedAt)}</time>
+              <time dateTime={props.memory.capturedAt}>{formatCapturedAtForDisplay(props.memory.capturedAt)}</time>
             </p>
             <h2 class={cardTitle}>{props.memory.title}</h2>
           </div>
@@ -190,16 +191,4 @@ function getHostLabel(value: string): string {
   } catch {
     return value;
   }
-}
-
-function formatCapturedAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString("en", {
-    day: "numeric",
-    month: "short",
-  });
 }

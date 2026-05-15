@@ -106,6 +106,20 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).toContain('decoding="async"');
   });
 
+  it("preserves descriptor-less responsive image candidates", () => {
+    const result = renderMemoryMarkdown([
+      "<picture>",
+      '<source type="image/avif" srcset="https://cdn.example.test/photo.avif">',
+      '<img src="https://cdn.example.test/photo.jpg" srcset="https://cdn.example.test/photo-480.jpg 480w, https://cdn.example.test/photo-960.jpg 960w" alt="Descriptorless diagram">',
+      "</picture>",
+    ].join(""));
+
+    expect(result.html).toContain("<picture>");
+    expect(result.html).toContain('<source type="image/avif"');
+    expect(result.html).toContain('srcset="https://cdn.example.test/photo.avif"');
+    expect(result.html).toContain('src="https://cdn.example.test/photo.jpg"');
+  });
+
   it("strips unsafe responsive image candidates", () => {
     const result = renderMemoryMarkdown([
       '<img src="https://cdn.example.test/photo.jpg" srcset="javascript:alert(1) 320w, https://cdn.example.test/photo-640.jpg 640w, data:image/png;base64,abc 960w" sizes="100vw" alt="Safe">',

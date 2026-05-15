@@ -319,12 +319,7 @@ function sanitizeSourceSet(value: string | undefined): string | undefined {
 function sanitizeSourceSetCandidate(value: string): string | undefined {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const [rawUrl, descriptor] = parts;
-  if (
-    rawUrl === undefined ||
-    descriptor === undefined ||
-    parts.length !== 2 ||
-    !isSafeSourceSetDescriptor(descriptor)
-  ) {
+  if (rawUrl === undefined || parts.length > 2) {
     return undefined;
   }
 
@@ -334,7 +329,13 @@ function sanitizeSourceSetCandidate(value: string): string | undefined {
       return undefined;
     }
 
-    return `${url.toString()} ${descriptor}`;
+    if (descriptor === undefined) {
+      return url.toString();
+    }
+
+    return isSafeSourceSetDescriptor(descriptor)
+      ? `${url.toString()} ${descriptor}`
+      : undefined;
   } catch {
     return undefined;
   }

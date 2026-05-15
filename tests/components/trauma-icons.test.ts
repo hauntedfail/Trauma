@@ -27,7 +27,18 @@ describe("TRAUMA icon system", () => {
     ] as const) {
       expect(TraumaNavIcons[name].outline).toBeDefined();
       expect(TraumaNavIcons[name].filled).toBeDefined();
+      expect(typeof TraumaNavIcons[name].outline).toBe("function");
+      expect(typeof TraumaNavIcons[name].filled).toBe("function");
     }
+  });
+
+  it("creates fresh nav icon elements for each insertion point", () => {
+    const first = TraumaNavIcons.memories.outline();
+    const second = TraumaNavIcons.memories.outline();
+
+    expect(first).not.toBe(second);
+    expect(renderToString(() => first)).toContain('aria-hidden="true"');
+    expect(renderToString(() => second)).toContain('aria-hidden="true"');
   });
 
   it("renders utility icons with currentColor and hidden SVG semantics", () => {

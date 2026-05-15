@@ -12,7 +12,8 @@ type NavIconName =
   | "backup"
   | "settings";
 
-type NavIconVariants = Record<"outline" | "filled", JSX.Element>;
+type NavIconFactory = (props?: IconProps) => JSX.Element;
+type NavIconVariants = Record<"outline" | "filled", NavIconFactory>;
 
 const stroke = {
   fill: "none",
@@ -46,8 +47,8 @@ function Svg(props: IconProps & { children: JSX.Element }) {
 
 export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
   memories: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <rect {...stroke} height="12" rx="1.5" width="12" x="7" y="7" />
         <g {...stroke}>
           <path d="M10 7V4M13 7V4M16 7V4M10 19v3M13 19v3M16 19v3" />
@@ -58,8 +59,8 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
         </g>
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <rect fill="currentColor" height="12" rx="1.5" width="12" x="7" y="7" />
         <g stroke="currentColor" stroke-linecap="round" stroke-width="2.2">
           <path d="M10 7V4M13 7V4M16 7V4M10 19v3M13 19v3M16 19v3" />
@@ -72,40 +73,40 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
     ),
   },
   highlights: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <path {...stroke} d="m5 14 8-8 5 5-8 8H5v-5z" />
         <path {...stroke} d="m13 6 3-3 5 5-3 3" />
         <path {...stroke} d="M4 22h18" />
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <path {...fill} d="m5 14 8-8 5 5-8 8H5v-5z" />
         <path {...stroke} d="m13 6 3-3 5 5-3 3M4 22h18" />
       </Svg>
     ),
   },
   categories: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <path {...stroke} d="m3 7 3-3h5l2 3h10v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <path {...fill} d="m3 7 3-3h5l2 3h10v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
       </Svg>
     ),
   },
   tags: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <path {...stroke} d="M8 3 6 23M20 3l-2 20M3 9h20M2 17h20" />
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <path
           {...stroke}
           d="M8 3 6 23M20 3l-2 20M3 9h20M2 17h20"
@@ -115,28 +116,28 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
     ),
   },
   backup: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <path {...stroke} d="M6 18a4 4 0 0 1-1-7.9A6 6 0 0 1 17 9a4 4 0 0 1 1 7.9" />
         <path {...stroke} d="M13 13v8m0 0-3-3m3 3 3-3" />
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <path {...fill} d="M6 18a4 4 0 0 1-1-7.9A6 6 0 0 1 17 9a4 4 0 0 1 1 7.9z" />
         <path {...stroke} d="M13 13v8m0 0-3-3m3 3 3-3" stroke-width="2" />
       </Svg>
     ),
   },
   settings: {
-    outline: (
-      <Svg>
+    outline: (props = {}) => (
+      <Svg {...props}>
         <circle {...stroke} cx="13" cy="13" r="3" />
         <path {...stroke} d="M13 2v3M13 21v3M4.2 4.2l2.1 2.1M19.7 19.7l2.1 2.1M2 13h3M21 13h3M4.2 21.8l2.1-2.1M19.7 6.3l2.1-2.1" />
       </Svg>
     ),
-    filled: (
-      <Svg>
+    filled: (props = {}) => (
+      <Svg {...props}>
         <circle {...fill} cx="13" cy="13" r="4" />
         <path {...stroke} d="M13 2v3M13 21v3M4.2 4.2l2.1 2.1M19.7 19.7l2.1 2.1M2 13h3M21 13h3M4.2 21.8l2.1-2.1M19.7 6.3l2.1-2.1" stroke-width="2" />
       </Svg>

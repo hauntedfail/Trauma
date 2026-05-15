@@ -42,6 +42,17 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain("trauma.config.json");
   });
 
+  it("guards localStorage reads and writes so blocked storage does not break hydration", () => {
+    expect(appShellSource).toContain("function readLocalStorageItem");
+    expect(appShellSource).toContain("function writeLocalStorageItem");
+    expect(appShellSource).toContain("readLocalStorageItem(BRIGHTNESS_STORAGE_KEY)");
+    expect(appShellSource).toContain(
+      "writeLocalStorageItem(BRIGHTNESS_STORAGE_KEY, nextBrightness)",
+    );
+    expect(appShellSource).toContain("try {");
+    expect(appShellSource).toContain("catch {");
+  });
+
   it("does not add live links for routes that do not exist yet", () => {
     expect(appShellSource).not.toContain('href="/category"');
     expect(appShellSource).not.toContain('href="/tags"');

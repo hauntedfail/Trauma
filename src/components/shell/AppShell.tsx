@@ -158,8 +158,8 @@ export function AppShell(props: AppShellProps) {
     });
 
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(BRIGHTNESS_STORAGE_KEY, nextBrightness);
-    localStorage.setItem(SURFACE_STORAGE_KEY, nextSurface);
+    writeLocalStorageItem(BRIGHTNESS_STORAGE_KEY, nextBrightness);
+    writeLocalStorageItem(SURFACE_STORAGE_KEY, nextSurface);
   });
 
   const goToFilter = (patch: Parameters<typeof buildBrowseHref>[1]) => {
@@ -342,7 +342,7 @@ function PhoneRouteTab(props: {
       class={`${phoneTabButton} ${isActive() ? activeNavItem : ""}`}
       href={props.item.href}
     >
-      <span class={phoneIconSlot}>{icon()}</span>
+      <span class={phoneIconSlot}>{icon()()}</span>
       <span class={phoneTabLabel} data-phone-tab-label>
         {props.item.label}
       </span>
@@ -362,7 +362,7 @@ function PhoneDisabledTab(props: {
       disabled
       type="button"
     >
-      <span class={phoneIconSlot}>{icon()}</span>
+      <span class={phoneIconSlot}>{icon()()}</span>
       <span class={phoneTabLabel} data-phone-tab-label>
         {props.item.label}
       </span>
@@ -657,7 +657,7 @@ function RouteNavLink(props: {
       href={props.item.href}
       onClick={props.onNavigate}
     >
-      <span class={railIconSlot}>{icon()}</span>
+      <span class={railIconSlot}>{icon()()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">
         <span
           class={`trauma-active-nav-label ${isActive() ? "font-bold" : ""}`}
@@ -684,7 +684,7 @@ function RightRailShortcutButton(props: {
 
   return (
     <a class={`${navItemBase} max-[1040px]:hidden`} href={href()}>
-      <span class={railIconSlot}>{icon()}</span>
+      <span class={railIconSlot}>{icon()()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
     </a>
   );
@@ -702,7 +702,7 @@ function FutureNavButton(props: {
       disabled
       type="button"
     >
-      <span class={railIconSlot}>{icon()}</span>
+      <span class={railIconSlot}>{icon()()}</span>
       <span class="min-w-0 truncate max-[1040px]:sr-only">{props.item.label}</span>
     </button>
   );
@@ -882,11 +882,27 @@ function getPaperSurfaceLabel(brightness: BrightnessMode): "Paper" | "Hermès" {
 }
 
 function readStoredBrightness(): BrightnessMode {
-  const value = localStorage.getItem(BRIGHTNESS_STORAGE_KEY);
+  const value = readLocalStorageItem(BRIGHTNESS_STORAGE_KEY);
   return value === "sun" || value === "night" ? value : DEFAULT_BRIGHTNESS_MODE;
 }
 
 function readStoredSurface(): SurfaceMode {
-  const value = localStorage.getItem(SURFACE_STORAGE_KEY);
+  const value = readLocalStorageItem(SURFACE_STORAGE_KEY);
   return value === "normal" || value === "paper" ? value : DEFAULT_SURFACE_MODE;
+}
+
+function readLocalStorageItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorageItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Theme persistence is best-effort; blocked storage must not break shell hydration.
+  }
 }

@@ -384,17 +384,22 @@ function sanitizeSourceSetForPage(pageUrl: string, value: string | null) {
 function sanitizeSourceSetCandidateForPage(pageUrl: string, value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const [rawUrl, descriptor] = parts;
-  if (
-    rawUrl === undefined ||
-    descriptor === undefined ||
-    parts.length !== 2 ||
-    !isSafeSourceSetDescriptor(descriptor)
-  ) {
+  if (rawUrl === undefined || parts.length > 2) {
     return null;
   }
 
   const resolvedUrl = resolveSafeDisplayUrl(pageUrl, rawUrl);
-  return resolvedUrl !== null ? `${resolvedUrl} ${descriptor}` : null;
+  if (resolvedUrl === null) {
+    return null;
+  }
+
+  if (descriptor === undefined) {
+    return resolvedUrl;
+  }
+
+  return isSafeSourceSetDescriptor(descriptor)
+    ? `${resolvedUrl} ${descriptor}`
+    : null;
 }
 
 function isSafeSourceSetDescriptor(value: string) {

@@ -115,6 +115,30 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.markdown).toContain('src="https://example.com/photo-960.jpg"');
   });
 
+  it("preserves descriptor-less responsive image candidates from extracted HTML", async () => {
+    const result = await extractArticleWithDefuddle({
+      pageUrl: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Descriptorless Responsive Image Article</title></head>
+          <body>
+            <article>
+              <h1>Descriptorless Responsive Image Article</h1>
+              <p>This article has enough readable words to preserve descriptorless responsive image candidates without dropping the source tag.</p>
+              <picture>
+                <source type="image/avif" srcset="/photo.avif">
+                <img src="/photo.jpg" srcset="/photo-small.jpg 480w, /photo-large.jpg 960w" alt="Descriptorless diagram">
+              </picture>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    expect(result.markdown).toContain("<picture>");
+    expect(result.markdown).toContain('srcset="https://example.com/photo.avif"');
+    expect(result.markdown).toContain('src="https://example.com/photo.jpg"');
+  });
+
   it("removes unsafe responsive image candidates from extracted HTML", async () => {
     const result = await extractArticleWithDefuddle({
       pageUrl: "https://example.com/article",
