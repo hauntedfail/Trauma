@@ -3,7 +3,7 @@
 ## Goal
 
 Rebuild the app shell from the sample's X-style left rail while preserving
-TRAUMA's existing Solid route ownership, global add-memory drawer, right-side
+TRAUMA's existing Solid route ownership, global add-memory popover, right-side
 filter panel, and backup failsafe banner.
 
 ## Ownership
@@ -20,9 +20,10 @@ Primary files:
 ## Source Mapping
 
 - Sample `Sidebar` maps to `NavigationContent` and shell layout.
-- Sample `ThemeBlock` maps to a Solid theme control inside the rail.
+- Sample `ThemeBlock` maps to the Solid theme popover opened from the rail
+  `Theme` tab. It is not permanently expanded inside the rail.
 - Sample rail `Add memory` button maps to the existing
-  `GlobalAddMemoryComposer` drawer.
+  shell add-memory composer popover.
 - Sample `profile` maps to a local archive status surface. It must not imply
   auth or account management.
 - Sample `Tweaks` and `tweaks-panel.jsx` are out of scope.
@@ -48,26 +49,48 @@ Primary files:
    Required exports:
 
    ```ts
-   export type BrightnessMode = "sun" | "night";
-   export type SurfaceMode = "normal" | "paper";
-   export type TraumaTheme =
-     | "warm-light"
-     | "black-dark"
-     | "paper-warm-light"
-     | "paper-black-dark";
+    export type BrightnessMode = "sun" | "night";
+    export type SurfaceMode = "normal" | "paper";
+    export type ThemeName = "light" | "midnight" | "paper" | "hermes";
+    export type TraumaTheme =
+      | "warm-light"
+      | "black-dark"
+      | "paper-warm-light"
+      | "paper-black-dark";
 
-   export function themeFromPreference(input: {
-     brightness: BrightnessMode;
-     surface: SurfaceMode;
-   }): TraumaTheme;
-   ```
+    export function themeNameFromPreference(input: {
+      brightness: BrightnessMode;
+      surface: SurfaceMode;
+    }): ThemeName;
 
-   Mapping:
+    export function themeFromPreference(input: {
+      brightness: BrightnessMode;
+      surface: SurfaceMode;
+    }): TraumaTheme;
+    ```
 
-   - `sun` + `normal` -> `warm-light`
-   - `night` + `normal` -> `black-dark`
-   - `sun` + `paper` -> `paper-warm-light`
-   - `night` + `paper` -> `paper-black-dark`
+    Mapping:
+
+    Theme names:
+
+    - `sun` + `normal` -> `light`
+    - `night` + `normal` -> `midnight`
+    - `sun` + `paper` -> `paper`
+    - `night` + `paper` -> `hermes`
+
+    Theme tokens (`data-theme`):
+
+    - `sun` + `normal` -> `warm-light`
+    - `night` + `normal` -> `black-dark`
+    - `sun` + `paper` -> `paper-warm-light`
+    - `night` + `paper` -> `paper-black-dark`
+
+   Surface labels are presentation-only:
+
+   - `normal` is labelled Light when brightness is `sun`
+   - `normal` is labelled Midnight when brightness is `night`
+   - `paper` is labelled Paper when brightness is `sun`
+   - `paper` is labelled Hermès when brightness is `night`
 
 2. In `AppShell`, initialize theme controls with Solid state.
 
@@ -89,13 +112,17 @@ Primary files:
    - theme group: `Theme`
    - add memory button: `Add memory`
 
-4. Keep mobile and tablet reachability.
+4. Keep tablet and phone reachability aligned with the current responsive shell.
 
-   Required breakpoints:
+   Required topology:
 
-   - desktop: left rail, main pane, right filter panel visible
-   - tablet: compact left rail, main pane, filter drawer button
-   - mobile: top bar controls, drawers for nav and filters
+   - desktop: left rail, main pane, and right rail visible
+   - tablet: compact icon-only left rail and main pane visible; right rail,
+     filter button, and filter drawer absent
+   - phone: bottom `Primary tabs` bar visible; persistent side rail, navigation
+     drawer, filter drawer, duplicate brand header, and filter button absent
+   - Theme and Add memory remain reachable from popovers that layer above the
+     current pane or bottom tab bar.
 
 5. Convert fixed colors in shell component classes to token utilities.
 

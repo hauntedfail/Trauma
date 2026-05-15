@@ -64,4 +64,17 @@ export const browseFixtureMemories: BrowseMemory[] = [
       },
     ],
   },
+  {
+    id: "memory-no-highlights",
+    title: "Archive Import Runbook",
+    url: "https://example.com/archive-import",
+    description: "Operational notes for adding a memory that has no saved highlights yet.",
+    capturedAt: "2026-05-06",
+    categories: [{ id: "operations", name: "Operations" }],
+    tags: [
+      { id: "import", name: "import" },
+      { id: "runbook", name: "runbook" },
+    ],
+    highlights: [],
+  },
 ];

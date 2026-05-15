@@ -67,9 +67,11 @@ Check all of these:
    Minimum visual checks:
 
    - TRAUMA mark is visible in the rail.
-   - Active nav item uses the filled icon variant.
+   - Active nav item uses the filled icon variant and bold label without a
+     selected pill/background highlight.
    - Search pill, memory rows, and highlight quotes match the sample direction.
-   - Theme controls fit inside the rail without text overflow.
+   - Theme controls open from the Theme tab popover without clipping, layer
+     above the current pane, and keep readable labels.
    - No button text overflows on mobile.
    - Reader content and table of contents do not overlap.
    - Backup failsafe banner still appears above route content when active.

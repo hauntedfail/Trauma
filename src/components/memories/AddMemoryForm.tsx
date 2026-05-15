@@ -7,6 +7,7 @@ import {
   type AddMemorySubmitResult,
 } from "./add-memory-submit";
 import { revalidateBrowseMemories } from "./browse-loader";
+import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 export interface AddMemoryFormProps {
   formClass: string;
@@ -73,7 +74,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
           class={
             props.showVisibleLabel === false
               ? "sr-only"
-              : "text-[13px] font-extrabold text-[#4e5a48]"
+              : "text-[13px] font-extrabold text-trauma-text-muted"
           }
         >
           URL
@@ -88,9 +89,16 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
           onInput={(event) => setUrl(event.currentTarget.value)}
         />
       </label>
-      <button class={props.buttonClass} type="submit" disabled={!canSubmit()}>
-        {isSubmitting() ? "Saving..." : props.submitLabel}
-      </button>
+      <WaxSealButton
+        class={props.buttonClass}
+        disabled={!canSubmit()}
+        type="submit"
+        variant="command"
+      >
+        <WaxSealLabel>
+          {isSubmitting() ? "Saving..." : props.submitLabel}
+        </WaxSealLabel>
+      </WaxSealButton>
       <Show when={errorMessage()}>
         {(message) => (
           <p class="col-span-full mb-0 text-sm font-bold text-red-700" role="alert">

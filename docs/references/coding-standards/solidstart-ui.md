@@ -35,6 +35,9 @@
 ## Styling
 
 - MUST use Tailwind CSS for component styling.
+- MUST follow the UI contracts in
+  [the design system reference](../design-system/INDEX.md) when changing
+  tokens, shell layout, route surfaces, icons, or visual verification.
 - MUST keep `src/styles/tailwind.css` as the only global stylesheet entry.
 - MUST NOT reintroduce `src/styles/app.css` or a replacement stylesheet full of
   semantic selectors.

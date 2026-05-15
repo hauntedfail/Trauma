@@ -8,7 +8,9 @@ backup behaviour.
 
 ## Current Status
 
-Ready for implementation. This workflow should run on a `refine/*` branch.
+Implementation is active on `refine/frontend-sample`. Keep this workflow and
+the design-system reference docs aligned with the current Solid/Tailwind
+implementation as the branch evolves.
 
 ## Source Sample
 
@@ -57,7 +59,8 @@ Execute these domain plans in order:
 4. [Memory browse and highlight surfaces](task-17-front-end-refine/04-memory-browse-and-highlight-surfaces.md)
 5. [Reader surface](task-17-front-end-refine/05-reader-surface.md)
 6. [UI review correction: shell spacing, right rail, and row interaction](task-17-front-end-refine/07-shell-spacing-right-rail-row-interaction.md)
-7. [Visual verification and handoff](task-17-front-end-refine/06-visual-verification-and-handoff.md)
+7. [Mobile and cross-device responsive refactor](task-17-front-end-refine/08-mobile-cross-device-responsive.md)
+8. [Visual verification and handoff](task-17-front-end-refine/06-visual-verification-and-handoff.md)
 
 ## Cross-Domain Rules
 

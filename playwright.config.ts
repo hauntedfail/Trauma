@@ -10,6 +10,8 @@ const webServerCommand = process.env.CI
 
 export default defineConfig({
   testDir: "./e2e",
+  // The suite shares one local TRAUMA_CONFIG_PATH and mutates its SQLite/store fixture.
+  workers: 1,
   webServer: {
     command: webServerCommand,
     env: {

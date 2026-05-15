@@ -51,7 +51,8 @@ Conditional files:
    - `text-trauma-text-muted`
    - `border-trauma-border`
    - `bg-trauma-bg-elev`
-   - `text-trauma-accent`
+   - `text-trauma-link`
+   - `hover:text-trauma-link-hover`
    - `prose-mark:bg-trauma-highlight-bg`
 
 2. Update `reader-styles.ts`.
@@ -69,16 +70,28 @@ Conditional files:
 
    Required visible content:
 
-   - eyebrow: `Reader mode`
-   - title from memory metadata
+   - header label: `Memory`
    - safe source URL link or non-clickable fallback
+
+   Do not render `Reader mode` copy or repeat the memory title in this header.
+   The extracted markdown body owns the visible content title.
 
 4. Keep the table of contents.
 
    Required behaviour:
 
-   - sticky on desktop
-   - inline/static on tablet and mobile
+   - registered into the shell right rail while the concrete memory reader is
+     mounted
+   - rendered as the first right rail island on `/memories/:id`
+   - hidden on non-reader routes and when the right rail is hidden by the
+     responsive shell
+   - bounded internal scroll body when the heading list overflows
+   - subtle neutral blur fades only on currently scrollable TOC edges
+   - top fade starts at the bounded scroll body's top edge after the user has
+     scrolled down; bottom fade disappears when no content remains below
+   - fade boundaries are softened with CSS gradients and masks, not JavaScript
+     drawing or heavy box shadows
+   - popup-style bounce animation on entry, with reduced-motion support
    - links use existing rendered heading IDs
 
 5. Preserve highlight toggle implementation.

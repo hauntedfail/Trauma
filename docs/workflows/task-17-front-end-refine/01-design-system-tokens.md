@@ -20,7 +20,9 @@ Optional test file:
 ## Decisions To Preserve
 
 - Keep Tailwind v4 through `@tailwindcss/vite`.
-- Keep `src/styles/tailwind.css` as the only global stylesheet entry.
+- Keep `src/styles/tailwind.css` as the only global stylesheet entry. It owns
+  tokens, base rules, and named design-system utilities used across the shell,
+  reader, and responsive surfaces.
 - Use four supported theme names:
   - `warm-light`
   - `black-dark`
@@ -51,13 +53,14 @@ Optional test file:
    - brand wine scale: `wine-50` through `wine-900`
    - state colors: success, warning, danger, info
    - highlight colors: background, ink, quote background, quote bar, quote ink
+   - linked highlight anchors: anchor background, ink, and ring
+   - links: default and hover
    - surfaces: base, surface, elevated, sunken, tint
    - borders: border, strong border, divider
    - text: primary, secondary, muted, placeholder, inverse
    - accent: accent, hover, press, ink, soft, soft ink
    - chips: background, border, ink
    - fonts: sans, serif, mono, body
-   - layout widths: content max and reader max
 
 3. Add theme selectors in `@layer base`:
 
@@ -65,8 +68,8 @@ Optional test file:
    :root,
    :root[data-theme="black-dark"] {
      color-scheme: dark;
-     --bg-base: #0a0a0a;
-     --bg-surface: #131313;
+     --bg-base: #000000;
+     --bg-surface: #000000;
      --bg-elev: #181818;
      --bg-sunken: #050505;
      --bg-tint: #1f1f1f;
@@ -92,7 +95,8 @@ Optional test file:
    - `src/styles/app.css` does not exist.
    - `src/styles/tailwind.css` defines the four `data-theme` selectors.
    - `tailwind.css` exposes `--color-trauma-bg-base`, `--color-trauma-accent`,
-     and `--color-trauma-highlight-bg`.
+     `--color-trauma-highlight-bg`, `--color-trauma-link`, and
+     `--color-trauma-link-hover`.
    - `tailwind.css` does not import Google Fonts.
    - component files do not use the old removed class names.
 
@@ -107,5 +111,7 @@ Optional test file:
 
 - The refined brand palette is available through Tailwind utilities.
 - Theme switching can be driven by `document.documentElement.dataset.theme`.
-- The global CSS remains token/base only, not component styling.
+- The global CSS remains the shared design-system layer. Component-specific
+  behavior may live there only when it is expressed as a named reusable utility
+  or documented shell/reader surface contract.
 - The app has no runtime dependency on Google Fonts.

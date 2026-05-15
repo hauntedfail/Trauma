@@ -5,13 +5,17 @@ import { expect, test, type Page } from "@playwright/test";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
+const TOC_SCROLL_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
+
+test.describe.configure({ mode: "serial" });
 
 test("renders a fixture memory in reader mode", async ({ page }) => {
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
 
-  await expect(page.locator("#reader-title")).toHaveText("Fixture Reader");
+  await expect(page.getByText("Memory", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Details" })).toBeVisible();
   await expect(page.locator("#details")).toBeVisible();
   await page.getByRole("link", { name: "Details" }).click();
@@ -30,9 +34,77 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await page.getByRole("link", { name: "Open second reader fixture" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/memories/${SECOND_READER_MEMORY_ID}$`));
-  await expect(page.locator("#reader-title")).toHaveText("Second Fixture Reader");
+  await expect(page.getByRole("heading", { name: "Second Fixture Reader" })).toBeVisible();
   await expect(page.getByText("Second reader body")).toBeVisible();
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
+});
+
+test("keeps linked reader highlight anchors readable in non-normal themes", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  for (const theme of [
+    { brightness: "sun", name: "warm-light", surface: "normal" },
+    { brightness: "sun", name: "paper-warm-light", surface: "paper" },
+    { brightness: "night", name: "paper-black-dark", surface: "paper" },
+  ] as const) {
+    await setReaderTheme(page, theme.brightness, theme.surface);
+    await page.goto(`/memories/${READER_MEMORY_ID}#hl-fixture`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
+
+    const targetStyle = await page.locator("mark#hl-fixture").evaluate((mark) => {
+      const style = getComputedStyle(mark);
+      const rootStyle = getComputedStyle(document.documentElement);
+
+      return {
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+        color: style.color,
+        expectedBackground: rootStyle.getPropertyValue("--anchor-highlight-bg").trim(),
+        expectedInk: rootStyle.getPropertyValue("--anchor-highlight-ink").trim(),
+        expectedRing: rootStyle.getPropertyValue("--anchor-highlight-ring").trim(),
+      };
+    });
+
+    expect(targetStyle.expectedBackground, theme.name).not.toBe("");
+    expect(targetStyle.expectedInk, theme.name).not.toBe("");
+    expect(targetStyle.expectedRing, theme.name).not.toBe("");
+    expect(targetStyle.boxShadow, theme.name).not.toBe("none");
+    expect(targetStyle.expectedBackground, theme.name).not.toBe("#ffe2a8");
+    expect(targetStyle.expectedInk, theme.name).not.toBe("#3d2b12");
+    expect(targetStyle.backgroundColor, theme.name).not.toBe("rgb(255, 226, 168)");
+    expect(targetStyle.color, theme.name).not.toBe("rgb(61, 43, 18)");
+  }
+});
+
+test("keeps sun reader links bright in normal and paper themes", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  for (const theme of [
+    { brightness: "sun", name: "warm-light", surface: "normal" },
+    { brightness: "sun", name: "paper-warm-light", surface: "paper" },
+  ] as const) {
+    await setReaderTheme(page, theme.brightness, theme.surface);
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
+
+    const sourceLinkColor = await page
+      .getByRole("link", { name: "https://example.com/reader" })
+      .evaluate((link) => getComputedStyle(link).color);
+    const proseLinkColor = await page
+      .getByRole("link", { name: "Reference link" })
+      .evaluate((link) => getComputedStyle(link).color);
+    const linkToken = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--link").trim(),
+    );
+
+    expect(linkToken, theme.name).toBe("#9a334a");
+    expect(sourceLinkColor, theme.name).toBe("rgb(154, 51, 74)");
+    expect(proseLinkColor, theme.name).toBe("rgb(154, 51, 74)");
+  }
 });
 
 test("toggles selected reader text as a persisted highlight", async ({ page }) => {
@@ -75,6 +147,111 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
   await expect(page.getByText(selectedText)).toBeVisible();
 });
 
+test("shows reader toc scroll blur fades only for available scroll directions", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+
+  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(toc).toBeVisible();
+
+  const topFade = toc.locator(".trauma-toc-scroll-fade-top");
+  const bottomFade = toc.locator(".trauma-toc-scroll-fade-bottom");
+  await expect(topFade).toHaveCount(0);
+  await expect(bottomFade).toBeVisible();
+
+  const geometry = await toc.evaluate((nav) => {
+    const bottomFadeElement = nav.querySelector(".trauma-toc-scroll-fade-bottom");
+    const listElement = nav.querySelector("ol");
+
+    if (
+      !(bottomFadeElement instanceof HTMLElement) ||
+      !(listElement instanceof HTMLElement)
+    ) {
+      throw new Error("TOC bottom fade or list element is missing");
+    }
+
+    const navRect = nav.getBoundingClientRect();
+    const bottomFadeRect = bottomFadeElement.getBoundingClientRect();
+    const bottomFadeStyle = getComputedStyle(bottomFadeElement);
+
+    return {
+      listClientHeight: listElement.clientHeight,
+      listScrollHeight: listElement.scrollHeight,
+      bottomFadeBottomGap: Number(
+        (navRect.bottom - bottomFadeRect.bottom).toFixed(2),
+      ),
+      bottomFadeBackdropFilter: bottomFadeStyle.backdropFilter,
+      bottomFadeBoxShadow: bottomFadeStyle.boxShadow,
+    };
+  });
+
+  expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
+  expect(Math.abs(geometry.bottomFadeBottomGap)).toBeLessThanOrEqual(1);
+  expect(geometry.bottomFadeBackdropFilter).toContain("blur(");
+  expect(geometry.bottomFadeBoxShadow).toBe("none");
+
+  await toc.locator("ol").evaluate((list) => {
+    list.scrollTop = Math.floor(list.scrollHeight / 2);
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toBeVisible();
+
+  const topFadeGeometry = await toc.evaluate((nav) => {
+    const topFadeElement = nav.querySelector(".trauma-toc-scroll-fade-top");
+    const listElement = nav.querySelector("ol");
+
+    if (
+      !(topFadeElement instanceof HTMLElement) ||
+      !(listElement instanceof HTMLElement)
+    ) {
+      throw new Error("TOC top fade or list element is missing");
+    }
+
+    const topFadeRect = topFadeElement.getBoundingClientRect();
+    const listRect = listElement.getBoundingClientRect();
+    const topFadeStyle = getComputedStyle(topFadeElement);
+
+    return {
+      topFadeTopGap: Number((topFadeRect.top - listRect.top).toFixed(2)),
+      topFadeMaskImage:
+        topFadeStyle.getPropertyValue("mask-image") ||
+        topFadeStyle.getPropertyValue("-webkit-mask-image"),
+    };
+  });
+
+  expect(Math.abs(topFadeGeometry.topFadeTopGap)).toBeLessThanOrEqual(1);
+  expect(topFadeGeometry.topFadeMaskImage).toContain("linear-gradient");
+
+  await toc.locator("ol").evaluate((list) => {
+    list.scrollTop = list.scrollHeight;
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toHaveCount(0);
+});
+
+async function setReaderTheme(
+  page: Page,
+  brightness: "night" | "sun",
+  surface: "normal" | "paper",
+) {
+  await page.goto("/memories");
+  await page.evaluate(
+    ({ brightness: nextBrightness, surface: nextSurface }) => {
+      localStorage.setItem("trauma:brightness", nextBrightness);
+      localStorage.setItem("trauma:surface", nextSurface);
+    },
+    { brightness, surface },
+  );
+}
+
 function createReaderFixture() {
   execFileSync(
     resolveBunExecutable(),
@@ -90,6 +267,7 @@ function createReaderFixture() {
         const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
         const memoryId = "${READER_MEMORY_ID}";
         const secondMemoryId = "${SECOND_READER_MEMORY_ID}";
+        const tocScrollMemoryId = "${TOC_SCROLL_MEMORY_ID}";
         const config = {
           storePath: "./project/store",
           projectPath: "./project",
@@ -138,6 +316,7 @@ function createReaderFixture() {
         try {
           await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
+          await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
         } finally {
           connection.close();
         }
@@ -166,6 +345,8 @@ function createReaderFixture() {
             "",
             "Curated markdown body with <mark data-highlight-id=\\"hl-fixture\\">saved highlight</mark>.",
             "",
+            "A [Reference link](https://example.com/reference) belongs to the reader content.",
+            "",
             "## Details",
             "",
             "| Kind | Value |",
@@ -185,6 +366,22 @@ function createReaderFixture() {
             "## Follow Up",
             "",
             "Ready-to-ready navigation should replace the rendered article.",
+          ].join("\\n"),
+        );
+        await writeFixtureContent(
+          tocScrollMemoryId,
+          "Long Contents Fixture",
+          "https://example.com/long-contents",
+          [
+            "# Long Contents Fixture",
+            "",
+            "This reader exists to make the right-rail table of contents overflow.",
+            "",
+            ...Array.from({ length: 48 }, (_, index) => [
+              \`## Section \${index + 1}\`,
+              "",
+              \`Body \${index + 1}.\`,
+            ]).flat(),
           ].join("\\n"),
         );
       `,
