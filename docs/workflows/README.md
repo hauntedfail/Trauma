@@ -15,8 +15,6 @@ execution records; do not treat completed triage records as active work queues.
 
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
-| 7 | [Highlight system](task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Merged baseline |
-| 8 | [Git backup queue](task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Merged baseline |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Available for further hardening |
 | 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Merged baseline |
 | 11 | [Test suite health refactor](task-11-test-suite-health-refactor.md) | Test boundaries, weak assertions, startup coverage, script normalization | Ready after Task 10 |
@@ -24,13 +22,7 @@ execution records; do not treat completed triage records as active work queues.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | Ready after Task 10 |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
-| 16 | [Red call runtime triage](task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Merged into main |
-| 16b | [Drizzle and SQLite hardening](task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Merged into main |
-| 16c | [Defuddle importer extraction refactor](task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Merged into main |
-| 16d | [Browser-assisted import extension](task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Merged into main |
-| 16e | [Browser extension live DOM extraction](task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Merged into main |
-| 16f | [Backup environment failsafe](task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Merged into main |
-| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Active on `refine/frontend-sample` |
+| 17 | [Front-end refine from sample](task-17-front-end-refine.md) | Refined sample translation, Tailwind tokens, brand assets, shell, browse/highlights, reader, visual QA | Merged baseline |
 
 Task 17.8 is intentionally split under
 `task-17-front-end-refine/08*.md`: the parent file is an execution map, while
@@ -50,7 +42,15 @@ focused workflow file.
 | 4 | [Importer and add memory](archive/task-04-importer-add-memory.md) | URL extraction, link-only fallback, add memory server flow | Archived |
 | 5 | [Browse shell and filters](archive/task-05-browse-shell-filters.md) | `/memories`, shell layout, list/grid, query filters, right-panel shortcuts | Archived |
 | 6 | [Reader pipeline](archive/task-06-reader-pipeline.md) | `/memories/:id`, markdown render, sanitize, rich reader features | Archived |
+| 7 | [Highlight system](archive/task-07-highlight-system.md) | Selection UI, highlight persistence, `/highlights`, highlight-aware search | Archived |
+| 8 | [Git backup queue](archive/task-08-git-backup-queue.md) | In-process queue, git commit/push, retry, backup status | Archived |
 | 16a | [Tailwind migration](archive/task-16a-tailwind-migration.md) | Tailwind v4 Vite plugin, `app.css` removal, component-local styling | Archived |
+| 16 | [Red call runtime triage](archive/task-16-red-call-runtime-triage.md) | Runtime command contract, env loading, config path consistency, E2E recovery | Archived |
+| 16b | [Drizzle and SQLite hardening](archive/task-16b-db-orm-hardening.md) | Bun SQLite API cleanup, migration boundary, DB config alignment, repository safety | Archived |
+| 16c | [Defuddle importer extraction refactor](archive/task-16c-defuddle-importer-refactor.md) | Defuddle v0.18+ content extraction, importer fallback, markdown safety, fixture coverage | Archived |
+| 16d | [Browser-assisted import extension](archive/task-16d-browser-assisted-import.md) | Chrome MV3 extension, local import API, token validation, browser-captured content fallback | Archived |
+| 16e | [Browser extension live DOM extraction](archive/task-16e-browser-extension-live-dom-extraction.md) | Injected content-script bundle, live DOM extraction, site-specific selectors, no server URL fetch fallback | Archived |
+| 16f | [Backup environment failsafe](archive/task-16f-backup-environment-failsafe.md) | Backup path drift detection, red recovery UI, first-start git init, remote push warning behavior | Archived |
 
 ## Worker Rules
 

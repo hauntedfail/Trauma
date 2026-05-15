@@ -37,11 +37,11 @@ action or manually repairs the environment.
 
 ## Required Context
 
-- [Configuration reference](../references/configuration.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Runtime flows](../architecture/flows.md)
-- [Drizzle and SQLite rules](../references/coding-standards/drizzle-sqlite.md)
-- [Security boundaries](../references/coding-standards/security-boundaries.md)
+- [Configuration reference](../../references/configuration.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Drizzle and SQLite rules](../../references/coding-standards/drizzle-sqlite.md)
+- [Security boundaries](../../references/coding-standards/security-boundaries.md)
 - [Task 8 Git backup queue](task-08-git-backup-queue.md)
 - [Task 16b Drizzle and SQLite hardening](task-16b-db-orm-hardening.md)
 

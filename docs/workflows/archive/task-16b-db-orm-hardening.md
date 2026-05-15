@@ -32,10 +32,10 @@ Context7 was used for the current Bun SQLite and Drizzle Bun SQLite API shape.
 
 ## Required Context
 
-- [Drizzle and SQLite rules](../references/coding-standards/drizzle-sqlite.md)
-- [Technology stack](../references/technology-stack.md)
-- [Configuration reference](../references/configuration.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
+- [Drizzle and SQLite rules](../../references/coding-standards/drizzle-sqlite.md)
+- [Technology stack](../../references/technology-stack.md)
+- [Configuration reference](../../references/configuration.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
 - [Task 16 runtime triage](task-16-red-call-runtime-triage.md)
 
 ## Ownership
@@ -165,11 +165,11 @@ Out of scope:
 
 ### Phase 5: Documentation and standards sync
 
-- Update [Drizzle and SQLite rules](../references/coding-standards/drizzle-sqlite.md)
+- Update [Drizzle and SQLite rules](../../references/coding-standards/drizzle-sqlite.md)
   only if the implementation establishes a reusable rule that is not already
   documented.
 - Do not expand `AGENTS.md`; it is only a map.
-- If a static guard is added, document it in [Verification](../quality/verification.md)
+- If a static guard is added, document it in [Verification](../../quality/verification.md)
   only when future workers need to run it directly.
 
 ## Acceptance Criteria

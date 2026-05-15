@@ -8,9 +8,9 @@ and `<mark data-highlight-id>` insertion/removal in `CONTENT.md`.
 
 ## Required Context
 
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Runtime flows](../architecture/flows.md)
-- [UI and routing architecture](../architecture/ui-and-routing.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Runtime flows](../../architecture/flows.md)
+- [UI and routing architecture](../../architecture/ui-and-routing.md)
 
 ## Ownership
 

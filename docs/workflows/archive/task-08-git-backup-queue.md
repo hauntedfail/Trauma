@@ -6,9 +6,9 @@ Implement built-in asynchronous git backup for markdown store changes.
 
 ## Required Context
 
-- [Runtime flows](../architecture/flows.md)
-- [Local/self-hosting operation](../operations/local-self-hosting.md)
-- [Configuration reference](../references/configuration.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Local/self-hosting operation](../../operations/local-self-hosting.md)
+- [Configuration reference](../../references/configuration.md)
 
 ## Ownership
 

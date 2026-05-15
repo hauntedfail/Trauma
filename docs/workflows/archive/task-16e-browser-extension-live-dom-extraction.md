@@ -24,9 +24,9 @@ capture changes.
 
 - [Task 16d Browser-assisted import extension](task-16d-browser-assisted-import.md)
 - [Current-tab capture pipeline](task-16d-browser-assisted-import/05-current-tab-capture-pipeline.md)
-- [Security boundaries](../references/coding-standards/security-boundaries.md)
-- [Configuration reference](../references/configuration.md)
-- [Technology stack](../references/technology-stack.md)
+- [Security boundaries](../../references/coding-standards/security-boundaries.md)
+- [Configuration reference](../../references/configuration.md)
+- [Technology stack](../../references/technology-stack.md)
 
 ## Corrected Design Answer
 

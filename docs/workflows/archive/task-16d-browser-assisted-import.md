@@ -18,11 +18,11 @@ extension or import API behaviour changes.
 
 ## Required Context
 
-- [Runtime flows](../architecture/flows.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Security boundaries](../references/coding-standards/security-boundaries.md)
-- [Technology stack](../references/technology-stack.md)
-- [OpenAI import failure report](../research/2026-05-12-openai-harness-engineering-import-failure.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Security boundaries](../../references/coding-standards/security-boundaries.md)
+- [Technology stack](../../references/technology-stack.md)
+- [OpenAI import failure report](../../research/2026-05-12-openai-harness-engineering-import-failure.md)
 - [Task 16c Defuddle importer refactor](task-16c-defuddle-importer-refactor.md)
 
 ## Platform Reference

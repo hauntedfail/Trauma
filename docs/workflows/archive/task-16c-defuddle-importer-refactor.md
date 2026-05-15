@@ -18,7 +18,7 @@ behaviour changes.
 
 ## Research Basis
 
-- [URL import extraction research](../research/2026-05-12-url-import-content-extraction-markdown-generation.md)
+- [URL import extraction research](../../research/2026-05-12-url-import-content-extraction-markdown-generation.md)
 - Context7 library docs for `/kepano/defuddle`
 - [Defuddle GitHub README](https://github.com/kepano/defuddle)
 - [Defuddle package overview](https://socket.dev/npm/package/defuddle)
@@ -33,10 +33,10 @@ accepts direct Defuddle Markdown persistence.
 
 ## Required Context
 
-- [Runtime flows](../architecture/flows.md)
-- [Data and storage architecture](../architecture/data-and-storage.md)
-- [Security boundaries](../references/coding-standards/security-boundaries.md)
-- [Technology stack](../references/technology-stack.md)
+- [Runtime flows](../../architecture/flows.md)
+- [Data and storage architecture](../../architecture/data-and-storage.md)
+- [Security boundaries](../../references/coding-standards/security-boundaries.md)
+- [Technology stack](../../references/technology-stack.md)
 - [Task 16 runtime triage](task-16-red-call-runtime-triage.md)
 
 ## Ownership
