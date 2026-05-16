@@ -18,6 +18,7 @@ Implement these subtasks sequentially on `feat/task-18-memory-actions`.
 12. [18.13 Review follow-up implementation alignment](13-review-followup-implementation-alignment.md)
 13. [18.14 Product language migration](14-product-language-migration.md)
 14. [18.15 Memory delete consistency and backup hardening](15-memory-delete-consistency-and-backup-hardening.md)
+15. [18.16 PR review follow-up: cache, Flashback backup, and stale anchors](16-pr-review-followup-cache-and-backup.md)
 
 ## Rules for agents
 

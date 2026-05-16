@@ -72,6 +72,7 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 12. [18.13 Review follow-up implementation alignment](task-18-memory-actions/13-review-followup-implementation-alignment.md)
 13. [18.14 Product language migration](task-18-memory-actions/14-product-language-migration.md)
 14. [18.15 Memory delete consistency and backup hardening](task-18-memory-actions/15-memory-delete-consistency-and-backup-hardening.md)
+15. [18.16 PR review follow-up: cache, Flashback backup, and stale anchors](task-18-memory-actions/16-pr-review-followup-cache-and-backup.md)
 
 Subtask number 18.7 is intentionally unused. The settings subtask keeps the
 `18.8` label and `08-...` filename because it was defined after the reader

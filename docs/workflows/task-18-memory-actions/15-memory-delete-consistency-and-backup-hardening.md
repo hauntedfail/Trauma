@@ -29,8 +29,9 @@ Current implementation risk:
   canonical content directory are already gone.
 - API-level delete coverage proves Flashback and taxonomy cascades, but it does
   not yet seed and verify Moment cascade through the public DELETE route.
-- Backup deletion currently stages `CONTENT.md`. This is valid only while the
-  backup-tracked content under each memory directory is limited to that file.
+- Backup deletion currently stages `CONTENT.md` only. Current Task 18 also
+  writes `FLASHBACKS.json`, so deletion backup must include that export path or
+  stage the whole deleted memory directory.
 
 ## Target delete contract
 
@@ -41,7 +42,9 @@ Delete target:
    Flashbacks, Moments, and memory taxonomy join rows.
 3. The canonical local content directory under
    `storePath/memories/{memoryId}/`.
-4. The backup repository's tracked representation of that memory content.
+4. The backup repository's tracked representation of that memory content,
+   including `CONTENT.md` and Flashback metadata exports such as
+   `FLASHBACKS.json`.
 
 Non-target:
 
@@ -209,9 +212,13 @@ Required behaviour:
 - Remote push failure must use the existing backup warning/retry behaviour and
   must not roll back local deletion.
 
-Decision to preserve for now:
+Decision to apply now:
 
-- `CONTENT.md` is the only backup-tracked file in a memory directory.
+- `CONTENT.md` is not the only backup-tracked file in a memory directory.
+- Task 18 Flashbacks are backed by SQLite and exported to `FLASHBACKS.json`.
+- Memory deletion must stage the deletion of both `CONTENT.md` and
+  `FLASHBACKS.json`, or stage every tracked path under
+  `storePath/memories/{memoryId}/`.
 - If future work stores local images, captures, translations, or sidecar assets
   under `storePath/memories/{memoryId}/`, that feature must update this backup
   deletion contract to stage every tracked path under the memory directory.
@@ -219,7 +226,8 @@ Decision to preserve for now:
 Regression tests:
 
 - Backup-enabled deletion enqueues `reason: "memory_deletion"`.
-- Backup runner commits a deleted `CONTENT.md` path.
+- Backup runner commits deleted `CONTENT.md` and `FLASHBACKS.json` paths when
+  both were tracked.
 - Backup enqueue failure does not make the delete API return failure after the
   SQLite row and canonical content directory are gone.
 
@@ -240,7 +248,8 @@ Manual smoke:
 5. Confirm the SQLite `memories` row is gone.
 6. Confirm `storePath/memories/{memoryId}/` is gone.
 7. If backup is enabled, confirm git status or the latest backup commit records
-   deletion of `storePath/memories/{memoryId}/CONTENT.md`.
+   deletion of `storePath/memories/{memoryId}/CONTENT.md` and
+   `storePath/memories/{memoryId}/FLASHBACKS.json` when the export exists.
 8. Delete a memory from `/memories/:id`.
 9. Confirm the app navigates back to `/memories`.
 10. Confirm no user-facing failure is shown for successful `204 No Content`.
