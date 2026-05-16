@@ -16,7 +16,10 @@ import { BACKUP_STATUSES, type BackupStatus } from "./status";
 export { BACKUP_STATUSES };
 export type { BackupStatus };
 
-export type BackupTriggerReason = "memory_creation" | "highlight_update";
+export type BackupTriggerReason =
+  | "memory_creation"
+  | "highlight_update"
+  | "memory_deletion";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -137,25 +140,31 @@ export function createGitMemoryBackupQueue(
 
   async function processJob(job: MemoryBackupJob) {
     try {
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "queued",
-        lastBackupError: null,
-      });
-      await runJob({ config: input.config, job });
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "success",
-        lastBackupAt: now(),
-        lastBackupError: null,
-      });
-    } catch (error) {
-      try {
+      if (job.reason !== "memory_deletion") {
         await updateBackupStatus({
           memoryId: job.memoryId,
-          backupStatus: "failed",
-          lastBackupError: formatUnknownError(error),
+          backupStatus: "queued",
+          lastBackupError: null,
         });
+      }
+      await runJob({ config: input.config, job });
+      if (job.reason !== "memory_deletion") {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "success",
+          lastBackupAt: now(),
+          lastBackupError: null,
+        });
+      }
+    } catch (error) {
+      try {
+        if (job.reason !== "memory_deletion") {
+          await updateBackupStatus({
+            memoryId: job.memoryId,
+            backupStatus: "failed",
+            lastBackupError: formatUnknownError(error),
+          });
+        }
       } catch {
         // Preserve the original backup failure. A missing row or closed DB must
         // not stop later queued backups in the same process.

@@ -152,8 +152,9 @@ describe("extractArticleWithDefuddle", () => {
     expect(result.markdown).toContain('loading="lazy"');
     expect(result.markdown).toContain('referrerpolicy="no-referrer"');
     expect(result.markdown).toContain(
-      'sandbox="allow-scripts allow-same-origin allow-presentation"',
+      'sandbox="allow-scripts allow-presentation"',
     );
+    expect(result.markdown).not.toContain("allow-same-origin");
     expect(result.markdown).not.toContain("onclick");
     expect(result.markdown).not.toContain("srcdoc");
     expect(result.markdown).not.toContain("allow=\"camera\"");

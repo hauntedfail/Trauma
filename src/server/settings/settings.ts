@@ -12,7 +12,7 @@ import {
   deleteOpenAiAuthWithRepository,
   readOpenAiAuthStatus,
   type DeleteOpenAiAuthResult,
-  type EnableOpenAiAuthResult,
+  type EnableOpenAiAuthResponse,
   type OpenAiAuthStatusView,
 } from "./openai-auth";
 
@@ -71,7 +71,7 @@ export async function updateTranslationTargetLanguage(
 
 export async function enableSettingsOpenAiAuth(
   options: SettingsOptions = {},
-): Promise<EnableOpenAiAuthResult> {
+): Promise<EnableOpenAiAuthResponse> {
   return withSettingsRepository(options, (repository, now) =>
     enableOpenAiAuthWithRepository(repository, now),
   );

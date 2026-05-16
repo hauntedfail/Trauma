@@ -5,7 +5,10 @@ import { enableSettingsOpenAiAuth } from "~/server/settings/settings";
 
 export async function POST(_event: APIEvent): Promise<Response> {
   try {
-    return jsonResponse(await enableSettingsOpenAiAuth(), { status: 200 });
+    const result = await enableSettingsOpenAiAuth();
+    return jsonResponse(result, {
+      status: result.status === "not_configured" ? 409 : 200,
+    });
   } catch (error) {
     return jsonResponse({ error: formatConfigError(error) }, { status: 500 });
   }

@@ -14,6 +14,15 @@ export interface EnableOpenAiAuthResult {
   message?: string;
 }
 
+export interface OpenAiAuthNotConfiguredResult {
+  status: "not_configured";
+  message: string;
+}
+
+export type EnableOpenAiAuthResponse =
+  | EnableOpenAiAuthResult
+  | OpenAiAuthNotConfiguredResult;
+
 export interface DeleteOpenAiAuthResult {
   status: "disabled";
   alreadyDisabled: boolean;
@@ -24,8 +33,8 @@ interface OpenAiAuthOptions {
   now?: Date;
 }
 
-const OPENAI_AUTH_PROVIDER = "task18-local";
-const OPENAI_AUTH_CREDENTIAL_REFERENCE = "task18-local-openai-auth";
+const OPENAI_AUTH_NOT_CONFIGURED_MESSAGE =
+  "OpenAI auth provider is not configured.";
 
 export async function getOpenAiAuthStatus(
   options: OpenAiAuthOptions = {},
@@ -37,7 +46,7 @@ export async function getOpenAiAuthStatus(
 
 export async function enableOpenAiAuth(
   options: OpenAiAuthOptions = {},
-): Promise<EnableOpenAiAuthResult> {
+): Promise<EnableOpenAiAuthResponse> {
   return withSettingsRepository(options, (repository) =>
     enableOpenAiAuthWithRepository(repository, options.now ?? new Date()),
   );
@@ -60,8 +69,8 @@ export async function readOpenAiAuthStatus(
 
 export async function enableOpenAiAuthWithRepository(
   repository: SettingsRepository,
-  now: Date,
-): Promise<EnableOpenAiAuthResult> {
+  _now: Date,
+): Promise<EnableOpenAiAuthResponse> {
   const status = await readOpenAiAuthStatus(repository);
   if (status === "enabled") {
     return {
@@ -71,14 +80,9 @@ export async function enableOpenAiAuthWithRepository(
     };
   }
 
-  await repository.createOpenAiAuthCredential({
-    provider: OPENAI_AUTH_PROVIDER,
-    credentialReference: OPENAI_AUTH_CREDENTIAL_REFERENCE,
-    now,
-  });
   return {
-    status: "enabled",
-    alreadyEnabled: false,
+    status: "not_configured",
+    message: OPENAI_AUTH_NOT_CONFIGURED_MESSAGE,
   };
 }
 

@@ -76,11 +76,13 @@ export function SettingsPage(props: SettingsPageProps) {
     setMessage("");
     try {
       const response = await submitEnableOpenAiAuth();
-      setOpenAiAuthStatus(response.status);
-      setMessage(response.message ?? "OpenAI auth is enabled.");
-      void revalidateSettingsState();
-    } catch {
-      setError("Failed to enable OpenAI auth.");
+      if (response.status === "enabled") {
+        setOpenAiAuthStatus(response.status);
+        setMessage(response.message ?? "OpenAI auth is enabled.");
+        void revalidateSettingsState();
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to enable OpenAI auth.");
     } finally {
       setPending("");
     }

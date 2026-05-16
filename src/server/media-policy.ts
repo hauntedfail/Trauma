@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { isBlockedHostname, normalizeHostname } from "./importer/host-policy";
 
 export const READER_IFRAME_SANDBOX =
-  "allow-scripts allow-same-origin allow-presentation";
+  "allow-scripts allow-presentation";
 
 export function resolveSafeImageUrl(pageUrl: string, value: string): string | null {
   return resolveSafePublicHttpsUrl(pageUrl, value);

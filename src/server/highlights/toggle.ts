@@ -7,10 +7,11 @@ import type { TraumaDatabase } from "../db";
 import { createRepositories } from "../db/repositories";
 import {
   applyHighlightMarkers,
+  createReaderContentHash,
   HighlightMarkerError,
+  readCanonicalReaderRangeContext,
   normalizeHighlightMarkerRanges,
-  readRenderedMarkdownRangeContext,
-  resolveHighlightSelection,
+  resolveCanonicalHighlightSelection,
   stripHighlightMarkers,
   type HighlightMarkerRange,
   type HighlightSelectionInput,
@@ -24,6 +25,7 @@ import {
   removeHighlightCoverage,
   type HighlightRange,
 } from "./ranges";
+import { writeHighlightMetadataExport } from "./export";
 
 const CONTEXT_LIMIT = 80;
 
@@ -49,6 +51,7 @@ export interface ToggleMemoryHighlightResult {
     suffix: string;
     startOffset: number;
     endOffset: number;
+    contentHash: string;
   }>;
 }
 
@@ -97,10 +100,14 @@ async function toggleMemoryHighlightUnlocked(
     memoryId: input.memoryId,
   });
   const selection = resolveSelection(content.markdown, input.selection);
+  const contentHash = createReaderContentHash(content.markdown);
   const existingHighlights = await repositories.highlights.listForMemory(
     input.memoryId,
   );
-  const existingRanges = existingHighlights.map(toHighlightRange);
+  const existingRanges = normalizeHighlightMarkerRanges(
+    content.markdown,
+    existingHighlights.map(toHighlightRange),
+  );
   const generatedId = input.generateId ?? randomUUID;
   const currentFullyHighlighted = isRangeFullyHighlighted(
     existingRanges,
@@ -121,23 +128,31 @@ async function toggleMemoryHighlightUnlocked(
     ? "unhighlighted"
     : "highlighted";
   const cleanMarkdown = stripHighlightMarkers(content.markdown);
-  const nextRanges = normalizeHighlightMarkerRanges(
-    cleanMarkdown,
-    operation === "unhighlight"
-      ? removeHighlightCoverage(existingRanges, selection, generatedId)
-      : currentFullyHighlighted
-        ? existingRanges
-        : addHighlightCoverage(existingRanges, selection, generatedId),
-  );
+  const nextRanges = operation === "unhighlight"
+    ? removeHighlightCoverage(existingRanges, selection, generatedId)
+    : currentFullyHighlighted
+      ? existingRanges
+      : addHighlightCoverage(existingRanges, selection, generatedId);
   const now = (input.now ?? (() => new Date()))();
   const nextHighlights = buildHighlightRows({
     cleanMarkdown,
+    contentHash,
     existingHighlights,
     memoryId: input.memoryId,
     now,
     ranges: nextRanges,
   });
   await repositories.highlights.replaceForMemory(input.memoryId, nextHighlights);
+  const highlightExportPath = await writeHighlightMetadataExport({
+    config: input.config,
+    memoryId: input.memoryId,
+    highlights: nextHighlights,
+  });
+  await input.backupQueue.enqueue({
+    memoryId: input.memoryId,
+    contentPaths: [highlightExportPath],
+    reason: "highlight_update",
+  });
 
   return {
     operation: resultOperation,
@@ -148,6 +163,7 @@ async function toggleMemoryHighlightUnlocked(
       suffix: highlight.suffix,
       startOffset: highlight.startOffset,
       endOffset: highlight.endOffset,
+      contentHash: highlight.contentHash ?? contentHash,
     })),
   };
 }
@@ -177,7 +193,7 @@ async function withHighlightMemoryLock<T>(
 
 function resolveSelection(markdown: string, selection: HighlightSelectionInput) {
   try {
-    return resolveHighlightSelection(markdown, selection);
+    return resolveCanonicalHighlightSelection(markdown, selection);
   } catch (error) {
     if (error instanceof HighlightMarkerError) {
       throw new HighlightToggleError(error.message, "invalid_selection");
@@ -187,16 +203,19 @@ function resolveSelection(markdown: string, selection: HighlightSelectionInput) 
   }
 }
 
-function toHighlightRange(highlight: HighlightRow): HighlightRange {
+function toHighlightRange(highlight: HighlightRow): HighlightMarkerRange {
   return {
     id: highlight.id,
+    contentHash: highlight.contentHash,
     startOffset: highlight.startOffset,
     endOffset: highlight.endOffset,
+    text: highlight.text,
   };
 }
 
 function buildHighlightRows(input: {
   cleanMarkdown: string;
+  contentHash: string;
   existingHighlights: HighlightRow[];
   memoryId: string;
   now: Date;
@@ -208,7 +227,7 @@ function buildHighlightRows(input: {
 
   return input.ranges.map((range) => {
     const existing = existingById.get(range.id);
-    const rendered = readRenderedMarkdownRangeContext(
+    const rendered = readCanonicalReaderRangeContext(
       input.cleanMarkdown,
       range,
       CONTEXT_LIMIT,
@@ -222,6 +241,7 @@ function buildHighlightRows(input: {
       suffix: rendered.suffix,
       startOffset: range.startOffset,
       endOffset: range.endOffset,
+      contentHash: input.contentHash,
       createdAt: existing?.createdAt ?? input.now,
       updatedAt: input.now,
     };

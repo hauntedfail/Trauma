@@ -48,6 +48,7 @@ describe("loadReaderMemory", () => {
         suffix: ".",
         startOffset: 26,
         endOffset: 35,
+        contentHash: null,
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ]);

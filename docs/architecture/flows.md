@@ -55,9 +55,9 @@ markdown-store contracts.
 
 ## Highlight
 
-Reader content is not generally editable. Highlight creation is the only
-content mutation exposed in read mode. The same selection gesture also toggles
-off existing highlights.
+Reader content is not generally editable. Highlight creation changes SQLite
+metadata and transient reader rendering; it does not rewrite `CONTENT.md`. The
+same selection gesture also toggles off existing highlights.
 
 Flow:
 
@@ -69,18 +69,20 @@ Flow:
    highlight styling only from the selected range.
 5. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
    `end_offset` to the server with the intended toggle operation.
-6. Server creates, deletes, shrinks, or splits `highlights` rows so SQLite
-   represents exactly the highlighted ranges that remain.
-7. Server inserts or removes `<mark data-highlight-id="...">...</mark>` ranges
-   in `CONTENT.md` to match SQLite.
-8. Server enqueues markdown backup work.
+6. Server resolves the selection against canonical reader text, stores
+   `start_offset`, `end_offset`, and `content_hash`, then creates, deletes,
+   shrinks, or splits `highlights` rows so SQLite represents exactly the
+   highlighted ranges that remain.
+7. Server writes `{storePath}/memories/{memoryId}/HIGHLIGHTS.json` as a
+   deterministic metadata export for git backup.
+8. Server enqueues backup work for the metadata export.
 
 Highlight toggle rules:
 
 - Selecting unhighlighted text creates a highlight for the selected range.
 - Selecting an already-highlighted range unhighlights the selected range only.
 - Selecting a subset of a larger highlight preserves the unselected highlighted
-  text by shrinking or splitting marks and metadata.
+  text by shrinking or splitting metadata.
 - Selecting across multiple existing highlights removes only the selected
   overlap from each affected highlight.
 
@@ -91,6 +93,10 @@ Selection payload:
 3. `suffix`
 4. `start_offset`
 5. `end_offset`
+
+The server stores offsets in canonical reader text and guards them with
+`content_hash` in `sha256:<hex>` format. Hash-mismatched highlights are treated
+as stale and are not rendered at a guessed location.
 
 If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.

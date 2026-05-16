@@ -114,6 +114,24 @@ describe("settings page", () => {
     ]);
   });
 
+  it("surfaces provider-missing OpenAI auth enable responses", async () => {
+    await expect(
+      submitEnableOpenAiAuth({
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              status: "not_configured",
+              message: "OpenAI auth provider is not configured.",
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow("OpenAI auth provider is not configured.");
+  });
+
   it("does not delete OpenAI auth when confirmation is rejected", async () => {
     const requests: Request[] = [];
 

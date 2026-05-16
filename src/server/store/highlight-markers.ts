@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { decodeHTML } from "entities";
 
 const HIGHLIGHT_MARK_PAIR_PATTERN =
@@ -21,8 +23,10 @@ export interface ResolvedHighlightSelection {
 
 export interface HighlightMarkerRange {
   id: string;
+  contentHash?: string | null;
   startOffset: number;
   endOffset: number;
+  text?: string;
 }
 
 interface MarkdownRange {
@@ -35,6 +39,13 @@ interface ProjectedMarkdownText {
   sourceOffsets: number[];
   sourceEndOffsets: number[];
   protectedOffsets: boolean[];
+}
+
+interface MarkdownProjection {
+  cleanMarkdown: string;
+  contentHash: string;
+  projectedMarkdown: ProjectedMarkdownText;
+  protectedRanges: MarkdownRange[];
 }
 
 interface MarkdownLinkProjection {
@@ -85,15 +96,25 @@ export function stripHighlightMarkers(markdown: string): string {
   );
 }
 
+export function readCanonicalReaderText(markdown: string): string {
+  return readMarkdownProjection(markdown).projectedMarkdown.text;
+}
+
+export function createReaderContentHash(markdown: string): string {
+  return createHash("sha256")
+    .update(readCanonicalReaderText(markdown), "utf8")
+    .digest("hex")
+    .replace(/^/, "sha256:");
+}
+
 export function resolveHighlightSelection(
   markdown: string,
   selection: HighlightSelectionInput,
 ): ResolvedHighlightSelection {
   validateSelectionShape(selection);
 
-  const cleanMarkdown = stripHighlightMarkers(markdown);
-  const protectedRanges = findProtectedMarkdownRanges(cleanMarkdown);
-  const projectedMarkdown = projectMarkdownText(cleanMarkdown, protectedRanges);
+  const { cleanMarkdown, projectedMarkdown, protectedRanges } =
+    readMarkdownProjection(markdown);
   const projectedSelection = resolveProjectedSelection(
     projectedMarkdown,
     selection,
@@ -180,17 +201,141 @@ export function resolveHighlightSelection(
   return best.resolved;
 }
 
+export function resolveCanonicalHighlightSelection(
+  markdown: string,
+  selection: HighlightSelectionInput,
+): ResolvedHighlightSelection {
+  validateSelectionShape(selection);
+
+  const { cleanMarkdown, projectedMarkdown, protectedRanges } =
+    readMarkdownProjection(markdown);
+  const projectedSelection = resolveCanonicalProjectedSelection(
+    projectedMarkdown,
+    selection,
+  );
+  if (projectedSelection !== undefined) {
+    return projectedSelection;
+  }
+
+  if (
+    cleanMarkdown.slice(selection.startOffset, selection.endOffset) ===
+    selection.text
+  ) {
+    validateSelectableSourceRange(
+      protectedRanges,
+      selection.startOffset,
+      selection.endOffset,
+    );
+    const readerRange = mapSourceRangeToReaderRange(projectedMarkdown, {
+      startOffset: selection.startOffset,
+      endOffset: selection.endOffset,
+    });
+    return {
+      text: selection.text,
+      ...(readerRange ?? {
+        startOffset: selection.startOffset,
+        endOffset: selection.endOffset,
+      }),
+    };
+  }
+
+  const projectedCandidates = findTextCandidates(
+    projectedMarkdown.text,
+    selection.text,
+  )
+    .map((startOffset) => ({
+      resolved: mapCanonicalProjectedRange(
+        projectedMarkdown,
+        startOffset,
+        selection,
+      ),
+      score: scoreCandidate(projectedMarkdown.text, selection, startOffset),
+      distance: Math.abs(startOffset - selection.startOffset),
+    }))
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        resolved: ResolvedHighlightSelection;
+        score: number;
+        distance: number;
+      } => candidate.resolved !== undefined,
+    );
+  const projectedBest = chooseBestCandidate(projectedCandidates);
+  if (projectedBest !== undefined) {
+    return projectedBest.resolved;
+  }
+
+  const candidates = findTextCandidates(cleanMarkdown, selection.text)
+    .filter(
+      (startOffset) =>
+        !rangeOverlapsProtectedRanges(
+          protectedRanges,
+          startOffset,
+          startOffset + selection.text.length,
+        ),
+    );
+  if (candidates.length === 0) {
+    throw new HighlightMarkerError(
+      "Selected text could not be found in CONTENT.md",
+      "unresolvable_selection",
+    );
+  }
+
+  const best = chooseBestCandidate(
+    candidates
+      .map((startOffset) => ({
+        resolved: mapSourceRangeToReaderRange(projectedMarkdown, {
+          startOffset,
+          endOffset: startOffset + selection.text.length,
+        }),
+        score: scoreCandidate(cleanMarkdown, selection, startOffset),
+        distance: Math.abs(startOffset - selection.startOffset),
+      }))
+      .filter(
+        (
+          candidate,
+        ): candidate is {
+          resolved: MarkdownRange;
+          score: number;
+          distance: number;
+        } => candidate.resolved !== undefined,
+      ),
+  );
+
+  if (best === undefined) {
+    throw new HighlightMarkerError(
+      "Selected text could not be resolved in CONTENT.md",
+      "unresolvable_selection",
+    );
+  }
+
+  return {
+    text: selection.text,
+    ...best.resolved,
+  };
+}
+
 export function applyHighlightMarkers(
   markdown: string,
   highlights: HighlightMarkerRange[],
 ): string {
-  const cleanMarkdown = stripHighlightMarkers(markdown);
-  const protectedRanges = findProtectedMarkdownRanges(cleanMarkdown);
-  const projectedMarkdown = projectMarkdownText(cleanMarkdown, protectedRanges);
-  const sortedHighlights = normalizeHighlightMarkerRangesForProjection(
-    projectedMarkdown,
-    highlights,
-  ).toSorted((left, right) => left.startOffset - right.startOffset);
+  const { cleanMarkdown, contentHash, projectedMarkdown, protectedRanges } =
+    readMarkdownProjection(markdown);
+  const sortedHighlights = highlights
+    .flatMap((highlight) => {
+      const sourceRange = resolveHighlightRenderSourceRange({
+        contentHash,
+        highlight,
+        projectedMarkdown,
+      });
+      return sourceRange === undefined ? [] : [{
+        id: highlight.id,
+        startOffset: sourceRange.startOffset,
+        endOffset: sourceRange.endOffset,
+      }];
+    })
+    .toSorted((left, right) => left.startOffset - right.startOffset);
   let cursor = 0;
   let marked = "";
 
@@ -213,16 +358,36 @@ export function readRenderedMarkdownRangeText(
   return readRenderedMarkdownRangeContext(markdown, range).text;
 }
 
+export function readCanonicalReaderRangeContext(
+  markdown: string,
+  range: MarkdownRange,
+  contextLimit = 80,
+): { text: string; prefix: string; suffix: string } {
+  const text = readCanonicalReaderText(markdown);
+  const prefixStartOffset = findRenderedContextStart(
+    text,
+    range.startOffset,
+    contextLimit,
+  );
+  const suffixEndOffset = findRenderedContextEnd(
+    text,
+    range.endOffset,
+    contextLimit,
+  );
+
+  return {
+    text: text.slice(range.startOffset, range.endOffset),
+    prefix: text.slice(prefixStartOffset, range.startOffset),
+    suffix: text.slice(range.endOffset, suffixEndOffset),
+  };
+}
+
 export function readRenderedMarkdownRangeContext(
   markdown: string,
   range: MarkdownRange,
   contextLimit = 80,
 ): { text: string; prefix: string; suffix: string } {
-  const cleanMarkdown = stripHighlightMarkers(markdown);
-  const projectedMarkdown = projectMarkdownText(
-    cleanMarkdown,
-    findProtectedMarkdownRanges(cleanMarkdown),
-  );
+  const { projectedMarkdown } = readMarkdownProjection(markdown);
   const span = findProjectedSpanForSourceRange(projectedMarkdown, range);
   if (span === undefined) {
     return { text: "", prefix: "", suffix: "" };
@@ -249,12 +414,154 @@ export function normalizeHighlightMarkerRanges(
   markdown: string,
   highlights: HighlightMarkerRange[],
 ): HighlightMarkerRange[] {
-  const cleanMarkdown = stripHighlightMarkers(markdown);
-  const projectedMarkdown = projectMarkdownText(
+  const { contentHash, projectedMarkdown } = readMarkdownProjection(markdown);
+  return highlights.flatMap((highlight) => {
+    const normalized = normalizeHighlightReaderRange({
+      contentHash,
+      highlight,
+      projectedMarkdown,
+    });
+    return normalized === undefined ? [] : [normalized];
+  });
+}
+
+function readMarkdownProjection(markdown: string): MarkdownProjection {
+  const cleanMarkdown = normalizeMarkdownLineEndings(stripHighlightMarkers(markdown));
+  const protectedRanges = findProtectedMarkdownRanges(cleanMarkdown);
+  const projectedMarkdown = projectMarkdownText(cleanMarkdown, protectedRanges);
+
+  return {
     cleanMarkdown,
-    findProtectedMarkdownRanges(cleanMarkdown),
+    contentHash: `sha256:${createHash("sha256")
+      .update(projectedMarkdown.text, "utf8")
+      .digest("hex")}`,
+    projectedMarkdown,
+    protectedRanges,
+  };
+}
+
+function normalizeMarkdownLineEndings(markdown: string): string {
+  return markdown.replace(/\r\n?/g, "\n");
+}
+
+function normalizeHighlightReaderRange(input: {
+  contentHash: string;
+  highlight: HighlightMarkerRange;
+  projectedMarkdown: ProjectedMarkdownText;
+}): HighlightMarkerRange | undefined {
+  if (input.highlight.contentHash === input.contentHash) {
+    if (
+      !isValidReaderRange(input.projectedMarkdown, input.highlight) ||
+      (
+        input.highlight.text !== undefined &&
+        input.projectedMarkdown.text.slice(
+          input.highlight.startOffset,
+          input.highlight.endOffset,
+        ) !== input.highlight.text
+      )
+    ) {
+      return undefined;
+    }
+
+    return {
+      id: input.highlight.id,
+      contentHash: input.highlight.contentHash,
+      startOffset: input.highlight.startOffset,
+      endOffset: input.highlight.endOffset,
+      text: input.highlight.text,
+    };
+  }
+
+  if (input.highlight.contentHash !== undefined && input.highlight.contentHash !== null) {
+    return undefined;
+  }
+
+  const readerRange = mapSourceRangeToReaderRange(
+    input.projectedMarkdown,
+    input.highlight,
   );
-  return normalizeHighlightMarkerRangesForProjection(projectedMarkdown, highlights);
+  return readerRange === undefined
+    ? undefined
+    : {
+        id: input.highlight.id,
+        startOffset: readerRange.startOffset,
+        endOffset: readerRange.endOffset,
+        text: input.highlight.text,
+      };
+}
+
+function resolveHighlightRenderSourceRange(input: {
+  contentHash: string;
+  highlight: HighlightMarkerRange;
+  projectedMarkdown: ProjectedMarkdownText;
+}): MarkdownRange | undefined {
+  if (input.highlight.contentHash === input.contentHash) {
+    if (
+      !isValidReaderRange(input.projectedMarkdown, input.highlight) ||
+      (
+        input.highlight.text !== undefined &&
+        input.projectedMarkdown.text.slice(
+          input.highlight.startOffset,
+          input.highlight.endOffset,
+        ) !== input.highlight.text
+      )
+    ) {
+      return undefined;
+    }
+
+    return mapReaderRangeToSourceRange(input.projectedMarkdown, input.highlight);
+  }
+
+  if (input.highlight.contentHash !== undefined && input.highlight.contentHash !== null) {
+    return undefined;
+  }
+
+  return normalizeHighlightMarkerRange(input.projectedMarkdown, input.highlight);
+}
+
+function isValidReaderRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  range: MarkdownRange,
+): boolean {
+  return (
+    Number.isInteger(range.startOffset) &&
+    Number.isInteger(range.endOffset) &&
+    range.startOffset >= 0 &&
+    range.endOffset > range.startOffset &&
+    range.endOffset <= projectedMarkdown.text.length &&
+    !rangeOverlapsProtectedProjection(
+      projectedMarkdown,
+      range.startOffset,
+      range.endOffset,
+    )
+  );
+}
+
+function mapReaderRangeToSourceRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  range: MarkdownRange,
+): MarkdownRange | undefined {
+  const sourceStartOffset = projectedMarkdown.sourceOffsets[range.startOffset];
+  const sourceEndOffset = projectedMarkdown.sourceEndOffsets[range.endOffset - 1];
+  if (sourceStartOffset === undefined || sourceEndOffset === undefined) {
+    return undefined;
+  }
+
+  if (sourceEndOffset <= sourceStartOffset) {
+    return undefined;
+  }
+
+  return {
+    startOffset: sourceStartOffset,
+    endOffset: sourceEndOffset,
+  };
+}
+
+function mapSourceRangeToReaderRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  range: MarkdownRange,
+): MarkdownRange | undefined {
+  return findProjectedSpanForSourceRange(projectedMarkdown, range);
 }
 
 function validateSelectionShape(selection: HighlightSelectionInput): void {
@@ -335,6 +642,72 @@ function mapProjectedRange(
     text: selection.text,
     startOffset: sourceStartOffset,
     endOffset: sourceEndOffset,
+  };
+}
+
+function resolveCanonicalProjectedSelection(
+  projectedMarkdown: ProjectedMarkdownText,
+  selection: HighlightSelectionInput,
+): ResolvedHighlightSelection | undefined {
+  if (
+    rangeOverlapsProtectedProjection(
+      projectedMarkdown,
+      selection.startOffset,
+      selection.endOffset,
+    )
+  ) {
+    throw new HighlightMarkerError(
+      "Selected markdown code cannot be highlighted",
+      "invalid_selection",
+    );
+  }
+
+  if (
+    projectedMarkdown.text.slice(selection.startOffset, selection.endOffset) !==
+    selection.text
+  ) {
+    return undefined;
+  }
+
+  return mapCanonicalProjectedRange(
+    projectedMarkdown,
+    selection.startOffset,
+    selection,
+  );
+}
+
+function mapCanonicalProjectedRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  projectedStartOffset: number,
+  selection: HighlightSelectionInput,
+): ResolvedHighlightSelection | undefined {
+  const projectedEndOffset = projectedStartOffset + selection.text.length;
+  if (
+    projectedStartOffset < 0 ||
+    projectedEndOffset > projectedMarkdown.text.length
+  ) {
+    return undefined;
+  }
+
+  if (
+    projectedMarkdown.protectedOffsets
+      .slice(projectedStartOffset, projectedEndOffset)
+      .some(Boolean)
+  ) {
+    return undefined;
+  }
+
+  if (
+    projectedMarkdown.sourceOffsets[projectedStartOffset] === undefined ||
+    projectedMarkdown.sourceEndOffsets[projectedEndOffset - 1] === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    text: selection.text,
+    startOffset: projectedStartOffset,
+    endOffset: projectedEndOffset,
   };
 }
 

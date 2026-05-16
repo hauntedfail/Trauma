@@ -24,8 +24,10 @@
 : Ad-hoc label. A memory can have multiple tags.
 
 `highlight`
-: User-created text selection inside reader content. Persisted in SQLite and as
-`<mark data-highlight-id="...">...</mark>` inside `CONTENT.md`.
+: User-created text selection inside reader content. Persisted in SQLite and
+rendered as `<mark data-highlight-id="...">...</mark>` at read time. Normal
+highlight persistence does not mutate `CONTENT.md`; git backup uses the
+per-memory `HIGHLIGHTS.json` metadata export.
 
 `unhighlight`
 : Toggle action caused by selecting already-highlighted reader text. Only the

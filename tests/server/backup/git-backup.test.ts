@@ -66,6 +66,36 @@ describe("git backup runner", () => {
     ).toEqual([`store/${contentPath}`]);
   });
 
+  it("stages deleted store content paths and creates a deletion backup commit", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Backed Up", "utf8");
+    initializeGitRepository(projectPath);
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({ contentPaths: [contentPath], reason: "memory_deletion" }),
+    });
+
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+    expect(
+      git(projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`D\tstore/${contentPath}`]);
+  });
+
   it("does not push committed backup content when git push is disabled", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const remotePath = join(root, "remote.git");
@@ -841,11 +871,14 @@ function createConfig(input: {
   };
 }
 
-function createJob(input: { contentPaths: string[] }): MemoryBackupJob {
+function createJob(input: {
+  contentPaths: string[];
+  reason?: MemoryBackupJob["reason"];
+}): MemoryBackupJob {
   return {
     memoryId,
     contentPaths: input.contentPaths,
-    reason: "memory_creation",
+    reason: input.reason ?? "memory_creation",
   };
 }
 

@@ -69,7 +69,7 @@ export interface ReaderFlashbackItem {
   sectionPath: string;
   sectionStartOffset: number | null;
   sectionEndOffset: number | null;
-  contentHash: string | null;
+  contentHash?: string | null;
   createdAt: string;
 }
 
@@ -80,6 +80,7 @@ export interface ReaderHighlightItem {
   suffix: string;
   startOffset: number;
   endOffset: number;
+  contentHash?: string | null;
   createdAt: string;
 }
 
@@ -194,6 +195,7 @@ function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
       suffix: highlight.suffix,
       startOffset: highlight.startOffset,
       endOffset: highlight.endOffset,
+      contentHash: highlight.contentHash,
       createdAt: highlight.createdAt.toISOString(),
     })),
     createdAt: memory.createdAt,

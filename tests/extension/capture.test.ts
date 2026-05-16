@@ -103,8 +103,9 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).toContain('loading="lazy"');
     expect(result.snapshot.articleHtml).toContain('referrerpolicy="no-referrer"');
     expect(result.snapshot.articleHtml).toContain(
-      'sandbox="allow-scripts allow-same-origin allow-presentation"',
+      'sandbox="allow-scripts allow-presentation"',
     );
+    expect(result.snapshot.articleHtml).not.toContain("allow-same-origin");
     expect(result.snapshot.articleHtml).not.toContain("onclick");
     expect(result.snapshot.articleHtml).not.toContain("allow=\"camera\"");
     expect(result.snapshot.articleHtml).not.toContain("http.jpg");

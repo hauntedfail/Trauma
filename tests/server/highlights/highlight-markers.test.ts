@@ -935,6 +935,21 @@ describe("highlight markdown markers", () => {
     ).toBe('Alpha target and omega <mark data-highlight-id="fresh">target</mark>.');
   });
 
+  it("does not render hashed canonical ranges against changed reader text", () => {
+    expect(
+      applyHighlightMarkers("Alpha target.", [
+        {
+          id: "stale-hash",
+          text: "target",
+          startOffset: "Alpha ".length,
+          endOffset: "Alpha target".length,
+          contentHash:
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        },
+      ]),
+    ).toBe("Alpha target.");
+  });
+
   it("does not strip author-provided plain mark tags", () => {
     expect(stripHighlightMarkers("<mark>plain</mark> highlight")).toBe(
       "<mark>plain</mark> highlight",

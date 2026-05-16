@@ -52,6 +52,7 @@ describe("server browse loaders", () => {
         suffix: "after",
         startOffset: 10,
         endOffset: 23,
+        contentHash: null,
         createdAt: "2026-05-16T00:00:00.000Z",
       },
     ]);

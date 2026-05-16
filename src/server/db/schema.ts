@@ -154,6 +154,7 @@ export const highlights = sqliteTable(
     suffix: text("suffix").notNull(),
     startOffset: integer("start_offset").notNull(),
     endOffset: integer("end_offset").notNull(),
+    contentHash: text("content_hash"),
     ...timestamps(),
   },
   (table) => [

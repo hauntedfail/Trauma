@@ -32,7 +32,7 @@ const SITE_SPECIFIC_SELECTORS = [
 const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
 const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
 const CAPTURE_IFRAME_SANDBOX =
-  "allow-scripts allow-same-origin allow-presentation";
+  "allow-scripts allow-presentation";
 
 export function createCapturedTabSnapshot(
   extensionVersion: string,

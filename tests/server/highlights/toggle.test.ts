@@ -44,11 +44,19 @@ describe("toggleMemoryHighlight", () => {
           },
         };
         const connection = initializeDatabase(config);
-        const enqueuedWithMarkedContent = [];
+        const enqueuedJobs = [];
         const backupQueue = {
           enqueue: async (job) => {
-            const content = await readFile(join(config.storePath, job.contentPath), "utf8");
-            enqueuedWithMarkedContent.push(content.includes("<mark data-highlight-id"));
+            const contentPaths = job.contentPaths ?? (job.contentPath === undefined ? [] : [job.contentPath]);
+            const contents = await Promise.all(
+              contentPaths.map((contentPath) => readFile(join(config.storePath, contentPath), "utf8")),
+            );
+            enqueuedJobs.push({
+              memoryId: job.memoryId,
+              reason: job.reason,
+              contentPaths,
+              containsMarkedContent: contents.some((content) => content.includes("<mark data-highlight-id")),
+            });
             return { backupStatus: "queued" };
           },
         };
@@ -118,8 +126,11 @@ describe("toggleMemoryHighlight", () => {
           });
           const fileAfterCreate = await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md"), "utf8");
           const rowsAfterCreate = connection.sqlite
-            .prepare("select id, text, prefix, suffix, start_offset, end_offset from highlights order by start_offset")
+            .prepare("select id, text, prefix, suffix, start_offset, end_offset, content_hash from highlights order by start_offset")
             .all();
+          const exportAfterCreate = JSON.parse(
+            await readFile(join(config.storePath, "memories", memoryId, "HIGHLIGHTS.json"), "utf8"),
+          );
 
           const removed = await toggleMemoryHighlight({
             memoryId,
@@ -135,6 +146,9 @@ describe("toggleMemoryHighlight", () => {
           const rowsAfterRemove = connection.sqlite
             .prepare("select id from highlights order by start_offset")
             .all();
+          const exportAfterRemove = JSON.parse(
+            await readFile(join(config.storePath, "memories", memoryId, "HIGHLIGHTS.json"), "utf8"),
+          );
           const memory = connection.sqlite
             .prepare("select backup_status from memories where id = ?")
             .get(memoryId);
@@ -163,9 +177,11 @@ describe("toggleMemoryHighlight", () => {
             removed,
             fileAfterCreate,
             rowsAfterCreate,
+            exportAfterCreate,
             fileAfterRemove,
             rowsAfterRemove,
-            enqueuedWithMarkedContent,
+            exportAfterRemove,
+            enqueuedJobs,
             memory,
             staleError,
           }));
@@ -192,10 +208,24 @@ describe("toggleMemoryHighlight", () => {
         text: "target",
         prefix: "Beta ",
         suffix: " appears in the detail paragraph.",
-        start_offset: 53,
-        end_offset: 59,
+        start_offset: 52,
+        end_offset: 58,
+        content_hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       },
     ]);
+    expect(result.exportAfterCreate).toMatchObject({
+      version: 1,
+      memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+      highlights: [
+        {
+          id: "highlight-created",
+          text: "target",
+          startOffset: 52,
+          endOffset: 58,
+          contentHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        },
+      ],
+    });
     expect(result.fileAfterCreate).not.toContain("<mark data-highlight-id");
     expect(result.fileAfterCreate).toContain(
       "Beta target appears in the detail paragraph.",
@@ -203,7 +233,29 @@ describe("toggleMemoryHighlight", () => {
     expect(result.removed.operation).toBe("unhighlighted");
     expect(result.fileAfterRemove).not.toContain("<mark data-highlight-id");
     expect(result.rowsAfterRemove).toEqual([]);
-    expect(result.enqueuedWithMarkedContent).toEqual([]);
+    expect(result.exportAfterRemove).toMatchObject({
+      version: 1,
+      memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+      highlights: [],
+    });
+    expect(result.enqueuedJobs).toEqual([
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "highlight_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/HIGHLIGHTS.json",
+        ],
+        containsMarkedContent: false,
+      },
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "highlight_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/HIGHLIGHTS.json",
+        ],
+        containsMarkedContent: false,
+      },
+    ]);
     expect(result.memory).toEqual({ backup_status: "pending" });
     expect(result.staleError).toEqual({
       name: "HighlightToggleError",

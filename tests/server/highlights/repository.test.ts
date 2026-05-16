@@ -102,6 +102,7 @@ describe("highlight repository", () => {
         suffix: "after",
         startOffset: 8,
         endOffset: 21,
+        contentHash: null,
         createdAt: "2026-05-10T01:00:00.000Z",
       },
       {
@@ -113,6 +114,7 @@ describe("highlight repository", () => {
         suffix: "old after",
         startOffset: 4,
         endOffset: 14,
+        contentHash: null,
         createdAt: "2026-05-09T01:00:00.000Z",
       },
     ]);

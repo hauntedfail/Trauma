@@ -3,6 +3,11 @@ import type { APIEvent } from "@solidjs/start/server";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
 import { generateFlashbackId } from "~/server/flashbacks/id";
+import {
+  renderMemoryMarkdown,
+  type ReaderTocEntry,
+} from "~/server/reader/markdown-renderer";
+import { MemoryContentStoreError, readMemoryContent } from "~/server/store";
 
 export type FlashbackPayloadResult =
   | {
@@ -72,16 +77,28 @@ export async function POST(event: APIEvent): Promise<Response> {
   const now = new Date();
   const connection = initializeDatabase(config);
   try {
+    const memory = await connection.repositories.memories.findById(payload.memoryId);
+    if (memory === undefined) {
+      return json({ error: "memory was not found" }, { status: 404 });
+    }
+    const section = await resolveFlashbackSection({
+      config,
+      payload,
+    });
+    if (!section.ok) {
+      return json({ error: section.error }, { status: 400 });
+    }
+
     const result = await connection.repositories.flashbacks.create({
       id: generateFlashbackId(),
       memoryId: payload.memoryId,
-      sectionAnchor: payload.sectionAnchor,
-      sectionTitle: payload.sectionTitle,
-      sectionLevel: payload.sectionLevel,
-      sectionPath: payload.sectionPath,
-      sectionStartOffset: payload.sectionStartOffset,
-      sectionEndOffset: payload.sectionEndOffset,
-      contentHash: payload.contentHash,
+      sectionAnchor: section.section.id,
+      sectionTitle: section.section.text,
+      sectionLevel: section.section.level,
+      sectionPath: section.section.path,
+      sectionStartOffset: section.section.startOffset ?? null,
+      sectionEndOffset: section.section.endOffset ?? null,
+      contentHash: null,
       createdAt: now,
       updatedAt: now,
     });
@@ -98,6 +115,67 @@ export async function POST(event: APIEvent): Promise<Response> {
   } finally {
     connection.close();
   }
+}
+
+async function resolveFlashbackSection(input: {
+  config: ReturnType<typeof loadRuntimeTraumaConfig>;
+  payload: Extract<FlashbackPayloadResult, { ok: true }>;
+}): Promise<
+  | { ok: true; section: ReaderTocEntry }
+  | { ok: false; error: string }
+> {
+  let rendered;
+  try {
+    const content = await readMemoryContent({
+      config: input.config,
+      memoryId: input.payload.memoryId,
+    });
+    rendered = renderMemoryMarkdown(content.markdown);
+  } catch (error) {
+    if (
+      error instanceof MemoryContentStoreError &&
+      error.code === "missing_content"
+    ) {
+      return { ok: false, error: "flashback section was not found" };
+    }
+    throw error;
+  }
+
+  const byAnchor = rendered.toc.filter(
+    (section) => section.id === input.payload.sectionAnchor,
+  );
+  const candidates = byAnchor.length > 0
+    ? byAnchor
+    : rendered.toc.filter((section) => section.path === input.payload.sectionPath);
+  if (candidates.length === 0) {
+    return { ok: false, error: "flashback section was not found" };
+  }
+  if (candidates.length > 1) {
+    return { ok: false, error: "flashback section identity is ambiguous" };
+  }
+
+  const section = candidates[0]!;
+  if (
+    section.text !== input.payload.sectionTitle ||
+    section.level !== input.payload.sectionLevel ||
+    section.path !== input.payload.sectionPath ||
+    !matchesOptionalOffset(section.startOffset, input.payload.sectionStartOffset) ||
+    !matchesOptionalOffset(section.endOffset, input.payload.sectionEndOffset)
+  ) {
+    return {
+      ok: false,
+      error: "flashback section identity does not match reader content",
+    };
+  }
+
+  return { ok: true, section };
+}
+
+function matchesOptionalOffset(
+  serverOffset: number | undefined,
+  payloadOffset: number | null,
+): boolean {
+  return payloadOffset === null || serverOffset === payloadOffset;
 }
 
 export async function parseFlashbackPayload(

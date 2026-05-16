@@ -1,7 +1,7 @@
 import type { SettingsState } from "../../server/settings/settings";
 import type {
   DeleteOpenAiAuthResult,
-  EnableOpenAiAuthResult,
+  EnableOpenAiAuthResponse,
 } from "../../server/settings/openai-auth";
 
 type FetchFunction = (
@@ -30,16 +30,16 @@ export async function submitTranslationTargetLanguage(input: {
 
 export async function submitEnableOpenAiAuth(input: {
   fetch?: FetchFunction;
-} = {}): Promise<EnableOpenAiAuthResult> {
+} = {}): Promise<EnableOpenAiAuthResponse> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/settings/openai-auth/enable", {
     method: "POST",
   });
   if (!response.ok) {
-    throw new Error("failed to enable OpenAI auth");
+    throw new Error(await readErrorMessage(response, "failed to enable OpenAI auth"));
   }
 
-  return response.json() as Promise<EnableOpenAiAuthResult>;
+  return response.json() as Promise<EnableOpenAiAuthResponse>;
 }
 
 export async function submitDeleteOpenAiAuth(input: {
@@ -59,4 +59,35 @@ export async function submitDeleteOpenAiAuth(input: {
   }
 
   return response.json() as Promise<DeleteOpenAiAuthResult>;
+}
+
+async function readErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const body = await response.json();
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "message" in body &&
+      typeof body.message === "string" &&
+      body.message.trim() !== ""
+    ) {
+      return body.message;
+    }
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof body.error === "string" &&
+      body.error.trim() !== ""
+    ) {
+      return body.error;
+    }
+  } catch {
+    // Fall back to the stable caller-facing message below.
+  }
+
+  return fallback;
 }

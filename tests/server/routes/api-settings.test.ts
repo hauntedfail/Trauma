@@ -8,6 +8,7 @@ import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
+import { initializeDatabase } from "../../../src/server/db";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -26,8 +27,17 @@ afterEach(async () => {
 
 describe("settings API routes", () => {
   it("reads settings without exposing credential material", async () => {
-    await useTempRouteConfig();
-    await enableOpenAiAuth(apiEvent("/api/settings/openai-auth/enable", "POST"));
+    const config = await useTempRouteConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.settings.createOpenAiAuthCredential({
+        provider: "codex",
+        credentialReference: "external-openai-auth",
+        now: new Date("2026-05-15T00:00:00.000Z"),
+      });
+    } finally {
+      connection.close();
+    }
 
     const response = await readSettings(apiEvent("/api/settings", "GET"));
 
@@ -72,12 +82,44 @@ describe("settings API routes", () => {
     });
   });
 
-  it("enables and deletes OpenAI auth idempotently", async () => {
-    await useTempRouteConfig();
+  it("returns not configured when OpenAI auth provider is missing", async () => {
+    const config = await useTempRouteConfig();
 
-    const enabled = await enableOpenAiAuth(
+    const response = await enableOpenAiAuth(
       apiEvent("/api/settings/openai-auth/enable", "POST"),
     );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      status: "not_configured",
+      message: "OpenAI auth provider is not configured.",
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from openai_auth_credentials")
+          .get(),
+      ).toEqual({ count: 0 });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("keeps existing OpenAI auth idempotent and deletes it", async () => {
+    const config = await useTempRouteConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.settings.createOpenAiAuthCredential({
+        provider: "codex",
+        credentialReference: "external-openai-auth",
+        now: new Date("2026-05-15T00:00:00.000Z"),
+      });
+    } finally {
+      connection.close();
+    }
+
     const alreadyEnabled = await enableOpenAiAuth(
       apiEvent("/api/settings/openai-auth/enable", "POST"),
     );
@@ -88,11 +130,6 @@ describe("settings API routes", () => {
       apiEvent("/api/settings/openai-auth", "DELETE"),
     );
 
-    expect(enabled.status).toBe(200);
-    expect(await enabled.json()).toEqual({
-      status: "enabled",
-      alreadyEnabled: false,
-    });
     expect(alreadyEnabled.status).toBe(200);
     expect(await alreadyEnabled.json()).toEqual({
       status: "enabled",
@@ -112,10 +149,10 @@ describe("settings API routes", () => {
   });
 });
 
-async function useTempRouteConfig(): Promise<void> {
+async function useTempRouteConfig() {
   const root = await mkdtemp(join(tmpdir(), "trauma-api-settings-"));
   tempDirs.push(root);
-  loadRouteConfig(await writeRouteConfig(root));
+  return loadRouteConfig(await writeRouteConfig(root));
 }
 
 function apiEvent(path: string, method: string) {

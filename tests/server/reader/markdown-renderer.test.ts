@@ -80,9 +80,8 @@ describe("renderMemoryMarkdown", () => {
     );
     expect(result.html).toContain('width="640"');
     expect(result.html).toContain('height="360"');
-    expect(result.html).toContain(
-      'sandbox="allow-scripts allow-same-origin allow-presentation"',
-    );
+    expect(result.html).toContain('sandbox="allow-scripts allow-presentation"');
+    expect(result.html).not.toContain("allow-same-origin");
     expect(result.html).toContain('loading="lazy"');
     expect(result.html).toContain('referrerpolicy="no-referrer"');
     expect(result.html).not.toContain('referrerpolicy="unsafe-url"');

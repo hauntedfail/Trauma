@@ -53,6 +53,7 @@ export interface HighlightBrowseRow {
   suffix: string;
   startOffset: number;
   endOffset: number;
+  contentHash?: string | null;
   createdAt: string;
 }
 
@@ -382,6 +383,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             suffix: schema.highlights.suffix,
             startOffset: schema.highlights.startOffset,
             endOffset: schema.highlights.endOffset,
+            contentHash: schema.highlights.contentHash,
             createdAt: schema.highlights.createdAt,
           })
           .from(schema.highlights)

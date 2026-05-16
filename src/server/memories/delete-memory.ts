@@ -1,6 +1,7 @@
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import { createRepositories, type TraumaDatabase } from "../db/repositories";
 
@@ -10,6 +11,7 @@ export type DeleteMemoryResult =
   | { status: "failed"; error: string };
 
 export async function deleteMemory(input: {
+  backupQueue?: MemoryBackupQueue;
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
   memoryId: string;
@@ -60,6 +62,11 @@ export async function deleteMemory(input: {
   if (staged) {
     await rm(paths.stagingDir, { recursive: true, force: true });
   }
+  await input.backupQueue?.enqueue({
+    memoryId: input.memoryId,
+    contentPaths: [target.contentPath],
+    reason: "memory_deletion",
+  });
 
   return { status: "deleted" };
 }

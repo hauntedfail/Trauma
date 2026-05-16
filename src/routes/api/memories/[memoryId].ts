@@ -1,5 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 
+import { getMemoryBackupQueue } from "~/server/backup";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { deleteMemory } from "~/server/memories/delete-memory";
@@ -20,6 +21,7 @@ export async function DELETE(event: APIEvent): Promise<Response> {
   const connection = initializeDatabase(config);
   try {
     const result = await deleteMemory({
+      backupQueue: getMemoryBackupQueue(config),
       config,
       db: connection.db,
       memoryId,

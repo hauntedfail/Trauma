@@ -18,6 +18,7 @@ export async function loadHighlightBrowseRows(): Promise<HighlightBrowseRow[]> {
           suffix: highlight.suffix,
           startOffset: 0,
           endOffset: highlight.text.length,
+          contentHash: null,
           createdAt: highlight.createdAt,
         })),
       )
