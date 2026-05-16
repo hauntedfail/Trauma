@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { runBunFixtureScript } from "./bun-fixture";
+
 test("redirects the home route to the canonical memories browse route", async ({ page }) => {
   await page.goto("/");
 
@@ -166,6 +168,36 @@ test("updates URL query state from search, filters, flashback shortcuts, and vie
   expect(toggleBoxAfter).not.toBeNull();
   expect(toggleBoxBefore?.width).toBe(toggleBoxAfter?.width);
   expect(toggleBoxBefore?.height).toBe(toggleBoxAfter?.height);
+});
+
+test("deletes a memory from the browse list through the public DELETE route", async ({
+  page,
+}) => {
+  createBrowseDeleteFixture();
+  await page.goto("/memories");
+
+  const deletedMemoryLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  await expect(deletedMemoryLink).toBeVisible();
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe('Delete memory "Reader Mode Notes"?');
+    void dialog.accept();
+  });
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/memories/memory-foundation") &&
+      response.request().method() === "DELETE",
+  );
+  await page
+    .getByRole("button", { name: "Memory actions for Reader Mode Notes" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete memory" }).click();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(deletedMemoryLink).toHaveCount(0);
+  await expect(page.getByText("Failed to delete memory.")).toHaveCount(0);
 });
 
 test("renders category, tag, and flashback shortcut sections in the right panel", async ({ page }) => {
@@ -612,4 +644,92 @@ async function readPaperShellMaterial(page: Page) {
       routeBackgroundImage: routePaneStyle.backgroundImage,
     };
   });
+}
+
+function createBrowseDeleteFixture(): void {
+  runBunFixtureScript(`
+        import { mkdir, rm, writeFile } from "node:fs/promises";
+        import { dirname, join } from "node:path";
+        import { schema } from "./src/server/db/index.ts";
+        import { initializeDatabase } from "./src/server/db/connection.ts";
+
+        const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
+        const memoryId = "memory-foundation";
+        const now = new Date("2026-05-09T00:00:00.000Z");
+        const config = {
+          storePath: "./project/store",
+          projectPath: "./project",
+          databasePath: "./runtime/trauma.sqlite",
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const resolvedConfig = {
+          configFilePath: configPath,
+          projectPath: join(process.cwd(), ".trauma/e2e/project"),
+          storePath: join(process.cwd(), ".trauma/e2e/project/store"),
+          databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+          backup: config.backup,
+        };
+
+        await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
+        await mkdir(dirname(configPath), { recursive: true });
+        await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+        const connection = initializeDatabase(resolvedConfig);
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/reader-mode",
+            title: "Reader Mode Notes",
+            description: "Browse delete fixture",
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await connection.db.insert(schema.flashbacks).values({
+            id: "h-foundation",
+            memoryId,
+            text: "flashback-aware results",
+            prefix: "Search query can be wired to",
+            suffix: "through repository fixtures.",
+            startOffset: 0,
+            endOffset: "flashback-aware results".length,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await connection.db.insert(schema.moments).values({
+            id: "moment-foundation",
+            memoryId,
+            sectionAnchor: "details",
+            sectionTitle: "Details",
+            sectionLevel: 2,
+            sectionPath: "1",
+            createdAt: now,
+            updatedAt: now,
+          });
+        } finally {
+          connection.close();
+        }
+
+        const memoryDir = join(resolvedConfig.storePath, "memories", memoryId);
+        await mkdir(memoryDir, { recursive: true });
+        await writeFile(
+          join(memoryDir, "CONTENT.md"),
+          "# Reader Mode Notes\\n\\nBrowse delete fixture content.\\n",
+          "utf8",
+        );
+      `);
 }

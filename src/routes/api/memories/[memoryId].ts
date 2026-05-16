@@ -20,17 +20,32 @@ export async function DELETE(event: APIEvent): Promise<Response> {
 
   const connection = initializeDatabase(config);
   try {
-    const result = await deleteMemory({
-      backupQueue: getMemoryBackupQueue(config),
-      config,
-      db: connection.db,
-      memoryId,
-    });
+    let result;
+    try {
+      result = await deleteMemory({
+        backupQueue: getMemoryBackupQueue(config),
+        config,
+        db: connection.db,
+        memoryId,
+      });
+    } catch (error) {
+      console.error("Unexpected memory delete failure", error);
+      return json({ error: "failed to delete memory" }, { status: 500 });
+    }
     if (result.status === "not_found") {
       return json({ error: "memory was not found" }, { status: 404 });
     }
     if (result.status === "failed") {
       return json({ error: "failed to delete memory" }, { status: 500 });
+    }
+    if (result.warnings !== undefined) {
+      for (const warning of result.warnings) {
+        console.warn("Memory delete completed with warning", {
+          kind: warning.kind,
+          memoryId,
+          error: warning.error,
+        });
+      }
     }
 
     return new Response(null, { status: 204 });

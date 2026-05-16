@@ -71,18 +71,27 @@ describe("git backup runner", () => {
     const projectPath = join(root, "project");
     const storePath = join(projectPath, "store");
     const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
     await mkdir(join(storePath, "memories", memoryId), { recursive: true });
     await writeFile(join(storePath, contentPath), "# Backed Up", "utf8");
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
     initializeGitRepository(projectPath);
     await runGitBackupJob({
       config: createConfig({ root, projectPath, storePath, push: false }),
-      job: createJob({ contentPaths: [contentPath] }),
+      job: createJob({ contentPaths: [contentPath, flashbackPath] }),
     });
     await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
 
     await runGitBackupJob({
       config: createConfig({ root, projectPath, storePath, push: false }),
-      job: createJob({ contentPaths: [contentPath], reason: "memory_deletion" }),
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
     });
 
     expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
@@ -93,7 +102,10 @@ describe("git backup runner", () => {
         .trim()
         .split(/\r?\n/)
         .filter(Boolean),
-    ).toEqual([`D\tstore/${contentPath}`]);
+    ).toEqual([
+      `D\tstore/${contentPath}`,
+      `D\tstore/${flashbackPath}`,
+    ]);
   });
 
   it("does not push committed backup content when git push is disabled", async () => {

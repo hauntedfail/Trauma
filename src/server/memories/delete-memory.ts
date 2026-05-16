@@ -1,22 +1,57 @@
-import { mkdir, rename, rm } from "node:fs/promises";
+import { access, mkdir, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
-import { createRepositories, type TraumaDatabase } from "../db/repositories";
+import {
+  createRepositories,
+  type TraumaDatabase,
+  type TraumaRepositories,
+} from "../db/repositories";
+import { getFlashbackMetadataExportPath } from "../flashbacks/export";
 
 export type DeleteMemoryResult =
-  | { status: "deleted" }
+  | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
   | { status: "not_found" }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string; partial?: DeleteMemoryPartialFailure };
+
+export type DeleteMemoryPartialFailure = "content_cleanup_failed";
+
+export type DeleteMemoryWarning = {
+  kind: "backup_enqueue_failed";
+  error: string;
+};
+
+type DeleteMemoryFileSystem = {
+  access: typeof access;
+  mkdir: typeof mkdir;
+  rename: typeof rename;
+  rm: typeof rm;
+};
+
+type DeleteMemoryRepositories = {
+  memories: Pick<
+    TraumaRepositories["memories"],
+    "deleteMemoryRecord" | "findDeletionTarget"
+  >;
+};
 
 export async function deleteMemory(input: {
   backupQueue?: MemoryBackupQueue;
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
+  fileSystem?: Partial<DeleteMemoryFileSystem>;
   memoryId: string;
+  repositories?: DeleteMemoryRepositories;
 }): Promise<DeleteMemoryResult> {
-  const repositories = createRepositories(input.db);
+  const repositories = input.repositories ?? createRepositories(input.db);
+  const fileSystem = {
+    access,
+    mkdir,
+    rename,
+    rm,
+    ...input.fileSystem,
+  };
   const target = await repositories.memories.findDeletionTarget(input.memoryId);
   if (target === undefined) {
     return { status: "not_found" };
@@ -32,11 +67,22 @@ export async function deleteMemory(input: {
   } catch (error) {
     return { status: "failed", error: formatUnknownError(error) };
   }
+  let backupDeletionPaths: string[];
+  try {
+    backupDeletionPaths = await resolveBackupDeletionPaths({
+      contentPath: target.contentPath,
+      fileSystem,
+      memoryId: input.memoryId,
+      storePath: input.config.storePath,
+    });
+  } catch (error) {
+    return { status: "failed", error: formatUnknownError(error) };
+  }
 
   let staged = false;
   try {
-    await mkdir(dirname(paths.stagingDir), { recursive: true });
-    await rename(paths.contentDir, paths.stagingDir);
+    await fileSystem.mkdir(dirname(paths.stagingDir), { recursive: true });
+    await fileSystem.rename(paths.contentDir, paths.stagingDir);
     staged = true;
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") {
@@ -48,27 +94,46 @@ export async function deleteMemory(input: {
     const deleted = await repositories.memories.deleteMemoryRecord(input.memoryId);
     if (!deleted) {
       if (staged) {
-        await rename(paths.stagingDir, paths.contentDir);
+        await fileSystem.rename(paths.stagingDir, paths.contentDir);
       }
       return { status: "not_found" };
     }
   } catch (error) {
     if (staged) {
-      await rename(paths.stagingDir, paths.contentDir);
+      await fileSystem.rename(paths.stagingDir, paths.contentDir);
     }
     return { status: "failed", error: formatUnknownError(error) };
   }
 
   if (staged) {
-    await rm(paths.stagingDir, { recursive: true, force: true });
+    try {
+      await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
+    } catch (error) {
+      return {
+        status: "failed",
+        error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
+        partial: "content_cleanup_failed",
+      };
+    }
   }
-  await input.backupQueue?.enqueue({
-    memoryId: input.memoryId,
-    contentPaths: [target.contentPath],
-    reason: "memory_deletion",
-  });
 
-  return { status: "deleted" };
+  const warnings: DeleteMemoryWarning[] = [];
+  if (input.backupQueue !== undefined) {
+    try {
+      await input.backupQueue.enqueue({
+        memoryId: input.memoryId,
+        contentPaths: backupDeletionPaths,
+        reason: "memory_deletion",
+      });
+    } catch (error) {
+      warnings.push({
+        kind: "backup_enqueue_failed",
+        error: formatUnknownError(error),
+      });
+    }
+  }
+
+  return warnings.length > 0 ? { status: "deleted", warnings } : { status: "deleted" };
 }
 
 function resolveDeletionPaths(input: {
@@ -94,6 +159,27 @@ function resolveDeletionPaths(input: {
   assertPathInsideStore(storeRoot, stagingDir);
 
   return { contentDir, stagingDir };
+}
+
+async function resolveBackupDeletionPaths(input: {
+  contentPath: string;
+  fileSystem: DeleteMemoryFileSystem;
+  memoryId: string;
+  storePath: string;
+}): Promise<string[]> {
+  const paths = [input.contentPath];
+  const flashbackExportPath = getFlashbackMetadataExportPath(input.memoryId);
+  const absoluteFlashbackExportPath = resolve(input.storePath, flashbackExportPath);
+  assertPathInsideStore(resolve(input.storePath), absoluteFlashbackExportPath);
+  try {
+    await input.fileSystem.access(absoluteFlashbackExportPath);
+    paths.push(flashbackExportPath);
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return paths;
 }
 
 function assertPathInsideStore(storeRoot: string, candidate: string): void {

@@ -69,6 +69,9 @@ describe("memory delete API route", () => {
       connection.sqlite
         .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run("delete-flashback", routeMemoryId, "Content", "", ".", 0, 7, routeNow.getTime(), routeNow.getTime());
+      connection.sqlite
+        .prepare("insert into moments (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run("delete-moment", routeMemoryId, "chapter", "Chapter", 2, "1/1", routeNow.getTime(), routeNow.getTime());
     } finally {
       connection.close();
     }
@@ -91,6 +94,8 @@ describe("memory delete API route", () => {
       expect(verifyConnection.sqlite.prepare("select count(*) as count from memories").get())
         .toEqual({ count: 0 });
       expect(verifyConnection.sqlite.prepare("select count(*) as count from flashbacks").get())
+        .toEqual({ count: 0 });
+      expect(verifyConnection.sqlite.prepare("select count(*) as count from moments").get())
         .toEqual({ count: 0 });
       expect(verifyConnection.sqlite.prepare("select count(*) as count from memory_tags").get())
         .toEqual({ count: 0 });
