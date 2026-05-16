@@ -4,7 +4,7 @@
 
 - State: Ready for sequential implementation
 - Base branch: `main`
-- Implementation branch: `feat/memory-actions`
+- Implementation branch: `feat/task-18-memory-actions`
 - Execution model: implement the subtasks below in order, one PR/agent slice at a time unless explicitly approved otherwise.
 - Out of scope: Task 17/refine layout redesign, reader typography redesign, bulk actions, category/tag rename/delete, full taxonomy management screens, backup repository migration.
 
@@ -19,10 +19,11 @@ Task 18 adds user-owned memory metadata and memory actions:
 - browse rendering for link-only memories
 - reusable memory action menu on browse and reader pages
 - settings page for translation target language and OpenAI auth state
-- explicit reader selection menu for highlight creation
-- highlight records that identify the selected occurrence without mutating `CONTENT.md`
-- reader-mode highlight tabs for all highlights vs current-memory highlights
-- Flashback bookmarks for reader sections, with a `/flashback` route listing all saved Flashbacks
+- explicit reader selection menu for Flashback marker creation
+- Flashback marker records that identify the selected occurrence without mutating `CONTENT.md`
+- reader-mode Flashback tabs for all markers vs current-memory markers
+- Moment bookmarks for reader sections, with a `/moments` route listing all saved Moments
+- product-language migration from `highlight` to `Flashback` and from section-bookmark `Flashback` to `Moment`
 - relaxed imported media display policy for HTTPS cross-host images and controlled HTTPS iframes
 
 The implementation must stay domain-scoped. Do not import unrelated refine-branch UI work. If the refine branch is the only place where a reusable memory meatballs menu exists, extract only that reusable component contract or recreate the equivalent shared component in this branch.
@@ -41,14 +42,14 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 - Reader mode renders only tags/categories attached to the active memory.
 - `/settings` is part of Task 18, not a separate workflow.
 - Settings APIs must validate state server-side; frontend disabled controls are not a security boundary.
-- Highlight persistence is record-based. `CONTENT.md` must not be rewritten to store highlight marks.
-- Highlight records identify a selected occurrence by canonical reader-text offsets plus guard context, not by selected text alone.
-- `/memories` recent highlight component remains unchanged.
-- Reader-mode highlight component gets tabs below its title: left tab for all highlights, second tab for the active memory's highlights.
-- Flashback is the TRAUMA product name for section bookmarks.
-- Flashbacks attach to reader sections/chapters, not arbitrary selected text.
-- Flashback persistence is SQLite-backed metadata; it must not rewrite `CONTENT.md`.
-- `/flashback` lists every Flashback with its section title and linked memory metadata.
+- Flashback marker persistence is record-based. `CONTENT.md` must not be rewritten to store marker marks.
+- Flashback marker records identify a selected occurrence by canonical reader-text offsets plus guard context, not by selected text alone.
+- `/memories` recent Flashback marker component remains unchanged.
+- Reader-mode Flashback component gets tabs below its title: left tab for all Flashbacks, second tab for the active memory's Flashbacks.
+- Moment is the TRAUMA product name for section bookmarks.
+- Moments attach to reader sections/chapters, not arbitrary selected text.
+- Moment persistence is SQLite-backed metadata; it must not rewrite `CONTENT.md`.
+- `/moments` lists every Moment with its section title and linked memory metadata.
 - Imported article media may reference a different HTTPS host from the source page. Same-host-only display URL validation is too strict for real articles.
 - Images may be preserved from HTTPS public hosts after stripping unsafe input.
 - Iframes may be preserved only as controlled HTTPS embeds with dangerous attributes removed and reader-side sandbox/referrer controls applied.
@@ -68,6 +69,7 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 10. [18.11 Imported media display policy](task-18-memory-actions/11-imported-media-display-policy.md)
 11. [18.12 Integration verification and handoff](task-18-memory-actions/12-integration-verification-and-handoff.md)
 12. [18.13 Review follow-up implementation alignment](task-18-memory-actions/13-review-followup-implementation-alignment.md)
+13. [18.14 Product language migration](task-18-memory-actions/14-product-language-migration.md)
 
 Subtask number 18.7 is intentionally unused. The settings subtask keeps the
 `18.8` label and `08-...` filename because it was defined after the reader
