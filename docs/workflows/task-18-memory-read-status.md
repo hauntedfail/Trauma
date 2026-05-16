@@ -71,6 +71,7 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 11. [18.12 Integration verification and handoff](task-18-memory-actions/12-integration-verification-and-handoff.md)
 12. [18.13 Review follow-up implementation alignment](task-18-memory-actions/13-review-followup-implementation-alignment.md)
 13. [18.14 Product language migration](task-18-memory-actions/14-product-language-migration.md)
+14. [18.15 Memory delete consistency and backup hardening](task-18-memory-actions/15-memory-delete-consistency-and-backup-hardening.md)
 
 Subtask number 18.7 is intentionally unused. The settings subtask keeps the
 `18.8` label and `08-...` filename because it was defined after the reader

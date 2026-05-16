@@ -17,6 +17,7 @@ Implement these subtasks sequentially on `feat/task-18-memory-actions`.
 11. [18.12 Integration verification and handoff](12-integration-verification-and-handoff.md)
 12. [18.13 Review follow-up implementation alignment](13-review-followup-implementation-alignment.md)
 13. [18.14 Product language migration](14-product-language-migration.md)
+14. [18.15 Memory delete consistency and backup hardening](15-memory-delete-consistency-and-backup-hardening.md)
 
 ## Rules for agents
 
