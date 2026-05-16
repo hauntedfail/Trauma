@@ -23,20 +23,39 @@
 `tag`
 : Ad-hoc label. A memory can have multiple tags.
 
+`Flashback`
+: Product term for a user-created text marker inside reader content. This
+replaces the older product term `highlight`.
+
+`unflashback`
+: Toggle action caused by selecting reader text that is already covered by a
+Flashback marker. Only the selected range is removed from Flashback coverage;
+surrounding marked text remains marked.
+
+`/flashbacks`
+: Canonical Flashback marker browse route. It replaces the older `/highlights`
+route language and lists marked excerpts with muted prefix/suffix context and
+the source memory title.
+
+`Moment`
+: Product term for a saved reader section/chapter bookmark. This replaces the
+older use of `Flashback` for section bookmarks.
+
+`/moments`
+: Canonical Moment browse route. It replaces the older `/flashback` route
+language for section bookmarks.
+
 `highlight`
-: User-created text selection inside reader content. Persisted in SQLite and
-rendered as `<mark data-highlight-id="...">...</mark>` at read time. Normal
-highlight persistence does not mutate `CONTENT.md`; git backup uses the
-per-memory `HIGHLIGHTS.json` metadata export.
+: Legacy implementation and historical docs term for what is now product
+language `Flashback`. Do not introduce new user-facing docs or UI copy with
+this term except when describing migration from the older implementation. The
+underlying marker persistence remains SQLite-backed, is rendered as
+`<mark data-highlight-id="...">...</mark>` at read time, does not mutate
+`CONTENT.md`, and is exported to per-memory `HIGHLIGHTS.json` for git backup.
 
-`unhighlight`
-: Toggle action caused by selecting already-highlighted reader text. Only the
-selected range is removed from highlight coverage; surrounding highlighted text
-remains highlighted.
-
-`/highlights`
-: Canonical highlight browse route. It lists highlighted excerpts with muted
-prefix/suffix context and the source memory title.
+`bookmark`
+: Generic behaviour description for what TRAUMA product language calls a
+`Moment`. Prefer `Moment` in user-facing docs.
 
 ## Status Fields
 
