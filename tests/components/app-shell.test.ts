@@ -184,6 +184,7 @@ describe("refined app shell contract", () => {
 
   it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
     expect(appShellSource).toContain("ThemeNavButton");
+    expect(appShellSource).toContain("PaintToolIcon");
     expect(appShellSource).toContain('aria-haspopup="dialog"');
     expect(appShellSource).toContain("aria-expanded={isThemeOpen()}");
     expect(appShellSource).toContain('role="dialog"');

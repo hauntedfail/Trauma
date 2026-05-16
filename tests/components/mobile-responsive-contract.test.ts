@@ -192,8 +192,7 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).toContain("grid size-9 place-items-center");
     expect(appShellSource).toContain("[&>svg]:size-8");
     expect(appShellSource).toContain("<PlusIcon size={28} />");
-    expect(appShellSource).toContain("<MoonIcon size={isPhone() ? 28 : undefined}");
-    expect(appShellSource).toContain("<SunIcon size={isPhone() ? 28 : undefined}");
+    expect(appShellSource).toContain("<PaintToolIcon size={isPhone() ? 28 : undefined}");
   });
 
   it("keeps phone tab text labels accessible but visually hidden", () => {

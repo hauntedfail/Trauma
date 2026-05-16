@@ -9,6 +9,7 @@ import {
   OpenIcon,
   PageIcon,
   PaperIcon,
+  PaintToolIcon,
   PlusIcon,
   SearchIcon,
   SunIcon,
@@ -58,6 +59,7 @@ describe("TRAUMA icon system", () => {
       PlusIcon,
       OpenIcon,
       CheckIcon,
+      PaintToolIcon,
     ];
 
     for (const Icon of icons) {
@@ -67,6 +69,18 @@ describe("TRAUMA icon system", () => {
       expect(html).toContain('width="24"');
       expect(html).toContain('height="24"');
     }
+  });
+
+  it("exports a paint-tool utility icon for the Theme tab", () => {
+    const html = renderToString(() => createComponent(PaintToolIcon, { size: 24 }));
+
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('viewBox="0 0 24 24"');
+    expect(html).toContain('width="24"');
+    expect(html).toContain('height="24"');
+    expect(html).toContain("currentColor");
+    expect(html).toContain("M15.5 3.5 20.5 8.5 10 19l-5 1 1-5z");
+    expect(html).toContain("M13 6 18 11");
   });
 
   it("keeps theme box utility icons aligned with the refined sample", () => {

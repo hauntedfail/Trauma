@@ -73,6 +73,7 @@ Current utility icons include:
 - Check.
 - Sun.
 - Moon.
+- Paint tool for the Theme tab.
 - Page.
 - Paper.
 - Hermès shopping bag silhouette for night paper surface mode.

@@ -21,6 +21,7 @@ import {
   MoonIcon,
   PageIcon,
   PaperIcon,
+  PaintToolIcon,
   PlusIcon,
   SunIcon,
   TraumaNavIcons,
@@ -931,13 +932,7 @@ function ThemeNavButton(props: {
   let rootRef: HTMLDivElement | undefined;
   const [isThemeOpen, setIsThemeOpen] = createSignal(false);
   const isPhone = () => props.mode === "phone";
-  const icon = createMemo(() =>
-    props.brightness === "night" ? (
-      <MoonIcon size={isPhone() ? 28 : undefined} />
-    ) : (
-      <SunIcon size={isPhone() ? 28 : undefined} />
-    ),
-  );
+  const icon = () => <PaintToolIcon size={isPhone() ? 28 : undefined} />;
 
   onMount(() => {
     const handlePointerDown = (event: PointerEvent) => {
