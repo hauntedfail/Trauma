@@ -446,8 +446,21 @@ function formatGitProcessError(error: unknown) {
 
 function formatCommitMessage(template: string, job: MemoryBackupJob) {
   return template
+    .replaceAll("{action}", formatBackupAction(job.reason))
     .replaceAll("{memoryId}", job.memoryId)
+    .replaceAll("{memory_id}", job.memoryId)
     .replaceAll("{reason}", job.reason);
+}
+
+function formatBackupAction(reason: BackupTriggerReason): string {
+  switch (reason) {
+    case "memory_creation":
+      return "created memory";
+    case "flashback_update":
+      return "updated flashbacks";
+    case "memory_deletion":
+      return "deleted memory";
+  }
 }
 
 function createQueueConfigKey(config: ResolvedTraumaConfig) {

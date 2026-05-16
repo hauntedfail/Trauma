@@ -115,7 +115,8 @@ Flow:
 2. Backup work is placed on the in-process sequential queue.
 3. The backup worker uses `projectPath` as the working directory.
 4. The worker stages only changes under `storePath`.
-5. The worker commits with the configured message template.
+5. The worker commits with the configured message template, including the
+   backup action when `{action}` is present.
 6. The worker pushes only when configured.
 7. SQLite backup status fields are updated.
 

@@ -108,6 +108,58 @@ describe("git backup runner", () => {
     ]);
   });
 
+  it("expands human-readable backup actions in commit messages", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    initializeGitRepository(projectPath);
+    const config = createConfig({
+      root,
+      projectPath,
+      storePath,
+      push: false,
+      commitMessageTemplate: "backup {action} {memory_id}",
+    });
+
+    await writeFile(join(storePath, contentPath), "# Created", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [flashbackPath],
+        reason: "flashback_update",
+      }),
+    });
+
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
+    });
+
+    expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
+      .toEqual([
+        `backup deleted memory ${memoryId}`,
+        `backup updated flashbacks ${memoryId}`,
+        `backup created memory ${memoryId}`,
+      ]);
+  });
+
   it("does not push committed backup content when git push is disabled", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const remotePath = join(root, "remote.git");
@@ -861,6 +913,7 @@ async function makeRoot(prefix: string) {
 }
 
 function createConfig(input: {
+  commitMessageTemplate?: string;
   root: string;
   projectPath: string;
   storePath: string;
@@ -877,7 +930,7 @@ function createConfig(input: {
         remote: "origin",
         branch: "main",
         push: input.push,
-        commitMessageTemplate: "backup memory {memoryId}",
+        commitMessageTemplate: input.commitMessageTemplate ?? "backup memory {memoryId}",
       },
     },
   };
