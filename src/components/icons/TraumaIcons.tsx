@@ -247,9 +247,9 @@ export function MoonIcon(props: IconProps) {
 export function PaintToolIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
-      <path {...stroke} d="M15.5 3.5 20.5 8.5 10 19l-5 1 1-5z" />
-      <path {...stroke} d="M13 6 18 11" />
-      <path {...stroke} d="m6 15 3 3" />
+      <path {...stroke} d="M9.4 15.6 16.8 8.2c.7-.7 1.8-.7 2.5 0s.7 1.8 0 2.5L12 17.9l-4.2 1.2 1.6-3.5z" />
+      <path {...stroke} d="M14.8 10.2 17.8 13.2" />
+      <path {...stroke} d="M7.8 19.1 12 17.9" />
     </svg>
   );
 }

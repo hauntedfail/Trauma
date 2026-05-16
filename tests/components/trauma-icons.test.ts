@@ -79,8 +79,10 @@ describe("TRAUMA icon system", () => {
     expect(html).toContain('width="24"');
     expect(html).toContain('height="24"');
     expect(html).toContain("currentColor");
-    expect(html).toContain("M15.5 3.5 20.5 8.5 10 19l-5 1 1-5z");
-    expect(html).toContain("M13 6 18 11");
+    expect(html).toContain("M9.4 15.6 16.8 8.2");
+    expect(html).toContain("M14.8 10.2 17.8 13.2");
+    expect(html).toContain("M7.8 19.1 12 17.9");
+    expect(html).not.toContain("M15.5 3.5 20.5 8.5");
   });
 
   it("keeps theme box utility icons aligned with the refined sample", () => {
