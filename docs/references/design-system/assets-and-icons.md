@@ -50,7 +50,7 @@ Rules:
 `TraumaNavIcons` provides outline and filled variants for:
 
 - Memories.
-- Flashbacks.
+- Flashbacks, represented by a lightning mark.
 - Categories.
 - Tags.
 - Backup.

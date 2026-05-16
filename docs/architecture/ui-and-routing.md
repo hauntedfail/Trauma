@@ -38,7 +38,7 @@ Desktop layout:
 The left navigation is an app-shell component shared by all routes. It should
 not be implemented as a page-specific component.
 
-The right panel lists categories, tags, and recent flashbacks. Category and tag
+The right panel lists categories, tags, and Flashback shortcuts. Category and tag
 items update the `/memories` query filter. Flashback shortcuts apply
 `/memories?flashback=<flashback id>`. Source-memory navigation is handled by
 the `/flashbacks` row title/link or reader anchors, not the primary right-panel

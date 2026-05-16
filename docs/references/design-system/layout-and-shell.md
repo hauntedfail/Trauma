@@ -169,7 +169,7 @@ Current islands:
 
 - Categories.
 - Tags.
-- Recent flashbacks.
+- Flashback.
 
 Route-specific content may be inserted above these browse filters when a route
 has a strong contextual aid. The current example is the reader table of
@@ -179,7 +179,7 @@ unmounts. Do not show reader TOC content on `/memories`, `/flashbacks`, or other
 non-reader routes.
 
 Long right-rail aids must not grow the application layout by item count. TOC and
-Recent flashbacks render their item bodies as bounded scroll regions. The rail
+Flashback shortcut lists render their item bodies as bounded scroll regions. The rail
 itself remains viewport-bound, and each long list owns its own scrolling.
 
 ## Tablet And Mobile

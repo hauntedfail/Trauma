@@ -92,7 +92,7 @@ Routes/API:
 Components:
 
 - `FlashbackExcerpt` becomes Flashback excerpt language.
-- Recent flashbacks becomes Recent Flashbacks.
+- Memories right-rail Flashback shortcuts use the island title `Flashback`.
 - Reader flashback selection menu becomes Flashback marker selection.
 - Flashback section bookmark UI becomes Moment UI.
 - Flashback icon attached to headings/ToC becomes Moment icon.

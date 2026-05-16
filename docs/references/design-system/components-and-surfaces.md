@@ -158,7 +158,7 @@ Use them for lightweight filter and shortcut groups:
 
 - Categories.
 - Tags.
-- Recent flashbacks.
+- Flashback shortcuts.
 - Reader table of contents, only as route-specific right rail content on a
   concrete memory route.
 
@@ -167,7 +167,7 @@ route content containers. Contextual route content must stay small enough to
 act as a right rail aid rather than a second main pane.
 
 When an island contains an unbounded list, the list body must be a bounded
-scroll region. This is required for Recent flashbacks and reader TOC. Do not
+scroll region. This is required for Flashback shortcut lists and reader TOC. Do not
 let those islands grow vertically for every item.
 
 Reader TOC should make overflow discoverable. When its bounded list can still

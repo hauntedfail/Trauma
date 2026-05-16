@@ -44,8 +44,9 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 - Settings APIs must validate state server-side; frontend disabled controls are not a security boundary.
 - Flashback marker persistence is record-based. `CONTENT.md` must not be rewritten to store marker marks.
 - Flashback marker records identify a selected occurrence by canonical reader-text offsets plus guard context, not by selected text alone.
-- `/memories` recent Flashback marker component remains unchanged.
-- Reader-mode Flashback component gets tabs below its title: left tab for all Flashbacks, second tab for the active memory's Flashbacks.
+- `/memories` right-rail Flashback shortcut list keeps the shared row design.
+- Reader-mode Flashback component gets tabs below its title: left tab `Current`,
+  second tab `All`, with `Current` as the default.
 - Moment is the TRAUMA product name for section bookmarks.
 - Moments attach to reader sections/chapters, not arbitrary selected text.
 - Moment persistence is SQLite-backed metadata; it must not rewrite `CONTENT.md`.

@@ -174,7 +174,8 @@ test("renders category, tag, and flashback shortcut sections in the right panel"
   const filters = page.getByRole("complementary", { name: "Browse filters" });
   await expect(filters.getByRole("heading", { name: "Categories" })).toBeVisible();
   await expect(filters.getByRole("heading", { name: "Tags" })).toBeVisible();
-  await expect(filters.getByRole("heading", { name: "Recent flashbacks" })).toBeVisible();
+  await expect(filters.getByRole("heading", { name: "Flashback" })).toBeVisible();
+  await expect(filters.getByRole("heading", { name: "Recent flashbacks" })).toHaveCount(0);
   await expect(filters.getByRole("button", { name: "Research" })).toBeVisible();
   await expect(filters.getByRole("button", { name: "solidstart" })).toBeVisible();
   await expect(filters.getByRole("button", { name: /flashback-aware results/i })).toBeVisible();

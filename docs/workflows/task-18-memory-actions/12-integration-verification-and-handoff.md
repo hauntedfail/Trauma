@@ -47,8 +47,8 @@ Manual smoke:
 31. Confirm `CONTENT.md` did not change after creating/removing the flashback.
 32. Confirm flashback `contentHash` uses the documented `sha256:<hex>` canonical-text format.
 33. Confirm SQLite-only flashback metadata has a backup/export path, or that restore-risk is explicitly documented if deferred.
-34. Confirm reader flashback tabs render `All flashbacks` on the left and `This memory` second.
-35. Confirm `/memories` recent flashback component is unchanged.
+34. Confirm reader Flashback tabs render `Current` on the left and `All` second, with `Current` as the default.
+35. Confirm `/memories` right-rail Flashback shortcut list keeps the shared row design.
 36. Create a Moment from a reader section hover icon.
 37. Create a Moment from a ToC chapter hover icon.
 38. Long-press a reader section and confirm the shared contextual menu contains Moment.

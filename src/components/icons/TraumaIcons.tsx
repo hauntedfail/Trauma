@@ -76,15 +76,12 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
   flashbacks: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <path {...stroke} d="m5 14 8-8 5 5-8 8H5v-5z" />
-        <path {...stroke} d="m13 6 3-3 5 5-3 3" />
-        <path {...stroke} d="M4 22h18" />
+        <path {...stroke} d="M15 2 6 14h6l-1 10 9-13h-6l1-9z" />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <path {...fill} d="m5 14 8-8 5 5-8 8H5v-5z" />
-        <path {...stroke} d="m13 6 3-3 5 5-3 3M4 22h18" />
+        <path {...fill} d="M15 2 6 14h6l-1 10 9-13h-6l1-9z" />
       </Svg>
     ),
   },

@@ -42,6 +42,15 @@ describe("TRAUMA icon system", () => {
     expect(renderToString(() => second)).toContain('aria-hidden="true"');
   });
 
+  it("renders the Flashbacks nav icon as a lightning mark", () => {
+    const outline = renderToString(() => TraumaNavIcons.flashbacks.outline());
+    const filled = renderToString(() => TraumaNavIcons.flashbacks.filled());
+
+    expect(outline).toContain("M15 2 6 14h6l-1 10 9-13h-6l1-9z");
+    expect(filled).toContain("M15 2 6 14h6l-1 10 9-13h-6l1-9z");
+    expect(outline).not.toContain("M4 22h18");
+  });
+
   it("renders utility icons with currentColor and hidden SVG semantics", () => {
     const icons = [
       ChevronLeftIcon,

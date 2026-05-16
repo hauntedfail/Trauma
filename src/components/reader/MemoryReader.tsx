@@ -604,7 +604,7 @@ export function ReaderFlashbackTabs(props: {
   memoryId: string;
 }) {
   const [activeTab, setActiveTab] = createSignal<"all" | "memory">(
-    props.initialTab ?? (props.currentFlashbacks.length > 0 ? "memory" : "all"),
+    props.initialTab ?? "memory",
   );
   const allRows = createMemo(() => props.allFlashbacks ?? []);
   const isLoadingAll = () => props.allFlashbacks === undefined;
@@ -616,16 +616,16 @@ export function ReaderFlashbackTabs(props: {
       </h2>
       <div class="mb-4 grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1">
         <SegmentedToggleButton
+          active={activeTab() === "memory"}
+          onClick={() => setActiveTab("memory")}
+        >
+          Current
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
           active={activeTab() === "all"}
           onClick={() => setActiveTab("all")}
         >
           All
-        </SegmentedToggleButton>
-        <SegmentedToggleButton
-          active={activeTab() === "memory"}
-          onClick={() => setActiveTab("memory")}
-        >
-          This memory
         </SegmentedToggleButton>
       </div>
       <Show

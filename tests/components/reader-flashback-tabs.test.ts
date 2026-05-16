@@ -41,13 +41,15 @@ const currentFlashbacks = [
 ];
 
 describe("reader flashback tabs", () => {
-  it("renders All as the left tab and This memory as the second tab", () => {
+  it("renders Current as the left tab and All as the second tab", () => {
     const html = renderTabs({ initialTab: "memory" });
+    const currentIndex = html.indexOf(">Current<");
     const allIndex = html.indexOf(">All<");
-    const memoryIndex = html.indexOf("This memory");
 
+    expect(currentIndex).toBeGreaterThan(-1);
     expect(allIndex).toBeGreaterThan(-1);
-    expect(memoryIndex).toBeGreaterThan(allIndex);
+    expect(allIndex).toBeGreaterThan(currentIndex);
+    expect(html).not.toContain("This memory");
     expect(html).not.toContain("All flashbacks");
   });
 
@@ -60,7 +62,7 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("aria-pressed:ring-trauma-border-strong");
   });
 
-  it("uses the Recent flashbacks row design for flashback lists", () => {
+  it("uses the shared flashback shortcut row design for flashback lists", () => {
     const html = renderTabs({ initialTab: "all" });
 
     expect(html).toContain("grid w-full gap-1 rounded-2xl px-3 py-2 text-left");
@@ -68,7 +70,7 @@ describe("reader flashback tabs", () => {
     expect(html).not.toContain("<blockquote");
   });
 
-  it("defaults to This memory when the active memory has flashbacks", () => {
+  it("defaults to Current when the active memory has flashbacks", () => {
     const html = renderTabs();
 
     expect(html).toContain('aria-pressed="true"');
@@ -77,12 +79,11 @@ describe("reader flashback tabs", () => {
     expect(html).toContain('href="#flashback-current"');
   });
 
-  it("defaults to All flashbacks when the active memory has no flashbacks", () => {
+  it("defaults to Current when the active memory has no flashbacks", () => {
     const html = renderTabs({ currentFlashbacks: [] });
 
-    expect(html).toContain("current flashback");
-    expect(html).toContain("other flashback");
-    expect(html).toContain('href="/memories/memory-2#flashback-other"');
+    expect(html).toContain("No flashbacks for this memory yet");
+    expect(html).not.toContain("other flashback");
   });
 
   it("lists all flashback rows across memories when the all tab is active", () => {

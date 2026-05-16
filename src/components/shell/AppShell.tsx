@@ -694,7 +694,7 @@ export function RightRailFilters(props: {
         </div>
       </RightPanelSection>
       <Show when={props.showFlashbacks !== false}>
-        <RightPanelSection title="Recent flashbacks" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
+        <RightPanelSection title="Flashback" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
           <FlashbackShortcutList
             class={`${rightRailScrollContent} grid gap-3`}
             emptyLabel="No flashbacks yet"

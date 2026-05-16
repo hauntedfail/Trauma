@@ -110,7 +110,7 @@ Desktop:
 - Left rail, main pane, and right rail are visible.
 - Reader TOC appears at the top of the right rail only on concrete memory
   reader routes.
-- TOC and Recent flashbacks scroll inside their own bounded list bodies.
+- TOC and Flashback shortcut lists scroll inside their own bounded list bodies.
 
 Tablet:
 

@@ -209,21 +209,21 @@ Reader mode changes:
 
 Labels:
 
-- Left tab: `All flashbacks`
-- Second tab: `This memory`
+- Left tab: `Current`
+- Second tab: `All`
 
 Default active tab:
 
-- `This memory` when the current memory has flashbacks.
-- `All flashbacks` when the current memory has no flashbacks.
+- `Current` by default when the memory page opens, even when the current memory
+  has no Flashbacks.
 
 Tab behaviour:
 
 - Switching tabs does not navigate away from the reader page.
-- `All flashbacks` rows can navigate to their owning memory/flashback anchor.
-- `This memory` rows navigate within the current reader page.
-- Empty state for `This memory`: show a concise hint that no flashbacks exist for this memory.
-- Empty state for `All flashbacks`: show the existing no-flashbacks empty state.
+- `All` rows can navigate to their owning memory/Flashback anchor.
+- `Current` rows navigate within the current reader page.
+- Empty state for `Current`: show a concise hint that no Flashbacks exist for this memory.
+- Empty state for `All`: show the existing no-Flashbacks empty state.
 
 ## Tests
 
@@ -255,11 +255,11 @@ Record tests:
 
 Reader tab tests:
 
-- `/memories` recent flashback component remains unchanged
-- reader flashback component renders `All flashbacks` as the left tab
-- reader flashback component renders `This memory` as the second tab
-- `This memory` tab only lists flashbacks for the active memory
-- `All flashbacks` tab lists flashbacks across memories
+- `/memories` right-rail Flashback shortcut list keeps the shared row design
+- reader Flashback component renders `Current` as the left tab
+- reader Flashback component renders `All` as the second tab
+- `Current` tab only lists Flashbacks for the active memory
+- `All` tab lists Flashbacks across memories
 - default tab follows the contract above
 
 ## Verification
@@ -281,6 +281,7 @@ mise exec -- bun run typecheck
 - Flashback persistence does not mutate `CONTENT.md`.
 - Repeated text selections are disambiguated by canonical offsets.
 - Existing flashback rendering remains available.
-- `/memories` recent flashbacks remain unchanged.
-- Reader mode has `All flashbacks` left tab and `This memory` second tab.
+- `/memories` right-rail Flashback shortcut list remains unchanged except for
+  the island title `Flashback`.
+- Reader mode has `Current` left tab and `All` second tab.
 - Reader current-memory tab lists only active-memory flashbacks.
