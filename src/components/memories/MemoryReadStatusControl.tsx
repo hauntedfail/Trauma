@@ -8,6 +8,7 @@ export interface MemoryReadStatusControlProps {
   compact?: boolean;
   class?: string;
   onChange?: (read: boolean) => void;
+  onSaved?: (read: boolean) => Promise<void> | void;
 }
 
 export interface SubmitMemoryReadStatusInput {
@@ -45,10 +46,11 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
     props.onChange?.(next);
 
     try {
-      await submitMemoryReadStatus({
+      const result = await submitMemoryReadStatus({
         memoryId: props.memoryId,
         read: next,
       });
+      void Promise.resolve(props.onSaved?.(result.read)).catch(() => undefined);
     } catch {
       setRead(previous);
       props.onChange?.(previous);

@@ -12,7 +12,10 @@ import {
   type BrowseTaxonomyItem,
   type BrowseMemory,
 } from "./browse-data";
-import { getBrowseMemories } from "./browse-loader";
+import {
+  getBrowseMemories,
+  revalidateBrowseMemoryWorkspace,
+} from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
@@ -23,6 +26,9 @@ import {
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
 } from "./memory-action-requests";
+import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
+import { revalidateMomentBrowseRows } from "../moments/moments-loader";
+import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -185,6 +191,7 @@ export function MemoryItem(props: {
       });
       setTags((current) => mergeTaxonomyItem(current, tag));
       setTagPopoverOpen(false);
+      void revalidateBrowseMemoryWorkspace();
     } catch {
       setActionError("Failed to add tag.");
     }
@@ -198,6 +205,7 @@ export function MemoryItem(props: {
     try {
       const category = await attachCategoryToMemoryByName(input);
       setCategories((current) => mergeTaxonomyItem(current, category));
+      void revalidateBrowseMemoryWorkspace();
     } catch {
       setActionError("Failed to add category.");
     }
@@ -208,6 +216,7 @@ export function MemoryItem(props: {
     try {
       await deleteBrowseMemory({ memoryId });
       props.onDeleted?.(memoryId);
+      void revalidateAfterMemoryDeletion(memoryId);
     } catch {
       setActionError("Failed to delete memory.");
     }
@@ -315,12 +324,29 @@ export function MemoryItem(props: {
               memoryId={props.memory.id}
               initialRead={props.memory.read}
               compact
+              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
             />
           </div>
         </footer>
       </div>
     </article>
   );
+}
+
+async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterMemoryDeletion(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateFlashbackBrowseRows(),
+    revalidateMomentBrowseRows(),
+    revalidateReaderMemory(memoryId),
+  ]);
 }
 
 function getHostLabel(value: string): string {

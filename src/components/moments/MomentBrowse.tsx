@@ -1,7 +1,7 @@
 import { createAsync } from "@solidjs/router";
 import { For, Show } from "solid-js";
 
-import type { MomentBrowseRow } from "~/server/db/repositories";
+import type { MomentBrowseRow } from "~/server/moments/browse";
 import { getMomentBrowseRows } from "./moments-loader";
 
 const pageFrame =
@@ -53,11 +53,15 @@ export function MomentBrowse() {
 }
 
 function MomentRow(props: { moment: MomentBrowseRow }) {
+  const href = () => props.moment.targetAnchor === null
+    ? `/memories/${props.moment.memoryId}`
+    : `/memories/${props.moment.memoryId}#${props.moment.targetAnchor}`;
+
   return (
     <article class={rowBase}>
       <a
         class="grid min-w-0 gap-2"
-        href={`/memories/${props.moment.memoryId}#${props.moment.sectionAnchor}`}
+        href={href()}
       >
         <header class="grid min-w-0 gap-1">
           <p class="mb-0 text-[13px] font-bold text-trauma-text-muted">

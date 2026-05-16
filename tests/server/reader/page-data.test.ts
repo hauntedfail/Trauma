@@ -90,6 +90,18 @@ describe("loadReaderMemory", () => {
     });
   });
 
+  it("renders clean content instead of crashing when saved flashback ranges are stale", () => {
+    const result = runReaderFixture({
+      targetMemoryId: MEMORY_ID,
+      markdown: "# Fixture Reader\n\nA saved flashback.",
+      insertOverlappingFlashback: true,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.rendered.html).toContain("<p>A saved flashback.</p>");
+    expect(result.rendered.html).not.toContain("<mark");
+  });
+
   it("returns a user-readable unavailable state when the default config cannot load", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-reader-"));
     tempDirs.push(root);
@@ -117,6 +129,7 @@ describe("loadReaderMemory", () => {
 function runReaderFixture(input: {
   targetMemoryId: string;
   markdown: string;
+  insertOverlappingFlashback?: boolean;
   writeContent?: boolean;
 }) {
   const root = mkdtempSync(join(tmpdir(), "trauma-reader-"));
@@ -207,6 +220,19 @@ function runReaderFixture(input: {
             createdAt: new Date("2026-05-09T00:00:00.000Z"),
             updatedAt: new Date("2026-05-09T00:00:00.000Z"),
           });
+          if (process.env.TRAUMA_TEST_INSERT_OVERLAPPING_FLASHBACK === "true") {
+            await connection.db.insert(schema.flashbacks).values({
+              id: "hl-2",
+              memoryId,
+              text: "saved flash",
+              prefix: "A ",
+              suffix: "back.",
+              startOffset: flashbackStartOffset - "saved ".length,
+              endOffset: flashbackStartOffset + "flash".length,
+              createdAt: new Date("2026-05-09T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+            });
+          }
         }
         await connection.db.insert(schema.moments).values({
           id: "flashback-reader",
@@ -247,6 +273,8 @@ function runReaderFixture(input: {
       TRAUMA_TEST_ROOT: root,
       TRAUMA_TEST_TARGET_MEMORY_ID: input.targetMemoryId,
       TRAUMA_TEST_MARKDOWN: input.markdown,
+      TRAUMA_TEST_INSERT_OVERLAPPING_FLASHBACK:
+        input.insertOverlappingFlashback === true ? "true" : "false",
       TRAUMA_TEST_WRITE_CONTENT: input.writeContent === false ? "false" : "true",
     },
   );

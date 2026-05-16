@@ -1,4 +1,4 @@
-import { query } from "@solidjs/router";
+import { query, revalidate } from "@solidjs/router";
 
 import { loadFlashbackBrowseRows } from "~/server/flashbacks/browse";
 
@@ -7,3 +7,7 @@ export const getFlashbackBrowseRows = query(async () => {
 
   return loadFlashbackBrowseRows();
 }, "flashback-browse-rows");
+
+export function revalidateFlashbackBrowseRows() {
+  return revalidate(getFlashbackBrowseRows.key);
+}

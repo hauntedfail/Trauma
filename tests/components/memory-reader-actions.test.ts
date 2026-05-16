@@ -80,10 +80,14 @@ describe("memory reader actions", () => {
   it("deletes the active memory and navigates back to memories", async () => {
     const requests: Request[] = [];
     const navigations: string[] = [];
+    const revalidated: string[] = [];
 
     await deleteReaderMemory({
       memoryId: "memory-reader",
       navigate: (path) => navigations.push(path),
+      revalidate: async (memoryId) => {
+        revalidated.push(memoryId);
+      },
       fetch: async (input, init) => {
         requests.push(new Request(new URL(String(input), "http://localhost"), init));
         return new Response(null, { status: 204 });
@@ -93,6 +97,7 @@ describe("memory reader actions", () => {
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/memories/memory-reader", "DELETE"],
     ]);
+    expect(revalidated).toEqual(["memory-reader"]);
     expect(navigations).toEqual(["/memories"]);
   });
 

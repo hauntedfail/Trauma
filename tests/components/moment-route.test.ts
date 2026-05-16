@@ -23,8 +23,9 @@ describe("Moment route", () => {
   it("loads Moments from SQLite metadata and links to memory section anchors", () => {
     expect(loaderSource).toContain("loadMomentBrowseRows");
     expect(browseSource).toContain("getMomentBrowseRows");
+    expect(browseSource).toContain("props.moment.targetAnchor === null");
     expect(browseSource).toContain(
-      "/memories/${props.moment.memoryId}#${props.moment.sectionAnchor}",
+      "/memories/${props.moment.memoryId}#${props.moment.targetAnchor}",
     );
     expect(browseSource).toContain("No Moments yet");
     expect(browseSource).toContain("Saved reader sections will appear here.");

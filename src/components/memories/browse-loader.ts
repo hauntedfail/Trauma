@@ -22,3 +22,10 @@ export const getBrowseTaxonomy = query(async () => {
 export function revalidateBrowseTaxonomy() {
   return revalidate(getBrowseTaxonomy.key);
 }
+
+export async function revalidateBrowseMemoryWorkspace() {
+  await Promise.all([
+    revalidateBrowseMemories(),
+    revalidateBrowseTaxonomy(),
+  ]);
+}

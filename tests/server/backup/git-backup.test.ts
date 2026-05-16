@@ -458,13 +458,19 @@ describe("git memory backup queue", () => {
           env: createGitEnv(),
           stdio: ["ignore", "pipe", "pipe"],
         });
-        mkdirSync(join(config.storePath, "memories", ids.success), {
-          recursive: true,
-        });
-        writeFileSync(
-          join(config.storePath, "memories", ids.success, "CONTENT.md"),
-          "# Already backed up\\n",
-        );
+        for (const id of Object.values(ids)) {
+          mkdirSync(join(config.storePath, "memories", id), {
+            recursive: true,
+          });
+          writeFileSync(
+            join(config.storePath, "memories", id, "CONTENT.md"),
+            "# Backup candidate\\n",
+          );
+          writeFileSync(
+            join(config.storePath, "memories", id, "FLASHBACKS.json"),
+            JSON.stringify({ version: 1, memoryId: id, flashbacks: [] }, null, 2) + "\\n",
+          );
+        }
         execFileSync(
           "git",
           [
@@ -516,7 +522,10 @@ describe("git memory backup queue", () => {
           config,
           now: () => now,
           runJob: async ({ job }) => {
-            processed.push(job.memoryId);
+            processed.push({
+              memoryId: job.memoryId,
+              contentPaths: job.contentPaths,
+            });
           },
         });
         const retryCount = await queue.retryEligibleBackups();
@@ -569,9 +578,27 @@ describe("git memory backup queue", () => {
 
     expect(retryCount).toBe(3);
     expect(processed).toEqual([
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813/FLASHBACKS.json",
+        ],
+      },
     ]);
     expect(rows).toEqual([
       {

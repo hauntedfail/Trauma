@@ -256,7 +256,7 @@ describe("toggleMemoryFlashback", () => {
         containsMarkedContent: false,
       },
     ]);
-    expect(result.memory).toEqual({ backup_status: "pending" });
+    expect(result.memory).toEqual({ backup_status: "queued" });
     expect(result.staleError).toEqual({
       name: "FlashbackToggleError",
       code: "stale_selection",
@@ -360,6 +360,301 @@ describe("toggleMemoryFlashback", () => {
       text: "target",
       prefix: "Alpha ",
       suffix: " omega",
+    });
+  });
+
+  it("rolls back database rows and FLASHBACKS.json when backup enqueue fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
+    const output = runBunScript(
+      `
+        import { execFileSync } from "node:child_process";
+        import { mkdir, readFile, writeFile } from "node:fs/promises";
+        import { join } from "node:path";
+        import { initializeDatabase, schema } from "./src/server/db/index.ts";
+        import { toggleMemoryFlashback } from "./src/server/flashbacks/toggle.ts";
+        import { writeMemoryContent } from "./src/server/store/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f303";
+        const markdown = "Alpha target beta second target.";
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const connection = initializeDatabase(config);
+
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/flashback-rollback",
+            title: "Flashback Rollback",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "pending",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: new Date("2026-05-10T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+            id: "default",
+            projectPath: config.projectPath,
+            storePath: config.storePath,
+            gitRemote: "origin",
+            gitRemoteUrl: null,
+            gitBranch: "main",
+            createdAt: new Date("2026-05-10T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await mkdir(config.projectPath, { recursive: true });
+          execFileSync("git", ["init", "--initial-branch=main"], {
+            cwd: config.projectPath,
+            env: createGitEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          await writeMemoryContent({
+            config,
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/flashback-rollback",
+              title: "Flashback Rollback",
+              capturedAt: "2026-05-10T00:00:00.000Z",
+              extractionStatus: "success",
+            },
+            markdown,
+          });
+          await connection.db.insert(schema.flashbacks).values({
+            id: "flashback-existing",
+            memoryId,
+            text: "target",
+            prefix: "Alpha ",
+            suffix: " beta second target.",
+            startOffset: 6,
+            endOffset: 12,
+            contentHash: null,
+            createdAt: new Date("2026-05-10T00:30:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:30:00.000Z"),
+          });
+          const exportPath = join(config.storePath, "memories", memoryId, "FLASHBACKS.json");
+          await writeFile(exportPath, JSON.stringify({ version: 1, memoryId, flashbacks: [{ id: "flashback-existing" }] }, null, 2) + "\\n", "utf8");
+
+          let error;
+          try {
+            await toggleMemoryFlashback({
+              memoryId,
+              operation: "flashback",
+              selection: {
+                text: "target",
+                prefix: "second ",
+                suffix: ".",
+                startOffset: markdown.lastIndexOf("target"),
+                endOffset: markdown.lastIndexOf("target") + "target".length,
+              },
+              config,
+              db: connection.db,
+              backupQueue: {
+                enqueue: async () => {
+                  throw new Error("queue offline");
+                },
+              },
+              generateId: () => "flashback-new",
+              now: () => new Date("2026-05-10T01:00:00.000Z"),
+            });
+          } catch (caught) {
+            error = caught instanceof Error ? caught.message : String(caught);
+          }
+
+          const rows = connection.sqlite
+            .prepare("select id, text, start_offset, end_offset from flashbacks order by id")
+            .all();
+          const exportContent = await readFile(exportPath, "utf8");
+          const memory = connection.sqlite
+            .prepare("select backup_status from memories where id = ?")
+            .get(memoryId);
+          process.stdout.write(JSON.stringify({ error, rows, exportContent: JSON.parse(exportContent), memory }));
+        } finally {
+          connection.close();
+        }
+
+        function createGitEnv() {
+          const env = { ...process.env };
+          delete env.GIT_DIR;
+          delete env.GIT_WORK_TREE;
+          delete env.GIT_INDEX_FILE;
+          return env;
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    const result = JSON.parse(output);
+    expect(result.error).toBe("queue offline");
+    expect(result.rows).toEqual([
+      {
+        id: "flashback-existing",
+        text: "target",
+        start_offset: 6,
+        end_offset: 12,
+      },
+    ]);
+    expect(result.exportContent).toEqual({
+      version: 1,
+      memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f303",
+      flashbacks: [{ id: "flashback-existing" }],
+    });
+    expect(result.memory).toEqual({ backup_status: "pending" });
+  });
+
+  it("rolls back database rows when FLASHBACKS.json cannot be written", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
+    const output = runBunScript(
+      `
+        import { chmod, readFile, writeFile } from "node:fs/promises";
+        import { join } from "node:path";
+        import { initializeDatabase, schema } from "./src/server/db/index.ts";
+        import { toggleMemoryFlashback } from "./src/server/flashbacks/toggle.ts";
+        import { writeMemoryContent } from "./src/server/store/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f304";
+        const markdown = "Alpha target beta second target.";
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const connection = initializeDatabase(config);
+        const memoryDir = join(config.storePath, "memories", memoryId);
+        const exportPath = join(memoryDir, "FLASHBACKS.json");
+
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/flashback-export-rollback",
+            title: "Flashback Export Rollback",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: new Date("2026-05-10T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+          });
+          await writeMemoryContent({
+            config,
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/flashback-export-rollback",
+              title: "Flashback Export Rollback",
+              capturedAt: "2026-05-10T00:00:00.000Z",
+              extractionStatus: "success",
+            },
+            markdown,
+          });
+          await connection.db.insert(schema.flashbacks).values({
+            id: "flashback-existing",
+            memoryId,
+            text: "target",
+            prefix: "Alpha ",
+            suffix: " beta second target.",
+            startOffset: 6,
+            endOffset: 12,
+            contentHash: null,
+            createdAt: new Date("2026-05-10T00:30:00.000Z"),
+            updatedAt: new Date("2026-05-10T00:30:00.000Z"),
+          });
+          await writeFile(exportPath, JSON.stringify({ version: 1, memoryId, flashbacks: [{ id: "flashback-existing" }] }, null, 2) + "\\n", "utf8");
+          await chmod(memoryDir, 0o500);
+
+          let error;
+          try {
+            await toggleMemoryFlashback({
+              memoryId,
+              operation: "flashback",
+              selection: {
+                text: "target",
+                prefix: "second ",
+                suffix: ".",
+                startOffset: markdown.lastIndexOf("target"),
+                endOffset: markdown.lastIndexOf("target") + "target".length,
+              },
+              config,
+              db: connection.db,
+              backupQueue: {
+                enqueue: async () => ({ backupStatus: "disabled" }),
+              },
+              generateId: () => "flashback-new",
+              now: () => new Date("2026-05-10T01:00:00.000Z"),
+            });
+          } catch (caught) {
+            error = caught instanceof Error ? caught.message : String(caught);
+          } finally {
+            await chmod(memoryDir, 0o700);
+          }
+
+          const rows = connection.sqlite
+            .prepare("select id, text, start_offset, end_offset from flashbacks order by id")
+            .all();
+          const exportContent = await readFile(exportPath, "utf8");
+          process.stdout.write(JSON.stringify({ hasError: typeof error === "string" && error.length > 0, rows, exportContent: JSON.parse(exportContent) }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    const result = JSON.parse(output);
+    expect(result.hasError).toBe(true);
+    expect(result.rows).toEqual([
+      {
+        id: "flashback-existing",
+        text: "target",
+        start_offset: 6,
+        end_offset: 12,
+      },
+    ]);
+    expect(result.exportContent).toEqual({
+      version: 1,
+      memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f304",
+      flashbacks: [{ id: "flashback-existing" }],
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   type ResolvedTraumaConfig,
 } from "../config";
 import { MemoryContentStoreError, readMemoryContent } from "../store";
+import { FlashbackMarkerError } from "../store/flashback-markers";
 import {
   renderMemoryMarkdown,
   type RenderedMemoryMarkdown,
@@ -128,9 +129,7 @@ export async function loadReaderMemory(
       content: {
         relativePath: content.relativePath,
       },
-      rendered: renderMemoryMarkdown(
-        renderMarkdownWithFlashbackRecords(content.markdown, memory.flashbacks),
-      ),
+      rendered: renderMemoryMarkdownSafely(content.markdown, memory.flashbacks),
     };
   } catch (error) {
     if (
@@ -156,6 +155,23 @@ export async function loadReaderMemory(
     throw error;
   } finally {
     connection?.close();
+  }
+}
+
+function renderMemoryMarkdownSafely(
+  markdown: string,
+  flashbacks: FlashbackRow[],
+): RenderedMemoryMarkdown {
+  try {
+    return renderMemoryMarkdown(
+      renderMarkdownWithFlashbackRecords(markdown, flashbacks),
+    );
+  } catch (error) {
+    if (error instanceof FlashbackMarkerError) {
+      return renderMemoryMarkdown(markdown);
+    }
+
+    throw error;
   }
 }
 

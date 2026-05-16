@@ -8,6 +8,7 @@ import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/co
 import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
+import { writeMemoryContent } from "../../src/server/store";
 
 const originalEnv = { ...process.env };
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901";
@@ -94,6 +95,62 @@ describe("server browse loaders", () => {
         sectionEndOffset: null,
         contentHash: null,
         createdAt: "2026-05-16T00:00:00.000Z",
+        targetAnchor: null,
+        targetStatus: "stale",
+      },
+    ]);
+  });
+
+  it("resolves stale Moment anchors by current section path when unique", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Loader Memory\n\n## Renamed Chapter\n\nBody.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.moments.create({
+        id: "moment-loader",
+        memoryId,
+        sectionAnchor: "chapter-one",
+        sectionTitle: "Chapter One",
+        sectionLevel: 2,
+        sectionPath: "1/1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadMomentBrowseRows()).resolves.toEqual([
+      {
+        id: "moment-loader",
+        memoryId,
+        memoryTitle: "Loader Memory",
+        memoryUrl: `https://example.com/${memoryId}`,
+        sectionAnchor: "chapter-one",
+        sectionTitle: "Chapter One",
+        sectionLevel: 2,
+        sectionPath: "1/1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: "2026-05-16T00:00:00.000Z",
+        targetAnchor: "renamed-chapter",
+        targetStatus: "resolved_from_path",
       },
     ]);
   });

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
@@ -29,12 +30,25 @@ export async function writeFlashbackMetadataExport(input: {
 }): Promise<string> {
   const relativePath = getFlashbackMetadataExportPath(input.memoryId);
   const absolutePath = join(input.config.storePath, relativePath);
-  await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(
-    absolutePath,
-    `${JSON.stringify(toExportPayload(input), null, 2)}\n`,
-    "utf8",
+  const temporaryPath = join(
+    dirname(absolutePath),
+    `.${FLASHBACK_METADATA_EXPORT_FILENAME}.${randomUUID()}.tmp`,
   );
+  let temporaryFileMoved = false;
+  await mkdir(dirname(absolutePath), { recursive: true });
+  try {
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(toExportPayload(input), null, 2)}\n`,
+      "utf8",
+    );
+    await rename(temporaryPath, absolutePath);
+    temporaryFileMoved = true;
+  } finally {
+    if (!temporaryFileMoved) {
+      await rm(temporaryPath, { force: true });
+    }
+  }
   return relativePath;
 }
 

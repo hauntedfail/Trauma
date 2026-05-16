@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import type { MemoryBackupQueue } from "../backup";
 import { assertBackupEnvironmentReady } from "../backup/environment";
@@ -25,7 +27,10 @@ import {
   removeFlashbackCoverage,
   type FlashbackRange,
 } from "./ranges";
-import { writeFlashbackMetadataExport } from "./export";
+import {
+  getFlashbackMetadataExportPath,
+  writeFlashbackMetadataExport,
+} from "./export";
 
 const CONTEXT_LIMIT = 80;
 
@@ -52,12 +57,16 @@ export interface ToggleMemoryFlashbackResult {
     startOffset: number;
     endOffset: number;
     contentHash: string;
+    createdAt: string;
   }>;
 }
 
 type FlashbackRow = Awaited<
   ReturnType<ReturnType<typeof createRepositories>["flashbacks"]["listForMemory"]>
 >[number];
+type FlashbackExportSnapshot =
+  | { exists: true; content: string; relativePath: string }
+  | { exists: false; relativePath: string };
 
 const flashbackMemoryLocks = new Map<string, Promise<void>>();
 
@@ -104,6 +113,13 @@ async function toggleMemoryFlashbackUnlocked(
   const existingFlashbacks = await repositories.flashbacks.listForMemory(
     input.memoryId,
   );
+  const previousFlashbacks = existingFlashbacks.map((flashback) => ({
+    ...flashback,
+  }));
+  const previousExport = await readFlashbackExportSnapshot({
+    config: input.config,
+    memoryId: input.memoryId,
+  });
   const existingRanges = normalizeFlashbackMarkerRanges(
     content.markdown,
     existingFlashbacks.map(toFlashbackRange),
@@ -143,16 +159,48 @@ async function toggleMemoryFlashbackUnlocked(
     ranges: nextRanges,
   });
   await repositories.flashbacks.replaceForMemory(input.memoryId, nextFlashbacks);
-  const flashbackExportPath = await writeFlashbackMetadataExport({
-    config: input.config,
-    memoryId: input.memoryId,
-    flashbacks: nextFlashbacks,
-  });
-  await input.backupQueue.enqueue({
-    memoryId: input.memoryId,
-    contentPaths: [flashbackExportPath],
-    reason: "flashback_update",
-  });
+  let flashbackExportPath: string;
+  try {
+    flashbackExportPath = await writeFlashbackMetadataExport({
+      config: input.config,
+      memoryId: input.memoryId,
+      flashbacks: nextFlashbacks,
+    });
+  } catch (error) {
+    await repositories.flashbacks.replaceForMemory(
+      input.memoryId,
+      previousFlashbacks,
+    );
+    throw error;
+  }
+
+  if (input.config.backup.git.enabled) {
+    try {
+      const enqueueResult = await input.backupQueue.enqueue({
+        memoryId: input.memoryId,
+        contentPaths: [flashbackExportPath],
+        reason: "flashback_update",
+      });
+      if (enqueueResult.backupStatus === "queued") {
+        await repositories.memories.updateBackupStatus({
+          id: input.memoryId,
+          backupStatus: "queued",
+          lastBackupError: null,
+          updatedAt: now,
+        });
+      }
+    } catch (error) {
+      await repositories.flashbacks.replaceForMemory(
+        input.memoryId,
+        previousFlashbacks,
+      );
+      await restoreFlashbackExportSnapshot({
+        config: input.config,
+        snapshot: previousExport,
+      });
+      throw error;
+    }
+  }
 
   return {
     operation: resultOperation,
@@ -164,8 +212,56 @@ async function toggleMemoryFlashbackUnlocked(
       startOffset: flashback.startOffset,
       endOffset: flashback.endOffset,
       contentHash: flashback.contentHash ?? contentHash,
+      createdAt: flashback.createdAt.toISOString(),
     })),
   };
+}
+
+async function readFlashbackExportSnapshot(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId: string;
+}): Promise<FlashbackExportSnapshot> {
+  const relativePath = getFlashbackMetadataExportPath(input.memoryId);
+  const absolutePath = join(input.config.storePath, relativePath);
+  try {
+    return {
+      exists: true,
+      relativePath,
+      content: await readFile(absolutePath, "utf8"),
+    };
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return {
+        exists: false,
+        relativePath,
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function restoreFlashbackExportSnapshot(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  snapshot: FlashbackExportSnapshot;
+}): Promise<void> {
+  const absolutePath = join(input.config.storePath, input.snapshot.relativePath);
+  if (input.snapshot.exists) {
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, input.snapshot.content, "utf8");
+    return;
+  }
+
+  await rm(absolutePath, { force: true });
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  );
 }
 
 async function withFlashbackMemoryLock<T>(

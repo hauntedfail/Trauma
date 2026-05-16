@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,6 +13,7 @@ import {
   recordBackupPushFailureAlert,
 } from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
+import { getFlashbackMetadataExportPath } from "../flashbacks/export";
 
 export { BACKUP_STATUSES };
 export type { BackupStatus };
@@ -242,7 +244,7 @@ export function createGitMemoryBackupQueue(
           }
           await enqueue({
             memoryId: backup.id,
-            contentPaths: [backup.contentPath],
+            contentPaths: await getRetryContentPaths(input.config, backup),
             reason: "memory_creation",
           });
           enqueued += 1;
@@ -253,6 +255,23 @@ export function createGitMemoryBackupQueue(
       }
     },
   };
+}
+
+async function getRetryContentPaths(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  backup: { id: string; contentPath: string },
+): Promise<string[]> {
+  const paths = [backup.contentPath];
+  const flashbackExportPath = getFlashbackMetadataExportPath(backup.id);
+  try {
+    await access(resolve(config.storePath, flashbackExportPath));
+    paths.push(flashbackExportPath);
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return paths;
 }
 
 export async function runGitBackupJob(
@@ -477,6 +496,15 @@ function createQueueConfigKey(config: ResolvedTraumaConfig) {
 
 function formatUnknownError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  );
 }
 
 export class GitBackupError extends Error {

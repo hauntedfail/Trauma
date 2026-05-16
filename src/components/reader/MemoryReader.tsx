@@ -20,9 +20,13 @@ import type {
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
-import { getFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
+import {
+  getFlashbackBrowseRows,
+  revalidateFlashbackBrowseRows,
+} from "../flashbacks/flashbacks-loader";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
+import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
 import {
   attachCategoryToMemoryByName,
   deleteMemoryById,
@@ -51,6 +55,7 @@ import {
 import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
+import { revalidateReaderMemory } from "./reader-memory-loader";
 
 interface MemoryReaderProps {
   flashbackRows?: FlashbackBrowseRow[];
@@ -145,6 +150,9 @@ function ReadyMemoryReader(props: {
   const [moments, setMoments] = createSignal([
     ...props.result.memory.moments,
   ]);
+  const [currentFlashbacks, setCurrentFlashbacks] = createSignal([
+    ...props.result.memory.flashbacks,
+  ]);
   const allFlashbacks = props.flashbackRows === undefined
     ? createAsync(() => getFlashbackBrowseRows())
     : () => props.flashbackRows;
@@ -156,11 +164,27 @@ function ReadyMemoryReader(props: {
   const [errorMessage, setErrorMessage] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
 
+  const closeSelectionMenu = () => setSelectionMenu(undefined);
+  const closeSectionMenu = () => setSectionMenu(undefined);
+  const closeReaderMenus = () => {
+    closeSelectionMenu();
+    closeSectionMenu();
+  };
+  createEffect(() => {
+    props.result.memory.id;
+    setCategories([...props.result.memory.categories]);
+    setMoments([...props.result.memory.moments]);
+    setCurrentFlashbacks([...props.result.memory.flashbacks]);
+    setPendingMomentKey("");
+    setPendingSelectionKey("");
+    setErrorMessage("");
+    closeReaderMenus();
+  });
   createEffect(() => {
     setRightRailContent(
       <ReaderRightRailContent
         allFlashbacks={allFlashbacks()}
-        currentFlashbacks={props.result.memory.flashbacks}
+        currentFlashbacks={currentFlashbacks()}
         moments={moments()}
         memoryId={props.result.memory.id}
         onCreateMoment={(section) => void createMoment(section)}
@@ -202,13 +226,6 @@ function ReadyMemoryReader(props: {
       clearSectionLongPress();
     });
   });
-
-  const closeSelectionMenu = () => setSelectionMenu(undefined);
-  const closeSectionMenu = () => setSectionMenu(undefined);
-  const closeReaderMenus = () => {
-    closeSelectionMenu();
-    closeSectionMenu();
-  };
   const openSelectionMenu = () => {
     const selection = readReaderSelection(contentRef);
     if (selection === undefined) {
@@ -254,6 +271,9 @@ function ReadyMemoryReader(props: {
       selection: menu.selection,
       setErrorMessage,
       setPendingSelectionKey,
+      onFlashbacksChanged: setCurrentFlashbacks,
+      onSuccess: () =>
+        revalidateAfterFlashbackToggle(props.result.memory.id),
     });
   };
   const commitSectionMenu = () => {
@@ -285,6 +305,10 @@ function ReadyMemoryReader(props: {
   }): Promise<void> => {
     const category = await attachReaderCategoryByName(input);
     setCategories((current) => mergeReaderTaxonomyItem(current, category));
+    void Promise.all([
+      revalidateBrowseMemoryWorkspace(),
+      revalidateReaderMemory(input.memoryId),
+    ]);
   };
   const createMoment = async (
     section: ReaderMomentSection,
@@ -389,6 +413,7 @@ function ReadyMemoryReader(props: {
             compact
             initialRead={props.result.memory.read}
             memoryId={props.result.memory.id}
+            onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
           />
           <MemoryActionMenu
             memoryId={props.result.memory.id}
@@ -501,11 +526,13 @@ export async function deleteReaderMemory(input: {
   fetch?: FetchFunction;
   memoryId: string;
   navigate: (path: string) => void;
+  revalidate?: (memoryId: string) => Promise<void>;
 }): Promise<void> {
   await deleteMemoryById({
     memoryId: input.memoryId,
     fetch: input.fetch,
   });
+  await (input.revalidate ?? revalidateAfterMemoryDeletion)(input.memoryId);
   input.navigate("/memories");
 }
 
@@ -545,6 +572,30 @@ function mergeReaderMomentItem(
   }
 
   return [next, ...current];
+}
+
+async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterMemoryDeletion(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateFlashbackBrowseRows(),
+    revalidateMomentBrowseRows(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterFlashbackToggle(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateFlashbackBrowseRows(),
+    revalidateReaderMemory(memoryId),
+    revalidateBrowseMemoryWorkspace(),
+  ]);
 }
 
 function ReaderContextMenu(props: {
@@ -824,7 +875,8 @@ function ReaderToc(props: {
             {props.toc.map((entry) => (
               <ReaderTocEntryRow
                 active={props.moments.some(
-                  (moment) => moment.sectionAnchor === entry.id,
+                  (moment) =>
+                    resolveReaderMomentTarget(moment, props.toc)?.id === entry.id,
                 )}
                 entry={entry}
                 onCreateMoment={props.onCreateMoment}
@@ -849,6 +901,19 @@ function ReaderToc(props: {
       </nav>
     </Show>
   );
+}
+
+function resolveReaderMomentTarget(
+  moment: ReaderMomentItem,
+  toc: ReaderTocEntry[],
+): ReaderTocEntry | undefined {
+  const exact = toc.find((entry) => entry.id === moment.sectionAnchor);
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const pathMatches = toc.filter((entry) => entry.path === moment.sectionPath);
+  return pathMatches.length === 1 ? pathMatches[0] : undefined;
 }
 
 function ReaderTocEntryRow(props: {
@@ -924,6 +989,8 @@ function ReaderTocEntryRow(props: {
 async function toggleReaderSelection(input: {
   container: HTMLDivElement;
   memoryId: string;
+  onFlashbacksChanged: (flashbacks: ReaderFlashbackItem[]) => void;
+  onSuccess: () => Promise<void> | void;
   pendingSelectionKey: string;
   selection: ReaderSelection;
   setErrorMessage: (message: string) => void;
@@ -968,12 +1035,61 @@ async function toggleReaderSelection(input: {
 
       throw new Error(failure.message);
     }
+    const payload = await readFlashbackToggleSuccess(response);
+    input.onFlashbacksChanged(payload.result.flashbacks);
+    void Promise.resolve(input.onSuccess()).catch(() => undefined);
   } catch {
     input.container.innerHTML = previousHtml;
     input.setErrorMessage("Flashback failed");
   } finally {
     input.setPendingSelectionKey("");
   }
+}
+
+interface ReaderFlashbackToggleSuccess {
+  result: {
+    flashbacks: ReaderFlashbackItem[];
+  };
+}
+
+async function readFlashbackToggleSuccess(
+  response: Response,
+): Promise<ReaderFlashbackToggleSuccess> {
+  const payload: unknown = await response.json();
+  if (!isReaderFlashbackToggleSuccess(payload)) {
+    throw new Error("invalid flashback toggle response");
+  }
+
+  return payload;
+}
+
+function isReaderFlashbackToggleSuccess(
+  value: unknown,
+): value is ReaderFlashbackToggleSuccess {
+  if (!isRecord(value) || !isRecord(value.result)) {
+    return false;
+  }
+
+  return Array.isArray(value.result.flashbacks) &&
+    value.result.flashbacks.every(isReaderFlashbackItem);
+}
+
+function isReaderFlashbackItem(value: unknown): value is ReaderFlashbackItem {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.text === "string" &&
+    typeof value.prefix === "string" &&
+    typeof value.suffix === "string" &&
+    typeof value.startOffset === "number" &&
+    typeof value.endOffset === "number" &&
+    (value.contentHash === undefined ||
+      value.contentHash === null ||
+      typeof value.contentHash === "string") &&
+    typeof value.createdAt === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readReaderSelection(

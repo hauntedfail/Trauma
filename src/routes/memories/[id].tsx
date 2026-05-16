@@ -1,21 +1,16 @@
 import { Title } from "@solidjs/meta";
-import { createAsync, query, useParams } from "@solidjs/router";
+import { createAsync, useParams } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
 import { Show } from "solid-js";
 
 import { MemoryReader } from "../../components/reader/MemoryReader";
+import { getReaderMemory } from "../../components/reader/reader-memory-loader";
 import { readerFrame, readerStatePanel } from "../../components/reader/reader-styles";
 import {
   readerHttpStatusCode,
   titleForReaderResult,
 } from "../../components/reader/route-state";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
-
-const getReaderMemory = query(async (memoryId: string) => {
-  "use server";
-  const { loadReaderMemory } = await import("../../server/reader/page-data");
-  return loadReaderMemory(memoryId);
-}, "reader-memory");
 
 export default function MemoryReaderRoute() {
   const params = useParams();
