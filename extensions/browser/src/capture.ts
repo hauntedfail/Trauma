@@ -22,13 +22,6 @@ const REMOVED_SELECTORS = [
   "button",
 ];
 
-const SITE_SPECIFIC_SELECTORS = [
-  {
-    hostnameSuffix: "openai.com",
-    selectors: ['[data-testid="page-content"]', "main article", "main"],
-  },
-] as const;
-
 const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
 const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
 const CAPTURE_IFRAME_SANDBOX =
@@ -45,13 +38,7 @@ export function createCapturedTabSnapshot(
     };
   }
 
-  const documentElement = cloneElementWithinTraversalLimit(document.documentElement);
-  if (documentElement === null) {
-    return { ok: false, error: "Could not read the current page." };
-  }
-
-  sanitizeElement(documentElement);
-  const candidate = selectExtractionCandidate(document, documentElement);
+  const candidate = selectExtractionCandidate(document);
   if (candidate === null) {
     return { ok: false, error: "Could not find readable page content." };
   }
@@ -59,7 +46,7 @@ export function createCapturedTabSnapshot(
   const articleHtml = candidate.element.outerHTML;
   const articleText = normalizeReadableText(candidate.element.textContent ?? "");
 
-  if (articleText.length === 0) {
+  if (articleText.length === 0 && !hasMeaningfulMedia(candidate.element)) {
     return { ok: false, error: "Could not find readable page content." };
   }
 
@@ -90,18 +77,10 @@ export function createCapturedTabSnapshot(
   };
 }
 
-function selectExtractionCandidate(
-  liveDocument: Document,
-  sanitizedDocumentElement: Element,
-): ExtractionCandidate | null {
-  const siteCandidate = selectSiteSpecificCandidate(liveDocument);
-  if (siteCandidate !== null) {
-    return siteCandidate;
-  }
-
+function selectExtractionCandidate(liveDocument: Document): ExtractionCandidate | null {
   for (const selector of SEMANTIC_SELECTORS) {
-    const candidate = selectBestElement(
-      Array.from(sanitizedDocumentElement.querySelectorAll(selector)),
+    const candidate = selectBestClonedElement(
+      querySelectorAllDeep(liveDocument, selector),
     );
     if (candidate !== null) {
       return {
@@ -112,7 +91,13 @@ function selectExtractionCandidate(
     }
   }
 
-  const body = sanitizedDocumentElement.querySelector("body");
+  const documentElement = cloneElementWithinTraversalLimit(liveDocument.documentElement);
+  if (documentElement === null) {
+    return null;
+  }
+  sanitizeElement(documentElement);
+
+  const body = documentElement.querySelector("body");
   return body === null
     ? null
     : {
@@ -120,36 +105,6 @@ function selectExtractionCandidate(
         selector: "body",
         extractionStrategy: "body_fallback",
       };
-}
-
-function selectSiteSpecificCandidate(liveDocument: Document) {
-  const hostname = location.hostname.toLowerCase();
-  const selectorGroup = SITE_SPECIFIC_SELECTORS.find(
-    (group) =>
-      hostname === group.hostnameSuffix ||
-      hostname.endsWith(`.${group.hostnameSuffix}`),
-  );
-  if (selectorGroup === undefined) {
-    return null;
-  }
-
-  for (const selector of selectorGroup.selectors) {
-    const candidate = selectBestElement(querySelectorAllDeep(liveDocument, selector));
-    if (candidate !== null) {
-      const clone = cloneElementWithinTraversalLimit(candidate);
-      if (clone === null) {
-        continue;
-      }
-      sanitizeElement(clone);
-      return {
-        element: clone,
-        selector,
-        extractionStrategy: "site_selector" as const,
-      };
-    }
-  }
-
-  return null;
 }
 
 function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
@@ -211,7 +166,13 @@ function cloneElementWithinTraversalLimit(sourceRoot: Element) {
     }
 
     inspected += 1;
-    for (const child of Array.from(current.source.childNodes)) {
+    const childNodes = [
+      ...Array.from(current.source.childNodes),
+      ...(current.source.shadowRoot === null
+        ? []
+        : Array.from(current.source.shadowRoot.childNodes)),
+    ];
+    for (const child of childNodes) {
       if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
         break;
       }
@@ -237,19 +198,38 @@ function cloneElementWithinTraversalLimit(sourceRoot: Element) {
   return rootClone;
 }
 
-function selectBestElement(elements: readonly Element[]) {
+function selectBestClonedElement(elements: readonly Element[]) {
   let best: Element | null = null;
-  let bestLength = 0;
+  let bestScore = 0;
 
   for (const element of elements) {
-    const textLength = normalizeReadableText(element.textContent ?? "").length;
-    if (textLength > bestLength) {
-      best = element;
-      bestLength = textLength;
+    const clone = cloneElementWithinTraversalLimit(element);
+    if (clone === null) {
+      continue;
+    }
+
+    sanitizeElement(clone);
+    const score = scoreExtractionElement(clone);
+    if (score > bestScore) {
+      best = clone;
+      bestScore = score;
     }
   }
 
-  return bestLength > 0 ? best : null;
+  return bestScore > 0 ? best : null;
+}
+
+function scoreExtractionElement(element: Element) {
+  return normalizeReadableText(element.textContent ?? "").length +
+    countMeaningfulMedia(element) * 300;
+}
+
+function hasMeaningfulMedia(element: Element) {
+  return countMeaningfulMedia(element) > 0;
+}
+
+function countMeaningfulMedia(element: Element) {
+  return element.querySelectorAll("img[src], iframe[src], picture img[src]").length;
 }
 
 function sanitizeElement(root: Element) {

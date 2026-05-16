@@ -7,6 +7,7 @@ import {
   runExtractorWithTimeout,
 } from "../importer/extraction-runtime";
 import {
+  htmlFragmentToMarkdown,
   readableMarkdownLength,
   type ExtractedArticle,
   type ArticleExtractor,
@@ -41,7 +42,12 @@ const DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS = 10_000;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
   const selectedUrl = selectCaptureUrl(input.payload);
-  if (readableMarkdownLength(input.payload.articleText) < MINIMUM_READABLE_BODY_LENGTH) {
+  const initialCaptureMarkdown = createBrowserCaptureMarkdown(
+    input.payload,
+    selectedUrl,
+    input.payload.title ?? fallbackTitleFromUrl(selectedUrl),
+  );
+  if (!isMeaningfulBrowserCaptureMarkdown(initialCaptureMarkdown)) {
     throw new BrowserImportError("extracted page content is too short");
   }
 
@@ -64,21 +70,26 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
     throw new BrowserImportError("failed to extract readable page content");
   }
 
-  if (readableMarkdownLength(extracted.markdown) < MINIMUM_READABLE_BODY_LENGTH) {
-    throw new BrowserImportError("extracted page content is too short");
-  }
-
   const title =
     extracted.title ||
     input.payload.title ||
     fallbackTitleFromUrl(selectedUrl);
+  const markdown =
+    readableMarkdownLength(extracted.markdown) >= MINIMUM_READABLE_BODY_LENGTH
+      ? extracted.markdown
+      : createBrowserCaptureMarkdown(input.payload, selectedUrl, title);
+
+  if (!isMeaningfulBrowserCaptureMarkdown(markdown)) {
+    throw new BrowserImportError("extracted page content is too short");
+  }
+
   const imported: ImporterResult = {
     status: "success",
     url: selectedUrl,
     title,
     description: extracted.description ?? input.payload.description,
     faviconUrl: extracted.faviconUrl,
-    markdown: extracted.markdown,
+    markdown,
   };
 
   const createMemory = input.createMemory ?? addMemory;
@@ -165,4 +176,23 @@ function escapeHtml(value: string) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function createBrowserCaptureMarkdown(
+  payload: BrowserImportPayload,
+  selectedUrl: string,
+  title: string,
+) {
+  return htmlFragmentToMarkdown(payload.articleHtml, selectedUrl, title);
+}
+
+function isMeaningfulBrowserCaptureMarkdown(markdown: string) {
+  return (
+    readableMarkdownLength(markdown) >= MINIMUM_READABLE_BODY_LENGTH ||
+    (markdown.trim().length > 0 && hasRenderedMedia(markdown))
+  );
+}
+
+function hasRenderedMedia(markdown: string) {
+  return /!\[[^\]]*]\([^)]+\)|<picture\b|<iframe\b|<img\b/i.test(markdown);
 }

@@ -114,14 +114,14 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).not.toContain("HTTP");
   });
 
-  it("uses site-specific selectors against open shadow roots in the live document", () => {
+  it("uses semantic selectors against open shadow roots in the live document", () => {
     installPage({
-      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      href: "https://example.com/shadow-article",
       html: `<!doctype html>
         <html>
           <head>
-            <title>Harness Engineering | OpenAI</title>
-            <link rel="canonical" href="https://openai.com/ja-JP/index/harness-engineering/">
+            <title>Shadow Article</title>
+            <link rel="canonical" href="https://example.com/shadow-article">
           </head>
           <body>
             <main id="app-shell"></main>
@@ -134,10 +134,9 @@ describe("extension page capture", () => {
     }
     const shadowRoot = host.attachShadow({ mode: "open" });
     const article = document.createElement("article");
-    article.setAttribute("data-testid", "page-content");
     article.innerHTML = `
-      <h1>Harness engineering</h1>
-      <p>The OpenAI harness engineering article body is visible in the current tab.</p>
+      <h1>Shadow article</h1>
+      <p>The article body is visible in the current tab.</p>
       <p>This content exists inside an open shadow root and must be read through the live document path.</p>
       <script>window.evil = true;</script>
     `;
@@ -150,26 +149,26 @@ describe("extension page capture", () => {
       throw new Error(result.error);
     }
     expect(result.snapshot).toMatchObject({
-      sourceUrl: "https://openai.com/ja-JP/index/harness-engineering/",
-      canonicalUrl: "https://openai.com/ja-JP/index/harness-engineering/",
-      title: "Harness Engineering | OpenAI",
-      selector: '[data-testid="page-content"]',
-      extractionStrategy: "site_selector",
+      sourceUrl: "https://example.com/shadow-article",
+      canonicalUrl: "https://example.com/shadow-article",
+      title: "Shadow Article",
+      selector: "article",
+      extractionStrategy: "semantic_selector",
       extensionVersion: "0.1.0",
     });
     expect(result.snapshot.articleText).toContain(
       "visible in the current tab",
     );
-    expect(result.snapshot.articleHtml).toContain("Harness engineering");
+    expect(result.snapshot.articleHtml).toContain("Shadow article");
     expect(result.snapshot.articleHtml).not.toContain("<script");
   });
 
   it("does not full-scan the live document before applying the traversal cap", () => {
     installPage({
-      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      href: "https://example.com/shadow-article",
       html: `<!doctype html>
         <html>
-          <head><title>Harness Engineering | OpenAI</title></head>
+          <head><title>Shadow Article</title></head>
           <body><main id="app-shell"></main></body>
         </html>`,
     });
@@ -179,9 +178,8 @@ describe("extension page capture", () => {
     }
     const shadowRoot = host.attachShadow({ mode: "open" });
     const article = document.createElement("article");
-    article.setAttribute("data-testid", "page-content");
     article.textContent =
-      "The OpenAI harness engineering article body is visible inside the current tab shadow root.";
+      "The article body is visible inside the current tab shadow root.";
     shadowRoot.append(article);
     const documentPrototype = Object.getPrototypeOf(document) as {
       querySelectorAll: Document["querySelectorAll"];

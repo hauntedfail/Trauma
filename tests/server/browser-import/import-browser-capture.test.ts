@@ -90,6 +90,52 @@ describe("browser capture import", () => {
     );
   });
 
+  it("imports short browser captures when selected content contains meaningful media", async () => {
+    const payload = createPayload({
+      sourceUrl: "https://x.com/seelffff/status/2054991798519656789",
+      title: "Short media post",
+      articleHtml: `<article>
+        <p>Short post text.</p>
+        <img src="https://pbs.twimg.com/media/example.jpg" alt="Captured source image">
+      </article>`,
+      articleText: "Short post text.",
+    });
+    const observedMarkdown: string[] = [];
+
+    const memory = await importBrowserCapture({
+      payload,
+      config: createConfig(),
+      db: {} as never,
+      backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+      extractArticle: async () => ({
+        title: "Short media post",
+        description: null,
+        faviconUrl: null,
+        markdown: "Short post text.",
+        wordCount: 3,
+      }),
+      createMemory: async (input) => {
+        const imported = await input.importer?.importUrl({ url: input.url });
+        if (imported?.status !== "success") {
+          throw new Error("expected successful import");
+        }
+        observedMarkdown.push(imported.markdown);
+        return { id: "memory-id" };
+      },
+    });
+
+    expect(memory).toEqual({ id: "memory-id" });
+    expect(observedMarkdown).toEqual([
+      [
+        "# Short media post",
+        "",
+        "Short post text\\.",
+        "",
+        "![Captured source image](https://pbs.twimg.com/media/example.jpg)",
+      ].join("\n"),
+    ]);
+  });
+
   it("does not persist a memory when synchronous extraction work exceeds the timeout", async () => {
     const startedAt = Date.now();
 

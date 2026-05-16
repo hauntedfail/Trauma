@@ -159,4 +159,30 @@ describe("browser import payload validation", () => {
       },
     });
   });
+
+  it("allows empty article text so media-only captures reach server content validation", () => {
+    const result = parseBrowserImportPayload(
+      JSON.stringify({
+        sourceUrl: "https://example.com/article",
+        canonicalUrl: null,
+        title: "Image post",
+        description: null,
+        articleHtml:
+          '<article><img src="https://cdn.example.com/image.jpg" alt="Image post"></article>',
+        articleText: "   ",
+        selector: "article",
+        extractionStrategy: "semantic_selector",
+        capturedAt: now.toISOString(),
+        extensionVersion: "0.1.0",
+      }),
+      { maxBytes: 5_000_000, now: () => now },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      payload: {
+        articleText: "",
+      },
+    });
+  });
 });

@@ -102,7 +102,7 @@ function normalizeContent(value: string) {
   return value.trim();
 }
 
-function htmlFragmentToMarkdown(
+export function htmlFragmentToMarkdown(
   html: string,
   pageUrl: string,
   title: string,
