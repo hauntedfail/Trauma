@@ -11,6 +11,7 @@ type NavIconName =
   | "categories"
   | "tags"
   | "backup"
+  | "theme"
   | "settings";
 
 type NavIconFactory = (props?: IconProps) => JSX.Element;
@@ -141,6 +142,22 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
       </Svg>
     ),
   },
+  theme: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <path {...stroke} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
+        <path {...stroke} d="M15.4 8.4 18.6 11.6" />
+        <path {...stroke} d="M9 14.8l3.3 3.3" />
+        <path {...stroke} d="M6.5 20.5l4.2-1.1" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <path {...fill} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
+        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M15.4 8.4 18.6 11.6M9 14.8l3.3 3.3" />
+      </Svg>
+    ),
+  },
   settings: {
     outline: (props = {}) => (
       <Svg {...props}>
@@ -245,13 +262,7 @@ export function MoonIcon(props: IconProps) {
 }
 
 export function PaintToolIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
-      <path {...stroke} d="M9.4 15.6 16.8 8.2c.7-.7 1.8-.7 2.5 0s.7 1.8 0 2.5L12 17.9l-4.2 1.2 1.6-3.5z" />
-      <path {...stroke} d="M14.8 10.2 17.8 13.2" />
-      <path {...stroke} d="M7.8 19.1 12 17.9" />
-    </svg>
-  );
+  return TraumaNavIcons.theme.outline(props);
 }
 
 export function PageIcon(props: IconProps) {

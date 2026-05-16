@@ -25,6 +25,7 @@ describe("TRAUMA icon system", () => {
       "categories",
       "tags",
       "backup",
+      "theme",
       "settings",
     ] as const) {
       expect(TraumaNavIcons[name].outline).toBeDefined();
@@ -75,14 +76,30 @@ describe("TRAUMA icon system", () => {
     const html = renderToString(() => createComponent(PaintToolIcon, { size: 24 }));
 
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain('viewBox="0 0 24 24"');
+    expect(html).toContain('viewBox="0 0 26 26"');
     expect(html).toContain('width="24"');
     expect(html).toContain('height="24"');
     expect(html).toContain("currentColor");
-    expect(html).toContain("M9.4 15.6 16.8 8.2");
-    expect(html).toContain("M14.8 10.2 17.8 13.2");
-    expect(html).toContain("M7.8 19.1 12 17.9");
+    expect(html).toContain("M6.5 20.5 9 14.8");
+    expect(html).toContain("M15.4 8.4 18.6 11.6");
+    expect(html).toContain("M9 14.8l3.3 3.3");
     expect(html).not.toContain("M15.5 3.5 20.5 8.5");
+  });
+
+  it("renders the Theme nav icon at the same scale and variant depth as the other nav icons", () => {
+    const outline = renderToString(() => TraumaNavIcons.theme.outline());
+    const filled = renderToString(() => TraumaNavIcons.theme.filled());
+
+    expect(outline).toContain('viewBox="0 0 26 26"');
+    expect(outline).toContain('width="26"');
+    expect(outline).toContain('height="26"');
+    expect(outline).toContain("M6.5 20.5 9 14.8");
+    expect(outline).toContain("M15.4 8.4 18.6 11.6");
+    expect(filled).toContain('viewBox="0 0 26 26"');
+    expect(filled).toContain('width="26"');
+    expect(filled).toContain('height="26"');
+    expect(filled).toContain('fill="currentColor"');
+    expect(filled).toContain("var(--bg-base)");
   });
 
   it("keeps theme box utility icons aligned with the refined sample", () => {
