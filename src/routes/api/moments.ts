@@ -7,7 +7,11 @@ import {
   renderMemoryMarkdown,
   type ReaderTocEntry,
 } from "~/server/reader/markdown-renderer";
-import { MemoryContentStoreError, readMemoryContent } from "~/server/store";
+import {
+  createReaderContentHash,
+  MemoryContentStoreError,
+  readMemoryContent,
+} from "~/server/store";
 
 export type MomentPayloadResult =
   | {
@@ -98,7 +102,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       sectionPath: section.section.path,
       sectionStartOffset: section.section.startOffset ?? null,
       sectionEndOffset: section.section.endOffset ?? null,
-      contentHash: null,
+      contentHash: section.contentHash,
       createdAt: now,
       updatedAt: now,
     });
@@ -121,15 +125,17 @@ async function resolveMomentSection(input: {
   config: ReturnType<typeof loadRuntimeTraumaConfig>;
   payload: Extract<MomentPayloadResult, { ok: true }>;
 }): Promise<
-  | { ok: true; section: ReaderTocEntry }
+  | { ok: true; section: ReaderTocEntry; contentHash: string }
   | { ok: false; error: string }
 > {
   let rendered;
+  let contentHash: string;
   try {
     const content = await readMemoryContent({
       config: input.config,
       memoryId: input.payload.memoryId,
     });
+    contentHash = createReaderContentHash(content.markdown);
     rendered = renderMemoryMarkdown(content.markdown);
   } catch (error) {
     if (
@@ -167,8 +173,17 @@ async function resolveMomentSection(input: {
       error: "moment section identity does not match reader content",
     };
   }
+  if (
+    input.payload.contentHash !== null &&
+    input.payload.contentHash !== contentHash
+  ) {
+    return {
+      ok: false,
+      error: "moment content hash does not match reader content",
+    };
+  }
 
-  return { ok: true, section };
+  return { ok: true, section, contentHash };
 }
 
 function matchesOptionalOffset(

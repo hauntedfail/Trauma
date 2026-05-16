@@ -11,6 +11,7 @@ import {
 } from "../../../src/routes/api/moments";
 import { DELETE } from "../../../src/routes/api/moments/[momentId]";
 import { initializeDatabase } from "../../../src/server/db";
+import { createReaderContentHash } from "../../../src/server/store";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -23,6 +24,7 @@ import { writeMemoryContent } from "../../../src/server/store";
 
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
+const momentRouteMarkdown = "# Route Memory\n\n## Chapter One\n\nSection body.";
 
 afterEach(async () => {
   process.env = { ...originalEnv };
@@ -91,6 +93,7 @@ describe("moments API routes", () => {
     const config = loadRouteConfig(await writeRouteConfig(root));
     await seedRouteMemory(config, { title: "Moment Route Memory" });
     await writeMomentContent(config);
+    const expectedContentHash = createReaderContentHash(momentRouteMarkdown);
 
     const firstCreate = await POST(jsonRequest("POST", "/api/moments", {
       memoryId: routeMemoryId,
@@ -134,6 +137,7 @@ describe("moments API routes", () => {
         sectionTitle: "Chapter One",
         sectionLevel: 2,
         sectionPath: "1/1",
+        contentHash: expectedContentHash,
       },
     });
     expect(duplicateCreate.status).toBe(200);
@@ -154,6 +158,7 @@ describe("moments API routes", () => {
           memoryUrl: `https://example.com/${routeMemoryId}`,
           sectionAnchor: "chapter-one",
           sectionTitle: "Chapter One",
+          contentHash: expectedContentHash,
         },
       ],
     });
@@ -164,6 +169,55 @@ describe("moments API routes", () => {
       expect(
         connection.sqlite.prepare("select count(*) as count from moments").get(),
       ).toEqual({ count: 0 });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("stores server-resolved Moment content hashes and rejects stale hash payloads", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config, { title: "Moment Route Memory" });
+    await writeMomentContent(config);
+    const expectedContentHash = createReaderContentHash(momentRouteMarkdown);
+
+    const created = await POST(jsonRequest("POST", "/api/moments", {
+      memoryId: routeMemoryId,
+      sectionAnchor: "chapter-one",
+      sectionTitle: "Chapter One",
+      sectionLevel: 2,
+      sectionPath: "1/1",
+      sectionStartOffset: null,
+      sectionEndOffset: null,
+      contentHash: null,
+    }));
+    const stale = await POST(jsonRequest("POST", "/api/moments", {
+      memoryId: routeMemoryId,
+      sectionAnchor: "chapter-one",
+      sectionTitle: "Chapter One",
+      sectionLevel: 2,
+      sectionPath: "1/1",
+      sectionStartOffset: null,
+      sectionEndOffset: null,
+      contentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    }));
+    const connection = initializeDatabase(config);
+    try {
+      expect(created.status).toBe(201);
+      await expect(created.json()).resolves.toMatchObject({
+        moment: {
+          contentHash: expectedContentHash,
+        },
+      });
+      expect(
+        connection.sqlite
+          .prepare("select content_hash as contentHash from moments")
+          .get(),
+      ).toEqual({ contentHash: expectedContentHash });
+      expect(stale.status).toBe(400);
+      await expect(stale.json()).resolves.toEqual({
+        error: "moment content hash does not match reader content",
+      });
     } finally {
       connection.close();
     }
@@ -257,6 +311,6 @@ async function writeMomentContent(
       capturedAt: routeNow.toISOString(),
       extractionStatus: "success",
     },
-    markdown: "# Route Memory\n\n## Chapter One\n\nSection body.",
+    markdown: momentRouteMarkdown,
   });
 }
