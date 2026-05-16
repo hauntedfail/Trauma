@@ -935,6 +935,13 @@ describe("flashback markdown markers", () => {
     ).toBe('Alpha target and omega <mark data-flashback-id="fresh">target</mark>.');
   });
 
+  it("strips legacy highlight marks before resolving Flashback ranges", () => {
+    const marked =
+      'Alpha <mark data-highlight-id="legacy-highlight">target</mark> and omega.';
+
+    expect(stripFlashbackMarkers(marked)).toBe("Alpha target and omega.");
+  });
+
   it("does not render hashed canonical ranges against changed reader text", () => {
     expect(
       applyFlashbackMarkers("Alpha target.", [

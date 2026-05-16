@@ -23,6 +23,14 @@ afterEach(async () => {
 });
 
 describe("server browse loaders", () => {
+  it("uses empty Moment fixtures without loading runtime config", async () => {
+    const root = await makeTempRoot();
+    process.env.TRAUMA_BROWSE_FIXTURES = "1";
+    process.env.TRAUMA_CONFIG_PATH = join(root, "missing-trauma.config.json");
+
+    await expect(loadMomentBrowseRows()).resolves.toEqual([]);
+  });
+
   it("keeps the flashback browse database open until rows materialize", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
@@ -157,8 +165,7 @@ describe("server browse loaders", () => {
 });
 
 async function createRuntimeConfig(): Promise<ResolvedTraumaConfig> {
-  const root = await mkdtemp(join(tmpdir(), "trauma-browse-loaders-"));
-  tempDirs.push(root);
+  const root = await makeTempRoot();
   const configPath = join(root, "trauma.config.json");
   await writeFile(
     configPath,
@@ -184,6 +191,12 @@ async function createRuntimeConfig(): Promise<ResolvedTraumaConfig> {
   );
   process.env.TRAUMA_CONFIG_PATH = configPath;
   return loadTraumaConfig({ configPath });
+}
+
+async function makeTempRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "trauma-browse-loaders-"));
+  tempDirs.push(root);
+  return root;
 }
 
 async function seedMemory(config: ResolvedTraumaConfig): Promise<void> {

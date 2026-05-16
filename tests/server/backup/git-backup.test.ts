@@ -108,6 +108,43 @@ describe("git backup runner", () => {
     ]);
   });
 
+  it("skips missing untracked export paths while staging tracked memory deletions", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Backed Up", "utf8");
+    initializeGitRepository(projectPath);
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
+    });
+
+    expect(
+      git(projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`D\tstore/${contentPath}`]);
+  });
+
   it("expands human-readable backup actions in commit messages", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");

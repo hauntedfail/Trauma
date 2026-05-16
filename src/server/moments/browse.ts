@@ -14,6 +14,10 @@ export type MomentBrowseRow = StoredMomentBrowseRow & {
 export async function loadMomentBrowseRows(): Promise<MomentBrowseRow[]> {
   "use server";
 
+  if (process.env.TRAUMA_BROWSE_FIXTURES === "1") {
+    return [];
+  }
+
   let connection: ReturnType<typeof initializeDatabase> | undefined;
   try {
     const config = loadRuntimeTraumaConfig();

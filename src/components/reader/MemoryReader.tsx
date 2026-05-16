@@ -328,7 +328,10 @@ function ReadyMemoryReader(props: {
       setMoments((current) =>
         mergeReaderMomentItem(current, result.moment),
       );
-      void revalidateMomentBrowseRows();
+      void Promise.all([
+        revalidateMomentBrowseRows(),
+        revalidateReaderMemory(props.result.memory.id),
+      ]);
     } catch {
       setErrorMessage("Moment failed");
     } finally {

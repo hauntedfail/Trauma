@@ -74,6 +74,11 @@ describe("browse query state", () => {
     });
   });
 
+  it("preserves legacy highlight filters as flashback filters", () => {
+    expect(parseBrowseQuery("?highlight=h-foundation").flashback).toBe("h-foundation");
+    expect(parseBrowseQuery("?highlight=old&flashback=h-foundation").flashback).toBe("h-foundation");
+  });
+
   it("builds canonical memories hrefs while preserving unrelated filters", () => {
     const href = buildBrowseHref(
       {

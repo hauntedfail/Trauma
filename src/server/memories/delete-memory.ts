@@ -2,6 +2,7 @@ import { access, mkdir, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { MemoryBackupQueue } from "../backup";
+import { assertBackupEnvironmentReady } from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import {
   createRepositories,
@@ -78,6 +79,11 @@ export async function deleteMemory(input: {
   } catch (error) {
     return { status: "failed", error: formatUnknownError(error) };
   }
+
+  await assertBackupEnvironmentReady({
+    config: input.config,
+    db: input.db,
+  });
 
   let staged = false;
   try {

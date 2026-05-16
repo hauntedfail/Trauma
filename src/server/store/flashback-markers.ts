@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { decodeHTML } from "entities";
 
 const FLASHBACK_MARK_PAIR_PATTERN =
-  /<mark\b(?=[^>]*\bdata-flashback-id\s*=)[^>]*>([\s\S]*?)<\/mark>/gi;
+  /<mark\b(?=[^>]*\bdata-(?:flashback|highlight)-id\s*=)[^>]*>([\s\S]*?)<\/mark>/gi;
 const FLASHBACK_OPEN_MARK_PATTERN =
-  /<mark\b(?=[^>]*\bdata-flashback-id\s*=)[^>]*>/gi;
+  /<mark\b(?=[^>]*\bdata-(?:flashback|highlight)-id\s*=)[^>]*>/gi;
 
 export interface FlashbackSelectionInput {
   text: string;

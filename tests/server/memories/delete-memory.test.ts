@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { MemoryBackupQueue } from "../../../src/server/backup";
+import { BackupEnvironmentFailsafeError } from "../../../src/server/backup/environment";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
 import { deleteMemory } from "../../../src/server/memories/delete-memory";
@@ -75,6 +76,54 @@ describe("delete memory service", () => {
         reason: "memory_deletion",
       },
     ]);
+  });
+
+  it("blocks deletion before moving content when the backup failsafe is active", async () => {
+    const root = await makeRoot();
+    const loadedConfig = loadRouteConfig(await writeRouteConfig(root));
+    const config = {
+      ...loadedConfig,
+      backup: {
+        git: {
+          ...loadedConfig.backup.git,
+          enabled: true,
+        },
+      },
+    };
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+
+    try {
+      await expect(
+        deleteMemory({
+          config,
+          db: connection.db,
+          memoryId: routeMemoryId,
+        }),
+      ).rejects.toBeInstanceOf(BackupEnvironmentFailsafeError);
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id = ?")
+          .get(routeMemoryId),
+      ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
+    await expect(
+      readFile(join(config.storePath, "memories", routeMemoryId, "CONTENT.md"), "utf8"),
+    ).resolves.toContain("# Route Memory");
   });
 
   it("returns deleted with a warning when backup enqueue fails after local deletion", async () => {

@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { deleteMemory } from "~/server/memories/delete-memory";
@@ -29,6 +30,16 @@ export async function DELETE(event: APIEvent): Promise<Response> {
         memoryId,
       });
     } catch (error) {
+      if (error instanceof BackupEnvironmentFailsafeError) {
+        return json(
+          {
+            error: error.message,
+            backupFailsafe: error.alert ?? null,
+          },
+          { status: 409 },
+        );
+      }
+
       console.error("Unexpected memory delete failure", error);
       return json({ error: "failed to delete memory" }, { status: 500 });
     }

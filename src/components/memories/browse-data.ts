@@ -66,7 +66,10 @@ export function parseBrowseQuery(search: string): BrowseQuery {
     q: params.get("q")?.trim() ?? "",
     category: params.get("category")?.trim() ?? "",
     tag: params.get("tag")?.trim() ?? "",
-    flashback: params.get("flashback")?.trim() ?? "",
+    flashback:
+      params.get("flashback")?.trim() ||
+      params.get("highlight")?.trim() ||
+      "",
     view,
   };
 }

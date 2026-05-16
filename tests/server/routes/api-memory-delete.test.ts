@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -125,6 +125,48 @@ describe("memory delete API route", () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "memory was not found" });
+  });
+
+  it("maps backup failsafe errors to stable JSON before deleting content", async () => {
+    const root = await makeRoot();
+    const configPath = await writeRouteConfig(root);
+    const rawConfig = JSON.parse(await readFile(configPath, "utf8"));
+    rawConfig.backup.git.enabled = true;
+    await writeFile(configPath, `${JSON.stringify(rawConfig, null, 2)}\n`, "utf8");
+    const config = loadRouteConfig(configPath);
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+
+    const response = await DELETE(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${routeMemoryId}`, {
+          method: "DELETE",
+        }),
+        { memoryId: routeMemoryId },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: "Backup location changed",
+      backupFailsafe: {
+        kind: "backup_path_drift",
+      },
+    });
+    await expect(
+      readFile(join(config.storePath, "memories", routeMemoryId, "CONTENT.md"), "utf8"),
+    ).resolves.toContain("# Route Memory");
   });
 
   it("rejects deletion when stored content path escapes store path", async () => {

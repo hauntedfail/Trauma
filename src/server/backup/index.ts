@@ -283,11 +283,13 @@ export async function runGitBackupJob(
 
   await assertBackupRepositoryRoot(input.config);
 
-  const stagePaths = input.job.contentPaths.map((contentPath) =>
-    resolveStagePath(input.config, contentPath),
-  );
-  if (stagePaths.length === 0) {
+  if (input.job.contentPaths.length === 0) {
     throw new GitBackupError("git backup job must include at least one content path");
+  }
+
+  const stagePaths = await resolveStagePaths(input.config, input.job.contentPaths);
+  if (stagePaths.length === 0) {
+    return;
   }
 
   await runGit(input.config.projectPath, ["add", "--", ...stagePaths]);
@@ -358,6 +360,42 @@ async function pushGitBackup(config: ResolvedTraumaConfig) {
     await recordBackupPushFailureAlert(config, formatUnknownError(error));
     throw error;
   }
+}
+
+async function resolveStagePaths(
+  config: ResolvedTraumaConfig,
+  contentPaths: readonly string[],
+): Promise<string[]> {
+  const stagePaths: string[] = [];
+  for (const contentPath of contentPaths) {
+    const stagePath = resolveStagePath(config, contentPath);
+    if (await shouldStagePath(config, stagePath)) {
+      stagePaths.push(stagePath);
+    }
+  }
+  return stagePaths;
+}
+
+async function shouldStagePath(
+  config: ResolvedTraumaConfig,
+  stagePath: string,
+): Promise<boolean> {
+  try {
+    await access(resolve(config.projectPath, stagePath));
+    return true;
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const tracked = await runGit(config.projectPath, [
+    "ls-files",
+    "--error-unmatch",
+    "--",
+    stagePath,
+  ], [0, 1]);
+  return tracked.exitCode === 0;
 }
 
 function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {

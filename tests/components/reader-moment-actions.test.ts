@@ -77,4 +77,15 @@ describe("reader Moment actions", () => {
       contentHash: null,
     });
   });
+
+  it("revalidates both Moment browse and reader memory caches after creating a Moment", () => {
+    expect(readerSource).toContain(
+      [
+        "void Promise.all([",
+        "        revalidateMomentBrowseRows(),",
+        "        revalidateReaderMemory(props.result.memory.id),",
+        "      ]);",
+      ].join("\n"),
+    );
+  });
 });
