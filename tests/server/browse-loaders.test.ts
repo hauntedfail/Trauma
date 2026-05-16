@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/config";
 import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
-import { loadHighlightBrowseRows } from "../../src/server/highlights/browse";
+import { loadMomentBrowseRows } from "../../src/server/moments/browse";
 
 const originalEnv = { ...process.env };
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901";
@@ -22,13 +22,13 @@ afterEach(async () => {
 });
 
 describe("server browse loaders", () => {
-  it("keeps the highlight browse database open until rows materialize", async () => {
+  it("keeps the flashback browse database open until rows materialize", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
     const connection = initializeDatabase(config);
     try {
-      await connection.db.insert(schema.highlights).values({
-        id: "highlight-loader",
+      await connection.db.insert(schema.flashbacks).values({
+        id: "flashback-loader",
         memoryId,
         text: "selected text",
         prefix: "before",
@@ -42,9 +42,9 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(loadHighlightBrowseRows()).resolves.toEqual([
+    await expect(loadFlashbackBrowseRows()).resolves.toEqual([
       {
-        id: "highlight-loader",
+        id: "flashback-loader",
         memoryId,
         memoryTitle: "Loader Memory",
         text: "selected text",
@@ -58,13 +58,13 @@ describe("server browse loaders", () => {
     ]);
   });
 
-  it("keeps the Flashback browse database open until rows materialize", async () => {
+  it("keeps the Moment browse database open until rows materialize", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
     const connection = initializeDatabase(config);
     try {
-      await connection.repositories.flashbacks.create({
-        id: "flashback-loader",
+      await connection.repositories.moments.create({
+        id: "moment-loader",
         memoryId,
         sectionAnchor: "chapter-one",
         sectionTitle: "Chapter One",
@@ -80,9 +80,9 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(loadFlashbackBrowseRows()).resolves.toEqual([
+    await expect(loadMomentBrowseRows()).resolves.toEqual([
       {
-        id: "flashback-loader",
+        id: "moment-loader",
         memoryId,
         memoryTitle: "Loader Memory",
         memoryUrl: `https://example.com/${memoryId}`,

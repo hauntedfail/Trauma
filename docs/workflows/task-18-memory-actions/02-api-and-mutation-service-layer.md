@@ -139,7 +139,7 @@ Implement deletion in a service rather than directly inside the route.
 Deletion must remove:
 
 - SQLite `memories` row
-- SQLite cascaded `highlights`
+- SQLite cascaded `flashbacks`
 - SQLite cascaded `memory_tags`
 - SQLite cascaded `memory_categories`
 - filesystem directory for the memory under `storePath`

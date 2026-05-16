@@ -18,7 +18,7 @@ export type { BackupStatus };
 
 export type BackupTriggerReason =
   | "memory_creation"
-  | "highlight_update"
+  | "flashback_update"
   | "memory_deletion";
 
 export interface MemoryBackupJob {

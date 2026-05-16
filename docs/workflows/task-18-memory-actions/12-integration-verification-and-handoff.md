@@ -42,20 +42,20 @@ Manual smoke:
 26. If no real OpenAI auth provider exists, confirm enable returns not-configured and does not fake enabled state.
 27. Send a direct enable request while already enabled and confirm the response is already-enabled without mutation.
 28. Delete OpenAI auth and confirm UI returns to disabled state.
-29. Select repeated text in reader content and confirm no highlight is created until the highlight icon is clicked.
-30. Click the highlight icon and confirm only the selected occurrence is highlighted.
-31. Confirm `CONTENT.md` did not change after creating/removing the highlight.
-32. Confirm highlight `contentHash` uses the documented `sha256:<hex>` canonical-text format.
-33. Confirm SQLite-only highlight metadata has a backup/export path, or that restore-risk is explicitly documented if deferred.
-34. Confirm reader highlight tabs render `All highlights` on the left and `This memory` second.
-35. Confirm `/memories` recent highlight component is unchanged.
-36. Create a Flashback from a reader section hover icon.
-37. Create a Flashback from a ToC chapter hover icon.
-38. Long-press a reader section and confirm the shared contextual menu contains Flashback.
-39. Select arbitrary body text and confirm the contextual menu does not contain Flashback.
-40. Confirm the Flashback create API rejects missing or ambiguous section anchors/paths.
-41. Open `/flashback` and confirm the saved Flashbacks are listed.
-42. Click a Flashback and confirm it navigates to the memory section anchor.
+29. Select repeated text in reader content and confirm no flashback is created until the flashback icon is clicked.
+30. Click the flashback icon and confirm only the selected occurrence is flashbacked.
+31. Confirm `CONTENT.md` did not change after creating/removing the flashback.
+32. Confirm flashback `contentHash` uses the documented `sha256:<hex>` canonical-text format.
+33. Confirm SQLite-only flashback metadata has a backup/export path, or that restore-risk is explicitly documented if deferred.
+34. Confirm reader flashback tabs render `All flashbacks` on the left and `This memory` second.
+35. Confirm `/memories` recent flashback component is unchanged.
+36. Create a Moment from a reader section hover icon.
+37. Create a Moment from a ToC chapter hover icon.
+38. Long-press a reader section and confirm the shared contextual menu contains Moment.
+39. Select arbitrary body text and confirm the contextual menu does not contain Moment.
+40. Confirm the Moment create API rejects missing or ambiguous section anchors/paths.
+41. Open `/moments` and confirm the saved Moments are listed.
+42. Click a Moment and confirm it navigates to the memory section anchor.
 43. Import content containing a cross-host HTTPS image and confirm the image is preserved.
 44. Import content containing a Medium-style `<picture>` with `miro.medium.com` image fallback and confirm the image is preserved.
 45. Import content containing a controlled HTTPS iframe and confirm the reader sanitizer renders it with sandbox/referrer controls.
@@ -65,10 +65,10 @@ Manual smoke:
 ## Regression risks to check
 
 - `CONTENT.md` frontmatter did not gain tags/categories/read.
-- `CONTENT.md` body is not rewritten for highlight persistence.
-- SQLite-only highlight persistence has backup/export coverage or an explicit restore-risk note.
-- Highlights still render in reader mode.
-- Highlight toggle/removal still persists if existing behaviour supports it.
+- `CONTENT.md` body is not rewritten for flashback persistence.
+- SQLite-only flashback persistence has backup/export coverage or an explicit restore-risk note.
+- Flashbacks still render in reader mode.
+- Flashback toggle/removal still persists if existing behaviour supports it.
 - Browse category/tag filters still work.
 - Browser import/add memory flow still creates memories.
 - Backup queue still stages content paths only.
@@ -95,14 +95,14 @@ mise exec -- bun run test tests/server/routes/api-memory-delete.test.ts
 mise exec -- bun run test tests/server/routes/api-taxonomy.test.ts
 mise exec -- bun run test tests/server/routes/api-settings.test.ts
 mise exec -- bun run test tests/server/routes/api-flashbacks.test.ts
-mise exec -- bun run test tests/server/routes/api-highlights.test.ts
+mise exec -- bun run test tests/server/routes/api-flashbacks-toggle.test.ts
 mise exec -- bun run test tests/server/importer/importer.test.ts
 mise exec -- bun run test tests/server/reader/markdown-renderer.test.ts
 mise exec -- bun run test tests/server/routes/api-browser-import.test.ts
 mise exec -- bun run test tests/server/reader/page-data.test.ts
-mise exec -- bun run test tests/server/highlights/toggle.test.ts
-mise exec -- bun run test tests/server/highlights/ranges.test.ts
-mise exec -- bun run test tests/server/highlights/highlight-markers.test.ts
+mise exec -- bun run test tests/server/flashbacks/toggle.test.ts
+mise exec -- bun run test tests/server/flashbacks/ranges.test.ts
+mise exec -- bun run test tests/server/flashbacks/flashback-markers.test.ts
 mise exec -- bun run test tests/server/settings/settings.test.ts
 mise exec -- bun run test tests/memories/browse-data.test.ts
 mise exec -- bun run test tests/components/memory-action-menu.test.tsx
@@ -112,10 +112,10 @@ mise exec -- bun run test tests/components/memory-browse-actions.test.tsx
 mise exec -- bun run test tests/components/app-shell-taxonomy.test.tsx
 mise exec -- bun run test tests/components/memory-reader-actions.test.tsx
 mise exec -- bun run test tests/components/settings-page.test.tsx
-mise exec -- bun run test tests/components/memory-reader-highlight-selection.test.tsx
-mise exec -- bun run test tests/components/reader-highlight-tabs.test.tsx
-mise exec -- bun run test tests/components/reader-flashback-actions.test.tsx
-mise exec -- bun run test tests/components/flashback-route.test.tsx
+mise exec -- bun run test tests/components/memory-reader-flashback-selection.test.tsx
+mise exec -- bun run test tests/components/reader-flashback-tabs.test.tsx
+mise exec -- bun run test tests/components/reader-moment-actions.test.tsx
+mise exec -- bun run test tests/components/moment-route.test.tsx
 mise exec -- bun run test tests/browser-extension/capture.test.ts
 ```
 
@@ -139,9 +139,9 @@ PR body must include:
 - API summary
 - deletion consistency strategy
 - backup deletion strategy for removed memory content
-- highlight record strategy
-- highlight metadata backup/export strategy or explicit restore-risk
-- Flashback section identity strategy
+- flashback record strategy
+- flashback metadata backup/export strategy or explicit restore-risk
+- Moment section identity strategy
 - settings/OpenAI auth validation strategy
 - UI summary
 - imported media validation strategy

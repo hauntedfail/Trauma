@@ -21,7 +21,7 @@ describe("app shell taxonomy right rail", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {
         activeCategory: "",
-        activeHighlight: "",
+        activeFlashback: "",
         activeTag: "",
         categories: [
           {
@@ -31,12 +31,12 @@ describe("app shell taxonomy right rail", () => {
             lastAssignedAt: null,
           },
         ],
-        highlights: [],
+        flashbacks: [],
         idPrefix: "test",
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectHighlight: () => {},
+        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [
           {
@@ -61,15 +61,15 @@ describe("app shell taxonomy right rail", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {
         activeCategory: "",
-        activeHighlight: "",
+        activeFlashback: "",
         activeTag: "",
         categories: [],
-        highlights: [],
+        flashbacks: [],
         idPrefix: "test",
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectHighlight: () => {},
+        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [],
       }),

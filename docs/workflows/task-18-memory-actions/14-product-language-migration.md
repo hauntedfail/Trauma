@@ -8,7 +8,7 @@ implementation impact for `feat/task-18-memory-actions`.
 The product language changes from:
 
 ```text
-highlight: marker
+flashback: marker
 Flashback: bookmark
 ```
 
@@ -27,7 +27,7 @@ component changes are implemented on `feat/task-18-memory-actions`.
 
 `Flashback`
 : A user-created text marker inside reader content. This replaces the older
-product term `highlight`.
+product term `flashback`.
 
 `Moment`
 : A saved reader section/chapter bookmark. This replaces the older use of
@@ -35,7 +35,7 @@ product term `highlight`.
 
 Legacy terms:
 
-- `highlight` means old text-marker language and must not appear in new
+- `flashback` means old text-marker language and must not appear in new
   user-facing docs or UI copy except in migration notes.
 - `bookmark` may describe generic behaviour, but user-facing product copy should
   use `Moment`.
@@ -54,7 +54,7 @@ The docs search surface currently includes these areas:
 - `docs/workflows/README.md`
 - `docs/workflows/task-18-memory-read-status.md`
 - `docs/workflows/task-18-memory-actions/`
-- active workflow files that still describe highlight or Flashback behaviour
+- active workflow files that still describe flashback or Flashback behaviour
 
 Docs that are historical execution records may keep legacy terms only when the
 legacy term is clearly historical. Durable architecture, reference, design, and
@@ -66,7 +66,7 @@ The implementation branch must account for the following likely rename surfaces.
 
 SQLite/data model:
 
-- Old marker table/records: `highlights`
+- Old marker table/records: `flashbacks`
 - New marker product concept: Flashbacks
 - Old bookmark table/records planned as `flashbacks`
 - New bookmark product concept: Moments
@@ -78,11 +78,11 @@ SQLite/data model:
 
 Routes/API:
 
-- Old marker route: `/highlights`
+- Old marker route: `/flashbacks`
 - New marker route: `/flashbacks`
 - Old section-bookmark route: `/flashback`
 - New section-bookmark route: `/moments`
-- Old marker API names likely under `/api/highlights`
+- Old marker API names likely under `/api/flashbacks`
 - New marker API names should become `/api/flashbacks` or provide a compatibility
   bridge.
 - Old bookmark API planned under `/api/flashbacks`
@@ -91,16 +91,16 @@ Routes/API:
 
 Components:
 
-- `HighlightExcerpt` becomes Flashback excerpt language.
-- Recent highlights becomes Recent Flashbacks.
-- Reader highlight selection menu becomes Flashback marker selection.
+- `FlashbackExcerpt` becomes Flashback excerpt language.
+- Recent flashbacks becomes Recent Flashbacks.
+- Reader flashback selection menu becomes Flashback marker selection.
 - Flashback section bookmark UI becomes Moment UI.
 - Flashback icon attached to headings/ToC becomes Moment icon.
 - `/flashback` route components become Moments route components.
 
 Tests:
 
-- Rename user-facing assertions from highlight to Flashback.
+- Rename user-facing assertions from flashback to Flashback.
 - Rename section-bookmark assertions from Flashback to Moment.
 - Keep implementation-level legacy names only where compatibility is deliberate.
 
@@ -110,7 +110,7 @@ Tests:
 2. Audit current implementation names for marker and section-bookmark surfaces.
 3. Decide whether database tables are renamed immediately or wrapped by
    product-language API aliases.
-4. Rename user-facing marker language from highlight to Flashback.
+4. Rename user-facing marker language from flashback to Flashback.
 5. Rename section-bookmark language from Flashback/bookmark to Moment.
 6. Update routes and navigation to the chosen canonical paths.
 7. Add compatibility redirects if old routes may already be linked.
@@ -140,7 +140,7 @@ Type naming:
 
 Backup/export naming:
 
-- Highlight metadata backup/export from 18.13 becomes Flashback metadata
+- Flashback metadata backup/export from 18.13 becomes Flashback metadata
   backup/export.
 - Moment backup/deletion strategy must follow the section-bookmark data model,
   not the old Flashback bookmark language.
@@ -160,7 +160,7 @@ Durable docs:
 Workflow docs:
 
 - Update Task 18 overview and subtask names.
-- Update 18.9 from reader highlight selection to Flashback marker selection.
+- Update 18.9 from reader flashback selection to Flashback marker selection.
 - Update 18.10 from Flashback section bookmarks to Moment section bookmarks.
 - Update 18.12 integration checklist.
 - Update 18.13 follow-up plan terms.
@@ -171,8 +171,8 @@ Workflow docs:
 
 - User-facing docs consistently use Flashback for text markers.
 - User-facing docs consistently use Moment for section bookmarks.
-- Any remaining `highlight` usage is explicitly legacy, code-path, syntax
-  highlighting, or migration terminology.
+- Any remaining `flashback` usage is explicitly legacy, code-path, syntax
+  flashbacking, or migration terminology.
 - Any remaining `bookmark` usage is generic behaviour or explicitly mapped to
   Moment.
 - Implementation branch has a clear schema/API/component migration checklist.

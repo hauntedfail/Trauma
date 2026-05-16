@@ -1,2 +1,2 @@
 export * from "./memory-content";
-export * from "./highlight-markers";
+export * from "./flashback-markers";

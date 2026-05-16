@@ -134,10 +134,10 @@ Grid mode reuses the same content and adds:
 - Minimum card height on desktop.
 - Right border between grid cards where applicable.
 
-## Highlight Excerpts
+## Flashback Excerpts
 
-`HighlightExcerpt` is the shared excerpt component for browse cards and the
-canonical `/highlights` view.
+`FlashbackExcerpt` is the shared excerpt component for browse cards and the
+canonical `/flashbacks` view.
 
 Contract:
 
@@ -145,10 +145,10 @@ Contract:
 - Left border uses `border-trauma-quote-bar`.
 - Background uses `bg-trauma-quote-bg`.
 - Text uses `text-trauma-quote-ink`.
-- Highlight text uses `mark` with `bg-trauma-highlight-bg`.
+- Flashback text uses `mark` with `bg-trauma-flashback-bg`.
 - Optional link wraps the whole excerpt.
 
-Do not hand-roll separate highlight quote treatments for each route.
+Do not hand-roll separate flashback quote treatments for each route.
 
 ## Right Rail Sections
 
@@ -158,7 +158,7 @@ Use them for lightweight filter and shortcut groups:
 
 - Categories.
 - Tags.
-- Recent highlights.
+- Recent flashbacks.
 - Reader table of contents, only as route-specific right rail content on a
   concrete memory route.
 
@@ -167,7 +167,7 @@ route content containers. Contextual route content must stay small enough to
 act as a right rail aid rather than a second main pane.
 
 When an island contains an unbounded list, the list body must be a bounded
-scroll region. This is required for Recent highlights and reader TOC. Do not
+scroll region. This is required for Recent flashbacks and reader TOC. Do not
 let those islands grow vertically for every item.
 
 Reader TOC should make overflow discoverable. When its bounded list can still
@@ -222,5 +222,5 @@ State surfaces should be plain and content-oriented:
 Examples:
 
 - Browse empty state: "No matching memories".
-- Highlights empty state: "No highlights yet".
+- Flashbacks empty state: "No flashbacks yet".
 - Reader fallback state: status message with route frame padding.

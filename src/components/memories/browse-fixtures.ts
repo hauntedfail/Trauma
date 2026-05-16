@@ -14,10 +14,10 @@ export const browseFixtureMemories: BrowseMemory[] = [
       { id: "solidstart", name: "solidstart" },
       { id: "reader", name: "reader" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-foundation",
-        text: "highlight-aware results",
+        text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
         createdAt: "2026-05-09T12:00:00.000Z",
@@ -37,7 +37,7 @@ export const browseFixtureMemories: BrowseMemory[] = [
       { id: "sqlite", name: "sqlite" },
       { id: "backup", name: "backup" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-ops",
         text: "persistent disk assumptions",
@@ -60,7 +60,7 @@ export const browseFixtureMemories: BrowseMemory[] = [
       { id: "shell", name: "shell" },
       { id: "filters", name: "filters" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-shell",
         text: "right filter panel updates URL state",
@@ -71,10 +71,10 @@ export const browseFixtureMemories: BrowseMemory[] = [
     ],
   },
   {
-    id: "memory-no-highlights",
+    id: "memory-no-flashbacks",
     title: "Archive Import Runbook",
     url: "https://example.com/archive-import",
-    description: "Operational notes for adding a memory that has no saved highlights yet.",
+    description: "Operational notes for adding a memory that has no saved flashbacks yet.",
     capturedAt: "2026-05-06",
     read: false,
     extractionStatus: "link_only",
@@ -83,6 +83,6 @@ export const browseFixtureMemories: BrowseMemory[] = [
       { id: "import", name: "import" },
       { id: "runbook", name: "runbook" },
     ],
-    highlights: [],
+    flashbacks: [],
   },
 ];

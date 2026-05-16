@@ -2,12 +2,12 @@ import { Title } from "@solidjs/meta";
 import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
-import { HighlightExcerpt } from "../highlights/HighlightExcerpt";
+import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
 import { OpenIcon, PlusIcon, SearchIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
-  getMemoryDisplayHighlight,
+  getMemoryDisplayFlashback,
   parseBrowseQuery,
   type BrowseTaxonomyItem,
   type BrowseMemory,
@@ -112,7 +112,7 @@ export function MemoryBrowse() {
             disabled={!isClientReady()}
             type="search"
             value={query().q}
-            placeholder="Search memories - title, URL, tags, or highlights"
+            placeholder="Search memories - title, URL, tags, or flashbacks"
             aria-label="Search memories"
             onInput={(event) => updateQuery({ q: event.currentTarget.value }, { replace: true })}
           />
@@ -123,7 +123,7 @@ export function MemoryBrowse() {
         fallback={
           <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
             <h2 class="text-xl font-bold text-trauma-text-primary">No matching memories</h2>
-            <p>Adjust the search, category, tag, or highlight filter.</p>
+            <p>Adjust the search, category, tag, or flashback filter.</p>
           </div>
         }
       >
@@ -132,7 +132,7 @@ export function MemoryBrowse() {
             {(memory) => (
               <MemoryItem
                 memory={memory}
-                selectedHighlightId={query().highlight}
+                selectedFlashbackId={query().flashback}
                 view={query().view}
                 onOpen={(href) => navigate(href)}
                 onDeleted={(memoryId) =>
@@ -149,12 +149,12 @@ export function MemoryBrowse() {
 
 export function MemoryItem(props: {
   memory: BrowseMemory;
-  selectedHighlightId: string;
+  selectedFlashbackId: string;
   view: "list" | "grid";
   onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
 }) {
-  const displayHighlight = createMemo(() => getMemoryDisplayHighlight(props.memory, props.selectedHighlightId));
+  const displayFlashback = createMemo(() => getMemoryDisplayFlashback(props.memory, props.selectedFlashbackId));
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
   const [tags, setTags] = createSignal<BrowseTaxonomyItem[]>(props.memory.tags);
@@ -262,12 +262,12 @@ export function MemoryItem(props: {
           <OpenIcon />
           {props.memory.url}
         </a>
-        <Show when={displayHighlight()}>
-          {(highlight) => (
-            <HighlightExcerpt
-              prefix={highlight().prefix}
-              suffix={highlight().suffix}
-              text={highlight().text}
+        <Show when={displayFlashback()}>
+          {(flashback) => (
+            <FlashbackExcerpt
+              prefix={flashback().prefix}
+              suffix={flashback().suffix}
+              text={flashback().text}
             />
           )}
         </Show>

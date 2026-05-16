@@ -9,6 +9,7 @@ import migration0005Sql from "../../../drizzle/0005_pretty_colossus.sql?raw";
 import migration0006Sql from "../../../drizzle/0006_sweet_zuras.sql?raw";
 import migration0007Sql from "../../../drizzle/0007_empty_starbolt.sql?raw";
 import migration0008Sql from "../../../drizzle/0008_long_slipstream.sql?raw";
+import migration0009Sql from "../../../drizzle/0009_product_language_migration.sql?raw";
 import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
@@ -55,6 +56,11 @@ const BUNDLED_MIGRATIONS = [
   {
     sql: migration0008Sql,
     folderMillis: 1778889992720,
+    bps: true,
+  },
+  {
+    sql: migration0009Sql,
+    folderMillis: 1778934734173,
     bps: true,
   },
 ] as const;

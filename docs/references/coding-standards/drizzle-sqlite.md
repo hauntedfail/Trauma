@@ -21,7 +21,7 @@
 - MUST define both database-level constraints and Drizzle relations when a table
   relationship is part of the domain model.
 - MUST wrap multi-table or multi-step writes in transactions. Memory creation,
-  tag/category association, highlight persistence, and backup status updates
+  tag/category association, flashback persistence, and backup status updates
   must not partially commit.
 - MUST make post-insert boundary failures recoverable for create workflows.
   After a memory row and `CONTENT.md` are durable, backup enqueue/status failures
@@ -77,9 +77,9 @@
   at the same database path contract.
 - MUST use actual Bun SQLite driver types for Bun-backed connections. Do not
   cast unrelated sqlite adapters into Bun/Drizzle compatibility.
-- MUST store highlights as non-empty text ranges. Use `end_offset >
-  start_offset` for highlight rows; if zero-width anchors are later needed,
-  model them as a separate domain concept instead of overloading highlights.
+- MUST store flashbacks as non-empty text ranges. Use `end_offset >
+  start_offset` for flashback rows; if zero-width anchors are later needed,
+  model them as a separate domain concept instead of overloading flashbacks.
 - MUST justify indexes by query shape and constraint ownership. FK child-key
   indexes are valid for relationship enforcement and cascade performance; avoid
   speculative single-column or composite indexes that are not tied to repository

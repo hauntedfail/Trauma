@@ -102,16 +102,16 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
     localStorage.setItem("trauma:brightness", "night");
     localStorage.setItem("trauma:surface", "paper");
   });
-  await page.goto("/highlights");
+  await page.goto("/flashbacks");
   await expect(page.locator("html")).toHaveAttribute(
     "data-theme",
     "paper-black-dark",
   );
 
-  const highlightsLink = page
+  const flashbacksLink = page
     .getByRole("navigation", { name: "Primary sections" })
-    .getByRole("link", { name: "Highlights" });
-  const underlineState = await highlightsLink.evaluate((link) => {
+    .getByRole("link", { name: "Flashbacks" });
+  const underlineState = await flashbacksLink.evaluate((link) => {
     const label = link.querySelector(".trauma-active-nav-label");
     const linkUnderline = getComputedStyle(link, "::after");
 
@@ -132,7 +132,7 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
   expect(underlineState.underlineBottom).toBe("5px");
 });
 
-test("updates URL query state from search, filters, highlight shortcuts, and view controls", async ({
+test("updates URL query state from search, filters, flashback shortcuts, and view controls", async ({
   page,
 }) => {
   await page.goto("/memories");
@@ -140,7 +140,7 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   await page.getByRole("searchbox", { name: "Search memories" }).fill("reader mode");
   await expect(page).toHaveURL(/q=reader\+mode/);
   await expect(page.getByText("Reader Mode Notes")).toBeVisible();
-  await expect(page.getByRole("main").locator("mark", { hasText: /highlight-aware/ })).toBeVisible();
+  await expect(page.getByRole("main").locator("mark", { hasText: /flashback-aware/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Research" }).click();
   await expect(page).toHaveURL(/category=research/);
@@ -148,8 +148,8 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   await page.getByRole("button", { name: "solidstart" }).click();
   await expect(page).toHaveURL(/tag=solidstart/);
 
-  await page.getByRole("button", { name: /highlight-aware results/i }).click();
-  await expect(page).toHaveURL(/\/memories\?highlight=h-foundation$/);
+  await page.getByRole("button", { name: /flashback-aware results/i }).click();
+  await expect(page).toHaveURL(/\/memories\?flashback=h-foundation$/);
   await expect(page).not.toHaveURL(/category=research/);
   await expect(page).not.toHaveURL(/tag=solidstart/);
 
@@ -168,16 +168,16 @@ test("updates URL query state from search, filters, highlight shortcuts, and vie
   expect(toggleBoxBefore?.height).toBe(toggleBoxAfter?.height);
 });
 
-test("renders category, tag, and highlight shortcut sections in the right panel", async ({ page }) => {
+test("renders category, tag, and flashback shortcut sections in the right panel", async ({ page }) => {
   await page.goto("/memories");
 
   const filters = page.getByRole("complementary", { name: "Browse filters" });
   await expect(filters.getByRole("heading", { name: "Categories" })).toBeVisible();
   await expect(filters.getByRole("heading", { name: "Tags" })).toBeVisible();
-  await expect(filters.getByRole("heading", { name: "Recent highlights" })).toBeVisible();
+  await expect(filters.getByRole("heading", { name: "Recent flashbacks" })).toBeVisible();
   await expect(filters.getByRole("button", { name: "Research" })).toBeVisible();
   await expect(filters.getByRole("button", { name: "solidstart" })).toBeVisible();
-  await expect(filters.getByRole("button", { name: /highlight-aware results/i })).toBeVisible();
+  await expect(filters.getByRole("button", { name: /flashback-aware results/i })).toBeVisible();
 
   const sectionRadius = await filters
     .locator("section")
@@ -198,8 +198,8 @@ test("uses bottom primary tabs without drawer chrome on phone viewports", async 
 
   const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
   await expect(primaryTabs).toBeVisible();
-  await primaryTabs.getByRole("link", { name: "Highlights" }).click();
-  await expect(page).toHaveURL(/\/highlights$/);
+  await primaryTabs.getByRole("link", { name: "Flashbacks" }).click();
+  await expect(page).toHaveURL(/\/flashbacks$/);
 
   await page.goto("/memories");
   const phoneAddMemory = primaryTabs.getByRole("button", { name: "Add memory" });
@@ -463,9 +463,9 @@ test("lets active filters be cleared without resetting the rest of the query", a
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
   await page.goto("/memories");
 
-  await page.getByRole("link", { name: "Highlights" }).click();
-  await expect(page).toHaveURL(/\/highlights$/);
-  await expect(page.getByRole("heading", { name: "Highlights", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Flashbacks" }).click();
+  await expect(page).toHaveURL(/\/flashbacks$/);
+  await expect(page.getByRole("heading", { name: "Flashbacks", exact: true })).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
   await page.goto("/memories");
@@ -484,7 +484,7 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
 
-  await page.goto("/highlights");
+  await page.goto("/flashbacks");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
   await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
@@ -492,21 +492,21 @@ test("does not navigate shell and result links to the catch-all route", async ({
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
-  await page.goto("/highlights");
+  await page.goto("/flashbacks");
 
-  const highlightsAddButton = page.getByRole("button", { name: "Add memory" });
-  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "false");
-  await expect(highlightsAddButton).toHaveAttribute("aria-pressed", "false");
-  await highlightsAddButton.click();
-  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "true");
-  await expect(highlightsAddButton).toHaveAttribute("aria-pressed", "true");
-  const highlightsComposer = page.getByRole("dialog", { name: "Add memory" });
-  await expect(highlightsComposer).toBeVisible();
-  await expect(highlightsComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
-  await expect(highlightsComposer.getByRole("button", { name: "Close" })).toHaveCount(0);
+  const flashbacksAddButton = page.getByRole("button", { name: "Add memory" });
+  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
+  await expect(flashbacksAddButton).toHaveAttribute("aria-pressed", "false");
+  await flashbacksAddButton.click();
+  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "true");
+  await expect(flashbacksAddButton).toHaveAttribute("aria-pressed", "true");
+  const flashbacksComposer = page.getByRole("dialog", { name: "Add memory" });
+  await expect(flashbacksComposer).toBeVisible();
+  await expect(flashbacksComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
+  await expect(flashbacksComposer.getByRole("button", { name: "Close" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(highlightsComposer).toHaveCount(0);
-  await expect(highlightsAddButton).toHaveAttribute("aria-expanded", "false");
+  await expect(flashbacksComposer).toHaveCount(0);
+  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
 
   await page.goto("/memories/memory-foundation");
   const readerAddButton = page.getByRole("button", { name: "Add memory" });

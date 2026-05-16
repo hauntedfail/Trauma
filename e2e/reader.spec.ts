@@ -21,8 +21,8 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await page.getByRole("link", { name: "Details" }).click();
   await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
   await expect(page.locator("[data-reader-content]").getByText("Curated markdown body")).toBeVisible();
-  await expect(page.locator("mark[data-highlight-id='hl-fixture']")).toContainText(
-    "saved highlight",
+  await expect(page.locator("mark[data-flashback-id='flashback-fixture']")).toContainText(
+    "saved flashback",
   );
 
   await page.evaluate((memoryId) => {
@@ -39,7 +39,7 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });
 
-test("keeps linked reader highlight anchors readable in non-normal themes", async ({
+test("keeps linked reader flashback anchors readable in non-normal themes", async ({
   page,
 }) => {
   createReaderFixture();
@@ -50,10 +50,10 @@ test("keeps linked reader highlight anchors readable in non-normal themes", asyn
     { brightness: "night", name: "paper-black-dark", surface: "paper" },
   ] as const) {
     await setReaderTheme(page, theme.brightness, theme.surface);
-    await page.goto(`/memories/${READER_MEMORY_ID}#hl-fixture`);
+    await page.goto(`/memories/${READER_MEMORY_ID}#flashback-fixture`);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
-    const targetStyle = await page.locator("mark#hl-fixture").evaluate((mark) => {
+    const targetStyle = await page.locator("mark#flashback-fixture").evaluate((mark) => {
       const style = getComputedStyle(mark);
       const rootStyle = getComputedStyle(document.documentElement);
 
@@ -61,9 +61,9 @@ test("keeps linked reader highlight anchors readable in non-normal themes", asyn
         backgroundColor: style.backgroundColor,
         boxShadow: style.boxShadow,
         color: style.color,
-        expectedBackground: rootStyle.getPropertyValue("--anchor-highlight-bg").trim(),
-        expectedInk: rootStyle.getPropertyValue("--anchor-highlight-ink").trim(),
-        expectedRing: rootStyle.getPropertyValue("--anchor-highlight-ring").trim(),
+        expectedBackground: rootStyle.getPropertyValue("--anchor-flashback-bg").trim(),
+        expectedInk: rootStyle.getPropertyValue("--anchor-flashback-ink").trim(),
+        expectedRing: rootStyle.getPropertyValue("--anchor-flashback-ring").trim(),
       };
     });
 
@@ -107,7 +107,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
   }
 });
 
-test("toggles selected reader text as a persisted highlight", async ({ page }) => {
+test("toggles selected reader text as a persisted flashback", async ({ page }) => {
   createReaderFixture();
   const selectedText = "Curated markdown body";
 
@@ -115,36 +115,36 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
 
   const createResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/highlights") &&
+      response.url().endsWith("/api/flashbacks") &&
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
-  await page.getByRole("button", { name: "Highlight selection" }).click();
+  await page.getByRole("button", { name: "Flashback selection" }).click();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
   expect((await createResponse).ok()).toBe(true);
 
   await page.reload();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
 
   const removeResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/highlights") &&
+      response.url().endsWith("/api/flashbacks") &&
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
-  await page.getByRole("button", { name: "Highlight selection" }).click();
+  await page.getByRole("button", { name: "Flashback selection" }).click();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
   expect((await removeResponse).ok()).toBe(true);
 
   await page.reload();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
   await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
 });
@@ -294,7 +294,7 @@ function createReaderFixture() {
         const readerMarkdown = [
           "# Fixture Reader",
           "",
-          "Curated markdown body with saved highlight.",
+          "Curated markdown body with saved flashback.",
           "",
           "A [Reference link](https://example.com/reference) belongs to the reader content.",
           "",
@@ -332,15 +332,15 @@ function createReaderFixture() {
           await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
           await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
-          const highlightStartOffset = readerMarkdown.indexOf("saved highlight");
-          await connection.db.insert(schema.highlights).values({
-            id: "hl-fixture",
+          const flashbackStartOffset = readerMarkdown.indexOf("saved flashback");
+          await connection.db.insert(schema.flashbacks).values({
+            id: "flashback-fixture",
             memoryId,
-            text: "saved highlight",
+            text: "saved flashback",
             prefix: "Curated markdown body with ",
             suffix: ".",
-            startOffset: highlightStartOffset,
-            endOffset: highlightStartOffset + "saved highlight".length,
+            startOffset: flashbackStartOffset,
+            endOffset: flashbackStartOffset + "saved flashback".length,
             createdAt: new Date("2026-05-09T00:00:00.000Z"),
             updatedAt: new Date("2026-05-09T00:00:00.000Z"),
           });

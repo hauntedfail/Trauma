@@ -24,7 +24,7 @@ Each browse memory item must render:
 - description
 - attached category chips if already present
 - attached tag chips
-- latest/selected highlight preview
+- latest/selected Flashback preview
 - open link
 - shared memory action menu
 - read status control
@@ -83,7 +83,7 @@ Rules:
 
 Search behaviour:
 
-- Existing title/URL/description/tag/category/highlight search remains.
+- Existing title/URL/description/tag/category/Flashback search remains.
 - Do not add read-status filtering in this subtask.
 
 ## Tests
@@ -97,7 +97,7 @@ Cover:
 - submitting `Add tag` attaches tag and updates visible row
 - delete menu item deletes and removes memory from view
 - read control renders and toggles
-- existing category/tag/highlight filtering still works
+- existing category/tag/Flashback filtering still works
 
 ## Verification
 

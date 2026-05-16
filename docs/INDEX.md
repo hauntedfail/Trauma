@@ -15,11 +15,11 @@ from the foundation design and should stay aligned with it.
 - [Overview](architecture/overview.md): runtime shape, module boundaries, and
   dependency rules.
 - [Data and storage](architecture/data-and-storage.md): SQLite metadata,
-  markdown store, highlight persistence, and ownership of canonical state.
-- [Flows](architecture/flows.md): add memory, extraction fallback, highlight,
+  markdown store, flashback persistence, and ownership of canonical state.
+- [Flows](architecture/flows.md): add memory, extraction fallback, flashback,
   and git backup flows.
 - [UI and routing](architecture/ui-and-routing.md): canonical routes, shell
-  layout, filters, highlight browse, composer, and reader behavior.
+  layout, filters, flashback browse, composer, and reader behavior.
 
 ## References
 

@@ -12,8 +12,8 @@ const addMemoryFormSource = readFileSync(
   "src/components/memories/AddMemoryForm.tsx",
   "utf8",
 );
-const highlightsRouteSource = readFileSync(
-  "src/routes/highlights/index.tsx",
+const flashbacksRouteSource = readFileSync(
+  "src/routes/flashbacks/index.tsx",
   "utf8",
 );
 const readerStylesSource = readFileSync(
@@ -113,7 +113,7 @@ describe("refined app shell contract", () => {
   it("keeps route panes full-width inside the shell column", () => {
     for (const source of [
       memoryBrowseSource,
-      highlightsRouteSource,
+      flashbacksRouteSource,
       readerStylesSource,
     ]) {
       expect(source).not.toContain("mx-auto");
@@ -133,7 +133,7 @@ describe("refined app shell contract", () => {
     expect(rightRailContextSource).toContain("createContext");
     expect(appShellSource).toContain("RightRailContentContext.Provider");
     expect(appShellSource).toContain("rightRailContent()");
-    expect(appShellSource).toContain("showHighlights={rightRailContent() === undefined}");
+    expect(appShellSource).toContain("showFlashbacks={rightRailContent() === undefined}");
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");

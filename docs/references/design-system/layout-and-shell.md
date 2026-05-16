@@ -48,7 +48,7 @@ Navigation item contract:
 - Text line-height: at least `1.2` so descenders such as `g`, `q`, `p`, and
   `y` are not clipped.
 - Shape: rounded full pill for hit area only; active state must not add a
-  selected pill fill or surrounding primary-colour highlight.
+  selected pill fill or surrounding primary-colour flashback.
 - Active route, all themes: use the filled icon variant and bold visible tab
   label.
 - Active route, paper themes on desktop rail: draw the hand-written underline
@@ -169,17 +169,17 @@ Current islands:
 
 - Categories.
 - Tags.
-- Recent highlights.
+- Recent flashbacks.
 
 Route-specific content may be inserted above these browse filters when a route
 has a strong contextual aid. The current example is the reader table of
 contents on `/memories/:id`. This content is registered through the shell right
 rail context, appears before browse filters, and is cleared when the route
-unmounts. Do not show reader TOC content on `/memories`, `/highlights`, or other
+unmounts. Do not show reader TOC content on `/memories`, `/flashbacks`, or other
 non-reader routes.
 
 Long right-rail aids must not grow the application layout by item count. TOC and
-Recent highlights render their item bodies as bounded scroll regions. The rail
+Recent flashbacks render their item bodies as bounded scroll regions. The rail
 itself remains viewport-bound, and each long list owns its own scrolling.
 
 ## Tablet And Mobile
@@ -226,7 +226,7 @@ Phone:
 - The persistent left rail is hidden.
 - Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
   tab layout.
-- The phone tab bar renders every primary rail item: Memories, Highlights,
+- The phone tab bar renders every primary rail item: Memories, Flashbacks,
   Categories, Tags, Backup, Add memory, Theme, and Settings.
 - When all tabs do not fit, only the tab bar scrolls horizontally. Do not drop
   tabs or reintroduce navigation/filter drawers.

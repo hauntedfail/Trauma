@@ -20,12 +20,12 @@ const traumaMarkSource = readFileSync(
   "src/components/brand/TraumaMark.tsx",
   "utf8",
 );
-const highlightsRouteSource = readFileSync(
-  "src/routes/highlights/index.tsx",
+const flashbacksRouteSource = readFileSync(
+  "src/routes/flashbacks/index.tsx",
   "utf8",
 );
-const highlightExcerptSource = readFileSync(
-  "src/components/highlights/HighlightExcerpt.tsx",
+const flashbackExcerptSource = readFileSync(
+  "src/components/flashbacks/FlashbackExcerpt.tsx",
   "utf8",
 );
 const notFoundRouteSource = readFileSync("src/routes/[...404].tsx", "utf8");
@@ -75,7 +75,7 @@ describe("mobile and cross-device responsive contract", () => {
       appShellSource,
       memoryBrowseSource,
       readerStylesSource,
-      highlightsRouteSource,
+      flashbacksRouteSource,
       notFoundRouteSource,
     ]) {
       expect(source).not.toContain("100vh");
@@ -92,7 +92,7 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).not.toMatch(/^\s*a:hover\s*{/m);
     expect(tailwindCss).toContain(".trauma-reader-content a:hover");
     expect(memoryBrowseSource).toContain("no-underline");
-    expect(highlightExcerptSource).toContain("no-underline");
+    expect(flashbackExcerptSource).toContain("no-underline");
   });
 
   it("centralizes safe-area insets as layout tokens and utilities", () => {
@@ -117,7 +117,7 @@ describe("mobile and cross-device responsive contract", () => {
       appShellSource,
       memoryBrowseSource,
       readerStylesSource,
-      highlightsRouteSource,
+      flashbacksRouteSource,
       notFoundRouteSource,
     ]) {
       expect(source).not.toContain("env(safe-area-inset-");
@@ -170,8 +170,8 @@ describe("mobile and cross-device responsive contract", () => {
   it("renders every primary tab on phone instead of dropping low-priority tabs", () => {
     for (const label of [
       "Memories",
-      "Highlights",
-      "Flashback",
+      "Flashbacks",
+      "Moments",
       "Categories",
       "Tags",
       "Backup",
@@ -270,7 +270,7 @@ describe("mobile and cross-device responsive contract", () => {
     expect(memoryBrowseSource).toContain("trauma-memory-list");
     expect(readerStylesSource).toContain("trauma-route-surface");
     expect(readerStylesSource).toContain("trauma-reader-surface");
-    expect(highlightsRouteSource).toContain("trauma-route-surface");
+    expect(flashbacksRouteSource).toContain("trauma-route-surface");
   });
 
   it("keeps paper active underline scoped to desktop rail container width only", () => {

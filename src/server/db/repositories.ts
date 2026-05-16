@@ -13,9 +13,9 @@ type Memory = typeof schema.memories.$inferSelect;
 type NewMemory = typeof schema.memories.$inferInsert;
 type Tag = typeof schema.tags.$inferSelect;
 type Category = typeof schema.categories.$inferSelect;
+type Moment = typeof schema.moments.$inferSelect;
+type NewMoment = typeof schema.moments.$inferInsert;
 type Flashback = typeof schema.flashbacks.$inferSelect;
-type NewFlashback = typeof schema.flashbacks.$inferInsert;
-type Highlight = typeof schema.highlights.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 export type BackupEnvironmentStamp =
@@ -41,10 +41,10 @@ export interface MemoryBrowseRow {
   extractionStatus: ExtractionStatus;
   categories: { id: string; name: string }[];
   tags: { id: string; name: string }[];
-  highlights: { id: string; text: string; prefix: string; suffix: string; createdAt: string }[];
+  flashbacks: { id: string; text: string; prefix: string; suffix: string; createdAt: string }[];
 }
 
-export interface HighlightBrowseRow {
+export interface FlashbackBrowseRow {
   id: string;
   memoryId: string;
   memoryTitle: string;
@@ -57,7 +57,7 @@ export interface HighlightBrowseRow {
   createdAt: string;
 }
 
-export interface FlashbackBrowseRow {
+export interface MomentBrowseRow {
   id: string;
   memoryId: string;
   memoryTitle: string;
@@ -125,19 +125,19 @@ export interface TaxonomyRepository {
   listCategoriesForBrowse: () => Promise<TaxonomyBrowseRow[]>;
 }
 
-export interface HighlightRepository {
-  listForMemory: (memoryId: string) => Promise<Highlight[]>;
-  replaceForMemory: (memoryId: string, highlights: Highlight[]) => Promise<Highlight[]>;
-  listForBrowse: () => Promise<HighlightBrowseRow[]>;
+export interface FlashbackRepository {
+  listForMemory: (memoryId: string) => Promise<Flashback[]>;
+  replaceForMemory: (memoryId: string, flashbacks: Flashback[]) => Promise<Flashback[]>;
+  listForBrowse: () => Promise<FlashbackBrowseRow[]>;
 }
 
-export interface FlashbackRepository {
+export interface MomentRepository {
   create: (
-    input: NewFlashback,
-  ) => Promise<{ flashback: Flashback; alreadyExists: boolean }>;
-  deleteById: (flashbackId: string) => Promise<boolean>;
-  listForMemory: (memoryId: string) => Promise<Flashback[]>;
-  listForBrowse: () => Promise<FlashbackBrowseRow[]>;
+    input: NewMoment,
+  ) => Promise<{ moment: Moment; alreadyExists: boolean }>;
+  deleteById: (momentId: string) => Promise<boolean>;
+  listForMemory: (memoryId: string) => Promise<Moment[]>;
+  listForBrowse: () => Promise<MomentBrowseRow[]>;
 }
 
 export interface BackupEnvironmentRepository {
@@ -169,9 +169,9 @@ export interface SettingsRepository {
 
 export interface TraumaRepositories {
   backupEnvironment: BackupEnvironmentRepository;
-  flashbacks: FlashbackRepository;
+  moments: MomentRepository;
   memories: MemoryRepository;
-  highlights: HighlightRepository;
+  flashbacks: FlashbackRepository;
   settings: SettingsRepository;
   taxonomy: TaxonomyRepository;
 }
@@ -243,28 +243,28 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .run();
       },
     },
-    flashbacks: {
+    moments: {
       create: async (input) => {
-        await assertMemoryExists(db, input.memoryId, "create flashback for");
-        const existingByAnchor = await db.query.flashbacks.findFirst({
+        await assertMemoryExists(db, input.memoryId, "create moment for");
+        const existingByAnchor = await db.query.moments.findFirst({
           where: and(
-            eq(schema.flashbacks.memoryId, input.memoryId),
-            eq(schema.flashbacks.sectionAnchor, input.sectionAnchor),
+            eq(schema.moments.memoryId, input.memoryId),
+            eq(schema.moments.sectionAnchor, input.sectionAnchor),
           ),
         });
         if (existingByAnchor !== undefined) {
-          return { flashback: existingByAnchor, alreadyExists: true };
+          return { moment: existingByAnchor, alreadyExists: true };
         }
 
-        const existingByPath = await db.query.flashbacks.findFirst({
+        const existingByPath = await db.query.moments.findFirst({
           where: and(
-            eq(schema.flashbacks.memoryId, input.memoryId),
-            eq(schema.flashbacks.sectionPath, input.sectionPath),
+            eq(schema.moments.memoryId, input.memoryId),
+            eq(schema.moments.sectionPath, input.sectionPath),
           ),
         });
         if (existingByPath !== undefined) {
           const updated = await db
-            .update(schema.flashbacks)
+            .update(schema.moments)
             .set({
               sectionAnchor: input.sectionAnchor,
               sectionTitle: input.sectionTitle,
@@ -274,18 +274,18 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
               contentHash: input.contentHash ?? null,
               updatedAt: input.updatedAt,
             })
-            .where(eq(schema.flashbacks.id, existingByPath.id))
+            .where(eq(schema.moments.id, existingByPath.id))
             .returning()
             .get();
           return {
-            flashback: updated ?? existingByPath,
+            moment: updated ?? existingByPath,
             alreadyExists: true,
           };
         }
 
-        await db.insert(schema.flashbacks).values(input).run();
+        await db.insert(schema.moments).values(input).run();
         return {
-          flashback: {
+          moment: {
             id: input.id,
             memoryId: input.memoryId,
             sectionAnchor: input.sectionAnchor,
@@ -301,32 +301,88 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           alreadyExists: false,
         };
       },
-      deleteById: async (flashbackId) => {
+      deleteById: async (momentId) => {
         const deleted = await db
-          .delete(schema.flashbacks)
-          .where(eq(schema.flashbacks.id, flashbackId))
-          .returning({ id: schema.flashbacks.id })
+          .delete(schema.moments)
+          .where(eq(schema.moments.id, momentId))
+          .returning({ id: schema.moments.id })
           .get();
         return deleted !== undefined;
       },
       listForMemory: async (memoryId) =>
+        db.query.moments.findMany({
+          where: eq(schema.moments.memoryId, memoryId),
+          orderBy: [desc(schema.moments.createdAt)],
+        }),
+      listForBrowse: async () => {
+        const rows = await db
+          .select({
+            id: schema.moments.id,
+            memoryId: schema.moments.memoryId,
+            memoryTitle: schema.memories.title,
+            memoryUrl: schema.memories.url,
+            sectionAnchor: schema.moments.sectionAnchor,
+            sectionTitle: schema.moments.sectionTitle,
+            sectionLevel: schema.moments.sectionLevel,
+            sectionPath: schema.moments.sectionPath,
+            sectionStartOffset: schema.moments.sectionStartOffset,
+            sectionEndOffset: schema.moments.sectionEndOffset,
+            contentHash: schema.moments.contentHash,
+            createdAt: schema.moments.createdAt,
+          })
+          .from(schema.moments)
+          .innerJoin(
+            schema.memories,
+            eq(schema.moments.memoryId, schema.memories.id),
+          )
+          .orderBy(desc(schema.moments.createdAt));
+
+        return rows.map((row) => ({
+          ...row,
+          createdAt: formatDateTime(row.createdAt),
+        }));
+      },
+    },
+    flashbacks: {
+      listForMemory: async (memoryId) =>
         db.query.flashbacks.findMany({
           where: eq(schema.flashbacks.memoryId, memoryId),
-          orderBy: [desc(schema.flashbacks.createdAt)],
+          orderBy: [asc(schema.flashbacks.startOffset)],
         }),
+      replaceForMemory: async (memoryId, flashbackRows) => {
+        const mismatchedRow = flashbackRows.find(
+          (flashback) => flashback.memoryId !== memoryId,
+        );
+        if (mismatchedRow !== undefined) {
+          throw new MemoryRepositoryError(
+            "Cannot replace flashbacks for one memory with rows from another memory.",
+          );
+        }
+
+        await db.transaction(async (tx) => {
+          await tx
+            .delete(schema.flashbacks)
+            .where(eq(schema.flashbacks.memoryId, memoryId))
+            .run();
+
+          if (flashbackRows.length > 0) {
+            await tx.insert(schema.flashbacks).values(flashbackRows).run();
+          }
+        });
+
+        return flashbackRows;
+      },
       listForBrowse: async () => {
         const rows = await db
           .select({
             id: schema.flashbacks.id,
             memoryId: schema.flashbacks.memoryId,
             memoryTitle: schema.memories.title,
-            memoryUrl: schema.memories.url,
-            sectionAnchor: schema.flashbacks.sectionAnchor,
-            sectionTitle: schema.flashbacks.sectionTitle,
-            sectionLevel: schema.flashbacks.sectionLevel,
-            sectionPath: schema.flashbacks.sectionPath,
-            sectionStartOffset: schema.flashbacks.sectionStartOffset,
-            sectionEndOffset: schema.flashbacks.sectionEndOffset,
+            text: schema.flashbacks.text,
+            prefix: schema.flashbacks.prefix,
+            suffix: schema.flashbacks.suffix,
+            startOffset: schema.flashbacks.startOffset,
+            endOffset: schema.flashbacks.endOffset,
             contentHash: schema.flashbacks.contentHash,
             createdAt: schema.flashbacks.createdAt,
           })
@@ -336,62 +392,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             eq(schema.flashbacks.memoryId, schema.memories.id),
           )
           .orderBy(desc(schema.flashbacks.createdAt));
-
-        return rows.map((row) => ({
-          ...row,
-          createdAt: formatDateTime(row.createdAt),
-        }));
-      },
-    },
-    highlights: {
-      listForMemory: async (memoryId) =>
-        db.query.highlights.findMany({
-          where: eq(schema.highlights.memoryId, memoryId),
-          orderBy: [asc(schema.highlights.startOffset)],
-        }),
-      replaceForMemory: async (memoryId, highlightRows) => {
-        const mismatchedRow = highlightRows.find(
-          (highlight) => highlight.memoryId !== memoryId,
-        );
-        if (mismatchedRow !== undefined) {
-          throw new MemoryRepositoryError(
-            "Cannot replace highlights for one memory with rows from another memory.",
-          );
-        }
-
-        await db.transaction(async (tx) => {
-          await tx
-            .delete(schema.highlights)
-            .where(eq(schema.highlights.memoryId, memoryId))
-            .run();
-
-          if (highlightRows.length > 0) {
-            await tx.insert(schema.highlights).values(highlightRows).run();
-          }
-        });
-
-        return highlightRows;
-      },
-      listForBrowse: async () => {
-        const rows = await db
-          .select({
-            id: schema.highlights.id,
-            memoryId: schema.highlights.memoryId,
-            memoryTitle: schema.memories.title,
-            text: schema.highlights.text,
-            prefix: schema.highlights.prefix,
-            suffix: schema.highlights.suffix,
-            startOffset: schema.highlights.startOffset,
-            endOffset: schema.highlights.endOffset,
-            contentHash: schema.highlights.contentHash,
-            createdAt: schema.highlights.createdAt,
-          })
-          .from(schema.highlights)
-          .innerJoin(
-            schema.memories,
-            eq(schema.highlights.memoryId, schema.memories.id),
-          )
-          .orderBy(desc(schema.highlights.createdAt));
 
         return rows.map((row) => ({
           ...row,
@@ -500,8 +500,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         const rows = await db.query.memories.findMany({
           orderBy: [desc(schema.memories.createdAt)],
           with: {
-            highlights: {
-              orderBy: [desc(schema.highlights.createdAt)],
+            flashbacks: {
+              orderBy: [desc(schema.flashbacks.createdAt)],
             },
             memoryCategories: {
               with: {
@@ -532,12 +532,12 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             id: tag.id,
             name: tag.name,
           })),
-          highlights: memory.highlights.map((highlight) => ({
-            id: highlight.id,
-            text: highlight.text,
-            prefix: highlight.prefix,
-            suffix: highlight.suffix,
-            createdAt: formatDateTime(highlight.createdAt),
+          flashbacks: memory.flashbacks.map((flashback) => ({
+            id: flashback.id,
+            text: flashback.text,
+            prefix: flashback.prefix,
+            suffix: flashback.suffix,
+            createdAt: formatDateTime(flashback.createdAt),
           })),
         }));
       },
@@ -722,7 +722,7 @@ async function requireCategoryByName(
 async function assertMemoryExists(
   db: TraumaDatabase,
   memoryId: string,
-  action: "attach tag to" | "attach category to" | "create flashback for",
+  action: "attach tag to" | "attach category to" | "create moment for",
 ): Promise<void> {
   const memory = await db.query.memories.findFirst({
     columns: {

@@ -686,8 +686,8 @@ describe("git memory backup queue", () => {
             if (processed.length === 1) {
               await queue.enqueue({
                 memoryId: job.memoryId,
-                contentPaths: [\`memories/${memoryId}/HIGHLIGHTS.md\`],
-                reason: "highlight_update",
+                contentPaths: [\`memories/${memoryId}/FLASHBACKS.json\`],
+                reason: "flashback_update",
               });
             }
           },
@@ -731,8 +731,8 @@ describe("git memory backup queue", () => {
       },
       {
         memoryId,
-        contentPaths: [`memories/${memoryId}/HIGHLIGHTS.md`],
-        reason: "highlight_update",
+        contentPaths: [`memories/${memoryId}/FLASHBACKS.json`],
+        reason: "flashback_update",
       },
     ]);
   });
@@ -798,7 +798,7 @@ describe("git memory backup queue", () => {
         await queue.enqueue({
           memoryId: ${JSON.stringify(memoryId)},
           contentPaths: [\`memories/${memoryId}/CONTENT.md\`],
-          reason: "highlight_update",
+          reason: "flashback_update",
         });
         await queue.drain();
 

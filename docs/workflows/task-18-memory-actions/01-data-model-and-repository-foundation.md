@@ -93,7 +93,7 @@ Repository rules:
 - Missing memory/tag/category is reported explicitly, not silently ignored.
 - `listTagsForBrowse()` and `listCategoriesForBrowse()` include records with zero attached memories.
 - Sorting is `memoryCount desc`, `lastAssignedAt desc`, `name asc`.
-- Deleting a memory record relies on SQLite foreign-key cascades for highlights and join rows.
+- Deleting a memory record relies on SQLite foreign-key cascades for Flashbacks, Moments, and join rows.
 - Deleting a memory record does not delete global tag/category rows.
 
 ## Query shape changes
@@ -120,7 +120,7 @@ Cover:
 - attach is idempotent and updates assignment activity
 - taxonomy list includes zero-count records
 - taxonomy sorting follows count, recent assignment, name
-- memory delete record cascades highlights and join rows
+- memory delete record cascades Flashbacks, Moments, and join rows
 - memory delete record keeps global tag/category rows
 
 ## Verification

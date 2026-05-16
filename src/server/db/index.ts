@@ -4,10 +4,10 @@ import {
   backupFailsafeAlerts,
   categories,
   flashbacks,
-  highlights,
   memories,
   memoryCategories,
   memoryTags,
+  moments,
   openaiAuthCredentials,
   tags,
 } from "./schema";
@@ -22,8 +22,8 @@ export type {
   BackupEnvironmentStamp,
   BackupFailsafeAlert,
   FlashbackRepository,
-  HighlightRepository,
   MemoryRepository,
+  MomentRepository,
   TraumaDatabase,
   TraumaRepositories,
 } from "./repositories";
@@ -35,10 +35,10 @@ export const schema = {
   backupFailsafeAlerts,
   categories,
   flashbacks,
-  highlights,
   memories,
   memoryCategories,
   memoryTags,
+  moments,
   openaiAuthCredentials,
   tags,
 };

@@ -11,16 +11,16 @@ import {
   renderMemoryMarkdown,
   type RenderedMemoryMarkdown,
 } from "./markdown-renderer";
-import { renderMarkdownWithHighlightRecords } from "../highlights/toggle";
+import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
 
 type MemoryRow = typeof schema.memories.$inferSelect;
 type CategoryRow = typeof schema.categories.$inferSelect;
-type FlashbackRow = typeof schema.flashbacks.$inferSelect;
+type MomentRow = typeof schema.moments.$inferSelect;
 type TagRow = typeof schema.tags.$inferSelect;
-type HighlightRow = typeof schema.highlights.$inferSelect;
+type FlashbackRow = typeof schema.flashbacks.$inferSelect;
 type ReaderMemoryRow = MemoryRow & {
+  moments: MomentRow[];
   flashbacks: FlashbackRow[];
-  highlights: HighlightRow[];
   memoryCategories: { category: CategoryRow }[];
   memoryTags: { tag: TagRow }[];
 };
@@ -49,9 +49,9 @@ export interface ReaderMemory {
   contentPath: string;
   read: boolean;
   categories: ReaderTaxonomyItem[];
-  flashbacks: ReaderFlashbackItem[];
+  moments: ReaderMomentItem[];
   tags: ReaderTaxonomyItem[];
-  highlights: ReaderHighlightItem[];
+  flashbacks: ReaderFlashbackItem[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,7 +61,7 @@ export interface ReaderTaxonomyItem {
   name: string;
 }
 
-export interface ReaderFlashbackItem {
+export interface ReaderMomentItem {
   id: string;
   sectionAnchor: string;
   sectionTitle: string;
@@ -73,7 +73,7 @@ export interface ReaderFlashbackItem {
   createdAt: string;
 }
 
-export interface ReaderHighlightItem {
+export interface ReaderFlashbackItem {
   id: string;
   text: string;
   prefix: string;
@@ -100,8 +100,8 @@ export async function loadReaderMemory(
     const memory = await connection.db.query.memories.findFirst({
       where: eq(schema.memories.id, memoryId),
       with: {
+        moments: true,
         flashbacks: true,
-        highlights: true,
         memoryCategories: {
           with: {
             category: true,
@@ -129,7 +129,7 @@ export async function loadReaderMemory(
         relativePath: content.relativePath,
       },
       rendered: renderMemoryMarkdown(
-        renderMarkdownWithHighlightRecords(content.markdown, memory.highlights),
+        renderMarkdownWithFlashbackRecords(content.markdown, memory.flashbacks),
       ),
     };
   } catch (error) {
@@ -173,30 +173,30 @@ function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
       id: category.id,
       name: category.name,
     })),
-    flashbacks: memory.flashbacks.map((flashback) => ({
-      id: flashback.id,
-      sectionAnchor: flashback.sectionAnchor,
-      sectionTitle: flashback.sectionTitle,
-      sectionLevel: flashback.sectionLevel,
-      sectionPath: flashback.sectionPath,
-      sectionStartOffset: flashback.sectionStartOffset,
-      sectionEndOffset: flashback.sectionEndOffset,
-      contentHash: flashback.contentHash,
-      createdAt: flashback.createdAt.toISOString(),
+    moments: memory.moments.map((moment) => ({
+      id: moment.id,
+      sectionAnchor: moment.sectionAnchor,
+      sectionTitle: moment.sectionTitle,
+      sectionLevel: moment.sectionLevel,
+      sectionPath: moment.sectionPath,
+      sectionStartOffset: moment.sectionStartOffset,
+      sectionEndOffset: moment.sectionEndOffset,
+      contentHash: moment.contentHash,
+      createdAt: moment.createdAt.toISOString(),
     })),
     tags: memory.memoryTags.map(({ tag }) => ({
       id: tag.id,
       name: tag.name,
     })),
-    highlights: memory.highlights.map((highlight) => ({
-      id: highlight.id,
-      text: highlight.text,
-      prefix: highlight.prefix,
-      suffix: highlight.suffix,
-      startOffset: highlight.startOffset,
-      endOffset: highlight.endOffset,
-      contentHash: highlight.contentHash,
-      createdAt: highlight.createdAt.toISOString(),
+    flashbacks: memory.flashbacks.map((flashback) => ({
+      id: flashback.id,
+      text: flashback.text,
+      prefix: flashback.prefix,
+      suffix: flashback.suffix,
+      startOffset: flashback.startOffset,
+      endOffset: flashback.endOffset,
+      contentHash: flashback.contentHash,
+      createdAt: flashback.createdAt.toISOString(),
     })),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,

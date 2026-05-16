@@ -28,7 +28,7 @@ Reader page data for the active memory must include:
 - `read`
 - attached `tags`
 - attached `categories`
-- existing rendered content/highlight data
+- existing rendered content/Flashback data
 
 Reader mode must not fetch or render global taxonomy lists.
 
@@ -77,7 +77,7 @@ Rules:
 
 - Do not render all tags/categories from the app.
 - Do not render empty taxonomy sections if the memory has no attached records, unless needed for the `Add category` action.
-- Preserve existing highlight and markdown rendering behaviour.
+- Preserve existing Flashback and markdown rendering behaviour.
 
 ## Read status behaviour
 
@@ -100,7 +100,7 @@ Cover:
 - delete from reader navigates to `/memories` on success
 - delete failure shows error and does not navigate
 - add category attaches and updates visible reader taxonomy
-- existing highlight rendering remains intact
+- existing Flashback rendering remains intact
 
 ## Verification
 
@@ -115,5 +115,5 @@ mise exec -- bun run typecheck
 - Reader uses the shared memory action menu.
 - Reader does not duplicate browse menu logic.
 - Reader only displays taxonomy attached to the current memory.
-- Reader deletion and read status work without breaking highlight behaviour.
+- Reader deletion and read status work without breaking Flashback behaviour.
 

@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBrowseHref,
-  buildHighlightBrowseHref,
+  buildFlashbackBrowseHref,
   filterBrowseMemories,
-  getMemoryDisplayHighlight,
-  getMemoryReaderHighlights,
-  getRecentHighlights,
+  getMemoryDisplayFlashback,
+  getMemoryReaderFlashbacks,
+  getRecentFlashbacks,
   parseBrowseQuery,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
@@ -23,10 +23,10 @@ const fixtures: BrowseMemory[] = [
     extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
     tags: [{ id: "solidstart", name: "solidstart" }],
-    highlights: [
+    flashbacks: [
       {
         id: "h-foundation",
-        text: "highlight-aware results",
+        text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
         createdAt: "2026-05-09T12:00:00.000Z",
@@ -43,19 +43,19 @@ const fixtures: BrowseMemory[] = [
     extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [{ id: "sqlite", name: "sqlite" }],
-    highlights: [],
+    flashbacks: [],
   },
 ];
 
 describe("browse query state", () => {
   it("parses supported query state and falls back to list view", () => {
-    const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&highlight=h-foundation&view=grid");
+    const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
 
     expect(query).toEqual({
       q: "reader",
       category: "research",
       tag: "solidstart",
-      highlight: "h-foundation",
+      flashback: "h-foundation",
       view: "grid",
     });
 
@@ -63,13 +63,13 @@ describe("browse query state", () => {
   });
 
   it("trims all text query values before applying filters", () => {
-    const query = parseBrowseQuery("?q=%20reader%20&category=%20research%20&tag=%20%20&highlight=%20h-foundation%20");
+    const query = parseBrowseQuery("?q=%20reader%20&category=%20research%20&tag=%20%20&flashback=%20h-foundation%20");
 
     expect(query).toEqual({
       q: "reader",
       category: "research",
       tag: "",
-      highlight: "h-foundation",
+      flashback: "h-foundation",
       view: "list",
     });
   });
@@ -80,7 +80,7 @@ describe("browse query state", () => {
         q: "reader mode",
         category: "research",
         tag: "",
-        highlight: "",
+        flashback: "",
         view: "list",
       },
       { tag: "solidstart", view: "grid" },
@@ -89,33 +89,33 @@ describe("browse query state", () => {
     expect(href).toBe("/memories?q=reader+mode&category=research&tag=solidstart&view=grid");
   });
 
-  it("builds canonical highlight shortcut hrefs without incompatible taxonomy filters", () => {
-    expect(buildHighlightBrowseHref("h-foundation")).toBe("/memories?highlight=h-foundation");
+  it("builds canonical flashback shortcut hrefs without incompatible taxonomy filters", () => {
+    expect(buildFlashbackBrowseHref("h-foundation")).toBe("/memories?flashback=h-foundation");
   });
 
-  it("filters memory metadata and highlight context without full body search", () => {
-    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=highlight-aware"))).toHaveLength(1);
+  it("filters memory metadata and flashback context without full body search", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=flashback-aware"))).toHaveLength(1);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?category=operations"))).toHaveLength(1);
-    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&highlight=h-foundation"))).toHaveLength(
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&flashback=h-foundation"))).toHaveLength(
       1,
     );
-    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&highlight=missing"))).toHaveLength(0);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&flashback=missing"))).toHaveLength(0);
   });
 
-  it("selects the active highlight for memory result excerpts", () => {
+  it("selects the active flashback for memory result excerpts", () => {
     const memory: BrowseMemory = {
       ...fixtures[0]!,
-      highlights: [
+      flashbacks: [
         {
           id: "h-first",
-          text: "first highlight",
+          text: "first flashback",
           prefix: "first",
           suffix: "context",
           createdAt: "2026-05-09T10:00:00.000Z",
         },
         {
           id: "h-selected",
-          text: "selected highlight",
+          text: "selected flashback",
           prefix: "selected",
           suffix: "context",
           createdAt: "2026-05-09T11:00:00.000Z",
@@ -123,21 +123,21 @@ describe("browse query state", () => {
       ],
     };
 
-    expect(getMemoryDisplayHighlight(memory, "h-selected")?.text).toBe("selected highlight");
-    expect(getMemoryDisplayHighlight(memory, "")?.text).toBe("first highlight");
+    expect(getMemoryDisplayFlashback(memory, "h-selected")?.text).toBe("selected flashback");
+    expect(getMemoryDisplayFlashback(memory, "")?.text).toBe("first flashback");
   });
 
-  it("sorts recent highlight shortcuts globally by highlight creation time", () => {
+  it("sorts recent flashback shortcuts globally by flashback creation time", () => {
     const memories: BrowseMemory[] = [
       {
         ...fixtures[0]!,
         capturedAt: "2026-05-10",
-        highlights: [
+        flashbacks: [
           {
-            id: "h-newer-memory-old-highlight",
-            text: "older highlight on newer memory",
+            id: "h-newer-memory-old-flashback",
+            text: "older flashback on newer memory",
             prefix: "new memory",
-            suffix: "old highlight",
+            suffix: "old flashback",
             createdAt: "2026-05-01T00:00:00.000Z",
           },
         ],
@@ -145,31 +145,31 @@ describe("browse query state", () => {
       {
         ...fixtures[1]!,
         capturedAt: "2026-05-01",
-        highlights: [
+        flashbacks: [
           {
-            id: "h-older-memory-new-highlight",
-            text: "newer highlight on older memory",
+            id: "h-older-memory-new-flashback",
+            text: "newer flashback on older memory",
             prefix: "old memory",
-            suffix: "new highlight",
+            suffix: "new flashback",
             createdAt: "2026-05-10T00:00:00.000Z",
           },
         ],
       },
     ];
 
-    expect(getRecentHighlights(memories).map((highlight) => highlight.id)).toEqual([
-      "h-older-memory-new-highlight",
-      "h-newer-memory-old-highlight",
+    expect(getRecentFlashbacks(memories).map((flashback) => flashback.id)).toEqual([
+      "h-older-memory-new-flashback",
+      "h-newer-memory-old-flashback",
     ]);
   });
 
-  it("exposes reader highlight anchors for memory routes", () => {
-    expect(getMemoryReaderHighlights(fixtures[0]!).map((highlight) => highlight.anchorId)).toEqual(["h-foundation"]);
+  it("exposes reader flashback anchors for memory routes", () => {
+    expect(getMemoryReaderFlashbacks(fixtures[0]!).map((flashback) => flashback.anchorId)).toEqual(["h-foundation"]);
   });
 
-  it("keeps browse fixtures representative of memories without highlights", () => {
-    expect(browseFixtureMemories.some((memory) => memory.highlights.length === 0)).toBe(true);
-    expect(getRecentHighlights(browseFixtureMemories).map((highlight) => highlight.id)).toEqual([
+  it("keeps browse fixtures representative of memories without flashbacks", () => {
+    expect(browseFixtureMemories.some((memory) => memory.flashbacks.length === 0)).toBe(true);
+    expect(getRecentFlashbacks(browseFixtureMemories).map((flashback) => flashback.id)).toEqual([
       "h-foundation",
       "h-ops",
       "h-shell",

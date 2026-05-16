@@ -142,8 +142,8 @@ export const memoryCategories = sqliteTable(
   ],
 );
 
-export const highlights = sqliteTable(
-  "highlights",
+export const flashbacks = sqliteTable(
+  "flashbacks",
   {
     id: text("id").primaryKey(),
     memoryId: text("memory_id")
@@ -158,15 +158,15 @@ export const highlights = sqliteTable(
     ...timestamps(),
   },
   (table) => [
-    index("highlights_memory_id_idx").on(table.memoryId),
-    index("highlights_created_at_idx").on(table.createdAt),
-    check("highlights_start_offset_check", sql`${table.startOffset} >= 0`),
-    check("highlights_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
+    index("flashbacks_memory_id_idx").on(table.memoryId),
+    index("flashbacks_created_at_idx").on(table.createdAt),
+    check("flashbacks_start_offset_check", sql`${table.startOffset} >= 0`),
+    check("flashbacks_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
   ],
 );
 
-export const flashbacks = sqliteTable(
-  "flashbacks",
+export const moments = sqliteTable(
+  "moments",
   {
     id: text("id").primaryKey(),
     memoryId: text("memory_id")
@@ -182,26 +182,26 @@ export const flashbacks = sqliteTable(
     ...timestamps(),
   },
   (table) => [
-    uniqueIndex("flashbacks_memory_section_anchor_unique").on(
+    uniqueIndex("moments_memory_section_anchor_unique").on(
       table.memoryId,
       table.sectionAnchor,
     ),
-    index("flashbacks_memory_id_idx").on(table.memoryId),
-    index("flashbacks_created_at_idx").on(table.createdAt),
+    index("moments_memory_id_idx").on(table.memoryId),
+    index("moments_created_at_idx").on(table.createdAt),
     check(
-      "flashbacks_section_anchor_check",
+      "moments_section_anchor_check",
       sql`length(${table.sectionAnchor}) > 0`,
     ),
     check(
-      "flashbacks_section_title_check",
+      "moments_section_title_check",
       sql`length(${table.sectionTitle}) > 0`,
     ),
     check(
-      "flashbacks_section_level_check",
+      "moments_section_level_check",
       sql`${table.sectionLevel} >= 1 and ${table.sectionLevel} <= 6`,
     ),
     check(
-      "flashbacks_section_offset_check",
+      "moments_section_offset_check",
       sql`(${table.sectionStartOffset} is null and ${table.sectionEndOffset} is null) or (${table.sectionStartOffset} is not null and ${table.sectionEndOffset} is not null and ${table.sectionStartOffset} >= 0 and ${table.sectionEndOffset} > ${table.sectionStartOffset})`,
     ),
   ],
@@ -294,9 +294,9 @@ export const openaiAuthCredentials = sqliteTable(
 
 export const memoriesRelations = relations(memories, ({ many }) => ({
   flashbacks: many(flashbacks),
-  highlights: many(highlights),
   memoryCategories: many(memoryCategories),
   memoryTags: many(memoryTags),
+  moments: many(moments),
 }));
 
 export const tagsRelations = relations(tags, ({ many }) => ({
@@ -332,16 +332,16 @@ export const memoryCategoriesRelations = relations(
   }),
 );
 
-export const highlightsRelations = relations(highlights, ({ one }) => ({
+export const flashbacksRelations = relations(flashbacks, ({ one }) => ({
   memory: one(memories, {
-    fields: [highlights.memoryId],
+    fields: [flashbacks.memoryId],
     references: [memories.id],
   }),
 }));
 
-export const flashbacksRelations = relations(flashbacks, ({ one }) => ({
+export const momentsRelations = relations(moments, ({ one }) => ({
   memory: one(memories, {
-    fields: [flashbacks.memoryId],
+    fields: [moments.memoryId],
     references: [memories.id],
   }),
 }));

@@ -23,7 +23,7 @@ Task 18 adds user-owned memory metadata and memory actions:
 - Flashback marker records that identify the selected occurrence without mutating `CONTENT.md`
 - reader-mode Flashback tabs for all markers vs current-memory markers
 - Moment bookmarks for reader sections, with a `/moments` route listing all saved Moments
-- product-language migration from `highlight` to `Flashback` and from section-bookmark `Flashback` to `Moment`
+- product-language migration from the legacy text-marker term to `Flashback` and from section-bookmark `Flashback` to `Moment`
 - relaxed imported media display policy for HTTPS cross-host images and controlled HTTPS iframes
 
 The implementation must stay domain-scoped. Do not import unrelated refine-branch UI work. If the refine branch is the only place where a reusable memory meatballs menu exists, extract only that reusable component contract or recreate the equivalent shared component in this branch.
@@ -37,7 +37,7 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 - Successful full-content memories do not render a redundant `Saved` label.
 - One memory action menu component is shared by `/memories` items and `/memories/:id` reader header.
 - Deleting a memory removes the SQLite memory row and the corresponding filesystem content directory.
-- Deleting a memory cascades highlights and join-table rows, but does not delete global tags/categories.
+- Deleting a memory cascades Flashbacks, Moments, and join-table rows, but does not delete global tags/categories.
 - Right-pane tags/categories list all records, not only records visible under the current browse filter.
 - Reader mode renders only tags/categories attached to the active memory.
 - `/settings` is part of Task 18, not a separate workflow.
@@ -64,8 +64,8 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 5. [18.5 Right-pane taxonomy management](task-18-memory-actions/05-right-pane-taxonomy-management.md)
 6. [18.6 Reader memory actions](task-18-memory-actions/06-reader-memory-actions.md)
 7. [18.8 Settings page and OpenAI auth state](task-18-memory-actions/08-settings-page-and-openai-auth.md)
-8. [18.9 Reader highlight selection and tabs](task-18-memory-actions/09-reader-highlight-selection-and-tabs.md)
-9. [18.10 Flashback section bookmarks](task-18-memory-actions/10-flashback-section-bookmarks.md)
+8. [18.9 Reader Flashback marker selection and tabs](task-18-memory-actions/09-reader-flashback-marker-selection-and-tabs.md)
+9. [18.10 Moment section bookmarks](task-18-memory-actions/10-moment-section-bookmarks.md)
 10. [18.11 Imported media display policy](task-18-memory-actions/11-imported-media-display-policy.md)
 11. [18.12 Integration verification and handoff](task-18-memory-actions/12-integration-verification-and-handoff.md)
 12. [18.13 Review follow-up implementation alignment](task-18-memory-actions/13-review-followup-implementation-alignment.md)
@@ -73,7 +73,7 @@ The implementation must stay domain-scoped. Do not import unrelated refine-branc
 
 Subtask number 18.7 is intentionally unused. The settings subtask keeps the
 `18.8` label and `08-...` filename because it was defined after the reader
-actions slice and before the highlight slice; do not infer a missing execution
+actions slice and before the flashback slice; do not infer a missing execution
 file.
 
 Each subtask file is written so an implementation agent can own that slice without guessing the broader intent. Later subtasks may reference earlier contracts, but should not reopen completed domain decisions unless implementation evidence proves the plan wrong.

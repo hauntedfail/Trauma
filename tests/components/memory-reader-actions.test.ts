@@ -22,12 +22,12 @@ const readyResult = {
     contentPath: "memories/memory-reader/CONTENT.md",
     read: true,
     categories: [{ id: "category-reader", name: "Reader" }],
-    flashbacks: [],
+    moments: [],
     tags: [{ id: "tag-solid", name: "solid" }],
-    highlights: [
+    flashbacks: [
       {
-        id: "highlight-1",
-        text: "highlight",
+        id: "flashback-1",
+        text: "flashback",
         prefix: "A ",
         suffix: ".",
         startOffset: 2,
@@ -42,13 +42,13 @@ const readyResult = {
     relativePath: "memories/memory-reader/CONTENT.md",
   },
   rendered: {
-    html: '<h1 id="reader-memory">Reader Memory</h1><p>A <mark data-highlight-id="highlight-1" id="highlight-1">highlight</mark>.</p>',
+    html: '<h1 id="reader-memory">Reader Memory</h1><p>A <mark data-flashback-id="flashback-1" id="flashback-1">flashback</mark>.</p>',
     toc: [{ id: "reader-memory", level: 1, path: "1", text: "Reader Memory" }],
   },
 } satisfies ReaderMemoryResult;
 
 describe("memory reader actions", () => {
-  it("renders shared actions, read status, attached taxonomy, and existing highlights", () => {
+  it("renders shared actions, read status, attached taxonomy, and existing flashbacks", () => {
     const html = renderReader(readyResult);
 
     expect(html).toContain("Memory actions for Reader Memory");
@@ -56,7 +56,7 @@ describe("memory reader actions", () => {
     expect(html).toContain("Mark unread");
     expect(html).toContain("Reader");
     expect(html).toContain("solid");
-    expect(html).toContain('data-highlight-id="highlight-1"');
+    expect(html).toContain('data-flashback-id="flashback-1"');
     expect(html).not.toContain("Global category");
     expect(html).not.toContain("#global");
   });
@@ -67,7 +67,8 @@ describe("memory reader actions", () => {
       memory: {
         ...readyResult.memory,
         categories: [],
-        highlights: [],
+        moments: [],
+        flashbacks: [],
         tags: [],
       },
     });
@@ -152,7 +153,7 @@ function renderReader(result: ReaderMemoryResult): string {
       },
       get children() {
         return createComponent(MemoryReader, {
-          highlightRows: [],
+          flashbackRows: [],
           navigate: () => {},
           result,
         });

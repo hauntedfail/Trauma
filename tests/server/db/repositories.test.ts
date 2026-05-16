@@ -247,7 +247,7 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
-  it("creates, lists, and deletes Flashbacks idempotently", () => {
+  it("creates, lists, and deletes Moments idempotently", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(
       `
@@ -280,8 +280,8 @@ describe("memory and taxonomy repositories", () => {
           const later = new Date("2026-05-10T02:00:00.000Z");
           await connection.repositories.memories.create({
             id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
-            url: "https://example.com/flashback",
-            title: "Flashback Memory",
+            url: "https://example.com/moment",
+            title: "Moment Memory",
             description: null,
             faviconUrl: null,
             contentPath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f104/CONTENT.md",
@@ -294,8 +294,8 @@ describe("memory and taxonomy repositories", () => {
             updatedAt: now,
           });
 
-          const created = await connection.repositories.flashbacks.create({
-            id: "flashback-1",
+          const created = await connection.repositories.moments.create({
+            id: "moment-1",
             memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
             sectionAnchor: "chapter-one",
             sectionTitle: "Chapter One",
@@ -307,8 +307,8 @@ describe("memory and taxonomy repositories", () => {
             createdAt: now,
             updatedAt: now,
           });
-          const duplicate = await connection.repositories.flashbacks.create({
-            id: "flashback-duplicate",
+          const duplicate = await connection.repositories.moments.create({
+            id: "moment-duplicate",
             memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
             sectionAnchor: "chapter-one",
             sectionTitle: "Chapter One",
@@ -320,8 +320,8 @@ describe("memory and taxonomy repositories", () => {
             createdAt: later,
             updatedAt: later,
           });
-          const movedAnchor = await connection.repositories.flashbacks.create({
-            id: "flashback-moved",
+          const movedAnchor = await connection.repositories.moments.create({
+            id: "moment-moved",
             memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104",
             sectionAnchor: "chapter-one-renamed",
             sectionTitle: "Chapter One Renamed",
@@ -333,9 +333,9 @@ describe("memory and taxonomy repositories", () => {
             createdAt: later,
             updatedAt: later,
           });
-          const listed = await connection.repositories.flashbacks.listForBrowse();
-          const deleted = await connection.repositories.flashbacks.deleteById("flashback-1");
-          const missingDeleted = await connection.repositories.flashbacks.deleteById("missing-flashback");
+          const listed = await connection.repositories.moments.listForBrowse();
+          const deleted = await connection.repositories.moments.deleteById("moment-1");
+          const missingDeleted = await connection.repositories.moments.deleteById("missing-moment");
 
           process.stdout.write(JSON.stringify({
             created,
@@ -344,7 +344,7 @@ describe("memory and taxonomy repositories", () => {
             listed,
             deleted,
             missingDeleted,
-            count: connection.sqlite.prepare("select count(*) as count from flashbacks").get().count,
+            count: connection.sqlite.prepare("select count(*) as count from moments").get().count,
           }));
         } finally {
           connection.close();
@@ -356,23 +356,23 @@ describe("memory and taxonomy repositories", () => {
     expect(JSON.parse(output)).toMatchObject({
       created: {
         alreadyExists: false,
-        flashback: {
-          id: "flashback-1",
+        moment: {
+          id: "moment-1",
           sectionAnchor: "chapter-one",
           sectionTitle: "Chapter One",
         },
       },
       duplicate: {
         alreadyExists: true,
-        flashback: {
-          id: "flashback-1",
+        moment: {
+          id: "moment-1",
           sectionAnchor: "chapter-one",
         },
       },
       movedAnchor: {
         alreadyExists: true,
-        flashback: {
-          id: "flashback-1",
+        moment: {
+          id: "moment-1",
           sectionAnchor: "chapter-one-renamed",
           sectionTitle: "Chapter One Renamed",
           contentHash: "hash",
@@ -380,9 +380,9 @@ describe("memory and taxonomy repositories", () => {
       },
       listed: [
         {
-          id: "flashback-1",
-          memoryTitle: "Flashback Memory",
-          memoryUrl: "https://example.com/flashback",
+          id: "moment-1",
+          memoryTitle: "Moment Memory",
+          memoryUrl: "https://example.com/moment",
           sectionAnchor: "chapter-one-renamed",
           sectionTitle: "Chapter One Renamed",
         },
@@ -450,10 +450,10 @@ describe("memory and taxonomy repositories", () => {
             categoryId: "category-delete",
             now,
           });
-          connection.sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run("highlight-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "delete", "", "", 0, 6, now.getTime(), now.getTime());
-          connection.sqlite.prepare("insert into flashbacks (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
-            .run("flashback-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "chapter", "Chapter", 2, "1/1", now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "delete", "", "", 0, 6, now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into moments (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("moment-delete", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103", "chapter", "Chapter", 2, "1/1", now.getTime(), now.getTime());
 
           const target = await connection.repositories.memories.findDeletionTarget("018f04a2-3c6f-7c88-9a8b-8c99a9b7f103");
           const deleted = await connection.repositories.memories.deleteMemoryRecord("018f04a2-3c6f-7c88-9a8b-8c99a9b7f103");
@@ -465,7 +465,7 @@ describe("memory and taxonomy repositories", () => {
             missingDeleted,
             memories: connection.sqlite.prepare("select count(*) as count from memories").get().count,
             flashbacks: connection.sqlite.prepare("select count(*) as count from flashbacks").get().count,
-            highlights: connection.sqlite.prepare("select count(*) as count from highlights").get().count,
+            moments: connection.sqlite.prepare("select count(*) as count from moments").get().count,
             memoryTags: connection.sqlite.prepare("select count(*) as count from memory_tags").get().count,
             memoryCategories: connection.sqlite.prepare("select count(*) as count from memory_categories").get().count,
             tags: connection.sqlite.prepare("select count(*) as count from tags").get().count,
@@ -487,7 +487,7 @@ describe("memory and taxonomy repositories", () => {
       missingDeleted: false,
       memories: 0,
       flashbacks: 0,
-      highlights: 0,
+      moments: 0,
       memoryTags: 0,
       memoryCategories: 0,
       tags: 1,

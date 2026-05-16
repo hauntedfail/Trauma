@@ -1,12 +1,5 @@
-import { Title } from "@solidjs/meta";
+import { Navigate } from "@solidjs/router";
 
-import { FlashbackBrowse } from "~/components/flashback/FlashbackBrowse";
-
-export default function FlashbackIndex() {
-  return (
-    <>
-      <Title>Flashback | TRAUMA</Title>
-      <FlashbackBrowse />
-    </>
-  );
+export default function LegacyFlashbackIndex() {
+  return <Navigate href="/moments" />;
 }

@@ -56,8 +56,8 @@ The token tests verify:
 - The surface toggle labels are Light/Paper in sun brightness and
   Midnight/Hermès in night brightness while stored surface values remain
   `normal` and `paper`.
-- Linked highlight anchor tokens exist per theme and are not reused blindly from
-  the default yellow highlight colours.
+- Linked flashback anchor tokens exist per theme and are not reused blindly from
+  the default yellow flashback colours.
 - Material textures render through layered backgrounds plus fixed grain/fibre/pore
   and glow overlays.
 - Paper mode material textures do not include repeating dot/grid overlays.
@@ -98,7 +98,7 @@ tests cannot fully prove:
 
 - `/memories` desktop.
 - `/memories?view=grid` desktop.
-- `/highlights` desktop.
+- `/flashbacks` desktop.
 - `/memories/:id` reader.
 - `/memories` tablet.
 - `/memories` mobile.
@@ -127,7 +127,7 @@ Check:
   Hermès wax-seal chrome shifting the icon.
 - Browse filters update URL state without clearing unrelated query state.
 - Reader links remain readable in Light, Paper, Midnight, and Hermès modes.
-- Linked highlight hash targets remain readable in every theme.
+- Linked flashback hash targets remain readable in every theme.
 - Reader TOC scroll fades appear only on scrollable edges. The top fade begins
   at the bounded list edge after scrolling down, and CSS mask gradients soften
   the transition into unblurred content.

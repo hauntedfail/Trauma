@@ -19,7 +19,7 @@ const memory = {
   extractionStatus: "success",
   categories: [{ id: "research", name: "Research" }],
   tags: [{ id: "sqlite", name: "sqlite" }],
-  highlights: [],
+  flashbacks: [],
 } satisfies BrowseMemory;
 
 describe("memory browse actions", () => {
@@ -27,7 +27,7 @@ describe("memory browse actions", () => {
     const html = renderToString(() =>
       createComponent(MemoryItem, {
         memory,
-        selectedHighlightId: "",
+        selectedFlashbackId: "",
         view: "list",
         onDeleted: () => {},
       }),
@@ -50,7 +50,7 @@ describe("memory browse actions", () => {
           extractionStatus: "link_only",
           tags: [],
         },
-        selectedHighlightId: "",
+        selectedFlashbackId: "",
         view: "list",
         onDeleted: () => {},
       }),

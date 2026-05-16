@@ -1,68 +1,37 @@
 import type { APIEvent } from "@solidjs/start/server";
 
+import { getMemoryBackupQueue } from "~/server/backup";
+import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
-import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
-import { generateFlashbackId } from "~/server/flashbacks/id";
+import { initializeDatabase } from "~/server/db";
 import {
-  renderMemoryMarkdown,
-  type ReaderTocEntry,
-} from "~/server/reader/markdown-renderer";
-import { MemoryContentStoreError, readMemoryContent } from "~/server/store";
+  FlashbackToggleError,
+  toggleMemoryFlashback,
+  type FlashbackToggleOperation,
+  type ToggleMemoryFlashbackResult,
+} from "~/server/flashbacks/toggle";
+import { MemoryContentStoreError } from "~/server/store";
+import type { FlashbackSelectionInput } from "~/server/store/flashback-markers";
 
-export type FlashbackPayloadResult =
+type FlashbackTogglePayloadResult =
   | {
-      ok: true;
-      memoryId: string;
-      sectionAnchor: string;
-      sectionTitle: string;
-      sectionLevel: number;
-      sectionPath: string;
-      sectionStartOffset: number | null;
-      sectionEndOffset: number | null;
-      contentHash: string | null;
-    }
+    ok: true;
+    memoryId: string;
+    operation: FlashbackToggleOperation;
+    selection: FlashbackSelectionInput;
+  }
   | { ok: false; error: string };
 
-const FLASHBACK_KEYS = [
-  "memoryId",
-  "sectionAnchor",
-  "sectionTitle",
-  "sectionLevel",
-  "sectionPath",
-  "sectionStartOffset",
-  "sectionEndOffset",
-  "contentHash",
+const SELECTION_KEYS = [
+  "text",
+  "prefix",
+  "suffix",
+  "startOffset",
+  "endOffset",
 ] as const;
-
-const REQUIRED_FLASHBACK_KEYS = [
-  "memoryId",
-  "sectionAnchor",
-  "sectionTitle",
-  "sectionLevel",
-  "sectionPath",
-] as const;
-
-export async function GET(): Promise<Response> {
-  let config;
-  try {
-    config = loadRuntimeTraumaConfig();
-  } catch (error) {
-    return json({ error: formatConfigError(error) }, { status: 500 });
-  }
-
-  const connection = initializeDatabase(config);
-  try {
-    return json(
-      { flashbacks: await connection.repositories.flashbacks.listForBrowse() },
-      { status: 200 },
-    );
-  } finally {
-    connection.close();
-  }
-}
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseFlashbackPayload(event.request);
+  const payload = await parseFlashbackTogglePayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -74,113 +43,30 @@ export async function POST(event: APIEvent): Promise<Response> {
     return json({ error: formatConfigError(error) }, { status: 500 });
   }
 
-  const now = new Date();
   const connection = initializeDatabase(config);
   try {
-    const memory = await connection.repositories.memories.findById(payload.memoryId);
-    if (memory === undefined) {
-      return json({ error: "memory was not found" }, { status: 404 });
-    }
-    const section = await resolveFlashbackSection({
-      config,
-      payload,
-    });
-    if (!section.ok) {
-      return json({ error: section.error }, { status: 400 });
-    }
-
-    const result = await connection.repositories.flashbacks.create({
-      id: generateFlashbackId(),
+    const result = await toggleMemoryFlashback({
       memoryId: payload.memoryId,
-      sectionAnchor: section.section.id,
-      sectionTitle: section.section.text,
-      sectionLevel: section.section.level,
-      sectionPath: section.section.path,
-      sectionStartOffset: section.section.startOffset ?? null,
-      sectionEndOffset: section.section.endOffset ?? null,
-      contentHash: null,
-      createdAt: now,
-      updatedAt: now,
+      operation: payload.operation,
+      selection: payload.selection,
+      config,
+      db: connection.db,
+      backupQueue: getMemoryBackupQueue(config),
     });
 
-    return json(
-      {
-        alreadyExists: result.alreadyExists,
-        flashback: formatFlashback(result.flashback),
-      },
-      { status: result.alreadyExists ? 200 : 201 },
-    );
+    return json({ result }, { status: 200 });
   } catch (error) {
-    return formatFlashbackError(error);
+    return formatToggleError(error);
   } finally {
     connection.close();
   }
 }
 
-async function resolveFlashbackSection(input: {
-  config: ReturnType<typeof loadRuntimeTraumaConfig>;
-  payload: Extract<FlashbackPayloadResult, { ok: true }>;
-}): Promise<
-  | { ok: true; section: ReaderTocEntry }
-  | { ok: false; error: string }
-> {
-  let rendered;
-  try {
-    const content = await readMemoryContent({
-      config: input.config,
-      memoryId: input.payload.memoryId,
-    });
-    rendered = renderMemoryMarkdown(content.markdown);
-  } catch (error) {
-    if (
-      error instanceof MemoryContentStoreError &&
-      error.code === "missing_content"
-    ) {
-      return { ok: false, error: "flashback section was not found" };
-    }
-    throw error;
-  }
+export const parseFlashbackTogglePayload = parseFlashbackTogglePayloadInternal;
 
-  const byAnchor = rendered.toc.filter(
-    (section) => section.id === input.payload.sectionAnchor,
-  );
-  const candidates = byAnchor.length > 0
-    ? byAnchor
-    : rendered.toc.filter((section) => section.path === input.payload.sectionPath);
-  if (candidates.length === 0) {
-    return { ok: false, error: "flashback section was not found" };
-  }
-  if (candidates.length > 1) {
-    return { ok: false, error: "flashback section identity is ambiguous" };
-  }
-
-  const section = candidates[0]!;
-  if (
-    section.text !== input.payload.sectionTitle ||
-    section.level !== input.payload.sectionLevel ||
-    section.path !== input.payload.sectionPath ||
-    !matchesOptionalOffset(section.startOffset, input.payload.sectionStartOffset) ||
-    !matchesOptionalOffset(section.endOffset, input.payload.sectionEndOffset)
-  ) {
-    return {
-      ok: false,
-      error: "flashback section identity does not match reader content",
-    };
-  }
-
-  return { ok: true, section };
-}
-
-function matchesOptionalOffset(
-  serverOffset: number | undefined,
-  payloadOffset: number | null,
-): boolean {
-  return payloadOffset === null || serverOffset === payloadOffset;
-}
-
-export async function parseFlashbackPayload(
+async function parseFlashbackTogglePayloadInternal(
   request: Request,
-): Promise<FlashbackPayloadResult> {
+): Promise<FlashbackTogglePayloadResult> {
   let payload: unknown;
   try {
     payload = await request.json();
@@ -192,181 +78,131 @@ export async function parseFlashbackPayload(
     return { ok: false, error: "request body must be an object" };
   }
 
-  if (!hasOnlyAllowedKeys(payload, FLASHBACK_KEYS)) {
+  if (!hasOnlyKeys(payload, ["memoryId", "operation", "selection"])) {
     return {
       ok: false,
-      error:
-        "request body must contain only memoryId, sectionAnchor, sectionTitle, sectionLevel, sectionPath, sectionStartOffset, sectionEndOffset, and contentHash",
+      error: "request body must contain only memoryId, operation, and selection",
     };
   }
 
-  if (!hasRequiredKeys(payload, REQUIRED_FLASHBACK_KEYS)) {
+  if (typeof payload.memoryId !== "string" || payload.memoryId.trim() === "") {
+    return { ok: false, error: "memoryId must be a non-empty string" };
+  }
+
+  if (!isFlashbackToggleOperation(payload.operation)) {
     return {
       ok: false,
-      error:
-        "request body must contain memoryId, sectionAnchor, sectionTitle, sectionLevel, and sectionPath",
+      error: "operation must be flashback or unflashback",
     };
   }
 
-  const memoryId = parseNonEmptyString(payload.memoryId, "memoryId");
-  if (!memoryId.ok) {
-    return memoryId;
-  }
-
-  const sectionAnchor = parseNonEmptyString(
-    normalizeAnchorPayload(payload.sectionAnchor),
-    "sectionAnchor",
-  );
-  if (!sectionAnchor.ok) {
-    return sectionAnchor;
-  }
-
-  const sectionTitle = parseNonEmptyString(
-    payload.sectionTitle,
-    "sectionTitle",
-  );
-  if (!sectionTitle.ok) {
-    return sectionTitle;
-  }
-
-  if (
-    typeof payload.sectionLevel !== "number" ||
-    !Number.isInteger(payload.sectionLevel) ||
-    payload.sectionLevel < 1 ||
-    payload.sectionLevel > 6
-  ) {
-    return {
-      ok: false,
-      error: "sectionLevel must be an integer from 1 to 6",
-    };
-  }
-
-  const sectionPath = parseNonEmptyString(payload.sectionPath, "sectionPath");
-  if (!sectionPath.ok) {
-    return sectionPath;
-  }
-
-  const offsets = parseOffsets(payload);
-  if (!offsets.ok) {
-    return offsets;
-  }
-
-  const contentHash = parseNullableString(payload.contentHash, "contentHash");
-  if (!contentHash.ok) {
-    return contentHash;
+  const selection = parseSelection(payload.selection);
+  if (!selection.ok) {
+    return selection;
   }
 
   return {
     ok: true,
-    memoryId: memoryId.value,
-    sectionAnchor: sectionAnchor.value,
-    sectionTitle: sectionTitle.value,
-    sectionLevel: payload.sectionLevel,
-    sectionPath: sectionPath.value,
-    sectionStartOffset: offsets.sectionStartOffset,
-    sectionEndOffset: offsets.sectionEndOffset,
-    contentHash: contentHash.value,
+    memoryId: payload.memoryId.trim(),
+    operation: payload.operation,
+    selection: selection.selection,
   };
 }
 
-function parseOffsets(
-  payload: Record<string, unknown>,
-):
-  | { ok: true; sectionStartOffset: number | null; sectionEndOffset: number | null }
-  | { ok: false; error: string } {
-  const start = payload.sectionStartOffset ?? null;
-  const end = payload.sectionEndOffset ?? null;
-  if (start === null && end === null) {
-    return { ok: true, sectionStartOffset: null, sectionEndOffset: null };
+function parseSelection(
+  value: unknown,
+): { ok: true; selection: FlashbackSelectionInput } | { ok: false; error: string } {
+  if (!isRecord(value)) {
+    return { ok: false, error: "selection must be an object" };
   }
 
-  if (
-    typeof start !== "number" ||
-    typeof end !== "number" ||
-    !Number.isInteger(start) ||
-    !Number.isInteger(end) ||
-    start < 0 ||
-    end <= start
-  ) {
+  if (!hasOnlyKeys(value, SELECTION_KEYS)) {
     return {
       ok: false,
       error:
-        "sectionStartOffset and sectionEndOffset must both describe a non-empty range or both be null",
+        "selection must contain only text, prefix, suffix, startOffset, and endOffset",
     };
   }
 
-  return { ok: true, sectionStartOffset: start, sectionEndOffset: end };
-}
-
-function parseNonEmptyString(
-  value: unknown,
-  field: string,
-): { ok: true; value: string } | { ok: false; error: string } {
-  if (typeof value !== "string" || value.trim() === "") {
-    return { ok: false, error: `${field} must be a non-empty string` };
+  if (typeof value.text !== "string" || value.text.length === 0) {
+    return { ok: false, error: "selection.text must be a non-empty string" };
   }
 
-  return { ok: true, value: value.trim() };
-}
-
-function parseNullableString(
-  value: unknown,
-  field: string,
-): { ok: true; value: string | null } | { ok: false; error: string } {
-  if (value === undefined || value === null) {
-    return { ok: true, value: null };
+  if (typeof value.prefix !== "string") {
+    return { ok: false, error: "selection.prefix must be a string" };
   }
 
-  if (typeof value !== "string") {
-    return { ok: false, error: `${field} must be a string or null` };
+  if (typeof value.suffix !== "string") {
+    return { ok: false, error: "selection.suffix must be a string" };
   }
 
-  const trimmed = value.trim();
-  return { ok: true, value: trimmed === "" ? null : trimmed };
-}
+  if (
+    typeof value.startOffset !== "number" ||
+    typeof value.endOffset !== "number" ||
+    !Number.isInteger(value.startOffset) ||
+    !Number.isInteger(value.endOffset) ||
+    value.startOffset < 0 ||
+    value.endOffset <= value.startOffset
+  ) {
+    return {
+      ok: false,
+      error: "selection offsets must describe a non-empty range",
+    };
+  }
 
-function normalizeAnchorPayload(value: unknown): unknown {
-  return typeof value === "string" ? value.trim().replace(/^#/, "") : value;
-}
-
-function formatFlashback(flashback: {
-  id: string;
-  memoryId: string;
-  sectionAnchor: string;
-  sectionTitle: string;
-  sectionLevel: number;
-  sectionPath: string;
-  sectionStartOffset: number | null;
-  sectionEndOffset: number | null;
-  contentHash: string | null;
-  createdAt: Date;
-}) {
   return {
-    id: flashback.id,
-    memoryId: flashback.memoryId,
-    sectionAnchor: flashback.sectionAnchor,
-    sectionTitle: flashback.sectionTitle,
-    sectionLevel: flashback.sectionLevel,
-    sectionPath: flashback.sectionPath,
-    sectionStartOffset: flashback.sectionStartOffset,
-    sectionEndOffset: flashback.sectionEndOffset,
-    contentHash: flashback.contentHash,
-    createdAt: flashback.createdAt.toISOString(),
+    ok: true,
+    selection: {
+      text: value.text,
+      prefix: value.prefix,
+      suffix: value.suffix,
+      startOffset: value.startOffset,
+      endOffset: value.endOffset,
+    },
   };
 }
 
-function formatFlashbackError(error: unknown): Response {
-  if (
-    error instanceof MemoryRepositoryError &&
-    error.message.includes("missing memory")
-  ) {
-    return json({ error: "memory was not found" }, { status: 404 });
+function formatToggleError(error: unknown): Response {
+  if (error instanceof FlashbackToggleError) {
+    return json(
+      { error: error.message },
+      {
+        status: error.code === "missing_memory"
+          ? 404
+          : error.code === "stale_selection"
+            ? 409
+            : 400,
+      },
+    );
   }
 
-  return json({ error: "failed to create flashback" }, { status: 500 });
+  if (error instanceof MemoryContentStoreError) {
+    return json(
+      { error: "flashback content is unavailable" },
+      { status: error.code === "missing_content" ? 404 : 400 },
+    );
+  }
+
+  if (error instanceof BackupEnvironmentFailsafeError) {
+    return json(
+      {
+        error: error.message,
+        backupFailsafe: error.alert ?? null,
+      },
+      { status: 409 },
+    );
+  }
+
+  return json({ error: "failed to toggle flashback" }, { status: 500 });
 }
 
-function json(body: unknown, init: ResponseInit): Response {
+function json(
+  body:
+    | { error: string }
+    | { error: string; backupFailsafe: unknown }
+    | { result: ToggleMemoryFlashbackResult },
+  init: ResponseInit,
+) {
   return new Response(JSON.stringify(body), {
     ...init,
     headers: {
@@ -376,22 +212,25 @@ function json(body: unknown, init: ResponseInit): Response {
   });
 }
 
-function hasOnlyAllowedKeys(
+function hasOnlyKeys(
   value: Record<string, unknown>,
-  allowedKeys: readonly string[],
+  expectedKeys: readonly string[],
 ): boolean {
-  return Object.keys(value).every((key) => allowedKeys.includes(key));
-}
-
-function hasRequiredKeys(
-  value: Record<string, unknown>,
-  requiredKeys: readonly string[],
-): boolean {
-  return requiredKeys.every((key) => Object.hasOwn(value, key));
+  const keys = Object.keys(value);
+  return (
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.hasOwn(value, key))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFlashbackToggleOperation(
+  value: unknown,
+): value is FlashbackToggleOperation {
+  return value === "flashback" || value === "unflashback";
 }
 
 function formatConfigError(error: unknown): string {

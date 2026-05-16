@@ -177,7 +177,7 @@ function sanitizeReaderHtml(html: string) {
       ],
       input: ["checked", "class", "disabled", "type"],
       li: ["class", "id"],
-      mark: ["data-highlight-id", "id"],
+      mark: ["data-flashback-id", "id"],
       ol: ["class"],
       section: ["class"],
       source: ["media", "sizes", "srcset", "type"],
@@ -212,7 +212,7 @@ function sanitizeReaderHtml(html: string) {
       iframe: sanitizeIframe,
       img: sanitizeImage,
       input: sanitizeTaskCheckbox,
-      mark: sanitizeHighlightMark,
+      mark: sanitizeFlashbackMark,
       source: sanitizePictureSource,
     },
   });
@@ -438,12 +438,12 @@ function sanitizeTaskCheckbox(_tagName: string, attribs: sanitizeHtml.Attributes
   };
 }
 
-function sanitizeHighlightMark(
+function sanitizeFlashbackMark(
   _tagName: string,
   attribs: sanitizeHtml.Attributes,
 ): sanitizeHtml.Tag {
-  const highlightId = attribs["data-highlight-id"];
-  if (highlightId === undefined || highlightId.trim() === "") {
+  const flashbackId = attribs["data-flashback-id"];
+  if (flashbackId === undefined || flashbackId.trim() === "") {
     return {
       tagName: "span",
       attribs: {},
@@ -453,8 +453,8 @@ function sanitizeHighlightMark(
   return {
     tagName: "mark",
     attribs: {
-      "data-highlight-id": highlightId,
-      id: highlightId,
+      "data-flashback-id": flashbackId,
+      id: flashbackId,
     },
   };
 }

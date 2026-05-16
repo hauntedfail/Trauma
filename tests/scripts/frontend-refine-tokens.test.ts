@@ -51,7 +51,7 @@ describe("front-end refine design tokens", () => {
       "--color-trauma-bg-elev: var(--bg-elev)",
       "--color-trauma-text-secondary: var(--fg-2)",
       "--color-trauma-accent-ink: var(--accent-ink)",
-      "--color-trauma-highlight-bg: var(--hl-bg)",
+      "--color-trauma-flashback-bg: var(--flashback-bg)",
       "--color-trauma-quote-bar: var(--hl-quote-bar)",
       "--color-trauma-link: var(--link)",
       "--color-trauma-link-hover: var(--link-hover)",
@@ -104,7 +104,7 @@ describe("front-end refine design tokens", () => {
     }
   });
 
-  it("defines readable linked-highlight anchor tokens outside normal night mode", () => {
+  it("defines readable linked-flashback anchor tokens outside normal night mode", () => {
     for (const theme of themeBlocks.filter((item) => item.name !== "black-dark")) {
       const body = tailwindCss.match(theme.pattern)?.groups?.body;
 
@@ -112,9 +112,9 @@ describe("front-end refine design tokens", () => {
         throw new Error(`Missing theme block ${theme.name}`);
       }
 
-      expect(readThemeToken(body, "--anchor-highlight-bg")).not.toBe("#ffe2a8");
-      expect(readThemeToken(body, "--anchor-highlight-ink")).not.toBe("#3d2b12");
-      expect(readThemeToken(body, "--anchor-highlight-ring")).not.toBe("");
+      expect(readThemeToken(body, "--anchor-flashback-bg")).not.toBe("#ffe2a8");
+      expect(readThemeToken(body, "--anchor-flashback-ink")).not.toBe("#3d2b12");
+      expect(readThemeToken(body, "--anchor-flashback-ring")).not.toBe("");
     }
   });
 

@@ -19,8 +19,8 @@ describe("TRAUMA icon system", () => {
   it("exports outline and filled nav icon variants", () => {
     for (const name of [
       "memories",
-      "highlights",
-      "flashback",
+      "flashbacks",
+      "moment",
       "categories",
       "tags",
       "backup",

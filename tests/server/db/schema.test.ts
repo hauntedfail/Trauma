@@ -17,10 +17,10 @@ describe("db foundation", () => {
       "backupFailsafeAlerts",
       "categories",
       "flashbacks",
-      "highlights",
       "memories",
       "memoryCategories",
       "memoryTags",
+      "moments",
       "openaiAuthCredentials",
       "tags",
     ]);
@@ -140,8 +140,8 @@ describe("db foundation", () => {
             connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "research", now, now);
             connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "sqlite", now, now);
             connection.sqlite
-              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-              .run("h-real", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "repository highlight", "from", "sqlite", 0, 20, now, now);
+              .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("f-real", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "repository flashback", "from", "sqlite", 0, 20, now, now);
 
             const memories = await connection.repositories.memories.listForBrowse();
             process.stdout.write(JSON.stringify(memories));
@@ -160,7 +160,7 @@ describe("db foundation", () => {
 
     const memories = JSON.parse(output);
     expect(memories[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(memories[0]?.highlights[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(memories[0]?.flashbacks[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(memories).toEqual([
       {
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
@@ -172,13 +172,13 @@ describe("db foundation", () => {
         extractionStatus: "success",
         categories: [{ id: "research", name: "Research" }],
         tags: [{ id: "sqlite", name: "sqlite" }],
-        highlights: [
+        flashbacks: [
           {
-            id: "h-real",
-            text: "repository highlight",
+            id: "f-real",
+            text: "repository flashback",
             prefix: "from",
             suffix: "sqlite",
-            createdAt: memories[0].highlights[0].createdAt,
+            createdAt: memories[0].flashbacks[0].createdAt,
           },
         ],
       },
@@ -302,6 +302,7 @@ describe("db foundation", () => {
       { id: 7, id_type: "integer" },
       { id: 8, id_type: "integer" },
       { id: 9, id_type: "integer" },
+      { id: 10, id_type: "integer" },
     ]);
   });
 
@@ -355,17 +356,18 @@ describe("db foundation", () => {
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f008",
         read: 0,
       },
-      migrationCount: 9,
+      migrationCount: 10,
     });
   });
 
-  it("rejects orphan highlights before recording the rebuilt highlights table", () => {
+  it("migrates existing highlight markers and section bookmarks to Flashbacks and Moments", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
           import { join } from "node:path";
           import { Database } from "bun:sqlite";
-          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
 
           const root = process.env.TRAUMA_TEST_DB_ROOT;
           if (!root) {
@@ -376,17 +378,95 @@ describe("db foundation", () => {
 
           try {
             sqlite.run("PRAGMA foreign_keys = ON");
-            applyBundledMigrations(sqlite);
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.slice(0, -1);
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const now = Date.parse("2026-05-15T00:00:00.000Z");
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, read, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f018", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f018/CONTENT.md", "success", "pending", 0, now, now);
+            sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("old-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f018", "marked text", "before", "after", 3, 14, "content-hash", now, now);
+            sqlite.prepare("insert into flashbacks (id, memory_id, section_anchor, section_title, section_level, section_path, section_start_offset, section_end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("old-flashback", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f018", "intro", "Introduction", 2, "1/1", 0, 42, "section-hash", now, now);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            process.stdout.write(JSON.stringify({
+              flashback: sqlite.prepare("select id, memory_id as memoryId, text, prefix, suffix, start_offset as startOffset, end_offset as endOffset, content_hash as contentHash from flashbacks where id = ?").get("old-highlight"),
+              moment: sqlite.prepare("select id, memory_id as memoryId, section_anchor as sectionAnchor, section_title as sectionTitle, section_level as sectionLevel, section_path as sectionPath, section_start_offset as sectionStartOffset, section_end_offset as sectionEndOffset, content_hash as contentHash from moments where id = ?").get("old-flashback"),
+              legacyTables: sqlite.prepare("select name from sqlite_master where type = 'table' and name in ('highlights') order by name").all(),
+              migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      flashback: {
+        id: "old-highlight",
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f018",
+        text: "marked text",
+        prefix: "before",
+        suffix: "after",
+        startOffset: 3,
+        endOffset: 14,
+        contentHash: "content-hash",
+      },
+      moment: {
+        id: "old-flashback",
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f018",
+        sectionAnchor: "intro",
+        sectionTitle: "Introduction",
+        sectionLevel: 2,
+        sectionPath: "1/1",
+        sectionStartOffset: 0,
+        sectionEndOffset: 42,
+        contentHash: "section-hash",
+      },
+      legacyTables: [],
+      migrationCount: 10,
+    });
+  });
+
+  it("rejects orphan Flashbacks before recording the product-language migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.slice(0, -1);
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             sqlite.run("PRAGMA foreign_keys = OFF");
             sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
               .run("orphan", "missing-memory", "orphan", "", "", 0, 6, Date.now(), Date.now());
-            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
-              .run(1778393646543);
             sqlite.run("PRAGMA foreign_keys = ON");
 
             try {
-              applyBundledMigrations(sqlite);
+              applyRuntimeMigrations(sqlite, migrations, "bundled");
               process.stdout.write(JSON.stringify({ rejected: false }));
             } catch (error) {
               process.stdout.write(JSON.stringify({
@@ -469,8 +549,8 @@ describe("db foundation", () => {
       `
           import { join } from "node:path";
           import { Database } from "bun:sqlite";
-          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
           import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
 
           const root = process.env.TRAUMA_TEST_DB_ROOT;
           if (!root) {
@@ -528,13 +608,13 @@ describe("db foundation", () => {
             sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
               .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f007/CONTENT.md", "success", "pending", now, now);
             sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-              .run("existing-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "valid", "", "", 0, 5, now, now);
+              .run("existing-flashback", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f007", "valid", "", "", 0, 5, now, now);
 
             applyBundledMigrations(sqlite);
 
             process.stdout.write(JSON.stringify({
-              checkSql: sqlite.prepare("select sql from sqlite_master where type = 'table' and name = 'highlights'").get().sql,
-              highlightCount: sqlite.prepare("select count(*) as count from highlights where id = 'existing-highlight'").get().count,
+              checkSql: sqlite.prepare("select sql from sqlite_master where type = 'table' and name = 'flashbacks'").get().sql,
+              flashbackCount: sqlite.prepare("select count(*) as count from flashbacks where id = 'existing-flashback'").get().count,
               migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
             }));
           } finally {
@@ -553,8 +633,8 @@ describe("db foundation", () => {
     const result = JSON.parse(output);
 
     expect(result).toMatchObject({
-      highlightCount: 1,
-      migrationCount: 9,
+      flashbackCount: 1,
+      migrationCount: 10,
     });
     expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });
@@ -735,7 +815,8 @@ describe("db foundation", () => {
       `
           import { join } from "node:path";
           import { Database } from "bun:sqlite";
-          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
 
           const root = process.env.TRAUMA_TEST_DB_ROOT;
           if (!root) {
@@ -745,7 +826,9 @@ describe("db foundation", () => {
           const sqlite = new Database(join(root, "trauma.sqlite"));
 
           try {
-            applyBundledMigrations(sqlite);
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.slice(0, -1);
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             sqlite.run("PRAGMA foreign_keys = OFF");
             sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -754,17 +837,15 @@ describe("db foundation", () => {
             sqlite.prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
               .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f005", "bad", "", "", 8, 2, Date.now(), Date.now());
             sqlite.run("PRAGMA ignore_check_constraints = OFF");
-            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
-              .run(1778393646543);
             sqlite.run("PRAGMA foreign_keys = ON");
 
             try {
-              applyBundledMigrations(sqlite);
+              applyRuntimeMigrations(sqlite, migrations, "bundled");
               process.stdout.write(JSON.stringify({ rejected: false }));
             } catch (error) {
               process.stdout.write(JSON.stringify({
                 rejected: true,
-                newTableCount: sqlite.prepare("select count(*) as count from sqlite_master where type = 'table' and name = '__new_highlights'").get().count,
+                newTableCount: sqlite.prepare("select count(*) as count from sqlite_master where type = 'table' and name = '__new_flashbacks'").get().count,
                 foreignKeys: sqlite.prepare("PRAGMA foreign_keys").get().foreign_keys,
                 message: error instanceof Error ? error.message : String(error),
               }));
@@ -887,7 +968,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("rejects invalid highlight offsets at the SQLite boundary", () => {
+  it("rejects invalid flashback offsets at the SQLite boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -942,7 +1023,7 @@ describe("db foundation", () => {
               );
 
             connection.sqlite
-              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
               .run("bad-offset", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f004", "bad", "", "", 8, 2, now, now);
 
             process.stdout.write(JSON.stringify({ rejected: false }));
@@ -969,7 +1050,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("rejects zero-length highlight ranges at the SQLite boundary", () => {
+  it("rejects zero-length flashback ranges at the SQLite boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -1024,14 +1105,14 @@ describe("db foundation", () => {
               );
 
             connection.sqlite
-              .prepare("insert into highlights (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-              .run("empty-highlight", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006", "", "", "", 8, 8, now, now);
+              .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("empty-flashback", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f006", "", "", "", 8, 8, now, now);
 
             process.stdout.write(JSON.stringify({ rejected: false }));
           } catch (error) {
             process.stdout.write(JSON.stringify({
-              highlightCount: connection.sqlite
-                .prepare("select count(*) as count from highlights where id = 'empty-highlight'")
+              flashbackCount: connection.sqlite
+                .prepare("select count(*) as count from flashbacks where id = 'empty-flashback'")
                 .get().count,
               rejected: true,
               message: error instanceof Error ? error.message : String(error),
@@ -1050,9 +1131,9 @@ describe("db foundation", () => {
     );
 
     expect(JSON.parse(output)).toMatchObject({
-      highlightCount: 0,
+      flashbackCount: 0,
       rejected: true,
-      message: expect.stringContaining("highlights_end_offset_check"),
+      message: expect.stringContaining("flashbacks_end_offset_check"),
     });
   });
 

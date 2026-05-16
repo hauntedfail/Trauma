@@ -18,7 +18,7 @@ describe("loadReaderMemory", () => {
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,
-      markdown: "# Fixture Reader\n\nA saved highlight.",
+      markdown: "# Fixture Reader\n\nA saved flashback.",
     });
 
     expect(result.status).toBe("ready");
@@ -27,7 +27,7 @@ describe("loadReaderMemory", () => {
     expect(result.memory.read).toBe(false);
     expect(result.memory.categories).toEqual([{ id: "reader-category", name: "Reader" }]);
     expect(result.memory.tags).toEqual([{ id: "reader-tag", name: "reader" }]);
-    expect(result.memory.flashbacks).toEqual([
+    expect(result.memory.moments).toEqual([
       {
         id: "flashback-reader",
         sectionAnchor: "fixture-reader",
@@ -40,10 +40,10 @@ describe("loadReaderMemory", () => {
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ]);
-    expect(result.memory.highlights).toEqual([
+    expect(result.memory.flashbacks).toEqual([
       {
         id: "hl-1",
-        text: "highlight",
+        text: "flashback",
         prefix: "A saved ",
         suffix: ".",
         startOffset: 26,
@@ -61,7 +61,7 @@ describe("loadReaderMemory", () => {
     ]);
     expect(result.rendered.html).toContain('<h1 id="fixture-reader"');
     expect(result.rendered.html).toContain(
-      '<mark data-highlight-id="hl-1" id="hl-1">highlight</mark>',
+      '<mark data-flashback-id="hl-1" id="hl-1">flashback</mark>',
     );
   });
 
@@ -194,21 +194,21 @@ function runReaderFixture(input: {
           createdAt: new Date("2026-05-09T00:00:00.000Z"),
           updatedAt: new Date("2026-05-09T00:00:00.000Z"),
         });
-        const highlightStartOffset = markdown.indexOf("highlight");
-        if (highlightStartOffset >= 0) {
-          await connection.db.insert(schema.highlights).values({
+        const flashbackStartOffset = markdown.indexOf("flashback");
+        if (flashbackStartOffset >= 0) {
+          await connection.db.insert(schema.flashbacks).values({
             id: "hl-1",
             memoryId,
-            text: "highlight",
+            text: "flashback",
             prefix: "A saved ",
             suffix: ".",
-            startOffset: highlightStartOffset,
-            endOffset: highlightStartOffset + "highlight".length,
+            startOffset: flashbackStartOffset,
+            endOffset: flashbackStartOffset + "flashback".length,
             createdAt: new Date("2026-05-09T00:00:00.000Z"),
             updatedAt: new Date("2026-05-09T00:00:00.000Z"),
           });
         }
-        await connection.db.insert(schema.flashbacks).values({
+        await connection.db.insert(schema.moments).values({
           id: "flashback-reader",
           memoryId,
           sectionAnchor: "fixture-reader",

@@ -12,13 +12,13 @@ describe("refined reader visual contract", () => {
   it("uses TRAUMA design tokens instead of legacy reader palette utilities", () => {
     expect(combinedSource).toContain("text-trauma-text-primary");
     expect(combinedSource).toContain("bg-trauma-bg-surface");
-    expect(combinedSource).toContain("prose-mark:bg-trauma-highlight-bg");
+    expect(combinedSource).toContain("prose-mark:bg-trauma-flashback-bg");
     expect(combinedSource).toContain("trauma-reader-content");
     expect(combinedSource).toContain("prose-a:text-trauma-link");
     expect(combinedSource).not.toMatch(/text-slate|border-slate|bg-slate|text-blue|bg-white|yellow-/);
   });
 
-  it("keeps safe source-link rendering and read-only highlight toggles", () => {
+  it("keeps safe source-link rendering and read-only flashback toggles", () => {
     expect(readerSource).toContain("toSafeReaderSourceHref");
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
@@ -84,18 +84,18 @@ describe("refined reader visual contract", () => {
     expect(fadeRule).not.toContain("var(--accent)");
   });
 
-  it("gives linked highlight anchors a target-specific contrast treatment", () => {
-    expect(tailwindSource).toContain("--anchor-highlight-bg");
-    expect(tailwindSource).toContain("--anchor-highlight-ink");
-    expect(tailwindSource).toContain("--anchor-highlight-ring");
+  it("gives linked flashback anchors a target-specific contrast treatment", () => {
+    expect(tailwindSource).toContain("--anchor-flashback-bg");
+    expect(tailwindSource).toContain("--anchor-flashback-ink");
+    expect(tailwindSource).toContain("--anchor-flashback-ring");
     expect(tailwindSource).toContain(
-      ".trauma-reader-content mark[data-highlight-id]:target",
+      ".trauma-reader-content mark[data-flashback-id]:target",
     );
     expect(tailwindSource).toContain(
-      "background-color: var(--anchor-highlight-bg)",
+      "background-color: var(--anchor-flashback-bg)",
     );
-    expect(tailwindSource).toContain("color: var(--anchor-highlight-ink)");
-    expect(tailwindSource).toContain("var(--anchor-highlight-ring)");
+    expect(tailwindSource).toContain("color: var(--anchor-flashback-ink)");
+    expect(tailwindSource).toContain("var(--anchor-flashback-ring)");
     expect(tailwindSource).toContain("scroll-margin-block");
   });
 

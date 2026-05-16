@@ -28,8 +28,8 @@
   may remain active.
 - MUST sanitize rendered markdown or HTML before it reaches the browser.
 - MUST NOT use raw HTML injection without a sanitizer and a local explanation.
-- MUST preserve allowed reader-rendered highlight marks during sanitization, but
-  normal highlight persistence must stay SQLite-backed and must not rewrite
+- MUST preserve allowed reader-rendered flashback marks during sanitization, but
+  normal flashback persistence must stay SQLite-backed and must not rewrite
   `CONTENT.md`.
 - MUST normalize or remove browser capability attributes on allowed embeds.
   Saved markdown must not control iframe `allow` permissions, referrer policy,

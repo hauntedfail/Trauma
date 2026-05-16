@@ -33,14 +33,14 @@ import {
 } from "../memories/browse-loader";
 import {
   buildBrowseHref,
-  buildHighlightBrowseHref,
-  getRecentHighlights,
+  buildFlashbackBrowseHref,
+  getRecentFlashbacks,
   parseBrowseQuery,
-  type BrowseHighlight,
+  type BrowseFlashback,
   type BrowseQuery,
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
-import { HighlightShortcutList } from "../highlights/HighlightShortcutList";
+import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
   DEFAULT_BRIGHTNESS_MODE,
   DEFAULT_SURFACE_MODE,
@@ -105,8 +105,8 @@ const SURFACE_STORAGE_KEY = "trauma:surface";
 
 const routeNavItems = [
   { href: "/memories", icon: "memories", label: "Memories", pip: false },
-  { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
-  { href: "/flashback", icon: "flashback", label: "Flashback", pip: false },
+  { href: "/flashbacks", icon: "flashbacks", label: "Flashbacks", pip: true },
+  { href: "/moments", icon: "moment", label: "Moments", pip: false },
 ] as const satisfies readonly RouteNavItem[];
 
 const settingsNavItem = {
@@ -127,8 +127,8 @@ const futureNavItems = {
 
 const phoneTabItems = [
   { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
-  { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
-  { kind: "route", href: "/flashback", icon: "flashback", label: "Flashback" },
+  { kind: "route", href: "/flashbacks", icon: "flashbacks", label: "Flashbacks" },
+  { kind: "route", href: "/moments", icon: "moment", label: "Moments" },
   { kind: "disabled", icon: "categories", label: "Categories" },
   { kind: "disabled", icon: "tags", label: "Tags" },
   { kind: "disabled", icon: "backup", label: "Backup" },
@@ -155,7 +155,7 @@ export function AppShell(props: AppShellProps) {
   const query = createMemo(() => parseBrowseQuery(location.search));
   const categories = createMemo(() => taxonomy()?.categories ?? []);
   const tags = createMemo(() => taxonomy()?.tags ?? []);
-  const highlights = createMemo(() => getRecentHighlights(browseMemories()));
+  const flashbacks = createMemo(() => getRecentFlashbacks(browseMemories()));
   const activePath = createMemo(() => location.pathname);
 
   onMount(() => {
@@ -185,11 +185,11 @@ export function AppShell(props: AppShellProps) {
     navigate(buildBrowseHref(query(), patch));
   };
 
-  const goToHighlight = (highlightId: string) => {
-    navigate(buildHighlightBrowseHref(highlightId));
+  const goToFlashback = (flashbackId: string) => {
+    navigate(buildFlashbackBrowseHref(flashbackId));
   };
 
-  const toggleFilter = (key: "category" | "tag" | "highlight", value: string) => {
+  const toggleFilter = (key: "category" | "tag" | "flashback", value: string) => {
     const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
     goToFilter(patch);
   };
@@ -222,17 +222,17 @@ export function AppShell(props: AppShellProps) {
           </Show>
           <RightRailFilters
             activeCategory={query().category}
-            activeHighlight={query().highlight}
+            activeFlashback={query().flashback}
             activeTag={query().tag}
             categories={categories()}
-            highlights={highlights()}
+            flashbacks={flashbacks()}
             idPrefix="desktop"
             onCreatedCategory={() => void revalidateBrowseTaxonomy()}
             onCreatedTag={() => void revalidateBrowseTaxonomy()}
             onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
+            onSelectFlashback={(flashback) => goToFlashback(flashback.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
-            showHighlights={rightRailContent() === undefined}
+            showFlashbacks={rightRailContent() === undefined}
             tags={tags()}
           />
         </div>
@@ -582,17 +582,17 @@ function AddMemoryComposerButton(props: {
 
 export function RightRailFilters(props: {
   activeCategory: string;
-  activeHighlight: string;
+  activeFlashback: string;
   activeTag: string;
   categories: BrowseTaxonomySummaryItem[];
-  highlights: BrowseHighlight[];
+  flashbacks: BrowseFlashback[];
   idPrefix: string;
   onCreatedCategory: () => void;
   onCreatedTag: () => void;
   onSelectCategory: (category: BrowseTaxonomySummaryItem) => void;
-  onSelectHighlight: (highlight: BrowseHighlight) => void;
+  onSelectFlashback: (flashback: BrowseFlashback) => void;
   onSelectTag: (tag: BrowseTaxonomySummaryItem) => void;
-  showHighlights?: boolean;
+  showFlashbacks?: boolean;
   tags: BrowseTaxonomySummaryItem[];
 }) {
   const [openCreateKind, setOpenCreateKind] = createSignal<
@@ -693,17 +693,17 @@ export function RightRailFilters(props: {
           </Show>
         </div>
       </RightPanelSection>
-      <Show when={props.showHighlights !== false}>
-        <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
-          <HighlightShortcutList
+      <Show when={props.showFlashbacks !== false}>
+        <RightPanelSection title="Recent flashbacks" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
+          <FlashbackShortcutList
             class={`${rightRailScrollContent} grid gap-3`}
-            emptyLabel="No highlights yet"
-            highlights={props.highlights.map((highlight) => ({
-              active: props.activeHighlight === highlight.id,
-              id: highlight.id,
-              onSelect: () => props.onSelectHighlight(highlight),
-              prefix: highlight.prefix,
-              text: highlight.text,
+            emptyLabel="No flashbacks yet"
+            flashbacks={props.flashbacks.map((flashback) => ({
+              active: props.activeFlashback === flashback.id,
+              id: flashback.id,
+              onSelect: () => props.onSelectFlashback(flashback),
+              prefix: flashback.prefix,
+              text: flashback.text,
             }))}
           />
         </RightPanelSection>
