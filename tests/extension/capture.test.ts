@@ -98,6 +98,34 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).toContain("Readable paragraph 2999.");
   });
 
+  it("skips removable nodes before enforcing the capture byte budget", () => {
+    installPage({
+      href: "https://example.com/removable-budget",
+      html: `<!doctype html>
+        <html>
+          <head><title>Removable Budget</title></head>
+          <body>
+            <article>
+              <h1>Removable Budget</h1>
+              <p>Readable content should survive even when ignored scripts are huge.</p>
+              <script>${"ignored script ".repeat(1_000)}</script>
+              <style>${".ignored { color: red; }".repeat(1_000)}</style>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0", 2_000);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleText).toContain("Readable content should survive");
+    expect(result.snapshot.articleHtml).not.toContain("<script");
+    expect(result.snapshot.articleHtml).not.toContain("<style");
+  });
+
   it("preserves controlled HTTPS media while removing unsafe iframe forms", () => {
     installPage({
       href: "https://example.com/article",

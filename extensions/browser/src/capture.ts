@@ -230,8 +230,12 @@ function cloneElementWithinByteBudget(
 
       inspected += 1;
       if (child.nodeType === 1) {
+        if (!(child instanceof Element) || isRemovedElement(child)) {
+          continue;
+        }
+
         const childClone = child.cloneNode(false);
-        if (!(child instanceof Element) || !(childClone instanceof Element)) {
+        if (!(childClone instanceof Element)) {
           continue;
         }
         const childBytes = estimateElementShellBytes(childClone);

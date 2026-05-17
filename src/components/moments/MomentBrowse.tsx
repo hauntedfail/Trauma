@@ -5,6 +5,7 @@ import type { MomentBrowseRow } from "~/server/moments/browse";
 import { deleteMomentById } from "./moment-action-requests";
 import { MomentActionMenu } from "./MomentActionMenu";
 import { getMomentBrowseRows, revalidateMomentBrowseRows } from "./moments-loader";
+import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -25,10 +26,16 @@ export function MomentBrowse() {
 
     return currentMoments.filter((moment) => !deletedMomentIds().has(moment.id));
   };
-  const deleteMoment = async (momentId: string): Promise<void> => {
+  const deleteMoment = async (
+    momentId: string,
+    memoryId: string,
+  ): Promise<void> => {
     await deleteMomentById({ momentId });
     setDeletedMomentIds((current) => new Set([...current, momentId]));
-    void revalidateMomentBrowseRows();
+    await Promise.all([
+      revalidateMomentBrowseRows(),
+      revalidateReaderMemory(memoryId),
+    ]);
   };
   onMount(() => {
     void revalidateMomentBrowseRows();
@@ -77,7 +84,7 @@ export function MomentBrowse() {
 
 function MomentRow(props: {
   moment: MomentBrowseRow;
-  onDeleteMoment: (momentId: string) => Promise<void>;
+  onDeleteMoment: (momentId: string, memoryId: string) => Promise<void>;
 }) {
   const href = () => props.moment.targetAnchor === null
     ? `/memories/${props.moment.memoryId}`
@@ -114,7 +121,9 @@ function MomentRow(props: {
         <MomentActionMenu
           momentId={props.moment.id}
           sectionTitle={props.moment.sectionTitle}
-          onDelete={props.onDeleteMoment}
+          onDelete={(momentId) =>
+            props.onDeleteMoment(momentId, props.moment.memoryId)
+          }
         />
       </div>
     </article>

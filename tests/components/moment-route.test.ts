@@ -26,6 +26,7 @@ describe("Moment route", () => {
     expect(browseSource).toContain("MomentActionMenu");
     expect(browseSource).toContain("deleteMomentById");
     expect(browseSource).toContain("revalidateMomentBrowseRows");
+    expect(browseSource).toContain("revalidateReaderMemory(memoryId)");
     expect(browseSource).toContain("props.moment.targetAnchor === null");
     expect(browseSource).toContain('props.moment.targetStatus === "stale"');
     expect(browseSource).toContain("Section moved");
