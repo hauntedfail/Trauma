@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createEffect, createSignal, on } from "solid-js";
 
 import { CheckIcon } from "../icons/TraumaIcons";
 
@@ -36,6 +36,17 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   const [read, setRead] = createSignal(props.initialRead);
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal("");
+
+  createEffect(
+    on(
+      () => [props.memoryId, props.initialRead] as const,
+      ([, nextRead]) => {
+        setRead(nextRead);
+        setPending(false);
+        setError("");
+      },
+    ),
+  );
 
   const toggle = async (): Promise<void> => {
     const previous = read();

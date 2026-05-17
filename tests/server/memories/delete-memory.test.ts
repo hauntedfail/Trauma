@@ -1,11 +1,16 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { MemoryBackupQueue } from "../../../src/server/backup";
+import {
+  runGitBackupJob,
+  type MemoryBackupQueue,
+} from "../../../src/server/backup";
 import { BackupEnvironmentFailsafeError } from "../../../src/server/backup/environment";
+import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
 import { deleteMemory } from "../../../src/server/memories/delete-memory";
@@ -75,6 +80,79 @@ describe("delete memory service", () => {
         ],
         reason: "memory_deletion",
       },
+    ]);
+  });
+
+  it("backs up tracked memory deletion before dropping the SQLite row", async () => {
+    const root = await makeRoot();
+    const loadedConfig = loadRouteConfig(await writeRouteConfig(root));
+    const config = {
+      ...loadedConfig,
+      backup: {
+        git: {
+          ...loadedConfig.backup.git,
+          enabled: true,
+          commitMessageTemplate: "backup {action} {memoryId}",
+        },
+      },
+    };
+    await initializeGitRepository(config.projectPath);
+    await stampBackupEnvironment(config);
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    await writeFlashbackExport(config.storePath, routeMemoryId);
+    await runGitBackupJob({
+      config,
+      job: {
+        memoryId: routeMemoryId,
+        contentPaths: [
+          `memories/${routeMemoryId}/CONTENT.md`,
+          `memories/${routeMemoryId}/FLASHBACKS.json`,
+        ],
+        reason: "memory_creation",
+      },
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        deleteMemory({
+          config,
+          db: connection.db,
+          memoryId: routeMemoryId,
+        }),
+      ).resolves.toEqual({ status: "deleted" });
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id = ?")
+          .get(routeMemoryId),
+      ).toEqual({ count: 0 });
+    } finally {
+      connection.close();
+    }
+
+    expect(git(config.projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup deleted memory ${routeMemoryId}`,
+    );
+    expect(
+      git(config.projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([
+      `D\tstorage/memories/${routeMemoryId}/CONTENT.md`,
+      `D\tstorage/memories/${routeMemoryId}/FLASHBACKS.json`,
     ]);
   });
 
@@ -179,7 +257,7 @@ describe("delete memory service", () => {
       .rejects.toThrow();
   });
 
-  it("returns a partial failure when staged content cleanup fails", async () => {
+  it("returns deleted with a warning when staged content cleanup fails", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
     await seedRouteMemory(config);
@@ -210,15 +288,17 @@ describe("delete memory service", () => {
       });
 
       expect(result).toMatchObject({
-        status: "failed",
-        partial: "content_cleanup_failed",
+        status: "deleted",
+        warnings: [
+          {
+            kind: "content_cleanup_failed",
+          },
+        ],
       });
-      expect(result.status === "failed" ? result.error : "").toContain(
-        "staging cleanup denied",
-      );
-      expect(result.status === "failed" ? result.error : "").toContain(
-        ".delete-staging",
-      );
+      expect(result.status === "deleted" ? result.warnings?.[0]?.error : "")
+        .toContain("staging cleanup denied");
+      expect(result.status === "deleted" ? result.warnings?.[0]?.error : "")
+        .toContain(".delete-staging");
       expect(
         connection.sqlite
           .prepare("select count(*) as count from memories where id = ?")
@@ -305,6 +385,50 @@ async function makeRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "trauma-delete-memory-"));
   tempDirs.push(root);
   return root;
+}
+
+async function initializeGitRepository(projectPath: string): Promise<void> {
+  await mkdir(projectPath, { recursive: true });
+  git(projectPath, ["init", "--initial-branch=main"]);
+  git(projectPath, ["config", "user.name", "Trauma Tests"]);
+  git(projectPath, ["config", "user.email", "trauma@example.invalid"]);
+}
+
+async function stampBackupEnvironment(
+  config: ResolvedTraumaConfig,
+): Promise<void> {
+  const connection = initializeDatabase(config);
+  try {
+    await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+      id: "default",
+      projectPath: config.projectPath,
+      storePath: config.storePath,
+      gitRemote: config.backup.git.remote,
+      gitRemoteUrl: null,
+      gitBranch: config.backup.git.branch,
+      createdAt: routeNow,
+      updatedAt: routeNow,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: createChildEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function createChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
 }
 
 async function writeFlashbackExport(

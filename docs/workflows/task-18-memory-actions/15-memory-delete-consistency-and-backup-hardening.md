@@ -128,14 +128,21 @@ Required behaviour:
   SQLite.
 - Keep missing content directory tolerant: a memory record may still be deleted
   when its content directory is already absent.
+- When git backup is enabled, stage the content removal and run the deletion
+  backup synchronously before deleting the SQLite row. A deletion backup must
+  not be delegated to the asynchronous memory backup queue because the row is
+  the retry state.
 - Restore the staged directory if SQLite row deletion fails.
-- Treat staged-directory cleanup failure after SQLite deletion as a controlled
-  delete failure with a precise operational error. Do not queue backup deletion
-  while staged content still exists.
+- Treat staged-directory cleanup failure after successful backup and SQLite
+  deletion as a `deleted` result with a precise cleanup warning. At that point
+  the canonical content directory is gone, the deletion backup is durable, and
+  the SQLite row is gone; surfacing it as a failed delete would misrepresent the
+  completed canonical delete.
 - Do not let backup enqueue failure turn a completed local deletion into a
   failed user-visible delete.
-- Return success only after the canonical content directory is gone, the staged
-  directory is removed, and the SQLite row is gone.
+- Return success only after the canonical content directory is gone and the
+  SQLite row is gone. If staged cleanup fails, return `deleted` with a
+  `content_cleanup_failed` warning for operator cleanup.
 
 Recommended result shape:
 
@@ -143,13 +150,11 @@ Recommended result shape:
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
   | { status: "not_found" }
-  | { status: "failed"; error: string; partial?: DeleteMemoryPartialFailure };
-
-export type DeleteMemoryPartialFailure =
-  | "content_cleanup_failed";
+  | { status: "failed"; error: string };
 
 export type DeleteMemoryWarning =
-  | { kind: "backup_enqueue_failed"; error: string };
+  | { kind: "backup_enqueue_failed"; error: string }
+  | { kind: "content_cleanup_failed"; error: string };
 ```
 
 The route may still return `204` for `deleted` with warnings. The warning should
@@ -161,10 +166,12 @@ Regression tests:
 - Backup enqueue throws after SQLite/content deletion: service resolves
   `{ status: "deleted", warnings: [...] }`, memory row is gone, content directory
   is gone.
+- Git-backed deletion: service creates a deletion backup commit before removing
+  the SQLite row, and the async backup queue rejects `memory_deletion` jobs.
 - SQLite deletion throws after staging: service returns `failed` and restores the
   content directory.
 - Staged-directory cleanup throws after SQLite deletion: service returns
-  `failed` with `partial: "content_cleanup_failed"`, and the error includes
+  `deleted` with a `content_cleanup_failed` warning, and the warning includes
   enough path context for manual cleanup.
 - Missing content directory with existing SQLite row: service deletes the row
   and returns `deleted`.
@@ -206,11 +213,12 @@ Files:
 
 Required behaviour:
 
-- A normal memory deletion must enqueue a backup deletion job for the deleted
-  backup-tracked content.
+- A normal git-backed memory deletion must run the backup deletion job
+  synchronously for the deleted backup-tracked content before removing the
+  SQLite row.
 - The backup runner must stage deletion for the tracked memory content path.
-- Remote push failure must use the existing backup warning/retry behaviour and
-  must not roll back local deletion.
+- Remote push failure during synchronous deletion backup must stop the local
+  deletion and restore staged content so the SQLite row remains retryable.
 
 Decision to apply now:
 
@@ -225,9 +233,11 @@ Decision to apply now:
 
 Regression tests:
 
-- Backup-enabled deletion enqueues `reason: "memory_deletion"`.
+- Backup-enabled deletion creates a `reason: "memory_deletion"` backup commit
+  before the SQLite row is deleted.
 - Backup runner commits deleted `CONTENT.md` and `FLASHBACKS.json` paths when
   both were tracked.
+- The asynchronous backup queue rejects `reason: "memory_deletion"` jobs.
 - Backup enqueue failure does not make the delete API return failure after the
   SQLite row and canonical content directory are gone.
 

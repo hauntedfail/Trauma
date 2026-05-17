@@ -142,31 +142,25 @@ export function createGitMemoryBackupQueue(
 
   async function processJob(job: MemoryBackupJob) {
     try {
-      if (job.reason !== "memory_deletion") {
-        await updateBackupStatus({
-          memoryId: job.memoryId,
-          backupStatus: "queued",
-          lastBackupError: null,
-        });
-      }
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "queued",
+        lastBackupError: null,
+      });
       await runJob({ config: input.config, job });
-      if (job.reason !== "memory_deletion") {
-        await updateBackupStatus({
-          memoryId: job.memoryId,
-          backupStatus: "success",
-          lastBackupAt: now(),
-          lastBackupError: null,
-        });
-      }
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "success",
+        lastBackupAt: now(),
+        lastBackupError: null,
+      });
     } catch (error) {
       try {
-        if (job.reason !== "memory_deletion") {
-          await updateBackupStatus({
-            memoryId: job.memoryId,
-            backupStatus: "failed",
-            lastBackupError: formatUnknownError(error),
-          });
-        }
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "failed",
+          lastBackupError: formatUnknownError(error),
+        });
       } catch {
         // Preserve the original backup failure. A missing row or closed DB must
         // not stop later queued backups in the same process.
@@ -202,6 +196,11 @@ export function createGitMemoryBackupQueue(
     }
 
     const job = normalizeBackupJob(enqueueInput);
+    if (job.reason === "memory_deletion") {
+      throw new GitBackupError(
+        "memory deletion backups must run synchronously before deleting the memory row",
+      );
+    }
     const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
     if (pendingJob !== undefined) {
       mergeBackupJobs(pendingJob, job);

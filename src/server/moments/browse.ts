@@ -1,4 +1,7 @@
-import { loadRuntimeTraumaConfig } from "../config";
+import {
+  loadRuntimeTraumaConfig,
+  type ResolvedTraumaConfig,
+} from "../config";
 import { initializeDatabase } from "../db";
 import type { MomentBrowseRow as StoredMomentBrowseRow } from "../db/repositories";
 import { MemoryContentStoreError, readMemoryContent } from "../store";
@@ -18,9 +21,14 @@ export async function loadMomentBrowseRows(): Promise<MomentBrowseRow[]> {
     return [];
   }
 
+  return loadMomentBrowseRowsForConfig(loadRuntimeTraumaConfig());
+}
+
+export async function loadMomentBrowseRowsForConfig(
+  config: ResolvedTraumaConfig,
+): Promise<MomentBrowseRow[]> {
   let connection: ReturnType<typeof initializeDatabase> | undefined;
   try {
-    const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
     const rows = await connection.repositories.moments.listForBrowse();
     const tocCache = new Map<
@@ -29,11 +37,11 @@ export async function loadMomentBrowseRows(): Promise<MomentBrowseRow[]> {
     >();
     return Promise.all(
       rows.map(async (row) => ({
-        ...row,
-        ...await resolveMomentTarget({
-          row,
-          loadToc: () => getMomentMemoryToc({ config, memoryId: row.memoryId, tocCache }),
-        }),
+          ...row,
+          ...await resolveMomentTarget({
+            row,
+            loadToc: () => getMomentMemoryToc({ config, memoryId: row.memoryId, tocCache }),
+          }),
       })),
     );
   } finally {

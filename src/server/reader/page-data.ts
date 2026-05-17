@@ -123,13 +123,14 @@ export async function loadReaderMemory(
     }
 
     const content = await readMemoryContent({ config, memoryId });
+    const rendered = renderMemoryMarkdownSafely(content.markdown, memory.flashbacks);
     return {
       status: "ready",
-      memory: toReaderMemory(memory),
+      memory: toReaderMemory(memory, rendered),
       content: {
         relativePath: content.relativePath,
       },
-      rendered: renderMemoryMarkdownSafely(content.markdown, memory.flashbacks),
+      rendered,
     };
   } catch (error) {
     if (
@@ -175,7 +176,11 @@ function renderMemoryMarkdownSafely(
   }
 }
 
-function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
+function toReaderMemory(
+  memory: ReaderMemoryRow,
+  rendered: RenderedMemoryMarkdown,
+): ReaderMemory {
+  const renderedFlashbackIds = collectRenderedFlashbackIds(rendered.html);
   return {
     id: memory.id,
     url: memory.url,
@@ -204,17 +209,30 @@ function toReaderMemory(memory: ReaderMemoryRow): ReaderMemory {
       id: tag.id,
       name: tag.name,
     })),
-    flashbacks: memory.flashbacks.map((flashback) => ({
-      id: flashback.id,
-      text: flashback.text,
-      prefix: flashback.prefix,
-      suffix: flashback.suffix,
-      startOffset: flashback.startOffset,
-      endOffset: flashback.endOffset,
-      contentHash: flashback.contentHash,
-      createdAt: flashback.createdAt.toISOString(),
-    })),
+    flashbacks: memory.flashbacks
+      .filter((flashback) => renderedFlashbackIds.has(flashback.id))
+      .map((flashback) => ({
+        id: flashback.id,
+        text: flashback.text,
+        prefix: flashback.prefix,
+        suffix: flashback.suffix,
+        startOffset: flashback.startOffset,
+        endOffset: flashback.endOffset,
+        contentHash: flashback.contentHash,
+        createdAt: flashback.createdAt.toISOString(),
+      })),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,
   };
+}
+
+function collectRenderedFlashbackIds(html: string): Set<string> {
+  const ids = new Set<string>();
+  for (const match of html.matchAll(/\bdata-flashback-id="([^"]+)"/g)) {
+    const id = match[1];
+    if (id !== undefined) {
+      ids.add(id);
+    }
+  }
+  return ids;
 }

@@ -8,7 +8,8 @@ import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/co
 import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
-import { writeMemoryContent } from "../../src/server/store";
+import { createReaderContentHash, writeMemoryContent } from "../../src/server/store";
+import { readCanonicalReaderText } from "../../src/server/store/flashback-markers";
 
 const originalEnv = { ...process.env };
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901";
@@ -34,6 +35,21 @@ describe("server browse loaders", () => {
   it("keeps the flashback browse database open until rows materialize", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
+    const markdown = "# Loader Memory\n\nA selected text.";
+    const flashbackStartOffset =
+      readCanonicalReaderText(markdown).indexOf("selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
     const connection = initializeDatabase(config);
     try {
       await connection.db.insert(schema.flashbacks).values({
@@ -42,8 +58,9 @@ describe("server browse loaders", () => {
         text: "selected text",
         prefix: "before",
         suffix: "after",
-        startOffset: 10,
-        endOffset: 23,
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(markdown),
         createdAt: now,
         updatedAt: now,
       });
@@ -59,12 +76,51 @@ describe("server browse loaders", () => {
         text: "selected text",
         prefix: "before",
         suffix: "after",
-        startOffset: 10,
-        endOffset: 23,
-        contentHash: null,
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(markdown),
         createdAt: "2026-05-16T00:00:00.000Z",
       },
     ]);
+  });
+
+  it("filters stale flashback browse rows that cannot render into the reader", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const markdown = "# Loader Memory\n\nA selected text.";
+    const flashbackStartOffset =
+      readCanonicalReaderText(markdown).indexOf("selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values({
+        id: "stale-flashback-loader",
+        memoryId,
+        text: "selected text",
+        prefix: "before",
+        suffix: "after",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadFlashbackBrowseRows()).resolves.toEqual([]);
   });
 
   it("keeps the Moment browse database open until rows materialize", async () => {

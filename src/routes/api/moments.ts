@@ -2,6 +2,7 @@ import type { APIEvent } from "@solidjs/start/server";
 
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
+import { loadMomentBrowseRowsForConfig } from "~/server/moments/browse";
 import { generateMomentId } from "~/server/moments/id";
 import {
   renderMemoryMarkdown,
@@ -54,15 +55,10 @@ export async function GET(): Promise<Response> {
     return json({ error: formatConfigError(error) }, { status: 500 });
   }
 
-  const connection = initializeDatabase(config);
-  try {
-    return json(
-      { moments: await connection.repositories.moments.listForBrowse() },
-      { status: 200 },
-    );
-  } finally {
-    connection.close();
-  }
+  return json(
+    { moments: await loadMomentBrowseRowsForConfig(config) },
+    { status: 200 },
+  );
 }
 
 export async function POST(event: APIEvent): Promise<Response> {

@@ -158,6 +158,8 @@ describe("moments API routes", () => {
           memoryUrl: `https://example.com/${routeMemoryId}`,
           sectionAnchor: "chapter-one",
           sectionTitle: "Chapter One",
+          targetAnchor: "chapter-one",
+          targetStatus: "current",
           contentHash: expectedContentHash,
         },
       ],
@@ -221,6 +223,57 @@ describe("moments API routes", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("lists Moments with resolved reader targets instead of raw stale anchors", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config, { title: "Moment Route Memory" });
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Moment Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\n## Renamed Chapter\n\nSection body.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.moments.create({
+        id: "moment-with-renamed-anchor",
+        memoryId: routeMemoryId,
+        sectionAnchor: "chapter-one",
+        sectionTitle: "Chapter One",
+        sectionLevel: 2,
+        sectionPath: "1/1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const listResponse = await GET();
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toMatchObject({
+      moments: [
+        {
+          id: "moment-with-renamed-anchor",
+          memoryId: routeMemoryId,
+          sectionAnchor: "chapter-one",
+          targetAnchor: "renamed-chapter",
+          targetStatus: "resolved_from_path",
+        },
+      ],
+    });
   });
 
   it("rejects Moments for missing or mismatched reader sections", async () => {

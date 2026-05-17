@@ -100,6 +100,7 @@ describe("loadReaderMemory", () => {
     expect(result.status).toBe("ready");
     expect(result.rendered.html).toContain("<p>A saved flashback.</p>");
     expect(result.rendered.html).not.toContain("<mark");
+    expect(result.memory.flashbacks).toEqual([]);
   });
 
   it("returns a user-readable unavailable state when the default config cannot load", () => {

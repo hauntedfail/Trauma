@@ -363,6 +363,25 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("rejects asynchronous memory deletion jobs", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const queue = createGitMemoryBackupQueue({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+    });
+
+    await expect(
+      queue.enqueue({
+        memoryId,
+        contentPaths: [`memories/${memoryId}/CONTENT.md`],
+        reason: "memory_deletion",
+      }),
+    ).rejects.toThrow(
+      "memory deletion backups must run synchronously before deleting the memory row",
+    );
+  });
+
   it("marks backup failure without removing the memory row or markdown content", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(

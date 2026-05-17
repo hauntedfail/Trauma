@@ -1,7 +1,11 @@
 import { access, mkdir, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import type { MemoryBackupQueue } from "../backup";
+import {
+  runGitBackupJob,
+  type MemoryBackupJob,
+  type MemoryBackupQueue,
+} from "../backup";
 import { assertBackupEnvironmentReady } from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import {
@@ -14,14 +18,17 @@ import { getFlashbackMetadataExportPath } from "../flashbacks/export";
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
   | { status: "not_found" }
-  | { status: "failed"; error: string; partial?: DeleteMemoryPartialFailure };
+  | { status: "failed"; error: string };
 
-export type DeleteMemoryPartialFailure = "content_cleanup_failed";
-
-export type DeleteMemoryWarning = {
-  kind: "backup_enqueue_failed";
-  error: string;
-};
+export type DeleteMemoryWarning =
+  | {
+      kind: "backup_enqueue_failed";
+      error: string;
+    }
+  | {
+      kind: "content_cleanup_failed";
+      error: string;
+    };
 
 type DeleteMemoryFileSystem = {
   access: typeof access;
@@ -96,35 +103,87 @@ export async function deleteMemory(input: {
     }
   }
 
-  try {
-    const deleted = await repositories.memories.deleteMemoryRecord(input.memoryId);
-    if (!deleted) {
-      if (staged) {
-        await fileSystem.rename(paths.stagingDir, paths.contentDir);
-      }
-      return { status: "not_found" };
-    }
-  } catch (error) {
-    if (staged) {
-      await fileSystem.rename(paths.stagingDir, paths.contentDir);
-    }
-    return { status: "failed", error: formatUnknownError(error) };
-  }
-
-  if (staged) {
+  const deletionBackupJob = createDeletionBackupJob({
+    backupDeletionPaths,
+    memoryId: input.memoryId,
+  });
+  let synchronousBackupCompleted = false;
+  if (input.config.backup.git.enabled) {
     try {
-      await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
+      await runGitBackupJob({
+        config: input.config,
+        job: deletionBackupJob,
+      });
+      synchronousBackupCompleted = true;
     } catch (error) {
+      const restoreError = staged
+        ? await restoreStagedContent({ fileSystem, paths })
+        : undefined;
       return {
         status: "failed",
-        error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
-        partial: "content_cleanup_failed",
+        error: formatFailureMessage([
+          `Failed to back up memory deletion before deleting the memory row: ${formatUnknownError(error)}`,
+          restoreError,
+        ]),
       };
     }
   }
 
+  try {
+    const deleted = await repositories.memories.deleteMemoryRecord(input.memoryId);
+    if (!deleted) {
+      const restoreError = staged
+        ? await restoreStagedContent({ fileSystem, paths })
+        : undefined;
+      const backupRestoreError =
+        synchronousBackupCompleted && restoreError === undefined
+          ? await restoreDeletionBackupState({
+              config: input.config,
+              deletionBackupJob,
+            })
+          : undefined;
+      if (restoreError !== undefined || backupRestoreError !== undefined) {
+        return {
+          status: "failed",
+          error: formatFailureMessage([restoreError, backupRestoreError]),
+        };
+      }
+      return { status: "not_found" };
+    }
+  } catch (error) {
+    const restoreError = staged
+      ? await restoreStagedContent({ fileSystem, paths })
+      : undefined;
+    const backupRestoreError =
+      synchronousBackupCompleted && restoreError === undefined
+        ? await restoreDeletionBackupState({
+            config: input.config,
+            deletionBackupJob,
+          })
+        : undefined;
+    return {
+      status: "failed",
+      error: formatFailureMessage([
+        formatUnknownError(error),
+        restoreError,
+        backupRestoreError,
+      ]),
+    };
+  }
+
   const warnings: DeleteMemoryWarning[] = [];
-  if (input.backupQueue !== undefined) {
+  if (staged) {
+    try {
+      await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
+    } catch (error) {
+      warnings.push({
+        kind: "content_cleanup_failed",
+        error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
+      });
+    }
+  }
+
+  if (!input.config.backup.git.enabled && input.backupQueue !== undefined) {
     try {
       await input.backupQueue.enqueue({
         memoryId: input.memoryId,
@@ -140,6 +199,51 @@ export async function deleteMemory(input: {
   }
 
   return warnings.length > 0 ? { status: "deleted", warnings } : { status: "deleted" };
+}
+
+function createDeletionBackupJob(input: {
+  memoryId: string;
+  backupDeletionPaths: string[];
+}): MemoryBackupJob {
+  return {
+    memoryId: input.memoryId,
+    contentPaths: input.backupDeletionPaths,
+    reason: "memory_deletion",
+  };
+}
+
+async function restoreStagedContent(input: {
+  fileSystem: DeleteMemoryFileSystem;
+  paths: ReturnType<typeof resolveDeletionPaths>;
+}): Promise<string | undefined> {
+  try {
+    await input.fileSystem.rename(input.paths.stagingDir, input.paths.contentDir);
+    return undefined;
+  } catch (error) {
+    return `Failed to restore staged memory content from ${input.paths.stagingDir}: ${formatUnknownError(error)}`;
+  }
+}
+
+async function restoreDeletionBackupState(input: {
+  config: ResolvedTraumaConfig;
+  deletionBackupJob: MemoryBackupJob;
+}): Promise<string | undefined> {
+  try {
+    await runGitBackupJob({
+      config: input.config,
+      job: {
+        ...input.deletionBackupJob,
+        reason: "memory_creation",
+      },
+    });
+    return undefined;
+  } catch (error) {
+    return `Failed to restore git backup state after database deletion failed: ${formatUnknownError(error)}`;
+  }
+}
+
+function formatFailureMessage(messages: Array<string | undefined>): string {
+  return messages.filter((message) => message !== undefined).join("; ");
 }
 
 function resolveDeletionPaths(input: {
