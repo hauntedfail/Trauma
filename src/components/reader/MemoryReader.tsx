@@ -30,6 +30,7 @@ import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
 import {
   attachCategoryToMemoryByName,
   deleteMemoryById,
+  isBackupFailsafeMemoryActionError,
   type FetchFunction,
 } from "../memories/memory-action-requests";
 import {
@@ -531,10 +532,17 @@ export async function deleteReaderMemory(input: {
   navigate: (path: string) => void;
   revalidate?: (memoryId: string) => Promise<void>;
 }): Promise<void> {
-  await deleteMemoryById({
-    memoryId: input.memoryId,
-    fetch: input.fetch,
-  });
+  try {
+    await deleteMemoryById({
+      memoryId: input.memoryId,
+      fetch: input.fetch,
+    });
+  } catch (error) {
+    if (isBackupFailsafeMemoryActionError(error)) {
+      void revalidateBackupFailsafeAlert();
+    }
+    throw error;
+  }
   await (input.revalidate ?? revalidateAfterMemoryDeletion)(input.memoryId);
   input.navigate("/memories");
 }

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/config";
 import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
+import { loadBrowseMemories } from "../../src/server/memories/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
 import { createReaderContentHash, writeMemoryContent } from "../../src/server/store";
 import { readCanonicalReaderText } from "../../src/server/store/flashback-markers";
@@ -121,6 +122,69 @@ describe("server browse loaders", () => {
     }
 
     await expect(loadFlashbackBrowseRows()).resolves.toEqual([]);
+  });
+
+  it("filters stale flashbacks from memory browse aggregates", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const markdown = "# Loader Memory\n\nA selected text.";
+    const flashbackStartOffset =
+      readCanonicalReaderText(markdown).indexOf("selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values([
+        {
+          id: "renderable-memory-flashback",
+          memoryId,
+          text: "selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: flashbackStartOffset,
+          endOffset: flashbackStartOffset + "selected text".length,
+          contentHash: createReaderContentHash(markdown),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "stale-memory-flashback",
+          memoryId,
+          text: "selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: flashbackStartOffset,
+          endOffset: flashbackStartOffset + "selected text".length,
+          contentHash:
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadBrowseMemories()).resolves.toMatchObject([
+      {
+        id: memoryId,
+        flashbacks: [
+          {
+            id: "renderable-memory-flashback",
+          },
+        ],
+      },
+    ]);
   });
 
   it("keeps the Moment browse database open until rows materialize", async () => {

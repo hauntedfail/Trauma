@@ -36,11 +36,13 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   const [read, setRead] = createSignal(props.initialRead);
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal("");
+  let requestVersion = 0;
 
   createEffect(
     on(
       () => [props.memoryId, props.initialRead] as const,
       ([, nextRead]) => {
+        requestVersion += 1;
         setRead(nextRead);
         setPending(false);
         setError("");
@@ -49,6 +51,9 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   );
 
   const toggle = async (): Promise<void> => {
+    const memoryId = props.memoryId;
+    const version = requestVersion + 1;
+    requestVersion = version;
     const previous = read();
     const next = !previous;
     setPending(true);
@@ -58,18 +63,32 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
 
     try {
       const result = await submitMemoryReadStatus({
-        memoryId: props.memoryId,
+        memoryId,
         read: next,
       });
+      if (!isCurrentReadStatusRequest({ memoryId, version })) {
+        return;
+      }
       void Promise.resolve(props.onSaved?.(result.read)).catch(() => undefined);
     } catch {
+      if (!isCurrentReadStatusRequest({ memoryId, version })) {
+        return;
+      }
       setRead(previous);
       props.onChange?.(previous);
       setError("Failed to update read status.");
     } finally {
-      setPending(false);
+      if (isCurrentReadStatusRequest({ memoryId, version })) {
+        setPending(false);
+      }
     }
   };
+
+  const isCurrentReadStatusRequest = (input: {
+    memoryId: string;
+    version: number;
+  }): boolean =>
+    requestVersion === input.version && props.memoryId === input.memoryId;
 
   return (
     <span class={`inline-grid gap-1 ${props.class ?? ""}`}>

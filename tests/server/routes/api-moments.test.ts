@@ -34,6 +34,17 @@ afterEach(async () => {
 });
 
 describe("moments API routes", () => {
+  it("returns empty Moment fixtures without loading runtime config", async () => {
+    const root = await makeRoot();
+    process.env.TRAUMA_BROWSE_FIXTURES = "1";
+    process.env.TRAUMA_CONFIG_PATH = join(root, "missing-trauma.config.json");
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ moments: [] });
+  });
+
   it("validates and normalizes a Moment section payload", async () => {
     await expect(
       parseMomentPayload(

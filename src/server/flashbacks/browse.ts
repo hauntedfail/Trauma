@@ -44,7 +44,7 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   }
 }
 
-async function filterRenderableFlashbackRows(input: {
+export async function filterRenderableFlashbackRows(input: {
   config: ResolvedTraumaConfig;
   rows: FlashbackBrowseRow[];
 }): Promise<FlashbackBrowseRow[]> {

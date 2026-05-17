@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
@@ -5,6 +7,11 @@ import {
   MemoryReadStatusControl,
   submitMemoryReadStatus,
 } from "../../src/components/memories/MemoryReadStatusControl";
+
+const source = readFileSync(
+  "src/components/memories/MemoryReadStatusControl.tsx",
+  "utf8",
+);
 
 describe("memory read status control", () => {
   it("renders read state and inverse action text", () => {
@@ -68,5 +75,11 @@ describe("memory read status control", () => {
           }),
       }),
     ).rejects.toThrow("failed to update read status");
+  });
+
+  it("guards in-flight responses when the control is reused for another memory", () => {
+    expect(source).toContain("requestVersion += 1");
+    expect(source).toContain("isCurrentReadStatusRequest");
+    expect(source).toContain("props.memoryId === input.memoryId");
   });
 });

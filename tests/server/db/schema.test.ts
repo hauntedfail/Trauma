@@ -175,9 +175,14 @@ describe("db foundation", () => {
         flashbacks: [
           {
             id: "f-real",
+            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
+            memoryTitle: "Real SQLite Memory",
             text: "repository flashback",
             prefix: "from",
             suffix: "sqlite",
+            startOffset: 0,
+            endOffset: 20,
+            contentHash: null,
             createdAt: memories[0].flashbacks[0].createdAt,
           },
         ],

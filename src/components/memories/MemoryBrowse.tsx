@@ -25,14 +25,17 @@ import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
+import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 
 const pageFrame =
@@ -217,8 +220,12 @@ export function MemoryItem(props: {
       await deleteBrowseMemory({ memoryId });
       props.onDeleted?.(memoryId);
       void revalidateAfterMemoryDeletion(memoryId);
-    } catch {
+    } catch (error) {
+      if (isBackupFailsafeMemoryActionError(error)) {
+        void revalidateBackupFailsafeAlert();
+      }
       setActionError("Failed to delete memory.");
+      throw error;
     }
   };
 

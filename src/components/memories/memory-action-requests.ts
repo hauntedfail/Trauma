@@ -5,6 +5,16 @@ export type FetchFunction = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export class MemoryActionRequestError extends Error {
+  readonly backupFailsafe: boolean;
+
+  constructor(message: string, options: { backupFailsafe?: boolean } = {}) {
+    super(message);
+    this.name = "MemoryActionRequestError";
+    this.backupFailsafe = options.backupFailsafe === true;
+  }
+}
+
 export async function attachTagToMemoryByName(input: {
   memoryId: string;
   name: string;
@@ -46,7 +56,11 @@ export async function deleteMemoryById(input: {
     method: "DELETE",
   });
   if (!response.ok) {
-    throw new Error("failed to delete memory");
+    const body = await readJsonRecord(response);
+    throw new MemoryActionRequestError(
+      readErrorMessage(body) ?? "failed to delete memory",
+      { backupFailsafe: hasBackupFailsafe(body) },
+    );
   }
 }
 
@@ -64,10 +78,38 @@ async function postJson(input: {
     body: JSON.stringify(input.body),
   });
   if (!response.ok) {
-    throw new Error("memory action request failed");
+    const body = await readJsonRecord(response);
+    throw new MemoryActionRequestError(
+      readErrorMessage(body) ?? "memory action request failed",
+      { backupFailsafe: hasBackupFailsafe(body) },
+    );
   }
 
   return response.json() as Promise<unknown>;
+}
+
+export function isBackupFailsafeMemoryActionError(error: unknown): boolean {
+  return error instanceof MemoryActionRequestError && error.backupFailsafe;
+}
+
+async function readJsonRecord(
+  response: Response,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const payload: unknown = await response.json();
+    return isRecord(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function readErrorMessage(payload: Record<string, unknown> | null): string | null {
+  const error = payload?.error;
+  return typeof error === "string" && error.trim() !== "" ? error : null;
+}
+
+function hasBackupFailsafe(payload: Record<string, unknown> | null): boolean {
+  return isRecord(payload?.backupFailsafe);
 }
 
 function readTaxonomyResponse(

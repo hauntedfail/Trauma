@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 describe("memory and taxonomy repositories", () => {
   const tempRoots: string[] = [];
+  const repositorySource = readFileSync("src/server/db/repositories.ts", "utf8");
 
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
@@ -505,6 +506,13 @@ describe("memory and taxonomy repositories", () => {
       missingDeleted: false,
       count: 0,
     });
+  });
+
+  it("uses insert-ignore semantics for duplicate Moment anchors", () => {
+    expect(repositorySource).toContain(".onConflictDoNothing({");
+    expect(repositorySource).toContain(
+      "target: [schema.moments.memoryId, schema.moments.sectionAnchor]",
+    );
   });
 
   it("deletes memory rows while preserving global taxonomy records", () => {

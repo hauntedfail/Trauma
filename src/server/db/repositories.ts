@@ -47,7 +47,7 @@ export interface MemoryBrowseRow {
   extractionStatus: ExtractionStatus;
   categories: { id: string; name: string }[];
   tags: { id: string; name: string }[];
-  flashbacks: { id: string; text: string; prefix: string; suffix: string; createdAt: string }[];
+  flashbacks: FlashbackBrowseRow[];
 }
 
 export interface FlashbackBrowseRow {
@@ -304,22 +304,28 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           };
         }
 
-        await db.insert(schema.moments).values(input).run();
+        await db
+          .insert(schema.moments)
+          .values(input)
+          .onConflictDoNothing({
+            target: [schema.moments.memoryId, schema.moments.sectionAnchor],
+          })
+          .run();
+
+        const moment = await db.query.moments.findFirst({
+          where: and(
+            eq(schema.moments.memoryId, input.memoryId),
+            eq(schema.moments.sectionAnchor, input.sectionAnchor),
+          ),
+        });
+        if (moment === undefined) {
+          throw new MemoryRepositoryError(
+            `Cannot find moment after create: ${input.memoryId}#${input.sectionAnchor}`,
+          );
+        }
         return {
-          moment: {
-            id: input.id,
-            memoryId: input.memoryId,
-            sectionAnchor: input.sectionAnchor,
-            sectionTitle: input.sectionTitle,
-            sectionLevel: input.sectionLevel,
-            sectionPath: input.sectionPath,
-            sectionStartOffset: input.sectionStartOffset ?? null,
-            sectionEndOffset: input.sectionEndOffset ?? null,
-            contentHash: input.contentHash ?? null,
-            createdAt: input.createdAt,
-            updatedAt: input.updatedAt,
-          },
-          alreadyExists: false,
+          moment,
+          alreadyExists: moment.id !== input.id,
         };
       },
       deleteById: async (momentId) => {
@@ -573,9 +579,14 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           })),
           flashbacks: memory.flashbacks.map((flashback) => ({
             id: flashback.id,
+            memoryId: memory.id,
+            memoryTitle: memory.title,
             text: flashback.text,
             prefix: flashback.prefix,
             suffix: flashback.suffix,
+            startOffset: flashback.startOffset,
+            endOffset: flashback.endOffset,
+            contentHash: flashback.contentHash,
             createdAt: formatDateTime(flashback.createdAt),
           })),
         }));

@@ -7,6 +7,7 @@ import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteBrowseMemory,
+  isBackupFailsafeMemoryActionError,
   MemoryItem,
 } from "../../src/components/memories/MemoryBrowse";
 import type { BrowseMemory } from "../../src/components/memories/browse-data";
@@ -124,5 +125,31 @@ describe("memory browse actions", () => {
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/memories/memory-1", "DELETE"],
     ]);
+  });
+
+  it("marks backup failsafe delete failures so the shell alert can refresh", async () => {
+    let caught: unknown;
+    try {
+      await deleteBrowseMemory({
+        memoryId: "memory-1",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: "Backup location changed",
+              backupFailsafe: {
+                kind: "backup_path_drift",
+              },
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isBackupFailsafeMemoryActionError(caught)).toBe(true);
   });
 });
