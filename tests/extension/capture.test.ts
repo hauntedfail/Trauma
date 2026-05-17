@@ -68,14 +68,124 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).not.toContain("<button");
   });
 
-  it("uses site-specific selectors against open shadow roots in the live document", () => {
+  it("captures complete high-node articles when the byte budget allows it", () => {
+    const paragraphs = Array.from(
+      { length: 3_000 },
+      (_value, index) => `<p>Readable paragraph ${index}.</p>`,
+    ).join("");
     installPage({
-      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      href: "https://example.com/long-article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Long Article</title></head>
+          <body>
+            <article>
+              <h1>Long Article</h1>
+              ${paragraphs}
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0", 1_000_000);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleText).toContain("Readable paragraph 0.");
+    expect(result.snapshot.articleText).toContain("Readable paragraph 2999.");
+    expect(result.snapshot.articleHtml).toContain("Readable paragraph 2999.");
+  });
+
+  it("skips removable nodes before enforcing the capture byte budget", () => {
+    installPage({
+      href: "https://example.com/removable-budget",
+      html: `<!doctype html>
+        <html>
+          <head><title>Removable Budget</title></head>
+          <body>
+            <article>
+              <h1>Removable Budget</h1>
+              <p>Readable content should survive even when ignored scripts are huge.</p>
+              <script>${"ignored script ".repeat(1_000)}</script>
+              <style>${".ignored { color: red; }".repeat(1_000)}</style>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0", 2_000);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleText).toContain("Readable content should survive");
+    expect(result.snapshot.articleHtml).not.toContain("<script");
+    expect(result.snapshot.articleHtml).not.toContain("<style");
+  });
+
+  it("preserves controlled HTTPS media while removing unsafe iframe forms", () => {
+    installPage({
+      href: "https://example.com/article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Captured Media Article</title></head>
+          <body>
+            <article>
+              <h1>Captured Media Article</h1>
+              <p>Readable media paragraph.</p>
+              <img src="https://pbs.twimg.com/media/photo.jpg" alt="tweet image" title="Tweet image" width="640" height="480" srcset="https://127.0.0.1/private.jpg 1x, http://cdn.example.net/http.jpg 2x" onclick="evil()">
+              <img src="http://cdn.example.net/http.jpg" alt="http image">
+              <iframe src="https://embed.example.net/player" title="Video" onclick="evil()" allow="camera" width="640" height="360"></iframe>
+              <iframe src="https://embed.example.net/inline" title="Inline" srcdoc="<p>inline</p>"></iframe>
+              <iframe src="http://embed.example.net/player" title="HTTP"></iframe>
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleHtml).toContain(
+      'src="https://pbs.twimg.com/media/photo.jpg"',
+    );
+    expect(result.snapshot.articleHtml).toContain('alt="tweet image"');
+    expect(result.snapshot.articleHtml).toContain('title="Tweet image"');
+    expect(result.snapshot.articleHtml).toContain('width="640"');
+    expect(result.snapshot.articleHtml).toContain('height="480"');
+    expect(result.snapshot.articleHtml).toContain(
+      'src="https://embed.example.net/player"',
+    );
+    expect(result.snapshot.articleHtml).toContain('loading="lazy"');
+    expect(result.snapshot.articleHtml).toContain('referrerpolicy="no-referrer"');
+    expect(result.snapshot.articleHtml).toContain(
+      'sandbox="allow-scripts allow-presentation"',
+    );
+    expect(result.snapshot.articleHtml).not.toContain("allow-same-origin");
+    expect(result.snapshot.articleHtml).not.toContain("onclick");
+    expect(result.snapshot.articleHtml).not.toContain("srcset");
+    expect(result.snapshot.articleHtml).not.toContain("127.0.0.1");
+    expect(result.snapshot.articleHtml).not.toContain("allow=\"camera\"");
+    expect(result.snapshot.articleHtml).not.toContain("http.jpg");
+    expect(result.snapshot.articleHtml).not.toContain("srcdoc");
+    expect(result.snapshot.articleHtml).not.toContain("Inline");
+    expect(result.snapshot.articleHtml).not.toContain("HTTP");
+  });
+
+  it("uses semantic selectors against open shadow roots in the live document", () => {
+    installPage({
+      href: "https://example.com/shadow-article",
       html: `<!doctype html>
         <html>
           <head>
-            <title>Harness Engineering | OpenAI</title>
-            <link rel="canonical" href="https://openai.com/ja-JP/index/harness-engineering/">
+            <title>Shadow Article</title>
+            <link rel="canonical" href="https://example.com/shadow-article">
           </head>
           <body>
             <main id="app-shell"></main>
@@ -88,10 +198,9 @@ describe("extension page capture", () => {
     }
     const shadowRoot = host.attachShadow({ mode: "open" });
     const article = document.createElement("article");
-    article.setAttribute("data-testid", "page-content");
     article.innerHTML = `
-      <h1>Harness engineering</h1>
-      <p>The OpenAI harness engineering article body is visible in the current tab.</p>
+      <h1>Shadow article</h1>
+      <p>The article body is visible in the current tab.</p>
       <p>This content exists inside an open shadow root and must be read through the live document path.</p>
       <script>window.evil = true;</script>
     `;
@@ -104,26 +213,26 @@ describe("extension page capture", () => {
       throw new Error(result.error);
     }
     expect(result.snapshot).toMatchObject({
-      sourceUrl: "https://openai.com/ja-JP/index/harness-engineering/",
-      canonicalUrl: "https://openai.com/ja-JP/index/harness-engineering/",
-      title: "Harness Engineering | OpenAI",
-      selector: '[data-testid="page-content"]',
-      extractionStrategy: "site_selector",
+      sourceUrl: "https://example.com/shadow-article",
+      canonicalUrl: "https://example.com/shadow-article",
+      title: "Shadow Article",
+      selector: "article",
+      extractionStrategy: "semantic_selector",
       extensionVersion: "0.1.0",
     });
     expect(result.snapshot.articleText).toContain(
       "visible in the current tab",
     );
-    expect(result.snapshot.articleHtml).toContain("Harness engineering");
+    expect(result.snapshot.articleHtml).toContain("Shadow article");
     expect(result.snapshot.articleHtml).not.toContain("<script");
   });
 
   it("does not full-scan the live document before applying the traversal cap", () => {
     installPage({
-      href: "https://openai.com/ja-JP/index/harness-engineering/",
+      href: "https://example.com/shadow-article",
       html: `<!doctype html>
         <html>
-          <head><title>Harness Engineering | OpenAI</title></head>
+          <head><title>Shadow Article</title></head>
           <body><main id="app-shell"></main></body>
         </html>`,
     });
@@ -133,9 +242,8 @@ describe("extension page capture", () => {
     }
     const shadowRoot = host.attachShadow({ mode: "open" });
     const article = document.createElement("article");
-    article.setAttribute("data-testid", "page-content");
     article.textContent =
-      "The OpenAI harness engineering article body is visible inside the current tab shadow root.";
+      "The article body is visible inside the current tab shadow root.";
     shadowRoot.append(article);
     const documentPrototype = Object.getPrototypeOf(document) as {
       querySelectorAll: Document["querySelectorAll"];

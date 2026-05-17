@@ -16,18 +16,18 @@ Flow:
 5. Write `{storePath}/memories/{memoryId}/CONTENT.md`.
 6. Enqueue markdown backup work.
 
-If extraction succeeds, save extracted title, body, description, favicon URL,
-and markdown body.
+If extraction succeeds, save extracted title, description, favicon URL, and the
+markdown body produced by Defuddle.
 
-If extraction fails or returns insufficient body content, still create a
-link-only memory. Record extraction status and error details in SQLite.
+If extraction fails or returns empty markdown, still create a link-only memory.
+Record extraction status and error details in SQLite.
 
 Raw HTML is not stored in the initial design.
 
 Default extraction runs behind an interruptible runtime boundary. The import
-timeout budget covers fetch, validation, parser work, and markdown conversion;
-if the budget is exhausted, the importer returns link-only fallback instead of
-persisting late extraction output.
+timeout budget covers fetch, validation, Defuddle parser work, and Defuddle
+markdown generation; if the budget is exhausted, the importer returns link-only
+fallback instead of persisting late extraction output.
 
 ## Browser-Assisted Import
 
@@ -42,47 +42,49 @@ Flow:
 4. The extension sends JSON to `/api/browser-import` on the local TRAUMA server
    with a bearer token.
 5. The server validates enablement, token, origin, content type, payload size,
-   URL shape, timestamp, and extracted text shape.
+   URL shape, timestamp, and captured snapshot shape.
 6. The server creates the memory through the same add-memory persistence path:
    SQLite metadata, `CONTENT.md`, and backup enqueue.
 7. The extension opens the created memory route or reports the server error.
 
 The extension is a privileged local client, not a trusted persistence layer. It
 may provide browser-only access to the visible DOM, but final validation,
-markdown creation, SQLite writes, and backup state remain server-owned. Raw
-extension HTML is untrusted and must not bypass the server sanitization and
-markdown-store contracts.
+server-side Defuddle extraction, SQLite writes, and backup state remain
+server-owned. Raw extension HTML is untrusted and must not bypass the server
+sanitization and markdown-store contracts.
 
-## Highlight
+## Flashback
 
-Reader content is not generally editable. Highlight creation is the only
-content mutation exposed in read mode. The same selection gesture also toggles
-off existing highlights.
+Reader content is not generally editable. Flashback creation changes SQLite
+metadata and transient reader rendering; it does not rewrite `CONTENT.md`. The
+same selection gesture also toggles off existing flashbacks.
 
 Flow:
 
 1. User selects text in `/memories/:id`.
-2. Frontend determines whether the selected range is already fully highlighted.
-3. If the range is not already highlighted, the frontend renders an optimistic
-   highlight immediately.
-4. If the range is already highlighted, the frontend optimistically removes
-   highlight styling only from the selected range.
+2. Frontend determines whether the selected range is already fully flashbacked.
+3. If the range is not already flashbacked, the frontend renders an optimistic
+   flashback immediately.
+4. If the range is already flashbacked, the frontend optimistically removes
+   flashback styling only from the selected range.
 5. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
    `end_offset` to the server with the intended toggle operation.
-6. Server creates, deletes, shrinks, or splits `highlights` rows so SQLite
-   represents exactly the highlighted ranges that remain.
-7. Server inserts or removes `<mark data-highlight-id="...">...</mark>` ranges
-   in `CONTENT.md` to match SQLite.
-8. Server enqueues markdown backup work.
+6. Server resolves the selection against canonical reader text, stores
+   `start_offset`, `end_offset`, and `content_hash`, then creates, deletes,
+   shrinks, or splits `flashbacks` rows so SQLite represents exactly the
+   flashbacked ranges that remain.
+7. Server writes `{storePath}/memories/{memoryId}/FLASHBACKS.json` as a
+   deterministic metadata export for git backup.
+8. Server enqueues backup work for the metadata export.
 
-Highlight toggle rules:
+Flashback toggle rules:
 
-- Selecting unhighlighted text creates a highlight for the selected range.
-- Selecting an already-highlighted range unhighlights the selected range only.
-- Selecting a subset of a larger highlight preserves the unselected highlighted
-  text by shrinking or splitting marks and metadata.
-- Selecting across multiple existing highlights removes only the selected
-  overlap from each affected highlight.
+- Selecting unflashbacked text creates a flashback for the selected range.
+- Selecting an already-flashbacked range unflashbacks the selected range only.
+- Selecting a subset of a larger flashback preserves the unselected flashbacked
+  text by shrinking or splitting metadata.
+- Selecting across multiple existing flashbacks removes only the selected
+  overlap from each affected flashback.
 
 Selection payload:
 
@@ -92,11 +94,15 @@ Selection payload:
 4. `start_offset`
 5. `end_offset`
 
+The server stores offsets in canonical reader text and guards them with
+`content_hash` in `sha256:<hex>` format. Hash-mismatched flashbacks are treated
+as stale and are not rendered at a guessed location.
+
 If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.
 
-If highlight persistence returns backup failsafe metadata, the frontend must
-refresh the global backup failsafe alert before showing the local highlight
+If flashback persistence returns backup failsafe metadata, the frontend must
+refresh the global backup failsafe alert before showing the local flashback
 failure state.
 
 ## Git Backup
@@ -109,11 +115,12 @@ Flow:
 2. Backup work is placed on the in-process sequential queue.
 3. The backup worker uses `projectPath` as the working directory.
 4. The worker stages only changes under `storePath`.
-5. The worker commits with the configured message template.
+5. The worker commits with the configured message template, including the
+   backup action when `{action}` is present.
 6. The worker pushes only when configured.
 7. SQLite backup status fields are updated.
 
-Backup failures do not roll back memory creation or highlight creation.
+Backup failures do not roll back memory creation or flashback creation.
 
 On startup, TRAUMA should find pending, queued, or failed backup states that are
 eligible for retry and re-enqueue them. `queued` is process-local, so queued rows

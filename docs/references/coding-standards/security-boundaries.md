@@ -23,12 +23,18 @@
 ## Markdown, HTML, And Reader Safety
 
 - MUST treat extracted article content as untrusted input.
-- MUST escape Markdown syntax that originates from extracted text nodes before
-  persisting imported `CONTENT.md`; only importer-generated markdown constructs
-  may remain active.
+- MUST let Defuddle own readable-content extraction and markdown serialization.
+  TRAUMA must not add ad hoc readability thresholds, site-specific selectors, or
+  custom markdown conversion unless a separate design explains why the extractor
+  boundary is insufficient.
 - MUST sanitize rendered markdown or HTML before it reaches the browser.
+- MUST enforce auto-loaded media safety at render time. Images, responsive
+  sources, and iframes must not load local/private/IP/userinfo/non-HTTPS URLs
+  merely because they appear in extracted markdown.
 - MUST NOT use raw HTML injection without a sanitizer and a local explanation.
-- MUST preserve highlight markers through deterministic markdown transforms.
+- MUST preserve allowed reader-rendered flashback marks during sanitization, but
+  normal flashback persistence must stay SQLite-backed and must not rewrite
+  `CONTENT.md`.
 - MUST normalize or remove browser capability attributes on allowed embeds.
   Saved markdown must not control iframe `allow` permissions, referrer policy,
   scripts, forms, or same-origin access.
@@ -56,9 +62,9 @@
   worker or process boundary instead of blocking the request event loop.
 - MUST request identity encoding or explicitly decode compressed bodies when
   using low-level HTTP clients that do not automatically decompress responses.
-- MUST decode HTML entities in extracted URL attributes before URL resolution,
-  and MUST strip or reject URL userinfo before persisting display URLs,
-  markdown links, favicon URLs, or API response URLs.
+- MUST decode HTML entities before URL resolution where TRAUMA itself accepts or
+  resolves URLs, and MUST strip or reject URL userinfo before importer fetches,
+  canonical URLs, favicon URLs, or API response URLs become active.
 - MUST keep page-provided canonical URLs and extracted display URLs on the
   normalized source host. A public IP literal is not trusted merely because it
   is public; it must match the source host before becoming an active URL.
@@ -77,9 +83,9 @@
   accepted only with a valid token.
 - MUST validate extension payload shape, timestamp freshness, URL protocol,
   URL userinfo, and body size before extraction.
-- MUST run final extraction and memory persistence on the TRAUMA server. The
-  extension may capture a tab snapshot, but it must not bypass server-side
-  sanitization or write memory content directly.
+- MUST run final Defuddle extraction and memory persistence on the TRAUMA
+  server. The extension may capture a tab snapshot, but it must not bypass
+  server-side sanitization or write memory content directly.
 - MUST bound browser-extension DOM traversal during capture and sanitization.
   Avoid unbounded deep clones and `querySelectorAll("*")` scans over captured
   page content.

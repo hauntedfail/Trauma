@@ -13,6 +13,7 @@ import {
 import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import { TraumaMark } from "../brand/TraumaMark";
+import { TaxonomyCreatePopover } from "../memories/TaxonomyCreatePopover";
 import {
   KebabIcon,
   HermesIcon,
@@ -25,18 +26,21 @@ import {
   TraumaNavIcons,
 } from "../icons";
 import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
-import { getBrowseMemories } from "../memories/browse-loader";
+import {
+  getBrowseMemories,
+  getBrowseTaxonomy,
+  revalidateBrowseTaxonomy,
+} from "../memories/browse-loader";
 import {
   buildBrowseHref,
-  buildHighlightBrowseHref,
-  getBrowseCategories,
-  getBrowseTags,
-  getRecentHighlights,
+  buildFlashbackBrowseHref,
+  getRecentFlashbacks,
   parseBrowseQuery,
-  type BrowseHighlight,
+  type BrowseFlashback,
   type BrowseQuery,
-  type BrowseTaxonomyItem,
+  type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
+import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
   DEFAULT_BRIGHTNESS_MODE,
   DEFAULT_SURFACE_MODE,
@@ -46,7 +50,15 @@ import {
   type SurfaceMode,
 } from "./theme";
 import { RightRailContentContext } from "./right-rail-context";
+import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
+
+interface RouteNavItem {
+  href: string;
+  icon: keyof typeof TraumaNavIcons;
+  label: string;
+  pip: boolean;
+}
 
 interface AppShellProps {
   children: JSX.Element;
@@ -84,8 +96,6 @@ const phoneTabButton =
   "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:text-trauma-text-primary";
 const phonePopoverPanel =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
-const themeToggleButton =
-  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint aria-pressed:bg-trauma-bg-elev aria-pressed:text-trauma-text-primary aria-pressed:ring-1 aria-pressed:ring-inset aria-pressed:ring-trauma-border-strong";
 const railAddMemoryButton =
   "min-[1041px]:inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:hidden";
 const compactAddMemoryButton =
@@ -95,8 +105,16 @@ const SURFACE_STORAGE_KEY = "trauma:surface";
 
 const routeNavItems = [
   { href: "/memories", icon: "memories", label: "Memories", pip: false },
-  { href: "/highlights", icon: "highlights", label: "Highlights", pip: true },
-] as const;
+  { href: "/flashbacks", icon: "flashbacks", label: "Flashbacks", pip: true },
+  { href: "/moments", icon: "moment", label: "Moments", pip: false },
+] as const satisfies readonly RouteNavItem[];
+
+const settingsNavItem = {
+  href: "/settings",
+  icon: "settings",
+  label: "Settings",
+  pip: false,
+} as const satisfies RouteNavItem;
 
 const desktopFilterShortcutItems = [
   { icon: "categories", label: "Categories" },
@@ -105,18 +123,18 @@ const desktopFilterShortcutItems = [
 
 const futureNavItems = {
   backup: { icon: "backup", label: "Backup" },
-  settings: { icon: "settings", label: "Settings" },
 } as const;
 
 const phoneTabItems = [
   { kind: "route", href: "/memories", icon: "memories", label: "Memories" },
-  { kind: "route", href: "/highlights", icon: "highlights", label: "Highlights" },
+  { kind: "route", href: "/flashbacks", icon: "flashbacks", label: "Flashbacks" },
+  { kind: "route", href: "/moments", icon: "moment", label: "Moments" },
   { kind: "disabled", icon: "categories", label: "Categories" },
   { kind: "disabled", icon: "tags", label: "Tags" },
   { kind: "disabled", icon: "backup", label: "Backup" },
   { kind: "composer", icon: "add", label: "Add memory" },
   { kind: "theme", icon: "theme", label: "Theme" },
-  { kind: "disabled", icon: "settings", label: "Settings" },
+  { kind: "route", href: "/settings", icon: "settings", label: "Settings" },
 ] as const;
 
 export function AppShell(props: AppShellProps) {
@@ -131,12 +149,13 @@ export function AppShell(props: AppShellProps) {
   );
   const [surface, setSurface] = createSignal<SurfaceMode>(DEFAULT_SURFACE_MODE);
   const memories = createAsync(() => getBrowseMemories());
+  const taxonomy = createAsync(() => getBrowseTaxonomy());
   const backupFailsafeAlert = createAsync(() => getBackupFailsafeAlert());
   const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
-  const categories = createMemo(() => getBrowseCategories(browseMemories()));
-  const tags = createMemo(() => getBrowseTags(browseMemories()));
-  const highlights = createMemo(() => getRecentHighlights(browseMemories()));
+  const categories = createMemo(() => taxonomy()?.categories ?? []);
+  const tags = createMemo(() => taxonomy()?.tags ?? []);
+  const flashbacks = createMemo(() => getRecentFlashbacks(browseMemories()));
   const activePath = createMemo(() => location.pathname);
 
   onMount(() => {
@@ -166,11 +185,11 @@ export function AppShell(props: AppShellProps) {
     navigate(buildBrowseHref(query(), patch));
   };
 
-  const goToHighlight = (highlightId: string) => {
-    navigate(buildHighlightBrowseHref(highlightId));
+  const goToFlashback = (flashbackId: string) => {
+    navigate(buildFlashbackBrowseHref(flashbackId));
   };
 
-  const toggleFilter = (key: "category" | "tag" | "highlight", value: string) => {
+  const toggleFilter = (key: "category" | "tag" | "flashback", value: string) => {
     const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
     goToFilter(patch);
   };
@@ -203,14 +222,17 @@ export function AppShell(props: AppShellProps) {
           </Show>
           <RightRailFilters
             activeCategory={query().category}
-            activeHighlight={query().highlight}
+            activeFlashback={query().flashback}
             activeTag={query().tag}
             categories={categories()}
-            highlights={highlights()}
+            flashbacks={flashbacks()}
             idPrefix="desktop"
+            onCreatedCategory={() => void revalidateBrowseTaxonomy()}
+            onCreatedTag={() => void revalidateBrowseTaxonomy()}
             onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectHighlight={(highlight) => goToHighlight(highlight.id)}
+            onSelectFlashback={(flashback) => goToFlashback(flashback.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+            showFlashbacks={rightRailContent() === undefined}
             tags={tags()}
           />
         </div>
@@ -408,7 +430,11 @@ function NavigationContent(props: {
           popoverId="rail-theme-settings"
           surface={props.surface}
         />
-        <FutureNavButton item={futureNavItems.settings} />
+        <RouteNavLink
+          activePath={props.activePath}
+          item={settingsNavItem}
+          onNavigate={props.onNavigate}
+        />
       </nav>
       <AddMemoryComposerButton
         mode="rail"
@@ -554,69 +580,252 @@ function AddMemoryComposerButton(props: {
   );
 }
 
-function RightRailFilters(props: {
+export function RightRailFilters(props: {
   activeCategory: string;
-  activeHighlight: string;
+  activeFlashback: string;
   activeTag: string;
-  categories: BrowseTaxonomyItem[];
-  highlights: BrowseHighlight[];
+  categories: BrowseTaxonomySummaryItem[];
+  flashbacks: BrowseFlashback[];
   idPrefix: string;
-  onSelectCategory: (category: BrowseTaxonomyItem) => void;
-  onSelectHighlight: (highlight: BrowseHighlight) => void;
-  onSelectTag: (tag: BrowseTaxonomyItem) => void;
-  tags: BrowseTaxonomyItem[];
+  onCreatedCategory: () => void;
+  onCreatedTag: () => void;
+  onSelectCategory: (category: BrowseTaxonomySummaryItem) => void;
+  onSelectFlashback: (flashback: BrowseFlashback) => void;
+  onSelectTag: (tag: BrowseTaxonomySummaryItem) => void;
+  showFlashbacks?: boolean;
+  tags: BrowseTaxonomySummaryItem[];
 }) {
+  const [openCreateKind, setOpenCreateKind] = createSignal<
+    "category" | "tag" | undefined
+  >();
+  const toggleCreateKind = (kind: "category" | "tag") => {
+    setOpenCreateKind((current) => (current === kind ? undefined : kind));
+  };
+  const closeCreatePopover = () => setOpenCreateKind(undefined);
+  const createAndRevalidate = async (
+    kind: "category" | "tag",
+    name: string,
+  ) => {
+    await createTaxonomyRecord({ kind, name });
+    if (kind === "category") {
+      props.onCreatedCategory();
+      return;
+    }
+
+    props.onCreatedTag();
+  };
+
   return (
     <div class="grid gap-4">
-      <RightPanelSection title="Categories" titleId={`${props.idPrefix}-category-filters-title`}>
-        <div class="grid gap-2">
-          <For each={props.categories}>
-            {(category) => (
-              <button
-                class={`${buttonBase} w-full justify-start border-trauma-border bg-transparent text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-                type="button"
-                aria-pressed={props.activeCategory === category.id}
-                onClick={() => props.onSelectCategory(category)}
-              >
-                {category.name}
-              </button>
-            )}
-          </For>
+      <RightPanelSection
+        action={
+          <TaxonomyCreateAction
+            expanded={openCreateKind() === "category"}
+            label="New category"
+            onClick={() => toggleCreateKind("category")}
+          />
+        }
+        title="Categories"
+        titleId={`${props.idPrefix}-category-filters-title`}
+      >
+        <div class="relative grid gap-2">
+          <Show
+            when={props.categories.length > 0}
+            fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">No categories yet</p>}
+          >
+            <For each={props.categories}>
+              {(category) => (
+                <TaxonomyFilterButton
+                  active={props.activeCategory === category.id}
+                  item={category}
+                  onClick={() => props.onSelectCategory(category)}
+                />
+              )}
+            </For>
+          </Show>
+          <Show when={openCreateKind() === "category"}>
+            <TaxonomyCreatePopover
+              label="Category name"
+              placeholder="Research"
+              submitLabel="Create category"
+              title="New category"
+              onClose={closeCreatePopover}
+              onSubmitName={(name) => createAndRevalidate("category", name)}
+            />
+          </Show>
         </div>
       </RightPanelSection>
-      <RightPanelSection title="Tags" titleId={`${props.idPrefix}-tag-filters-title`}>
-        <div class="grid gap-2">
-          <For each={props.tags}>
-            {(tag) => (
-              <button class={`${buttonBase} w-full justify-start border-trauma-border bg-transparent text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`} type="button" aria-pressed={props.activeTag === tag.id} onClick={() => props.onSelectTag(tag)}>
-                {tag.name}
-              </button>
-            )}
-          </For>
+      <RightPanelSection
+        action={
+          <TaxonomyCreateAction
+            expanded={openCreateKind() === "tag"}
+            label="New tag"
+            onClick={() => toggleCreateKind("tag")}
+          />
+        }
+        title="Tags"
+        titleId={`${props.idPrefix}-tag-filters-title`}
+      >
+        <div class="relative grid gap-2">
+          <Show
+            when={props.tags.length > 0}
+            fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">No tags yet</p>}
+          >
+            <For each={props.tags}>
+              {(tag) => (
+                <TaxonomyFilterButton
+                  active={props.activeTag === tag.id}
+                  item={tag}
+                  onClick={() => props.onSelectTag(tag)}
+                />
+              )}
+            </For>
+          </Show>
+          <Show when={openCreateKind() === "tag"}>
+            <TaxonomyCreatePopover
+              label="Tag name"
+              placeholder="sqlite"
+              submitLabel="Create tag"
+              title="New tag"
+              onClose={closeCreatePopover}
+              onSubmitName={(name) => createAndRevalidate("tag", name)}
+            />
+          </Show>
         </div>
       </RightPanelSection>
-      <RightPanelSection title="Recent highlights" titleId={`${props.idPrefix}-highlight-shortcuts-title`}>
-        <div class={`${rightRailScrollContent} grid gap-3`}>
-          <For each={props.highlights}>
-            {(highlight) => (
-              <button
-                class="grid w-full gap-1 rounded-2xl px-3 py-2 text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink"
-                type="button"
-                aria-pressed={props.activeHighlight === highlight.id}
-                onClick={() => props.onSelectHighlight(highlight)}
-              >
-                <span class="wrap-anywhere">{highlight.text}</span>
-                <small class="text-xs font-semibold text-trauma-text-muted">{highlight.prefix}</small>
-              </button>
-            )}
-          </For>
-        </div>
-      </RightPanelSection>
+      <Show when={props.showFlashbacks !== false}>
+        <RightPanelSection title="Flashback" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
+          <FlashbackShortcutList
+            class={`${rightRailScrollContent} grid gap-3`}
+            emptyLabel="No flashbacks yet"
+            flashbacks={props.flashbacks.map((flashback) => ({
+              active: props.activeFlashback === flashback.id,
+              id: flashback.id,
+              onSelect: () => props.onSelectFlashback(flashback),
+              prefix: flashback.prefix,
+              text: flashback.text,
+            }))}
+          />
+        </RightPanelSection>
+      </Show>
     </div>
   );
 }
 
+function TaxonomyFilterButton(props: {
+  active: boolean;
+  item: BrowseTaxonomySummaryItem;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={props.active}
+      class="grid min-h-[38px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-trauma-border bg-transparent px-3 py-2 text-left font-bold text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink"
+      type="button"
+      onClick={props.onClick}
+    >
+      <span class="min-w-0 truncate">{props.item.name}</span>
+      <span
+        class={`text-xs font-bold ${
+          props.active ? "text-trauma-accent-ink" : "text-trauma-text-muted"
+        }`}
+      >
+        {formatMemoryCount(props.item.memoryCount)}
+      </span>
+    </button>
+  );
+}
+
+function TaxonomyCreateAction(props: {
+  expanded: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-expanded={props.expanded}
+      class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+      type="button"
+      onClick={props.onClick}
+    >
+      <PlusIcon size={16} />
+      <span>{props.label}</span>
+    </button>
+  );
+}
+
+function formatMemoryCount(count: number): string {
+  return count === 1 ? "1 memory" : `${count} memories`;
+}
+
+type FetchFunction = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+interface CreateTaxonomyRecordInput {
+  fetch?: FetchFunction;
+  kind: "category" | "tag";
+  name: string;
+}
+
+interface CreatedTaxonomyRecord {
+  id: string;
+  name: string;
+}
+
+export async function createTaxonomyRecord(
+  input: CreateTaxonomyRecordInput,
+): Promise<CreatedTaxonomyRecord> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(
+    input.kind === "category" ? "/api/categories" : "/api/tags",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ name: input.name }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`failed to create ${input.kind}`);
+  }
+
+  const body = (await response.json()) as unknown;
+  return readCreatedTaxonomyRecord(body, input.kind);
+}
+
+function readCreatedTaxonomyRecord(
+  body: unknown,
+  key: "category" | "tag",
+): CreatedTaxonomyRecord {
+  if (!isRecord(body)) {
+    throw new Error("taxonomy response was malformed");
+  }
+
+  const item = body[key];
+  if (
+    isRecord(item) &&
+    typeof item.id === "string" &&
+    typeof item.name === "string"
+  ) {
+    return {
+      id: item.id,
+      name: item.name,
+    };
+  }
+
+  throw new Error("taxonomy response was malformed");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function RightPanelSection(props: {
+  action?: JSX.Element;
   children: JSX.Element;
   title: string;
   titleId: string;
@@ -626,9 +835,12 @@ function RightPanelSection(props: {
       aria-labelledby={props.titleId}
       class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5"
     >
-      <h2 class="mb-4 text-[20px] font-extrabold" id={props.titleId}>
-        {props.title}
-      </h2>
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="mb-0 text-[20px] font-extrabold" id={props.titleId}>
+          {props.title}
+        </h2>
+        {props.action}
+      </div>
       {props.children}
     </section>
   );
@@ -636,7 +848,7 @@ function RightPanelSection(props: {
 
 function RouteNavLink(props: {
   activePath: string;
-  item: (typeof routeNavItems)[number];
+  item: RouteNavItem;
   onNavigate?: () => void;
 }) {
   const isActive = createMemo(() => {
@@ -719,12 +931,8 @@ function ThemeNavButton(props: {
   let rootRef: HTMLDivElement | undefined;
   const [isThemeOpen, setIsThemeOpen] = createSignal(false);
   const isPhone = () => props.mode === "phone";
-  const icon = createMemo(() =>
-    props.brightness === "night" ? (
-      <MoonIcon size={isPhone() ? 28 : undefined} />
-    ) : (
-      <SunIcon size={isPhone() ? 28 : undefined} />
-    ),
+  const icon = createMemo(
+    () => TraumaNavIcons.theme[isThemeOpen() ? "filled" : "outline"],
   );
 
   onMount(() => {
@@ -768,7 +976,7 @@ function ThemeNavButton(props: {
         type="button"
         onClick={() => setIsThemeOpen((value) => !value)}
       >
-        <span class={isPhone() ? phoneIconSlot : railIconSlot}>{icon()}</span>
+        <span class={isPhone() ? phoneIconSlot : railIconSlot}>{icon()()}</span>
         <Show
           when={isPhone()}
           fallback={
@@ -826,44 +1034,36 @@ function ThemeBlock(props: {
     <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Brightness">
-        <button
-          aria-pressed={props.brightness === "sun"}
-          class={themeToggleButton}
-          type="button"
+        <SegmentedToggleButton
+          active={props.brightness === "sun"}
           onClick={() => props.onBrightness("sun")}
         >
           <SunIcon />
           <span>Sun</span>
-        </button>
-        <button
-          aria-pressed={props.brightness === "night"}
-          class={themeToggleButton}
-          type="button"
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={props.brightness === "night"}
           onClick={() => props.onBrightness("night")}
         >
           <MoonIcon />
           <span>Night</span>
-        </button>
+        </SegmentedToggleButton>
       </div>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Surface">
-        <button
-          aria-pressed={props.surface === "normal"}
-          class={themeToggleButton}
-          type="button"
+        <SegmentedToggleButton
+          active={props.surface === "normal"}
           onClick={() => props.onSurface("normal")}
         >
           <PageIcon />
           <span>{normalSurfaceLabel()}</span>
-        </button>
-        <button
-          aria-pressed={props.surface === "paper"}
-          class={themeToggleButton}
-          type="button"
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={props.surface === "paper"}
           onClick={() => props.onSurface("paper")}
         >
           {paperSurfaceIcon()}
           <span>{paperSurfaceLabel()}</span>
-        </button>
+        </SegmentedToggleButton>
       </div>
     </section>
   );

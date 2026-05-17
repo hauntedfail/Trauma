@@ -5,7 +5,7 @@
 Canonical UI routes:
 
 - `/memories`
-- `/highlights`
+- `/flashbacks`
 - `/memories/:id`
 
 The root route redirects to `/memories`.
@@ -22,7 +22,7 @@ Supported browse concerns:
 - Search query.
 - Category filter.
 - Tag filter.
-- Highlight shortcut filter.
+- Flashback shortcut filter.
 - List/grid view mode.
 
 Filter buttons should toggle their own query key without clearing unrelated
@@ -67,7 +67,7 @@ Rules:
 - Icon-only buttons need accessible labels on the button.
 - SVG icons are `aria-hidden`.
 - Route rows and reader links must have visible focus treatment.
-- Reader highlight keyboard toggling must remain explicit and must not trigger
+- Reader flashback keyboard toggling must remain explicit and must not trigger
   during ordinary text navigation.
 
 ## Labels And Landmarks
@@ -84,7 +84,7 @@ Required shell labels:
 Route surfaces should use `aria-labelledby` and stable headings:
 
 - `memories-title`.
-- `highlights-title`.
+- `flashbacks-title`.
 - Reader fallback states use `reader-state-title`; ready reader content uses
   the markdown heading from the stored content rather than a duplicate shell
   header title.
@@ -110,7 +110,7 @@ Desktop:
 - Left rail, main pane, and right rail are visible.
 - Reader TOC appears at the top of the right rail only on concrete memory
   reader routes.
-- TOC and Recent highlights scroll inside their own bounded list bodies.
+- TOC and Flashback shortcut lists scroll inside their own bounded list bodies.
 
 Tablet:
 
@@ -124,7 +124,7 @@ Tablet:
 
 Mobile:
 
-- Bottom `Primary tabs` render Memories, Highlights, Categories, Tags, Backup,
+- Bottom `Primary tabs` render Memories, Flashbacks, Categories, Tags, Backup,
   Add memory, Theme, and Settings.
 - The tab list scrolls horizontally when space is constrained. The page itself
   must not gain horizontal overflow from the tab bar.

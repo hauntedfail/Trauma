@@ -50,7 +50,7 @@ Rules:
 `TraumaNavIcons` provides outline and filled variants for:
 
 - Memories.
-- Highlights.
+- Flashbacks, represented by a lightning mark.
 - Categories.
 - Tags.
 - Backup.
@@ -73,6 +73,7 @@ Current utility icons include:
 - Check.
 - Sun.
 - Moon.
+- Paint tool for the Theme tab.
 - Page.
 - Paper.
 - Hermès shopping bag silhouette for night paper surface mode.

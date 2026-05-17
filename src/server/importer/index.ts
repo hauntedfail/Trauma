@@ -4,7 +4,7 @@ import { request as requestHttps } from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 
-import { readableMarkdownLength, type ArticleExtractor } from "./extractor";
+import type { ArticleExtractor } from "./extractor";
 import {
   ArticleExtractionTimeoutError,
   extractArticleInWorker,
@@ -56,7 +56,6 @@ export interface LinkOnlyImporterResult {
   extractionError: string;
 }
 
-const MINIMUM_READABLE_BODY_LENGTH = 80;
 const DEFAULT_MAX_IMPORT_BYTES = 2_000_000;
 const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
@@ -185,9 +184,9 @@ export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> 
   clearTimeout(timeout);
   const title = extracted.title || fallbackTitleFromUrl(currentUrl);
 
-  if (readableMarkdownLength(extracted.markdown) < MINIMUM_READABLE_BODY_LENGTH) {
+  if (extracted.markdown.trim().length === 0) {
     return linkOnly(currentUrl, title, {
-      reason: "insufficient article body",
+      reason: "empty article body",
     });
   }
 

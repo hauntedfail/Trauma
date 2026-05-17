@@ -45,7 +45,7 @@ Runtime tables:
 - `categories`
 - `memory_tags`
 - `memory_categories`
-- `highlights`
+- `flashbacks`
 - `backup_environment_stamps`
 - `backup_failsafe_alerts`
 
@@ -70,11 +70,11 @@ one exists. Alert kinds distinguish path drift, missing backup repository,
 remote push failure, and backup content inconsistency so the UI can offer only
 the recovery actions that are safe for that condition.
 
-## Highlight Model
+## Flashback Model
 
-Highlights are both metadata and content mutations.
+Flashbacks are SQLite metadata rendered into reader HTML at read time.
 
-`highlights` stores:
+`flashbacks` stores:
 
 - `id`
 - `memory_id`
@@ -83,30 +83,47 @@ Highlights are both metadata and content mutations.
 - `suffix`
 - `start_offset`
 - `end_offset`
+- `content_hash`
 - timestamps
 
-`highlights.memory_id` is the canonical relation. API responses may shape this
-as `memory.highlights: Highlight[]`, but memories should not store a separate
-highlight ID array as source-of-truth state.
+`flashbacks.memory_id` is the canonical relation. API responses may shape this
+as `memory.flashbacks: Flashback[]`, but memories should not store a separate
+flashback ID array as source-of-truth state.
 
-Highlight browse and search views use `text`, `prefix`, `suffix`, and the
-related memory title. The highlight table remains the canonical source for
-highlight snippets; no separate denormalized highlight feed is introduced in
+New flashback rows use canonical reader-text offsets. `content_hash` uses the
+`sha256:<hex>` format and hashes the same canonical reader text used for offset
+calculation after line endings are normalized to `\n`. If the current reader
+text hash does not match the row, the reader must not render that flashback at a
+guessed location.
+
+Flashback browse and search views use `text`, `prefix`, `suffix`, and the
+related memory title. The flashback table remains the canonical source for
+flashback snippets; no separate denormalized flashback feed is introduced in
 the initial design.
 
-Persisted highlights are inserted into `CONTENT.md` as inline marks:
+`CONTENT.md` is not mutated for normal flashback persistence. The reader applies
+records as transient inline marks when rendering:
 
 ```html
-<mark data-highlight-id="...">selected text</mark>
+<mark data-flashback-id="...">selected text</mark>
 ```
 
-The reader pipeline must allow `mark` and `data-highlight-id` while still
+The reader pipeline must allow `mark` and `data-flashback-id` while still
 sanitizing unsafe HTML.
 
-Highlight removal uses the same text-range model as highlight creation. When a
-user selects text that is already highlighted, only the selected range is
-unhighlighted. Exact matches delete the corresponding `highlights` row and
-remove the mark. Partial matches shrink the existing range or split it into
-multiple remaining highlight ranges, each represented in SQLite and in
-`CONTENT.md`. This prevents a nested or wider highlight from being removed when
-the user intended to toggle off only a sentence or phrase.
+Flashback removal uses the same text-range model as flashback creation. When a
+user selects text that is already flashbacked, only the selected range is
+unflashbacked. Exact matches delete the corresponding `flashbacks` row and
+remove the rendered mark. Partial matches shrink the existing range or split it
+into multiple remaining flashback ranges in SQLite. This prevents a nested or
+wider flashback from being removed when the user intended to toggle off only a
+sentence or phrase.
+
+Because the built-in git backup does not back up SQLite directly, flashback
+changes write a deterministic metadata export at:
+
+```text
+{storePath}/memories/{memoryId}/FLASHBACKS.json
+```
+
+That file is a backup/export artifact, not the runtime source of truth.

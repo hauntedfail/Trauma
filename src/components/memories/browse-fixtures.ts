@@ -7,15 +7,17 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/reader-mode",
     description: "SolidStart route data and shell architecture notes for the canonical reader.",
     capturedAt: "2026-05-09",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
     tags: [
       { id: "solidstart", name: "solidstart" },
       { id: "reader", name: "reader" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-foundation",
-        text: "highlight-aware results",
+        text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
         createdAt: "2026-05-09T12:00:00.000Z",
@@ -28,12 +30,14 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/local-hosting",
     description: "Single Bun process and persistent disk assumptions for self-hosted operation.",
     capturedAt: "2026-05-08",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [
       { id: "sqlite", name: "sqlite" },
       { id: "backup", name: "backup" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-ops",
         text: "persistent disk assumptions",
@@ -49,12 +53,14 @@ export const browseFixtureMemories: BrowseMemory[] = [
     url: "https://example.com/browse-shell",
     description: "X-like layout notes for navigation, filters, and dense memory browsing.",
     capturedAt: "2026-05-07",
+    read: false,
+    extractionStatus: "success",
     categories: [{ id: "product", name: "Product" }],
     tags: [
       { id: "shell", name: "shell" },
       { id: "filters", name: "filters" },
     ],
-    highlights: [
+    flashbacks: [
       {
         id: "h-shell",
         text: "right filter panel updates URL state",
@@ -65,16 +71,18 @@ export const browseFixtureMemories: BrowseMemory[] = [
     ],
   },
   {
-    id: "memory-no-highlights",
+    id: "memory-no-flashbacks",
     title: "Archive Import Runbook",
     url: "https://example.com/archive-import",
-    description: "Operational notes for adding a memory that has no saved highlights yet.",
+    description: "Operational notes for adding a memory that has no saved flashbacks yet.",
     capturedAt: "2026-05-06",
+    read: false,
+    extractionStatus: "link_only",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [
       { id: "import", name: "import" },
       { id: "runbook", name: "runbook" },
     ],
-    highlights: [],
+    flashbacks: [],
   },
 ];

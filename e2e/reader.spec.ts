@@ -1,7 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { accessSync } from "node:fs";
-import { homedir } from "node:os";
 import { expect, test, type Page } from "@playwright/test";
+
+import { runBunFixtureScript } from "./bun-fixture";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
@@ -20,9 +19,9 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.locator("#details")).toBeVisible();
   await page.getByRole("link", { name: "Details" }).click();
   await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
-  await expect(page.getByText("Curated markdown body")).toBeVisible();
-  await expect(page.locator("mark[data-highlight-id='hl-fixture']")).toContainText(
-    "saved highlight",
+  await expect(page.locator("[data-reader-content]").getByText("Curated markdown body")).toBeVisible();
+  await expect(page.locator("mark[data-flashback-id='flashback-fixture']")).toContainText(
+    "saved flashback",
   );
 
   await page.evaluate((memoryId) => {
@@ -39,7 +38,38 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });
 
-test("keeps linked reader highlight anchors readable in non-normal themes", async ({
+test("deletes a memory from reader actions and returns to browse", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe('Delete memory "Fixture Reader"?');
+    void dialog.accept();
+  });
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${READER_MEMORY_ID}`) &&
+      response.request().method() === "DELETE",
+  );
+  await page
+    .getByRole("button", { name: "Memory actions for Fixture Reader" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete memory" }).click();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page).toHaveURL(/\/memories$/);
+  await expect(page.getByText("Failed to delete memory.")).toHaveCount(0);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await expect(page.getByRole("heading", { name: "Memory was not found." }))
+    .toBeVisible();
+});
+
+test("keeps linked reader flashback anchors readable in non-normal themes", async ({
   page,
 }) => {
   createReaderFixture();
@@ -50,10 +80,10 @@ test("keeps linked reader highlight anchors readable in non-normal themes", asyn
     { brightness: "night", name: "paper-black-dark", surface: "paper" },
   ] as const) {
     await setReaderTheme(page, theme.brightness, theme.surface);
-    await page.goto(`/memories/${READER_MEMORY_ID}#hl-fixture`);
+    await page.goto(`/memories/${READER_MEMORY_ID}#flashback-fixture`);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
-    const targetStyle = await page.locator("mark#hl-fixture").evaluate((mark) => {
+    const targetStyle = await page.locator("mark#flashback-fixture").evaluate((mark) => {
       const style = getComputedStyle(mark);
       const rootStyle = getComputedStyle(document.documentElement);
 
@@ -61,9 +91,9 @@ test("keeps linked reader highlight anchors readable in non-normal themes", asyn
         backgroundColor: style.backgroundColor,
         boxShadow: style.boxShadow,
         color: style.color,
-        expectedBackground: rootStyle.getPropertyValue("--anchor-highlight-bg").trim(),
-        expectedInk: rootStyle.getPropertyValue("--anchor-highlight-ink").trim(),
-        expectedRing: rootStyle.getPropertyValue("--anchor-highlight-ring").trim(),
+        expectedBackground: rootStyle.getPropertyValue("--anchor-flashback-bg").trim(),
+        expectedInk: rootStyle.getPropertyValue("--anchor-flashback-ink").trim(),
+        expectedRing: rootStyle.getPropertyValue("--anchor-flashback-ring").trim(),
       };
     });
 
@@ -107,7 +137,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
   }
 });
 
-test("toggles selected reader text as a persisted highlight", async ({ page }) => {
+test("toggles selected reader text as a persisted flashback", async ({ page }) => {
   createReaderFixture();
   const selectedText = "Curated markdown body";
 
@@ -115,36 +145,180 @@ test("toggles selected reader text as a persisted highlight", async ({ page }) =
 
   const createResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/highlights") &&
+      response.url().endsWith("/api/flashbacks") &&
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
   expect((await createResponse).ok()).toBe(true);
 
   await page.reload();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
 
   const removeResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/highlights") &&
+      response.url().endsWith("/api/flashbacks") &&
       response.request().method() === "POST",
   );
   await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
   expect((await removeResponse).ok()).toBe(true);
 
   await page.reload();
   await expect(
-    page.locator("mark[data-highlight-id]", { hasText: selectedText }),
+    page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
-  await expect(page.getByText(selectedText)).toBeVisible();
+  await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
+});
+
+test("creates a Moment from a right-rail table of contents button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  await expect(
+    page
+      .getByRole("navigation", { name: "Table of contents" })
+      .getByRole("button", { name: "Moment Details" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(readMomentAnchors()).toContain("details");
+});
+
+test("toggles a Moment off from the right-rail table of contents button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const tocButton = page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" });
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await tocButton.click();
+  expect((await createResponse).status()).toBe(201);
+  await expect(tocButton).toHaveAttribute("aria-pressed", "true");
+  expect(readMomentAnchors()).toContain("details");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+    { timeout: 3_000 },
+  );
+  await tocButton.click();
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(tocButton).toHaveAttribute("aria-pressed", "false");
+  expect(readMomentAnchors()).not.toContain("details");
+});
+
+test("creates a Moment from a reader heading affordance button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .locator("[data-reader-content]")
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(readMomentAnchors()).toContain("details");
+});
+
+test("opens Moment rows at the reader section and deletes from the Moments menu", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+  expect(readMomentAnchors()).toContain("details");
+
+  await page.goto("/moments");
+  await page.getByRole("link", { name: /Fixture Reader.*Details/s }).click();
+  await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
+
+  await page.goto("/moments");
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe('Delete moment "Details"?');
+    void dialog.accept();
+  });
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+  );
+  await page.getByRole("button", { name: "Moment actions for Details" }).click();
+  await page.getByRole("menuitem", { name: "Delete moment" }).click();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);
+  expect(readMomentAnchors()).not.toContain("details");
+});
+
+test("creates a Moment from the selection menu when the range contains a section", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await selectReaderSection(page, "details");
+
+  const menu = page.getByRole("menu", {
+    name: "Reader text selection actions",
+  });
+  await expect(
+    menu.getByRole("button", { name: "Moment selected section" }),
+  ).toBeVisible();
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await menu.getByRole("button", { name: "Moment selected section" }).click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(readMomentAnchors()).toContain("details");
 });
 
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
@@ -253,11 +427,7 @@ async function setReaderTheme(
 }
 
 function createReaderFixture() {
-  execFileSync(
-    resolveBunExecutable(),
-    [
-      "-e",
-      `
+  runBunFixtureScript(`
         import { mkdir, rm, writeFile } from "node:fs/promises";
         import { dirname, join } from "node:path";
         import { schema } from "./src/server/db/index.ts";
@@ -289,6 +459,19 @@ function createReaderFixture() {
           databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
           backup: config.backup,
         };
+        const readerMarkdown = [
+          "# Fixture Reader",
+          "",
+          "Curated markdown body with saved flashback.",
+          "",
+          "A [Reference link](https://example.com/reference) belongs to the reader content.",
+          "",
+          "## Details",
+          "",
+          "| Kind | Value |",
+          "| --- | --- |",
+          "| reader | smoke |",
+        ].join("\\n");
 
         await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
         await mkdir(dirname(configPath), { recursive: true });
@@ -317,6 +500,18 @@ function createReaderFixture() {
           await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
           await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
+          const flashbackStartOffset = readerMarkdown.indexOf("saved flashback");
+          await connection.db.insert(schema.flashbacks).values({
+            id: "flashback-fixture",
+            memoryId,
+            text: "saved flashback",
+            prefix: "Curated markdown body with ",
+            suffix: ".",
+            startOffset: flashbackStartOffset,
+            endOffset: flashbackStartOffset + "saved flashback".length,
+            createdAt: new Date("2026-05-09T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+          });
         } finally {
           connection.close();
         }
@@ -340,19 +535,7 @@ function createReaderFixture() {
           memoryId,
           "Fixture Reader",
           "https://example.com/reader",
-          [
-            "# Fixture Reader",
-            "",
-            "Curated markdown body with <mark data-highlight-id=\\"hl-fixture\\">saved highlight</mark>.",
-            "",
-            "A [Reference link](https://example.com/reference) belongs to the reader content.",
-            "",
-            "## Details",
-            "",
-            "| Kind | Value |",
-            "| --- | --- |",
-            "| reader | smoke |",
-          ].join("\\n"),
+          readerMarkdown,
         );
         await writeFixtureContent(
           secondMemoryId,
@@ -384,19 +567,29 @@ function createReaderFixture() {
             ]).flat(),
           ].join("\\n"),
         );
-      `,
-    ],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        BUN_INSTALL_CACHE_DIR: `${process.cwd()}/.tmp/bun-cache`,
-        MISE_TRUSTED_CONFIG_PATHS: `${process.cwd()}/mise.toml`,
-        TMPDIR: `${process.cwd()}/.tmp/bun-tmp`,
-      },
-      stdio: "pipe",
-    },
-  );
+  `);
+}
+
+function readMomentAnchors(): string[] {
+  const stdout = runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+          { readonly: true },
+        );
+        try {
+          const rows = database
+            .query("select section_anchor from moments order by created_at asc")
+            .all();
+          console.log(JSON.stringify(rows.map((row) => row.section_anchor)));
+        } finally {
+          database.close();
+        }
+  `);
+
+  return JSON.parse(stdout.trim()) as string[];
 }
 
 async function selectReaderText(page: Page, text: string) {
@@ -434,40 +627,20 @@ async function selectReaderText(page: Page, text: string) {
   }, text);
 }
 
-function resolveBunExecutable() {
-  if (process.versions.bun !== undefined) {
-    return process.execPath;
-  }
+async function selectReaderSection(page: Page, anchor: string) {
+  await page.locator("[data-reader-content]").evaluate((root, sectionAnchor) => {
+    const section = root.querySelector<HTMLElement>(
+      `[data-reader-section-anchor="${sectionAnchor}"]`,
+    );
+    if (section === null) {
+      throw new Error(`Section not found: ${sectionAnchor}`);
+    }
 
-  const candidates = [
-    process.env.BUN_EXECUTABLE,
-    process.versions.bun !== undefined ? process.execPath : undefined,
-    `${homedir()}/.local/share/mise/installs/bun/1.3.13/bin/bun`,
-    process.env.npm_execpath,
-    "bun",
-  ];
-  const executable = candidates.find(
-    (candidate) =>
-      candidate !== undefined &&
-      isBunExecutable(candidate) &&
-      (candidate.includes("/") ? canAccess(candidate) : true),
-  );
-  if (executable === undefined) {
-    throw new Error("Bun executable is required for reader E2E fixtures");
-  }
-
-  return executable;
-}
-
-function isBunExecutable(path: string) {
-  return path === "bun" || path.endsWith("/bun") || path.endsWith("\\bun.exe");
-}
-
-function canAccess(path: string) {
-  try {
-    accessSync(path);
-    return true;
-  } catch {
-    return false;
-  }
+    const range = document.createRange();
+    range.selectNode(section);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }, anchor);
 }

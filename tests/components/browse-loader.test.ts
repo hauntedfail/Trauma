@@ -14,8 +14,17 @@ vi.mock("@solidjs/router", () => routerMocks);
 vi.mock("~/server/memories/browse", () => ({
   loadBrowseMemories: vi.fn(),
 }));
+vi.mock("~/server/taxonomy/browse", () => ({
+  loadBrowseTaxonomy: vi.fn(),
+}));
 
-const { getBrowseMemories, revalidateBrowseMemories } = await import(
+const {
+  getBrowseMemories,
+  getBrowseTaxonomy,
+  revalidateBrowseMemories,
+  revalidateBrowseMemoryWorkspace,
+  revalidateBrowseTaxonomy,
+} = await import(
   "../../src/components/memories/browse-loader"
 );
 
@@ -32,5 +41,24 @@ describe("browse loader", () => {
     expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
       getBrowseMemories.key,
     );
+  });
+
+  it("revalidates the taxonomy query cache", async () => {
+    routerMocks.revalidate.mockResolvedValue(undefined);
+
+    await revalidateBrowseTaxonomy();
+
+    expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
+      getBrowseTaxonomy.key,
+    );
+  });
+
+  it("revalidates the browse workspace caches together", async () => {
+    routerMocks.revalidate.mockResolvedValue(undefined);
+
+    await revalidateBrowseMemoryWorkspace();
+
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseMemories.key);
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseTaxonomy.key);
   });
 });

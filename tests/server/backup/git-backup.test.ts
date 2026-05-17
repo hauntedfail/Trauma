@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   BACKUP_STATUSES,
   createGitMemoryBackupQueue,
+  createSerializedGitBackupRunner,
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
@@ -32,6 +33,60 @@ describe("git backup runner", () => {
       "success",
       "failed",
       "disabled",
+    ]);
+  });
+
+  it("serializes git backup jobs that target the same project path", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const events: string[] = [];
+    let firstStarted: () => void = () => {};
+    let releaseFirst: () => void = () => {};
+    const firstStartedPromise = new Promise<void>((resolveStarted) => {
+      firstStarted = resolveStarted;
+    });
+    const releaseFirstPromise = new Promise<void>((resolveRelease) => {
+      releaseFirst = resolveRelease;
+    });
+    const runner = createSerializedGitBackupRunner(async (input) => {
+      events.push(`start:${input.job.memoryId}`);
+      if (input.job.memoryId === "first-memory") {
+        firstStarted();
+        await releaseFirstPromise;
+      }
+      events.push(`end:${input.job.memoryId}`);
+    });
+
+    const first = runner({
+      config,
+      job: {
+        memoryId: "first-memory",
+        contentPaths: [`memories/first-memory/CONTENT.md`],
+        reason: "memory_creation",
+      },
+    });
+    await firstStartedPromise;
+
+    const second = runner({
+      config,
+      job: {
+        memoryId: "second-memory",
+        contentPaths: [`memories/second-memory/CONTENT.md`],
+        reason: "memory_creation",
+      },
+    });
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+
+    expect(events).toEqual(["start:first-memory"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual([
+      "start:first-memory",
+      "end:first-memory",
+      "start:second-memory",
+      "end:second-memory",
     ]);
   });
 
@@ -64,6 +119,137 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("stages deleted store content paths and creates a deletion backup commit", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Backed Up", "utf8");
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
+    initializeGitRepository(projectPath);
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({ contentPaths: [contentPath, flashbackPath] }),
+    });
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
+    });
+
+    expect(git(projectPath, ["log", "-1", "--pretty=%s"]).trim()).toBe(
+      `backup memory ${memoryId}`,
+    );
+    expect(
+      git(projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([
+      `D\tstore/${contentPath}`,
+      `D\tstore/${flashbackPath}`,
+    ]);
+  });
+
+  it("skips missing untracked export paths while staging tracked memory deletions", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Backed Up", "utf8");
+    initializeGitRepository(projectPath);
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
+    });
+
+    expect(
+      git(projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`D\tstore/${contentPath}`]);
+  });
+
+  it("expands human-readable backup actions in commit messages", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    initializeGitRepository(projectPath);
+    const config = createConfig({
+      root,
+      projectPath,
+      storePath,
+      push: false,
+      commitMessageTemplate: "backup {action} {memory_id}",
+    });
+
+    await writeFile(join(storePath, contentPath), "# Created", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    await writeFile(
+      join(storePath, flashbackPath),
+      `${JSON.stringify({ version: 1, memoryId, flashbacks: [] }, null, 2)}\n`,
+      "utf8",
+    );
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [flashbackPath],
+        reason: "flashback_update",
+      }),
+    });
+
+    await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [contentPath, flashbackPath],
+        reason: "memory_deletion",
+      }),
+    });
+
+    expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
+      .toEqual([
+        `backup deleted memory ${memoryId}`,
+        `backup updated flashbacks ${memoryId}`,
+        `backup created memory ${memoryId}`,
+      ]);
   });
 
   it("does not push committed backup content when git push is disabled", async () => {
@@ -232,6 +418,25 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("rejects asynchronous memory deletion jobs", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const queue = createGitMemoryBackupQueue({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+    });
+
+    await expect(
+      queue.enqueue({
+        memoryId,
+        contentPaths: [`memories/${memoryId}/CONTENT.md`],
+        reason: "memory_deletion",
+      }),
+    ).rejects.toThrow(
+      "memory deletion backups must run synchronously before deleting the memory row",
+    );
+  });
+
   it("marks backup failure without removing the memory row or markdown content", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(
@@ -340,7 +545,7 @@ describe("git memory backup queue", () => {
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
-        import { mkdirSync, writeFileSync } from "node:fs";
+        import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -364,13 +569,20 @@ describe("git memory backup queue", () => {
           env: createGitEnv(),
           stdio: ["ignore", "pipe", "pipe"],
         });
-        mkdirSync(join(config.storePath, "memories", ids.success), {
-          recursive: true,
-        });
-        writeFileSync(
-          join(config.storePath, "memories", ids.success, "CONTENT.md"),
-          "# Already backed up\\n",
-        );
+        for (const id of Object.values(ids)) {
+          mkdirSync(join(config.storePath, "memories", id), {
+            recursive: true,
+          });
+          writeFileSync(
+            join(config.storePath, "memories", id, "CONTENT.md"),
+            "# Backup candidate\\n",
+          );
+          writeFileSync(
+            join(config.storePath, "memories", id, "FLASHBACKS.json"),
+            JSON.stringify({ version: 1, memoryId: id, flashbacks: [] }, null, 2) + "\\n",
+          );
+        }
+        unlinkSync(join(config.storePath, "memories", ids.failed, "FLASHBACKS.json"));
         execFileSync(
           "git",
           [
@@ -422,7 +634,10 @@ describe("git memory backup queue", () => {
           config,
           now: () => now,
           runJob: async ({ job }) => {
-            processed.push(job.memoryId);
+            processed.push({
+              memoryId: job.memoryId,
+              contentPaths: job.contentPaths,
+            });
           },
         });
         const retryCount = await queue.retryEligibleBackups();
@@ -475,9 +690,27 @@ describe("git memory backup queue", () => {
 
     expect(retryCount).toBe(3);
     expect(processed).toEqual([
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
-      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813",
+        contentPaths: [
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef813/FLASHBACKS.json",
+        ],
+      },
     ]);
     expect(rows).toEqual([
       {
@@ -656,8 +889,8 @@ describe("git memory backup queue", () => {
             if (processed.length === 1) {
               await queue.enqueue({
                 memoryId: job.memoryId,
-                contentPaths: [\`memories/${memoryId}/HIGHLIGHTS.md\`],
-                reason: "highlight_update",
+                contentPaths: [\`memories/${memoryId}/FLASHBACKS.json\`],
+                reason: "flashback_update",
               });
             }
           },
@@ -701,8 +934,8 @@ describe("git memory backup queue", () => {
       },
       {
         memoryId,
-        contentPaths: [`memories/${memoryId}/HIGHLIGHTS.md`],
-        reason: "highlight_update",
+        contentPaths: [`memories/${memoryId}/FLASHBACKS.json`],
+        reason: "flashback_update",
       },
     ]);
   });
@@ -768,7 +1001,7 @@ describe("git memory backup queue", () => {
         await queue.enqueue({
           memoryId: ${JSON.stringify(memoryId)},
           contentPaths: [\`memories/${memoryId}/CONTENT.md\`],
-          reason: "highlight_update",
+          reason: "flashback_update",
         });
         await queue.drain();
 
@@ -819,6 +1052,7 @@ async function makeRoot(prefix: string) {
 }
 
 function createConfig(input: {
+  commitMessageTemplate?: string;
   root: string;
   projectPath: string;
   storePath: string;
@@ -835,17 +1069,20 @@ function createConfig(input: {
         remote: "origin",
         branch: "main",
         push: input.push,
-        commitMessageTemplate: "backup memory {memoryId}",
+        commitMessageTemplate: input.commitMessageTemplate ?? "backup memory {memoryId}",
       },
     },
   };
 }
 
-function createJob(input: { contentPaths: string[] }): MemoryBackupJob {
+function createJob(input: {
+  contentPaths: string[];
+  reason?: MemoryBackupJob["reason"];
+}): MemoryBackupJob {
   return {
     memoryId,
     contentPaths: input.contentPaths,
-    reason: "memory_creation",
+    reason: input.reason ?? "memory_creation",
   };
 }
 

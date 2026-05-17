@@ -42,7 +42,7 @@ TRAUMA does not auto-initialize a new repository. It creates a critical failsafe
 alert so the operator can choose `revert` or `migrate` explicitly.
 
 Backup work is asynchronous. A failed backup does not invalidate memory
-creation, highlight creation, or markdown writes. Failures are recorded and
+creation, flashback creation, or markdown writes. Failures are recorded and
 surfaced through metadata.
 
 When push is enabled, a missing configured remote name is treated as local-only

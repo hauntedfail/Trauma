@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdtempSync } from "node:fs";
+import { accessSync, mkdtempSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,25 +15,61 @@ afterEach(async () => {
 });
 
 describe("loadReaderMemory", () => {
+  it("loads reader relation data through the repository boundary", () => {
+    const source = readFileSync("src/server/reader/page-data.ts", "utf8");
+
+    expect(source).toContain("findReaderAggregateById");
+    expect(source).not.toContain("connection.db.query");
+    expect(source).not.toContain("drizzle-orm");
+  });
+
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,
-      markdown: "# Fixture Reader\n\nA saved <mark data-highlight-id=\"hl-1\">highlight</mark>.",
+      markdown: "# Fixture Reader\n\nA saved flashback.",
     });
 
     expect(result.status).toBe("ready");
     expect(result.memory.title).toBe("Fixture Reader");
     expect(result.memory.url).toBe("https://example.com/reader");
+    expect(result.memory.read).toBe(false);
+    expect(result.memory.categories).toEqual([{ id: "reader-category", name: "Reader" }]);
+    expect(result.memory.tags).toEqual([{ id: "reader-tag", name: "reader" }]);
+    expect(result.memory.moments).toEqual([
+      {
+        id: "flashback-reader",
+        sectionAnchor: "fixture-reader",
+        sectionTitle: "Fixture Reader",
+        sectionLevel: 1,
+        sectionPath: "1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
+    expect(result.memory.flashbacks).toEqual([
+      {
+        id: "hl-1",
+        text: "flashback",
+        prefix: "A saved ",
+        suffix: ".",
+        startOffset: 26,
+        endOffset: 35,
+        contentHash: null,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
     expect(result.content).toEqual({
       relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
     });
     expect("markdown" in result.content).toBe(false);
     expect(result.rendered.toc).toEqual([
-      { id: "fixture-reader", level: 1, text: "Fixture Reader" },
+      { id: "fixture-reader", level: 1, path: "1", text: "Fixture Reader" },
     ]);
     expect(result.rendered.html).toContain('<h1 id="fixture-reader"');
     expect(result.rendered.html).toContain(
-      '<mark data-highlight-id="hl-1" id="hl-1">highlight</mark>',
+      '<mark data-flashback-id="hl-1" id="hl-1">flashback</mark>',
     );
   });
 
@@ -60,6 +96,19 @@ describe("loadReaderMemory", () => {
       status: "content_missing",
       message: "Readable content is missing for this memory.",
     });
+  });
+
+  it("renders clean content instead of crashing when saved flashback ranges are stale", () => {
+    const result = runReaderFixture({
+      targetMemoryId: MEMORY_ID,
+      markdown: "# Fixture Reader\n\nA saved flashback.",
+      insertOverlappingFlashback: true,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.rendered.html).toContain("<p>A saved flashback.</p>");
+    expect(result.rendered.html).not.toContain("<mark");
+    expect(result.memory.flashbacks).toEqual([]);
   });
 
   it("returns a user-readable unavailable state when the default config cannot load", () => {
@@ -89,6 +138,7 @@ describe("loadReaderMemory", () => {
 function runReaderFixture(input: {
   targetMemoryId: string;
   markdown: string;
+  insertOverlappingFlashback?: boolean;
   writeContent?: boolean;
 }) {
   const root = mkdtempSync(join(tmpdir(), "trauma-reader-"));
@@ -142,6 +192,70 @@ function runReaderFixture(input: {
           createdAt: new Date("2026-05-09T00:00:00.000Z"),
           updatedAt: new Date("2026-05-09T00:00:00.000Z"),
         });
+        await connection.db.insert(schema.categories).values({
+          id: "reader-category",
+          name: "Reader",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.tags).values({
+          id: "reader-tag",
+          name: "reader",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.memoryCategories).values({
+          memoryId,
+          categoryId: "reader-category",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        await connection.db.insert(schema.memoryTags).values({
+          memoryId,
+          tagId: "reader-tag",
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
+        const flashbackStartOffset = markdown.indexOf("flashback");
+        if (flashbackStartOffset >= 0) {
+          await connection.db.insert(schema.flashbacks).values({
+            id: "hl-1",
+            memoryId,
+            text: "flashback",
+            prefix: "A saved ",
+            suffix: ".",
+            startOffset: flashbackStartOffset,
+            endOffset: flashbackStartOffset + "flashback".length,
+            createdAt: new Date("2026-05-09T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+          });
+          if (process.env.TRAUMA_TEST_INSERT_OVERLAPPING_FLASHBACK === "true") {
+            await connection.db.insert(schema.flashbacks).values({
+              id: "hl-2",
+              memoryId,
+              text: "saved flash",
+              prefix: "A ",
+              suffix: "back.",
+              startOffset: flashbackStartOffset - "saved ".length,
+              endOffset: flashbackStartOffset + "flash".length,
+              createdAt: new Date("2026-05-09T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+            });
+          }
+        }
+        await connection.db.insert(schema.moments).values({
+          id: "flashback-reader",
+          memoryId,
+          sectionAnchor: "fixture-reader",
+          sectionTitle: "Fixture Reader",
+          sectionLevel: 1,
+          sectionPath: "1",
+          sectionStartOffset: null,
+          sectionEndOffset: null,
+          contentHash: null,
+          createdAt: new Date("2026-05-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+        });
       } finally {
         connection.close();
       }
@@ -168,6 +282,8 @@ function runReaderFixture(input: {
       TRAUMA_TEST_ROOT: root,
       TRAUMA_TEST_TARGET_MEMORY_ID: input.targetMemoryId,
       TRAUMA_TEST_MARKDOWN: input.markdown,
+      TRAUMA_TEST_INSERT_OVERLAPPING_FLASHBACK:
+        input.insertOverlappingFlashback === true ? "true" : "false",
       TRAUMA_TEST_WRITE_CONTENT: input.writeContent === false ? "false" : "true",
     },
   );

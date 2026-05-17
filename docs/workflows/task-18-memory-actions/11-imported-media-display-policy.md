@@ -2,34 +2,38 @@
 
 ## Goal
 
-Relax imported media validation so real article media is preserved when safe enough for TRAUMA's reader.
+Keep imported media safe without taking ownership of readable-content
+extraction. Defuddle owns article cleanup and markdown serialization; TRAUMA
+owns fetch/payload trust boundaries, persistence, and reader sanitization.
 
-The current `resolveSafeDisplayUrl()` same-host requirement is too strict. Real articles often serve images from first-party or third-party media hosts such as `miro.medium.com` or `pbs.twimg.com`, and may borrow images from a different host. Task 18 should replace same-host-only media validation with a smaller, explicit safety policy.
-
-This subtask also allows controlled iframe preservation. Markdown can contain raw iframe HTML, and TRAUMA's reader already has an iframe sanitizer boundary. Import/capture should align with that reality instead of blanket-dropping every iframe.
+The importer must not depend on a custom HTML-to-Markdown converter or a
+TRAUMA-defined readability threshold. Media safety is enforced where markdown is
+rendered, because persisted markdown can come from URL import, browser import,
+fixtures, or future migration paths.
 
 ## Files likely owned
 
 - `src/server/importer/extractor.ts`
 - `src/server/reader/markdown-renderer.ts`
-- `extensions/browser/src/capture.ts`
 - `src/server/browser-import/import-browser-capture.ts`
 - `tests/server/importer/importer.test.ts`
 - `tests/server/reader/markdown-renderer.test.ts`
-- `tests/server/routes/api-browser-import.test.ts`
-- `tests/browser-extension/capture.test.ts`
+- `tests/server/browser-import/import-browser-capture.test.ts`
 
 Use actual existing test paths if they differ.
 
 ## Product contract
 
-Imported content should preserve:
+Imported content should:
 
-- HTTPS images from public hosts, even when the image host differs from the article host.
-- `<picture>` structures by resolving their contained `<img src>` first.
-- Controlled HTTPS iframes when they are safe enough for reader rendering.
+- Preserve Defuddle markdown as the canonical extracted content artifact.
+- Accept short non-empty Defuddle markdown. Empty markdown is the only
+  readability fallback condition owned by TRAUMA.
+- Render HTTPS images from public named hosts, even when the image host differs
+  from the article host.
+- Render controlled HTTPS iframes when they pass the reader sanitizer.
 
-Imported content should still reject:
+Reader rendering should reject:
 
 - `http:` media URLs
 - `data:`, `blob:`, `javascript:`, `file:`, and other non-HTTPS media URLs
@@ -39,15 +43,15 @@ Imported content should still reject:
 - event-handler attributes such as `onclick`
 - arbitrary iframe attributes not allowed by the reader sanitizer
 
-## Image URL policy
+## Image URL Policy
 
-Replace same-host-only image validation with:
+Do not rewrite imported markdown URLs in the importer. When rendering markdown:
 
-1. Resolve the media URL relative to the page URL.
-2. Require `https:`.
-3. Reject username/password userinfo.
-4. Reject blocked hostnames using the existing host policy where possible.
-5. Strip or ignore all attributes except the minimal Markdown fields needed by the saved content.
+1. Require absolute `https:` image URLs.
+2. Reject username/password userinfo.
+3. Reject blocked local/private hostnames and IP literals.
+4. Sanitize `srcset` candidate-by-candidate.
+5. Strip unsafe image tags instead of making the browser fetch them.
 
 Do not require image hostname equality with the page hostname.
 
@@ -57,15 +61,12 @@ This should preserve examples such as:
 - X/Twitter article page with image on `pbs.twimg.com`.
 - Ordinary articles using a CDN or external image host.
 
-## `<picture>` policy
+## `<picture>` Policy
 
-The importer does not need to preserve `<picture>` as HTML.
-
-Required behaviour:
-
-- If a `<picture>` contains an `<img src="...">`, preserve that image as Markdown image when it passes the image URL policy.
-- `source srcset` parsing is optional for this subtask.
-- If there is no `<img src>`, do not guess from `srcset` unless implementation adds a deterministic parser with tests.
+Defuddle may produce markdown image syntax or raw `<picture>` HTML. TRAUMA
+does not reconstruct `<picture>` markup during import. The reader sanitizer is
+responsible for allowing only safe `source srcset` candidates and safe fallback
+`img src` values.
 
 Rationale:
 
@@ -122,62 +123,44 @@ Reader sanitizer alignment:
 - If reader remains host-allowlist-only, importer must not preserve broader iframes than reader can render.
 - Prefer a shared helper for media URL and iframe policy if it prevents drift.
 
-## Browser extension capture policy
+## Browser Extension Capture Policy
 
-Current extension capture removes all `iframe` elements before snapshot.
-
-Change this to:
-
-- remove unsafe iframes
-- preserve controlled HTTPS iframes after sanitizing attributes
-- continue removing `srcdoc`, event handlers, forms, controls, scripts, styles, and other unsafe/noisy nodes
-
-Images:
-
-- Preserve `<img src>` from HTTPS public hosts even when cross-host.
-- Do not reject an image only because it comes from a CDN or media host.
+The extension captures a bounded visible DOM snapshot only. It must not decide
+whether the page is long enough to become a memory, generate final markdown, or
+write persisted content. The server reruns Defuddle against the captured HTML.
 
 CSS background images:
 
 - Out of scope unless a site-specific extractor needs it.
 - Do not parse arbitrary `style="background-image: ..."` generically in this subtask.
 
-## Server URL importer policy
-
-Update `resolveSafeDisplayUrl()` or replace it with media-specific helpers:
-
-- `resolveSafeImageUrl(pageUrl, value)`
-- `resolveSafeIframeUrl(pageUrl, value)`
+## Server URL Importer Policy
 
 Rules:
 
-- Images and iframes should not use the old same-host-only check.
-- Links may keep a stricter policy if needed. Do not automatically relax clickable link validation unless the implementation explicitly decides and tests it.
-
-Important distinction:
-
-- Cross-host images are common article content.
-- Cross-host clickable links are navigation affordances and may deserve separate policy.
-- Cross-host iframes are executable embeds and need stronger controls than images.
+- URL fetch and redirect validation remain importer-owned.
+- Defuddle async fallback fetches remain disabled unless they are routed through
+  the same public-host/timeout/size controls.
+- Non-empty Defuddle markdown is importable even when it is short.
+- Empty Defuddle markdown becomes link-only fallback for URL import and a
+  browser-import error for browser-assisted import.
 
 ## Tests
 
 Importer tests:
 
-- Medium-style `<picture><source ...><img src="https://miro.medium.com/..."></picture>` becomes Markdown image.
-- X/Twitter-style `<img src="https://pbs.twimg.com/...">` becomes Markdown image.
-- Cross-host HTTPS image is preserved.
-- HTTP image is rejected.
-- `data:` image is rejected.
-- image with userinfo is rejected.
-- blocked/local image host is rejected.
+- Defuddle markdown output is persisted without a TRAUMA readability threshold.
+- Short non-empty Defuddle markdown succeeds.
+- Empty Defuddle markdown falls back or errors at the appropriate import
+  boundary.
 
-Iframe tests:
+Reader sanitizer tests:
 
 - HTTPS iframe with safe attributes is preserved.
 - HTTP iframe is rejected.
 - `srcdoc` iframe is rejected or stripped so it cannot render inline HTML.
 - event-handler attributes are removed.
+- Unsafe image and `srcset` URLs are stripped before the browser can load them.
 - unsafe iframe attributes are removed.
 - reader sanitizer applies `loading="lazy"` and `referrerpolicy="no-referrer"`.
 - reader sanitizer applies or preserves the required sandbox.

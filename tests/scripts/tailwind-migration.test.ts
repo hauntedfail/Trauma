@@ -31,7 +31,7 @@ describe("Tailwind migration contract", () => {
       "src/components/shell/AppShell.tsx",
       "src/components/memories/MemoryBrowse.tsx",
       "src/components/reader/MemoryReader.tsx",
-      "src/routes/highlights/index.tsx",
+      "src/routes/flashbacks/index.tsx",
       "src/routes/[...404].tsx",
       "src/routes/memories/[id].tsx",
     ];

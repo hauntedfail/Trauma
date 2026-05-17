@@ -1,3 +1,5 @@
+import type { ExtractionStatus } from "../../server/memory-status";
+
 export type BrowseView = "list" | "grid";
 
 export interface BrowseTaxonomyItem {
@@ -5,7 +7,17 @@ export interface BrowseTaxonomyItem {
   name: string;
 }
 
-export interface BrowseHighlight {
+export interface BrowseTaxonomySummaryItem extends BrowseTaxonomyItem {
+  memoryCount: number;
+  lastAssignedAt: string | null;
+}
+
+export interface BrowseTaxonomySummary {
+  categories: BrowseTaxonomySummaryItem[];
+  tags: BrowseTaxonomySummaryItem[];
+}
+
+export interface BrowseFlashback {
   id: string;
   text: string;
   prefix: string;
@@ -13,7 +25,7 @@ export interface BrowseHighlight {
   createdAt: string;
 }
 
-export interface BrowseReaderHighlight extends BrowseHighlight {
+export interface BrowseReaderFlashback extends BrowseFlashback {
   anchorId: string;
 }
 
@@ -23,16 +35,18 @@ export interface BrowseMemory {
   url: string;
   description: string;
   capturedAt: string;
+  read: boolean;
+  extractionStatus: ExtractionStatus;
   categories: BrowseTaxonomyItem[];
   tags: BrowseTaxonomyItem[];
-  highlights: BrowseHighlight[];
+  flashbacks: BrowseFlashback[];
 }
 
 export interface BrowseQuery {
   q: string;
   category: string;
   tag: string;
-  highlight: string;
+  flashback: string;
   view: BrowseView;
 }
 
@@ -40,7 +54,7 @@ export const defaultBrowseQuery: BrowseQuery = {
   q: "",
   category: "",
   tag: "",
-  highlight: "",
+  flashback: "",
   view: "list",
 };
 
@@ -52,7 +66,10 @@ export function parseBrowseQuery(search: string): BrowseQuery {
     q: params.get("q")?.trim() ?? "",
     category: params.get("category")?.trim() ?? "",
     tag: params.get("tag")?.trim() ?? "",
-    highlight: params.get("highlight")?.trim() ?? "",
+    flashback:
+      params.get("flashback")?.trim() ||
+      params.get("highlight")?.trim() ||
+      "",
     view,
   };
 }
@@ -67,7 +84,7 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   appendParam(params, "q", next.q.trim());
   appendParam(params, "category", next.category.trim());
   appendParam(params, "tag", next.tag.trim());
-  appendParam(params, "highlight", next.highlight.trim());
+  appendParam(params, "flashback", next.flashback.trim());
 
   if (next.view === "grid") {
     params.set("view", "grid");
@@ -77,8 +94,8 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   return queryString.length > 0 ? `/memories?${queryString}` : "/memories";
 }
 
-export function buildHighlightBrowseHref(highlightId: string): string {
-  return buildBrowseHref(defaultBrowseQuery, { highlight: highlightId });
+export function buildFlashbackBrowseHref(flashbackId: string): string {
+  return buildBrowseHref(defaultBrowseQuery, { flashback: flashbackId });
 }
 
 export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuery): BrowseMemory[] {
@@ -93,7 +110,7 @@ export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuer
       return false;
     }
 
-    if (query.highlight.length > 0 && !memory.highlights.some((highlight) => highlight.id === query.highlight)) {
+    if (query.flashback.length > 0 && !memory.flashbacks.some((flashback) => flashback.id === query.flashback)) {
       return false;
     }
 
@@ -113,25 +130,25 @@ export function getBrowseTags(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
   return getUniqueTaxonomyItems(memories.flatMap((memory) => memory.tags));
 }
 
-export function getRecentHighlights(memories: BrowseMemory[]): BrowseHighlight[] {
+export function getRecentFlashbacks(memories: BrowseMemory[]): BrowseFlashback[] {
   return memories
-    .flatMap((memory) => memory.highlights)
+    .flatMap((memory) => memory.flashbacks)
     .toSorted((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
     .slice(0, 5);
 }
 
-export function getMemoryDisplayHighlight(memory: BrowseMemory, activeHighlightId: string): BrowseHighlight | undefined {
-  if (activeHighlightId.length > 0) {
-    return memory.highlights.find((highlight) => highlight.id === activeHighlightId) ?? memory.highlights[0];
+export function getMemoryDisplayFlashback(memory: BrowseMemory, activeFlashbackId: string): BrowseFlashback | undefined {
+  if (activeFlashbackId.length > 0) {
+    return memory.flashbacks.find((flashback) => flashback.id === activeFlashbackId) ?? memory.flashbacks[0];
   }
 
-  return memory.highlights[0];
+  return memory.flashbacks[0];
 }
 
-export function getMemoryReaderHighlights(memory: BrowseMemory): BrowseReaderHighlight[] {
-  return memory.highlights.map((highlight) => ({
-    ...highlight,
-    anchorId: highlight.id,
+export function getMemoryReaderFlashbacks(memory: BrowseMemory): BrowseReaderFlashback[] {
+  return memory.flashbacks.map((flashback) => ({
+    ...flashback,
+    anchorId: flashback.id,
   }));
 }
 
@@ -148,7 +165,7 @@ function getSearchableText(memory: BrowseMemory): string[] {
     memory.description,
     ...memory.categories.map((category) => category.name),
     ...memory.tags.map((tag) => tag.name),
-    ...memory.highlights.flatMap((highlight) => [highlight.text, highlight.prefix, highlight.suffix]),
+    ...memory.flashbacks.flatMap((flashback) => [flashback.text, flashback.prefix, flashback.suffix]),
   ];
 }
 

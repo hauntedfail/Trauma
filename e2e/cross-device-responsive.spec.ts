@@ -43,7 +43,7 @@ test("keeps phone primary actions reachable from the bottom tab bar", async ({ p
   const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
   for (const tabName of [
     "Memories",
-    "Highlights",
+    "Flashbacks",
     "Categories",
     "Tags",
     "Backup",
@@ -74,9 +74,9 @@ test("keeps phone primary actions reachable from the bottom tab bar", async ({ p
   expect(["auto", "scroll"]).toContain(scrollState!.overflowX);
   expect(scrollState!.scrollWidth).toBeGreaterThan(scrollState!.clientWidth);
 
-  await primaryTabs.getByRole("link", { name: "Highlights" }).click();
-  await expect(page).toHaveURL(/\/highlights$/);
-  await expect(page.getByRole("heading", { name: "Highlights", exact: true })).toBeVisible();
+  await primaryTabs.getByRole("link", { name: "Flashbacks" }).click();
+  await expect(page).toHaveURL(/\/flashbacks$/);
+  await expect(page.getByRole("heading", { name: "Flashbacks", exact: true })).toBeVisible();
 
   await primaryTabs.getByRole("button", { name: "Theme" }).click();
   await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
@@ -121,7 +121,7 @@ test("keeps phone tab labels visually hidden while preserving names", async ({ p
   await expect(primaryTabs.getByRole("button", { name: "Theme" })).toBeVisible();
 
   const labels = primaryTabs.locator("[data-phone-tab-label]");
-  await expect(labels).toHaveCount(8);
+  await expect(labels).toHaveCount(9);
 
   const labelBoxes = await labels.evaluateAll((elements) =>
     elements.map((element) => {

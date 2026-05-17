@@ -1,0 +1,1 @@
+ALTER TABLE `memories` ADD `read` integer DEFAULT false NOT NULL;

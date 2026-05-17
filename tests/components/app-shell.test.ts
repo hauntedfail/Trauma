@@ -12,8 +12,8 @@ const addMemoryFormSource = readFileSync(
   "src/components/memories/AddMemoryForm.tsx",
   "utf8",
 );
-const highlightsRouteSource = readFileSync(
-  "src/routes/highlights/index.tsx",
+const flashbacksRouteSource = readFileSync(
+  "src/routes/flashbacks/index.tsx",
   "utf8",
 );
 const readerStylesSource = readFileSync(
@@ -23,6 +23,10 @@ const readerStylesSource = readFileSync(
 const waxSealButtonPath = "src/components/ui/WaxSealButton.tsx";
 const waxSealButtonSource = existsSync(waxSealButtonPath)
   ? readFileSync(waxSealButtonPath, "utf8")
+  : "";
+const segmentedToggleButtonPath = "src/components/ui/SegmentedToggleButton.tsx";
+const segmentedToggleButtonSource = existsSync(segmentedToggleButtonPath)
+  ? readFileSync(segmentedToggleButtonPath, "utf8")
   : "";
 const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const rightRailContextSource = existsSync(rightRailContextPath)
@@ -57,7 +61,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain('href="/category"');
     expect(appShellSource).not.toContain('href="/tags"');
     expect(appShellSource).not.toContain('href="/backup"');
-    expect(appShellSource).not.toContain('href="/settings"');
+    expect(appShellSource).toContain('href: "/settings"');
   });
 
   it("uses filled icons and bold labels for active tabs without active background fills", () => {
@@ -109,7 +113,7 @@ describe("refined app shell contract", () => {
   it("keeps route panes full-width inside the shell column", () => {
     for (const source of [
       memoryBrowseSource,
-      highlightsRouteSource,
+      flashbacksRouteSource,
       readerStylesSource,
     ]) {
       expect(source).not.toContain("mx-auto");
@@ -129,6 +133,7 @@ describe("refined app shell contract", () => {
     expect(rightRailContextSource).toContain("createContext");
     expect(appShellSource).toContain("RightRailContentContext.Provider");
     expect(appShellSource).toContain("rightRailContent()");
+    expect(appShellSource).toContain("showFlashbacks={rightRailContent() === undefined}");
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");
@@ -170,15 +175,16 @@ describe("refined app shell contract", () => {
   });
 
   it("keeps selected theme options visible on normal night mode", () => {
-    expect(appShellSource).toContain("themeToggleButton");
-    expect(appShellSource).toContain("aria-pressed:bg-trauma-bg-elev");
-    expect(appShellSource).toContain("aria-pressed:ring-1");
+    expect(appShellSource).toContain("SegmentedToggleButton");
+    expect(segmentedToggleButtonSource).toContain("aria-pressed:bg-trauma-bg-elev");
+    expect(segmentedToggleButtonSource).toContain("aria-pressed:ring-1");
     expect(appShellSource).not.toContain("aria-pressed:bg-trauma-bg-surface");
     expect(appShellSource).not.toContain("max-[1040px]:size-10 max-[1040px]:px-0");
   });
 
   it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
     expect(appShellSource).toContain("ThemeNavButton");
+    expect(appShellSource).toContain("TraumaNavIcons.theme");
     expect(appShellSource).toContain('aria-haspopup="dialog"');
     expect(appShellSource).toContain("aria-expanded={isThemeOpen()}");
     expect(appShellSource).toContain('role="dialog"');
@@ -228,7 +234,7 @@ describe("refined app shell contract", () => {
     );
     const themeIndex = appShellSource.indexOf("<ThemeNavButton", backupIndex);
     const settingsIndex = appShellSource.indexOf(
-      "item={futureNavItems.settings}",
+      "item={settingsNavItem}",
       themeIndex,
     );
 

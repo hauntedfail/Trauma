@@ -11,6 +11,11 @@ import {
 
 import { BACKUP_STATUSES, type BackupStatus } from "../backup/status";
 import { EXTRACTION_STATUSES, type ExtractionStatus } from "../memory-status";
+import {
+  DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+  SUPPORTED_TRANSLATION_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../../settings/languages";
 
 export type { BackupStatus } from "../backup/status";
 
@@ -30,6 +35,11 @@ const backupFailsafeAlertKindSqlList = sql.raw(
 );
 const backupFailsafeSeveritySqlList = sql.raw(
   ["critical"].map(toSqlStringLiteral).join(", "),
+);
+const supportedLanguageSqlList = sql.raw(
+  SUPPORTED_TRANSLATION_LANGUAGES.map((language) =>
+    toSqlStringLiteral(language.code),
+  ).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -56,6 +66,7 @@ export const memories = sqliteTable(
       .$type<ExtractionStatus>()
       .notNull(),
     extractionError: text("extraction_error"),
+    read: integer("read", { mode: "boolean" }).notNull().default(false),
     backupStatus: text("backup_status").$type<BackupStatus>().notNull(),
     lastBackupAt: integer("last_backup_at", { mode: "timestamp_ms" }),
     lastBackupError: text("last_backup_error"),
@@ -131,8 +142,8 @@ export const memoryCategories = sqliteTable(
   ],
 );
 
-export const highlights = sqliteTable(
-  "highlights",
+export const flashbacks = sqliteTable(
+  "flashbacks",
   {
     id: text("id").primaryKey(),
     memoryId: text("memory_id")
@@ -143,13 +154,56 @@ export const highlights = sqliteTable(
     suffix: text("suffix").notNull(),
     startOffset: integer("start_offset").notNull(),
     endOffset: integer("end_offset").notNull(),
+    contentHash: text("content_hash"),
     ...timestamps(),
   },
   (table) => [
-    index("highlights_memory_id_idx").on(table.memoryId),
-    index("highlights_created_at_idx").on(table.createdAt),
-    check("highlights_start_offset_check", sql`${table.startOffset} >= 0`),
-    check("highlights_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
+    index("flashbacks_memory_id_idx").on(table.memoryId),
+    index("flashbacks_created_at_idx").on(table.createdAt),
+    check("flashbacks_start_offset_check", sql`${table.startOffset} >= 0`),
+    check("flashbacks_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
+  ],
+);
+
+export const moments = sqliteTable(
+  "moments",
+  {
+    id: text("id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    sectionAnchor: text("section_anchor").notNull(),
+    sectionTitle: text("section_title").notNull(),
+    sectionLevel: integer("section_level").notNull(),
+    sectionPath: text("section_path").notNull(),
+    sectionStartOffset: integer("section_start_offset"),
+    sectionEndOffset: integer("section_end_offset"),
+    contentHash: text("content_hash"),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("moments_memory_section_anchor_unique").on(
+      table.memoryId,
+      table.sectionAnchor,
+    ),
+    index("moments_memory_id_idx").on(table.memoryId),
+    index("moments_created_at_idx").on(table.createdAt),
+    check(
+      "moments_section_anchor_check",
+      sql`length(${table.sectionAnchor}) > 0`,
+    ),
+    check(
+      "moments_section_title_check",
+      sql`length(${table.sectionTitle}) > 0`,
+    ),
+    check(
+      "moments_section_level_check",
+      sql`${table.sectionLevel} >= 1 and ${table.sectionLevel} <= 6`,
+    ),
+    check(
+      "moments_section_offset_check",
+      sql`(${table.sectionStartOffset} is null and ${table.sectionEndOffset} is null) or (${table.sectionStartOffset} is not null and ${table.sectionEndOffset} is not null and ${table.sectionStartOffset} >= 0 and ${table.sectionEndOffset} > ${table.sectionStartOffset})`,
+    ),
   ],
 );
 
@@ -206,10 +260,43 @@ export const backupFailsafeAlerts = sqliteTable(
   ],
 );
 
+export const appSettings = sqliteTable(
+  "app_settings",
+  {
+    id: text("id").primaryKey(),
+    translationTargetLanguage: text("translation_target_language")
+      .$type<SupportedLanguageCode>()
+      .notNull()
+      .default(DEFAULT_TRANSLATION_TARGET_LANGUAGE),
+    ...timestamps(),
+  },
+  (table) => [
+    check("app_settings_id_check", sql`${table.id} = 'default'`),
+    check(
+      "app_settings_translation_target_language_check",
+      sql`${table.translationTargetLanguage} in (${supportedLanguageSqlList})`,
+    ),
+  ],
+);
+
+export const openaiAuthCredentials = sqliteTable(
+  "openai_auth_credentials",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    credentialReference: text("credential_reference").notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    check("openai_auth_credentials_id_check", sql`${table.id} = 'default'`),
+  ],
+);
+
 export const memoriesRelations = relations(memories, ({ many }) => ({
-  highlights: many(highlights),
+  flashbacks: many(flashbacks),
   memoryCategories: many(memoryCategories),
   memoryTags: many(memoryTags),
+  moments: many(moments),
 }));
 
 export const tagsRelations = relations(tags, ({ many }) => ({
@@ -245,9 +332,16 @@ export const memoryCategoriesRelations = relations(
   }),
 );
 
-export const highlightsRelations = relations(highlights, ({ one }) => ({
+export const flashbacksRelations = relations(flashbacks, ({ one }) => ({
   memory: one(memories, {
-    fields: [highlights.memoryId],
+    fields: [flashbacks.memoryId],
+    references: [memories.id],
+  }),
+}));
+
+export const momentsRelations = relations(moments, ({ one }) => ({
+  memory: one(memories, {
+    fields: [moments.memoryId],
     references: [memories.id],
   }),
 }));

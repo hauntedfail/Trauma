@@ -9,6 +9,7 @@ import {
   OpenIcon,
   PageIcon,
   PaperIcon,
+  PaintToolIcon,
   PlusIcon,
   SearchIcon,
   SunIcon,
@@ -19,10 +20,12 @@ describe("TRAUMA icon system", () => {
   it("exports outline and filled nav icon variants", () => {
     for (const name of [
       "memories",
-      "highlights",
+      "flashbacks",
+      "moment",
       "categories",
       "tags",
       "backup",
+      "theme",
       "settings",
     ] as const) {
       expect(TraumaNavIcons[name].outline).toBeDefined();
@@ -41,6 +44,15 @@ describe("TRAUMA icon system", () => {
     expect(renderToString(() => second)).toContain('aria-hidden="true"');
   });
 
+  it("renders the Flashbacks nav icon as a lightning mark", () => {
+    const outline = renderToString(() => TraumaNavIcons.flashbacks.outline());
+    const filled = renderToString(() => TraumaNavIcons.flashbacks.filled());
+
+    expect(outline).toContain("M15 2 6 14h6l-1 10 9-13h-6l1-9z");
+    expect(filled).toContain("M15 2 6 14h6l-1 10 9-13h-6l1-9z");
+    expect(outline).not.toContain("M4 22h18");
+  });
+
   it("renders utility icons with currentColor and hidden SVG semantics", () => {
     const icons = [
       ChevronLeftIcon,
@@ -48,6 +60,7 @@ describe("TRAUMA icon system", () => {
       PlusIcon,
       OpenIcon,
       CheckIcon,
+      PaintToolIcon,
     ];
 
     for (const Icon of icons) {
@@ -57,6 +70,36 @@ describe("TRAUMA icon system", () => {
       expect(html).toContain('width="24"');
       expect(html).toContain('height="24"');
     }
+  });
+
+  it("exports a paint-tool utility icon for the Theme tab", () => {
+    const html = renderToString(() => createComponent(PaintToolIcon, { size: 24 }));
+
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('viewBox="0 0 26 26"');
+    expect(html).toContain('width="24"');
+    expect(html).toContain('height="24"');
+    expect(html).toContain("currentColor");
+    expect(html).toContain("M6.5 20.5 9 14.8");
+    expect(html).toContain("M15.4 8.4 18.6 11.6");
+    expect(html).toContain("M9 14.8l3.3 3.3");
+    expect(html).not.toContain("M15.5 3.5 20.5 8.5");
+  });
+
+  it("renders the Theme nav icon at the same scale and variant depth as the other nav icons", () => {
+    const outline = renderToString(() => TraumaNavIcons.theme.outline());
+    const filled = renderToString(() => TraumaNavIcons.theme.filled());
+
+    expect(outline).toContain('viewBox="0 0 26 26"');
+    expect(outline).toContain('width="26"');
+    expect(outline).toContain('height="26"');
+    expect(outline).toContain("M6.5 20.5 9 14.8");
+    expect(outline).toContain("M15.4 8.4 18.6 11.6");
+    expect(filled).toContain('viewBox="0 0 26 26"');
+    expect(filled).toContain('width="26"');
+    expect(filled).toContain('height="26"');
+    expect(filled).toContain('fill="currentColor"');
+    expect(filled).toContain("var(--bg-base)");
   });
 
   it("keeps theme box utility icons aligned with the refined sample", () => {

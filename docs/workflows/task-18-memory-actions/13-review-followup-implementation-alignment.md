@@ -50,7 +50,7 @@ In scope:
 - Task 18 settings language contract.
 - Task 18 OpenAI auth placeholder behaviour.
 - Task 18 memory deletion and backup deletion strategy.
-- Task 18 highlight `contentHash` format.
+- Task 18 flashback `contentHash` format.
 - Task 18 Flashback server-side section validation.
 - Task 18 imported iframe sandbox default.
 - Tests and docs needed to prove the above implementation alignment.
@@ -198,11 +198,11 @@ Acceptance criteria:
   `CONTENT.md`.
 - Tests cover backup-enabled deletion.
 
-## 5. Highlight `contentHash` format
+## 5. Flashback `contentHash` format
 
 Problem:
 
-The revised highlight contract requires a concrete hash format so highlight
+The revised flashback contract requires a concrete hash format so flashback
 creation, validation, and stale detection cannot drift.
 
 Required behaviour:
@@ -214,57 +214,57 @@ Required behaviour:
 - Do not trim leading or trailing text for hashing.
 - Do not apply Unicode compatibility normalization unless the same
   normalization is shared by offset calculation and rendering.
-- On hash mismatch, do not render a highlight at a guessed location.
+- On hash mismatch, do not render a flashback at a guessed location.
 
 Implementation targets:
 
 - Canonical reader text utility.
-- Highlight creation API.
-- Highlight range validation.
-- Highlight rendering/stale handling.
-- Highlight tests.
+- Flashback creation API.
+- Flashback range validation.
+- Flashback rendering/stale handling.
+- Flashback tests.
 
 Acceptance criteria:
 
 - Duplicate selected text is disambiguated by offsets.
 - `contentHash` uses `sha256:<hex>`.
 - Hash and offset calculations share one canonical text path.
-- Stale/hash-mismatched highlights are not rendered at the wrong occurrence.
+- Stale/hash-mismatched flashbacks are not rendered at the wrong occurrence.
 
-## 5a. Highlight metadata backup/export
+## 5a. Flashback metadata backup/export
 
 Problem:
 
-Task 18 makes highlight persistence SQLite-only and stops writing highlight
+Task 18 makes flashback persistence SQLite-only and stops writing flashback
 markers into `CONTENT.md`. If the built-in git backup still backs up only
-Markdown content and not SQLite, new highlights can be lost on restore.
+Markdown content and not SQLite, new flashbacks can be lost on restore.
 
 Required behaviour:
 
-- Do not reintroduce `CONTENT.md` mutation as the normal highlight persistence
+- Do not reintroduce `CONTENT.md` mutation as the normal flashback persistence
   mechanism.
-- Add a backup/export strategy for highlight metadata when SQLite is not backed
+- Add a backup/export strategy for flashback metadata when SQLite is not backed
   up directly.
-- The backup representation must preserve enough data to restore highlight
+- The backup representation must preserve enough data to restore flashback
   records: `memoryId`, selected `text`, offsets, `prefix`, `suffix`,
   `contentHash`, and timestamps where useful.
 - Prefer a deterministic metadata export under the memory backup scope, or a
-  backup job that serializes highlight metadata with tests.
+  backup job that serializes flashback metadata with tests.
 - If full metadata restore is intentionally deferred, the implementation PR must
   state the restore-risk explicitly and must not claim full backup parity for
-  SQLite-only highlights.
+  SQLite-only flashbacks.
 
 Implementation targets:
 
-- Highlight creation/removal service.
+- Flashback creation/removal service.
 - Backup queue/export layer.
 - Restore or import path if one exists.
-- Highlight backup/export tests.
+- Flashback backup/export tests.
 
 Acceptance criteria:
 
-- Creating/removing highlights does not modify `CONTENT.md`.
-- Highlight metadata is backed up/exported or the restore-risk is explicitly
+- Creating/removing flashbacks does not modify `CONTENT.md`.
+- Flashback metadata is backed up/exported or the restore-risk is explicitly
   documented in the PR.
 - Tests cover the chosen backup/export behaviour, or the PR records the
   intentionally deferred risk.
@@ -299,7 +299,7 @@ Acceptance criteria:
 - Missing section anchors cannot create Flashbacks.
 - Ambiguous sections are rejected rather than guessed.
 - Stored Flashback metadata comes from the server-resolved section.
-- `/flashback` links cannot be broken by direct API calls with fake anchors.
+- `/moments` links cannot be broken by direct API calls with fake anchors.
 
 ## 7. Imported iframe sandbox default
 
@@ -348,8 +348,8 @@ mise exec -- bun run test tests/server/routes/api-settings.test.ts
 mise exec -- bun run test tests/server/settings/settings.test.ts
 mise exec -- bun run test tests/components/settings-page.test.tsx
 mise exec -- bun run test tests/server/routes/api-memory-delete.test.ts
-mise exec -- bun run test tests/server/routes/api-highlights.test.ts
-mise exec -- bun run test tests/server/highlights/ranges.test.ts
+mise exec -- bun run test tests/server/routes/api-flashbacks-toggle.test.ts
+mise exec -- bun run test tests/server/flashbacks/ranges.test.ts
 mise exec -- bun run test tests/server/routes/api-flashbacks.test.ts
 mise exec -- bun run test tests/server/reader/page-data.test.ts
 mise exec -- bun run test tests/server/importer/importer.test.ts
@@ -370,7 +370,7 @@ The implementation PR must state:
 - Settings language normalization behaviour.
 - OpenAI auth provider-missing behaviour.
 - Memory deletion backup strategy.
-- Highlight hash format.
+- Flashback hash format.
 - Flashback server-side section validation strategy.
 - Iframe sandbox policy.
 - Exact verification commands and outcomes.

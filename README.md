@@ -21,7 +21,7 @@ content, and git backup for the markdown store.
 
 The foundation implementation is now more than scaffold. The current baseline
 includes SolidStart/Bun runtime commands, Drizzle/SQLite persistence, markdown
-content storage, add-memory import, memory browsing, reader routes, highlights,
+content storage, add-memory import, memory browsing, reader routes, flashbacks,
 git backup, backup failsafe recovery, Defuddle-based extraction, Tailwind
 styling, and the local browser-assisted import extension.
 

@@ -35,7 +35,7 @@ TRAUMA adapts that model for local archive work.
 6. Keep typography stable. No viewport-scaled font sizes and no negative letter
    spacing.
 7. Prefer semantic Tailwind tokens over raw colours in components.
-8. Preserve existing data, import, highlight, and backup behaviour when
+8. Preserve existing data, import, flashback, and backup behaviour when
    refining UI.
 
 ## Current Design Scope
@@ -48,7 +48,7 @@ The design system currently covers:
 - Right context/filter rail.
 - Tablet icon rail and phone bottom tabs.
 - Memory browse list and grid.
-- Highlight browse page.
+- Flashback browse page.
 - Reader mode.
 - Add-memory composer.
 - Backup failsafe banner surface.
@@ -69,7 +69,7 @@ Shell structure and shared rail components live in
 Route surfaces own route-specific composition:
 
 - `src/components/memories/MemoryBrowse.tsx`
-- `src/routes/highlights/index.tsx`
+- `src/routes/flashbacks/index.tsx`
 - `src/components/reader/MemoryReader.tsx`
 - `src/components/reader/reader-styles.ts`
 

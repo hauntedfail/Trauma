@@ -11,7 +11,7 @@ const gitConfig = {
   remote: "origin",
   branch: "main",
   push: false,
-  commitMessageTemplate: "backup memory {memoryId}",
+  commitMessageTemplate: "backup {action} {memoryId}",
 };
 
 function createTempRoot() {

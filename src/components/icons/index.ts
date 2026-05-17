@@ -8,6 +8,7 @@ export {
   OpenIcon,
   PageIcon,
   PaperIcon,
+  PaintToolIcon,
   PlusIcon,
   SearchIcon,
   SunIcon,

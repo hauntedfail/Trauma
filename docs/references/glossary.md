@@ -24,8 +24,7 @@
 : Ad-hoc label. A memory can have multiple tags.
 
 `Flashback`
-: Product term for a user-created text marker inside reader content. This
-replaces the older product term `highlight`.
+: Product term for a user-created text marker inside reader content.
 
 `unflashback`
 : Toggle action caused by selecting reader text that is already covered by a
@@ -33,22 +32,15 @@ Flashback marker. Only the selected range is removed from Flashback coverage;
 surrounding marked text remains marked.
 
 `/flashbacks`
-: Canonical Flashback marker browse route. It replaces the older `/highlights`
-route language and lists marked excerpts with muted prefix/suffix context and
-the source memory title.
+: Canonical Flashback marker browse route. It lists marked excerpts with muted
+prefix/suffix context and the source memory title.
 
 `Moment`
 : Product term for a saved reader section/chapter bookmark. This replaces the
 older use of `Flashback` for section bookmarks.
 
 `/moments`
-: Canonical Moment browse route. It replaces the older `/flashback` route
-language for section bookmarks.
-
-`highlight`
-: Legacy implementation and historical docs term for what is now product
-language `Flashback`. Do not introduce new user-facing docs or UI copy with
-this term except when describing migration from the older implementation.
+: Canonical Moment browse route for section bookmarks.
 
 `bookmark`
 : Generic behaviour description for what TRAUMA product language calls a

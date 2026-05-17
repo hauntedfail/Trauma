@@ -3,6 +3,7 @@ import type { ResolvedTraumaConfig } from "../config";
 import { getMemoryBackupQueue } from "../backup";
 import { initializeDatabase } from "../db";
 import type { MemoryBrowseRow } from "../db/repositories";
+import { filterRenderableFlashbackRows } from "../flashbacks/browse";
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
 import type { BrowseMemory } from "../../components/memories/browse-data";
 
@@ -24,14 +25,47 @@ export async function loadBrowseMemories(
     const config = loadRuntimeTraumaConfig();
     (options.startBackupQueue ?? startBackupQueue)(config);
     connection = initializeDatabase(config);
-    return (await connection.repositories.memories.listForBrowse()).map(toBrowseMemory);
+    const rows = await connection.repositories.memories.listForBrowse();
+    return (await filterBrowseMemoryFlashbacks({ config, rows })).map(
+      toBrowseMemory,
+    );
   } finally {
     connection?.close();
   }
 }
 
+async function filterBrowseMemoryFlashbacks(input: {
+  config: ResolvedTraumaConfig;
+  rows: MemoryBrowseRow[];
+}): Promise<MemoryBrowseRow[]> {
+  const renderableFlashbackIds = new Set(
+    (
+      await filterRenderableFlashbackRows({
+        config: input.config,
+        rows: input.rows.flatMap((row) => row.flashbacks),
+      })
+    ).map((flashback) => flashback.id),
+  );
+
+  return input.rows.map((row) => ({
+    ...row,
+    flashbacks: row.flashbacks.filter((flashback) =>
+      renderableFlashbackIds.has(flashback.id),
+    ),
+  }));
+}
+
 function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
-  return row;
+  return {
+    ...row,
+    flashbacks: row.flashbacks.map((flashback) => ({
+      id: flashback.id,
+      text: flashback.text,
+      prefix: flashback.prefix,
+      suffix: flashback.suffix,
+      createdAt: flashback.createdAt,
+    })),
+  };
 }
 
 function startBackupQueue(config: ResolvedTraumaConfig): void {

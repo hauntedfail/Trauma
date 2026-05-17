@@ -30,10 +30,18 @@ describe("renderMemoryMarkdown", () => {
     ].join("\n"));
 
     expect(result.toc).toEqual([
-      { id: "reader-title", level: 1, text: "Reader Title" },
-      { id: "details", level: 2, text: "Details" },
+      { id: "reader-title", level: 1, path: "1", text: "Reader Title" },
+      { id: "details", level: 2, path: "1/1", text: "Details" },
     ]);
     expect(result.html).toContain('<h1 id="reader-title"');
+    expect(result.html).toContain('data-reader-section-anchor="reader-title"');
+    expect(result.html).toContain('data-reader-section-path="1"');
+    expect(result.html).toContain(
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment Reader Title"',
+    );
+    expect(result.html).toContain(
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment Details"',
+    );
     expect(result.html).toContain('<a href="https://example.com"');
     expect(result.html).toContain('<a href="https://example.org"');
     expect(result.html).toContain("<s>old text</s>");
@@ -46,13 +54,15 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).toContain("Footnote body.");
   });
 
-  it("removes unsafe HTML while preserving persisted highlight marks", () => {
+  it("removes unsafe HTML while preserving persisted flashback marks", () => {
     const result = renderMemoryMarkdown([
       '<script>alert("xss")</script>',
       '<img src="x" onerror="alert(1)">',
       '<a href="javascript:alert(1)" onclick="alert(1)">unsafe link</a>',
       "<mark>plain mark</mark>",
-      '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" onclick="alert(1)">saved highlight</mark>',
+      '<mark data-flashback-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" onclick="alert(1)">saved flashback</mark>',
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" onclick="alert(1)">untrusted moment button is removed</button>',
+      '<button type="button">untrusted button is removed</button>',
     ].join("\n"));
 
     expect(result.html).not.toContain("<script");
@@ -61,29 +71,60 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("javascript:");
     expect(result.html).not.toContain("<mark>plain mark</mark>");
     expect(result.html).toContain(
-      '<mark data-highlight-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved highlight</mark>',
+      '<mark data-flashback-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved flashback</mark>',
     );
+    expect(result.html).not.toContain('data-reader-moment-trigger="true"');
+    expect(result.html).not.toContain("untrusted moment button is removed");
+    expect(result.html).not.toContain("untrusted button is removed");
   });
 
-  it("allows only controlled external embeds", () => {
+  it("removes extracted anchor hrefs outside the memory source host", () => {
     const result = renderMemoryMarkdown([
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video" referrerpolicy="unsafe-url"></iframe>',
-      '<iframe src="https://player.vimeo.com/video/123" title="Allowed Vimeo" allow="camera; microphone; geolocation; clipboard-write"></iframe>',
-      '<iframe src="https://evil.example/embed" title="Blocked video"></iframe>',
+      "[same host](https://example.com/safe)",
+      "[relative path](/relative)",
+      "[other host](https://elsewhere.example/safe)",
+      "[local host](https://localhost/private)",
+      "[ip host](https://93.184.216.34/private)",
+      "[credential host](https://token:secret@example.com/private)",
+    ].join(" "), { sourceUrl: "https://example.com/article" });
+
+    expect(result.html).toContain('href="https://example.com/safe"');
+    expect(result.html).toContain('href="https://example.com/relative"');
+    expect(result.html).toContain('href="https://example.com/private"');
+    expect(result.html).toContain("other host");
+    expect(result.html).toContain("local host");
+    expect(result.html).toContain("ip host");
+    expect(result.html).not.toContain("elsewhere.example");
+    expect(result.html).not.toContain("localhost");
+    expect(result.html).not.toContain("93.184.216.34");
+    expect(result.html).not.toContain("token:secret");
+  });
+
+  it("allows controlled HTTPS iframes through the shared reader policy", () => {
+    const result = renderMemoryMarkdown([
+      '<iframe src="https://embed.example.test/player" title="Allowed video" referrerpolicy="unsafe-url" sandbox="allow-forms" onclick="evil()" width="640" height="360"></iframe>',
+      '<iframe src="http://embed.example.test/player" title="HTTP blocked"></iframe>',
+      '<iframe src="https://localhost/player" title="Local blocked"></iframe>',
+      '<iframe srcdoc="<p>inline</p>" src="https://embed.example.test/inline" title="Srcdoc blocked"></iframe>',
     ].join("\n"));
 
     expect(result.html).toContain(
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Allowed video"',
+      '<iframe src="https://embed.example.test/player" title="Allowed video"',
     );
+    expect(result.html).toContain('width="640"');
+    expect(result.html).toContain('height="360"');
+    expect(result.html).toContain('sandbox="allow-scripts allow-presentation"');
+    expect(result.html).not.toContain("allow-same-origin");
+    expect(result.html).toContain('loading="lazy"');
     expect(result.html).toContain('referrerpolicy="no-referrer"');
     expect(result.html).not.toContain('referrerpolicy="unsafe-url"');
-    expect(result.html).not.toContain("camera");
-    expect(result.html).not.toContain("microphone");
-    expect(result.html).not.toContain("geolocation");
-    expect(result.html).not.toContain("clipboard-write");
+    expect(result.html).not.toContain("onclick");
+    expect(result.html).not.toContain("allow-forms");
     expect(result.html).not.toContain(" allow=");
-    expect(result.html).not.toContain("evil.example");
-    expect(result.html).not.toContain("Blocked video");
+    expect(result.html).not.toContain("http://embed.example.test");
+    expect(result.html).not.toContain("localhost");
+    expect(result.html).not.toContain("srcdoc");
+    expect(result.html).not.toContain("Srcdoc blocked");
   });
 
   it("preserves sanitized responsive image markup", () => {
@@ -131,5 +172,39 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("javascript:");
     expect(result.html).not.toContain("data:image");
     expect(result.html).not.toContain("<source");
+  });
+
+  it("strips unsafe auto-loaded media URLs at render time", () => {
+    const result = renderMemoryMarkdown([
+      "![local image](https://localhost/pixel.png)",
+      "![ip image](https://93.184.216.34/pixel.png)",
+      "![http image](http://cdn.example.test/pixel.png)",
+      "![safe image](https://cdn.example.test/pixel.png)",
+      '<picture><source srcset="https://localhost/a.png 320w, https://cdn.example.test/a.png 640w"><img src="https://127.0.0.1/a.png" alt="unsafe responsive"></picture>',
+    ].join("\n"));
+
+    expect(result.html).toContain("https://cdn.example.test/pixel.png");
+    expect(result.html).toContain("https://cdn.example.test/a.png 640w");
+    expect(result.html).not.toContain("https://localhost");
+    expect(result.html).not.toContain("93.184.216.34");
+    expect(result.html).not.toContain("http://cdn.example.test");
+    expect(result.html).not.toContain("127.0.0.1");
+  });
+
+  it("resolves relative reader image URLs against the memory source URL", () => {
+    const result = renderMemoryMarkdown([
+      "![diagram](/assets/diagram.png)",
+      '<picture><source srcset="/assets/diagram-480.webp 480w, https://localhost/bad.webp 960w" type="image/webp"><img src="/assets/diagram.jpg" srcset="/assets/diagram-480.jpg 480w" alt="Diagram"></picture>',
+    ].join("\n"), { sourceUrl: "https://example.com/articles/source" });
+
+    expect(result.html).toContain('src="https://example.com/assets/diagram.png"');
+    expect(result.html).toContain(
+      'srcset="https://example.com/assets/diagram-480.webp 480w"',
+    );
+    expect(result.html).toContain('src="https://example.com/assets/diagram.jpg"');
+    expect(result.html).toContain(
+      'srcset="https://example.com/assets/diagram-480.jpg 480w"',
+    );
+    expect(result.html).not.toContain("https://localhost");
   });
 });
