@@ -46,6 +46,37 @@ describe("settings service", () => {
     }
   });
 
+  it("initializes the settings singleton idempotently under concurrent first reads", async () => {
+    const config = await makeConfig();
+
+    await expect(
+      Promise.all([
+        getSettings({ config, now: new Date("2026-05-15T00:00:00.000Z") }),
+        getSettings({ config, now: new Date("2026-05-15T00:00:01.000Z") }),
+      ]),
+    ).resolves.toEqual([
+      {
+        translationTargetLanguage: "ja-JP",
+        openaiAuth: { status: "disabled" },
+      },
+      {
+        translationTargetLanguage: "ja-JP",
+        openaiAuth: { status: "disabled" },
+      },
+    ]);
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from app_settings")
+          .get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("persists valid translation target language updates", async () => {
     const config = await makeConfig();
 

@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DELETE } from "../../../src/routes/api/memories/[memoryId]";
+import {
+  DELETE,
+  resolveDeleteMemoryBackupQueue,
+} from "../../../src/routes/api/memories/[memoryId]";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeMemoryContent } from "../../../src/server/store";
 import {
@@ -27,6 +30,27 @@ afterEach(async () => {
 });
 
 describe("memory delete API route", () => {
+  it("does not create the retry backup queue for Git-backed deletes", async () => {
+    const root = await makeRoot();
+    const configPath = await writeRouteConfig(root);
+    const rawConfig = JSON.parse(await readFile(configPath, "utf8"));
+    rawConfig.backup.git.enabled = true;
+    await writeFile(configPath, `${JSON.stringify(rawConfig, null, 2)}\n`, "utf8");
+    const config = loadRouteConfig(configPath);
+    let factoryCallCount = 0;
+
+    const queue = resolveDeleteMemoryBackupQueue({
+      config,
+      getQueue: () => {
+        factoryCallCount += 1;
+        throw new Error("delete path must not start the backup retry queue");
+      },
+    });
+
+    expect(queue).toBeUndefined();
+    expect(factoryCallCount).toBe(0);
+  });
+
   it("deletes a memory row and its content directory without deleting taxonomy records", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

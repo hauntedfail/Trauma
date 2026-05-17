@@ -1,8 +1,12 @@
 import type { APIEvent } from "@solidjs/start/server";
 
-import { getMemoryBackupQueue } from "~/server/backup";
+import { getMemoryBackupQueue, type MemoryBackupQueue } from "~/server/backup";
 import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
-import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
+import {
+  loadRuntimeTraumaConfig,
+  TraumaConfigError,
+  type ResolvedTraumaConfig,
+} from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { deleteMemory } from "~/server/memories/delete-memory";
 
@@ -24,7 +28,7 @@ export async function DELETE(event: APIEvent): Promise<Response> {
     let result;
     try {
       result = await deleteMemory({
-        backupQueue: getMemoryBackupQueue(config),
+        backupQueue: resolveDeleteMemoryBackupQueueInternal({ config }),
         config,
         db: connection.db,
         memoryId,
@@ -63,6 +67,20 @@ export async function DELETE(event: APIEvent): Promise<Response> {
   } finally {
     connection.close();
   }
+}
+
+export const resolveDeleteMemoryBackupQueue =
+  resolveDeleteMemoryBackupQueueInternal;
+
+function resolveDeleteMemoryBackupQueueInternal(input: {
+  config: ResolvedTraumaConfig;
+  getQueue?: (config: ResolvedTraumaConfig) => MemoryBackupQueue;
+}): MemoryBackupQueue | undefined {
+  if (input.config.backup.git.enabled) {
+    return undefined;
+  }
+
+  return (input.getQueue ?? getMemoryBackupQueue)(input.config);
 }
 
 function json(body: unknown, init: ResponseInit): Response {

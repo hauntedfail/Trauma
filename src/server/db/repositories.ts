@@ -851,8 +851,20 @@ async function getOrCreateSettings(
     createdAt: now,
     updatedAt: now,
   } satisfies typeof schema.appSettings.$inferInsert;
-  await db.insert(schema.appSettings).values(settings).run();
-  return settings;
+  await db
+    .insert(schema.appSettings)
+    .values(settings)
+    .onConflictDoNothing({ target: schema.appSettings.id })
+    .run();
+
+  const current = await db.query.appSettings.findFirst({
+    where: eq(schema.appSettings.id, "default"),
+  });
+  if (current === undefined) {
+    throw new MemoryRepositoryError("Cannot initialize app settings.");
+  }
+
+  return current;
 }
 
 async function requireTagByName(db: TraumaDatabase, name: string): Promise<Tag> {
