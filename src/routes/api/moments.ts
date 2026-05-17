@@ -62,7 +62,7 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseMomentPayload(event.request);
+  const payload = await parseMomentPayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -189,7 +189,9 @@ function matchesOptionalOffset(
   return payloadOffset === null || serverOffset === payloadOffset;
 }
 
-export async function parseMomentPayload(
+export const parseMomentPayload = parseMomentPayloadInternal;
+
+async function parseMomentPayloadInternal(
   request: Request,
 ): Promise<MomentPayloadResult> {
   let payload: unknown;

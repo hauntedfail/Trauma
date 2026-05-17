@@ -179,6 +179,82 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
 });
 
+test("creates a Moment from a right-rail table of contents button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  await expect(
+    page
+      .getByRole("navigation", { name: "Table of contents" })
+      .getByRole("button", { name: "Moment Details" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(readMomentAnchors()).toContain("details");
+});
+
+test("creates a Moment from a reader heading affordance button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .locator("[data-reader-content]")
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(readMomentAnchors()).toContain("details");
+});
+
+test("creates a Moment from the selection menu when the range contains a section", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await selectReaderSection(page, "details");
+
+  const menu = page.getByRole("menu", {
+    name: "Reader text selection actions",
+  });
+  await expect(
+    menu.getByRole("button", { name: "Moment selected section" }),
+  ).toBeVisible();
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await menu.getByRole("button", { name: "Moment selected section" }).click();
+
+  const response = await createResponse;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(readMomentAnchors()).toContain("details");
+});
+
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
   page,
 }) => {
@@ -428,6 +504,28 @@ function createReaderFixture() {
   `);
 }
 
+function readMomentAnchors(): string[] {
+  const stdout = runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+          { readonly: true },
+        );
+        try {
+          const rows = database
+            .query("select section_anchor from moments order by created_at asc")
+            .all();
+          console.log(JSON.stringify(rows.map((row) => row.section_anchor)));
+        } finally {
+          database.close();
+        }
+  `);
+
+  return JSON.parse(stdout.trim()) as string[];
+}
+
 async function selectReaderText(page: Page, text: string) {
   await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
     const findTextNode = (node: Node): Text | undefined => {
@@ -461,4 +559,22 @@ async function selectReaderText(page: Page, text: string) {
     selection?.addRange(range);
     root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   }, text);
+}
+
+async function selectReaderSection(page: Page, anchor: string) {
+  await page.locator("[data-reader-content]").evaluate((root, sectionAnchor) => {
+    const section = root.querySelector<HTMLElement>(
+      `[data-reader-section-anchor="${sectionAnchor}"]`,
+    );
+    if (section === null) {
+      throw new Error(`Section not found: ${sectionAnchor}`);
+    }
+
+    const range = document.createRange();
+    range.selectNode(section);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }, anchor);
 }

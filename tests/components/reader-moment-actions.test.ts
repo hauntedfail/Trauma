@@ -21,11 +21,34 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain("onOpenSectionMenu");
     expect(readerSource).toContain("onPointerDown");
     expect(readerSource).toContain("data-reader-section-anchor");
-    expect(styleSource).toContain(
-      ".trauma-reader-content [data-reader-section-anchor]::before",
-    );
+    expect(readerSource).toContain("button[data-reader-moment-trigger='true']");
+    expect(styleSource).toContain(".trauma-reader-section-moment");
     expect(styleSource).toContain("position: absolute");
     expect(styleSource).toContain("opacity: 0");
+  });
+
+  it("surfaces Moment API error bodies for debugging client failures", async () => {
+    await expect(
+      createMomentForSection({
+        memoryId: "memory-1",
+        section: {
+          id: "chapter-one",
+          level: 2,
+          path: "1/1",
+          text: "Chapter One",
+        },
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: "moment section identity does not match reader content",
+            }),
+            {
+              status: 400,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow("moment section identity does not match reader content");
   });
 
   it("posts section identity to the Moment API", async () => {

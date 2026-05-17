@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { accessSync } from "node:fs";
 import { homedir } from "node:os";
 
-export function runBunFixtureScript(script: string): void {
-  execFileSync(resolveBunExecutable(), ["-e", script], {
+export function runBunFixtureScript(script: string): string {
+  return execFileSync(resolveBunExecutable(), ["-e", script], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -12,7 +12,7 @@ export function runBunFixtureScript(script: string): void {
       TMPDIR: `${process.cwd()}/.tmp/bun-tmp`,
     },
     stdio: "pipe",
-  });
+  }).toString("utf8");
 }
 
 function resolveBunExecutable(): string {

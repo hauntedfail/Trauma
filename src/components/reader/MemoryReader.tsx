@@ -79,6 +79,7 @@ interface ReaderSelection extends ReaderSelectionPayload {
 
 interface ReaderSelectionMenuState {
   key: string;
+  momentSection?: ReaderMomentSection;
   position: ReaderSelectionMenuPosition;
   selection: ReaderSelection;
 }
@@ -235,14 +236,20 @@ function ReadyMemoryReader(props: {
     }
 
     closeSectionMenu();
+    const momentSection = findReaderSectionInSelection(
+      selection.range,
+      contentRef,
+    );
     setSelectionMenu({
       key: getReaderSelectionKey(selection),
+      momentSection,
       position: positionReaderSelectionMenu(
         selection.range.getBoundingClientRect(),
         {
           height: window.innerHeight,
           width: window.innerWidth,
         },
+        momentSection === undefined ? 48 : 92,
       ),
       selection,
     });
@@ -276,6 +283,15 @@ function ReadyMemoryReader(props: {
       onSuccess: () =>
         revalidateAfterFlashbackToggle(props.result.memory.id),
     });
+  };
+  const commitSelectionMomentMenu = () => {
+    const section = selectionMenu()?.momentSection;
+    if (section === undefined) {
+      return;
+    }
+
+    closeSelectionMenu();
+    void createMoment(section);
   };
   const commitSectionMenu = () => {
     const menu = sectionMenu();
@@ -333,18 +349,20 @@ function ReadyMemoryReader(props: {
         revalidateMomentBrowseRows(),
         revalidateReaderMemory(props.result.memory.id),
       ]);
-    } catch {
-      setErrorMessage("Moment failed");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Moment failed");
     } finally {
       setPendingMomentKey("");
     }
   };
   const handleReaderContentClick = (event: MouseEvent) => {
-    const sectionElement = findReaderSectionElement(event.target, contentRef);
-    if (
-      sectionElement === undefined ||
-      !isSectionMomentClick(event, sectionElement)
-    ) {
+    const trigger = findReaderMomentTrigger(event.target, contentRef);
+    if (trigger === undefined) {
+      return;
+    }
+
+    const sectionElement = findReaderSectionElement(trigger, contentRef);
+    if (sectionElement === undefined) {
       return;
     }
 
@@ -359,6 +377,9 @@ function ReadyMemoryReader(props: {
   const handleReaderContentPointerDown = (event: PointerEvent) => {
     clearSectionLongPress();
     if (event.button !== 0) {
+      return;
+    }
+    if (findReaderMomentTrigger(event.target, contentRef) !== undefined) {
       return;
     }
 
@@ -463,6 +484,19 @@ function ReadyMemoryReader(props: {
                 >
                   {TraumaNavIcons.flashbacks.filled({ size: 18 })}
                 </button>
+                <Show when={menu().momentSection}>
+                  {(section) => (
+                    <button
+                      aria-label="Moment selected section"
+                      class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                      disabled={pendingMomentKey() === getReaderMomentKey(section())}
+                      type="button"
+                      onClick={commitSelectionMomentMenu}
+                    >
+                      {TraumaNavIcons.moment.filled({ size: 18 })}
+                    </button>
+                  )}
+                </Show>
               </ReaderContextMenu>
             )}
           </Show>
@@ -619,7 +653,7 @@ function ReaderContextMenu(props: {
     <div
       ref={props.menuRef}
       aria-label={props.label}
-      class="fixed z-[70] rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
+      class="fixed z-[70] inline-flex items-center gap-1 rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
       role="menu"
       style={{
         left: `${props.position.left}px`,
@@ -744,6 +778,24 @@ function findReaderSectionElement(
   return section;
 }
 
+function findReaderMomentTrigger(
+  target: EventTarget | null,
+  container: HTMLElement | undefined,
+): HTMLButtonElement | undefined {
+  if (!(target instanceof Element) || container === undefined) {
+    return undefined;
+  }
+
+  const trigger = target.closest<HTMLButtonElement>(
+    "button[data-reader-moment-trigger='true']",
+  );
+  if (trigger === null || !container.contains(trigger)) {
+    return undefined;
+  }
+
+  return trigger;
+}
+
 function readReaderSection(
   sectionElement: HTMLElement,
 ): ReaderMomentSection | undefined {
@@ -776,19 +828,35 @@ function readReaderSection(
   };
 }
 
-function isSectionMomentClick(
-  event: MouseEvent,
-  sectionElement: HTMLElement,
-): boolean {
-  const rect = sectionElement.getBoundingClientRect();
-  return event.clientX <= rect.left + 32;
+function findReaderSectionInSelection(
+  range: Range,
+  container: HTMLElement | undefined,
+): ReaderMomentSection | undefined {
+  if (container === undefined) {
+    return undefined;
+  }
+
+  for (const sectionElement of container.querySelectorAll<HTMLElement>(
+    "[data-reader-section-anchor]",
+  )) {
+    if (!range.intersectsNode(sectionElement)) {
+      continue;
+    }
+
+    const section = readReaderSection(sectionElement);
+    if (section !== undefined) {
+      return section;
+    }
+  }
+
+  return undefined;
 }
 
 export function positionReaderSelectionMenu(
   rect: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width">,
   viewport: { height: number; width: number },
+  menuWidth = 48,
 ): ReaderSelectionMenuPosition {
-  const menuWidth = 48;
   const menuHeight = 48;
   const gap = 8;
   const centeredLeft = rect.left + rect.width / 2 - menuWidth / 2;

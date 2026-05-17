@@ -36,6 +36,12 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).toContain('<h1 id="reader-title"');
     expect(result.html).toContain('data-reader-section-anchor="reader-title"');
     expect(result.html).toContain('data-reader-section-path="1"');
+    expect(result.html).toContain(
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment Reader Title"',
+    );
+    expect(result.html).toContain(
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment Details"',
+    );
     expect(result.html).toContain('<a href="https://example.com"');
     expect(result.html).toContain('<a href="https://example.org"');
     expect(result.html).toContain("<s>old text</s>");
@@ -55,6 +61,8 @@ describe("renderMemoryMarkdown", () => {
       '<a href="javascript:alert(1)" onclick="alert(1)">unsafe link</a>',
       "<mark>plain mark</mark>",
       '<mark data-flashback-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" onclick="alert(1)">saved flashback</mark>',
+      '<button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" onclick="alert(1)">untrusted moment button is removed</button>',
+      '<button type="button">untrusted button is removed</button>',
     ].join("\n"));
 
     expect(result.html).not.toContain("<script");
@@ -65,6 +73,9 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).toContain(
       '<mark data-flashback-id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001" id="018f04a2-3c6-7c88-9a8b-8c99a9b7f001">saved flashback</mark>',
     );
+    expect(result.html).not.toContain('data-reader-moment-trigger="true"');
+    expect(result.html).not.toContain("untrusted moment button is removed");
+    expect(result.html).not.toContain("untrusted button is removed");
   });
 
   it("allows controlled HTTPS iframes through the shared reader policy", () => {

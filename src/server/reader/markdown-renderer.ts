@@ -30,7 +30,7 @@ export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
   const rendered = markdownIt.render(markdown);
 
   return {
-    html: sanitizeReaderHtml(rendered),
+    html: addReaderHeadingMomentButtons(sanitizeReaderHtml(rendered)),
     toc,
   };
 }
@@ -81,8 +81,12 @@ function sanitizeReaderHtml(html: string) {
     /<iframe\b(?=[^>]*\ssrcdoc\s*=)[\s\S]*?<\/iframe>/gi,
     "",
   );
+  const htmlWithoutUnsafeButtons = htmlWithoutSrcdocIframes.replace(
+    /<button\b[\s\S]*?<\/button>/gi,
+    "",
+  );
 
-  return sanitizeHtml(htmlWithoutSrcdocIframes, {
+  return sanitizeHtml(htmlWithoutUnsafeButtons, {
     allowedTags: [
       "a",
       "blockquote",
@@ -218,6 +222,23 @@ function sanitizeReaderHtml(html: string) {
       source: sanitizePictureSource,
     },
   });
+}
+
+function addReaderHeadingMomentButtons(html: string) {
+  return html.replace(
+    /<(h[1-3])([^>]*\bdata-reader-section-anchor="[^"]+"[^>]*)>/g,
+    (match: string, tagName: string, attributes: string) => {
+      const title = readHtmlAttribute(attributes, "data-reader-section-title")
+        ?? "section";
+      return `<${tagName}${attributes}><button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment ${escapeHtmlTextAttribute(title)}"></button>`;
+    },
+  );
+}
+
+function readHtmlAttribute(attributes: string, name: string): string | undefined {
+  const pattern = new RegExp(`\\b${name}="([^"]*)"`);
+  const match = pattern.exec(attributes);
+  return match?.[1];
 }
 
 function taskListPlugin(md: MarkdownIt) {
@@ -483,4 +504,12 @@ function slugify(value: string) {
 
 function escapeAttribute(value: string) {
   return value.replace(/[^a-z0-9-]/gi, "");
+}
+
+function escapeHtmlTextAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

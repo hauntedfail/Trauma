@@ -31,12 +31,37 @@ export async function createMomentForSection(input: {
   });
 
   if (!response.ok) {
-    throw new Error("Moment failed");
+    throw new Error(await readMomentFailureMessage(response));
   }
 
   const body = await response.json();
   if (!isMomentResponse(body)) {
     throw new Error("Moment response was malformed");
+  }
+
+  return body;
+}
+
+async function readMomentFailureMessage(response: Response): Promise<string> {
+  const fallback = "Moment failed";
+  const body = await response.text();
+  if (body.trim() === "") {
+    return fallback;
+  }
+
+  try {
+    const payload: unknown = JSON.parse(body);
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      typeof (payload as Record<string, unknown>).error === "string"
+    ) {
+      const errorMessage = (payload as { error: string }).error;
+      return errorMessage;
+    }
+  } catch {
+    return body;
   }
 
   return body;

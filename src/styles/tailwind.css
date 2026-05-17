@@ -394,23 +394,44 @@
     position: relative;
   }
 
-  .trauma-reader-content [data-reader-section-anchor]::before {
-    content: "⌑";
+  .trauma-reader-section-moment {
     position: absolute;
-    inset-block-start: 0.05em;
-    inset-inline-start: 0.25rem;
+    inset-block-start: 0.02em;
+    inset-inline-start: 0.05rem;
+    display: grid;
+    width: 1.35em;
+    height: 1.35em;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
     color: var(--text-muted);
     font-size: 0.72em;
     line-height: 1;
     opacity: 0;
+    outline: none;
+    padding: 0;
     transition:
+      background-color 140ms ease,
       color 140ms ease,
       opacity 140ms ease;
   }
 
-  .trauma-reader-content [data-reader-section-anchor]:hover::before {
+  .trauma-reader-section-moment::before {
+    content: "⌑";
+  }
+
+  .trauma-reader-section-moment:hover,
+  .trauma-reader-section-moment:focus-visible,
+  .trauma-reader-content [data-reader-section-anchor]:hover > .trauma-reader-section-moment,
+  .trauma-reader-content [data-reader-section-anchor]:focus-within > .trauma-reader-section-moment {
     color: var(--link);
     opacity: 1;
+  }
+
+  .trauma-reader-section-moment:hover,
+  .trauma-reader-section-moment:focus-visible {
+    background: var(--bg-tint);
   }
 
   button,
