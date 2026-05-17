@@ -68,6 +68,36 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).not.toContain("<button");
   });
 
+  it("captures complete high-node articles when the byte budget allows it", () => {
+    const paragraphs = Array.from(
+      { length: 3_000 },
+      (_value, index) => `<p>Readable paragraph ${index}.</p>`,
+    ).join("");
+    installPage({
+      href: "https://example.com/long-article",
+      html: `<!doctype html>
+        <html>
+          <head><title>Long Article</title></head>
+          <body>
+            <article>
+              <h1>Long Article</h1>
+              ${paragraphs}
+            </article>
+          </body>
+        </html>`,
+    });
+
+    const result = createCapturedTabSnapshot("0.1.0", 1_000_000);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.snapshot.articleText).toContain("Readable paragraph 0.");
+    expect(result.snapshot.articleText).toContain("Readable paragraph 2999.");
+    expect(result.snapshot.articleHtml).toContain("Readable paragraph 2999.");
+  });
+
   it("preserves controlled HTTPS media while removing unsafe iframe forms", () => {
     installPage({
       href: "https://example.com/article",

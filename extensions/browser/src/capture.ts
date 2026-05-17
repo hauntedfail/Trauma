@@ -6,6 +6,14 @@ interface ExtractionCandidate {
   extractionStrategy: ExtractionStrategy;
 }
 
+type CaptureElementResult =
+  | { ok: true; element: Element }
+  | { ok: false; error: string };
+
+type CandidateResult =
+  | { ok: true; candidate: ExtractionCandidate }
+  | { ok: false; error: string };
+
 const REMOVED_SELECTORS = [
   "script",
   "style",
@@ -23,9 +31,14 @@ const REMOVED_SELECTORS = [
 ];
 
 const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
-const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
+const MAX_SHADOW_SEARCH_NODES = 5_000;
+const MAX_CAPTURE_SAFETY_NODES = 100_000;
+const CAPTURE_INCOMPLETE_ERROR =
+  "Could not capture the complete readable content.";
+const CAPTURE_TOO_LARGE_ERROR = "The current page is too large to import.";
 const CAPTURE_IFRAME_SANDBOX =
   "allow-scripts allow-presentation";
+const textEncoder = new TextEncoder();
 
 export function createCapturedTabSnapshot(
   extensionVersion: string,
@@ -38,20 +51,25 @@ export function createCapturedTabSnapshot(
     };
   }
 
-  const candidate = selectExtractionCandidate(document);
-  if (candidate === null) {
+  const candidate = selectExtractionCandidate(document, maxBytes);
+  if (!candidate.ok) {
+    return { ok: false, error: candidate.error };
+  }
+
+  const articleHtml = candidate.candidate.element.outerHTML;
+  const articleText = normalizeReadableText(
+    candidate.candidate.element.textContent ?? "",
+  );
+
+  if (
+    articleText.length === 0 &&
+    !hasMeaningfulMedia(candidate.candidate.element)
+  ) {
     return { ok: false, error: "Could not find readable page content." };
   }
 
-  const articleHtml = candidate.element.outerHTML;
-  const articleText = normalizeReadableText(candidate.element.textContent ?? "");
-
-  if (articleText.length === 0 && !hasMeaningfulMedia(candidate.element)) {
-    return { ok: false, error: "Could not find readable page content." };
-  }
-
-  if (new TextEncoder().encode(articleHtml).byteLength > maxBytes) {
-    return { ok: false, error: "The current page is too large to import." };
+  if (byteLength(articleHtml) > maxBytes) {
+    return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
   }
 
   const snapshot = {
@@ -61,14 +79,14 @@ export function createCapturedTabSnapshot(
     description: readDescription(),
     articleHtml,
     articleText,
-    selector: candidate.selector,
-    extractionStrategy: candidate.extractionStrategy,
+    selector: candidate.candidate.selector,
+    extractionStrategy: candidate.candidate.extractionStrategy,
     capturedAt: new Date().toISOString(),
     extensionVersion,
   };
 
-  if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > maxBytes) {
-    return { ok: false, error: "The current page is too large to import." };
+  if (byteLength(JSON.stringify(snapshot)) > maxBytes) {
+    return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
   }
 
   return {
@@ -77,33 +95,58 @@ export function createCapturedTabSnapshot(
   };
 }
 
-function selectExtractionCandidate(liveDocument: Document): ExtractionCandidate | null {
+function selectExtractionCandidate(
+  liveDocument: Document,
+  maxBytes: number,
+): CandidateResult {
+  let captureError: string | null = null;
+
   for (const selector of SEMANTIC_SELECTORS) {
     const candidate = selectBestClonedElement(
       querySelectorAllDeep(liveDocument, selector),
+      maxBytes,
     );
-    if (candidate !== null) {
+    if (!candidate.ok) {
+      captureError ??= candidate.error;
+      continue;
+    }
+
+    if (candidate.element !== null) {
       return {
-        element: candidate,
-        selector,
-        extractionStrategy: "semantic_selector",
+        ok: true,
+        candidate: {
+          element: candidate.element,
+          selector,
+          extractionStrategy: "semantic_selector",
+        },
       };
     }
   }
 
-  const documentElement = cloneElementWithinTraversalLimit(liveDocument.documentElement);
-  if (documentElement === null) {
-    return null;
+  const documentElement = cloneElementWithinByteBudget(
+    liveDocument.documentElement,
+    maxBytes,
+  );
+  if (!documentElement.ok) {
+    return documentElement;
   }
-  sanitizeElement(documentElement);
+  if (!sanitizeElement(documentElement.element)) {
+    return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
+  }
 
-  const body = documentElement.querySelector("body");
+  const body = documentElement.element.querySelector("body");
   return body === null
-    ? null
+    ? {
+        ok: false,
+        error: captureError ?? "Could not find readable page content.",
+      }
     : {
-        element: body,
-        selector: "body",
-        extractionStrategy: "body_fallback",
+        ok: true,
+        candidate: {
+          element: body,
+          selector: "body",
+          extractionStrategy: "body_fallback",
+        },
       };
 }
 
@@ -113,7 +156,7 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
   const visited = new Set<ParentNode>();
   let inspected = 0;
 
-  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+  while (queue.length > 0 && inspected < MAX_SHADOW_SEARCH_NODES) {
     const current = queue.shift();
     if (current === undefined || visited.has(current)) {
       continue;
@@ -126,7 +169,7 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
 
     for (const element of childElements(current)) {
       inspected += 1;
-      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
+      if (inspected >= MAX_SHADOW_SEARCH_NODES) {
         break;
       }
 
@@ -148,18 +191,26 @@ function childElements(parent: ParentNode) {
   return Array.from(parent.children as HTMLCollectionOf<Element>);
 }
 
-function cloneElementWithinTraversalLimit(sourceRoot: Element) {
+function cloneElementWithinByteBudget(
+  sourceRoot: Element,
+  maxBytes: number,
+): CaptureElementResult {
   const rootClone = sourceRoot.cloneNode(false);
   if (!(rootClone instanceof Element)) {
-    return null;
+    return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
   }
 
   const queue: { source: Element; clone: Element }[] = [
     { source: sourceRoot, clone: rootClone },
   ];
   let inspected = 0;
+  let estimatedBytes = estimateElementShellBytes(rootClone);
 
-  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+  while (queue.length > 0) {
+    if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+      return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
+    }
+
     const current = queue.shift();
     if (current === undefined) {
       continue;
@@ -173,8 +224,8 @@ function cloneElementWithinTraversalLimit(sourceRoot: Element) {
         : Array.from(current.source.shadowRoot.childNodes)),
     ];
     for (const child of childNodes) {
-      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
-        break;
+      if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+        return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
       }
 
       inspected += 1;
@@ -183,40 +234,66 @@ function cloneElementWithinTraversalLimit(sourceRoot: Element) {
         if (!(child instanceof Element) || !(childClone instanceof Element)) {
           continue;
         }
+        const childBytes = estimateElementShellBytes(childClone);
+        if (estimatedBytes + childBytes > maxBytes) {
+          return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
+        }
 
         current.clone.appendChild(childClone);
+        estimatedBytes += childBytes;
         queue.push({ source: child, clone: childClone });
         continue;
       }
 
       if (child.nodeType === 3) {
+        const childBytes = estimateTextNodeBytes(child.textContent ?? "");
+        if (estimatedBytes + childBytes > maxBytes) {
+          return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
+        }
+
         current.clone.appendChild(child.cloneNode(false));
+        estimatedBytes += childBytes;
       }
     }
   }
 
-  return rootClone;
+  return { ok: true, element: rootClone };
 }
 
-function selectBestClonedElement(elements: readonly Element[]) {
+function selectBestClonedElement(
+  elements: readonly Element[],
+  maxBytes: number,
+): { ok: true; element: Element | null } | { ok: false; error: string } {
   let best: Element | null = null;
   let bestScore = 0;
+  let captureError: string | null = null;
 
   for (const element of elements) {
-    const clone = cloneElementWithinTraversalLimit(element);
-    if (clone === null) {
+    const clone = cloneElementWithinByteBudget(element, maxBytes);
+    if (!clone.ok) {
+      captureError ??= clone.error;
       continue;
     }
 
-    sanitizeElement(clone);
-    const score = scoreExtractionElement(clone);
+    if (!sanitizeElement(clone.element)) {
+      captureError ??= CAPTURE_INCOMPLETE_ERROR;
+      continue;
+    }
+
+    const score = scoreExtractionElement(clone.element);
     if (score > bestScore) {
-      best = clone;
+      best = clone.element;
       bestScore = score;
     }
   }
 
-  return bestScore > 0 ? best : null;
+  if (bestScore > 0) {
+    return { ok: true, element: best };
+  }
+
+  return captureError === null
+    ? { ok: true, element: null }
+    : { ok: false, error: captureError };
 }
 
 function scoreExtractionElement(element: Element) {
@@ -237,11 +314,8 @@ function sanitizeElement(root: Element) {
   let inspected = 0;
 
   while (queue.length > 0) {
-    if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
-      for (const element of queue) {
-        element.remove();
-      }
-      return;
+    if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+      return false;
     }
 
     const element = queue.shift();
@@ -274,6 +348,25 @@ function sanitizeElement(root: Element) {
 
     queue.push(...childElements(element));
   }
+
+  return true;
+}
+
+function estimateElementShellBytes(element: Element) {
+  return byteLength(element.outerHTML);
+}
+
+function estimateTextNodeBytes(value: string) {
+  return byteLength(
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;"),
+  );
+}
+
+function byteLength(value: string) {
+  return textEncoder.encode(value).byteLength;
 }
 
 function isRemovedElement(element: Element) {
