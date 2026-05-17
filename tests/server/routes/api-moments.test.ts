@@ -287,6 +287,98 @@ describe("moments API routes", () => {
     });
   });
 
+  it("does not treat a reused stale Moment anchor as current unless the path still matches", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config, { title: "Moment Route Memory" });
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Moment Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown:
+        "# Route Memory\n\n## Original Anchor Reused Elsewhere\n\nDistractor.\n\n## Renamed Original Section\n\nSection body.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.moments.create({
+        id: "moment-with-reused-stale-anchor",
+        memoryId: routeMemoryId,
+        sectionAnchor: "original-anchor-reused-elsewhere",
+        sectionTitle: "Original Section",
+        sectionLevel: 2,
+        sectionPath: "1/2",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const listResponse = await GET();
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toMatchObject({
+      moments: [
+        {
+          id: "moment-with-reused-stale-anchor",
+          memoryId: routeMemoryId,
+          sectionAnchor: "original-anchor-reused-elsewhere",
+          targetAnchor: "renamed-original-section",
+          targetStatus: "resolved_from_path",
+        },
+      ],
+    });
+  });
+
+  it("falls back to the saved Moment path when a stale reader posts a reused anchor", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config, { title: "Moment Route Memory" });
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Moment Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown:
+        "# Route Memory\n\n## Chapter One\n\nDistractor.\n\n## Target Section\n\nSection body.",
+    });
+
+    const response = await POST(jsonRequest("POST", "/api/moments", {
+      memoryId: routeMemoryId,
+      sectionAnchor: "chapter-one",
+      sectionTitle: "Target Section",
+      sectionLevel: 2,
+      sectionPath: "1/2",
+      sectionStartOffset: null,
+      sectionEndOffset: null,
+      contentHash: null,
+    }));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      moment: {
+        memoryId: routeMemoryId,
+        sectionAnchor: "target-section",
+        sectionTitle: "Target Section",
+        sectionPath: "1/2",
+      },
+    });
+  });
+
   it("rejects Moments for missing or mismatched reader sections", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

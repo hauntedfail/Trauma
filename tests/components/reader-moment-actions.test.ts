@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  findFlashbackForOptimisticSelection,
+  resolveReaderMomentTarget,
+} from "../../src/components/reader/MemoryReader";
 import { createMomentForSection } from "../../src/components/reader/moment-requests";
 
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
@@ -110,5 +114,66 @@ describe("reader Moment actions", () => {
         "      ]);",
       ].join("\n"),
     );
+  });
+
+  it("does not mark a reused Moment anchor active when the saved path moved", () => {
+    expect(
+      resolveReaderMomentTarget(
+        {
+          id: "moment-1",
+          sectionAnchor: "chapter-one",
+          sectionTitle: "Chapter One",
+          sectionLevel: 2,
+          sectionPath: "1/2",
+          sectionStartOffset: null,
+          sectionEndOffset: null,
+          contentHash: null,
+          createdAt: "2026-05-14T00:00:00.000Z",
+        },
+        [
+          {
+            id: "chapter-one",
+            level: 2,
+            path: "1/1",
+            text: "Chapter One",
+          },
+          {
+            id: "renamed-original-section",
+            level: 2,
+            path: "1/2",
+            text: "Renamed Original Section",
+          },
+        ],
+      ),
+    ).toMatchObject({
+      id: "renamed-original-section",
+      path: "1/2",
+    });
+  });
+
+  it("maps optimistic Flashback marks to the server-saved range id", () => {
+    expect(
+      findFlashbackForOptimisticSelection(
+        [
+          {
+            id: "flashback-1",
+            text: "saved selection",
+            prefix: "",
+            suffix: "",
+            startOffset: 8,
+            endOffset: 23,
+            contentHash: "sha256:test",
+            createdAt: "2026-05-14T00:00:00.000Z",
+          },
+        ],
+        {
+          text: "saved selection",
+          prefix: "",
+          suffix: "",
+          startOffset: 8,
+          endOffset: 23,
+        },
+      )?.id,
+    ).toBe("flashback-1");
   });
 });

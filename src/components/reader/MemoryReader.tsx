@@ -982,11 +982,14 @@ function ReaderToc(props: {
   );
 }
 
-function resolveReaderMomentTarget(
+export function resolveReaderMomentTarget(
   moment: ReaderMomentItem,
   toc: ReaderTocEntry[],
 ): ReaderTocEntry | undefined {
-  const exact = toc.find((entry) => entry.id === moment.sectionAnchor);
+  const exact = toc.find((entry) =>
+    entry.id === moment.sectionAnchor &&
+    entry.path === moment.sectionPath
+  );
   if (exact !== undefined) {
     return exact;
   }
@@ -1091,7 +1094,11 @@ async function toggleReaderSelection(input: {
   input.container.focus({ preventScroll: true });
 
   try {
-    applyOptimisticFlashback(selection.range, shouldUnflashback, input.container);
+    const optimisticFlashbackId = applyOptimisticFlashback(
+      selection.range,
+      shouldUnflashback,
+      input.container,
+    );
     window.getSelection()?.removeAllRanges();
 
     const response = await fetch("/api/flashbacks", {
@@ -1115,6 +1122,16 @@ async function toggleReaderSelection(input: {
       throw new Error(failure.message);
     }
     const payload = await readFlashbackToggleSuccess(response);
+    if (optimisticFlashbackId !== undefined) {
+      syncOptimisticFlashbackMark({
+        container: input.container,
+        flashback: findFlashbackForOptimisticSelection(
+          payload.result.flashbacks,
+          selection,
+        ),
+        pendingId: optimisticFlashbackId,
+      });
+    }
     input.onFlashbacksChanged(payload.result.flashbacks);
     void Promise.resolve(input.onSuccess()).catch(() => undefined);
   } catch {
@@ -1257,7 +1274,7 @@ function applyOptimisticFlashback(
   range: Range,
   shouldUnflashback: boolean,
   container: HTMLElement,
-): void {
+): string | undefined {
   if (shouldUnflashback) {
     const placeholder = document.createElement("span");
     const fragment = range.extractContents();
@@ -1267,14 +1284,51 @@ function applyOptimisticFlashback(
     liftNodeOutOfFlashbackMarks(placeholder);
     placeholder.replaceWith(...Array.from(placeholder.childNodes));
     container.normalize();
-    return;
+    return undefined;
   }
 
+  const pendingId = `pending-${Date.now()}`;
   const mark = document.createElement("mark");
-  mark.dataset.flashbackId = `pending-${Date.now()}`;
+  mark.dataset.flashbackId = pendingId;
+  mark.id = pendingId;
   mark.append(range.extractContents());
   range.insertNode(mark);
   container.normalize();
+  return pendingId;
+}
+
+export function findFlashbackForOptimisticSelection(
+  flashbacks: ReaderFlashbackItem[],
+  selection: ReaderSelectionPayload,
+): ReaderFlashbackItem | undefined {
+  return flashbacks.find((flashback) =>
+    flashback.startOffset <= selection.startOffset &&
+    flashback.endOffset >= selection.endOffset
+  ) ?? flashbacks.find((flashback) =>
+    flashback.text === selection.text &&
+    flashback.startOffset === selection.startOffset &&
+    flashback.endOffset === selection.endOffset
+  );
+}
+
+function syncOptimisticFlashbackMark(input: {
+  container: HTMLElement;
+  flashback: ReaderFlashbackItem | undefined;
+  pendingId: string;
+}): void {
+  if (input.flashback === undefined) {
+    return;
+  }
+
+  const mark = input.container.querySelector<HTMLElement>(
+    `mark[data-flashback-id="${CSS.escape(input.pendingId)}"]`,
+  );
+  if (mark === null) {
+    return;
+  }
+
+  mark.dataset.flashbackId = input.flashback.id;
+  mark.id = input.flashback.id;
 }
 
 function stripFlashbackElements(fragment: DocumentFragment): void {

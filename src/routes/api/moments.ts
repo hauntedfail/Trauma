@@ -146,29 +146,32 @@ async function resolveMomentSection(input: {
   const byAnchor = rendered.toc.filter(
     (section) => section.id === input.payload.sectionAnchor,
   );
-  const candidates = byAnchor.length > 0
-    ? byAnchor
-    : rendered.toc.filter((section) => section.path === input.payload.sectionPath);
-  if (candidates.length === 0) {
+  const byPath = rendered.toc.filter(
+    (section) => section.path === input.payload.sectionPath,
+  );
+  const hasCandidate = byAnchor.length > 0 || byPath.length > 0;
+  if (!hasCandidate) {
     return { ok: false, error: "moment section was not found" };
+  }
+
+  const anchorMatches = byAnchor.filter((section) =>
+    matchesMomentSectionIdentity(section, input.payload),
+  );
+  const pathMatches = byPath.filter((section) =>
+    matchesMomentSectionIdentity(section, input.payload),
+  );
+  const candidates = anchorMatches.length > 0 ? anchorMatches : pathMatches;
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      error: "moment section identity does not match reader content",
+    };
   }
   if (candidates.length > 1) {
     return { ok: false, error: "moment section identity is ambiguous" };
   }
 
   const section = candidates[0]!;
-  if (
-    section.text !== input.payload.sectionTitle ||
-    section.level !== input.payload.sectionLevel ||
-    section.path !== input.payload.sectionPath ||
-    !matchesOptionalOffset(section.startOffset, input.payload.sectionStartOffset) ||
-    !matchesOptionalOffset(section.endOffset, input.payload.sectionEndOffset)
-  ) {
-    return {
-      ok: false,
-      error: "moment section identity does not match reader content",
-    };
-  }
   if (
     input.payload.contentHash !== null &&
     input.payload.contentHash !== contentHash
@@ -180,6 +183,19 @@ async function resolveMomentSection(input: {
   }
 
   return { ok: true, section, contentHash };
+}
+
+function matchesMomentSectionIdentity(
+  section: ReaderTocEntry,
+  payload: Extract<MomentPayloadResult, { ok: true }>,
+): boolean {
+  return (
+    section.text === payload.sectionTitle &&
+    section.level === payload.sectionLevel &&
+    section.path === payload.sectionPath &&
+    matchesOptionalOffset(section.startOffset, payload.sectionStartOffset) &&
+    matchesOptionalOffset(section.endOffset, payload.sectionEndOffset)
+  );
 }
 
 function matchesOptionalOffset(

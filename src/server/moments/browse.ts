@@ -58,7 +58,12 @@ async function resolveMomentTarget(input: {
     return { targetAnchor: null, targetStatus: "stale" };
   }
 
-  if (toc.some((entry) => entry.id === input.row.sectionAnchor)) {
+  if (
+    toc.some((entry) =>
+      entry.id === input.row.sectionAnchor &&
+      entry.path === input.row.sectionPath
+    )
+  ) {
     return {
       targetAnchor: input.row.sectionAnchor,
       targetStatus: "current",
