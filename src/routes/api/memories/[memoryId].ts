@@ -51,7 +51,15 @@ export async function DELETE(event: APIEvent): Promise<Response> {
       return json({ error: "memory was not found" }, { status: 404 });
     }
     if (result.status === "failed") {
-      return json({ error: "failed to delete memory" }, { status: 500 });
+      const backupFailsafe =
+        await connection.repositories.backupEnvironment.getBackupFailsafeAlert();
+      return json(
+        {
+          error: "failed to delete memory",
+          ...(backupFailsafe === undefined ? {} : { backupFailsafe }),
+        },
+        { status: 500 },
+      );
     }
     if (result.warnings !== undefined) {
       for (const warning of result.warnings) {

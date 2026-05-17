@@ -1,9 +1,11 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { runGitBackupJob } from "../../../src/server/backup";
 import {
   DELETE,
   resolveDeleteMemoryBackupQueue,
@@ -193,6 +195,86 @@ describe("memory delete API route", () => {
     ).resolves.toContain("# Route Memory");
   });
 
+  it("returns the active backup failsafe alert when synchronous delete backup fails", async () => {
+    const root = await makeRoot();
+    const configPath = await writeRouteConfig(root);
+    const rawConfig = JSON.parse(await readFile(configPath, "utf8"));
+    const missingRemotePath = join(root, "missing.git");
+    rawConfig.backup.git.enabled = true;
+    rawConfig.backup.git.push = true;
+    rawConfig.backup.git.commitMessageTemplate = "backup {action} {memoryId}";
+    await writeFile(configPath, `${JSON.stringify(rawConfig, null, 2)}\n`, "utf8");
+    const config = loadRouteConfig(configPath);
+    const localCommitConfig = {
+      ...config,
+      backup: {
+        git: {
+          ...config.backup.git,
+          push: false,
+        },
+      },
+    };
+    await initializeGitRepository(config.projectPath);
+    git(config.projectPath, ["remote", "add", "origin", missingRemotePath]);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: missingRemotePath,
+        gitBranch: config.backup.git.branch,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+    } finally {
+      stampConnection.close();
+    }
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    await runGitBackupJob({
+      config: localCommitConfig,
+      job: {
+        memoryId: routeMemoryId,
+        contentPaths: [`memories/${routeMemoryId}/CONTENT.md`],
+        reason: "memory_creation",
+      },
+    });
+
+    const response = await DELETE(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${routeMemoryId}`, {
+          method: "DELETE",
+        }),
+        { memoryId: routeMemoryId },
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      error: "failed to delete memory",
+      backupFailsafe: {
+        kind: "backup_push_failed",
+        gitRemoteUrl: missingRemotePath,
+      },
+    });
+    await expect(
+      readFile(join(config.storePath, "memories", routeMemoryId, "CONTENT.md"), "utf8"),
+    ).resolves.toContain("# Route Memory");
+  });
+
   it("rejects deletion when stored content path escapes store path", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
@@ -262,4 +344,28 @@ async function makeRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "trauma-api-delete-"));
   tempDirs.push(root);
   return root;
+}
+
+async function initializeGitRepository(projectPath: string): Promise<void> {
+  await mkdir(projectPath, { recursive: true });
+  git(projectPath, ["init", "--initial-branch=main"]);
+  git(projectPath, ["config", "user.name", "Trauma Tests"]);
+  git(projectPath, ["config", "user.email", "trauma@example.invalid"]);
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: createChildEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function createChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
 }

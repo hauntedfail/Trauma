@@ -418,7 +418,26 @@ function sanitizeImageElement(element: Element) {
     return false;
   }
 
+  const alt = element.getAttribute("alt");
+  const title = element.getAttribute("title");
+  const width = sanitizeDimension(element.getAttribute("width"));
+  const height = sanitizeDimension(element.getAttribute("height"));
+  clearAttributes(element);
   element.setAttribute("src", src);
+  element.setAttribute("loading", "lazy");
+  element.setAttribute("referrerpolicy", "no-referrer");
+  if (alt !== null) {
+    element.setAttribute("alt", alt.trim());
+  }
+  if (title !== null && title.trim() !== "") {
+    element.setAttribute("title", title.trim());
+  }
+  if (width !== null) {
+    element.setAttribute("width", width);
+  }
+  if (height !== null) {
+    element.setAttribute("height", height);
+  }
   return true;
 }
 

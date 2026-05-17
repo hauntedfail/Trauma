@@ -136,7 +136,7 @@ describe("extension page capture", () => {
             <article>
               <h1>Captured Media Article</h1>
               <p>Readable media paragraph.</p>
-              <img src="https://pbs.twimg.com/media/photo.jpg" alt="tweet image" onclick="evil()">
+              <img src="https://pbs.twimg.com/media/photo.jpg" alt="tweet image" title="Tweet image" width="640" height="480" srcset="https://127.0.0.1/private.jpg 1x, http://cdn.example.net/http.jpg 2x" onclick="evil()">
               <img src="http://cdn.example.net/http.jpg" alt="http image">
               <iframe src="https://embed.example.net/player" title="Video" onclick="evil()" allow="camera" width="640" height="360"></iframe>
               <iframe src="https://embed.example.net/inline" title="Inline" srcdoc="<p>inline</p>"></iframe>
@@ -155,6 +155,10 @@ describe("extension page capture", () => {
     expect(result.snapshot.articleHtml).toContain(
       'src="https://pbs.twimg.com/media/photo.jpg"',
     );
+    expect(result.snapshot.articleHtml).toContain('alt="tweet image"');
+    expect(result.snapshot.articleHtml).toContain('title="Tweet image"');
+    expect(result.snapshot.articleHtml).toContain('width="640"');
+    expect(result.snapshot.articleHtml).toContain('height="480"');
     expect(result.snapshot.articleHtml).toContain(
       'src="https://embed.example.net/player"',
     );
@@ -165,6 +169,8 @@ describe("extension page capture", () => {
     );
     expect(result.snapshot.articleHtml).not.toContain("allow-same-origin");
     expect(result.snapshot.articleHtml).not.toContain("onclick");
+    expect(result.snapshot.articleHtml).not.toContain("srcset");
+    expect(result.snapshot.articleHtml).not.toContain("127.0.0.1");
     expect(result.snapshot.articleHtml).not.toContain("allow=\"camera\"");
     expect(result.snapshot.articleHtml).not.toContain("http.jpg");
     expect(result.snapshot.articleHtml).not.toContain("srcdoc");

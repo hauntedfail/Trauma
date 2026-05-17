@@ -274,20 +274,44 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           ),
         });
         if (existingByPath !== undefined) {
-          const updated = await db
-            .update(schema.moments)
-            .set({
-              sectionAnchor: input.sectionAnchor,
-              sectionTitle: input.sectionTitle,
-              sectionLevel: input.sectionLevel,
-              sectionStartOffset: input.sectionStartOffset ?? null,
-              sectionEndOffset: input.sectionEndOffset ?? null,
-              contentHash: input.contentHash ?? null,
-              updatedAt: input.updatedAt,
-            })
-            .where(eq(schema.moments.id, existingByPath.id))
-            .returning()
-            .get();
+          const updated = db.transaction((tx) => {
+            if (existingByPath.sectionAnchor !== input.sectionAnchor) {
+              const existingByAnchor = tx
+                .select()
+                .from(schema.moments)
+                .where(
+                  and(
+                    eq(schema.moments.memoryId, input.memoryId),
+                    eq(schema.moments.sectionAnchor, input.sectionAnchor),
+                  ),
+                )
+                .get();
+              if (
+                existingByAnchor !== undefined &&
+                existingByAnchor.id !== existingByPath.id
+              ) {
+                tx
+                  .delete(schema.moments)
+                  .where(eq(schema.moments.id, existingByAnchor.id))
+                  .run();
+              }
+            }
+
+            return tx
+              .update(schema.moments)
+              .set({
+                sectionAnchor: input.sectionAnchor,
+                sectionTitle: input.sectionTitle,
+                sectionLevel: input.sectionLevel,
+                sectionStartOffset: input.sectionStartOffset ?? null,
+                sectionEndOffset: input.sectionEndOffset ?? null,
+                contentHash: input.contentHash ?? null,
+                updatedAt: input.updatedAt,
+              })
+              .where(eq(schema.moments.id, existingByPath.id))
+              .returning()
+              .get();
+          });
           return {
             moment: updated ?? existingByPath,
             alreadyExists: true,
