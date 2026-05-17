@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  findReaderMomentForSection,
   findFlashbackForOptimisticSelection,
   resolveReaderMomentTarget,
 } from "../../src/components/reader/MemoryReader";
-import { createMomentForSection } from "../../src/components/reader/moment-requests";
+import {
+  createMomentForSection,
+} from "../../src/components/reader/moment-requests";
+import { deleteMomentById } from "../../src/components/moments/moment-action-requests";
 
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
 const styleSource = readFileSync("src/styles/tailwind.css", "utf8");
@@ -108,7 +112,7 @@ describe("reader Moment actions", () => {
   it("revalidates both Moment browse and reader memory caches after creating a Moment", () => {
     expect(readerSource).toContain(
       [
-        "void Promise.all([",
+        "await Promise.all([",
         "        revalidateMomentBrowseRows(),",
         "        revalidateReaderMemory(props.result.memory.id),",
         "      ]);",
@@ -175,5 +179,54 @@ describe("reader Moment actions", () => {
         },
       )?.id,
     ).toBe("flashback-1");
+  });
+
+  it("finds the active Moment for a reader section by the current ToC identity", () => {
+    expect(
+      findReaderMomentForSection(
+        [
+          {
+            id: "moment-1",
+            sectionAnchor: "old-details",
+            sectionTitle: "Details",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: null,
+            sectionEndOffset: null,
+            contentHash: null,
+            createdAt: "2026-05-14T00:00:00.000Z",
+          },
+        ],
+        [
+          {
+            id: "details",
+            level: 2,
+            path: "1/1",
+            text: "Details",
+          },
+        ],
+        {
+          id: "details",
+          level: 2,
+          path: "1/1",
+          text: "Details",
+        },
+      )?.id,
+    ).toBe("moment-1");
+  });
+
+  it("deletes Moments through the public Moment API", async () => {
+    const requests: Request[] = [];
+
+    await deleteMomentById({
+      momentId: "moment-1",
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    expect(requests[0]?.url).toBe("http://localhost/api/moments/moment-1");
+    expect(requests[0]?.method).toBe("DELETE");
   });
 });

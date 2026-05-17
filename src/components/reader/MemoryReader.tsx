@@ -37,6 +37,7 @@ import {
   createMomentForSection,
   type ReaderMomentSection,
 } from "./moment-requests";
+import { deleteMomentById } from "../moments/moment-action-requests";
 import {
   canStartFlashbackToggle,
   isExplicitFlashbackKeyboardToggle,
@@ -189,7 +190,7 @@ function ReadyMemoryReader(props: {
         currentFlashbacks={currentFlashbacks()}
         moments={moments()}
         memoryId={props.result.memory.id}
-        onCreateMoment={(section) => void createMoment(section)}
+        onCreateMoment={(section) => void toggleMoment(section)}
         onOpenSectionMenu={openSectionMenu}
         pendingMomentKey={pendingMomentKey()}
         toc={props.result.rendered.toc}
@@ -291,7 +292,7 @@ function ReadyMemoryReader(props: {
     }
 
     closeSelectionMenu();
-    void createMoment(section);
+    void toggleMoment(section);
   };
   const commitSectionMenu = () => {
     const menu = sectionMenu();
@@ -300,7 +301,7 @@ function ReadyMemoryReader(props: {
     }
 
     closeSectionMenu();
-    void createMoment(menu.section);
+    void toggleMoment(menu.section);
   };
   const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
     if (!isExplicitFlashbackKeyboardToggle(event)) {
@@ -327,7 +328,14 @@ function ReadyMemoryReader(props: {
       revalidateReaderMemory(input.memoryId),
     ]);
   };
-  const createMoment = async (
+  createEffect(() => {
+    syncReaderSectionMomentButtons({
+      container: contentRef,
+      moments: moments(),
+      toc: props.result.rendered.toc,
+    });
+  });
+  const toggleMoment = async (
     section: ReaderMomentSection,
   ): Promise<void> => {
     const sectionKey = getReaderMomentKey(section);
@@ -338,6 +346,23 @@ function ReadyMemoryReader(props: {
     setErrorMessage("");
     setPendingMomentKey(sectionKey);
     try {
+      const existingMoment = findReaderMomentForSection(
+        moments(),
+        props.result.rendered.toc,
+        section,
+      );
+      if (existingMoment !== undefined) {
+        await deleteMomentById({ momentId: existingMoment.id });
+        setMoments((current) =>
+          current.filter((moment) => moment.id !== existingMoment.id),
+        );
+        await Promise.all([
+          revalidateMomentBrowseRows(),
+          revalidateReaderMemory(props.result.memory.id),
+        ]);
+        return;
+      }
+
       const result = await createMomentForSection({
         memoryId: props.result.memory.id,
         section,
@@ -345,7 +370,7 @@ function ReadyMemoryReader(props: {
       setMoments((current) =>
         mergeReaderMomentItem(current, result.moment),
       );
-      void Promise.all([
+      await Promise.all([
         revalidateMomentBrowseRows(),
         revalidateReaderMemory(props.result.memory.id),
       ]);
@@ -372,7 +397,7 @@ function ReadyMemoryReader(props: {
     }
 
     event.preventDefault();
-    void createMoment(section);
+    void toggleMoment(section);
   };
   const handleReaderContentPointerDown = (event: PointerEvent) => {
     clearSectionLongPress();
@@ -996,6 +1021,38 @@ export function resolveReaderMomentTarget(
 
   const pathMatches = toc.filter((entry) => entry.path === moment.sectionPath);
   return pathMatches.length === 1 ? pathMatches[0] : undefined;
+}
+
+export function findReaderMomentForSection(
+  moments: ReaderMomentItem[],
+  toc: ReaderTocEntry[],
+  section: ReaderMomentSection,
+): ReaderMomentItem | undefined {
+  return moments.find((moment) =>
+    resolveReaderMomentTarget(moment, toc)?.id === section.id
+  );
+}
+
+function syncReaderSectionMomentButtons(input: {
+  container: HTMLElement | undefined;
+  moments: ReaderMomentItem[];
+  toc: ReaderTocEntry[];
+}): void {
+  if (input.container === undefined) {
+    return;
+  }
+
+  for (const button of input.container.querySelectorAll<HTMLButtonElement>(
+    "button[data-reader-moment-trigger='true']",
+  )) {
+    const sectionElement = findReaderSectionElement(button, input.container);
+    const section = sectionElement === undefined
+      ? undefined
+      : readReaderSection(sectionElement);
+    const active = section !== undefined &&
+      findReaderMomentForSection(input.moments, input.toc, section) !== undefined;
+    button.setAttribute("aria-pressed", String(active));
+  }
 }
 
 function ReaderTocEntryRow(props: {

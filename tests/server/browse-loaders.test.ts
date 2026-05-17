@@ -33,6 +33,50 @@ describe("server browse loaders", () => {
     await expect(loadMomentBrowseRows()).resolves.toEqual([]);
   });
 
+  it("loads runtime Moments in fixture mode when a config exists", async () => {
+    const config = await createRuntimeConfig();
+    process.env.TRAUMA_BROWSE_FIXTURES = "1";
+    await seedMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Loader Memory\n\n## Chapter One\n\nBody.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.moments.create({
+        id: "moment-loader",
+        memoryId,
+        sectionAnchor: "chapter-one",
+        sectionTitle: "Chapter One",
+        sectionLevel: 2,
+        sectionPath: "1/1",
+        sectionStartOffset: null,
+        sectionEndOffset: null,
+        contentHash: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadMomentBrowseRows()).resolves.toMatchObject([
+      {
+        id: "moment-loader",
+        targetAnchor: "chapter-one",
+        targetStatus: "current",
+      },
+    ]);
+  });
+
   it("keeps the flashback browse database open until rows materialize", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);

@@ -417,8 +417,19 @@
       opacity 140ms ease;
   }
 
-  .trauma-reader-section-moment::before {
-    content: "⌑";
+  .trauma-reader-section-moment svg {
+    height: 1.05em;
+    width: 1.05em;
+  }
+
+  .trauma-reader-section-moment[aria-pressed="false"] .trauma-reader-section-moment-icon-filled,
+  .trauma-reader-section-moment[aria-pressed="true"] .trauma-reader-section-moment-icon-outline {
+    display: none;
+  }
+
+  .trauma-reader-section-moment[aria-pressed="true"] {
+    color: var(--link);
+    opacity: 1;
   }
 
   .trauma-reader-section-moment:hover,

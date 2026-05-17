@@ -1,5 +1,11 @@
 import type { JSX } from "solid-js";
 
+import {
+  momentIconBookmarkPath,
+  momentIconLineOnePath,
+  momentIconLineTwoPath,
+} from "./moment-icon-markup";
+
 interface IconProps {
   size?: number;
 }
@@ -89,14 +95,14 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
   moment: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <path {...stroke} d="M7 4h12v18l-6-3.5L7 22V4z" />
-        <path {...stroke} d="M10 8h6M10 11h5" />
+        <path {...stroke} d={momentIconBookmarkPath} />
+        <path {...stroke} d={`${momentIconLineOnePath}${momentIconLineTwoPath}`} />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <path {...fill} d="M7 4h12v18l-6-3.5L7 22V4z" />
-        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-width="1.7" d="M10 8h6M10 11h5" />
+        <path {...fill} d={momentIconBookmarkPath} />
+        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-width="1.7" d={`${momentIconLineOnePath}${momentIconLineTwoPath}`} />
       </Svg>
     ),
   },

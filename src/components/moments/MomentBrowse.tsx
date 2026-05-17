@@ -1,8 +1,10 @@
 import { createAsync } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import { For, Show, createSignal, onMount } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
-import { getMomentBrowseRows } from "./moments-loader";
+import { deleteMomentById } from "./moment-action-requests";
+import { MomentActionMenu } from "./MomentActionMenu";
+import { getMomentBrowseRows, revalidateMomentBrowseRows } from "./moments-loader";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -10,11 +12,27 @@ const pageHeader =
   "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const rowBase =
-  "trauma-route-row grid min-w-0 gap-2 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
+  "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export function MomentBrowse() {
   const moments = createAsync(() => getMomentBrowseRows());
-  const rows = () => moments();
+  const [deletedMomentIds, setDeletedMomentIds] = createSignal(new Set<string>());
+  const rows = () => {
+    const currentMoments = moments();
+    if (currentMoments === undefined) {
+      return undefined;
+    }
+
+    return currentMoments.filter((moment) => !deletedMomentIds().has(moment.id));
+  };
+  const deleteMoment = async (momentId: string): Promise<void> => {
+    await deleteMomentById({ momentId });
+    setDeletedMomentIds((current) => new Set([...current, momentId]));
+    void revalidateMomentBrowseRows();
+  };
+  onMount(() => {
+    void revalidateMomentBrowseRows();
+  });
 
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
@@ -42,7 +60,12 @@ export function MomentBrowse() {
               }
             >
               <For each={readyRows()}>
-                {(moment) => <MomentRow moment={moment} />}
+                {(moment) => (
+                  <MomentRow
+                    moment={moment}
+                    onDeleteMoment={deleteMoment}
+                  />
+                )}
               </For>
             </Show>
           )}
@@ -52,17 +75,17 @@ export function MomentBrowse() {
   );
 }
 
-function MomentRow(props: { moment: MomentBrowseRow }) {
+function MomentRow(props: {
+  moment: MomentBrowseRow;
+  onDeleteMoment: (momentId: string) => Promise<void>;
+}) {
   const href = () => props.moment.targetAnchor === null
     ? `/memories/${props.moment.memoryId}`
     : `/memories/${props.moment.memoryId}#${props.moment.targetAnchor}`;
 
   return (
     <article class={rowBase}>
-      <a
-        class="grid min-w-0 gap-2"
-        href={href()}
-      >
+      <a class="grid min-w-0 gap-2" href={href()}>
         <header class="grid min-w-0 gap-1">
           <p class="mb-0 text-[13px] font-bold text-trauma-text-muted">
             {props.moment.memoryTitle}
@@ -87,6 +110,13 @@ function MomentRow(props: { moment: MomentBrowseRow }) {
           </time>
         </footer>
       </a>
+      <div class="pt-0.5">
+        <MomentActionMenu
+          momentId={props.moment.id}
+          sectionTitle={props.moment.sectionTitle}
+          onDelete={props.onDeleteMoment}
+        />
+      </div>
     </article>
   );
 }

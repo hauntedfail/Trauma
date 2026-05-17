@@ -1,5 +1,6 @@
 import {
   loadRuntimeTraumaConfig,
+  TraumaConfigError,
   type ResolvedTraumaConfig,
 } from "../config";
 import { initializeDatabase } from "../db";
@@ -17,11 +18,25 @@ export type MomentBrowseRow = StoredMomentBrowseRow & {
 export async function loadMomentBrowseRows(): Promise<MomentBrowseRow[]> {
   "use server";
 
-  if (process.env.TRAUMA_BROWSE_FIXTURES === "1") {
-    return [];
+  let config: ResolvedTraumaConfig;
+  try {
+    config = loadRuntimeTraumaConfig();
+  } catch (error) {
+    if (
+      process.env.TRAUMA_BROWSE_FIXTURES === "1" &&
+      error instanceof TraumaConfigError
+    ) {
+      return [];
+    }
+
+    throw error;
   }
 
-  return loadMomentBrowseRowsForConfig(loadRuntimeTraumaConfig());
+  if (process.env.TRAUMA_BROWSE_FIXTURES === "1") {
+    return loadMomentBrowseRowsForConfig(config);
+  }
+
+  return loadMomentBrowseRowsForConfig(config);
 }
 
 export async function loadMomentBrowseRowsForConfig(

@@ -9,6 +9,7 @@ import {
   isSafeReaderIframeUrl,
   READER_IFRAME_SANDBOX,
 } from "../media-policy";
+import { renderMomentIconSvgMarkup } from "../../components/icons/moment-icon-markup";
 
 export interface ReaderTocEntry {
   id: string;
@@ -230,7 +231,17 @@ function addReaderHeadingMomentButtons(html: string) {
     (match: string, tagName: string, attributes: string) => {
       const title = readHtmlAttribute(attributes, "data-reader-section-title")
         ?? "section";
-      return `<${tagName}${attributes}><button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment ${escapeHtmlTextAttribute(title)}"></button>`;
+      const outline = renderMomentIconSvgMarkup({
+        className: "trauma-reader-section-moment-icon-outline",
+        filled: false,
+        size: 18,
+      });
+      const filled = renderMomentIconSvgMarkup({
+        className: "trauma-reader-section-moment-icon-filled",
+        filled: true,
+        size: 18,
+      });
+      return `<${tagName}${attributes}><button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment ${escapeHtmlTextAttribute(title)}" aria-pressed="false">${outline}${filled}</button>`;
     },
   );
 }

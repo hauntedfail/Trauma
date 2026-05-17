@@ -206,6 +206,38 @@ test("creates a Moment from a right-rail table of contents button", async ({
   expect(readMomentAnchors()).toContain("details");
 });
 
+test("toggles a Moment off from the right-rail table of contents button", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+
+  const tocButton = page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" });
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await tocButton.click();
+  expect((await createResponse).status()).toBe(201);
+  await expect(tocButton).toHaveAttribute("aria-pressed", "true");
+  expect(readMomentAnchors()).toContain("details");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+    { timeout: 3_000 },
+  );
+  await tocButton.click();
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(tocButton).toHaveAttribute("aria-pressed", "false");
+  expect(readMomentAnchors()).not.toContain("details");
+});
+
 test("creates a Moment from a reader heading affordance button", async ({
   page,
 }) => {
@@ -226,6 +258,40 @@ test("creates a Moment from a reader heading affordance button", async ({
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
   expect(readMomentAnchors()).toContain("details");
+});
+
+test("opens Moment rows at the reader section and deletes from the Moments menu", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Moment Details" })
+    .click();
+  expect(readMomentAnchors()).toContain("details");
+
+  await page.goto("/moments");
+  await page.getByRole("link", { name: /Fixture Reader.*Details/s }).click();
+  await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
+
+  await page.goto("/moments");
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe('Delete moment "Details"?');
+    void dialog.accept();
+  });
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+  );
+  await page.getByRole("button", { name: "Moment actions for Details" }).click();
+  await page.getByRole("menuitem", { name: "Delete moment" }).click();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);
+  expect(readMomentAnchors()).not.toContain("details");
 });
 
 test("creates a Moment from the selection menu when the range contains a section", async ({

@@ -23,6 +23,9 @@ describe("Moment route", () => {
   it("loads Moments from SQLite metadata and links to memory section anchors", () => {
     expect(loaderSource).toContain("loadMomentBrowseRows");
     expect(browseSource).toContain("getMomentBrowseRows");
+    expect(browseSource).toContain("MomentActionMenu");
+    expect(browseSource).toContain("deleteMomentById");
+    expect(browseSource).toContain("revalidateMomentBrowseRows");
     expect(browseSource).toContain("props.moment.targetAnchor === null");
     expect(browseSource).toContain('props.moment.targetStatus === "stale"');
     expect(browseSource).toContain("Section moved");
