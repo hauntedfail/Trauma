@@ -78,6 +78,28 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("untrusted button is removed");
   });
 
+  it("removes extracted anchor hrefs outside the memory source host", () => {
+    const result = renderMemoryMarkdown([
+      "[same host](https://example.com/safe)",
+      "[relative path](/relative)",
+      "[other host](https://elsewhere.example/safe)",
+      "[local host](https://localhost/private)",
+      "[ip host](https://93.184.216.34/private)",
+      "[credential host](https://token:secret@example.com/private)",
+    ].join(" "), { sourceUrl: "https://example.com/article" });
+
+    expect(result.html).toContain('href="https://example.com/safe"');
+    expect(result.html).toContain('href="https://example.com/relative"');
+    expect(result.html).toContain('href="https://example.com/private"');
+    expect(result.html).toContain("other host");
+    expect(result.html).toContain("local host");
+    expect(result.html).toContain("ip host");
+    expect(result.html).not.toContain("elsewhere.example");
+    expect(result.html).not.toContain("localhost");
+    expect(result.html).not.toContain("93.184.216.34");
+    expect(result.html).not.toContain("token:secret");
+  });
+
   it("allows controlled HTTPS iframes through the shared reader policy", () => {
     const result = renderMemoryMarkdown([
       '<iframe src="https://embed.example.test/player" title="Allowed video" referrerpolicy="unsafe-url" sandbox="allow-forms" onclick="evil()" width="640" height="360"></iframe>',

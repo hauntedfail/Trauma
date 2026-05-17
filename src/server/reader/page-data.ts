@@ -97,7 +97,11 @@ export async function loadReaderMemory(
     }
 
     const content = await readMemoryContent({ config, memoryId });
-    const rendered = renderMemoryMarkdownSafely(content.markdown, memory.flashbacks);
+    const rendered = renderMemoryMarkdownSafely(
+      content.markdown,
+      memory.flashbacks,
+      memory.url,
+    );
     return {
       status: "ready",
       memory: toReaderMemory(memory, rendered),
@@ -136,14 +140,16 @@ export async function loadReaderMemory(
 function renderMemoryMarkdownSafely(
   markdown: string,
   flashbacks: FlashbackRow[],
+  sourceUrl: string,
 ): RenderedMemoryMarkdown {
   try {
     return renderMemoryMarkdown(
       renderMarkdownWithFlashbackRecords(markdown, flashbacks),
+      { sourceUrl },
     );
   } catch (error) {
     if (error instanceof FlashbackMarkerError) {
-      return renderMemoryMarkdown(markdown);
+      return renderMemoryMarkdown(markdown, { sourceUrl });
     }
 
     throw error;

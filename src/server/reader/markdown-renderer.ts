@@ -8,6 +8,7 @@ import {
   isSafeReaderImageUrl,
   isSafeReaderIframeUrl,
   READER_IFRAME_SANDBOX,
+  resolveTrustedDisplayUrl,
 } from "../media-policy";
 import { renderMomentIconSvgMarkup } from "../../components/icons/moment-icon-markup";
 
@@ -25,13 +26,20 @@ export interface RenderedMemoryMarkdown {
   toc: ReaderTocEntry[];
 }
 
-export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
+export interface RenderMemoryMarkdownOptions {
+  sourceUrl?: string;
+}
+
+export function renderMemoryMarkdown(
+  markdown: string,
+  options: RenderMemoryMarkdownOptions = {},
+): RenderedMemoryMarkdown {
   const toc: ReaderTocEntry[] = [];
   const markdownIt = createMarkdownIt(toc);
   const rendered = markdownIt.render(markdown);
 
   return {
-    html: addReaderHeadingMomentButtons(sanitizeReaderHtml(rendered)),
+    html: addReaderHeadingMomentButtons(sanitizeReaderHtml(rendered, options)),
     toc,
   };
 }
@@ -77,7 +85,7 @@ function highlightCode(code: string, language: string) {
   return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
 }
 
-function sanitizeReaderHtml(html: string) {
+function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) {
   const htmlWithoutSrcdocIframes = html.replace(
     /<iframe\b(?=[^>]*\ssrcdoc\s*=)[\s\S]*?<\/iframe>/gi,
     "",
@@ -215,7 +223,7 @@ function sanitizeReaderHtml(html: string) {
       (frame.tag === "img" && !isSafeReaderImageUrl(frame.attribs.src)) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
-      a: sanitizeAnchor,
+      a: createAnchorSanitizer(options.sourceUrl),
       iframe: sanitizeIframe,
       img: sanitizeImage,
       input: sanitizeTaskCheckbox,
@@ -333,16 +341,38 @@ function findOpenToken(
   return undefined;
 }
 
-function sanitizeAnchor(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const href = attribs.href;
-  return {
-    tagName: "a",
-    attribs: {
-      ...attribs,
-      ...(href?.startsWith("http://") || href?.startsWith("https://")
-        ? { rel: "nofollow noopener noreferrer" }
-        : {}),
-    },
+function createAnchorSanitizer(sourceUrl: string | undefined) {
+  return (_tagName: string, attribs: sanitizeHtml.Attributes) => {
+    const href = attribs.href;
+    if (sourceUrl !== undefined && href !== undefined) {
+      const trustedHref = resolveTrustedDisplayUrl(sourceUrl, href);
+      if (trustedHref === null) {
+        const { href: _href, rel: _rel, ...safeAttribs } = attribs;
+        return {
+          tagName: "a",
+          attribs: safeAttribs,
+        };
+      }
+
+      return {
+        tagName: "a",
+        attribs: {
+          ...attribs,
+          href: trustedHref,
+          rel: "nofollow noopener noreferrer",
+        },
+      };
+    }
+
+    return {
+      tagName: "a",
+      attribs: {
+        ...attribs,
+        ...(href?.startsWith("http://") || href?.startsWith("https://")
+          ? { rel: "nofollow noopener noreferrer" }
+          : {}),
+      },
+    };
   };
 }
 

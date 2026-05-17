@@ -2,7 +2,7 @@ import { access, mkdir, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import {
-  runGitBackupJob,
+  runSerializedGitBackupJob,
   type MemoryBackupJob,
   type MemoryBackupQueue,
 } from "../backup";
@@ -77,9 +77,8 @@ export async function deleteMemory(input: {
   }
   let backupDeletionPaths: string[];
   try {
-    backupDeletionPaths = await resolveBackupDeletionPaths({
+    backupDeletionPaths = resolveBackupDeletionPaths({
       contentPath: target.contentPath,
-      fileSystem,
       memoryId: input.memoryId,
       storePath: input.config.storePath,
     });
@@ -110,7 +109,7 @@ export async function deleteMemory(input: {
   let synchronousBackupCompleted = false;
   if (input.config.backup.git.enabled) {
     try {
-      await runGitBackupJob({
+      await runSerializedGitBackupJob({
         config: input.config,
         job: deletionBackupJob,
       });
@@ -229,7 +228,7 @@ async function restoreDeletionBackupState(input: {
   deletionBackupJob: MemoryBackupJob;
 }): Promise<string | undefined> {
   try {
-    await runGitBackupJob({
+    await runSerializedGitBackupJob({
       config: input.config,
       job: {
         ...input.deletionBackupJob,
@@ -271,24 +270,16 @@ function resolveDeletionPaths(input: {
   return { contentDir, stagingDir };
 }
 
-async function resolveBackupDeletionPaths(input: {
+function resolveBackupDeletionPaths(input: {
   contentPath: string;
-  fileSystem: DeleteMemoryFileSystem;
   memoryId: string;
   storePath: string;
-}): Promise<string[]> {
+}): string[] {
   const paths = [input.contentPath];
   const flashbackExportPath = getFlashbackMetadataExportPath(input.memoryId);
   const absoluteFlashbackExportPath = resolve(input.storePath, flashbackExportPath);
   assertPathInsideStore(resolve(input.storePath), absoluteFlashbackExportPath);
-  try {
-    await input.fileSystem.access(absoluteFlashbackExportPath);
-    paths.push(flashbackExportPath);
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "ENOENT") {
-      throw error;
-    }
-  }
+  paths.push(flashbackExportPath);
   return paths;
 }
 

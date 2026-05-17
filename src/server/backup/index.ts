@@ -56,10 +56,12 @@ export interface RunGitBackupJobInput {
   job: MemoryBackupJob;
 }
 
+export type GitBackupJobRunner = (input: RunGitBackupJobInput) => Promise<void>;
+
 export interface CreateGitMemoryBackupQueueInput {
   config: ResolvedTraumaConfig;
   now?: () => Date;
-  runJob?: (input: RunGitBackupJobInput) => Promise<void>;
+  runJob?: GitBackupJobRunner;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
 }
 
@@ -97,7 +99,7 @@ export function getMemoryBackupQueue(
 export function createGitMemoryBackupQueue(
   input: CreateGitMemoryBackupQueueInput,
 ): GitMemoryBackupQueue {
-  const runJob = input.runJob ?? runGitBackupJob;
+  const runJob = input.runJob ?? runSerializedGitBackupJob;
   const openConnection = input.openConnection ?? initializeDatabase;
   const now = input.now ?? (() => new Date());
   const pendingJobs: MemoryBackupJob[] = [];
@@ -318,6 +320,35 @@ export async function runGitBackupJob(
     await pushGitBackup(input.config);
   }
 }
+
+export function createSerializedGitBackupRunner(
+  runJob: GitBackupJobRunner = runGitBackupJob,
+): GitBackupJobRunner {
+  const chainsByProjectPath = new Map<string, Promise<void>>();
+
+  return async (input) => {
+    const key = resolve(input.config.projectPath);
+    const previous = chainsByProjectPath.get(key) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolveGate) => {
+      release = resolveGate;
+    });
+    const current = previous.catch(() => undefined).then(() => gate);
+    chainsByProjectPath.set(key, current);
+
+    await previous.catch(() => undefined);
+    try {
+      await runJob(input);
+    } finally {
+      release();
+      if (chainsByProjectPath.get(key) === current) {
+        chainsByProjectPath.delete(key);
+      }
+    }
+  };
+}
+
+export const runSerializedGitBackupJob = createSerializedGitBackupRunner();
 
 function normalizeBackupJob(input: EnqueueMemoryBackupInput): MemoryBackupJob {
   const contentPaths = input.contentPaths ?? (

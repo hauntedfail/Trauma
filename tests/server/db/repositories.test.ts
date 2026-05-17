@@ -508,6 +508,126 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
+  it("updates stale Moment anchor rows before treating them as existing", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const later = new Date("2026-05-10T02:00:00.000Z");
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f105";
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/stale-anchor",
+            title: "Stale Anchor Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const stale = await connection.repositories.moments.create({
+            id: "moment-stale-anchor",
+            memoryId,
+            sectionAnchor: "shared-title",
+            sectionTitle: "Old Shared Title",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: null,
+            sectionEndOffset: null,
+            contentHash: "old-hash",
+            createdAt: now,
+            updatedAt: now,
+          });
+          const current = await connection.repositories.moments.create({
+            id: "moment-current-anchor",
+            memoryId,
+            sectionAnchor: "shared-title",
+            sectionTitle: "Current Shared Title",
+            sectionLevel: 2,
+            sectionPath: "2/1",
+            sectionStartOffset: 10,
+            sectionEndOffset: 25,
+            contentHash: "current-hash",
+            createdAt: later,
+            updatedAt: later,
+          });
+
+          process.stdout.write(JSON.stringify({
+            stale,
+            current,
+            rows: connection.sqlite.prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath, section_start_offset as sectionStartOffset, section_end_offset as sectionEndOffset, content_hash as contentHash from moments").all(),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      stale: {
+        alreadyExists: false,
+        moment: {
+          id: "moment-stale-anchor",
+          sectionAnchor: "shared-title",
+          sectionPath: "1/1",
+        },
+      },
+      current: {
+        alreadyExists: true,
+        moment: {
+          id: "moment-stale-anchor",
+          sectionAnchor: "shared-title",
+          sectionTitle: "Current Shared Title",
+          sectionPath: "2/1",
+          sectionStartOffset: 10,
+          sectionEndOffset: 25,
+          contentHash: "current-hash",
+        },
+      },
+      rows: [
+        {
+          id: "moment-stale-anchor",
+          sectionAnchor: "shared-title",
+          sectionTitle: "Current Shared Title",
+          sectionPath: "2/1",
+          contentHash: "current-hash",
+        },
+      ],
+    });
+  });
+
   it("uses insert-ignore semantics for duplicate Moment anchors", () => {
     expect(repositorySource).toContain(".onConflictDoNothing({");
     expect(repositorySource).toContain(

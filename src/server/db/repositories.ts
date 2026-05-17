@@ -267,16 +267,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     moments: {
       create: async (input) => {
         await assertMemoryExists(db, input.memoryId, "create moment for");
-        const existingByAnchor = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionAnchor, input.sectionAnchor),
-          ),
-        });
-        if (existingByAnchor !== undefined) {
-          return { moment: existingByAnchor, alreadyExists: true };
-        }
-
         const existingByPath = await db.query.moments.findFirst({
           where: and(
             eq(schema.moments.memoryId, input.memoryId),
@@ -300,6 +290,37 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             .get();
           return {
             moment: updated ?? existingByPath,
+            alreadyExists: true,
+          };
+        }
+
+        const existingByAnchor = await db.query.moments.findFirst({
+          where: and(
+            eq(schema.moments.memoryId, input.memoryId),
+            eq(schema.moments.sectionAnchor, input.sectionAnchor),
+          ),
+        });
+        if (existingByAnchor !== undefined) {
+          if (existingByAnchor.sectionPath === input.sectionPath) {
+            return { moment: existingByAnchor, alreadyExists: true };
+          }
+
+          const updated = await db
+            .update(schema.moments)
+            .set({
+              sectionTitle: input.sectionTitle,
+              sectionLevel: input.sectionLevel,
+              sectionPath: input.sectionPath,
+              sectionStartOffset: input.sectionStartOffset ?? null,
+              sectionEndOffset: input.sectionEndOffset ?? null,
+              contentHash: input.contentHash ?? null,
+              updatedAt: input.updatedAt,
+            })
+            .where(eq(schema.moments.id, existingByAnchor.id))
+            .returning()
+            .get();
+          return {
+            moment: updated ?? existingByAnchor,
             alreadyExists: true,
           };
         }

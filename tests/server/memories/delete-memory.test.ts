@@ -83,6 +83,56 @@ describe("delete memory service", () => {
     ]);
   });
 
+  it("queues the Flashback export deletion candidate when the file is already missing", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    const enqueued: Parameters<MemoryBackupQueue["enqueue"]>[0][] = [];
+    const backupQueue = {
+      enqueue: async (input) => {
+        enqueued.push(input);
+        return { backupStatus: "queued" };
+      },
+    } satisfies MemoryBackupQueue;
+
+    try {
+      await expect(
+        deleteMemory({
+          backupQueue,
+          config,
+          db: connection.db,
+          memoryId: routeMemoryId,
+        }),
+      ).resolves.toEqual({ status: "deleted" });
+    } finally {
+      connection.close();
+    }
+
+    expect(enqueued).toEqual([
+      {
+        memoryId: routeMemoryId,
+        contentPaths: [
+          `memories/${routeMemoryId}/CONTENT.md`,
+          `memories/${routeMemoryId}/FLASHBACKS.json`,
+        ],
+        reason: "memory_deletion",
+      },
+    ]);
+  });
+
   it("backs up tracked memory deletion before dropping the SQLite row", async () => {
     const root = await makeRoot();
     const loadedConfig = loadRouteConfig(await writeRouteConfig(root));

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   BACKUP_STATUSES,
   createGitMemoryBackupQueue,
+  createSerializedGitBackupRunner,
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
@@ -32,6 +33,60 @@ describe("git backup runner", () => {
       "success",
       "failed",
       "disabled",
+    ]);
+  });
+
+  it("serializes git backup jobs that target the same project path", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const events: string[] = [];
+    let firstStarted: () => void = () => {};
+    let releaseFirst: () => void = () => {};
+    const firstStartedPromise = new Promise<void>((resolveStarted) => {
+      firstStarted = resolveStarted;
+    });
+    const releaseFirstPromise = new Promise<void>((resolveRelease) => {
+      releaseFirst = resolveRelease;
+    });
+    const runner = createSerializedGitBackupRunner(async (input) => {
+      events.push(`start:${input.job.memoryId}`);
+      if (input.job.memoryId === "first-memory") {
+        firstStarted();
+        await releaseFirstPromise;
+      }
+      events.push(`end:${input.job.memoryId}`);
+    });
+
+    const first = runner({
+      config,
+      job: {
+        memoryId: "first-memory",
+        contentPaths: [`memories/first-memory/CONTENT.md`],
+        reason: "memory_creation",
+      },
+    });
+    await firstStartedPromise;
+
+    const second = runner({
+      config,
+      job: {
+        memoryId: "second-memory",
+        contentPaths: [`memories/second-memory/CONTENT.md`],
+        reason: "memory_creation",
+      },
+    });
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+
+    expect(events).toEqual(["start:first-memory"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual([
+      "start:first-memory",
+      "end:first-memory",
+      "start:second-memory",
+      "end:second-memory",
     ]);
   });
 
