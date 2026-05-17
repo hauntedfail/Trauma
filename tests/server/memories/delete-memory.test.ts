@@ -206,6 +206,77 @@ describe("delete memory service", () => {
     ]);
   });
 
+  it("backs up untracked memory content before staging git deletion", async () => {
+    const root = await makeRoot();
+    const loadedConfig = loadRouteConfig(await writeRouteConfig(root));
+    const config = {
+      ...loadedConfig,
+      backup: {
+        git: {
+          ...loadedConfig.backup.git,
+          enabled: true,
+          commitMessageTemplate: "backup {action} {memoryId}",
+        },
+      },
+    };
+    await initializeGitRepository(config.projectPath);
+    await stampBackupEnvironment(config);
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nUntracked content.",
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        deleteMemory({
+          config,
+          db: connection.db,
+          memoryId: routeMemoryId,
+        }),
+      ).resolves.toEqual({ status: "deleted" });
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id = ?")
+          .get(routeMemoryId),
+      ).toEqual({ count: 0 });
+    } finally {
+      connection.close();
+    }
+
+    expect(git(config.projectPath, ["log", "--pretty=%s", "-2"]).trim().split(/\r?\n/))
+      .toEqual([
+        `backup deleted memory ${routeMemoryId}`,
+        `backup created memory ${routeMemoryId}`,
+      ]);
+    expect(
+      git(config.projectPath, [
+        "show",
+        "--name-status",
+        "--pretty=format:",
+        "HEAD~1",
+      ])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`A\tstorage/memories/${routeMemoryId}/CONTENT.md`]);
+    expect(
+      git(config.projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`D\tstorage/memories/${routeMemoryId}/CONTENT.md`]);
+  });
+
   it("restores the local git backup state when deletion push fails", async () => {
     const root = await makeRoot();
     const loadedConfig = loadRouteConfig(await writeRouteConfig(root));

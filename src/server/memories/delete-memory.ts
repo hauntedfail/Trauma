@@ -91,6 +91,27 @@ export async function deleteMemory(input: {
     db: input.db,
   });
 
+  const deletionBackupJob = createDeletionBackupJob({
+    backupDeletionPaths,
+    memoryId: input.memoryId,
+  });
+  if (input.config.backup.git.enabled) {
+    try {
+      await runSerializedGitBackupJob({
+        config: withLocalGitBackupOnly(input.config),
+        job: createPreDeletionContentBackupJob({
+          backupDeletionPaths,
+          memoryId: input.memoryId,
+        }),
+      });
+    } catch (error) {
+      return {
+        status: "failed",
+        error: `Failed to back up memory content before deleting the memory row: ${formatUnknownError(error)}`,
+      };
+    }
+  }
+
   let staged = false;
   try {
     await fileSystem.mkdir(dirname(paths.stagingDir), { recursive: true });
@@ -102,10 +123,6 @@ export async function deleteMemory(input: {
     }
   }
 
-  const deletionBackupJob = createDeletionBackupJob({
-    backupDeletionPaths,
-    memoryId: input.memoryId,
-  });
   let synchronousBackupCompleted = false;
   if (input.config.backup.git.enabled) {
     try {
@@ -216,6 +233,33 @@ function createDeletionBackupJob(input: {
     memoryId: input.memoryId,
     contentPaths: input.backupDeletionPaths,
     reason: "memory_deletion",
+  };
+}
+
+function createPreDeletionContentBackupJob(input: {
+  memoryId: string;
+  backupDeletionPaths: string[];
+}): MemoryBackupJob {
+  return {
+    memoryId: input.memoryId,
+    contentPaths: input.backupDeletionPaths,
+    reason: "memory_creation",
+  };
+}
+
+function withLocalGitBackupOnly(config: ResolvedTraumaConfig): ResolvedTraumaConfig {
+  if (!config.backup.git.push) {
+    return config;
+  }
+
+  return {
+    ...config,
+    backup: {
+      git: {
+        ...config.backup.git,
+        push: false,
+      },
+    },
   };
 }
 
