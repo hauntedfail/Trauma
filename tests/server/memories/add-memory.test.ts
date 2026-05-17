@@ -278,7 +278,6 @@ describe("add memory orchestration", () => {
       capturedAt: "2026-05-09T06:00:00.000Z",
       extractionStatus: "success",
     });
-    expect(content.markdown).toContain("# Defuddle Import");
     expect(content.markdown).toContain("configured store path");
     expect(content.markdown).toContain(
       "[reader safe link](https://example.com/reader-safe)",
@@ -298,8 +297,8 @@ describe("add memory orchestration", () => {
     expect(reader.content).toEqual({
       relativePath: `memories/${memoryId}/CONTENT.md`,
     });
-    expect(reader.rendered.html).toContain('<h1 id="defuddle-import"');
     expect(reader.rendered.html).toContain("reader safe link");
+    expect(reader.rendered.html).toContain("configured store path");
   });
 
   it("creates a link-only memory when extraction falls back", async () => {

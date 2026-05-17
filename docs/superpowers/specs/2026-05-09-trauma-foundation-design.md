@@ -172,13 +172,13 @@ On submission:
 
 1. Generate a UUID v7 memory id.
 2. Fetch the URL server-side.
-3. Run a Readability-style extractor.
+3. Run the Defuddle-backed extractor.
 4. Create metadata in SQLite.
 5. Write `CONTENT.md`.
 6. Enqueue markdown store backup.
 
-If extraction succeeds, save the extracted title, body, description, favicon,
-and markdown body. If extraction fails or produces insufficient body content,
+If extraction succeeds, save the extracted title, description, favicon, and
+Defuddle-produced markdown body. If extraction fails or produces empty markdown,
 still create a link-only memory with extraction status and error details.
 
 Raw HTML is not stored in the initial version. Browser-assisted capture via

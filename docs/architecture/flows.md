@@ -16,18 +16,18 @@ Flow:
 5. Write `{storePath}/memories/{memoryId}/CONTENT.md`.
 6. Enqueue markdown backup work.
 
-If extraction succeeds, save extracted title, body, description, favicon URL,
-and markdown body.
+If extraction succeeds, save extracted title, description, favicon URL, and the
+markdown body produced by Defuddle.
 
-If extraction fails or returns insufficient body content, still create a
-link-only memory. Record extraction status and error details in SQLite.
+If extraction fails or returns empty markdown, still create a link-only memory.
+Record extraction status and error details in SQLite.
 
 Raw HTML is not stored in the initial design.
 
 Default extraction runs behind an interruptible runtime boundary. The import
-timeout budget covers fetch, validation, parser work, and markdown conversion;
-if the budget is exhausted, the importer returns link-only fallback instead of
-persisting late extraction output.
+timeout budget covers fetch, validation, Defuddle parser work, and Defuddle
+markdown generation; if the budget is exhausted, the importer returns link-only
+fallback instead of persisting late extraction output.
 
 ## Browser-Assisted Import
 
@@ -42,16 +42,16 @@ Flow:
 4. The extension sends JSON to `/api/browser-import` on the local TRAUMA server
    with a bearer token.
 5. The server validates enablement, token, origin, content type, payload size,
-   URL shape, timestamp, and extracted text shape.
+   URL shape, timestamp, and captured snapshot shape.
 6. The server creates the memory through the same add-memory persistence path:
    SQLite metadata, `CONTENT.md`, and backup enqueue.
 7. The extension opens the created memory route or reports the server error.
 
 The extension is a privileged local client, not a trusted persistence layer. It
 may provide browser-only access to the visible DOM, but final validation,
-markdown creation, SQLite writes, and backup state remain server-owned. Raw
-extension HTML is untrusted and must not bypass the server sanitization and
-markdown-store contracts.
+server-side Defuddle extraction, SQLite writes, and backup state remain
+server-owned. Raw extension HTML is untrusted and must not bypass the server
+sanitization and markdown-store contracts.
 
 ## Flashback
 

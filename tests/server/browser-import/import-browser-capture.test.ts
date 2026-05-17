@@ -15,7 +15,7 @@ describe("browser capture import", () => {
       articleHtml: `<article>
         <h1>Captured Article</h1>
         <p>This browser extracted article contains enough readable words to become a memory through the existing persistence path.</p>
-        <p>The extension provides selected article HTML, but the server still owns markdown generation.</p>
+        <p>The extension provides selected article HTML, while Defuddle owns markdown generation.</p>
       </article>`,
       articleText:
         "Captured Article. This browser extracted article contains enough readable words to become a memory through the existing persistence path. The extension provides selected article HTML.",
@@ -38,7 +38,7 @@ describe("browser capture import", () => {
           title: "Captured fallback title",
         });
         expect(imported?.status === "success" ? imported.markdown : "").toContain(
-          "server still owns markdown generation",
+          "Defuddle owns markdown generation",
         );
         return { id: "memory-id" };
       },
@@ -48,21 +48,34 @@ describe("browser capture import", () => {
     expect(observedUrls).toEqual(["https://example.com/canonical"]);
   });
 
-  it("does not create link-only memories when browser capture extraction fails", async () => {
+  it("rejects empty Defuddle markdown without building a browser-capture markdown fallback", async () => {
     await expect(
       importBrowserCapture({
         payload: createPayload({
-          articleHtml: "<article>thin</article>",
-          articleText: "thin",
+          articleHtml: `<article>
+            <h1>Captured Article</h1>
+            <p>This browser capture has enough visible text that only the extractor output should decide persistence.</p>
+          </article>`,
+          articleText:
+            "Captured Article. This browser capture has enough visible text that only the extractor output should decide persistence.",
         }),
         config: createConfig(),
         db: {} as never,
         backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+        extractArticle: async () => ({
+          title: "Captured Article",
+          description: null,
+          faviconUrl: null,
+          markdown: "",
+          wordCount: 0,
+        }),
         createMemory: async () => {
           throw new Error("createMemory should not be called");
         },
       }),
-    ).rejects.toEqual(new BrowserImportError("extracted page content is too short"));
+    ).rejects.toEqual(
+      new BrowserImportError("failed to extract readable page content"),
+    );
   });
 
   it("bounds browser capture extraction time before persisting a memory", async () => {
@@ -90,7 +103,7 @@ describe("browser capture import", () => {
     );
   });
 
-  it("imports short browser captures when selected content contains meaningful media", async () => {
+  it("imports short non-empty Defuddle markdown without falling back to captured HTML markdown", async () => {
     const payload = createPayload({
       sourceUrl: "https://x.com/seelffff/status/2054991798519656789",
       title: "Short media post",
@@ -125,15 +138,7 @@ describe("browser capture import", () => {
     });
 
     expect(memory).toEqual({ id: "memory-id" });
-    expect(observedMarkdown).toEqual([
-      [
-        "# Short media post",
-        "",
-        "Short post text\\.",
-        "",
-        "![Captured source image](https://pbs.twimg.com/media/example.jpg)",
-      ].join("\n"),
-    ]);
+    expect(observedMarkdown).toEqual(["Short post text."]);
   });
 
   it("does not persist a memory when synchronous extraction work exceeds the timeout", async () => {

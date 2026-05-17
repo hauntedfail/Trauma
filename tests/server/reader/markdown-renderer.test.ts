@@ -140,4 +140,21 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("data:image");
     expect(result.html).not.toContain("<source");
   });
+
+  it("strips unsafe auto-loaded media URLs at render time", () => {
+    const result = renderMemoryMarkdown([
+      "![local image](https://localhost/pixel.png)",
+      "![ip image](https://93.184.216.34/pixel.png)",
+      "![http image](http://cdn.example.test/pixel.png)",
+      "![safe image](https://cdn.example.test/pixel.png)",
+      '<picture><source srcset="https://localhost/a.png 320w, https://cdn.example.test/a.png 640w"><img src="https://127.0.0.1/a.png" alt="unsafe responsive"></picture>',
+    ].join("\n"));
+
+    expect(result.html).toContain("https://cdn.example.test/pixel.png");
+    expect(result.html).toContain("https://cdn.example.test/a.png 640w");
+    expect(result.html).not.toContain("https://localhost");
+    expect(result.html).not.toContain("93.184.216.34");
+    expect(result.html).not.toContain("http://cdn.example.test");
+    expect(result.html).not.toContain("127.0.0.1");
+  });
 });

@@ -5,6 +5,7 @@ import footnote from "markdown-it-footnote";
 import sanitizeHtml from "sanitize-html";
 
 import {
+  isSafeReaderImageUrl,
   isSafeReaderIframeUrl,
   READER_IFRAME_SANDBOX,
 } from "../media-policy";
@@ -206,6 +207,7 @@ function sanitizeReaderHtml(html: string) {
       (frame.tag === "iframe" &&
         (frame.attribs.srcdoc !== undefined ||
           !isSafeReaderIframeUrl(frame.attribs.src))) ||
+      (frame.tag === "img" && !isSafeReaderImageUrl(frame.attribs.src)) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: sanitizeAnchor,
@@ -405,10 +407,11 @@ function sanitizeSourceSetCandidate(value: string): string | undefined {
   }
 
   try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
+    if (!isSafeReaderImageUrl(rawUrl)) {
       return undefined;
     }
+
+    const url = new URL(rawUrl);
 
     if (descriptor === undefined) {
       return url.toString();

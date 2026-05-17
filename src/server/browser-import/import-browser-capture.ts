@@ -7,8 +7,6 @@ import {
   runExtractorWithTimeout,
 } from "../importer/extraction-runtime";
 import {
-  htmlFragmentToMarkdown,
-  readableMarkdownLength,
   type ExtractedArticle,
   type ArticleExtractor,
 } from "../importer/extractor";
@@ -37,19 +35,10 @@ export interface ImportBrowserCaptureInput {
   createMemory?: (input: AddMemoryInput) => Promise<{ id: string }>;
 }
 
-const MINIMUM_READABLE_BODY_LENGTH = 80;
 const DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS = 10_000;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
   const selectedUrl = selectCaptureUrl(input.payload);
-  const initialCaptureMarkdown = createBrowserCaptureMarkdown(
-    input.payload,
-    selectedUrl,
-    input.payload.title ?? fallbackTitleFromUrl(selectedUrl),
-  );
-  if (!isMeaningfulBrowserCaptureMarkdown(initialCaptureMarkdown)) {
-    throw new BrowserImportError("extracted page content is too short");
-  }
 
   const extractionInput = {
     html: createExtractionDocumentHtml(input.payload),
@@ -74,13 +63,9 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
     extracted.title ||
     input.payload.title ||
     fallbackTitleFromUrl(selectedUrl);
-  const markdown =
-    readableMarkdownLength(extracted.markdown) >= MINIMUM_READABLE_BODY_LENGTH
-      ? extracted.markdown
-      : createBrowserCaptureMarkdown(input.payload, selectedUrl, title);
 
-  if (!isMeaningfulBrowserCaptureMarkdown(markdown)) {
-    throw new BrowserImportError("extracted page content is too short");
+  if (extracted.markdown.trim().length === 0) {
+    throw new BrowserImportError("failed to extract readable page content");
   }
 
   const imported: ImporterResult = {
@@ -89,7 +74,7 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
     title,
     description: extracted.description ?? input.payload.description,
     faviconUrl: extracted.faviconUrl,
-    markdown,
+    markdown: extracted.markdown,
   };
 
   const createMemory = input.createMemory ?? addMemory;
@@ -176,23 +161,4 @@ function escapeHtml(value: string) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-}
-
-function createBrowserCaptureMarkdown(
-  payload: BrowserImportPayload,
-  selectedUrl: string,
-  title: string,
-) {
-  return htmlFragmentToMarkdown(payload.articleHtml, selectedUrl, title);
-}
-
-function isMeaningfulBrowserCaptureMarkdown(markdown: string) {
-  return (
-    readableMarkdownLength(markdown) >= MINIMUM_READABLE_BODY_LENGTH ||
-    (markdown.trim().length > 0 && hasRenderedMedia(markdown))
-  );
-}
-
-function hasRenderedMedia(markdown: string) {
-  return /!\[[^\]]*]\([^)]+\)|<picture\b|<iframe\b|<img\b/i.test(markdown);
 }

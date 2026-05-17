@@ -26,6 +26,18 @@ export function isSafeReaderIframeUrl(value: string | undefined): boolean {
   }
 }
 
+export function isSafeReaderImageUrl(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+
+  try {
+    return isSafePublicHttpsUrl(new URL(value));
+  } catch {
+    return false;
+  }
+}
+
 export function resolveTrustedDisplayUrl(
   pageUrl: string,
   value: string,
