@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
@@ -21,6 +23,7 @@ const memory = {
   tags: [{ id: "sqlite", name: "sqlite" }],
   flashbacks: [],
 } satisfies BrowseMemory;
+const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
 
 describe("memory browse actions", () => {
   it("renders actions, read status, and attached taxonomy", () => {
@@ -100,6 +103,11 @@ describe("memory browse actions", () => {
       memoryId: "memory-1",
       name: "Notes",
     });
+  });
+
+  it("revalidates reader data after taxonomy edits from browse cards", () => {
+    expect(browseSource).toContain("revalidateAfterTaxonomyChange");
+    expect(browseSource).toContain("revalidateReaderMemory(memoryId)");
   });
 
   it("posts memory deletion requests", async () => {

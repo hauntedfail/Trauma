@@ -75,6 +75,11 @@ function MomentRow(props: { moment: MomentBrowseRow }) {
           {props.moment.memoryUrl}
         </p>
         <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
+          <Show when={props.moment.targetStatus === "stale"}>
+            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2 py-0.5 text-trauma-text-secondary">
+              Section moved
+            </span>
+          </Show>
           <span>h{props.moment.sectionLevel}</span>
           <span>path {props.moment.sectionPath}</span>
           <time dateTime={props.moment.createdAt}>

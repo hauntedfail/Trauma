@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
-
-import { initializeDatabase, schema } from "../db";
+import { initializeDatabase } from "../db";
+import type { ReaderMemoryAggregateRow } from "../db/repositories";
 import {
   loadRuntimeTraumaConfig,
   TraumaConfigError,
@@ -14,17 +13,7 @@ import {
 } from "./markdown-renderer";
 import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
 
-type MemoryRow = typeof schema.memories.$inferSelect;
-type CategoryRow = typeof schema.categories.$inferSelect;
-type MomentRow = typeof schema.moments.$inferSelect;
-type TagRow = typeof schema.tags.$inferSelect;
-type FlashbackRow = typeof schema.flashbacks.$inferSelect;
-type ReaderMemoryRow = MemoryRow & {
-  moments: MomentRow[];
-  flashbacks: FlashbackRow[];
-  memoryCategories: { category: CategoryRow }[];
-  memoryTags: { tag: TagRow }[];
-};
+type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
 
 export type ReaderMemoryResult =
   | {
@@ -46,7 +35,7 @@ export interface ReaderMemory {
   title: string;
   description: string | null;
   faviconUrl: string | null;
-  extractionStatus: MemoryRow["extractionStatus"];
+  extractionStatus: ReaderMemoryAggregateRow["extractionStatus"];
   contentPath: string;
   read: boolean;
   categories: ReaderTaxonomyItem[];
@@ -98,23 +87,8 @@ export async function loadReaderMemory(
   try {
     const config = options.config ?? loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    const memory = await connection.db.query.memories.findFirst({
-      where: eq(schema.memories.id, memoryId),
-      with: {
-        moments: true,
-        flashbacks: true,
-        memoryCategories: {
-          with: {
-            category: true,
-          },
-        },
-        memoryTags: {
-          with: {
-            tag: true,
-          },
-        },
-      },
-    });
+    const memory =
+      await connection.repositories.memories.findReaderAggregateById(memoryId);
     if (memory === undefined) {
       return {
         status: "not_found",
@@ -177,7 +151,7 @@ function renderMemoryMarkdownSafely(
 }
 
 function toReaderMemory(
-  memory: ReaderMemoryRow,
+  memory: ReaderMemoryAggregateRow,
   rendered: RenderedMemoryMarkdown,
 ): ReaderMemory {
   const renderedFlashbackIds = collectRenderedFlashbackIds(rendered.html);

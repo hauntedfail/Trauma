@@ -115,7 +115,10 @@ export function SettingsPage(props: SettingsPageProps) {
         <p class="mb-2 text-sm font-extrabold uppercase text-trauma-text-muted">
           Settings
         </p>
-        <h1 class="mb-0 text-[32px] font-extrabold text-trauma-text-primary">
+        <h1
+          class="mb-0 text-[32px] font-extrabold text-trauma-text-primary"
+          id="settings-title"
+        >
           Workspace settings
         </h1>
       </header>

@@ -23,6 +23,10 @@
 - MUST wrap multi-table or multi-step writes in transactions. Memory creation,
   tag/category association, flashback persistence, and backup status updates
   must not partially commit.
+- MUST keep Bun SQLite Drizzle transaction callbacks synchronous. Do not pass an
+  `async` callback to `db.transaction(...)`; awaited work can escape the
+  rollback boundary. Add a focused rollback regression test for multi-step
+  writes that must be atomic.
 - MUST make post-insert boundary failures recoverable for create workflows.
   After a memory row and `CONTENT.md` are durable, backup enqueue/status failures
   must return the created memory with the best persisted status or compensate

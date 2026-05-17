@@ -47,16 +47,20 @@ export async function POST(event: APIEvent): Promise<Response> {
       );
     }
 
-    const category = await connection.repositories.taxonomy.createCategory({
-      id: generateTaxonomyId(),
-      name: payload.name,
-      now: new Date(),
-    });
-    await connection.repositories.taxonomy.attachCategoryToMemory({
-      memoryId: payload.memoryId,
-      categoryId: category.id,
-      now: new Date(),
-    });
+    let category;
+    try {
+      category = await connection.repositories.taxonomy.createAndAttachCategoryToMemory(
+        {
+          id: generateTaxonomyId(),
+          memoryId: payload.memoryId,
+          name: payload.name,
+          now: new Date(),
+        },
+      );
+    } catch (error) {
+      return formatAttachError(error, "category");
+    }
+
     return json(
       { memoryId: payload.memoryId, categoryId: category.id, category },
       { status: 200 },

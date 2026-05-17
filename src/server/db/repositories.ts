@@ -30,6 +30,12 @@ type MemoryBackupRetryRow = Pick<
   Memory,
   "id" | "contentPath" | "backupStatus" | "updatedAt"
 >;
+export type ReaderMemoryAggregateRow = Memory & {
+  moments: Moment[];
+  flashbacks: Flashback[];
+  memoryCategories: { category: Category }[];
+  memoryTags: { tag: Tag }[];
+};
 
 export interface MemoryBrowseRow {
   id: string;
@@ -74,6 +80,9 @@ export interface MomentBrowseRow {
 
 export interface MemoryRepository {
   findById: (id: string) => Promise<Memory | undefined>;
+  findReaderAggregateById: (
+    id: string,
+  ) => Promise<ReaderMemoryAggregateRow | undefined>;
   create: (input: NewMemory) => Promise<Memory>;
   setReadStatus: (input: {
     memoryId: string;
@@ -104,8 +113,20 @@ export interface TaxonomyBrowseRow {
 
 export interface TaxonomyRepository {
   createTag: (input: { id: string; name: string; now: Date }) => Promise<Tag>;
+  createAndAttachTagToMemory: (input: {
+    id: string;
+    memoryId: string;
+    name: string;
+    now: Date;
+  }) => Promise<Tag>;
   createCategory: (input: {
     id: string;
+    name: string;
+    now: Date;
+  }) => Promise<Category>;
+  createAndAttachCategoryToMemory: (input: {
+    id: string;
+    memoryId: string;
     name: string;
     now: Date;
   }) => Promise<Category>;
@@ -359,14 +380,14 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           );
         }
 
-        await db.transaction(async (tx) => {
-          await tx
+        db.transaction((tx) => {
+          tx
             .delete(schema.flashbacks)
             .where(eq(schema.flashbacks.memoryId, memoryId))
             .run();
 
           if (flashbackRows.length > 0) {
-            await tx.insert(schema.flashbacks).values(flashbackRows).run();
+            tx.insert(schema.flashbacks).values(flashbackRows).run();
           }
         });
 
@@ -403,6 +424,24 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       findById: async (id) =>
         db.query.memories.findFirst({
           where: eq(schema.memories.id, id),
+        }),
+      findReaderAggregateById: async (id) =>
+        db.query.memories.findFirst({
+          where: eq(schema.memories.id, id),
+          with: {
+            moments: true,
+            flashbacks: true,
+            memoryCategories: {
+              with: {
+                category: true,
+              },
+            },
+            memoryTags: {
+              with: {
+                tag: true,
+              },
+            },
+          },
         }),
       create: async (input) => {
         await db.insert(schema.memories).values(input).run();
@@ -556,6 +595,59 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .run();
         return requireTagByName(db, input.name);
       },
+      createAndAttachTagToMemory: async (input) =>
+        db.transaction((tx) => {
+          const memory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.memoryId))
+            .get();
+          if (memory === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot attach tag to missing memory: ${input.memoryId}`,
+            );
+          }
+
+          tx
+            .insert(schema.tags)
+            .values({
+              id: input.id,
+              name: input.name,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoNothing({ target: schema.tags.name })
+            .run();
+
+          const tag = tx
+            .select()
+            .from(schema.tags)
+            .where(eq(schema.tags.name, input.name))
+            .get();
+          if (tag === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot find tag after create: ${input.name}`,
+            );
+          }
+
+          tx
+            .insert(schema.memoryTags)
+            .values({
+              memoryId: input.memoryId,
+              tagId: tag.id,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoUpdate({
+              target: [schema.memoryTags.memoryId, schema.memoryTags.tagId],
+              set: {
+                updatedAt: input.now,
+              },
+            })
+            .run();
+
+          return tag;
+        }),
       createCategory: async (input) => {
         await db
           .insert(schema.categories)
@@ -569,6 +661,62 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .run();
         return requireCategoryByName(db, input.name);
       },
+      createAndAttachCategoryToMemory: async (input) =>
+        db.transaction((tx) => {
+          const memory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.memoryId))
+            .get();
+          if (memory === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot attach category to missing memory: ${input.memoryId}`,
+            );
+          }
+
+          tx
+            .insert(schema.categories)
+            .values({
+              id: input.id,
+              name: input.name,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoNothing({ target: schema.categories.name })
+            .run();
+
+          const category = tx
+            .select()
+            .from(schema.categories)
+            .where(eq(schema.categories.name, input.name))
+            .get();
+          if (category === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot find category after create: ${input.name}`,
+            );
+          }
+
+          tx
+            .insert(schema.memoryCategories)
+            .values({
+              memoryId: input.memoryId,
+              categoryId: category.id,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoUpdate({
+              target: [
+                schema.memoryCategories.memoryId,
+                schema.memoryCategories.categoryId,
+              ],
+              set: {
+                updatedAt: input.now,
+              },
+            })
+            .run();
+
+          return category;
+        }),
       findTagByName: async (name) =>
         db.query.tags.findFirst({
           where: eq(schema.tags.name, name),

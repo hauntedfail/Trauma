@@ -23,6 +23,8 @@ describe("settings page", () => {
       }),
     );
 
+    expect(html).toContain('aria-labelledby="settings-title"');
+    expect(html).toContain('id="settings-title"');
     expect(html).toContain("Translation target language");
     for (const label of [
       "Japanese",

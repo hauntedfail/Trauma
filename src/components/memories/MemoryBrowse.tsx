@@ -191,7 +191,7 @@ export function MemoryItem(props: {
       });
       setTags((current) => mergeTaxonomyItem(current, tag));
       setTagPopoverOpen(false);
-      void revalidateBrowseMemoryWorkspace();
+      void revalidateAfterTaxonomyChange(props.memory.id);
     } catch {
       setActionError("Failed to add tag.");
     }
@@ -205,7 +205,7 @@ export function MemoryItem(props: {
     try {
       const category = await attachCategoryToMemoryByName(input);
       setCategories((current) => mergeTaxonomyItem(current, category));
-      void revalidateBrowseMemoryWorkspace();
+      void revalidateAfterTaxonomyChange(input.memoryId);
     } catch {
       setActionError("Failed to add category.");
     }
@@ -334,6 +334,13 @@ export function MemoryItem(props: {
 }
 
 async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterTaxonomyChange(memoryId: string): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
     revalidateReaderMemory(memoryId),

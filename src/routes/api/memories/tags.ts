@@ -47,16 +47,18 @@ export async function POST(event: APIEvent): Promise<Response> {
       );
     }
 
-    const tag = await connection.repositories.taxonomy.createTag({
-      id: generateTaxonomyId(),
-      name: payload.name,
-      now: new Date(),
-    });
-    await connection.repositories.taxonomy.attachTagToMemory({
-      memoryId: payload.memoryId,
-      tagId: tag.id,
-      now: new Date(),
-    });
+    let tag;
+    try {
+      tag = await connection.repositories.taxonomy.createAndAttachTagToMemory({
+        id: generateTaxonomyId(),
+        memoryId: payload.memoryId,
+        name: payload.name,
+        now: new Date(),
+      });
+    } catch (error) {
+      return formatAttachError(error, "tag");
+    }
+
     return json(
       { memoryId: payload.memoryId, tagId: tag.id, tag },
       { status: 200 },

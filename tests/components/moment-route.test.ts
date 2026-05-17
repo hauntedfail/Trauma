@@ -24,6 +24,8 @@ describe("Moment route", () => {
     expect(loaderSource).toContain("loadMomentBrowseRows");
     expect(browseSource).toContain("getMomentBrowseRows");
     expect(browseSource).toContain("props.moment.targetAnchor === null");
+    expect(browseSource).toContain('props.moment.targetStatus === "stale"');
+    expect(browseSource).toContain("Section moved");
     expect(browseSource).toContain(
       "/memories/${props.moment.memoryId}#${props.moment.targetAnchor}",
     );

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdtempSync } from "node:fs";
+import { accessSync, mkdtempSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +15,14 @@ afterEach(async () => {
 });
 
 describe("loadReaderMemory", () => {
+  it("loads reader relation data through the repository boundary", () => {
+    const source = readFileSync("src/server/reader/page-data.ts", "utf8");
+
+    expect(source).toContain("findReaderAggregateById");
+    expect(source).not.toContain("connection.db.query");
+    expect(source).not.toContain("drizzle-orm");
+  });
+
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,

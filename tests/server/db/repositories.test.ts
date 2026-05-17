@@ -247,6 +247,120 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
+  it("rolls back taxonomy creation when create-and-attach fails", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/taxonomy-rollback",
+            title: "Taxonomy rollback",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          connection.sqlite.prepare(\`
+            create trigger fail_memory_tags_insert
+            before insert on memory_tags
+            begin
+              select raise(abort, 'memory_tags blocked');
+            end
+          \`).run();
+          let tagError;
+          try {
+            await connection.repositories.taxonomy.createAndAttachTagToMemory({
+              id: "tag-rolled-back",
+              memoryId,
+              name: "rolled back tag",
+              now,
+            });
+          } catch (error) {
+            tagError = error instanceof Error ? error.message : String(error);
+          } finally {
+            connection.sqlite.prepare("drop trigger fail_memory_tags_insert").run();
+          }
+
+          connection.sqlite.prepare(\`
+            create trigger fail_memory_categories_insert
+            before insert on memory_categories
+            begin
+              select raise(abort, 'memory_categories blocked');
+            end
+          \`).run();
+          let categoryError;
+          try {
+            await connection.repositories.taxonomy.createAndAttachCategoryToMemory({
+              id: "category-rolled-back",
+              memoryId,
+              name: "Rolled back category",
+              now,
+            });
+          } catch (error) {
+            categoryError = error instanceof Error ? error.message : String(error);
+          } finally {
+            connection.sqlite.prepare("drop trigger fail_memory_categories_insert").run();
+          }
+
+          process.stdout.write(JSON.stringify({
+            tagError,
+            tagCount: connection.sqlite
+              .prepare("select count(*) as count from tags where name = ?")
+              .get("rolled back tag"),
+            categoryError,
+            categoryCount: connection.sqlite
+              .prepare("select count(*) as count from categories where name = ?")
+              .get("Rolled back category"),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      tagError: "memory_tags blocked",
+      tagCount: { count: 0 },
+      categoryError: "memory_categories blocked",
+      categoryCount: { count: 0 },
+    });
+  });
+
   it("creates, lists, and deletes Moments idempotently", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(
