@@ -1,7 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
+import { transformAsync, type PluginItem } from "@babel/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { POST as attachCategory } from "../../../src/routes/api/memories/categories";
@@ -18,9 +20,11 @@ import {
 } from "./api-test-helpers";
 
 const originalEnv = { ...process.env };
+const repositoryRoot = process.cwd();
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  process.chdir(repositoryRoot);
   process.env = { ...originalEnv };
   await Promise.all(
     tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
@@ -156,6 +160,29 @@ describe("taxonomy API routes", () => {
     expect(missingMemory.status).toBe(404);
     expect(await missingMemory.json()).toEqual({ error: "memory was not found" });
   });
+
+  it("keeps tag creation POST route helpers available after Vinxi pick transform", async () => {
+    const source = await readFile(
+      join(repositoryRoot, "src/routes/api/tags.ts"),
+      "utf8",
+    );
+    const treeShakePlugin = await importVinxiTreeShakePlugin();
+    const transformed = await transformAsync(source, {
+      plugins: [[treeShakePlugin, { pick: ["POST"] }]],
+      parserOpts: {
+        plugins: ["typescript"],
+      },
+      filename: "tags.ts?pick=POST",
+      ast: false,
+      configFile: false,
+      babelrc: false,
+    });
+
+    expect(transformed?.code).toContain(
+      "parseNamePayloadInternal(event.request)",
+    );
+    expect(transformed?.code).toContain("async function parseNamePayloadInternal");
+  });
 });
 
 function jsonRequest(path: string, body: unknown) {
@@ -171,4 +198,14 @@ async function makeRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "trauma-api-taxonomy-"));
   tempDirs.push(root);
   return root;
+}
+
+async function importVinxiTreeShakePlugin(): Promise<PluginItem> {
+  const module = await import(
+    pathToFileURL(
+      join(repositoryRoot, "node_modules/vinxi/lib/plugins/tree-shake.babel.js"),
+    ).href
+  );
+
+  return module.default as PluginItem;
 }

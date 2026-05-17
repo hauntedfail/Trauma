@@ -5,7 +5,7 @@ import { initializeDatabase } from "~/server/db";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseNamePayload(event.request);
+  const payload = await parseNamePayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: 400 });
   }
@@ -39,7 +39,9 @@ export async function POST(event: APIEvent): Promise<Response> {
 
 type NamePayload = { ok: true; name: string } | { ok: false; error: string };
 
-export async function parseNamePayload(request: Request): Promise<NamePayload> {
+export const parseNamePayload = parseNamePayloadInternal;
+
+async function parseNamePayloadInternal(request: Request): Promise<NamePayload> {
   let payload: unknown;
   try {
     payload = await request.json();
@@ -67,7 +69,7 @@ export async function parseNamePayload(request: Request): Promise<NamePayload> {
   return { ok: true, name };
 }
 
-export function json(body: unknown, init: ResponseInit): Response {
+function json(body: unknown, init: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
     ...init,
     headers: {
@@ -77,7 +79,7 @@ export function json(body: unknown, init: ResponseInit): Response {
   });
 }
 
-export function hasOnlyKeys(
+function hasOnlyKeys(
   value: Record<string, unknown>,
   expectedKeys: readonly string[],
 ): boolean {
@@ -88,11 +90,11 @@ export function hasOnlyKeys(
   );
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function formatConfigError(error: unknown): string {
+function formatConfigError(error: unknown): string {
   if (error instanceof TraumaConfigError) {
     console.error(error.message);
   }
