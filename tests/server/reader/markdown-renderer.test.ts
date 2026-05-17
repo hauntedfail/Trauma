@@ -190,4 +190,21 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("http://cdn.example.test");
     expect(result.html).not.toContain("127.0.0.1");
   });
+
+  it("resolves relative reader image URLs against the memory source URL", () => {
+    const result = renderMemoryMarkdown([
+      "![diagram](/assets/diagram.png)",
+      '<picture><source srcset="/assets/diagram-480.webp 480w, https://localhost/bad.webp 960w" type="image/webp"><img src="/assets/diagram.jpg" srcset="/assets/diagram-480.jpg 480w" alt="Diagram"></picture>',
+    ].join("\n"), { sourceUrl: "https://example.com/articles/source" });
+
+    expect(result.html).toContain('src="https://example.com/assets/diagram.png"');
+    expect(result.html).toContain(
+      'srcset="https://example.com/assets/diagram-480.webp 480w"',
+    );
+    expect(result.html).toContain('src="https://example.com/assets/diagram.jpg"');
+    expect(result.html).toContain(
+      'srcset="https://example.com/assets/diagram-480.jpg 480w"',
+    );
+    expect(result.html).not.toContain("https://localhost");
+  });
 });

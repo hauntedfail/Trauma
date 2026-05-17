@@ -264,14 +264,13 @@ async function getRetryContentPaths(
 ): Promise<string[]> {
   const paths = [backup.contentPath];
   const flashbackExportPath = getFlashbackMetadataExportPath(backup.id);
-  try {
-    await access(resolve(config.storePath, flashbackExportPath));
-    paths.push(flashbackExportPath);
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "ENOENT") {
-      throw error;
-    }
+  const absoluteFlashbackExportPath = resolve(config.storePath, flashbackExportPath);
+  if (!isInside(config.storePath, absoluteFlashbackExportPath)) {
+    throw new GitBackupError(
+      `git backup content path must stay under storePath: ${flashbackExportPath}`,
+    );
   }
+  paths.push(flashbackExportPath);
   return paths;
 }
 

@@ -206,6 +206,117 @@ describe("delete memory service", () => {
     ]);
   });
 
+  it("restores the local git backup state when deletion push fails", async () => {
+    const root = await makeRoot();
+    const loadedConfig = loadRouteConfig(await writeRouteConfig(root));
+    const missingRemotePath = join(root, "missing.git");
+    const localCommitConfig = {
+      ...loadedConfig,
+      backup: {
+        git: {
+          ...loadedConfig.backup.git,
+          enabled: true,
+          push: false,
+          commitMessageTemplate: "backup {action} {memoryId}",
+        },
+      },
+    };
+    const config = {
+      ...localCommitConfig,
+      backup: {
+        git: {
+          ...localCommitConfig.backup.git,
+          push: true,
+        },
+      },
+    };
+    await initializeGitRepository(config.projectPath);
+    git(config.projectPath, ["remote", "add", "origin", missingRemotePath]);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: missingRemotePath,
+        gitBranch: config.backup.git.branch,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+    } finally {
+      stampConnection.close();
+    }
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    await writeFlashbackExport(config.storePath, routeMemoryId);
+    await runGitBackupJob({
+      config: localCommitConfig,
+      job: {
+        memoryId: routeMemoryId,
+        contentPaths: [
+          `memories/${routeMemoryId}/CONTENT.md`,
+          `memories/${routeMemoryId}/FLASHBACKS.json`,
+        ],
+        reason: "memory_creation",
+      },
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      const result = await deleteMemory({
+        config,
+        db: connection.db,
+        memoryId: routeMemoryId,
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.status === "failed" ? result.error : "").toContain(
+        "Failed to back up memory deletion before deleting the memory row",
+      );
+      expect(result.status === "failed" ? result.error : "").toContain(
+        "Failed to restore git backup state after database deletion failed",
+      );
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id = ?")
+          .get(routeMemoryId),
+      ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
+
+    await expect(
+      readFile(join(config.storePath, "memories", routeMemoryId, "CONTENT.md"), "utf8"),
+    ).resolves.toContain("# Route Memory");
+    expect(git(config.projectPath, ["log", "--pretty=%s", "-3"]).trim().split(/\r?\n/))
+      .toEqual([
+        `backup created memory ${routeMemoryId}`,
+        `backup deleted memory ${routeMemoryId}`,
+        `backup created memory ${routeMemoryId}`,
+      ]);
+    expect(
+      git(config.projectPath, ["show", "--name-status", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([
+      `A\tstorage/memories/${routeMemoryId}/CONTENT.md`,
+      `A\tstorage/memories/${routeMemoryId}/FLASHBACKS.json`,
+    ]);
+  });
+
   it("blocks deletion before moving content when the backup failsafe is active", async () => {
     const root = await makeRoot();
     const loadedConfig = loadRouteConfig(await writeRouteConfig(root));

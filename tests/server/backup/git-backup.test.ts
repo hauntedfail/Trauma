@@ -545,7 +545,7 @@ describe("git memory backup queue", () => {
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
-        import { mkdirSync, writeFileSync } from "node:fs";
+        import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -582,6 +582,7 @@ describe("git memory backup queue", () => {
             JSON.stringify({ version: 1, memoryId: id, flashbacks: [] }, null, 2) + "\\n",
           );
         }
+        unlinkSync(join(config.storePath, "memories", ids.failed, "FLASHBACKS.json"));
         execFileSync(
           "git",
           [

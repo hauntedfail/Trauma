@@ -8,6 +8,7 @@ import {
   isSafeReaderImageUrl,
   isSafeReaderIframeUrl,
   READER_IFRAME_SANDBOX,
+  resolveSafeImageUrl,
   resolveTrustedDisplayUrl,
 } from "../media-policy";
 import { renderMomentIconSvgMarkup } from "../../components/icons/moment-icon-markup";
@@ -220,15 +221,16 @@ function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) 
       (frame.tag === "iframe" &&
         (frame.attribs.srcdoc !== undefined ||
           !isSafeReaderIframeUrl(frame.attribs.src))) ||
-      (frame.tag === "img" && !isSafeReaderImageUrl(frame.attribs.src)) ||
+      (frame.tag === "img" &&
+        resolveReaderImageUrl(frame.attribs.src, options.sourceUrl) === null) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: createAnchorSanitizer(options.sourceUrl),
       iframe: sanitizeIframe,
-      img: sanitizeImage,
+      img: createImageSanitizer(options.sourceUrl),
       input: sanitizeTaskCheckbox,
       mark: sanitizeFlashbackMark,
-      source: sanitizePictureSource,
+      source: createPictureSourceSanitizer(options.sourceUrl),
     },
   });
 }
@@ -402,56 +404,71 @@ function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
   };
 }
 
-function sanitizeImage(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const { decoding: _decoding, sizes, srcset, ...safeAttribs } = attribs;
-  const safeSourceSet = sanitizeSourceSet(srcset);
-  return {
-    tagName: "img",
-    attribs: {
-      ...safeAttribs,
-      ...(safeSourceSet !== undefined
-        ? {
-            srcset: safeSourceSet,
-            ...(sizes !== undefined ? { sizes } : {}),
-          }
-        : {}),
-      decoding: "async",
-      loading: attribs.loading ?? "lazy",
-    },
-  };
-}
-
-function sanitizePictureSource(
-  _tagName: string,
-  attribs: sanitizeHtml.Attributes,
-): sanitizeHtml.Tag {
-  const safeSourceSet = sanitizeSourceSet(attribs.srcset);
-  if (safeSourceSet === undefined) {
+function createImageSanitizer(sourceUrl: string | undefined) {
+  return (_tagName: string, attribs: sanitizeHtml.Attributes) => {
+    const {
+      decoding: _decoding,
+      sizes,
+      src,
+      srcset,
+      ...safeAttribs
+    } = attribs;
+    const safeSource = resolveReaderImageUrl(src, sourceUrl);
+    const safeSourceSet = sanitizeSourceSet(srcset, sourceUrl);
     return {
-      tagName: "span",
-      attribs: {},
+      tagName: "img",
+      attribs: {
+        ...safeAttribs,
+        ...(safeSource !== null ? { src: safeSource } : {}),
+        ...(safeSourceSet !== undefined
+          ? {
+              srcset: safeSourceSet,
+              ...(sizes !== undefined ? { sizes } : {}),
+            }
+          : {}),
+        decoding: "async",
+        loading: attribs.loading ?? "lazy",
+      },
     };
-  }
-
-  return {
-    tagName: "source",
-    attribs: {
-      ...(attribs.type !== undefined ? { type: attribs.type } : {}),
-      ...(attribs.media !== undefined ? { media: attribs.media } : {}),
-      srcset: safeSourceSet,
-      ...(attribs.sizes !== undefined ? { sizes: attribs.sizes } : {}),
-    },
   };
 }
 
-function sanitizeSourceSet(value: string | undefined): string | undefined {
+function createPictureSourceSanitizer(sourceUrl: string | undefined) {
+  return (
+    _tagName: string,
+    attribs: sanitizeHtml.Attributes,
+  ): sanitizeHtml.Tag => {
+    const safeSourceSet = sanitizeSourceSet(attribs.srcset, sourceUrl);
+    if (safeSourceSet === undefined) {
+      return {
+        tagName: "span",
+        attribs: {},
+      };
+    }
+
+    return {
+      tagName: "source",
+      attribs: {
+        ...(attribs.type !== undefined ? { type: attribs.type } : {}),
+        ...(attribs.media !== undefined ? { media: attribs.media } : {}),
+        srcset: safeSourceSet,
+        ...(attribs.sizes !== undefined ? { sizes: attribs.sizes } : {}),
+      },
+    };
+  };
+}
+
+function sanitizeSourceSet(
+  value: string | undefined,
+  sourceUrl: string | undefined,
+): string | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   const candidates = value
     .split(",")
-    .map((candidate) => sanitizeSourceSetCandidate(candidate))
+    .map((candidate) => sanitizeSourceSetCandidate(candidate, sourceUrl))
     .filter((candidate): candidate is string => candidate !== undefined);
 
   return candidates.length > 0 ? candidates.join(", ") : undefined;
@@ -461,7 +478,10 @@ function sanitizeDimension(value: string | undefined): string | undefined {
   return value !== undefined && /^\d{1,5}$/.test(value) ? value : undefined;
 }
 
-function sanitizeSourceSetCandidate(value: string): string | undefined {
+function sanitizeSourceSetCandidate(
+  value: string,
+  sourceUrl: string | undefined,
+): string | undefined {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const [rawUrl, descriptor] = parts;
   if (rawUrl === undefined || parts.length > 2) {
@@ -469,21 +489,43 @@ function sanitizeSourceSetCandidate(value: string): string | undefined {
   }
 
   try {
-    if (!isSafeReaderImageUrl(rawUrl)) {
+    const safeUrl = resolveReaderImageUrl(rawUrl, sourceUrl);
+    if (safeUrl === null) {
       return undefined;
     }
 
-    const url = new URL(rawUrl);
-
     if (descriptor === undefined) {
-      return url.toString();
+      return safeUrl;
     }
 
     return isSafeSourceSetDescriptor(descriptor)
-      ? `${url.toString()} ${descriptor}`
+      ? `${safeUrl} ${descriptor}`
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function resolveReaderImageUrl(
+  value: string | undefined,
+  sourceUrl: string | undefined,
+): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (sourceUrl !== undefined) {
+    return resolveSafeImageUrl(sourceUrl, value);
+  }
+
+  if (!isSafeReaderImageUrl(value)) {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
   }
 }
 

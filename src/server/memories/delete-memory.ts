@@ -118,11 +118,19 @@ export async function deleteMemory(input: {
       const restoreError = staged
         ? await restoreStagedContent({ fileSystem, paths })
         : undefined;
+      const backupRestoreError =
+        staged && restoreError === undefined
+          ? await restoreDeletionBackupState({
+              config: input.config,
+              deletionBackupJob,
+            })
+          : undefined;
       return {
         status: "failed",
         error: formatFailureMessage([
           `Failed to back up memory deletion before deleting the memory row: ${formatUnknownError(error)}`,
           restoreError,
+          backupRestoreError,
         ]),
       };
     }
