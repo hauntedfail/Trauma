@@ -1,5 +1,7 @@
 import { Show, type JSX } from "solid-js";
 
+import { FlashbackContextText, FlashbackMarkText } from "./FlashbackText";
+
 interface FlashbackExcerptProps {
   class?: string;
   href?: string;
@@ -10,20 +12,13 @@ interface FlashbackExcerptProps {
 
 const quoteClass =
   "m-0 rounded-2xl border-l-4 border-trauma-quote-bar bg-trauma-quote-bg px-4 py-3 leading-relaxed text-trauma-text-primary";
-const contextClass = "text-trauma-text-muted";
-const markClass =
-  "rounded-md bg-transparent px-1 py-px font-bold text-trauma-text-primary";
 
 export function FlashbackExcerpt(props: FlashbackExcerptProps) {
   const content = (
     <blockquote class={`${quoteClass} ${props.class ?? ""}`}>
-      <Show when={props.prefix.length > 0}>
-        <span class={contextClass}>{props.prefix}</span>
-      </Show>
-      <mark class={markClass}>{props.text}</mark>
-      <Show when={props.suffix.length > 0}>
-        <span class={contextClass}>{props.suffix}</span>
-      </Show>
+      <FlashbackContextText side="before" text={props.prefix} />
+      <FlashbackMarkText text={props.text} />
+      <FlashbackContextText side="after" text={props.suffix} />
     </blockquote>
   ) satisfies JSX.Element;
 

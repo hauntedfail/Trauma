@@ -685,6 +685,42 @@
     );
   }
 
+  .trauma-flashback-context {
+    color: var(--text-muted);
+    filter: blur(0.25px);
+    text-shadow: 0 0 0.5px color-mix(in srgb, var(--text-muted) 58%, transparent);
+  }
+
+  .trauma-flashback-context-before {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      rgb(0 0 0) 18%,
+      rgb(0 0 0) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      rgb(0 0 0) 18%,
+      rgb(0 0 0) 100%
+    );
+  }
+
+  .trauma-flashback-context-after {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0) 0%,
+      rgb(0 0 0) 82%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0) 0%,
+      rgb(0 0 0) 82%,
+      transparent 100%
+    );
+  }
+
   :root[data-theme^="paper"] .trauma-paper-wax-seal {
     position: relative;
     isolation: isolate;

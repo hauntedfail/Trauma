@@ -198,9 +198,10 @@ this workflow before coding the route.
     or right pane markup:
     - prefix and suffix context render around the selected Flashback text
     - selected Flashback text uses normal text contrast
-    - prefix/suffix context uses lower-contrast text tokens
-    - right pane Flashback list exposes top/bottom fade hooks for scrollable
-      content
+    - prefix/suffix context uses lower-contrast text tokens plus the shared
+      Flashback context blur/mask treatment
+    - right pane Flashback lists do not expose component-level TOC fade hooks;
+      the blur belongs to each item context span
     - `/flashbacks` card renders source memory title at the bottom-left without
       a `Source memory` label
     - `/flashbacks` card renders a meatballs menu with `Delete flashback`
@@ -255,9 +256,10 @@ mise exec -- bun run typecheck
 - Memory page taxonomy chips reuse the same shared taxonomy chip design as
   memories browse rows.
 - Flashback excerpts on `/flashbacks` and in the right pane render selected text
-  at normal contrast with lower-contrast prefix/suffix context around it.
-- Flashback right pane lists use subtle scroll-edge blur gradients like the TOC
-  fade treatment when scrollable.
+  at normal contrast with lower-contrast, subtly blurred prefix/suffix context
+  around it.
+- Flashback right pane lists use per-item context blur/mask styling rather than
+  component-level scroll-edge overlays.
 - `/flashbacks` cards render source memory title as small bottom-left metadata
   and no longer render a `Source memory` label.
 - `/flashbacks` cards provide a meatballs menu with `Delete flashback` using

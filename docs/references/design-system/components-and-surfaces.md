@@ -169,7 +169,9 @@ Contract:
 - Left border uses `border-trauma-quote-bar`.
 - Background uses `bg-trauma-quote-bg`.
 - Prefix and suffix context render around the selected Flashback text.
-- Context uses a lower-contrast text token.
+- Context uses lower-contrast text plus the shared Flashback context blur/mask
+  treatment. The blur belongs to the prefix/suffix text spans, not to the whole
+  Flashback card, list, or right-rail island.
 - The selected Flashback string uses normal primary readable contrast and a
   semantic `mark` element without becoming a separate highlighter badge.
 - Optional link wraps the whole excerpt.
@@ -196,14 +198,18 @@ When an island contains an unbounded list, the list body must be a bounded
 scroll region. This is required for Flashback shortcut lists and reader TOC. Do
 not let those islands grow vertically for every item.
 
-Reader TOC and bounded Flashback shortcut lists should make overflow
-discoverable. When the bounded list can still scroll in a direction, show a
-low-contrast blur fade on that edge only. The fade should make the edge entries
-look slightly hazy, not like a heavy shadow or spotlight. Use neutral black in
-the fade recipe, not the primary/accent colour. The top fade must start at the
-scroll body edge so text cannot appear unblurred between the heading and the
-fade. Use CSS gradients and masks to soften the fade boundary. Do not render a
-fade for a direction that is not currently scrollable.
+Reader TOC should make overflow discoverable. When the bounded TOC can still
+scroll in a direction, show a low-contrast blur fade on that edge only. The fade
+should make the edge entries look slightly hazy, not like a heavy shadow or
+spotlight. Use neutral black in the fade recipe, not the primary/accent colour.
+The top fade must start at the scroll body edge so text cannot appear unblurred
+between the heading and the fade. Use CSS gradients and masks to soften the fade
+boundary. Do not render a fade for a direction that is not currently scrollable.
+
+Flashback shortcut lists do not use TOC scroll-edge overlays. Their focal
+treatment is per Flashback item: selected text remains normal and readable,
+while the stored prefix/suffix context uses the shared Flashback context
+blur/mask classes.
 
 ## Add Memory Composer
 

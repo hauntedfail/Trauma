@@ -68,7 +68,8 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("grid w-full gap-1 rounded-2xl px-3 py-2 text-left");
     expect(html).toContain("hover:bg-trauma-bg-tint");
     expect(html).not.toContain("<blockquote");
-    expect(html).toContain("text-trauma-text-muted");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
     expect(html).toContain("font-bold text-trauma-text-primary");
   });
 
