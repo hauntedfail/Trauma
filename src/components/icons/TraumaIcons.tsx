@@ -241,6 +241,37 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function EyeOpenIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+      <circle {...stroke} cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function EyeClosedIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M3 5l18 14" />
+      <path {...stroke} d="M4.5 9.5C6.2 7.5 8.6 6 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-2.2 2.8" />
+      <path {...stroke} d="M14.1 14.1A3 3 0 0 1 9.9 9.9" />
+      <path {...stroke} d="M6.1 12.2A17 17 0 0 1 2.5 12s3.5 6 9.5 6c1.5 0 2.8-.4 4-.9" />
+    </svg>
+  );
+}
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M4 7h16" />
+      <path {...stroke} d="M9 7V4h6v3" />
+      <path {...stroke} d="M7 7l1 14h8l1-14" />
+      <path {...stroke} d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 export function SunIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>

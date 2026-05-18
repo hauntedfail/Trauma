@@ -32,6 +32,7 @@ const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const rightRailContextSource = existsSync(rightRailContextPath)
   ? readFileSync(rightRailContextPath, "utf8")
   : "";
+const popupSource = readFileSync("src/components/ui/Popup.tsx", "utf8");
 
 describe("refined app shell contract", () => {
   it("uses the refined brand mark and icon system", () => {
@@ -133,7 +134,8 @@ describe("refined app shell contract", () => {
     expect(rightRailContextSource).toContain("createContext");
     expect(appShellSource).toContain("RightRailContentContext.Provider");
     expect(appShellSource).toContain("rightRailContent()");
-    expect(appShellSource).toContain("showFlashbacks={rightRailContent() === undefined}");
+    expect(appShellSource).toContain("rightRailContent() === undefined");
+    expect(appShellSource).toContain('!activePath().startsWith("/flashbacks")');
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");
@@ -185,11 +187,14 @@ describe("refined app shell contract", () => {
   it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
     expect(appShellSource).toContain("ThemeNavButton");
     expect(appShellSource).toContain("TraumaNavIcons.theme");
-    expect(appShellSource).toContain('aria-haspopup="dialog"');
-    expect(appShellSource).toContain("aria-expanded={isThemeOpen()}");
-    expect(appShellSource).toContain('role="dialog"');
-    expect(appShellSource).toContain('aria-label="Theme settings"');
-    expect(appShellSource).toContain("animate-trauma-pop-bounce");
+    expect(appShellSource).toContain("<Popup");
+    expect(appShellSource).toContain('label="Theme settings"');
+    expect(appShellSource).toContain('mode="dialog"');
+    expect(appShellSource).toContain("trigger={({ open, triggerProps })");
+    expect(appShellSource).toContain("aria-pressed={open}");
+    expect(popupSource).toContain('aria-haspopup": mode()');
+    expect(popupSource).toContain("role={mode()}");
+    expect(popupSource).toContain("animate-trauma-pop-bounce");
     expect(appShellSource).not.toContain(
       '<section class="mt-auto grid gap-1.5',
     );
@@ -199,7 +204,8 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain(
       '"trauma-shell-left-rail sticky top-0 z-40 h-[100svh] overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
     );
-    expect(appShellSource).toContain("z-50 mt-1");
+    expect(popupSource).toContain("z-[70]");
+    expect(popupSource).toContain("top-full mt-1");
     expect(appShellSource).not.toContain(
       '"sticky top-0 overflow-y-auto bg-trauma-bg-base max-[720px]:hidden"',
     );
@@ -253,14 +259,16 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("AddMemoryComposerButton");
     expect(appShellSource).toContain('popoverId="rail-add-memory-composer"');
     expect(appShellSource).toContain('popoverId="phone-add-memory-composer"');
-    expect(appShellSource).toContain('aria-controls={isComposerOpen() ? props.popoverId : undefined}');
-    expect(appShellSource).toContain("aria-expanded={isComposerOpen()}");
-    expect(appShellSource).toContain('aria-haspopup="dialog"');
-    expect(appShellSource).toContain('role="dialog"');
-    expect(appShellSource).toContain('aria-label="Add memory"');
+    expect(appShellSource).toContain('label="Add memory"');
+    expect(appShellSource).toContain('mode="dialog"');
+    expect(appShellSource).toContain("trigger={({");
+    expect(popupSource).toContain('"aria-controls": open() ? props.id : undefined');
+    expect(popupSource).toContain('"aria-expanded": open()');
+    expect(popupSource).toContain('"aria-haspopup": mode()');
+    expect(popupSource).toContain("role={mode()}");
     expect(appShellSource).not.toContain('<Drawer ariaLabel="Add memory"');
     expect(appShellSource).not.toContain("setIsComposerOpen(true)");
-    expect(appShellSource).toContain("aria-pressed={isComposerOpen()}");
+    expect(appShellSource).toContain("aria-pressed={open}");
     expect(appShellSource).toContain("<WaxSealButton");
     expect(appShellSource).toContain("<WaxSealLabel");
   });

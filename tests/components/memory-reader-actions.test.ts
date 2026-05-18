@@ -52,8 +52,10 @@ describe("memory reader actions", () => {
     const html = renderReader(readyResult);
 
     expect(html).toContain("Memory actions for Reader Memory");
-    expect(html).toContain("Read");
-    expect(html).toContain("Mark unread");
+    expect(html).toContain('aria-label="Mark memory unread"');
+    expect(html).toContain('data-read-status-icon="read"');
+    expect(html).not.toContain(">Read<");
+    expect(html).not.toContain("Mark unread");
     expect(html).toContain("Reader");
     expect(html).toContain("solid");
     expect(html).toContain('data-flashback-id="flashback-1"');

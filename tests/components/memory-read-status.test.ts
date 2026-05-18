@@ -14,7 +14,7 @@ const source = readFileSync(
 );
 
 describe("memory read status control", () => {
-  it("renders read state and inverse action text", () => {
+  it("renders read state and inverse action text in label mode", () => {
     const readHtml = renderToString(() =>
       createComponent(MemoryReadStatusControl, {
         memoryId: "memory-1",
@@ -38,6 +38,34 @@ describe("memory read status control", () => {
     expect(unreadHtml).toContain('aria-pressed="false"');
     expect(unreadHtml).toContain('data-read-status-icon="unread"');
     expect(unreadHtml).not.toContain('d="m5 12 4 4L19 6"');
+  });
+
+  it("renders icon-only action mode with accessible names", () => {
+    const readHtml = renderToString(() =>
+      createComponent(MemoryReadStatusControl, {
+        memoryId: "memory-1",
+        initialRead: true,
+        variant: "icon",
+      }),
+    );
+    const unreadHtml = renderToString(() =>
+      createComponent(MemoryReadStatusControl, {
+        memoryId: "memory-1",
+        initialRead: false,
+        variant: "icon",
+      }),
+    );
+
+    expect(readHtml).toContain('aria-label="Mark memory unread"');
+    expect(readHtml).toContain('data-read-status-icon="read"');
+    expect(readHtml).toContain("M3 5l18 14");
+    expect(readHtml).not.toContain(">Read<");
+    expect(readHtml).not.toContain("Mark unread");
+    expect(unreadHtml).toContain('aria-label="Mark memory read"');
+    expect(unreadHtml).toContain('data-read-status-icon="unread"');
+    expect(unreadHtml).toContain("M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z");
+    expect(unreadHtml).not.toContain(">Unread<");
+    expect(unreadHtml).not.toContain("Mark read");
   });
 
   it("posts read status changes to the API", async () => {

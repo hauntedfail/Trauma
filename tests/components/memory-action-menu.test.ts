@@ -19,6 +19,8 @@ describe("memory action menu", () => {
     expect(html).toContain('aria-label="Memory actions for Memory One"');
     expect(html).toContain("Delete memory");
     expect(html).toContain("Add category");
+    expect(html).toContain("text-trauma-danger");
+    expect(html).toContain("M4 7h16");
   });
 
   it("renders a shared trigger with visible hover affordance", () => {

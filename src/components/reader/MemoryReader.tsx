@@ -58,6 +58,7 @@ import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
 
 interface MemoryReaderProps {
   flashbackRows?: FlashbackBrowseRow[];
@@ -147,6 +148,17 @@ function ReadyMemoryReader(props: {
   const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+  const introTitleEntry = createMemo(() =>
+    props.result.rendered.toc.find((entry) =>
+      entry.level === 1 && entry.text === props.result.memory.title
+    ),
+  );
+  const readerBodyHtml = createMemo(() =>
+    stripLeadingReaderTitleHeading({
+      html: props.result.rendered.html,
+      titleEntry: introTitleEntry(),
+    }),
+  );
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
   ]);
@@ -431,56 +443,70 @@ function ReadyMemoryReader(props: {
 
   return (
     <article class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)_auto] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
+      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
         <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
           <ChevronLeftIcon />
         </a>
         <div class="min-w-0">
-          <p class="mb-2 text-[20px] font-bold text-trauma-text-primary">Memory</p>
-          <Show
-            when={sourceHref()}
-            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
-          >
-            {(href) => (
-              <a
-                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
-                href={href()}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <OpenIcon />
-                {sourceUrl()}
-              </a>
-            )}
-          </Show>
-          <ReaderTaxonomyChips
-            categories={categories()}
-            tags={props.result.memory.tags}
-          />
-        </div>
-        <div class="flex items-start gap-2">
-          <MemoryReadStatusControl
-            compact
-            initialRead={props.result.memory.read}
-            memoryId={props.result.memory.id}
-            onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
-          />
-          <MemoryActionMenu
-            memoryId={props.result.memory.id}
-            memoryTitle={props.result.memory.title}
-            onAttachCategoryByName={attachCategory}
-            onDelete={deleteMemory}
-          />
+          <p class="mb-0 text-[20px] font-bold text-trauma-text-primary">Memory</p>
         </div>
       </header>
       <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
         <div class="trauma-fluid-page-shell">
+          <header class="mb-7 grid gap-4">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+              <Show
+                when={sourceHref()}
+                fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
+              >
+                {(href) => (
+                  <a
+                    class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
+                    href={href()}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <OpenIcon />
+                    {sourceUrl()}
+                  </a>
+                )}
+              </Show>
+              <div class="flex items-start gap-2">
+                <MemoryReadStatusControl
+                  initialRead={props.result.memory.read}
+                  memoryId={props.result.memory.id}
+                  variant="icon"
+                  onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
+                />
+                <MemoryActionMenu
+                  memoryId={props.result.memory.id}
+                  memoryTitle={props.result.memory.title}
+                  onAttachCategoryByName={attachCategory}
+                  onDelete={deleteMemory}
+                />
+              </div>
+            </div>
+            <h1
+              class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary"
+              data-reader-section-anchor={introTitleEntry()?.id}
+              data-reader-section-level={introTitleEntry()?.level}
+              data-reader-section-path={introTitleEntry()?.path}
+              data-reader-section-title={introTitleEntry()?.text}
+              id={introTitleEntry()?.id}
+            >
+              {props.result.memory.title}
+            </h1>
+            <ReaderTaxonomyChips
+              categories={categories()}
+              tags={props.result.memory.tags}
+            />
+          </header>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
-            innerHTML={props.result.rendered.html}
+            innerHTML={readerBodyHtml()}
             onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
@@ -565,21 +591,19 @@ function ReaderTaxonomyChips(props: {
 }) {
   return (
     <Show when={props.categories.length + props.tags.length > 0}>
-      <div class="mt-4 flex flex-wrap gap-2 text-xs font-bold">
-        <For each={props.categories}>
-          {(category) => (
-            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
-              {category.name}
-            </span>
-          )}
-        </For>
-        <For each={props.tags}>
-          {(tag) => (
-            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
-              #{tag.name}
-            </span>
-          )}
-        </For>
+      <div class="mt-4 trauma-local-wrap">
+        <TaxonomyList
+          class="contents"
+          items={props.categories}
+          kind="category"
+          mode="chips"
+        />
+        <TaxonomyList
+          class="contents"
+          items={props.tags}
+          kind="tag"
+          mode="chips"
+        />
       </div>
     </Show>
   );
@@ -642,6 +666,28 @@ function mergeReaderMomentItem(
   }
 
   return [next, ...current];
+}
+
+function stripLeadingReaderTitleHeading(input: {
+  html: string;
+  titleEntry: ReaderTocEntry | undefined;
+}): string {
+  const entry = input.titleEntry;
+  if (entry === undefined) {
+    return input.html;
+  }
+
+  const anchorPattern = escapeRegExp(entry.id);
+  const headingPattern = new RegExp(
+    `^\\s*<h1\\b(?=[^>]*data-reader-section-anchor="${anchorPattern}")[\\s\\S]*?<\\/h1>\\s*`,
+    "i",
+  );
+
+  return input.html.replace(headingPattern, "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
@@ -758,6 +804,7 @@ export function ReaderFlashbackTabs(props: {
               id: flashback.id,
               href: `/memories/${flashback.memoryId}#${flashback.id}`,
               prefix: flashback.prefix,
+              suffix: flashback.suffix,
               text: flashback.text,
             }))}
             isLoading={isLoadingAll()}
@@ -770,6 +817,7 @@ export function ReaderFlashbackTabs(props: {
             id: flashback.id,
             href: `#${flashback.id}`,
             prefix: flashback.prefix,
+            suffix: flashback.suffix,
             text: flashback.text,
           }))}
           isLoading={false}

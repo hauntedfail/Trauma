@@ -5,7 +5,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
   onMount,
   type JSX,
 } from "solid-js";
@@ -52,6 +51,8 @@ import {
 import { RightRailContentContext } from "./right-rail-context";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { Popup } from "../ui/Popup";
 
 interface RouteNavItem {
   href: string;
@@ -91,11 +92,9 @@ const disabledNavItem =
   "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-trauma-text-secondary";
 const railPopoverRoot = "relative w-max max-w-full max-[1040px]:mx-auto";
 const railPopoverPanel =
-  "absolute left-0 top-full z-50 mt-1 w-[252px] max-w-[calc(100vw-2rem)] animate-trauma-pop-bounce max-[1040px]:left-full max-[1040px]:top-0 max-[1040px]:ml-2 max-[1040px]:mt-0";
+  "w-[252px] max-w-[calc(100vw-2rem)] max-[1040px]:left-full max-[1040px]:top-0 max-[1040px]:ml-2 max-[1040px]:mt-0";
 const phoneTabButton =
   "trauma-capability-touch-target grid min-h-[52px] min-w-[4.75rem] shrink-0 place-items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-bold leading-tight text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-pressed:text-trauma-text-primary";
-const phonePopoverPanel =
-  "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-50 mx-auto w-[min(360px,calc(100vw-1.5rem))] animate-trauma-pop-bounce";
 const railAddMemoryButton =
   "min-[1041px]:inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-trauma-accent px-4 py-2.5 text-[17px] font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover max-[1040px]:hidden";
 const compactAddMemoryButton =
@@ -232,7 +231,10 @@ export function AppShell(props: AppShellProps) {
             onSelectCategory={(category) => toggleFilter("category", category.id)}
             onSelectFlashback={(flashback) => goToFlashback(flashback.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
-            showFlashbacks={rightRailContent() === undefined}
+            showFlashbacks={
+              rightRailContent() === undefined &&
+              !activePath().startsWith("/flashbacks")
+            }
             tags={tags()}
           />
         </div>
@@ -464,119 +466,80 @@ function AddMemoryComposerButton(props: {
   onCreated?: () => void;
   popoverId: string;
 }) {
-  let rootRef: HTMLDivElement | undefined;
-  const [isComposerOpen, setIsComposerOpen] = createSignal(false);
-
-  onMount(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        rootRef === undefined ||
-        !(target instanceof Node) ||
-        rootRef.contains(target)
-      ) {
-        return;
-      }
-
-      setIsComposerOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsComposerOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    });
-  });
-
-  const handleCreated = () => {
-    setIsComposerOpen(false);
-    props.onCreated?.();
-  };
   const isPhone = () => props.mode === "phone";
-  const toggleComposer = () => setIsComposerOpen((value) => !value);
 
   return (
-    <div
-      ref={rootRef}
+    <Popup
       class={
         isPhone()
           ? "relative min-w-[4.75rem] shrink-0"
           : "relative mx-1 my-3.5 w-[calc(100%-8px)] max-[1040px]:mx-auto max-[1040px]:my-3.5 max-[1040px]:w-[52px]"
       }
-    >
-      <Show
-        when={isPhone()}
-        fallback={
-          <>
-            <WaxSealButton
-              aria-controls={isComposerOpen() ? props.popoverId : undefined}
-              aria-expanded={isComposerOpen()}
-              aria-haspopup="dialog"
-              aria-pressed={isComposerOpen()}
-              class={railAddMemoryButton}
-              type="button"
-              variant="command"
-              onClick={toggleComposer}
-            >
-              <PlusIcon />
-              <WaxSealLabel>Add memory</WaxSealLabel>
-            </WaxSealButton>
+      id={props.popoverId}
+      label="Add memory"
+      mode="dialog"
+      panelClass={isPhone() ? "" : "w-[min(320px,calc(100vw-2rem))]"}
+      phonePanel={isPhone()}
+      placement="bottom-start"
+      trigger={({ open, triggerProps }) => (
+        <>
+          <Show
+            when={isPhone()}
+            fallback={
+              <>
+                <WaxSealButton
+                  {...triggerProps}
+                  aria-pressed={open}
+                  class={railAddMemoryButton}
+                  type="button"
+                  variant="command"
+                >
+                  <PlusIcon />
+                  <WaxSealLabel>Add memory</WaxSealLabel>
+                </WaxSealButton>
+                <button
+                  {...triggerProps}
+                  aria-pressed={open}
+                  class={compactAddMemoryButton}
+                  type="button"
+                >
+                  <PlusIcon size={28} />
+                  <span class="sr-only">Add memory</span>
+                </button>
+              </>
+            }
+          >
             <button
-              aria-controls={isComposerOpen() ? props.popoverId : undefined}
-              aria-expanded={isComposerOpen()}
-              aria-haspopup="dialog"
-              aria-pressed={isComposerOpen()}
-              class={compactAddMemoryButton}
+              {...triggerProps}
+              aria-pressed={open}
+              class={`${phoneTabButton} w-full`}
               type="button"
-              onClick={toggleComposer}
             >
-              <PlusIcon size={28} />
-              <span class="sr-only">Add memory</span>
+              <span class={phoneIconSlot}>
+                <PlusIcon size={28} />
+              </span>
+              <span class={phoneTabLabel} data-phone-tab-label>
+                Add memory
+              </span>
             </button>
-          </>
-        }
-      >
-        <button
-          aria-controls={isComposerOpen() ? props.popoverId : undefined}
-          aria-expanded={isComposerOpen()}
-          aria-haspopup="dialog"
-          aria-pressed={isComposerOpen()}
-          class={`${phoneTabButton} w-full`}
-          type="button"
-          onClick={toggleComposer}
-        >
-          <span class={phoneIconSlot}>
-            <PlusIcon size={28} />
-          </span>
-          <span class={phoneTabLabel} data-phone-tab-label>
-            Add memory
-          </span>
-        </button>
-      </Show>
-      <Show when={isComposerOpen()}>
-        <div
-          aria-label="Add memory"
-          class={isPhone() ? phonePopoverPanel : "absolute left-0 top-full z-50 mt-1 w-[min(320px,calc(100vw-2rem))] animate-trauma-pop-bounce"}
-          id={props.popoverId}
-          role="dialog"
-        >
-          <AddMemoryForm
-            formClass="grid gap-3.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-4 shadow-trauma-2"
-            inputClass={surfaceInput}
-            buttonClass={`${composerSubmitButton} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
-            submitLabel="Save memory"
-            title="Add memory"
-            onCreated={handleCreated}
-          />
-        </div>
-      </Show>
-    </div>
+          </Show>
+        </>
+      )}
+    >
+      {({ close }) => (
+        <AddMemoryForm
+          formClass="grid gap-3.5 p-2"
+          inputClass={surfaceInput}
+          buttonClass={`${composerSubmitButton} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
+          submitLabel="Save memory"
+          title="Add memory"
+          onCreated={() => {
+            close();
+            props.onCreated?.();
+          }}
+        />
+      )}
+    </Popup>
   );
 }
 
@@ -629,20 +592,14 @@ export function RightRailFilters(props: {
         titleId={`${props.idPrefix}-category-filters-title`}
       >
         <div class="relative grid gap-2">
-          <Show
-            when={props.categories.length > 0}
-            fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">No categories yet</p>}
-          >
-            <For each={props.categories}>
-              {(category) => (
-                <TaxonomyFilterButton
-                  active={props.activeCategory === category.id}
-                  item={category}
-                  onClick={() => props.onSelectCategory(category)}
-                />
-              )}
-            </For>
-          </Show>
+          <TaxonomyList
+            activeId={props.activeCategory}
+            emptyLabel="No categories yet"
+            items={props.categories}
+            kind="category"
+            mode="filters"
+            onSelect={props.onSelectCategory}
+          />
           <Show when={openCreateKind() === "category"}>
             <TaxonomyCreatePopover
               label="Category name"
@@ -667,20 +624,14 @@ export function RightRailFilters(props: {
         titleId={`${props.idPrefix}-tag-filters-title`}
       >
         <div class="relative grid gap-2">
-          <Show
-            when={props.tags.length > 0}
-            fallback={<p class="mb-0 text-sm font-bold text-trauma-text-muted">No tags yet</p>}
-          >
-            <For each={props.tags}>
-              {(tag) => (
-                <TaxonomyFilterButton
-                  active={props.activeTag === tag.id}
-                  item={tag}
-                  onClick={() => props.onSelectTag(tag)}
-                />
-              )}
-            </For>
-          </Show>
+          <TaxonomyList
+            activeId={props.activeTag}
+            emptyLabel="No tags yet"
+            items={props.tags}
+            kind="tag"
+            mode="filters"
+            onSelect={props.onSelectTag}
+          />
           <Show when={openCreateKind() === "tag"}>
             <TaxonomyCreatePopover
               label="Tag name"
@@ -694,7 +645,7 @@ export function RightRailFilters(props: {
         </div>
       </RightPanelSection>
       <Show when={props.showFlashbacks !== false}>
-        <RightPanelSection title="Flashback" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
+        <RightPanelSection title="Flashbacks" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
           <FlashbackShortcutList
             class={`${rightRailScrollContent} grid gap-3`}
             emptyLabel="No flashbacks yet"
@@ -703,36 +654,13 @@ export function RightRailFilters(props: {
               id: flashback.id,
               onSelect: () => props.onSelectFlashback(flashback),
               prefix: flashback.prefix,
+              suffix: flashback.suffix,
               text: flashback.text,
             }))}
           />
         </RightPanelSection>
       </Show>
     </div>
-  );
-}
-
-function TaxonomyFilterButton(props: {
-  active: boolean;
-  item: BrowseTaxonomySummaryItem;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-pressed={props.active}
-      class="grid min-h-[38px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-trauma-border bg-transparent px-3 py-2 text-left font-bold text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink"
-      type="button"
-      onClick={props.onClick}
-    >
-      <span class="min-w-0 truncate">{props.item.name}</span>
-      <span
-        class={`text-xs font-bold ${
-          props.active ? "text-trauma-accent-ink" : "text-trauma-text-muted"
-        }`}
-      >
-        {formatMemoryCount(props.item.memoryCount)}
-      </span>
-    </button>
   );
 }
 
@@ -752,10 +680,6 @@ function TaxonomyCreateAction(props: {
       <span>{props.label}</span>
     </button>
   );
-}
-
-function formatMemoryCount(count: number): string {
-  return count === 1 ? "1 memory" : `${count} memories`;
 }
 
 type FetchFunction = (
@@ -928,90 +852,58 @@ function ThemeNavButton(props: {
   popoverId: string;
   surface: SurfaceMode;
 }) {
-  let rootRef: HTMLDivElement | undefined;
-  const [isThemeOpen, setIsThemeOpen] = createSignal(false);
   const isPhone = () => props.mode === "phone";
-  const icon = createMemo(
-    () => TraumaNavIcons.theme[isThemeOpen() ? "filled" : "outline"],
-  );
-
-  onMount(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        rootRef === undefined ||
-        !(target instanceof Node) ||
-        rootRef.contains(target)
-      ) {
-        return;
-      }
-
-      setIsThemeOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsThemeOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    });
-  });
 
   return (
-    <div
-      ref={rootRef}
+    <Popup
       class={isPhone() ? "relative min-w-[4.75rem] shrink-0" : railPopoverRoot}
-    >
-      <button
-        aria-controls={isThemeOpen() ? props.popoverId : undefined}
-        aria-expanded={isThemeOpen()}
-        aria-haspopup="dialog"
-        aria-pressed={isThemeOpen()}
-        class={`${isPhone() ? `${phoneTabButton} w-full` : navItemBase} ${isThemeOpen() ? activeNavItem : ""}`}
-        type="button"
-        onClick={() => setIsThemeOpen((value) => !value)}
-      >
-        <span class={isPhone() ? phoneIconSlot : railIconSlot}>{icon()()}</span>
-        <Show
-          when={isPhone()}
-          fallback={
-            <span
-              class="min-w-0 truncate max-[1040px]:sr-only"
+      id={props.popoverId}
+      label="Theme settings"
+      mode="dialog"
+      panelClass={railPopoverPanel}
+      phonePanel={isPhone()}
+      placement="bottom-start"
+      trigger={({ open, triggerProps }) => {
+        const Icon = TraumaNavIcons.theme[open ? "filled" : "outline"];
+        return (
+          <button
+            {...triggerProps}
+            aria-pressed={open}
+            class={`${isPhone() ? `${phoneTabButton} w-full` : navItemBase} ${open ? activeNavItem : ""}`}
+            type="button"
+          >
+            <span class={isPhone() ? phoneIconSlot : railIconSlot}>{Icon()}</span>
+            <Show
+              when={isPhone()}
+              fallback={
+                <span
+                  class="min-w-0 truncate max-[1040px]:sr-only"
+                >
+                  <span
+                    class={`trauma-active-nav-label ${open ? "font-bold" : ""}`}
+                  >
+                    Theme
+                  </span>
+                </span>
+              }
             >
-              <span
-                class={`trauma-active-nav-label ${isThemeOpen() ? "font-bold" : ""}`}
-              >
+              <span class={phoneTabLabel} data-phone-tab-label>
                 Theme
               </span>
-            </span>
-          }
-        >
-          <span class={phoneTabLabel} data-phone-tab-label>
-            Theme
-          </span>
-        </Show>
-      </button>
-      <Show when={isThemeOpen()}>
-        <div
-          aria-label="Theme settings"
-          class={isPhone() ? phonePopoverPanel : railPopoverPanel}
-          id={props.popoverId}
-          role="dialog"
-        >
-          <ThemeBlock
-            brightness={props.brightness}
-            onBrightness={props.onBrightness}
-            onSurface={props.onSurface}
-            surface={props.surface}
-          />
-        </div>
-      </Show>
-    </div>
+            </Show>
+          </button>
+        );
+      }}
+    >
+      {() => (
+        <ThemeBlock
+          brightness={props.brightness}
+          onBrightness={props.onBrightness}
+          onSurface={props.onSurface}
+          surface={props.surface}
+        />
+      )}
+    </Popup>
   );
 }
 
@@ -1031,7 +923,7 @@ function ThemeBlock(props: {
     props.brightness === "night" ? <HermesIcon /> : <PaperIcon />,
   );
   return (
-    <section class="grid w-full gap-1.5 rounded-2xl border border-trauma-border bg-trauma-bg-elev px-2 py-2.5 shadow-trauma-2" aria-label="Theme">
+    <section class="grid w-full gap-1.5 px-2 py-2.5" aria-label="Theme">
       <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
       <div class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1" role="group" aria-label="Brightness">
         <SegmentedToggleButton

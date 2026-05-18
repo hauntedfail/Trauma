@@ -1,11 +1,12 @@
-import { createEffect, createSignal, on } from "solid-js";
+import { Show, createEffect, createSignal, on } from "solid-js";
 
-import { CheckIcon } from "../icons/TraumaIcons";
+import { CheckIcon, EyeClosedIcon, EyeOpenIcon } from "../icons/TraumaIcons";
 
 export interface MemoryReadStatusControlProps {
   memoryId: string;
   initialRead: boolean;
   compact?: boolean;
+  variant?: "label" | "icon";
   class?: string;
   onChange?: (read: boolean) => void;
   onSaved?: (read: boolean) => Promise<void> | void;
@@ -29,6 +30,8 @@ type FetchFunction = (
 
 const buttonClass =
   "inline-grid min-h-9 grid-cols-[auto_auto] items-center gap-2 rounded-full border border-trauma-border-strong px-3 py-1.5 text-xs font-bold text-trauma-text-primary disabled:opacity-60";
+const iconButtonClass =
+  "grid size-9 place-items-center rounded-full text-trauma-text-muted transition-colors hover:bg-trauma-bg-elev hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:opacity-50";
 const statusIconClass = "grid size-4 place-items-center";
 const statusDotClass = "size-2 rounded-full bg-current";
 
@@ -93,28 +96,49 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   return (
     <span class={`inline-grid gap-1 ${props.class ?? ""}`}>
       <button
-        class={buttonClass}
+        class={props.variant === "icon" ? iconButtonClass : buttonClass}
         type="button"
         aria-pressed={read()}
+        aria-label={read() ? "Mark memory unread" : "Mark memory read"}
         disabled={pending()}
         onClick={() => void toggle()}
       >
         <span
           aria-hidden="true"
-          class={statusIconClass}
+          class={props.variant === "icon" ? "grid size-5 place-items-center" : statusIconClass}
           data-read-status-icon={read() ? "read" : "unread"}
         >
-          {read() ? <CheckIcon size={16} /> : <span class={statusDotClass} />}
+          {props.variant === "icon"
+            ? read()
+              ? <EyeClosedIcon size={18} />
+              : <EyeOpenIcon size={18} />
+            : read()
+              ? <CheckIcon size={16} />
+              : <span class={statusDotClass} />}
         </span>
-        <span>{read() ? "Read" : "Unread"}</span>
-        <span class={props.compact ? "sr-only" : "text-trauma-text-muted"}>
-          {read() ? "Mark unread" : "Mark read"}
-        </span>
+        <ShowVisibleReadStatusLabels compact={props.compact} read={read()} variant={props.variant ?? "label"} />
       </button>
       {error() !== "" ? (
         <span class="text-xs font-bold text-trauma-danger">{error()}</span>
       ) : null}
     </span>
+  );
+}
+
+function ShowVisibleReadStatusLabels(props: {
+  compact?: boolean;
+  read: boolean;
+  variant: "label" | "icon";
+}) {
+  return (
+    <Show when={props.variant === "label"}>
+      <>
+        <span>{props.read ? "Read" : "Unread"}</span>
+        <span class={props.compact ? "sr-only" : "text-trauma-text-muted"}>
+          {props.read ? "Mark unread" : "Mark read"}
+        </span>
+      </>
+    </Show>
   );
 }
 

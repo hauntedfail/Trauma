@@ -1,10 +1,20 @@
 import { Title } from "@solidjs/meta";
 import { createAsync } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 
+import {
+  deleteFlashbackBySelection,
+  FlashbackActionMenu,
+  type FlashbackActionMenuItem,
+} from "~/components/flashbacks/FlashbackActionMenu";
 import { FlashbackExcerpt } from "~/components/flashbacks/FlashbackExcerpt";
-import { getFlashbackBrowseRows } from "~/components/flashbacks/flashbacks-loader";
+import {
+  getFlashbackBrowseRows,
+  revalidateFlashbackBrowseRows,
+} from "~/components/flashbacks/flashbacks-loader";
 import { classifyFlashbackRows } from "~/components/flashbacks/route-state";
+import { revalidateBrowseMemoryWorkspace } from "~/components/memories/browse-loader";
+import { revalidateReaderMemory } from "~/components/reader/reader-memory-loader";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -16,10 +26,26 @@ const cardBase =
 
 export default function FlashbacksIndex() {
   const flashbacks = createAsync(() => getFlashbackBrowseRows());
+  const [removedFlashbackIds, setRemovedFlashbackIds] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
   const flashbackRowsState = () => classifyFlashbackRows(flashbacks());
-  const readyFlashbackRows = () => {
+  const readyFlashbackRows = createMemo(() => {
     const state = flashbackRowsState();
-    return state.status === "ready" ? state.rows : undefined;
+    if (state.status !== "ready") {
+      return undefined;
+    }
+
+    return state.rows.filter((row) => !removedFlashbackIds().has(row.id));
+  });
+  const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
+    await deleteFlashbackBySelection({ flashback });
+    setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
+    await Promise.all([
+      revalidateFlashbackBrowseRows(),
+      revalidateBrowseMemoryWorkspace(),
+      revalidateReaderMemory(flashback.memoryId),
+    ]);
   };
 
   return (
@@ -50,13 +76,11 @@ export default function FlashbacksIndex() {
                 <For each={rows()}>
                   {(flashback) => (
                     <article class={cardBase}>
-                      <header class="grid min-w-0 gap-1">
-                        <div>
-                          <p class="mb-0 text-[13px] text-trauma-text-muted">Source memory</p>
-                          <h2 class="mb-0 text-xl font-bold leading-tight">
-                            <a href={`/memories/${flashback.memoryId}#${flashback.id}`}>{flashback.memoryTitle}</a>
-                          </h2>
-                        </div>
+                      <header class="grid min-w-0 justify-items-end gap-1">
+                        <FlashbackActionMenu
+                          flashback={flashback}
+                          onDelete={deleteFlashback}
+                        />
                       </header>
                       <FlashbackExcerpt
                         href={`/memories/${flashback.memoryId}#${flashback.id}`}
@@ -64,6 +88,12 @@ export default function FlashbacksIndex() {
                         suffix={flashback.suffix}
                         text={flashback.text}
                       />
+                      <a
+                        class="mt-1 justify-self-start text-sm font-bold text-trauma-text-muted no-underline hover:text-trauma-link"
+                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
+                      >
+                        {flashback.memoryTitle}
+                      </a>
                     </article>
                   )}
                 </For>

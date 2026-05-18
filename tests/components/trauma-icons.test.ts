@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   CheckIcon,
   ChevronLeftIcon,
+  EyeClosedIcon,
+  EyeOpenIcon,
   HermesIcon,
   MoonIcon,
   OpenIcon,
@@ -13,6 +15,7 @@ import {
   PlusIcon,
   SearchIcon,
   SunIcon,
+  TrashIcon,
   TraumaNavIcons,
 } from "../../src/components/icons";
 
@@ -60,6 +63,9 @@ describe("TRAUMA icon system", () => {
       PlusIcon,
       OpenIcon,
       CheckIcon,
+      EyeOpenIcon,
+      EyeClosedIcon,
+      TrashIcon,
       PaintToolIcon,
     ];
 

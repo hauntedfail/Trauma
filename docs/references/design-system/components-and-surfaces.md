@@ -49,6 +49,10 @@ Button shape follows the job:
 Use icons inside buttons when an icon exists. Do not replace familiar icon
 actions with verbose text-only controls.
 
+Read-status controls on memory cards and reader pages are icon-only action
+buttons. They keep accessible labels on the button. Open eye means unread
+(`read: false`), and closed eye means read (`read: true`).
+
 Paper themes add one deliberate material exception for archive actions:
 
 - Add-memory commands and List/Grid view toggles use the
@@ -88,8 +92,11 @@ and view toggle in one two-column grid row at every route width:
 Left-rail transient controls open as anchored popovers rather than global
 drawers:
 
-- Theme settings and Add memory composer use the same `role="dialog"` popup
-  pattern, `aria-haspopup="dialog"`, `aria-expanded`, and `aria-controls`.
+- Theme settings and Add memory composer use the shared `Popup` shell with
+  `role="dialog"`, `aria-haspopup`, `aria-expanded`, and `aria-controls`.
+- General action menus use the same `Popup` shell with `role="menu"`. Memory,
+  Moment, and Flashback delete actions use one danger menu-item treatment and
+  the shared trash icon.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
 - Add memory keeps the shell-level command globally reachable, but the composer
@@ -110,7 +117,20 @@ Inputs use semantic surfaces:
 Search inputs:
 
 - The browse route owns the memory search field.
+- The focus indicator belongs to the rounded search surface itself, using an
+  inset ring so focus corners follow the search bar shape.
 - The right rail does not contain a search field.
+
+## Taxonomy Rendering
+
+Use `TaxonomyList` for category/tag chips and right-rail taxonomy filters.
+
+- `mode="chips"` renders attached categories/tags on memory rows and reader
+  intros.
+- `mode="filters"` renders right-rail filter rows with optional counts and
+  `aria-pressed`.
+- Parents own route/query state; taxonomy rendering components do not know
+  browse query keys.
 
 ## Memory Browse Rows
 
@@ -144,8 +164,10 @@ Contract:
 - Rounded quote block.
 - Left border uses `border-trauma-quote-bar`.
 - Background uses `bg-trauma-quote-bg`.
-- Text uses `text-trauma-quote-ink`.
-- Flashback text uses `mark` with `bg-trauma-flashback-bg`.
+- Prefix and suffix context render around the selected Flashback text.
+- Context uses a lower-contrast text token.
+- The selected Flashback string uses normal primary readable contrast and a
+  semantic `mark` element without becoming a separate highlighter badge.
 - Optional link wraps the whole excerpt.
 
 Do not hand-roll separate flashback quote treatments for each route.
@@ -167,17 +189,17 @@ route content containers. Contextual route content must stay small enough to
 act as a right rail aid rather than a second main pane.
 
 When an island contains an unbounded list, the list body must be a bounded
-scroll region. This is required for Flashback shortcut lists and reader TOC. Do not
-let those islands grow vertically for every item.
+scroll region. This is required for Flashback shortcut lists and reader TOC. Do
+not let those islands grow vertically for every item.
 
-Reader TOC should make overflow discoverable. When its bounded list can still
-scroll in a direction, show a low-contrast blur fade on that edge only. The
-fade should make the edge entries look slightly hazy, not like a heavy shadow
-or spotlight. Use neutral black in the fade recipe, not the primary/accent
-colour. The top fade must start at the scroll body edge so text cannot appear
-unblurred between the TOC heading and the fade. Use CSS gradients and masks to
-soften the fade boundary; do not use JavaScript to paint the effect. Do not
-render a fade for a direction that is not currently scrollable.
+Reader TOC and bounded Flashback shortcut lists should make overflow
+discoverable. When the bounded list can still scroll in a direction, show a
+low-contrast blur fade on that edge only. The fade should make the edge entries
+look slightly hazy, not like a heavy shadow or spotlight. Use neutral black in
+the fade recipe, not the primary/accent colour. The top fade must start at the
+scroll body edge so text cannot appear unblurred between the heading and the
+fade. Use CSS gradients and masks to soften the fade boundary. Do not render a
+fade for a direction that is not currently scrollable.
 
 ## Add Memory Composer
 

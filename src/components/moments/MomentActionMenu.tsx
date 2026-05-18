@@ -2,9 +2,10 @@ import { Show, createSignal } from "solid-js";
 
 import {
   KebabActionMenu,
+  kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
-  kebabActionMenuItemClass,
 } from "../ui/KebabActionMenu";
+import { TrashIcon } from "../icons";
 
 export interface MomentActionMenuProps {
   disabled?: boolean;
@@ -49,7 +50,7 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
       {({ close }) => (
         <>
           <button
-            class={kebabActionMenuItemClass}
+            class={kebabActionMenuDangerItemClass}
             type="button"
             role="menuitem"
             onClick={(event) => {
@@ -62,7 +63,7 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
               });
             }}
           >
-            <span aria-hidden="true">-</span>
+            <TrashIcon />
             Delete moment
           </button>
           <Show when={error() !== ""}>

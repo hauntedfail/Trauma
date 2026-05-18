@@ -1,8 +1,9 @@
 import { Show, createSignal } from "solid-js";
 
-import { PlusIcon } from "../icons";
+import { PlusIcon, TrashIcon } from "../icons";
 import {
   KebabActionMenu,
+  kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
   kebabActionMenuItemClass,
 } from "../ui/KebabActionMenu";
@@ -69,7 +70,7 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
       {({ close }) => (
         <>
           <button
-            class={kebabActionMenuItemClass}
+            class={kebabActionMenuDangerItemClass}
             type="button"
             role="menuitem"
             onClick={(event) => {
@@ -82,7 +83,7 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
               });
             }}
           >
-            <span aria-hidden="true">-</span>
+            <TrashIcon />
             Delete memory
           </button>
           <button

@@ -21,6 +21,7 @@ import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
 import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
 import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -51,8 +52,6 @@ const cardBase =
   "trauma-memory-card trauma-route-row grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 const cardTitle = "mb-0 text-xl font-bold leading-tight text-trauma-text-primary";
 const subduedText = "mb-0 text-[13px] text-trauma-text-muted";
-const tagChip =
-  "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink";
 
 export function MemoryBrowse() {
   const location = useLocation();
@@ -112,7 +111,7 @@ export function MemoryBrowse() {
         </div>
       </header>
       <div class="trauma-route-row border-b border-trauma-border px-6 py-[18px]">
-        <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface">
+        <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface focus-within:ring-1 focus-within:ring-inset focus-within:ring-trauma-border-strong">
           <span class="grid place-items-center">
             <SearchIcon />
           </span>
@@ -260,12 +259,20 @@ export function MemoryItem(props: {
               </a>
             </h2>
           </div>
-          <MemoryActionMenu
-            memoryId={props.memory.id}
-            memoryTitle={props.memory.title}
-            onDelete={deleteMemory}
-            onAttachCategoryByName={submitCategory}
-          />
+          <div class="flex items-start gap-2">
+            <MemoryReadStatusControl
+              memoryId={props.memory.id}
+              initialRead={props.memory.read}
+              variant="icon"
+              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
+            />
+            <MemoryActionMenu
+              memoryId={props.memory.id}
+              memoryTitle={props.memory.title}
+              onDelete={deleteMemory}
+              onAttachCategoryByName={submitCategory}
+            />
+          </div>
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
         <a
@@ -289,8 +296,18 @@ export function MemoryItem(props: {
         </Show>
         <footer class="grid gap-3">
           <div class="trauma-local-wrap" aria-label={`${props.memory.title} filters`}>
-            <For each={categories()}>{(category) => <span class={tagChip}>{category.name}</span>}</For>
-            <For each={tags()}>{(tag) => <span class={tagChip}>#{tag.name}</span>}</For>
+            <TaxonomyList
+              class="contents"
+              items={categories()}
+              kind="category"
+              mode="chips"
+            />
+            <TaxonomyList
+              class="contents"
+              items={tags()}
+              kind="tag"
+              mode="chips"
+            />
             <Show when={props.memory.extractionStatus === "link_only"}>
               <span class="inline-flex items-center gap-1 rounded-full bg-trauma-accent-soft px-2.5 py-1 text-xs font-bold text-trauma-accent-soft-ink">
                 <span aria-hidden="true">!</span>
@@ -322,18 +339,9 @@ export function MemoryItem(props: {
               </Show>
             </span>
           </div>
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-            <Show when={actionError() !== ""}>
-              <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
-            </Show>
-            <MemoryReadStatusControl
-              class="justify-self-end"
-              memoryId={props.memory.id}
-              initialRead={props.memory.read}
-              compact
-              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
-            />
-          </div>
+          <Show when={actionError() !== ""}>
+            <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
+          </Show>
         </footer>
       </div>
     </article>

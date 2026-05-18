@@ -38,8 +38,10 @@ describe("memory browse actions", () => {
     );
 
     expect(html).toContain("Memory actions for Imported Memory");
-    expect(html).toContain("Unread");
-    expect(html).toContain("Mark read");
+    expect(html).toContain('aria-label="Mark memory read"');
+    expect(html).toContain('data-read-status-icon="unread"');
+    expect(html).not.toContain(">Unread<");
+    expect(html).not.toContain("Mark read");
     expect(html).toContain("Research");
     expect(html).toContain("sqlite");
     expect(html).toContain("Add tag");
@@ -109,6 +111,11 @@ describe("memory browse actions", () => {
   it("revalidates reader data after taxonomy edits from browse cards", () => {
     expect(browseSource).toContain("revalidateAfterTaxonomyChange");
     expect(browseSource).toContain("revalidateReaderMemory(memoryId)");
+  });
+
+  it("keeps search focus indication on the rounded search surface", () => {
+    expect(browseSource).toContain("focus-within:ring-inset");
+    expect(browseSource).toContain("focus-within:ring-trauma-border-strong");
   });
 
   it("posts memory deletion requests", async () => {

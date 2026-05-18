@@ -171,7 +171,7 @@ Current islands:
 
 - Categories.
 - Tags.
-- Flashback.
+- Flashbacks.
 
 Route-specific content may be inserted above these browse filters when a route
 has a strong contextual aid. The current example is the reader table of

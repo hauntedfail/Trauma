@@ -39,7 +39,7 @@ const fixtures: BrowseMemory[] = [
     url: "https://example.com/local-hosting",
     description: "Single Bun process and persistent disk assumptions.",
     capturedAt: "2026-05-08",
-    read: false,
+    read: true,
     extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [{ id: "sqlite", name: "sqlite" }],
@@ -62,11 +62,11 @@ describe("browse query state", () => {
     expect(parseBrowseQuery("?view=table").view).toBe("list");
   });
 
-  it("trims all text query values before applying filters", () => {
+  it("preserves raw search text while trimming explicit filter values", () => {
     const query = parseBrowseQuery("?q=%20reader%20&category=%20research%20&tag=%20%20&flashback=%20h-foundation%20");
 
     expect(query).toEqual({
-      q: "reader",
+      q: " reader ",
       category: "research",
       tag: "",
       flashback: "h-foundation",
@@ -105,6 +105,44 @@ describe("browse query state", () => {
       1,
     );
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&flashback=missing"))).toHaveLength(0);
+  });
+
+  it("filters fielded search terms inside the q parameter", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=title:{Reader Mode}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=url:{local-hosting}")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag:sqlite")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category:{Research}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=flashback:{repository fixtures}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+  });
+
+  it("filters read state tokens and treats mutually exclusive states as empty", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=unread")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read+unread"))).toHaveLength(0);
+  });
+
+  it("combines free-text, fielded search, and explicit right-rail filters with AND semantics", () => {
+    expect(
+      filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:solidstart&category=research"))
+        .map((memory) => memory.id),
+    ).toEqual(["memory-foundation"]);
+    expect(
+      filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:sqlite&category=research")),
+    ).toHaveLength(0);
   });
 
   it("selects the active flashback for memory result excerpts", () => {

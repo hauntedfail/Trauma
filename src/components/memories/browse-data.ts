@@ -63,7 +63,7 @@ export function parseBrowseQuery(search: string): BrowseQuery {
   const view = params.get("view") === "grid" ? "grid" : "list";
 
   return {
-    q: params.get("q")?.trim() ?? "",
+    q: params.get("q") ?? "",
     category: params.get("category")?.trim() ?? "",
     tag: params.get("tag")?.trim() ?? "",
     flashback:
@@ -81,7 +81,7 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   };
   const params = new URLSearchParams();
 
-  appendParam(params, "q", next.q.trim());
+  appendParam(params, "q", next.q);
   appendParam(params, "category", next.category.trim());
   appendParam(params, "tag", next.tag.trim());
   appendParam(params, "flashback", next.flashback.trim());
@@ -99,7 +99,7 @@ export function buildFlashbackBrowseHref(flashbackId: string): string {
 }
 
 export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuery): BrowseMemory[] {
-  const normalizedSearch = normalize(query.q);
+  const search = parseBrowseSearch(query.q);
 
   return memories.filter((memory) => {
     if (query.category.length > 0 && !memory.categories.some((category) => category.id === query.category)) {
@@ -114,11 +114,31 @@ export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuer
       return false;
     }
 
-    if (normalizedSearch.length === 0) {
-      return true;
+    if (search.readState === "both") {
+      return false;
     }
 
-    return getSearchableText(memory).some((value) => normalize(value).includes(normalizedSearch));
+    if (search.readState === "read" && !memory.read) {
+      return false;
+    }
+
+    if (search.readState === "unread" && memory.read) {
+      return false;
+    }
+
+    for (const filter of search.fields) {
+      if (!matchesFieldFilter(memory, filter)) {
+        return false;
+      }
+    }
+
+    for (const term of search.freeTerms) {
+      if (!getSearchableText(memory).some((value) => normalize(value).includes(term))) {
+        return false;
+      }
+    }
+
+    return true;
   });
 }
 
@@ -167,6 +187,174 @@ function getSearchableText(memory: BrowseMemory): string[] {
     ...memory.tags.map((tag) => tag.name),
     ...memory.flashbacks.flatMap((flashback) => [flashback.text, flashback.prefix, flashback.suffix]),
   ];
+}
+
+type BrowseSearchField = "title" | "url" | "tag" | "category" | "flashback";
+
+interface BrowseFieldFilter {
+  field: BrowseSearchField;
+  value: string;
+}
+
+interface ParsedBrowseSearch {
+  fields: BrowseFieldFilter[];
+  freeTerms: string[];
+  readState: "all" | "both" | "read" | "unread";
+}
+
+const fieldNames = new Set<BrowseSearchField>([
+  "title",
+  "url",
+  "tag",
+  "category",
+  "flashback",
+]);
+
+function parseBrowseSearch(query: string): ParsedBrowseSearch {
+  const fields: BrowseFieldFilter[] = [];
+  const freeTerms: string[] = [];
+  let read = false;
+  let unread = false;
+
+  for (const token of tokenizeBrowseSearch(query)) {
+    if (token.kind === "field") {
+      fields.push({
+        field: token.field,
+        value: normalize(token.value),
+      });
+      continue;
+    }
+
+    const normalized = normalize(token.value);
+    if (normalized.length === 0) {
+      continue;
+    }
+
+    if (normalized === "read") {
+      read = true;
+      continue;
+    }
+
+    if (normalized === "unread") {
+      unread = true;
+      continue;
+    }
+
+    freeTerms.push(normalized);
+  }
+
+  return {
+    fields: fields.filter((field) => field.value.length > 0),
+    freeTerms,
+    readState: read && unread ? "both" : read ? "read" : unread ? "unread" : "all",
+  };
+}
+
+type BrowseSearchToken =
+  | { kind: "field"; field: BrowseSearchField; value: string }
+  | { kind: "term"; value: string };
+
+function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
+  const tokens: BrowseSearchToken[] = [];
+  let index = 0;
+
+  while (index < query.length) {
+    while (index < query.length && /\s/.test(query[index] ?? "")) {
+      index += 1;
+    }
+
+    if (index >= query.length) {
+      break;
+    }
+
+    const field = readSearchField(query, index);
+    if (field !== undefined) {
+      const valueStart = field.end + 1;
+      if (query[valueStart] === "{") {
+        const closeIndex = query.indexOf("}", valueStart + 1);
+        if (closeIndex !== -1) {
+          tokens.push({
+            kind: "field",
+            field: field.name,
+            value: query.slice(valueStart + 1, closeIndex).trim(),
+          });
+          index = closeIndex + 1;
+          continue;
+        }
+      }
+
+      const valueEnd = readUntilWhitespace(query, valueStart);
+      tokens.push({
+        kind: "field",
+        field: field.name,
+        value: query.slice(valueStart, valueEnd).trim(),
+      });
+      index = valueEnd;
+      continue;
+    }
+
+    const end = readUntilWhitespace(query, index);
+    tokens.push({ kind: "term", value: query.slice(index, end) });
+    index = end;
+  }
+
+  return tokens;
+}
+
+function readSearchField(
+  query: string,
+  start: number,
+): { end: number; name: BrowseSearchField } | undefined {
+  const colon = query.indexOf(":", start);
+  if (colon === -1) {
+    return undefined;
+  }
+
+  const whitespace = query.slice(start, colon).search(/\s/);
+  if (whitespace !== -1) {
+    return undefined;
+  }
+
+  const maybeField = query.slice(start, colon).toLocaleLowerCase();
+  if (!fieldNames.has(maybeField as BrowseSearchField)) {
+    return undefined;
+  }
+
+  return {
+    end: colon,
+    name: maybeField as BrowseSearchField,
+  };
+}
+
+function readUntilWhitespace(value: string, start: number): number {
+  let index = start;
+  while (index < value.length && !/\s/.test(value[index] ?? "")) {
+    index += 1;
+  }
+
+  return index;
+}
+
+function matchesFieldFilter(
+  memory: BrowseMemory,
+  filter: BrowseFieldFilter,
+): boolean {
+  switch (filter.field) {
+    case "title":
+      return normalize(memory.title).includes(filter.value);
+    case "url":
+      return normalize(memory.url).includes(filter.value);
+    case "tag":
+      return memory.tags.some((tag) => normalize(tag.name).includes(filter.value));
+    case "category":
+      return memory.categories.some((category) => normalize(category.name).includes(filter.value));
+    case "flashback":
+      return memory.flashbacks.some((flashback) =>
+        [flashback.text, flashback.prefix, flashback.suffix].some((value) =>
+          normalize(value).includes(filter.value),
+        ),
+      );
+  }
 }
 
 function getUniqueTaxonomyItems(items: BrowseTaxonomyItem[]): BrowseTaxonomyItem[] {

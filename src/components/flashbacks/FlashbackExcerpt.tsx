@@ -9,19 +9,20 @@ interface FlashbackExcerptProps {
 }
 
 const quoteClass =
-  "m-0 grid gap-1 rounded-2xl border-l-4 border-trauma-quote-bar bg-trauma-quote-bg px-4 py-3 leading-relaxed text-trauma-quote-ink";
+  "m-0 rounded-2xl border-l-4 border-trauma-quote-bar bg-trauma-quote-bg px-4 py-3 leading-relaxed text-trauma-text-primary";
+const contextClass = "text-trauma-text-muted";
 const markClass =
-  "w-fit rounded-md bg-trauma-flashback-bg px-1.5 py-px text-trauma-flashback-ink";
+  "rounded-md bg-transparent px-1 py-px font-bold text-trauma-text-primary";
 
 export function FlashbackExcerpt(props: FlashbackExcerptProps) {
   const content = (
     <blockquote class={`${quoteClass} ${props.class ?? ""}`}>
       <Show when={props.prefix.length > 0}>
-        <span>{props.prefix}</span>
+        <span class={contextClass}>{props.prefix}</span>
       </Show>
       <mark class={markClass}>{props.text}</mark>
       <Show when={props.suffix.length > 0}>
-        <span>{props.suffix}</span>
+        <span class={contextClass}>{props.suffix}</span>
       </Show>
     </blockquote>
   ) satisfies JSX.Element;
