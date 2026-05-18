@@ -329,7 +329,7 @@ export function MemoryItem(props: {
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
         <a
-          class={`${subduedText} wrap-anywhere inline-flex items-center gap-1.5 no-underline hover:text-trauma-accent`}
+          class={`${subduedText} wrap-anywhere inline-flex w-fit max-w-full justify-self-start items-center gap-1.5 no-underline hover:text-trauma-accent`}
           href={props.memory.url}
           rel="noreferrer"
           target="_blank"
