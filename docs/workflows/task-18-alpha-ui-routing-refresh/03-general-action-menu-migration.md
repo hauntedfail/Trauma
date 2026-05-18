@@ -1,0 +1,62 @@
+# 18-alpha.3 General action menu migration
+
+## Goal
+
+Migrate general action menus to the shared popup shell while preserving their
+current behaviour and design. General action menus are the memory and Moment
+meatballs menus, not the special Theme selector UI.
+
+## Files likely owned
+
+- Modify: `src/components/ui/KebabActionMenu.tsx`
+- Modify: `src/components/memories/MemoryActionMenu.tsx`
+- Modify: `src/components/moments/MomentActionMenu.tsx`
+- Modify: `tests/components/memory-action-menu.test.tsx`
+- Modify: `tests/components/moment-action-menu.test.tsx`
+- Optional create: `src/components/ui/ActionMenu.tsx`
+- Optional create: `tests/components/action-menu.test.tsx`
+
+## Behaviour contract
+
+- Memory and Moment menus share the same popup shell.
+- The trigger remains a meatballs/kebab button with a visible hover/focus state.
+- `role="menu"` and item semantics are preserved.
+- Menu item styling remains centralized:
+  - min touch target height
+  - icon/text grid
+  - theme-aware hover background
+  - error message class for failed actions
+- Memory menu keeps:
+  - delete confirmation
+  - category popover entry
+  - backup-failsafe revalidation behaviour from parent handlers
+- Moment menu keeps:
+  - delete action
+  - route navigation behaviour in `/moments`
+- Menu content must not gain composer or Theme-specific styling.
+
+## Implementation steps
+
+1. Add or update tests that assert both memory and Moment menus render through
+   the shared popup shell or shared action-menu wrapper.
+2. Refactor `KebabActionMenu` to use `Popup`, or replace it with a thin
+   `ActionMenu` wrapper around `Popup`.
+3. Migrate `MemoryActionMenu`.
+4. Migrate `MomentActionMenu`.
+5. Remove duplicate menu panel class definitions that are no longer needed.
+
+## Tests
+
+```sh
+mise exec -- bun --bun x vitest run tests/components/memory-action-menu.test.tsx tests/components/moment-action-menu.test.tsx
+mise exec -- bun run typecheck
+```
+
+## Acceptance criteria
+
+- There is one general action-menu popup path.
+- Memory and Moment menus still work from their current routes.
+- Hover/focus affordance remains visible on browse cards and reader header
+  menus.
+- No Theme or composer internals leak into general menu components.
+
