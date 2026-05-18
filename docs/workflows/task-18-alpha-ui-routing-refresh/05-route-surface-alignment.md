@@ -28,6 +28,10 @@ Allowed route work in this branch:
   `/memories`, `/memories/:id`, `/flashbacks`, `/moments`, and `/settings`
 - keep `/memories` query filters for search, category, tag, Flashback, and view
   mode working after taxonomy component consolidation
+- keep the `/memories` main-pane search field focus indicator aligned with the
+  rounded search surface. When the search input is focused, the visible
+  indicator must fit the search bar outline and rounded corners, matching the
+  focus treatment used by the New tag/New category popup input fields.
 - keep product-language labels consistent across surfaces: the memories right
   rail title must use `Flashbacks`, matching the memory page right rail and
   shell navigation tab label
@@ -54,8 +58,15 @@ this workflow before coding the route.
    components where needed.
 3. Verify category/tag filter query toggles still preserve unrelated query
    state.
-4. Verify memory-row navigation still ignores nested interactive controls.
-5. Verify `/moments` action menu delete still does not break navigation to a
+4. Add or update a focused component/source contract test for the memory search
+   focus surface before changing the implementation. The test should assert that
+   the rounded search container owns the focus indicator, using an inset ring or
+   equivalent rounded-corner-safe style rather than relying on the inner
+   transparent input outline.
+5. Update the `/memories` search surface style only after the test fails for the
+   current implementation.
+6. Verify memory-row navigation still ignores nested interactive controls.
+7. Verify `/moments` action menu delete still does not break navigation to a
    memory section.
 
 ## Tests
@@ -70,6 +81,8 @@ mise exec -- bun run typecheck
 
 - Existing route behaviour survives the component refresh.
 - `/memories` filter state remains URL-query based.
+- The `/memories` search bar focus indicator fits the rounded outer search
+  surface and no longer renders as a corner-mismatched inner outline.
 - Right-rail Flashback list headings use the plural `Flashbacks` everywhere.
 - No new public route appears without an explicit workflow update.
 - Disabled future shell controls remain visually and semantically disabled.

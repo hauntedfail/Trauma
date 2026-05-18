@@ -16,11 +16,12 @@
 
 This document and its subtask files may be edited during planning. Source code,
 tests, and design-system docs must not be changed from a planning prompt unless
-the user explicitly moves the branch into implementation. If a planning
-conversation surfaces a concrete fix, record the requirement in the owning
-subtask first. Only keep an implementation diff from the planning phase when the
-user explicitly says to keep that already-applied fix; otherwise revert it and
-leave only the workflow-plan update.
+the user explicitly moves the branch into implementation by saying `go`. Until
+that `go` instruction is given, only define or refine the workflow exec plan. If
+a planning conversation surfaces a concrete fix, record the requirement in the
+owning subtask first. Only keep an implementation diff from the planning phase
+when the user explicitly says to keep that already-applied fix; otherwise revert
+it and leave only the workflow-plan update.
 
 ## Core intent
 
