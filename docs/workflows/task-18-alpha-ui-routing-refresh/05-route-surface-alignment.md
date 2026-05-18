@@ -54,6 +54,22 @@ Allowed route work in this branch:
   - use a closed-eye icon for `read: true`
   - clicking the icon toggles read status using the existing read-status API and
     optimistic/error behaviour
+- restructure the memory page main pane:
+  - the route-local sticky header renders only the previous/back button and the
+    `Memory` label
+  - the header must not render title text, URL/source link, read-status button,
+    taxonomy chips, or meatballs menu actions
+  - the main pane content begins with the memory title as the first primary
+    content element
+  - render the memory's attached category/tag chips directly below the title,
+    using the shared taxonomy chip component from `18-alpha.1`
+  - move the URL/source display above the title
+  - render the URL/source display and button icon group in the same row
+  - move the button icon group, including read-status and meatballs menu, to the
+    upper-right of the title block/main content intro rather than the sticky
+    route header
+  - keep the title/content hierarchy readable: URL/action row first, title
+    second, taxonomy chips third, markdown reader body after that
 - keep root redirect to `/memories`
 - keep disabled shell controls disabled unless their route already exists and
   has a working page contract
@@ -97,9 +113,20 @@ this workflow before coding the route.
    the lower-right footer placement.
 10. Update memory reader mode so the same icon-only read-status toggle sits
     immediately left of its meatballs menu button.
-11. Verify memory-row navigation still ignores nested interactive controls,
+11. Add or update memory reader tests for the main pane structure before
+    changing reader markup:
+    - sticky reader header contains previous/back control and `Memory`
+    - sticky reader header does not contain the memory title
+    - URL/source link and reader action icons render in the same intro row above
+      the title
+    - title renders as the first primary content heading in the main pane intro
+    - category/tag chips render below title using the shared taxonomy chip path
+12. Update memory reader markup to match the new intro/header split. Keep data
+    loading, read-status mutation, delete mutation, Flashback, and Moment
+    behaviour unchanged.
+13. Verify memory-row navigation still ignores nested interactive controls,
     including the moved read-status button.
-12. Verify `/moments` action menu delete still does not break navigation to a
+14. Verify `/moments` action menu delete still does not break navigation to a
    memory section.
 
 ## Tests
@@ -123,6 +150,13 @@ mise exec -- bun run typecheck
   (`read: false`), closed eye means read (`read: true`).
 - Icon-only read-status buttons keep accessible names and continue to toggle
   through the existing read-status API.
+- Memory page sticky header renders only previous/back navigation and the
+  `Memory` label.
+- Memory page main pane intro renders URL/source and action icons in one row
+  above the title, then taxonomy chips below the title.
+- Memory page action icons no longer live in the sticky route header.
+- Memory page taxonomy chips reuse the same shared taxonomy chip design as
+  memories browse rows.
 - Right-rail Flashback list headings use the plural `Flashbacks` everywhere.
 - No new public route appears without an explicit workflow update.
 - Disabled future shell controls remain visually and semantically disabled.

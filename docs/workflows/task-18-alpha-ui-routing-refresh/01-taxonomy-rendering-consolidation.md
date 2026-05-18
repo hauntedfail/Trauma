@@ -11,8 +11,10 @@ of separate local markup.
 - Create: `src/components/taxonomy/TaxonomyList.tsx`
 - Create: `tests/components/taxonomy-list.test.tsx`
 - Modify: `src/components/memories/MemoryBrowse.tsx`
+- Modify: `src/components/reader/MemoryReader.tsx`
 - Modify: `src/components/shell/AppShell.tsx`
 - Optional modify: `src/components/memories/browse-data.ts`
+- Optional modify: `tests/components/memory-reader-actions.test.ts`
 
 ## Component contract
 
@@ -38,7 +40,8 @@ export interface TaxonomyListProps {
 Rules:
 
 - `mode="chips"` is used by memory-row metadata and reader memory taxonomy
-  chips when applicable.
+  chips. Memory page main content must use this same chip mode for the memory's
+  attached categories and tags below the title.
 - `mode="filters"` is used by the right rail category/tag sections.
 - Counts render only when `memoryCount` is defined.
 - Filter mode uses `aria-pressed` when `onSelect` is present.
@@ -58,15 +61,19 @@ Rules:
    - click calls `onSelect` with the selected item
 2. Implement `TaxonomyList`.
 3. Replace memory-row tag/category rendering in `MemoryBrowse.tsx`.
-4. Replace `TaxonomyFilterButton` usage in `AppShell.tsx` right rail with
+4. Replace memory page reader taxonomy chip rendering in `MemoryReader.tsx`
+   with `TaxonomyList mode="chips"` so the memory page and memories browse
+   route share one taxonomy-chip design.
+5. Replace `TaxonomyFilterButton` usage in `AppShell.tsx` right rail with
    `TaxonomyList`.
-5. Remove local taxonomy rendering helpers that become unused.
+6. Remove local taxonomy rendering helpers that become unused.
 
 ## Tests
 
 ```sh
 mise exec -- bun --bun x vitest run tests/components/taxonomy-list.test.tsx
 mise exec -- bun --bun x vitest run tests/components/app-shell-taxonomy.test.ts tests/components/memory-browse-actions.test.ts
+mise exec -- bun --bun x vitest run tests/components/memory-reader-actions.test.ts
 mise exec -- bun run typecheck
 ```
 
@@ -77,5 +84,6 @@ mise exec -- bun run typecheck
 - Right-rail category/tag filtering keeps current query behaviour.
 - Memory-row taxonomy keeps current visual density and does not become a route
   filter by accident.
+- Memory page taxonomy chips below the title match the memories browse chip
+  design and come from the same shared taxonomy component.
 - No data loading or API behaviour changes are introduced.
-
