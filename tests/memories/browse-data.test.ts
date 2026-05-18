@@ -56,7 +56,7 @@ const fixtures: BrowseMemory[] = [
 ];
 
 describe("browse query state", () => {
-  it("parses supported query state and falls back to list view", () => {
+  it("parses supported query state and ignores legacy view state", () => {
     const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
 
     expect(query).toEqual({
@@ -64,7 +64,7 @@ describe("browse query state", () => {
       category: "research",
       tag: "solidstart",
       flashback: "h-foundation",
-      view: "grid",
+      view: "list",
     });
 
     expect(parseBrowseQuery("?view=table").view).toBe("list");
@@ -87,7 +87,7 @@ describe("browse query state", () => {
     expect(parseBrowseQuery("?highlight=old&flashback=h-foundation").flashback).toBe("h-foundation");
   });
 
-  it("builds canonical memories hrefs while preserving unrelated filters", () => {
+  it("builds canonical memories hrefs while ignoring legacy view filters", () => {
     const href = buildBrowseHref(
       {
         q: "reader mode",
@@ -99,7 +99,7 @@ describe("browse query state", () => {
       { tag: "solidstart", view: "grid" },
     );
 
-    expect(href).toBe("/memories?q=reader+mode&category=research&tag=solidstart&view=grid");
+    expect(href).toBe("/memories?q=reader+mode&category=research&tag=solidstart");
   });
 
   it("builds canonical flashback shortcut hrefs without incompatible taxonomy filters", () => {

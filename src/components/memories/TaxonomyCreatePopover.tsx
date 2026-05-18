@@ -137,6 +137,13 @@ function isTaxonomyCreateTrigger(target: EventTarget | null): boolean {
 
 function shouldSuppressOutsideTaxonomyClick(target: EventTarget | null): boolean {
   return target instanceof Element
-    ? target.closest("[data-popup-dismiss-only]") !== null
+    ? target.closest("[data-popup-dismiss-only]") !== null &&
+      !isTaxonomyPopoverActionTarget(target)
     : false;
+}
+
+function isTaxonomyPopoverActionTarget(target: Element): boolean {
+  return target.closest(
+    "button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
+  ) !== null;
 }

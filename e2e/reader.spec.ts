@@ -648,6 +648,10 @@ function readMomentAnchors(): string[] {
 }
 
 async function selectReaderText(page: Page, text: string) {
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
     const findTextNode = (node: Node): Text | undefined => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -683,6 +687,10 @@ async function selectReaderText(page: Page, text: string) {
 }
 
 async function selectReaderSection(page: Page, anchor: string) {
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await page.locator("[data-reader-content]").evaluate(async (root, sectionAnchor) => {
     const section = root.querySelector<HTMLElement>(
       `[data-reader-section-anchor="${sectionAnchor}"]`,

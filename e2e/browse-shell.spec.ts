@@ -612,7 +612,7 @@ test("lets active filters be cleared without resetting the rest of the query", a
   );
   await expect(page).not.toHaveURL(/category%3DResearch/);
   await expect(page).toHaveURL(/q=reader/);
-  await expect(page).toHaveURL(/view=grid/);
+  await expect(page).not.toHaveURL(/view=grid/);
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {

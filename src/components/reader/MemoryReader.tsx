@@ -179,6 +179,7 @@ function ReadyMemoryReader(props: {
   const [selectionMenu, setSelectionMenu] =
     createSignal<ReaderSelectionMenuState>();
   const [sectionMenu, setSectionMenu] = createSignal<ReaderSectionMenuState>();
+  const [isReaderClientReady, setIsReaderClientReady] = createSignal(false);
   const [pendingMomentKey, setPendingMomentKey] = createSignal("");
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
@@ -218,6 +219,7 @@ function ReadyMemoryReader(props: {
   onCleanup(() => setRightRailContent(undefined));
 
   onMount(() => {
+    setIsReaderClientReady(true);
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         closeReaderMenus();
@@ -510,6 +512,7 @@ function ReadyMemoryReader(props: {
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
+            data-reader-ready={isReaderClientReady() ? "true" : undefined}
             onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
@@ -1452,7 +1455,8 @@ function readReaderSelection(
   }
   if (
     isInsideReaderNonContent(range.startContainer) ||
-    isInsideReaderNonContent(range.endContainer)
+    isInsideReaderNonContent(range.endContainer) ||
+    rangeIntersectsReaderNonContent(range, container)
   ) {
     return undefined;
   }
@@ -1572,6 +1576,22 @@ function collectReaderContentTextNodes(container: HTMLElement): Text[] {
 function isInsideReaderNonContent(node: Node): boolean {
   const element = node instanceof Element ? node : node.parentElement;
   return element?.closest("[data-reader-noncontent]") !== null;
+}
+
+function rangeIntersectsReaderNonContent(
+  range: Range,
+  container: HTMLElement,
+): boolean {
+  return [...container.querySelectorAll("[data-reader-noncontent]")].some(
+    (element) => rangeIntersectsElement(range, element),
+  );
+}
+
+function rangeIntersectsElement(range: Range, element: Element): boolean {
+  const elementRange = document.createRange();
+  elementRange.selectNode(element);
+  return range.compareBoundaryPoints(Range.END_TO_START, elementRange) > 0 &&
+    range.compareBoundaryPoints(Range.START_TO_END, elementRange) < 0;
 }
 
 function applyOptimisticFlashback(

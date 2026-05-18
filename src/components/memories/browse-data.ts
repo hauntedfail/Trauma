@@ -62,7 +62,6 @@ export const defaultBrowseQuery: BrowseQuery = {
 
 export function parseBrowseQuery(search: string): BrowseQuery {
   const params = new URLSearchParams(search);
-  const view = params.get("view") === "grid" ? "grid" : "list";
 
   return {
     q: params.get("q") ?? "",
@@ -72,7 +71,7 @@ export function parseBrowseQuery(search: string): BrowseQuery {
       params.get("flashback")?.trim() ||
       params.get("highlight")?.trim() ||
       "",
-    view,
+    view: "list",
   };
 }
 
@@ -87,10 +86,6 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   appendParam(params, "category", next.category.trim());
   appendParam(params, "tag", next.tag.trim());
   appendParam(params, "flashback", next.flashback.trim());
-
-  if (next.view === "grid") {
-    params.set("view", "grid");
-  }
 
   const queryString = params.toString();
   return queryString.length > 0 ? `/memories?${queryString}` : "/memories";

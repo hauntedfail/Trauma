@@ -67,6 +67,13 @@ describe("reader Moment actions", () => {
     });
   });
 
+  it("keeps taxonomy chips out of reader selection ranges", () => {
+    expect(readerSource).toContain("data-reader-noncontent");
+    expect(readerSource).toContain("rangeIntersectsReaderNonContent");
+    expect(readerSource).toContain("querySelectorAll(\"[data-reader-noncontent]\")");
+    expect(readerSource).toContain("compareBoundaryPoints");
+  });
+
   it("surfaces Moment API error bodies for debugging client failures", async () => {
     await expect(
       createMomentForSection({

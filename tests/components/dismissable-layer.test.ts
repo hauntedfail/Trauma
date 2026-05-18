@@ -24,5 +24,6 @@ describe("dismissable popup layers", () => {
   it("is shared by taxonomy creation popovers", () => {
     expect(taxonomyCreatePopoverSource).toContain("useDismissableLayer");
     expect(taxonomyCreatePopoverSource).toContain("shouldSuppressOutsideTaxonomyClick");
+    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyPopoverActionTarget");
   });
 });
