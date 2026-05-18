@@ -134,7 +134,7 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
   expect(underlineState.underlineBottom).toBe("5px");
 });
 
-test("updates URL query state from search, filters, flashback shortcuts, and view controls", async ({
+test("updates URL query state from search, taxonomy filters, and view controls", async ({
   page,
 }) => {
   await page.goto("/memories");
@@ -149,11 +149,6 @@ test("updates URL query state from search, filters, flashback shortcuts, and vie
 
   await page.getByRole("button", { name: "solidstart" }).click();
   await expect(page).toHaveURL(/tag=solidstart/);
-
-  await page.getByRole("button", { name: /flashback-aware results/i }).click();
-  await expect(page).toHaveURL(/\/memories\?flashback=h-foundation$/);
-  await expect(page).not.toHaveURL(/category=research/);
-  await expect(page).not.toHaveURL(/tag=solidstart/);
 
   const viewModeGroup = page.getByRole("group", { name: "View mode" });
   await expect(viewModeGroup).toBeVisible();
@@ -210,7 +205,14 @@ test("renders category, tag, and flashback shortcut sections in the right panel"
   await expect(filters.getByRole("heading", { name: "Recent flashbacks" })).toHaveCount(0);
   await expect(filters.getByRole("button", { name: "Research" })).toBeVisible();
   await expect(filters.getByRole("button", { name: "solidstart" })).toBeVisible();
-  await expect(filters.getByRole("button", { name: /flashback-aware results/i })).toBeVisible();
+  const flashbackLink = filters.getByRole("link", {
+    name: /flashback-aware results/i,
+  });
+  await expect(flashbackLink).toBeVisible();
+  await expect(flashbackLink).toHaveAttribute(
+    "href",
+    /\/memories\/memory-foundation#h-foundation$/,
+  );
 
   const sectionRadius = await filters
     .locator("section")

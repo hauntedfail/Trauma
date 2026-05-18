@@ -32,13 +32,13 @@ import {
 } from "../memories/browse-loader";
 import {
   buildBrowseHref,
-  buildFlashbackBrowseHref,
   getRecentFlashbacks,
   parseBrowseQuery,
   type BrowseFlashback,
   type BrowseQuery,
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
+import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
   DEFAULT_BRIGHTNESS_MODE,
@@ -184,10 +184,6 @@ export function AppShell(props: AppShellProps) {
     navigate(buildBrowseHref(query(), patch));
   };
 
-  const goToFlashback = (flashbackId: string) => {
-    navigate(buildFlashbackBrowseHref(flashbackId));
-  };
-
   const toggleFilter = (key: "category" | "tag" | "flashback", value: string) => {
     const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
     goToFilter(patch);
@@ -229,7 +225,6 @@ export function AppShell(props: AppShellProps) {
             onCreatedCategory={() => void revalidateBrowseTaxonomy()}
             onCreatedTag={() => void revalidateBrowseTaxonomy()}
             onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectFlashback={(flashback) => goToFlashback(flashback.id)}
             onSelectTag={(tag) => toggleFilter("tag", tag.id)}
             showFlashbacks={
               rightRailContent() === undefined &&
@@ -553,7 +548,6 @@ export function RightRailFilters(props: {
   onCreatedCategory: () => void;
   onCreatedTag: () => void;
   onSelectCategory: (category: BrowseTaxonomySummaryItem) => void;
-  onSelectFlashback: (flashback: BrowseFlashback) => void;
   onSelectTag: (tag: BrowseTaxonomySummaryItem) => void;
   showFlashbacks?: boolean;
   tags: BrowseTaxonomySummaryItem[];
@@ -653,8 +647,11 @@ export function RightRailFilters(props: {
             emptyLabel="No flashbacks yet"
             flashbacks={props.flashbacks.map((flashback) => ({
               active: props.activeFlashback === flashback.id,
+              href: buildMemoryAnchorHref({
+                anchorId: flashback.id,
+                memoryId: flashback.memoryId,
+              }),
               id: flashback.id,
-              onSelect: () => props.onSelectFlashback(flashback),
               prefix: flashback.prefix,
               suffix: flashback.suffix,
               text: flashback.text,

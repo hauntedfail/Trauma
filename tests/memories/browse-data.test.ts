@@ -26,6 +26,7 @@ const fixtures: BrowseMemory[] = [
     flashbacks: [
       {
         id: "h-foundation",
+        memoryId: "memory-foundation",
         text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
@@ -151,6 +152,7 @@ describe("browse query state", () => {
       flashbacks: [
         {
           id: "h-first",
+          memoryId: "memory-foundation",
           text: "first flashback",
           prefix: "first",
           suffix: "context",
@@ -158,6 +160,7 @@ describe("browse query state", () => {
         },
         {
           id: "h-selected",
+          memoryId: "memory-foundation",
           text: "selected flashback",
           prefix: "selected",
           suffix: "context",
@@ -178,6 +181,7 @@ describe("browse query state", () => {
         flashbacks: [
           {
             id: "h-newer-memory-old-flashback",
+            memoryId: "memory-foundation",
             text: "older flashback on newer memory",
             prefix: "new memory",
             suffix: "old flashback",
@@ -191,6 +195,7 @@ describe("browse query state", () => {
         flashbacks: [
           {
             id: "h-older-memory-new-flashback",
+            memoryId: "memory-ops",
             text: "newer flashback on older memory",
             prefix: "old memory",
             suffix: "new flashback",
@@ -200,9 +205,9 @@ describe("browse query state", () => {
       },
     ];
 
-    expect(getRecentFlashbacks(memories).map((flashback) => flashback.id)).toEqual([
-      "h-older-memory-new-flashback",
-      "h-newer-memory-old-flashback",
+    expect(getRecentFlashbacks(memories).map((flashback) => [flashback.id, flashback.memoryId])).toEqual([
+      ["h-older-memory-new-flashback", "memory-ops"],
+      ["h-newer-memory-old-flashback", "memory-foundation"],
     ]);
   });
 

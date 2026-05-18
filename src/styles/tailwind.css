@@ -392,6 +392,12 @@
     margin-inline-start: -1.75rem;
     padding-inline-start: 1.75rem;
     position: relative;
+    scroll-margin-block-start: 6rem;
+  }
+
+  .trauma-reader-body [data-reader-section-anchor],
+  .trauma-reader-body mark[data-flashback-id] {
+    scroll-margin-block-start: 6rem;
   }
 
   .trauma-reader-section-moment {

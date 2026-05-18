@@ -13,6 +13,7 @@ import {
   revalidateFlashbackBrowseRows,
 } from "~/components/flashbacks/flashbacks-loader";
 import { classifyFlashbackRows } from "~/components/flashbacks/route-state";
+import { buildMemoryAnchorHref } from "~/components/memories/memory-anchor-hrefs";
 import { revalidateBrowseMemoryWorkspace } from "~/components/memories/browse-loader";
 import { revalidateReaderMemory } from "~/components/reader/reader-memory-loader";
 
@@ -76,7 +77,10 @@ export default function FlashbacksIndex() {
                     <article class={cardBase}>
                       <a
                         class="grid min-w-0 gap-2 no-underline"
-                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
+                        href={buildMemoryAnchorHref({
+                          anchorId: flashback.id,
+                          memoryId: flashback.memoryId,
+                        })}
                       >
                         <FlashbackInlineText
                           class="text-base"

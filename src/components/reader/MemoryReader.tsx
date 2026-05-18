@@ -28,6 +28,10 @@ import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
 import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
 import {
+  buildMemoryAnchorHref,
+  buildSameMemoryAnchorHref,
+} from "../memories/memory-anchor-hrefs";
+import {
   attachCategoryToMemoryByName,
   deleteMemoryById,
   isBackupFailsafeMemoryActionError,
@@ -141,6 +145,7 @@ function ReadyMemoryReader(props: {
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
 }) {
+  let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
@@ -230,14 +235,18 @@ function ReadyMemoryReader(props: {
 
       closeReaderMenus();
     };
+    const scrollHashTarget = () => scheduleReaderHashTargetScroll(readerRootRef);
 
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOnPointerDown);
     window.addEventListener("scroll", closeReaderMenus, true);
+    window.addEventListener("hashchange", scrollHashTarget);
+    scheduleReaderHashTargetScroll(readerRootRef);
     onCleanup(() => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnPointerDown);
       window.removeEventListener("scroll", closeReaderMenus, true);
+      window.removeEventListener("hashchange", scrollHashTarget);
       clearSectionLongPress();
     });
   });
@@ -347,6 +356,11 @@ function ReadyMemoryReader(props: {
       toc: props.result.rendered.toc,
     });
   });
+  createEffect(() => {
+    props.result.memory.id;
+    readerBodyHtml();
+    scheduleReaderHashTargetScroll(readerRootRef);
+  });
   const toggleMoment = async (
     section: ReaderMomentSection,
   ): Promise<void> => {
@@ -442,7 +456,7 @@ function ReadyMemoryReader(props: {
   };
 
   return (
-    <article class={readerFrame} aria-label="Memory">
+    <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
       <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
         <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
           <ChevronLeftIcon />
@@ -690,6 +704,63 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+export function readReaderHashTargetId(hash: string): string {
+  if (!hash.startsWith("#")) {
+    return "";
+  }
+
+  const rawTarget = hash.slice(1).trim();
+  if (rawTarget.length === 0) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(rawTarget);
+  } catch {
+    return rawTarget;
+  }
+}
+
+export function scrollReaderHashTarget(input: {
+  behavior?: ScrollBehavior;
+  hash: string;
+  root: HTMLElement | undefined;
+}): boolean {
+  const targetId = readReaderHashTargetId(input.hash);
+  if (targetId.length === 0 || input.root === undefined) {
+    return false;
+  }
+
+  const target = input.root.querySelector<HTMLElement>(
+    `#${CSS.escape(targetId)}`,
+  );
+  if (target === null) {
+    return false;
+  }
+
+  target.scrollIntoView({
+    behavior: input.behavior ?? "auto",
+    block: "start",
+    inline: "nearest",
+  });
+  return true;
+}
+
+function scheduleReaderHashTargetScroll(root: HTMLElement | undefined): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      scrollReaderHashTarget({
+        hash: window.location.hash,
+        root,
+      });
+    });
+  });
+}
+
 async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
@@ -802,7 +873,10 @@ export function ReaderFlashbackTabs(props: {
             emptyLabel="No flashbacks yet"
             flashbacks={allRows().map((flashback) => ({
               id: flashback.id,
-              href: `/memories/${flashback.memoryId}#${flashback.id}`,
+              href: buildMemoryAnchorHref({
+                anchorId: flashback.id,
+                memoryId: flashback.memoryId,
+              }),
               prefix: flashback.prefix,
               suffix: flashback.suffix,
               text: flashback.text,
@@ -815,7 +889,7 @@ export function ReaderFlashbackTabs(props: {
           emptyLabel="No flashbacks for this memory yet"
           flashbacks={props.currentFlashbacks.map((flashback) => ({
             id: flashback.id,
-            href: `#${flashback.id}`,
+            href: buildSameMemoryAnchorHref(flashback.id),
             prefix: flashback.prefix,
             suffix: flashback.suffix,
             text: flashback.text,

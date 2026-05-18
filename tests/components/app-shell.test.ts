@@ -65,6 +65,11 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('href: "/settings"');
   });
 
+  it("opens right-rail Flashback shortcuts through shared memory anchor hrefs", () => {
+    expect(appShellSource).toContain("buildMemoryAnchorHref");
+    expect(appShellSource).not.toContain("buildFlashbackBrowseHref");
+  });
+
   it("uses filled icons and bold labels for active tabs without active background fills", () => {
     const activeNavStart = appShellSource.indexOf("const activeNavItem =");
     const activeNavEnd = appShellSource.indexOf("const disabledNavItem =", activeNavStart);

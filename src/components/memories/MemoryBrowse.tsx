@@ -12,6 +12,7 @@ import {
   type BrowseTaxonomyItem,
   type BrowseMemory,
 } from "./browse-data";
+import { buildMemoryAnchorHref } from "./memory-anchor-hrefs";
 import {
   getBrowseMemories,
   revalidateBrowseMemoryWorkspace,
@@ -169,7 +170,16 @@ export function MemoryItem(props: {
   );
   const [tagPopoverOpen, setTagPopoverOpen] = createSignal(false);
   const [actionError, setActionError] = createSignal("");
-  const href = () => `/memories/${props.memory.id}`;
+  const href = createMemo(() =>
+    buildMemoryAnchorHref({
+      anchorId:
+        props.selectedFlashbackId.length > 0 &&
+        displayFlashback()?.id === props.selectedFlashbackId
+          ? props.selectedFlashbackId
+          : null,
+      memoryId: props.memory.id,
+    }),
+  );
 
   const openMemory = (): void => {
     if (props.onOpen !== undefined) {

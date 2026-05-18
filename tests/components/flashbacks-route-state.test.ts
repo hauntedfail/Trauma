@@ -75,6 +75,7 @@ describe("flashbacks route state", () => {
   });
 
   it("keeps route rows on shared inline context, source title metadata, and shared delete menu", () => {
+    expect(flashbacksRouteSource).toContain("buildMemoryAnchorHref");
     expect(flashbacksRouteSource).toContain("FlashbackInlineText");
     expect(flashbacksRouteSource).not.toContain("FlashbackExcerpt");
     expect(flashbacksRouteSource).toContain("prefix={flashback.prefix}");

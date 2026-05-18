@@ -36,7 +36,6 @@ describe("app shell taxonomy right rail", () => {
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [
           {
@@ -71,7 +70,6 @@ describe("app shell taxonomy right rail", () => {
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [],
       }),

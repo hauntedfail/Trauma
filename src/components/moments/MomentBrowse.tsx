@@ -5,6 +5,7 @@ import type { MomentBrowseRow } from "~/server/moments/browse";
 import { deleteMomentById } from "./moment-action-requests";
 import { MomentActionMenu } from "./MomentActionMenu";
 import { getMomentBrowseRows, revalidateMomentBrowseRows } from "./moments-loader";
+import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 
 const pageFrame =
@@ -84,9 +85,11 @@ function MomentRow(props: {
   moment: MomentBrowseRow;
   onDeleteMoment: (momentId: string, memoryId: string) => Promise<void>;
 }) {
-  const href = () => props.moment.targetAnchor === null
-    ? `/memories/${props.moment.memoryId}`
-    : `/memories/${props.moment.memoryId}#${props.moment.targetAnchor}`;
+  const href = () =>
+    buildMemoryAnchorHref({
+      anchorId: props.moment.targetAnchor,
+      memoryId: props.moment.memoryId,
+    });
 
   return (
     <article class={rowBase}>

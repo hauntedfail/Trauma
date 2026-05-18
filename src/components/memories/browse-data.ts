@@ -19,6 +19,7 @@ export interface BrowseTaxonomySummary {
 
 export interface BrowseFlashback {
   id: string;
+  memoryId: string;
   text: string;
   prefix: string;
   suffix: string;
@@ -152,7 +153,12 @@ export function getBrowseTags(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
 
 export function getRecentFlashbacks(memories: BrowseMemory[]): BrowseFlashback[] {
   return memories
-    .flatMap((memory) => memory.flashbacks)
+    .flatMap((memory) =>
+      memory.flashbacks.map((flashback) => ({
+        ...flashback,
+        memoryId: flashback.memoryId,
+      })),
+    )
     .toSorted((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
     .slice(0, 5);
 }
