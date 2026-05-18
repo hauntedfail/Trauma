@@ -1,9 +1,12 @@
 import { splitProps, type JSX } from "solid-js";
 
+import { ButtonHint } from "./ButtonHint";
+
 export type WaxSealButtonVariant = "command" | "toggle";
 
 export interface WaxSealButtonProps
   extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+  hint?: string;
   variant?: WaxSealButtonVariant;
 }
 
@@ -22,6 +25,7 @@ export function WaxSealButton(props: WaxSealButtonProps) {
   const [local, buttonProps] = splitProps(props, [
     "children",
     "class",
+    "hint",
     "variant",
   ]);
   const variant = local.variant ?? "command";
@@ -34,8 +38,10 @@ export function WaxSealButton(props: WaxSealButtonProps) {
         variantClass[variant],
         local.class,
       ])}
+      data-trauma-hint={local.hint}
     >
       {local.children}
+      {local.hint === undefined ? null : <ButtonHint>{local.hint}</ButtonHint>}
     </button>
   );
 }

@@ -24,6 +24,7 @@ import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
 import { MemorySearchBar } from "./MemorySearchBar";
 import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { ButtonHint } from "../ui/ButtonHint";
 import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -82,6 +83,7 @@ export function MemoryBrowse() {
             <WaxSealButton
               aria-pressed={!isGrid()}
               class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+              hint="List view"
               type="button"
               variant="toggle"
               onClick={() => updateQuery({ view: "list" })}
@@ -91,6 +93,7 @@ export function MemoryBrowse() {
             <WaxSealButton
               aria-pressed={isGrid()}
               class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+              hint="Grid view"
               type="button"
               variant="toggle"
               onClick={() => updateQuery({ view: "grid" })}
@@ -311,6 +314,7 @@ export function MemoryItem(props: {
             <span class="relative inline-grid">
               <button
                 class="inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary"
+                data-trauma-hint="Add tag"
                 type="button"
                 onClick={(event) => {
                   event.preventDefault();
@@ -320,6 +324,7 @@ export function MemoryItem(props: {
               >
                 <PlusIcon />
                 Add tag
+                <ButtonHint>Add tag</ButtonHint>
               </button>
               <Show when={tagPopoverOpen()}>
                 <TaxonomyCreatePopover

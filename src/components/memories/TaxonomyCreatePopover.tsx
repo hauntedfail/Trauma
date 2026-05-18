@@ -1,6 +1,7 @@
 import { createSignal, onMount, type JSX } from "solid-js";
 
 import { PlusIcon } from "../icons";
+import { ButtonHint } from "../ui/ButtonHint";
 import { useDismissableLayer } from "../ui/dismissable-layer";
 
 export interface TaxonomyCreatePopoverProps {
@@ -89,8 +90,10 @@ export function TaxonomyCreatePopover(props: TaxonomyCreatePopoverProps) {
             type="submit"
             disabled={pending()}
             aria-label={props.submitLabel}
+            data-trauma-hint={props.submitLabel}
           >
             <PlusIcon />
+            <ButtonHint>{props.submitLabel}</ButtonHint>
           </button>
         </div>
         {error() !== "" ? (
