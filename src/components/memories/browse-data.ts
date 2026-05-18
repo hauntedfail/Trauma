@@ -452,7 +452,7 @@ function readSearchField(
     return undefined;
   }
 
-  const maybeField = query.slice(start, separator).toLocaleLowerCase();
+  const maybeField = query.slice(start, separator).toLowerCase();
   if (!fieldNames.has(maybeField as BrowseSearchField)) {
     return undefined;
   }
@@ -578,5 +578,5 @@ function getUniqueTaxonomyItems(items: BrowseTaxonomyItem[]): BrowseTaxonomyItem
 }
 
 function normalize(value: string): string {
-  return value.trim().toLocaleLowerCase();
+  return value.trim().toLowerCase();
 }

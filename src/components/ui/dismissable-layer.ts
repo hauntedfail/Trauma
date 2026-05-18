@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from "solid-js";
+import { createEffect, onCleanup } from "solid-js";
 
 export interface DismissableLayerOptions<TRoot extends HTMLElement> {
   getRoot: () => TRoot | undefined;
@@ -11,6 +11,7 @@ export interface DismissableLayerOptions<TRoot extends HTMLElement> {
 export function useDismissableLayer<TRoot extends HTMLElement>(
   options: DismissableLayerOptions<TRoot>,
 ): void {
+  let dismissAfterOutsideClick = false;
   let suppressNextOutsideClick = false;
   const isEnabled = () => options.isEnabled?.() ?? true;
   const isOutside = (target: EventTarget | null): boolean => {
@@ -18,19 +19,39 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
     return root !== undefined && target instanceof Node && !root.contains(target);
   };
 
-  onMount(() => {
+  createEffect(() => {
+    if (!isEnabled()) {
+      dismissAfterOutsideClick = false;
+      suppressNextOutsideClick = false;
+      return;
+    }
+
     const handlePointerDown = (event: PointerEvent) => {
-      if (!isEnabled() || !isOutside(event.target)) {
+      if (!isOutside(event.target)) {
         return;
       }
       if (options.shouldIgnoreOutsidePointerDown?.(event.target) === true) {
         return;
       }
 
-      suppressNextOutsideClick = true;
+      if (options.shouldSuppressOutsideClick?.(event.target) === true) {
+        suppressNextOutsideClick = true;
+        options.onDismiss();
+        return;
+      }
+
+      dismissAfterOutsideClick = true;
+    };
+    const dismissAfterClick = () => {
       options.onDismiss();
     };
     const handleClick = (event: MouseEvent) => {
+      if (dismissAfterOutsideClick) {
+        dismissAfterOutsideClick = false;
+        globalThis.setTimeout(dismissAfterClick, 0);
+        return;
+      }
+
       if (!suppressNextOutsideClick) {
         return;
       }
@@ -47,7 +68,7 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       event.stopImmediatePropagation();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEnabled() && event.key === "Escape") {
+      if (event.key === "Escape") {
         options.onDismiss();
       }
     };

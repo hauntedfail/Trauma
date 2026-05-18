@@ -56,6 +56,7 @@ describe("popup shell", () => {
     expect(popupSource).toContain("shouldSuppressPopupOutsideClick");
     expect(popupSource).toContain("isPopupActionTarget");
     expect(popupSource).toContain("[data-popup-dismiss-only]");
+    expect(popupSource).toContain("a,button,input");
     expect(popupSource).not.toContain("a,[data-popup-dismiss-only]");
     expect(popupSource).toContain("rounded-[20px]");
     expect(popupSource).toContain("animate-trauma-pop-bounce");

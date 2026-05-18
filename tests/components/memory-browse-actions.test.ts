@@ -131,6 +131,10 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("MemoryReadStateTabs");
     expect(browseSource).toContain('role="tablist"');
     expect(browseSource).toContain('aria-label="Memory read status"');
+    expect(browseSource).toContain("tabIndex={active() ? 0 : -1}");
+    expect(browseSource).toContain("onKeyDown={(event) => handleKeyDown(event, index())}");
+    expect(browseSource).toContain('event.key === "ArrowRight"');
+    expect(browseSource).toContain('event.key === "Home"');
     expect(browseSource).toContain("setBrowseReadStateFilter");
     expect(browseSource).not.toContain('aria-label="View mode"');
     expect(browseSource).not.toContain('hint="List view"');

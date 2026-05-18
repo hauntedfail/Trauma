@@ -12,7 +12,7 @@ export interface KebabActionMenuProps {
   children: (controls: KebabActionMenuControls) => JSX.Element;
   class?: string;
   disabled?: boolean;
-  id?: string;
+  id: string;
   initialOpen?: boolean;
   label: string;
   onClose?: () => void;
@@ -38,7 +38,7 @@ export function KebabActionMenu(props: KebabActionMenuProps) {
     <Popup
       class={`${rootClass} ${props.class ?? ""}`}
       disabled={props.disabled}
-      id={props.id ?? `${props.label.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-")}-menu`}
+      id={props.id}
       initialOpen={props.initialOpen}
       label={props.label}
       mode="menu"

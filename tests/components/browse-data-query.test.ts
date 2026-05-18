@@ -85,4 +85,16 @@ describe("browse fielded query filters", () => {
       }).map((memory) => memory.id),
     ).toEqual(["research"]);
   });
+
+  it("parses field operators with locale-invariant casing", () => {
+    expect(
+      filterBrowseMemories([baseMemory], {
+        q: "TITLE:{Reader Mode}",
+        category: "",
+        tag: "",
+        flashback: "",
+        view: "list",
+      }).map((memory) => memory.id),
+    ).toEqual(["memory-1"]);
+  });
 });

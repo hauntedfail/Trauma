@@ -19,6 +19,10 @@ const memoryBrowseSource = readFileSync(
   "utf8",
 );
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
+const kebabActionMenuSource = readFileSync(
+  "src/components/ui/KebabActionMenu.tsx",
+  "utf8",
+);
 const emptyTooltipMarkupPattern = /<span(?=[^>]*class="trauma-button-hint")(?=[^>]*role="tooltip")[^>]*><\/span>/;
 
 describe("button hover hints", () => {
@@ -58,8 +62,10 @@ describe("button hover hints", () => {
   it("lets shared button primitives expose hints through shared HTML tooltip markup", () => {
     const kebabHtml = renderToString(() =>
       createComponent(KebabActionMenu, {
+        id: "memory-actions-test-menu",
+        initialOpen: true,
         label: "Memory actions",
-        children: () => null,
+        children: () => <button type="button">Action</button>,
       }),
     );
     const segmentedHtml = renderToString(() =>
@@ -81,6 +87,7 @@ describe("button hover hints", () => {
     );
 
     expect(kebabHtml).toContain('data-trauma-hint="Memory actions"');
+    expect(kebabHtml).toContain('aria-controls="memory-actions-test-menu"');
     expect(kebabHtml).toContain('role="tooltip"');
     expect(kebabHtml).toContain("trauma-button-hint");
     expect(kebabHtml).toMatch(emptyTooltipMarkupPattern);
@@ -90,6 +97,13 @@ describe("button hover hints", () => {
     expect(waxHtml).toContain('data-trauma-hint="Save memory"');
     expect(waxHtml).toContain('role="tooltip"');
     expect(waxHtml).toMatch(emptyTooltipMarkupPattern);
+  });
+
+  it("requires callers to provide stable action-menu ids", () => {
+    expect(kebabActionMenuSource).toContain("id: string");
+    expect(kebabActionMenuSource).toContain("id={props.id}");
+    expect(kebabActionMenuSource).not.toContain("props.id ??");
+    expect(kebabActionMenuSource).not.toContain("replace(/[^a-z0-9]+/g");
   });
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {

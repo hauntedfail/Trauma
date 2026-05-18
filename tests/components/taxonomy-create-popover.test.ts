@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
@@ -6,6 +8,11 @@ import {
   submitTaxonomyName,
   TaxonomyCreatePopover,
 } from "../../src/components/memories/TaxonomyCreatePopover";
+
+const taxonomyCreatePopoverSource = readFileSync(
+  "src/components/memories/TaxonomyCreatePopover.tsx",
+  "utf8",
+);
 
 describe("taxonomy create popover", () => {
   it("renders labelled input and submit action", () => {
@@ -55,5 +62,10 @@ describe("taxonomy create popover", () => {
     });
 
     expect(calls).toEqual(["Research"]);
+  });
+
+  it("treats links as actionable outside targets when deciding click suppression", () => {
+    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyPopoverActionTarget");
+    expect(taxonomyCreatePopoverSource).toContain("a,button,input");
   });
 });

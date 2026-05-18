@@ -183,6 +183,22 @@ test("updates URL query state from search, taxonomy filters, and read-state tabs
   await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
     "reader mode category=Research tag=solidstart",
   );
+
+  await statusTabs.getByRole("tab", { name: "All" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart unread",
+  );
+  await expect(statusTabs.getByRole("tab", { name: "Unread" })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart read",
+  );
+  await expect(statusTabs.getByRole("tab", { name: "Read", exact: true })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart",
+  );
 });
 
 test("keeps the memories search focus indicator on the rounded search surface", async ({
@@ -675,28 +691,28 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
-test("closes the add-memory composer on outside memory-row clicks without opening the memory", async ({
+test("closes the add-memory composer on outside row surfaces while preserving row links", async ({
   page,
 }) => {
+  createBrowseDeleteFixture();
   await page.goto("/memories");
-
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
-
-  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
-
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
-  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.getByRole("button", { name: "Add tag" }).click();
+  await row.locator("p").first().click();
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await page.waitForLoadState("networkidle");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click({ force: true });
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {

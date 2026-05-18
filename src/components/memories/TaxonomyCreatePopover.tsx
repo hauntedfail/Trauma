@@ -144,6 +144,6 @@ function shouldSuppressOutsideTaxonomyClick(target: EventTarget | null): boolean
 
 function isTaxonomyPopoverActionTarget(target: Element): boolean {
   return target.closest(
-    "button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
+    "a,button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
   ) !== null;
 }

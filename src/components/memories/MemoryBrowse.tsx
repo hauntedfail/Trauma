@@ -131,6 +131,42 @@ function MemoryReadStateTabs(props: {
   value: BrowseReadStateFilter;
   onChange: (value: BrowseReadStateFilter) => void;
 }) {
+  const tabButtons: HTMLButtonElement[] = [];
+  const focusTab = (index: number): void => {
+    const tab = readStateTabs[index];
+    if (tab === undefined) {
+      return;
+    }
+
+    props.onChange(tab.value);
+    tabButtons[index]?.focus();
+  };
+  const handleKeyDown = (event: KeyboardEvent, index: number): void => {
+    const lastIndex = readStateTabs.length - 1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      focusTab(index === lastIndex ? 0 : index + 1);
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusTab(index === 0 ? lastIndex : index - 1);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusTab(0);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      focusTab(lastIndex);
+    }
+  };
+
   return (
     <div
       aria-label="Memory read status"
@@ -138,7 +174,7 @@ function MemoryReadStateTabs(props: {
       role="tablist"
     >
       <For each={readStateTabs}>
-        {(tab) => {
+        {(tab, index) => {
           const active = createMemo(() => props.value === tab.value);
 
           return (
@@ -146,8 +182,13 @@ function MemoryReadStateTabs(props: {
               aria-selected={active()}
               class="trauma-memory-read-tab"
               data-active={active() ? "true" : "false"}
+              ref={(element) => {
+                tabButtons[index()] = element;
+              }}
               role="tab"
+              tabIndex={active() ? 0 : -1}
               type="button"
+              onKeyDown={(event) => handleKeyDown(event, index())}
               onClick={() => props.onChange(tab.value)}
             >
               {tab.label}

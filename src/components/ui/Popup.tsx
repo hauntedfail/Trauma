@@ -122,6 +122,6 @@ function shouldSuppressPopupOutsideClick(target: EventTarget | null): boolean {
 
 function isPopupActionTarget(target: Element): boolean {
   return target.closest(
-    "button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
+    "a,button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
   ) !== null;
 }
