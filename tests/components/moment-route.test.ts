@@ -35,5 +35,6 @@ describe("Moment route", () => {
     );
     expect(browseSource).toContain("No Moments yet");
     expect(browseSource).toContain("Saved reader sections will appear here.");
+    expect(browseSource).not.toContain("Saved sections");
   });
 });

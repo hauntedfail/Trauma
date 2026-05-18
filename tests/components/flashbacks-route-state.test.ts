@@ -74,13 +74,15 @@ describe("flashbacks route state", () => {
     } satisfies FlashbackRowsState);
   });
 
-  it("keeps route cards on excerpt context, source title metadata, and shared delete menu", () => {
-    expect(flashbacksRouteSource).toContain("FlashbackExcerpt");
+  it("keeps route rows on shared inline context, source title metadata, and shared delete menu", () => {
+    expect(flashbacksRouteSource).toContain("FlashbackInlineText");
+    expect(flashbacksRouteSource).not.toContain("FlashbackExcerpt");
     expect(flashbacksRouteSource).toContain("prefix={flashback.prefix}");
     expect(flashbacksRouteSource).toContain("suffix={flashback.suffix}");
     expect(flashbacksRouteSource).toContain("FlashbackActionMenu");
     expect(flashbackActionMenuSource).toContain("Delete flashback");
     expect(flashbacksRouteSource).toContain("flashback.memoryTitle");
     expect(flashbacksRouteSource).not.toContain("Source memory");
+    expect(flashbacksRouteSource).not.toContain("Marked excerpts");
   });
 });

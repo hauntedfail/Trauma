@@ -3,7 +3,7 @@ import {
   Show,
 } from "solid-js";
 
-import { FlashbackContextText, FlashbackMarkText } from "./FlashbackText";
+import { FlashbackInlineText } from "./FlashbackText";
 
 export interface FlashbackShortcutItem {
   active?: boolean;
@@ -45,11 +45,11 @@ export function FlashbackShortcutList(props: {
 
 function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
   const content = () => (
-    <span class="wrap-anywhere text-sm leading-relaxed">
-      <FlashbackContextText side="before" text={props.flashback.prefix} />
-      <FlashbackMarkText text={props.flashback.text} />
-      <FlashbackContextText side="after" text={props.flashback.suffix ?? ""} />
-    </span>
+    <FlashbackInlineText
+      prefix={props.flashback.prefix}
+      suffix={props.flashback.suffix}
+      text={props.flashback.text}
+    />
   );
 
   return (

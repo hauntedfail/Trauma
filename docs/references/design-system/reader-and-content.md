@@ -101,7 +101,8 @@ Visual contract:
   Keep this target treatment in the reader scope rather than as a generic mark
   rule.
 
-Flashback excerpts use `FlashbackExcerpt`, not the reader prose mark style.
+Flashback browse excerpts and right-rail shortcuts use the shared
+`FlashbackInlineText` primitive, not the reader prose mark style.
 
 ## Flashback Interaction
 

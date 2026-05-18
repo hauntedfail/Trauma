@@ -118,6 +118,10 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("focus-within:ring-trauma-border-strong");
   });
 
+  it("does not render a header subtitle above the memories title", () => {
+    expect(browseSource).not.toContain("Local memory archive");
+  });
+
   it("posts memory deletion requests", async () => {
     const requests: Request[] = [];
 

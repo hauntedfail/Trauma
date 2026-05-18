@@ -11,7 +11,6 @@ const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const pageHeader =
   "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const rowBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
@@ -45,7 +44,6 @@ export function MomentBrowse() {
     <section class={pageFrame} aria-labelledby="moment-title">
       <header class={pageHeader}>
         <div>
-          <p class={eyebrow}>Saved sections</p>
           <h1 class="mb-0 text-3xl font-bold leading-tight" id="moment-title">
             Moment
           </h1>

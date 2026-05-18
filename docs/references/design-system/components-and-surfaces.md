@@ -160,14 +160,12 @@ Grid mode reuses the same content and adds:
 
 ## Flashback Excerpts
 
-`FlashbackExcerpt` is the shared excerpt component for browse cards and the
-canonical `/flashbacks` view.
+`FlashbackInlineText` is the shared text primitive for right-rail Flashback
+shortcuts and the canonical `/flashbacks` view. `FlashbackExcerpt` is only a
+thin browse-card wrapper around the same primitive.
 
 Contract:
 
-- Rounded quote block.
-- Left border uses `border-trauma-quote-bar`.
-- Background uses `bg-trauma-quote-bg`.
 - Prefix and suffix context render around the selected Flashback text.
 - Context uses theme secondary/tertiary foreground tokens plus the shared
   Flashback context blur/mask treatment, so it stays visibly lower contrast
@@ -177,7 +175,9 @@ Contract:
   semantic `mark` element without becoming a separate highlighter badge.
 - Optional link wraps the whole excerpt.
 
-Do not hand-roll separate flashback quote treatments for each route.
+Do not hand-roll separate Flashback text treatments for each route. `/flashbacks`
+uses dense route rows: shared inline Flashback text first, then the source
+memory title as small supplemental metadata at the bottom.
 
 ## Right Rail Sections
 

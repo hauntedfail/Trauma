@@ -43,7 +43,6 @@ const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const pageHeader =
   "trauma-route-header trauma-memory-browse-header trauma-fluid-route-padding sticky top-0 z-[1] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const controlButton =
   "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const surfaceInput =
@@ -80,7 +79,6 @@ export function MemoryBrowse() {
       <Title>Memories | TRAUMA</Title>
       <header class={pageHeader}>
         <div class="min-w-0">
-          <p class={eyebrow}>Local memory archive</p>
           <h1 class="mb-0 truncate text-3xl font-bold leading-tight" id="memories-title">
             Memories
             <span class="ml-2 align-middle text-sm font-medium text-trauma-text-muted" aria-hidden="true">

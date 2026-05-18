@@ -1,5 +1,20 @@
 import { Show } from "solid-js";
 
+export function FlashbackInlineText(props: {
+  class?: string;
+  prefix: string;
+  suffix?: string;
+  text: string;
+}) {
+  return (
+    <span class={`wrap-anywhere text-sm leading-relaxed ${props.class ?? ""}`}>
+      <FlashbackContextText side="before" text={props.prefix} />
+      <FlashbackMarkText text={props.text} />
+      <FlashbackContextText side="after" text={props.suffix ?? ""} />
+    </span>
+  );
+}
+
 export function FlashbackContextText(props: {
   side: "after" | "before";
   text: string;

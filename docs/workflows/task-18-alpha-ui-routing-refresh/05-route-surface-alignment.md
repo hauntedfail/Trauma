@@ -106,8 +106,9 @@ Allowed route work in this branch:
     context distinction
   - keep the right pane Flashback component bounded as an independent scroll
     region when its content overflows
-  - apply subtle top and bottom blur-gradient fades like the TOC fade treatment,
-    rendering each fade only when that edge is scrollable
+  - do not apply a TOC-style component-level fade to Flashback lists; the
+    visual effect belongs to the stored prefix/suffix context spans for each
+    Flashback item
   - reuse a shared Flashback excerpt/list primitive where practical so
     `/flashbacks` and right pane Flashbacks do not drift visually
 - align `/flashbacks` page cards:
@@ -202,13 +203,12 @@ this workflow before coding the route.
       Flashback context blur/mask treatment
     - right pane Flashback lists do not expose component-level TOC fade hooks;
       the blur belongs to each item context span
-    - `/flashbacks` card renders source memory title at the bottom-left without
+    - `/flashbacks` row renders source memory title at the bottom-left without
       a `Source memory` label
-    - `/flashbacks` card renders a meatballs menu with `Delete flashback`
-18. Update `FlashbackExcerpt` and `FlashbackShortcutList` or introduce a small
-    shared Flashback excerpt primitive so the route and right pane share
-    context rendering rules.
-19. Update `/flashbacks` cards to use the shared excerpt rendering, subordinate
+    - `/flashbacks` row renders a meatballs menu with `Delete flashback`
+18. Use `FlashbackInlineText` as the shared Flashback text primitive so the
+    route and right pane share context rendering rules.
+19. Update `/flashbacks` rows to use the shared inline rendering, subordinate
     source title metadata, and Flashback action menu.
 20. Wire `Delete flashback` only through the existing Flashback removal/toggle
     mutation path. If the current backend cannot delete by Flashback id without
@@ -260,9 +260,9 @@ mise exec -- bun run typecheck
   around it.
 - Flashback right pane lists use per-item context blur/mask styling rather than
   component-level scroll-edge overlays.
-- `/flashbacks` cards render source memory title as small bottom-left metadata
+- `/flashbacks` rows render source memory title as small bottom-left metadata
   and no longer render a `Source memory` label.
-- `/flashbacks` cards provide a meatballs menu with `Delete flashback` using
+- `/flashbacks` rows provide a meatballs menu with `Delete flashback` using
   the shared action-menu danger style.
 - Right-rail Flashback list headings use the plural `Flashbacks` everywhere.
 - No new public route appears without an explicit workflow update.

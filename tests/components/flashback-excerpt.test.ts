@@ -5,10 +5,31 @@ import { describe, expect, it } from "vitest";
 
 import { FlashbackExcerpt } from "../../src/components/flashbacks/FlashbackExcerpt";
 import { FlashbackShortcutList } from "../../src/components/flashbacks/FlashbackShortcutList";
+import { FlashbackInlineText } from "../../src/components/flashbacks/FlashbackText";
 
 const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
 
 describe("Flashback excerpt rendering", () => {
+  it("centralizes inline Flashback text for route and right rail rows", () => {
+    const html = renderToString(() =>
+      createComponent(FlashbackInlineText, {
+        prefix: "before ",
+        text: "selected text",
+        suffix: " after",
+        class: "text-base",
+      }),
+    );
+
+    expect(html).toContain("wrap-anywhere");
+    expect(html).toContain("text-base");
+    expect(html).toContain("before ");
+    expect(html).toContain("selected text");
+    expect(html).toContain(" after");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
+    expect(html).not.toContain("<blockquote");
+  });
+
   it("renders selected text with blurred context around it", () => {
     const html = renderToString(() =>
       createComponent(FlashbackExcerpt, {
@@ -24,6 +45,9 @@ describe("Flashback excerpt rendering", () => {
     expect(html).toContain("trauma-flashback-context-before");
     expect(html).toContain("trauma-flashback-context-after");
     expect(html).toContain("font-bold text-trauma-text-primary");
+    expect(html).not.toContain("<blockquote");
+    expect(html).not.toContain("border-trauma-quote-bar");
+    expect(html).not.toContain("bg-trauma-quote-bg");
   });
 
   it("renders shortcut list item context without component-level fade hooks", () => {

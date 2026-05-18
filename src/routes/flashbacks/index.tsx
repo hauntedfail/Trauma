@@ -7,7 +7,7 @@ import {
   FlashbackActionMenu,
   type FlashbackActionMenuItem,
 } from "~/components/flashbacks/FlashbackActionMenu";
-import { FlashbackExcerpt } from "~/components/flashbacks/FlashbackExcerpt";
+import { FlashbackInlineText } from "~/components/flashbacks/FlashbackText";
 import {
   getFlashbackBrowseRows,
   revalidateFlashbackBrowseRows,
@@ -20,9 +20,8 @@ const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const pageHeader =
   "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const cardBase =
-  "trauma-route-row grid min-w-0 gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
+  "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export default function FlashbacksIndex() {
   const flashbacks = createAsync(() => getFlashbackBrowseRows());
@@ -53,7 +52,6 @@ export default function FlashbacksIndex() {
       <Title>Flashbacks | TRAUMA</Title>
       <header class={pageHeader}>
         <div>
-          <p class={eyebrow}>Marked excerpts</p>
           <h1 class="mb-0 text-3xl font-bold leading-tight" id="flashbacks-title">
             Flashbacks
           </h1>
@@ -76,24 +74,26 @@ export default function FlashbacksIndex() {
                 <For each={rows()}>
                   {(flashback) => (
                     <article class={cardBase}>
-                      <header class="grid min-w-0 justify-items-end gap-1">
+                      <a
+                        class="grid min-w-0 gap-2 no-underline"
+                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
+                      >
+                        <FlashbackInlineText
+                          class="text-base"
+                          prefix={flashback.prefix}
+                          suffix={flashback.suffix}
+                          text={flashback.text}
+                        />
+                        <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
+                          <span>{flashback.memoryTitle}</span>
+                        </footer>
+                      </a>
+                      <div class="pt-0.5">
                         <FlashbackActionMenu
                           flashback={flashback}
                           onDelete={deleteFlashback}
                         />
-                      </header>
-                      <FlashbackExcerpt
-                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
-                        prefix={flashback.prefix}
-                        suffix={flashback.suffix}
-                        text={flashback.text}
-                      />
-                      <a
-                        class="mt-1 justify-self-start text-sm font-bold text-trauma-text-muted no-underline hover:text-trauma-link"
-                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
-                      >
-                        {flashback.memoryTitle}
-                      </a>
+                      </div>
                     </article>
                   )}
                 </For>
