@@ -58,6 +58,9 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("trauma-toc-scroll-fade");
     expect(readerSource).toContain("trauma-toc-scroll-fade-top");
     expect(readerSource).toContain("trauma-toc-scroll-fade-bottom");
+    expect(readerSource).toContain("pl-0");
+    expect(readerSource).not.toContain("pl-[18px]");
+    expect(readerSource).toContain("grid-cols-[1.125rem_minmax(0,1fr)]");
     expect(readerSource).toContain(
       "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
     );

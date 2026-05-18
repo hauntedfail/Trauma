@@ -1021,7 +1021,7 @@ function ReaderToc(props: {
         <div class="trauma-toc-scroll-shell">
           <ol
             ref={scrollRef}
-            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
+            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
             {props.toc.map((entry) => (
@@ -1133,7 +1133,7 @@ function ReaderTocEntryRow(props: {
   return (
     <li
       ref={rowRef}
-      class="group grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-1.5"
+      class="group grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
       classList={{
         "ml-2.5": props.entry.level === 2,
         "ml-5": props.entry.level === 3,

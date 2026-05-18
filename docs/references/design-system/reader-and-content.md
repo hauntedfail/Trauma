@@ -49,6 +49,9 @@ Contract:
 - Text is compact.
 - Links target generated markdown heading anchors and use the reader link
   token on hover.
+- Heading entries are left-aligned inside the island. Do not add global list
+  padding; reserve only the small Moment affordance slot and use heading-level
+  indentation for hierarchy.
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
