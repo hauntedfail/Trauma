@@ -52,6 +52,9 @@ describe("Flashback excerpt rendering", () => {
 
   it("keeps Flashback context blur scoped to prefix and suffix text", () => {
     expect(tailwindCss).toContain(".trauma-flashback-context");
+    expect(tailwindCss).toContain(
+      "color: color-mix(in srgb, var(--text-muted) 68%, transparent)",
+    );
     expect(tailwindCss).toContain("filter: blur(");
     expect(tailwindCss).toContain(".trauma-flashback-context-before");
     expect(tailwindCss).toContain(".trauma-flashback-context-after");

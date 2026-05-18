@@ -169,9 +169,9 @@ Contract:
 - Left border uses `border-trauma-quote-bar`.
 - Background uses `bg-trauma-quote-bg`.
 - Prefix and suffix context render around the selected Flashback text.
-- Context uses lower-contrast text plus the shared Flashback context blur/mask
-  treatment. The blur belongs to the prefix/suffix text spans, not to the whole
-  Flashback card, list, or right-rail island.
+- Context uses visibly lighter lower-contrast text plus the shared Flashback
+  context blur/mask treatment. The blur belongs to the prefix/suffix text spans,
+  not to the whole Flashback card, list, or right-rail island.
 - The selected Flashback string uses normal primary readable contrast and a
   semantic `mark` element without becoming a separate highlighter badge.
 - Optional link wraps the whole excerpt.
