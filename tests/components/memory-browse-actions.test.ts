@@ -117,6 +117,7 @@ describe("memory browse actions", () => {
   it("keeps search focus indication on the rounded search surface", () => {
     expect(searchBarSource).toContain("focus-within:ring-inset");
     expect(searchBarSource).toContain("focus-within:ring-trauma-border-strong");
+    expect(searchBarSource).toContain("focus-visible:shadow-none");
   });
 
   it("uses a dedicated search bar component wired to the URL query state", () => {

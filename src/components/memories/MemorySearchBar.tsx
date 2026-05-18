@@ -5,7 +5,7 @@ import { SearchIcon } from "../icons";
 import { buildBrowseHref, parseBrowseQuery } from "./browse-data";
 
 const surfaceInput =
-  "min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder";
+  "min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder focus-visible:shadow-none";
 
 export function MemorySearchBar(props: {
   disabled: boolean;

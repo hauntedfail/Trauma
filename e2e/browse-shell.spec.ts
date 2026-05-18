@@ -171,6 +171,30 @@ test("updates URL query state from search, taxonomy filters, and view controls",
   expect(toggleBoxBefore?.height).toBe(toggleBoxAfter?.height);
 });
 
+test("keeps the memories search focus indicator on the rounded search surface", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  await searchBox.click();
+  const focusState = await searchBox.evaluate((input) => {
+    const surface = input.closest("label");
+    const inputStyle = getComputedStyle(input);
+    const surfaceStyle = surface === null ? undefined : getComputedStyle(surface);
+
+    return {
+      inputBoxShadow: inputStyle.boxShadow,
+      surfaceBorderRadius: surfaceStyle?.borderTopLeftRadius ?? "0px",
+      surfaceBoxShadow: surfaceStyle?.boxShadow ?? "none",
+    };
+  });
+
+  expect(focusState.inputBoxShadow).not.toContain("184, 87, 106");
+  expect(focusState.surfaceBoxShadow).toContain("inset");
+  expect(Number.parseFloat(focusState.surfaceBorderRadius)).toBeGreaterThanOrEqual(20);
+});
+
 test("deletes a memory from the browse list through the public DELETE route", async ({
   page,
 }) => {
