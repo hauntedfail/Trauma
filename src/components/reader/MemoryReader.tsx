@@ -63,6 +63,7 @@ import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { RouteHeader } from "../layout/RouteHeader";
 
 interface MemoryReaderProps {
   flashbackRows?: FlashbackBrowseRow[];
@@ -457,14 +458,18 @@ function ReadyMemoryReader(props: {
 
   return (
     <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
-        <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
-          <ChevronLeftIcon />
-        </a>
-        <div class="min-w-0">
-          <p class="mb-0 text-[20px] font-bold text-trauma-text-primary">Memory</p>
-        </div>
-      </header>
+      <RouteHeader
+        class={`${readerPadding} trauma-reader-header`}
+        leading={() => (
+          <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
+            <ChevronLeftIcon />
+          </a>
+        )}
+        layout="single"
+        title="Memory"
+        titleClass="mb-0 text-[20px] font-bold text-trauma-text-primary"
+        titleElement="p"
+      />
       <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
         <div class="trauma-fluid-page-shell">
           <header class="mb-7 grid gap-4">

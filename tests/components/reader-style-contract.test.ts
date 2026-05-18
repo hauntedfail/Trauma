@@ -24,7 +24,9 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).toContain("text-trauma-link");
     expect(readerSource).toContain('aria-label="Memory"');
-    expect(readerSource).toContain(">Memory</p>");
+    expect(readerSource).toContain("RouteHeader");
+    expect(readerSource).toContain('title="Memory"');
+    expect(readerSource).toContain('titleElement="p"');
     expect(readerSource).not.toContain(">Reader mode</p>");
     expect(readerSource).not.toContain("props.result.memory.title}</h1>");
     expect(readerSource).not.toContain("contenteditable");

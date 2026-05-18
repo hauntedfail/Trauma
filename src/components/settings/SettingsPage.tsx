@@ -11,6 +11,7 @@ import {
   submitTranslationTargetLanguage,
 } from "./settings-submit";
 import { revalidateSettingsState } from "./settings-loader";
+import { RouteHeader } from "../layout/RouteHeader";
 
 export interface SettingsPageProps {
   initialSettings: SettingsState;
@@ -18,8 +19,6 @@ export interface SettingsPageProps {
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const headerClass =
-  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const contentClass = "trauma-fluid-route-padding grid gap-5 py-7";
 const fieldClass =
   "grid gap-3 rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5";
@@ -111,17 +110,13 @@ export function SettingsPage(props: SettingsPageProps) {
 
   return (
     <section class={pageFrame} aria-labelledby="settings-title">
-      <header class={headerClass}>
-        <p class="mb-2 text-sm font-extrabold uppercase text-trauma-text-muted">
-          Settings
-        </p>
-        <h1
-          class="mb-0 text-[32px] font-extrabold text-trauma-text-primary"
-          id="settings-title"
-        >
-          Workspace settings
-        </h1>
-      </header>
+      <RouteHeader
+        eyebrow="Settings"
+        layout="single"
+        title="Workspace settings"
+        titleClass="mb-0 text-[32px] font-extrabold text-trauma-text-primary"
+        titleId="settings-title"
+      />
       <div class={contentClass}>
         <form class={fieldClass} onSubmit={saveLanguage}>
           <label class="grid gap-2">

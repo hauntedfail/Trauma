@@ -8,6 +8,10 @@ const memoryBrowseSource = readFileSync(
   "src/components/memories/MemoryBrowse.tsx",
   "utf8",
 );
+const routeHeaderSource = readFileSync(
+  "src/components/layout/RouteHeader.tsx",
+  "utf8",
+);
 const readerStylesSource = readFileSync(
   "src/components/reader/reader-styles.ts",
   "utf8",
@@ -211,7 +215,7 @@ describe("mobile and cross-device responsive contract", () => {
     expect(tailwindCss).toContain(
       ".trauma-route-header.trauma-memory-browse-header",
     );
-    expect(memoryBrowseSource).toContain(
+    expect(routeHeaderSource).toContain(
       "grid-cols-[minmax(0,1fr)_auto]",
     );
     expect(memoryBrowseSource).toContain("justify-self-end");

@@ -16,11 +16,10 @@ import { classifyFlashbackRows } from "~/components/flashbacks/route-state";
 import { buildMemoryAnchorHref } from "~/components/memories/memory-anchor-hrefs";
 import { revalidateBrowseMemoryWorkspace } from "~/components/memories/browse-loader";
 import { revalidateReaderMemory } from "~/components/reader/reader-memory-loader";
+import { RouteHeader } from "~/components/layout/RouteHeader";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const pageHeader =
-  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const cardBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
@@ -51,13 +50,7 @@ export default function FlashbacksIndex() {
   return (
     <section class={pageFrame} aria-labelledby="flashbacks-title">
       <Title>Flashbacks | TRAUMA</Title>
-      <header class={pageHeader}>
-        <div>
-          <h1 class="mb-0 text-3xl font-bold leading-tight" id="flashbacks-title">
-            Flashbacks
-          </h1>
-        </div>
-      </header>
+      <RouteHeader layout="single" title="Flashbacks" titleId="flashbacks-title" />
       <div class="grid">
         <Show
           when={flashbackRowsState().status === "loading"}

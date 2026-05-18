@@ -602,8 +602,12 @@
 
   @container trauma-reader-surface (width < 42rem) {
     .trauma-reader-header {
-      grid-template-columns: 40px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       padding-inline: 1rem;
+    }
+
+    .trauma-reader-header > div:first-child {
+      grid-template-columns: 40px minmax(0, 1fr);
     }
 
     .trauma-reader-body {

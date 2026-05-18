@@ -34,6 +34,7 @@ import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import { RouteHeader } from "../layout/RouteHeader";
 export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -43,8 +44,6 @@ export {
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const pageHeader =
-  "trauma-route-header trauma-memory-browse-header trauma-fluid-route-padding sticky top-0 z-[1] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const controlButton =
   "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const cardBase =
@@ -77,37 +76,39 @@ export function MemoryBrowse() {
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
       <Title>Memories | TRAUMA</Title>
-      <header class={pageHeader}>
-        <div class="min-w-0">
-          <h1 class="mb-0 truncate text-3xl font-bold leading-tight" id="memories-title">
-            Memories
-            <span class="ml-2 align-middle text-sm font-medium text-trauma-text-muted" aria-hidden="true">
-              {filteredMemories().length}{" "}
-              {filteredMemories().length === 1 ? "memory" : "memories"}
-            </span>
-          </h1>
-        </div>
-        <div class="grid w-[152px] grid-cols-[72px_72px] gap-2 justify-self-end" role="group" aria-label="View mode">
-          <WaxSealButton
-            aria-pressed={!isGrid()}
-            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-            type="button"
-            variant="toggle"
-            onClick={() => updateQuery({ view: "list" })}
-          >
-            <WaxSealLabel>List</WaxSealLabel>
-          </WaxSealButton>
-          <WaxSealButton
-            aria-pressed={isGrid()}
-            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-            type="button"
-            variant="toggle"
-            onClick={() => updateQuery({ view: "grid" })}
-          >
-            <WaxSealLabel>Grid</WaxSealLabel>
-          </WaxSealButton>
-        </div>
-      </header>
+      <RouteHeader
+        actions={
+          <div class="grid w-[152px] grid-cols-[72px_72px] gap-2 justify-self-end" role="group" aria-label="View mode">
+            <WaxSealButton
+              aria-pressed={!isGrid()}
+              class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+              type="button"
+              variant="toggle"
+              onClick={() => updateQuery({ view: "list" })}
+            >
+              <WaxSealLabel>List</WaxSealLabel>
+            </WaxSealButton>
+            <WaxSealButton
+              aria-pressed={isGrid()}
+              class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
+              type="button"
+              variant="toggle"
+              onClick={() => updateQuery({ view: "grid" })}
+            >
+              <WaxSealLabel>Grid</WaxSealLabel>
+            </WaxSealButton>
+          </div>
+        }
+        class="trauma-memory-browse-header"
+        title="Memories"
+        titleId="memories-title"
+        titleSuffix={
+          <span class="ml-2 align-middle text-sm font-medium text-trauma-text-muted" aria-hidden="true">
+            {filteredMemories().length}{" "}
+            {filteredMemories().length === 1 ? "memory" : "memories"}
+          </span>
+        }
+      />
       <MemorySearchBar disabled={!isClientReady()} />
       <Show
         when={filteredMemories().length > 0}
