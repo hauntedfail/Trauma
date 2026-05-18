@@ -94,6 +94,11 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   }): boolean =>
     requestVersion === input.version && props.memoryId === input.memoryId;
   const actionHint = () => read() ? "Mark as unread" : "Mark as read";
+  const handleToggleClick = (event: MouseEvent): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    void toggle();
+  };
 
   return (
     <span class={`inline-grid gap-1 ${props.class ?? ""}`}>
@@ -104,7 +109,7 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
         aria-label={read() ? "Mark memory unread" : "Mark memory read"}
         data-trauma-hint={actionHint()}
         disabled={pending()}
-        onClick={() => void toggle()}
+        onClick={handleToggleClick}
       >
         <span
           aria-hidden="true"

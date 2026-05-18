@@ -110,4 +110,10 @@ describe("memory read status control", () => {
     expect(source).toContain("isCurrentReadStatusRequest");
     expect(source).toContain("props.memoryId === input.memoryId");
   });
+
+  it("owns the click boundary so parent memory rows do not also open", () => {
+    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain("event.stopPropagation()");
+    expect(source).toContain("onClick={handleToggleClick}");
+  });
 });

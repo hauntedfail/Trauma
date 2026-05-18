@@ -195,6 +195,48 @@ test("keeps the memories search focus indicator on the rounded search surface", 
   expect(Number.parseFloat(focusState.surfaceBorderRadius)).toBeGreaterThanOrEqual(20);
 });
 
+test("keeps browse read-status toggles from opening the memory row", async ({
+  page,
+}) => {
+  let readStatusRequestCount = 0;
+  await page.route("**/api/memories/read-status", async (route) => {
+    readStatusRequestCount += 1;
+    const body = route.request().postDataJSON() as {
+      memoryId?: string;
+      read?: boolean;
+    };
+
+    expect(body).toMatchObject({
+      memoryId: "memory-foundation",
+      read: true,
+    });
+    await route.fulfill({
+      body: JSON.stringify({ memoryId: body.memoryId, read: body.read }),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+  await page.goto("/memories");
+
+  const row = page.locator("article", {
+    has: page.getByRole("link", { name: "Open memory Reader Mode Notes" }),
+  });
+  const readToggle = row.getByRole("button", { name: "Mark memory read" });
+  const readStatusResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/memories/read-status") &&
+      response.request().method() === "POST",
+  );
+
+  await readToggle.click();
+
+  expect((await readStatusResponse).status()).toBe(200);
+  expect(readStatusRequestCount).toBe(1);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(page.locator("#reader-state-title")).toHaveCount(0);
+  await page.waitForLoadState("networkidle");
+});
+
 test("deletes a memory from the browse list through the public DELETE route", async ({
   page,
 }) => {
