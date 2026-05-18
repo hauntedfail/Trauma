@@ -594,10 +594,11 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeCategory}
+            class="trauma-local-wrap"
             emptyLabel="No categories yet"
             items={props.categories}
             kind="category"
-            mode="filters"
+            mode="chips"
             onSelect={props.onSelectCategory}
           />
           <Show when={openCreateKind() === "category"}>
@@ -626,10 +627,11 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeTag}
+            class="trauma-local-wrap"
             emptyLabel="No tags yet"
             items={props.tags}
             kind="tag"
-            mode="filters"
+            mode="chips"
             onSelect={props.onSelectTag}
           />
           <Show when={openCreateKind() === "tag"}>

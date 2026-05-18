@@ -126,9 +126,11 @@ Search inputs:
 Use `TaxonomyList` for category/tag chips and right-rail taxonomy filters.
 
 - `mode="chips"` renders attached categories/tags on memory rows and reader
-  intros.
-- `mode="filters"` renders right-rail filter rows with optional counts and
-  `aria-pressed`.
+  intros, and the same chip styling is also used for right-rail category/tag
+  filters.
+- Selectable chips use `aria-pressed` for active right-rail filters.
+- `mode="filters"` remains available for full-width taxonomy controls, but the
+  current shell does not use it for the right rail.
 - Parents own route/query state; taxonomy rendering components do not know
   browse query keys.
 

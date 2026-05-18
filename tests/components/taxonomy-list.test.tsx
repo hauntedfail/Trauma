@@ -48,6 +48,22 @@ describe("taxonomy list", () => {
     expect(html).toContain('aria-pressed="false"');
   });
 
+  it("marks active selectable chips as pressed", () => {
+    const html = renderToString(() =>
+      <TaxonomyList
+        activeId="category-research"
+        items={items}
+        kind="category"
+        mode="chips"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(html).toContain("rounded-full");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('aria-pressed="false"');
+  });
+
   it("renders the supplied empty state", () => {
     const html = renderToString(() =>
       <TaxonomyList
