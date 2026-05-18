@@ -241,7 +241,7 @@ test("renders category, tag, and flashback shortcut sections in the right panel"
   await expect(flashbackLink).toBeVisible();
   await expect(flashbackLink).toHaveAttribute(
     "href",
-    /\/memories\/memory-foundation#h-foundation$/,
+    /\/memories\?flashback=h-foundation$/,
   );
 
   const sectionRadius = await filters

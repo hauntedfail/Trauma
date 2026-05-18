@@ -4,6 +4,7 @@ export interface DismissableLayerOptions<TRoot extends HTMLElement> {
   getRoot: () => TRoot | undefined;
   isEnabled?: () => boolean;
   onDismiss: () => void;
+  shouldIgnoreOutsidePointerDown?: (target: EventTarget | null) => boolean;
   shouldSuppressOutsideClick?: (target: EventTarget | null) => boolean;
 }
 
@@ -20,6 +21,9 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
   onMount(() => {
     const handlePointerDown = (event: PointerEvent) => {
       if (!isEnabled() || !isOutside(event.target)) {
+        return;
+      }
+      if (options.shouldIgnoreOutsidePointerDown?.(event.target) === true) {
         return;
       }
 

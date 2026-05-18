@@ -224,10 +224,12 @@ function parseBrowseSearch(query: string): ParsedBrowseSearch {
 
   for (const token of tokenizeBrowseSearch(query)) {
     if (token.kind === "field") {
-      fields.push({
-        field: token.field,
-        value: normalize(token.value),
-      });
+      fields.push(
+        ...readBrowseFieldTokenValues(token).map((value) => ({
+          field: token.field,
+          value: normalize(value),
+        })),
+      );
       continue;
     }
 
@@ -260,6 +262,7 @@ type BrowseSearchToken =
   | {
       end: number;
       field: BrowseSearchField;
+      braced: boolean;
       kind: "field";
       start: number;
       value: string;
@@ -271,8 +274,10 @@ export function getBrowseSearchFieldValues(
   field: BrowseSearchField,
 ): string[] {
   return tokenizeBrowseSearch(query)
-    .filter((token) => token.kind === "field" && token.field === field)
-    .flatMap((token) => splitBrowseFieldFilterValues(token.value));
+    .filter((token): token is Extract<BrowseSearchToken, { kind: "field" }> =>
+      token.kind === "field" && token.field === field
+    )
+    .flatMap(readBrowseFieldTokenValues);
 }
 
 export function toggleBrowseSearchFieldFilter(
@@ -289,35 +294,32 @@ export function toggleBrowseSearchFieldFilter(
 
   const tokens = tokenizeBrowseSearch(query);
   const target = normalize(targetValue);
-  let touched = false;
+  const existingValues = tokens
+    .filter((token): token is Extract<BrowseSearchToken, { kind: "field" }> =>
+      token.kind === "field" && token.field === input.field
+    )
+    .flatMap(readBrowseFieldTokenValues);
+  const hasExistingField = existingValues.length > 0;
+  const hasTarget = existingValues.some((value) => normalize(value) === target);
+  const nextValues = hasTarget
+    ? existingValues.filter((value) => normalize(value) !== target)
+    : [...existingValues, targetValue];
+  let inserted = false;
   const nextParts: string[] = [];
 
   for (const token of tokens) {
-    if (token.kind !== "field" || token.field !== input.field || touched) {
+    if (token.kind !== "field" || token.field !== input.field) {
       nextParts.push(readBrowseTokenText(query, token));
       continue;
     }
 
-    const values = splitBrowseFieldFilterValues(token.value);
-    const hasTarget = values.some((value) => normalize(value) === target);
-    if (hasTarget) {
-      touched = true;
-      nextParts.push(
-        ...formatBrowseFieldFilterTokens(
-          input.field,
-          values.filter((value) => normalize(value) !== target),
-        ),
-      );
-      continue;
+    if (!inserted) {
+      nextParts.push(...formatBrowseFieldFilterTokens(input.field, nextValues));
+      inserted = true;
     }
-
-    touched = true;
-    nextParts.push(
-      ...formatBrowseFieldFilterTokens(input.field, [...values, targetValue]),
-    );
   }
 
-  if (!touched) {
+  if (!hasExistingField) {
     nextParts.push(...formatBrowseFieldFilterTokens(input.field, [targetValue]));
   }
 
@@ -346,6 +348,7 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
           tokens.push({
             end: closeIndex + 1,
             kind: "field",
+            braced: true,
             field: field.name,
             start: index,
             value: query.slice(valueStart + 1, closeIndex).trim(),
@@ -359,6 +362,7 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
       tokens.push({
         end: valueEnd,
         kind: "field",
+        braced: false,
         field: field.name,
         start: index,
         value: query.slice(valueStart, valueEnd).trim(),
@@ -426,15 +430,11 @@ function matchesFieldFilter(
   memory: BrowseMemory,
   filter: BrowseFieldFilter,
 ): boolean {
-  const values = splitBrowseFieldFilterValues(filter.value);
-  if (values.length === 0) {
+  if (filter.value.length === 0) {
     return true;
   }
 
-  return values.every((value) => matchesSingleFieldFilter(memory, {
-    ...filter,
-    value,
-  }));
+  return matchesSingleFieldFilter(memory, filter);
 }
 
 function matchesSingleFieldFilter(
@@ -447,9 +447,9 @@ function matchesSingleFieldFilter(
     case "url":
       return normalize(memory.url).includes(filter.value);
     case "tag":
-      return memory.tags.some((tag) => normalize(tag.name).includes(filter.value));
+      return memory.tags.some((tag) => normalize(tag.name) === filter.value);
     case "category":
-      return memory.categories.some((category) => normalize(category.name).includes(filter.value));
+      return memory.categories.some((category) => normalize(category.name) === filter.value);
     case "flashback":
       return memory.flashbacks.some((flashback) =>
         [flashback.text, flashback.prefix, flashback.suffix].some((value) =>
@@ -464,6 +464,12 @@ function splitBrowseFieldFilterValues(value: string): string[] {
     .split("&")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
+}
+
+function readBrowseFieldTokenValues(
+  token: Extract<BrowseSearchToken, { kind: "field" }>,
+): string[] {
+  return token.braced ? [token.value.trim()].filter((value) => value.length > 0) : splitBrowseFieldFilterValues(token.value);
 }
 
 function readBrowseTokenText(query: string, token: BrowseSearchToken): string {

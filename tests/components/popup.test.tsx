@@ -54,7 +54,8 @@ describe("popup shell", () => {
   it("owns shared popup chrome and close interactions", () => {
     expect(popupSource).toContain("useDismissableLayer");
     expect(popupSource).toContain("shouldSuppressPopupOutsideClick");
-    expect(popupSource).toContain("a,[data-popup-dismiss-only]");
+    expect(popupSource).toContain("[data-popup-dismiss-only]");
+    expect(popupSource).not.toContain("a,[data-popup-dismiss-only]");
     expect(popupSource).toContain("rounded-[20px]");
     expect(popupSource).toContain("animate-trauma-pop-bounce");
     expect(popupSource).toContain("shadow-trauma-2");

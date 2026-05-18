@@ -18,6 +18,7 @@ export interface TaxonomyListProps<TItem extends TaxonomyListItem = TaxonomyList
   kind: "category" | "tag";
   mode: "chips" | "filters";
   onSelect?: (item: TItem) => void;
+  showCounts?: boolean;
 }
 
 const chipClass =
@@ -54,6 +55,7 @@ export function TaxonomyList<TItem extends TaxonomyListItem>(
               kind={props.kind}
               mode={props.mode}
               onSelect={props.onSelect}
+              showCounts={props.showCounts}
             />
           )}
         </For>
@@ -81,6 +83,7 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
   kind: "category" | "tag";
   mode: "chips" | "filters";
   onSelect?: (item: TItem) => void;
+  showCounts?: boolean;
 }) {
   const label = () =>
     props.kind === "tag" && props.mode === "chips"
@@ -101,6 +104,11 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
         onClick={() => props.onSelect?.(props.item)}
       >
         {label()}
+        <Show when={props.showCounts === true && props.item.memoryCount !== undefined}>
+          <span class="text-[10px] font-extrabold text-trauma-text-muted">
+            {props.item.memoryCount}
+          </span>
+        </Show>
         <ButtonHint>{label()}</ButtonHint>
       </button>
     );

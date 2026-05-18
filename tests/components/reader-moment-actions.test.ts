@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   findReaderMomentForSection,
   findFlashbackForOptimisticSelection,
+  findLeadingReaderTitleEntry,
+  readLeadingReaderHeadingAnchor,
   resolveReaderMomentTarget,
 } from "../../src/components/reader/MemoryReader";
 import {
@@ -33,6 +35,23 @@ describe("reader Moment actions", () => {
     expect(styleSource).toContain(".trauma-reader-section-moment");
     expect(styleSource).toContain("position: absolute");
     expect(styleSource).toContain("opacity: 0");
+  });
+
+  it("keeps leading title headings in reader content so marks, Moment controls, and offsets stay canonical", () => {
+    expect(readerSource).not.toContain("stripLeadingReaderTitleHeading");
+    expect(readLeadingReaderHeadingAnchor(
+      '  <h1 data-reader-section-anchor="reader-title">Reader title</h1><p>Body</p>',
+    )).toBe("reader-title");
+    expect(readLeadingReaderHeadingAnchor(
+      '<p>Intro</p><h1 data-reader-section-anchor="reader-title">Reader title</h1>',
+    )).toBeUndefined();
+    expect(
+      findLeadingReaderTitleEntry({
+        html: '<h1 data-reader-section-anchor="reader-title">Reader title</h1>',
+        title: "Reader title",
+        toc: [{ id: "reader-title", level: 1, path: "1", text: "Reader title" }],
+      }),
+    ).toEqual({ id: "reader-title", level: 1, path: "1", text: "Reader title" });
   });
 
   it("surfaces Moment API error bodies for debugging client failures", async () => {

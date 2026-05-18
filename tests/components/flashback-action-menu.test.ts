@@ -26,7 +26,8 @@ describe("Flashback action menu", () => {
       }),
     );
 
-    expect(html).toContain('aria-label="Flashback actions"');
+    expect(html).toContain('aria-label="Flashback actions for selected text"');
+    expect(html).toContain('id="flashback-flashback-1-actions-menu"');
     expect(html).toContain("Delete flashback");
     expect(html).toContain("text-trauma-danger");
     expect(html).toContain("M4 7h16");
@@ -60,5 +61,30 @@ describe("Flashback action menu", () => {
         endOffset: 20,
       },
     });
+  });
+
+  it("keeps backup failsafe revalidation wired for failed deletes", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/components/flashbacks/FlashbackActionMenu.tsx", "utf8"),
+    );
+
+    await expect(
+      deleteFlashbackBySelection({
+        flashback,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: "Backup location changed",
+              backupFailsafe: { kind: "backup_path_drift" },
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow("Flashback failed");
+    expect(source).toContain("revalidateBackupFailsafeAlert");
+    expect(source).toContain("shouldRevalidateBackupFailsafeAfterFlashbackFailure");
   });
 });

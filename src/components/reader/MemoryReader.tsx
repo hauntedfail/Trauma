@@ -155,17 +155,15 @@ function ReadyMemoryReader(props: {
   const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
-  const introTitleEntry = createMemo(() =>
-    props.result.rendered.toc.find((entry) =>
-      entry.level === 1 && entry.text === props.result.memory.title
-    ),
-  );
-  const readerBodyHtml = createMemo(() =>
-    stripLeadingReaderTitleHeading({
+  const leadingTitleEntry = createMemo(() =>
+    findLeadingReaderTitleEntry({
       html: props.result.rendered.html,
-      titleEntry: introTitleEntry(),
+      title: props.result.memory.title,
+      toc: props.result.rendered.toc,
     }),
   );
+  const shouldRenderFallbackTitle = () => leadingTitleEntry() === undefined;
+  const readerBodyHtml = createMemo(() => props.result.rendered.html);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
   ]);
@@ -506,16 +504,11 @@ function ReadyMemoryReader(props: {
                 />
               </div>
             </div>
-            <h1
-              class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary"
-              data-reader-section-anchor={introTitleEntry()?.id}
-              data-reader-section-level={introTitleEntry()?.level}
-              data-reader-section-path={introTitleEntry()?.path}
-              data-reader-section-title={introTitleEntry()?.text}
-              id={introTitleEntry()?.id}
-            >
-              {props.result.memory.title}
-            </h1>
+            <Show when={shouldRenderFallbackTitle()}>
+              <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
+                {props.result.memory.title}
+              </h1>
+            </Show>
             <ReaderTaxonomyChips
               categories={categories()}
               tags={props.result.memory.tags}
@@ -694,22 +687,41 @@ function mergeReaderMomentItem(
   return [next, ...current];
 }
 
-function stripLeadingReaderTitleHeading(input: {
+export function findLeadingReaderTitleEntry(input: {
   html: string;
-  titleEntry: ReaderTocEntry | undefined;
-}): string {
-  const entry = input.titleEntry;
-  if (entry === undefined) {
-    return input.html;
+  title: string;
+  toc: ReaderTocEntry[];
+}): ReaderTocEntry | undefined {
+  const anchor = readLeadingReaderHeadingAnchor(input.html);
+  if (anchor === undefined) {
+    return undefined;
   }
 
-  const anchorPattern = escapeRegExp(entry.id);
-  const headingPattern = new RegExp(
-    `^\\s*<h1\\b(?=[^>]*data-reader-section-anchor="${anchorPattern}")[\\s\\S]*?<\\/h1>\\s*`,
+  const entry = input.toc.find((candidate) => candidate.id === anchor);
+  return entry?.level === 1 && entry.text === input.title ? entry : undefined;
+}
+
+export function readLeadingReaderHeadingAnchor(
+  html: string,
+): string | undefined {
+  const match = /^\s*<h1\b([^>]*)>/i.exec(html);
+  if (match === null) {
+    return undefined;
+  }
+
+  return readHtmlAttribute(match[1] ?? "", "data-reader-section-anchor");
+}
+
+function readHtmlAttribute(
+  attributes: string,
+  name: string,
+): string | undefined {
+  const pattern = new RegExp(
+    `\\b${escapeRegExp(name)}="([^"]*)"`,
     "i",
   );
 
-  return input.html.replace(headingPattern, "");
+  return pattern.exec(attributes)?.[1];
 }
 
 function escapeRegExp(value: string): string {

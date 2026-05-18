@@ -65,15 +65,16 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain('href: "/settings"');
   });
 
-  it("opens right-rail Flashback shortcuts through shared memory anchor hrefs", () => {
-    expect(appShellSource).toContain("buildMemoryAnchorHref");
-    expect(appShellSource).not.toContain("buildFlashbackBrowseHref");
+  it("keeps right-rail Flashback shortcuts as browse filters", () => {
+    expect(appShellSource).toContain("buildFlashbackBrowseHref");
+    expect(appShellSource).not.toContain("buildMemoryAnchorHref");
   });
 
   it("routes right-rail taxonomy clicks into the search query by human-readable name", () => {
     expect(appShellSource).toContain("toggleBrowseSearchFieldFilter");
     expect(appShellSource).toContain('field: "category"');
     expect(appShellSource).toContain('field: "tag"');
+    expect(appShellSource).toContain("explicitId === input.id");
     expect(appShellSource).toContain("value: category.name");
     expect(appShellSource).toContain("value: tag.name");
     expect(appShellSource).not.toContain('toggleFilter("category", category.id)');

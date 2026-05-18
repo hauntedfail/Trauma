@@ -63,6 +63,7 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
     <KebabActionMenu
       class={props.class}
       disabled={props.disabled}
+      id={`memory-${props.memoryId}-actions-menu`}
       initialOpen={props.initialOpen}
       label={`Memory actions for ${props.memoryTitle}`}
       onClose={() => setCategoryOpen(false)}

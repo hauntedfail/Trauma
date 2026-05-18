@@ -44,6 +44,7 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
   return (
     <KebabActionMenu
       disabled={props.disabled}
+      id={`moment-${props.momentId}-actions-menu`}
       initialOpen={props.initialOpen}
       label={`Moment actions for ${props.sectionTitle}`}
     >

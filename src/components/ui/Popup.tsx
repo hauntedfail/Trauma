@@ -116,5 +116,5 @@ function shouldSuppressPopupOutsideClick(target: EventTarget | null): boolean {
     return false;
   }
 
-  return target.closest("a,[data-popup-dismiss-only]") !== null;
+  return target.closest("[data-popup-dismiss-only]") !== null;
 }

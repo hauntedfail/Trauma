@@ -1,6 +1,11 @@
 import { Show, createSignal } from "solid-js";
 
 import { TrashIcon } from "../icons";
+import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import {
+  readFlashbackFailure,
+  shouldRevalidateBackupFailsafeAfterFlashbackFailure,
+} from "../reader/flashback-failure";
 import {
   KebabActionMenu,
   kebabActionMenuDangerItemClass,
@@ -11,6 +16,7 @@ export interface FlashbackActionMenuItem {
   endOffset: number;
   id: string;
   memoryId: string;
+  memoryTitle?: string;
   prefix: string;
   startOffset: number;
   suffix: string;
@@ -36,6 +42,10 @@ type FetchFunction = (
 
 export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
   const [error, setError] = createSignal("");
+  const actionLabel = () =>
+    props.flashback.memoryTitle === undefined
+      ? `Flashback actions for ${props.flashback.text}`
+      : `Flashback actions for ${props.flashback.memoryTitle}`;
 
   const deleteFlashback = async (): Promise<boolean> => {
     setError("");
@@ -55,8 +65,9 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
   return (
     <KebabActionMenu
       disabled={props.disabled}
+      id={`flashback-${props.flashback.id}-actions-menu`}
       initialOpen={props.initialOpen}
-      label="Flashback actions"
+      label={actionLabel()}
     >
       {({ close }) => (
         <>
@@ -108,7 +119,12 @@ export async function deleteFlashbackBySelection(
     }),
   });
 
-  if (!response.ok) {
-    throw new Error("failed to delete flashback");
+  const failure = await readFlashbackFailure(response);
+  if (failure !== undefined) {
+    if (shouldRevalidateBackupFailsafeAfterFlashbackFailure(failure)) {
+      void revalidateBackupFailsafeAlert();
+    }
+
+    throw new Error(failure.message);
   }
 }

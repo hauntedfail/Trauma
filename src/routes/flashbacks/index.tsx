@@ -37,6 +37,10 @@ export default function FlashbacksIndex() {
 
     return state.rows.filter((row) => !removedFlashbackIds().has(row.id));
   });
+  const visibleFlashbackRows = createMemo(() => {
+    const rows = readyFlashbackRows();
+    return rows !== undefined && rows.length > 0 ? rows : undefined;
+  });
   const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
     await deleteFlashbackBySelection({ flashback });
     setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
@@ -56,7 +60,7 @@ export default function FlashbacksIndex() {
           when={flashbackRowsState().status === "loading"}
           fallback={
             <Show
-              when={readyFlashbackRows()}
+              when={visibleFlashbackRows()}
               fallback={
                 <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
                   <h2 class="text-xl font-bold text-trauma-text-primary">No flashbacks yet</h2>

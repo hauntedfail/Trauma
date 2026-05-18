@@ -44,6 +44,10 @@ export function FlashbackShortcutList(props: {
 }
 
 function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
+  const activeClass = () =>
+    props.flashback.active === true
+      ? "bg-trauma-accent text-trauma-accent-ink"
+      : "";
   const content = () => (
     <FlashbackInlineText
       prefix={props.flashback.prefix}
@@ -58,7 +62,7 @@ function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
       fallback={
         <button
           aria-pressed={props.flashback.active === true}
-          class={flashbackShortcutRowClass}
+          class={`${flashbackShortcutRowClass} ${activeClass()}`}
           type="button"
           onClick={props.flashback.onSelect}
         >
@@ -67,7 +71,11 @@ function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
       }
     >
       {(href) => (
-        <a class={`${flashbackShortcutRowClass} no-underline`} href={href()}>
+        <a
+          aria-current={props.flashback.active === true ? "page" : undefined}
+          class={`${flashbackShortcutRowClass} ${activeClass()} no-underline`}
+          href={href()}
+        >
           {content()}
         </a>
       )}

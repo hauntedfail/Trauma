@@ -32,6 +32,7 @@ import {
 } from "../memories/browse-loader";
 import {
   buildBrowseHref,
+  buildFlashbackBrowseHref,
   getBrowseSearchFieldValues,
   getRecentFlashbacks,
   parseBrowseQuery,
@@ -41,7 +42,6 @@ import {
   type BrowseQuery,
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
-import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
   DEFAULT_BRIGHTNESS_MODE,
@@ -206,11 +206,15 @@ export function AppShell(props: AppShellProps) {
 
   const toggleSearchFieldFilter = (input: {
     field: Extract<BrowseSearchField, "category" | "tag">;
+    id: string;
     value: string;
   }) => {
+    const explicitId = query()[input.field];
     goToFilter({
       [input.field]: "",
-      q: toggleBrowseSearchFieldFilter(query().q, input),
+      q: explicitId === input.id
+        ? query().q
+        : toggleBrowseSearchFieldFilter(query().q, input),
     });
   };
 
@@ -254,12 +258,14 @@ export function AppShell(props: AppShellProps) {
             onSelectCategory={(category) =>
               toggleSearchFieldFilter({
                 field: "category",
+                id: category.id,
                 value: category.name,
               })
             }
             onSelectTag={(tag) =>
               toggleSearchFieldFilter({
                 field: "tag",
+                id: tag.id,
                 value: tag.name,
               })
             }
@@ -664,6 +670,7 @@ export function RightRailFilters(props: {
             kind="category"
             mode="chips"
             onSelect={props.onSelectCategory}
+            showCounts
           />
           <Show when={openCreateKind() === "category"}>
             <TaxonomyCreatePopover
@@ -698,6 +705,7 @@ export function RightRailFilters(props: {
             kind="tag"
             mode="chips"
             onSelect={props.onSelectTag}
+            showCounts
           />
           <Show when={openCreateKind() === "tag"}>
             <TaxonomyCreatePopover
@@ -718,10 +726,7 @@ export function RightRailFilters(props: {
             emptyLabel="No flashbacks yet"
             flashbacks={props.flashbacks.map((flashback) => ({
               active: props.activeFlashback === flashback.id,
-              href: buildMemoryAnchorHref({
-                anchorId: flashback.id,
-                memoryId: flashback.memoryId,
-              }),
+              href: buildFlashbackBrowseHref(flashback.id),
               id: flashback.id,
               prefix: flashback.prefix,
               suffix: flashback.suffix,
@@ -743,6 +748,7 @@ function TaxonomyCreateAction(props: {
     <button
       aria-expanded={props.expanded}
       class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+      data-taxonomy-create-trigger="true"
       data-trauma-hint={props.label}
       type="button"
       onClick={props.onClick}
@@ -932,7 +938,7 @@ function ThemeNavButton(props: {
       id={props.popoverId}
       label="Theme settings"
       mode="dialog"
-      panelClass={railPopoverPanel}
+      panelClass={isPhone() ? undefined : railPopoverPanel}
       phonePanel={isPhone()}
       placement="bottom-start"
       trigger={({ open, triggerProps }) => {

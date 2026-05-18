@@ -33,6 +33,7 @@ export function TaxonomyCreatePopover(props: TaxonomyCreatePopoverProps) {
   useDismissableLayer({
     getRoot: () => rootRef,
     onDismiss: props.onClose,
+    shouldIgnoreOutsidePointerDown: isTaxonomyCreateTrigger,
   });
 
   const submit = async (): Promise<void> => {
@@ -125,4 +126,10 @@ export async function submitTaxonomyName(input: {
   }
 
   await input.onSubmitName(name);
+}
+
+function isTaxonomyCreateTrigger(target: EventTarget | null): boolean {
+  return target instanceof Element
+    ? target.closest("[data-taxonomy-create-trigger]") !== null
+    : false;
 }

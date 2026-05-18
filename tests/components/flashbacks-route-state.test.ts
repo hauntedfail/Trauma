@@ -82,6 +82,7 @@ describe("flashbacks route state", () => {
     expect(flashbacksRouteSource).toContain("suffix={flashback.suffix}");
     expect(flashbacksRouteSource).toContain("FlashbackActionMenu");
     expect(flashbackActionMenuSource).toContain("Delete flashback");
+    expect(flashbacksRouteSource).toContain("visibleFlashbackRows");
     expect(flashbacksRouteSource).toContain("flashback.memoryTitle");
     expect(flashbacksRouteSource).not.toContain("Source memory");
     expect(flashbacksRouteSource).not.toContain("Marked excerpts");

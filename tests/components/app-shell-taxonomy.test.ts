@@ -17,7 +17,7 @@ describe("app shell taxonomy right rail", () => {
     expect(appShellSource).not.toContain("getBrowseTags(browseMemories())");
   });
 
-  it("renders global taxonomy chips and create actions", () => {
+  it("renders global taxonomy chips, counts, and create actions", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {
         activeCategory: "",
@@ -54,8 +54,8 @@ describe("app shell taxonomy right rail", () => {
     expect(html).toContain("sqlite");
     expect(html).toContain("rounded-full");
     expect(html).toContain("gap-x-1.5");
-    expect(html).not.toContain("0 memories");
-    expect(html).not.toContain("2 memories");
+    expect(html).toContain(">0<");
+    expect(html).toContain(">2<");
   });
 
   it("renders empty-state hints when no taxonomy exists", () => {
