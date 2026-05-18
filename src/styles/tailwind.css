@@ -603,10 +603,6 @@
     white-space: nowrap;
   }
 
-  .trauma-button-hint::before {
-    content: attr(data-trauma-hint-label);
-  }
-
   :where([data-trauma-hint]:hover) > .trauma-button-hint,
   :where([data-trauma-hint]:focus-visible) > .trauma-button-hint,
   :where([data-trauma-hint]:focus-within) > .trauma-button-hint {

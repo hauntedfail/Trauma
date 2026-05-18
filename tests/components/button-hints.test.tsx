@@ -19,12 +19,14 @@ const memoryBrowseSource = readFileSync(
   "utf8",
 );
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
+const emptyTooltipMarkupPattern = /<span(?=[^>]*class="trauma-button-hint")(?=[^>]*role="tooltip")[^>]*><\/span>/;
 
 describe("button hover hints", () => {
-  it("defines animated hover and focus-visible hints from a shared data attribute", () => {
+  it("defines animated hover and focus-visible HTML tooltips from a shared data attribute", () => {
     expect(tailwindSource).toContain("[data-trauma-hint]");
     expect(tailwindSource).toContain(".trauma-button-hint");
-    expect(tailwindSource).toContain('content: attr(data-trauma-hint-label)');
+    expect(tailwindSource).not.toContain("data-trauma-hint-label");
+    expect(tailwindSource).not.toContain("content: attr(data-trauma-hint-label)");
     expect(tailwindSource).toContain("display: none");
     expect(tailwindSource).toContain("display: block");
     expect(tailwindSource).toContain("animation: trauma-button-hint-in");
@@ -53,7 +55,7 @@ describe("button hover hints", () => {
     expect(unreadHtml).toContain('data-trauma-hint="Mark as read"');
   });
 
-  it("lets shared button primitives expose hints without local tooltip markup", () => {
+  it("lets shared button primitives expose hints through shared HTML tooltip markup", () => {
     const kebabHtml = renderToString(() =>
       createComponent(KebabActionMenu, {
         label: "Memory actions",
@@ -79,10 +81,15 @@ describe("button hover hints", () => {
     );
 
     expect(kebabHtml).toContain('data-trauma-hint="Memory actions"');
-    expect(kebabHtml).toContain('data-trauma-hint-label="Memory actions"');
+    expect(kebabHtml).toContain('role="tooltip"');
     expect(kebabHtml).toContain("trauma-button-hint");
+    expect(kebabHtml).toMatch(emptyTooltipMarkupPattern);
     expect(segmentedHtml).toContain('data-trauma-hint="Use light theme"');
+    expect(segmentedHtml).toContain('role="tooltip"');
+    expect(segmentedHtml).toMatch(emptyTooltipMarkupPattern);
     expect(waxHtml).toContain('data-trauma-hint="Save memory"');
+    expect(waxHtml).toContain('role="tooltip"');
+    expect(waxHtml).toMatch(emptyTooltipMarkupPattern);
   });
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
