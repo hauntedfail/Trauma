@@ -2,10 +2,10 @@ import {
   Show,
   createEffect,
   createSignal,
-  onCleanup,
-  onMount,
   type JSX,
 } from "solid-js";
+
+import { useDismissableLayer } from "./dismissable-layer";
 
 export interface PopupControls {
   close: () => void;
@@ -68,31 +68,11 @@ export function Popup(props: PopupProps) {
     hasObservedOpenState = true;
   });
 
-  onMount(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        rootRef === undefined ||
-        !(target instanceof Node) ||
-        rootRef.contains(target)
-      ) {
-        return;
-      }
-
-      close();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    });
+  useDismissableLayer({
+    getRoot: () => rootRef,
+    isEnabled: open,
+    onDismiss: close,
+    shouldSuppressOutsideClick: shouldSuppressPopupOutsideClick,
   });
 
   const triggerProps = (): JSX.ButtonHTMLAttributes<HTMLButtonElement> => ({
@@ -129,4 +109,12 @@ export function Popup(props: PopupProps) {
       </Show>
     </span>
   );
+}
+
+function shouldSuppressPopupOutsideClick(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return target.closest("a,[data-popup-dismiss-only]") !== null;
 }

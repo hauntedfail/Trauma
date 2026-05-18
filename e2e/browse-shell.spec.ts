@@ -251,6 +251,18 @@ test("renders category, tag, and flashback shortcut sections in the right panel"
   expect(sectionRadius).toBe("20px");
 });
 
+test("closes taxonomy creation popovers on outside clicks", async ({ page }) => {
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "New tag" }).click();
+  await expect(page.getByRole("dialog", { name: "New tag" })).toBeVisible();
+
+  await page.getByRole("heading", { name: "Memories", exact: true }).click();
+
+  await expect(page.getByRole("dialog", { name: "New tag" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+});
+
 test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
@@ -588,6 +600,20 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   const readerComposer = page.getByRole("dialog", { name: "Add memory" });
   await expect(readerComposer).toBeVisible();
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
+});
+
+test("closes the add-memory composer on outside memory-row clicks without opening the memory", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {

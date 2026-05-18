@@ -46,6 +46,7 @@ describe("memory browse actions", () => {
     expect(html).toContain("Research");
     expect(html).toContain("sqlite");
     expect(html).toContain("Add tag");
+    expect(html).toContain("data-popup-dismiss-only");
     expect(html).not.toContain("saved");
   });
 

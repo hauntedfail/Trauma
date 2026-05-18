@@ -1,6 +1,7 @@
 import { createSignal, onMount, type JSX } from "solid-js";
 
 import { PlusIcon } from "../icons";
+import { useDismissableLayer } from "../ui/dismissable-layer";
 
 export interface TaxonomyCreatePopoverProps {
   title: string;
@@ -21,12 +22,17 @@ const secondaryButtonClass =
   "rounded-full px-3 py-2 text-sm font-bold text-trauma-text-muted";
 
 export function TaxonomyCreatePopover(props: TaxonomyCreatePopoverProps) {
+  let rootRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   const [name, setName] = createSignal("");
   const [error, setError] = createSignal("");
   const [pending, setPending] = createSignal(false);
 
   onMount(() => inputRef?.focus());
+  useDismissableLayer({
+    getRoot: () => rootRef,
+    onDismiss: props.onClose,
+  });
 
   const submit = async (): Promise<void> => {
     setPending(true);
@@ -51,6 +57,7 @@ export function TaxonomyCreatePopover(props: TaxonomyCreatePopoverProps) {
 
   return (
     <div
+      ref={rootRef}
       class={popoverClass}
       role="dialog"
       aria-label={props.title}
