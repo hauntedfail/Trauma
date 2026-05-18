@@ -12,6 +12,16 @@
   semantics, reader markdown rendering changes, broad route redesign, and any
   route that is not explicitly named in a subtask.
 
+## Planning boundary
+
+This document and its subtask files may be edited during planning. Source code,
+tests, and design-system docs must not be changed from a planning prompt unless
+the user explicitly moves the branch into implementation. If a planning
+conversation surfaces a concrete fix, record the requirement in the owning
+subtask first. Only keep an implementation diff from the planning phase when the
+user explicitly says to keep that already-applied fix; otherwise revert it and
+leave only the workflow-plan update.
+
 ## Core intent
 
 Task 18-alpha refreshes shared UI foundations that became fragmented during
@@ -102,4 +112,3 @@ If local browser verification is used for screenshots, check at least:
 - `/flashbacks`
 - `/moments`
 - phone-width bottom tabs with Add memory and Theme popovers
-

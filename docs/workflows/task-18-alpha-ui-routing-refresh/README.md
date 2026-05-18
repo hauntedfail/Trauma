@@ -18,8 +18,9 @@ Implement these subtasks on `refine/ui-routing-refresh`, based on
 - Do not change data persistence or backup behaviour.
 - Do not add a new public route unless the subtask explicitly names it.
 - Preserve current desktop visual design while cleaning duplicated components.
+- During planning, edit only workflow files. Do not change source code, tests,
+  or design-system docs until implementation is explicitly requested.
 - Use shared popup chrome for popup surfaces; keep menu/composer/theme contents
   separate.
 - Add focused tests in the same subtask that introduces or migrates behaviour.
 - Update design-system docs only after implementation proves the final contract.
-

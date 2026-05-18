@@ -28,6 +28,9 @@ Allowed route work in this branch:
   `/memories`, `/memories/:id`, `/flashbacks`, `/moments`, and `/settings`
 - keep `/memories` query filters for search, category, tag, Flashback, and view
   mode working after taxonomy component consolidation
+- keep product-language labels consistent across surfaces: the memories right
+  rail title must use `Flashbacks`, matching the memory page right rail and
+  shell navigation tab label
 - keep root redirect to `/memories`
 - keep disabled shell controls disabled unless their route already exists and
   has a working page contract
@@ -59,7 +62,7 @@ this workflow before coding the route.
 
 ```sh
 mise exec -- bun --bun x vitest run tests/components/app-shell.test.ts tests/components/app-shell-taxonomy.test.ts
-mise exec -- bun --bun x vitest run tests/components/memory-browse-actions.test.ts tests/components/memory-action-menu.test.tsx tests/components/moment-action-menu.test.tsx
+mise exec -- bun --bun x vitest run tests/components/memory-browse-actions.test.ts tests/components/memory-action-menu.test.ts tests/components/moment-action-menu.test.ts
 mise exec -- bun run typecheck
 ```
 
@@ -67,6 +70,6 @@ mise exec -- bun run typecheck
 
 - Existing route behaviour survives the component refresh.
 - `/memories` filter state remains URL-query based.
+- Right-rail Flashback list headings use the plural `Flashbacks` everywhere.
 - No new public route appears without an explicit workflow update.
 - Disabled future shell controls remain visually and semantically disabled.
-
