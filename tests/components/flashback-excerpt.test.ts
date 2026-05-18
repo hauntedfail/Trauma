@@ -51,11 +51,20 @@ describe("Flashback excerpt rendering", () => {
   });
 
   it("keeps Flashback context blur scoped to prefix and suffix text", () => {
-    expect(tailwindCss).toContain(".trauma-flashback-context");
-    expect(tailwindCss).toContain(
-      "color: color-mix(in srgb, var(--text-muted) 68%, transparent)",
+    const contextRuleStart = tailwindCss.indexOf(".trauma-flashback-context {");
+    const beforeRuleStart = tailwindCss.indexOf(
+      ".trauma-flashback-context-before",
+      contextRuleStart,
     );
-    expect(tailwindCss).toContain("filter: blur(");
+    const contextRule = tailwindCss.slice(contextRuleStart, beforeRuleStart);
+
+    expect(contextRuleStart).toBeGreaterThan(-1);
+    expect(beforeRuleStart).toBeGreaterThan(contextRuleStart);
+    expect(contextRule).toContain(
+      "color: color-mix(in srgb, var(--fg-2) 72%, var(--fg-3))",
+    );
+    expect(contextRule).not.toContain("var(--text-muted)");
+    expect(contextRule).toContain("filter: blur(");
     expect(tailwindCss).toContain(".trauma-flashback-context-before");
     expect(tailwindCss).toContain(".trauma-flashback-context-after");
     expect(tailwindCss).toContain("mask-image: linear-gradient");

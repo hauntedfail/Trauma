@@ -686,9 +686,9 @@
   }
 
   .trauma-flashback-context {
-    color: color-mix(in srgb, var(--text-muted) 68%, transparent);
+    color: color-mix(in srgb, var(--fg-2) 72%, var(--fg-3));
     filter: blur(0.25px);
-    text-shadow: 0 0 0.5px color-mix(in srgb, var(--text-muted) 34%, transparent);
+    text-shadow: 0 0 0.5px color-mix(in srgb, var(--fg-3) 42%, transparent);
   }
 
   .trauma-flashback-context-before {
