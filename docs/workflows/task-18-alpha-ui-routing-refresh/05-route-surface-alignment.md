@@ -14,6 +14,8 @@ consistently.
 - Modify: `src/components/memories/MemoryReadStatusControl.tsx`
 - Modify: `src/components/reader/MemoryReader.tsx`
 - Modify: `src/components/icons/TraumaIcons.tsx`
+- Modify: `src/components/flashbacks/FlashbackExcerpt.tsx`
+- Modify: `src/components/flashbacks/FlashbackShortcutList.tsx`
 - Modify: `src/routes/memories/index.tsx`
 - Modify: `src/routes/memories/[id].tsx`
 - Modify: `src/routes/flashbacks/index.tsx`
@@ -23,6 +25,8 @@ consistently.
 - Modify: `tests/components/memory-browse-actions.test.ts`
 - Modify: `tests/components/memory-read-status.test.ts`
 - Modify: `tests/components/memory-reader-actions.test.ts`
+- Modify: `tests/components/flashbacks-route-state.test.ts`
+- Create: `tests/components/flashback-excerpt.test.ts`
 - Modify: `tests/components/trauma-icons.test.ts`
 - Optional modify: `docs/references/design-system/interaction-and-accessibility.md`
   if route behaviour changes.
@@ -70,6 +74,30 @@ Allowed route work in this branch:
     route header
   - keep the title/content hierarchy readable: URL/action row first, title
     second, taxonomy chips third, markdown reader body after that
+- align Flashback excerpt rendering across `/flashbacks` and the right pane:
+  - render the persisted Flashback string at normal readable text contrast
+  - render the stored prefix/suffix context before and after the Flashback
+    string
+  - render prefix/suffix context at lower contrast than the Flashback string so
+    the selected text remains the focal content
+  - do not render the Flashback text as ordinary full-row body copy without
+    context distinction
+  - keep the right pane Flashback component bounded as an independent scroll
+    region when its content overflows
+  - apply subtle top and bottom blur-gradient fades like the TOC fade treatment,
+    rendering each fade only when that edge is scrollable
+  - reuse a shared Flashback excerpt/list primitive where practical so
+    `/flashbacks` and right pane Flashbacks do not drift visually
+- align `/flashbacks` page cards:
+  - use the same Flashback string plus lower-contrast context rendering
+  - render the source memory title as supplemental metadata at the bottom-left
+    of the card
+  - make the source title smaller and visually subordinate to the Flashback
+    string
+  - remove the current `Source memory` label because the title context is
+    self-evident
+  - render a meatballs menu button for each Flashback card
+  - the first-pass menu contains `Delete flashback`
 - keep root redirect to `/memories`
 - keep disabled shell controls disabled unless their route already exists and
   has a working page contract
@@ -124,9 +152,28 @@ this workflow before coding the route.
 12. Update memory reader markup to match the new intro/header split. Keep data
     loading, read-status mutation, delete mutation, Flashback, and Moment
     behaviour unchanged.
-13. Verify memory-row navigation still ignores nested interactive controls,
+13. Add or update Flashback excerpt/list tests before changing Flashback route
+    or right pane markup:
+    - prefix and suffix context render around the selected Flashback text
+    - selected Flashback text uses normal text contrast
+    - prefix/suffix context uses lower-contrast text tokens
+    - right pane Flashback list exposes top/bottom fade hooks for scrollable
+      content
+    - `/flashbacks` card renders source memory title at the bottom-left without
+      a `Source memory` label
+    - `/flashbacks` card renders a meatballs menu with `Delete flashback`
+14. Update `FlashbackExcerpt` and `FlashbackShortcutList` or introduce a small
+    shared Flashback excerpt primitive so the route and right pane share
+    context rendering rules.
+15. Update `/flashbacks` cards to use the shared excerpt rendering, subordinate
+    source title metadata, and Flashback action menu.
+16. Wire `Delete flashback` only through the existing Flashback removal/toggle
+    mutation path. If the current backend cannot delete by Flashback id without
+    changing API routes or persistence semantics, stop and update this workflow
+    before implementing an API change.
+17. Verify memory-row navigation still ignores nested interactive controls,
     including the moved read-status button.
-14. Verify `/moments` action menu delete still does not break navigation to a
+18. Verify `/moments` action menu delete still does not break navigation to a
    memory section.
 
 ## Tests
@@ -135,6 +182,7 @@ this workflow before coding the route.
 mise exec -- bun --bun x vitest run tests/components/app-shell.test.ts tests/components/app-shell-taxonomy.test.ts
 mise exec -- bun --bun x vitest run tests/components/memory-browse-actions.test.ts tests/components/memory-action-menu.test.ts tests/components/moment-action-menu.test.ts
 mise exec -- bun --bun x vitest run tests/components/memory-read-status.test.ts tests/components/memory-reader-actions.test.ts tests/components/trauma-icons.test.ts
+mise exec -- bun --bun x vitest run tests/components/flashback-excerpt.test.ts tests/components/flashbacks-route-state.test.ts
 mise exec -- bun run typecheck
 ```
 
@@ -157,6 +205,14 @@ mise exec -- bun run typecheck
 - Memory page action icons no longer live in the sticky route header.
 - Memory page taxonomy chips reuse the same shared taxonomy chip design as
   memories browse rows.
+- Flashback excerpts on `/flashbacks` and in the right pane render selected text
+  at normal contrast with lower-contrast prefix/suffix context around it.
+- Flashback right pane lists use subtle scroll-edge blur gradients like the TOC
+  fade treatment when scrollable.
+- `/flashbacks` cards render source memory title as small bottom-left metadata
+  and no longer render a `Source memory` label.
+- `/flashbacks` cards provide a meatballs menu with `Delete flashback` using
+  the shared action-menu danger style.
 - Right-rail Flashback list headings use the plural `Flashbacks` everywhere.
 - No new public route appears without an explicit workflow update.
 - Disabled future shell controls remain visually and semantically disabled.
