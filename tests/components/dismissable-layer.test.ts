@@ -16,11 +16,16 @@ describe("dismissable popup layers", () => {
     expect(dismissableLayerSource).toContain("createEffect");
     expect(dismissableLayerSource).toContain("if (!isEnabled())");
     expect(dismissableLayerSource).not.toContain("onMount");
-    expect(dismissableLayerSource).toContain("dismissAfterOutsideClick");
-    expect(dismissableLayerSource).toContain("globalThis.setTimeout");
+    expect(dismissableLayerSource).toContain(
+      "options.shouldSuppressOutsideClick?.(event.target) ?? true",
+    );
+    expect(dismissableLayerSource).not.toContain("dismissAfterOutsideClick");
+    expect(dismissableLayerSource).not.toContain("globalThis.setTimeout");
     expect(dismissableLayerSource).toContain('document.addEventListener("pointerdown"');
-    expect(dismissableLayerSource).toContain('document.addEventListener("click"');
-    expect(dismissableLayerSource).toContain("suppressNextOutsideClick");
+    expect(dismissableLayerSource).toContain("armOutsideClickSuppression");
+    expect(dismissableLayerSource).toContain("handleSuppressedOutsideClick");
+    expect(dismissableLayerSource).toContain("outsideClickSuppressionArmed");
+    expect(dismissableLayerSource).toContain("once: true");
     expect(dismissableLayerSource).toContain("shouldSuppressOutsideClick");
     expect(dismissableLayerSource).toContain("event.preventDefault()");
     expect(dismissableLayerSource).toContain("event.stopImmediatePropagation()");
@@ -28,7 +33,7 @@ describe("dismissable popup layers", () => {
 
   it("is shared by taxonomy creation popovers", () => {
     expect(taxonomyCreatePopoverSource).toContain("useDismissableLayer");
-    expect(taxonomyCreatePopoverSource).toContain("shouldSuppressOutsideTaxonomyClick");
-    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyPopoverActionTarget");
+    expect(taxonomyCreatePopoverSource).toContain("shouldIgnoreOutsidePointerDown");
+    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyCreateTrigger");
   });
 });

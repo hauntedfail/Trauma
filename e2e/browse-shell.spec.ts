@@ -691,7 +691,7 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
-test("closes the add-memory composer on outside row surfaces while preserving row links", async ({
+test("closes the add-memory composer on outside row clicks without opening memory actions", async ({
   page,
 }) => {
   createBrowseDeleteFixture();
@@ -711,8 +711,18 @@ test("closes the add-memory composer on outside row surfaces while preserving ro
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
-  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click({ force: true });
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await row.getByRole("button", { name: "Add tag" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {

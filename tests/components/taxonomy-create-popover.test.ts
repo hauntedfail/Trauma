@@ -64,8 +64,13 @@ describe("taxonomy create popover", () => {
     expect(calls).toEqual(["Research"]);
   });
 
-  it("treats links as actionable outside targets when deciding click suppression", () => {
-    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyPopoverActionTarget");
-    expect(taxonomyCreatePopoverSource).toContain("a,button,input");
+  it("uses shared outside-click dismissal without action-target exceptions", () => {
+    expect(taxonomyCreatePopoverSource).toContain("useDismissableLayer");
+    expect(taxonomyCreatePopoverSource).not.toContain(
+      "isTaxonomyPopoverActionTarget",
+    );
+    expect(taxonomyCreatePopoverSource).not.toContain(
+      "shouldSuppressOutsideTaxonomyClick",
+    );
   });
 });

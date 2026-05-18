@@ -11,18 +11,31 @@ export interface DismissableLayerOptions<TRoot extends HTMLElement> {
 export function useDismissableLayer<TRoot extends HTMLElement>(
   options: DismissableLayerOptions<TRoot>,
 ): void {
-  let dismissAfterOutsideClick = false;
-  let suppressNextOutsideClick = false;
+  let outsideClickSuppressionArmed = false;
   const isEnabled = () => options.isEnabled?.() ?? true;
   const isOutside = (target: EventTarget | null): boolean => {
     const root = options.getRoot();
     return root !== undefined && target instanceof Node && !root.contains(target);
   };
+  const handleSuppressedOutsideClick = (event: MouseEvent) => {
+    outsideClickSuppressionArmed = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const armOutsideClickSuppression = () => {
+    if (outsideClickSuppressionArmed) {
+      return;
+    }
+
+    outsideClickSuppressionArmed = true;
+    document.addEventListener("click", handleSuppressedOutsideClick, {
+      capture: true,
+      once: true,
+    });
+  };
 
   createEffect(() => {
     if (!isEnabled()) {
-      dismissAfterOutsideClick = false;
-      suppressNextOutsideClick = false;
       return;
     }
 
@@ -34,38 +47,10 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
         return;
       }
 
-      if (options.shouldSuppressOutsideClick?.(event.target) === true) {
-        suppressNextOutsideClick = true;
-        options.onDismiss();
-        return;
+      if (options.shouldSuppressOutsideClick?.(event.target) ?? true) {
+        armOutsideClickSuppression();
       }
-
-      dismissAfterOutsideClick = true;
-    };
-    const dismissAfterClick = () => {
       options.onDismiss();
-    };
-    const handleClick = (event: MouseEvent) => {
-      if (dismissAfterOutsideClick) {
-        dismissAfterOutsideClick = false;
-        globalThis.setTimeout(dismissAfterClick, 0);
-        return;
-      }
-
-      if (!suppressNextOutsideClick) {
-        return;
-      }
-
-      suppressNextOutsideClick = false;
-      if (
-        !isOutside(event.target) ||
-        options.shouldSuppressOutsideClick?.(event.target) !== true
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopImmediatePropagation();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -74,11 +59,9 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("click", handleClick, true);
     document.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("click", handleClick, true);
       document.removeEventListener("keydown", handleKeyDown);
     });
   });

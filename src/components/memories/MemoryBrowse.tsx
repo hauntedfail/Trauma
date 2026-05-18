@@ -285,7 +285,6 @@ export function MemoryItem(props: {
   return (
     <article
       class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
-      data-popup-dismiss-only
       onClick={(event) => {
         if (!isInteractiveTarget(event.target)) {
           openMemory();

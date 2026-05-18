@@ -72,7 +72,6 @@ export function Popup(props: PopupProps) {
     getRoot: () => rootRef,
     isEnabled: open,
     onDismiss: close,
-    shouldSuppressOutsideClick: shouldSuppressPopupOutsideClick,
   });
 
   const triggerProps = (): JSX.ButtonHTMLAttributes<HTMLButtonElement> => ({
@@ -109,19 +108,4 @@ export function Popup(props: PopupProps) {
       </Show>
     </span>
   );
-}
-
-function shouldSuppressPopupOutsideClick(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  return target.closest("[data-popup-dismiss-only]") !== null &&
-    !isPopupActionTarget(target);
-}
-
-function isPopupActionTarget(target: Element): boolean {
-  return target.closest(
-    "a,button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
-  ) !== null;
 }
