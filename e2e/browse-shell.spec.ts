@@ -651,11 +651,13 @@ test("persists shell theme controls in the browser", async ({ page }) => {
 
 test("lets active filters be cleared without resetting the rest of the query", async ({ page }) => {
   await page.goto("/memories?q=reader&view=grid");
+  await expect(page.locator(".trauma-memory-list")).toHaveClass(/memory-grid/);
 
   await page.getByRole("button", { name: "Research" }).click();
   await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
     "reader category=Research",
   );
+  await expect(page).toHaveURL(/view=grid/);
 
   await page.getByRole("button", { name: "Research" }).click();
   await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
@@ -663,7 +665,7 @@ test("lets active filters be cleared without resetting the rest of the query", a
   );
   await expect(page).not.toHaveURL(/category%3DResearch/);
   await expect(page).toHaveURL(/q=reader/);
-  await expect(page).not.toHaveURL(/view=grid/);
+  await expect(page).toHaveURL(/view=grid/);
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {

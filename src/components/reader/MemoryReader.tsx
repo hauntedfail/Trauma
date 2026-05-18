@@ -148,6 +148,7 @@ function ReadyMemoryReader(props: {
 }) {
   let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
+  let bodyContentRef: HTMLDivElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
   let sectionLongPressTimer: number | undefined;
@@ -290,13 +291,13 @@ function ReadyMemoryReader(props: {
   };
   const commitSelectionMenu = () => {
     const menu = selectionMenu();
-    if (menu === undefined || contentRef === undefined) {
+    if (menu === undefined || bodyContentRef === undefined) {
       return;
     }
 
     closeSelectionMenu();
     void toggleReaderSelection({
-      container: contentRef,
+      container: bodyContentRef,
       memoryId: props.result.memory.id,
       pendingSelectionKey: pendingSelectionKey(),
       selection: menu.selection,
@@ -525,7 +526,10 @@ function ReadyMemoryReader(props: {
             <Show
               when={readerTitleHtml()}
               fallback={(
-                <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
+                <h1
+                  class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary"
+                  data-reader-noncontent
+                >
                   {props.result.memory.title}
                 </h1>
               )}
@@ -533,6 +537,7 @@ function ReadyMemoryReader(props: {
               {(titleHtml) => (
                 <div
                   class="trauma-reader-lifted-title"
+                  data-reader-noncontent
                   innerHTML={titleHtml()}
                 />
               )}
@@ -543,7 +548,12 @@ function ReadyMemoryReader(props: {
                 tags={props.result.memory.tags}
               />
             </div>
-            <div class="contents" innerHTML={readerBodyHtml()} />
+            <div
+              ref={bodyContentRef}
+              class="contents"
+              data-reader-mutable-content
+              innerHTML={readerBodyHtml()}
+            />
           </div>
           <Show when={selectionMenu()}>
             {(menu) => (

@@ -74,6 +74,16 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain("compareBoundaryPoints");
   });
 
+  it("keeps lifted reader chrome out of selection offsets and body rollback", () => {
+    expect(readerSource).toContain("let bodyContentRef: HTMLDivElement | undefined");
+    expect(readerSource).toContain("container: bodyContentRef");
+    expect(readerSource).toContain("data-reader-mutable-content");
+    expect(readerSource).toContain("ref={bodyContentRef}");
+    expect(readerSource).toContain("data-reader-noncontent");
+    expect(readerSource).toContain("class=\"trauma-reader-lifted-title\"");
+    expect(readerSource).toContain("innerHTML={readerBodyHtml()}");
+  });
+
   it("surfaces Moment API error bodies for debugging client failures", async () => {
     await expect(
       createMomentForSection({
