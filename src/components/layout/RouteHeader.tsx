@@ -16,7 +16,7 @@ export interface RouteHeaderProps {
 }
 
 const headerBaseClass =
-  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] grid items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
+  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] grid min-h-[3.5rem] items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 backdrop-blur";
 const headerSplitClass = "grid-cols-[minmax(0,1fr)_auto]";
 const headerSingleClass = "grid-cols-[minmax(0,1fr)]";
 const headerTitleClass =
@@ -30,7 +30,7 @@ export function RouteHeader(props: RouteHeaderProps) {
     [
       props.leading === undefined
         ? "min-w-0"
-        : "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3",
+        : "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3",
       props.contentClass ?? "",
     ]
       .filter(Boolean)

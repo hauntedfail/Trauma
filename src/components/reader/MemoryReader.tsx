@@ -462,7 +462,7 @@ function ReadyMemoryReader(props: {
       <RouteHeader
         class={`${readerPadding} trauma-reader-header`}
         leading={() => (
-          <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
+          <a class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
             <ChevronLeftIcon />
           </a>
         )}

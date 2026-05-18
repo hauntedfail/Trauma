@@ -629,8 +629,7 @@
 
   @container trauma-route-surface (width < 42rem) {
     .trauma-route-header {
-      align-items: flex-start;
-      flex-direction: column;
+      align-items: center;
     }
 
     .trauma-route-row {

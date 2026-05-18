@@ -57,10 +57,19 @@ describe("route header", () => {
     expect(routeHeaderSource).toContain("trauma-route-header");
     expect(routeHeaderSource).toContain("trauma-fluid-route-padding");
     expect(routeHeaderSource).toContain("sticky top-0");
+    expect(routeHeaderSource).toContain("min-h-[3.5rem]");
+    expect(routeHeaderSource).not.toContain("py-6");
+    expect(routeHeaderSource).toContain("items-center gap-3");
     expect(routeHeaderSource).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(routeHeaderSource).toContain("leading");
     expect(routeHeaderSource).toContain("metadata");
     expect(routeHeaderSource).toContain("actions");
+  });
+
+  it("keeps the memory reader previous button aligned with the route title", () => {
+    expect(memoryReaderSource).toContain('title="Memory"');
+    expect(memoryReaderSource).toContain("grid size-10 place-items-center");
+    expect(memoryReaderSource).not.toContain("mt-1 grid size-10");
   });
 
   it("keeps route pages on shared header chrome unless they own route-specific tabs", () => {
