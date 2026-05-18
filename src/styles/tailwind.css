@@ -388,8 +388,12 @@
     text-underline-offset: 3px;
   }
 
-  .trauma-reader-content[data-reader-leading-title="true"] > h1:first-child {
-    display: none;
+  .trauma-reader-lifted-title > h1 {
+    margin-block: 0;
+    color: rgb(var(--trauma-text-primary));
+    font-size: clamp(2rem, 8cqi, 3.35rem);
+    font-weight: 800;
+    line-height: 1.03;
   }
 
   .trauma-reader-content [data-reader-section-anchor] {

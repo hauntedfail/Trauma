@@ -155,14 +155,15 @@ function ReadyMemoryReader(props: {
   const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
-  const leadingTitleEntry = createMemo(() =>
-    findLeadingReaderTitleEntry({
+  const readerContent = createMemo(() =>
+    splitLeadingReaderTitleContent({
       html: props.result.rendered.html,
       title: props.result.memory.title,
       toc: props.result.rendered.toc,
     }),
   );
-  const readerBodyHtml = createMemo(() => props.result.rendered.html);
+  const readerBodyHtml = createMemo(() => readerContent().bodyHtml);
+  const readerTitleHtml = createMemo(() => readerContent().titleHtml);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
   ]);
@@ -503,21 +504,12 @@ function ReadyMemoryReader(props: {
                 />
               </div>
             </div>
-            <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
-              {props.result.memory.title}
-            </h1>
-            <ReaderTaxonomyChips
-              categories={categories()}
-              tags={props.result.memory.tags}
-            />
           </header>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
-            data-reader-leading-title={leadingTitleEntry() !== undefined ? "true" : undefined}
-            innerHTML={readerBodyHtml()}
             onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
@@ -527,7 +519,30 @@ function ReadyMemoryReader(props: {
             onPointerUp={clearSectionLongPress}
             onPointerDown={handleReaderContentPointerDown}
             tabIndex={0}
-          />
+          >
+            <Show
+              when={readerTitleHtml()}
+              fallback={(
+                <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
+                  {props.result.memory.title}
+                </h1>
+              )}
+            >
+              {(titleHtml) => (
+                <div
+                  class="trauma-reader-lifted-title"
+                  innerHTML={titleHtml()}
+                />
+              )}
+            </Show>
+            <div data-reader-noncontent>
+              <ReaderTaxonomyChips
+                categories={categories()}
+                tags={props.result.memory.tags}
+              />
+            </div>
+            <div class="contents" innerHTML={readerBodyHtml()} />
+          </div>
           <Show when={selectionMenu()}>
             {(menu) => (
               <ReaderContextMenu
@@ -697,6 +712,32 @@ export function findLeadingReaderTitleEntry(input: {
 
   const entry = input.toc.find((candidate) => candidate.id === anchor);
   return entry?.level === 1 && entry.text === input.title ? entry : undefined;
+}
+
+export function splitLeadingReaderTitleContent(input: {
+  html: string;
+  title: string;
+  toc: ReaderTocEntry[];
+}): { bodyHtml: string; titleHtml: string | undefined } {
+  if (findLeadingReaderTitleEntry(input) === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  const match = /^\s*(<h1\b[\s\S]*?<\/h1>)/i.exec(input.html);
+  if (match === null || match[1] === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  return {
+    bodyHtml: input.html.slice(match[0].length),
+    titleHtml: match[1],
+  };
 }
 
 export function readLeadingReaderHeadingAnchor(
@@ -1409,18 +1450,26 @@ function readReaderSelection(
   if (!containsBoundary(container, range.startContainer) || !containsBoundary(container, range.endContainer)) {
     return undefined;
   }
+  if (
+    isInsideReaderNonContent(range.startContainer) ||
+    isInsideReaderNonContent(range.endContainer)
+  ) {
+    return undefined;
+  }
 
-  const text = range.toString();
+  const textNodes = collectReaderContentTextNodes(container);
+  const selectionOffsets = readReaderSelectionOffsets(range, textNodes);
+  if (selectionOffsets === undefined) {
+    return undefined;
+  }
+
+  const text = selectionOffsets.text;
   if (text.trim().length === 0) {
     return undefined;
   }
 
-  const preSelectionRange = document.createRange();
-  preSelectionRange.selectNodeContents(container);
-  preSelectionRange.setEnd(range.startContainer, range.startOffset);
-  const startOffset = preSelectionRange.toString().length;
-  const endOffset = startOffset + text.length;
-  const contentText = container.textContent ?? "";
+  const contentText = textNodes.map((node) => node.nodeValue ?? "").join("");
+  const { endOffset, startOffset } = selectionOffsets;
 
   return {
     range,
@@ -1434,6 +1483,44 @@ function readReaderSelection(
 
 function containsBoundary(container: HTMLElement, node: Node): boolean {
   return node === container || container.contains(node);
+}
+
+function readReaderSelectionOffsets(
+  range: Range,
+  textNodes: Text[],
+): { endOffset: number; startOffset: number; text: string } | undefined {
+  let currentOffset = 0;
+  let startOffset: number | undefined;
+  let endOffset: number | undefined;
+  let text = "";
+
+  for (const node of textNodes) {
+    const nodeText = node.nodeValue ?? "";
+    const nodeLength = nodeText.length;
+
+    if (range.intersectsNode(node)) {
+      const nodeStartOffset = currentOffset;
+      const selectedStart = node === range.startContainer ? range.startOffset : 0;
+      const selectedEnd = node === range.endContainer ? range.endOffset : nodeLength;
+      if (selectedEnd > selectedStart) {
+        startOffset ??= nodeStartOffset + selectedStart;
+        endOffset = nodeStartOffset + selectedEnd;
+        text += nodeText.slice(selectedStart, selectedEnd);
+      }
+    }
+
+    currentOffset += nodeLength;
+  }
+
+  if (startOffset === undefined || endOffset === undefined) {
+    return undefined;
+  }
+
+  return {
+    endOffset,
+    startOffset,
+    text,
+  };
 }
 
 function readContextBefore(text: string, startOffset: number): string {
@@ -1460,19 +1547,31 @@ function isRangeFullyMarked(range: Range, container: HTMLElement): boolean {
 }
 
 function collectIntersectingTextNodes(range: Range, container: HTMLElement): Text[] {
+  return collectReaderContentTextNodes(container).filter((node) =>
+    range.intersectsNode(node),
+  );
+}
+
+function collectReaderContentTextNodes(container: HTMLElement): Text[] {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   let current = walker.nextNode();
 
   while (current !== null) {
-    if (range.intersectsNode(current)) {
-      nodes.push(current as Text);
+    const node = current as Text;
+    if (!isInsideReaderNonContent(node)) {
+      nodes.push(node);
     }
 
     current = walker.nextNode();
   }
 
   return nodes;
+}
+
+function isInsideReaderNonContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-noncontent]") !== null;
 }
 
 function applyOptimisticFlashback(

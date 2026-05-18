@@ -63,7 +63,7 @@ describe("memory reader actions", () => {
     expect(html).not.toContain("#global");
   });
 
-  it("renders the reader title before taxonomy even when the body keeps a matching h1", () => {
+  it("renders the reader title before taxonomy without hiding the body h1", () => {
     const html = renderReader({
       ...readyResult,
       memory: {
@@ -71,21 +71,23 @@ describe("memory reader actions", () => {
         categories: [{ id: "category-order", name: "Category After Title" }],
       },
       rendered: {
-        html: '<h1 data-reader-section-anchor="reader-memory">Reader Memory</h1><p>Body</p>',
+        html: '<h1 data-reader-section-anchor="reader-memory"><mark data-flashback-id="title-flashback" id="title-flashback">Reader Memory</mark></h1><p>Body</p>',
         toc: [{ id: "reader-memory", level: 1, path: "1", text: "Reader Memory" }],
       },
     });
 
-    const introTitleIndex = html.indexOf(
-      '<h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)]',
-    );
+    const introTitleIndex = html.indexOf("data-reader-section-anchor=\"reader-memory\"");
     const categoryIndex = html.indexOf("Category After Title");
-    const bodyTitleIndex = html.indexOf("data-reader-leading-title=\"true\"");
+    const flashbackIndex = html.indexOf("data-flashback-id=\"title-flashback\"");
+    const bodyIndex = html.indexOf("<p>Body</p>");
 
     expect(introTitleIndex).toBeGreaterThan(-1);
     expect(categoryIndex).toBeGreaterThan(-1);
-    expect(bodyTitleIndex).toBeGreaterThan(-1);
+    expect(flashbackIndex).toBeGreaterThan(-1);
+    expect(bodyIndex).toBeGreaterThan(-1);
     expect(introTitleIndex).toBeLessThan(categoryIndex);
+    expect(categoryIndex).toBeLessThan(bodyIndex);
+    expect(html.match(/data-reader-section-anchor="reader-memory"/g)).toHaveLength(1);
   });
 
   it("does not render empty attached taxonomy sections", () => {

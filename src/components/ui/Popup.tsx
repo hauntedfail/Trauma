@@ -116,5 +116,12 @@ function shouldSuppressPopupOutsideClick(target: EventTarget | null): boolean {
     return false;
   }
 
-  return target.closest("[data-popup-dismiss-only]") !== null;
+  return target.closest("[data-popup-dismiss-only]") !== null &&
+    !isPopupActionTarget(target);
+}
+
+function isPopupActionTarget(target: Element): boolean {
+  return target.closest(
+    "button,input,select,textarea,[contenteditable='true'],[role='button'],[role='menuitem'],[role='switch']",
+  ) !== null;
 }

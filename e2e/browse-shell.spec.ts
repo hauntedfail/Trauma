@@ -687,6 +687,16 @@ test("closes the add-memory composer on outside memory-row clicks without openin
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+
+  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  await row.getByRole("button", { name: "Add tag" }).click();
+
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {

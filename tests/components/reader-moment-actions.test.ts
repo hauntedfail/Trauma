@@ -8,6 +8,7 @@ import {
   findLeadingReaderTitleEntry,
   readLeadingReaderHeadingAnchor,
   resolveReaderMomentTarget,
+  splitLeadingReaderTitleContent,
 } from "../../src/components/reader/MemoryReader";
 import {
   createMomentForSection,
@@ -39,6 +40,7 @@ describe("reader Moment actions", () => {
 
   it("keeps leading title headings in reader content so marks, Moment controls, and offsets stay canonical", () => {
     expect(readerSource).not.toContain("stripLeadingReaderTitleHeading");
+    expect(styleSource).not.toContain("data-reader-leading-title");
     expect(readLeadingReaderHeadingAnchor(
       '  <h1 data-reader-section-anchor="reader-title">Reader title</h1><p>Body</p>',
     )).toBe("reader-title");
@@ -52,6 +54,17 @@ describe("reader Moment actions", () => {
         toc: [{ id: "reader-title", level: 1, path: "1", text: "Reader title" }],
       }),
     ).toEqual({ id: "reader-title", level: 1, path: "1", text: "Reader title" });
+    expect(
+      splitLeadingReaderTitleContent({
+        html: '<h1 data-reader-section-anchor="reader-title"><mark data-flashback-id="title-flashback">Reader title</mark></h1><p>Body</p>',
+        title: "Reader title",
+        toc: [{ id: "reader-title", level: 1, path: "1", text: "Reader title" }],
+      }),
+    ).toEqual({
+      bodyHtml: "<p>Body</p>",
+      titleHtml:
+        '<h1 data-reader-section-anchor="reader-title"><mark data-flashback-id="title-flashback">Reader title</mark></h1>',
+    });
   });
 
   it("surfaces Moment API error bodies for debugging client failures", async () => {
