@@ -63,6 +63,31 @@ describe("memory reader actions", () => {
     expect(html).not.toContain("#global");
   });
 
+  it("renders the reader title before taxonomy even when the body keeps a matching h1", () => {
+    const html = renderReader({
+      ...readyResult,
+      memory: {
+        ...readyResult.memory,
+        categories: [{ id: "category-order", name: "Category After Title" }],
+      },
+      rendered: {
+        html: '<h1 data-reader-section-anchor="reader-memory">Reader Memory</h1><p>Body</p>',
+        toc: [{ id: "reader-memory", level: 1, path: "1", text: "Reader Memory" }],
+      },
+    });
+
+    const introTitleIndex = html.indexOf(
+      '<h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)]',
+    );
+    const categoryIndex = html.indexOf("Category After Title");
+    const bodyTitleIndex = html.indexOf("data-reader-leading-title=\"true\"");
+
+    expect(introTitleIndex).toBeGreaterThan(-1);
+    expect(categoryIndex).toBeGreaterThan(-1);
+    expect(bodyTitleIndex).toBeGreaterThan(-1);
+    expect(introTitleIndex).toBeLessThan(categoryIndex);
+  });
+
   it("does not render empty attached taxonomy sections", () => {
     const html = renderReader({
       ...readyResult,

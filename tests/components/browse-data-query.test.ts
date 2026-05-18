@@ -43,6 +43,24 @@ describe("browse fielded query filters", () => {
     ).toBe("");
   });
 
+  it("escapes closing braces inside braced taxonomy values", () => {
+    expect(
+      toggleBrowseSearchFieldFilter("reader", {
+        field: "tag",
+        value: "A}B",
+      }),
+    ).toBe("reader tag={A\\}B}");
+    expect(getBrowseSearchFieldValues("reader tag={A\\}B}", "tag")).toEqual([
+      "A}B",
+    ]);
+    expect(
+      toggleBrowseSearchFieldFilter("reader tag={A\\}B}", {
+        field: "tag",
+        value: "A}B",
+      }),
+    ).toBe("reader");
+  });
+
   it("matches fielded taxonomy filters exactly", () => {
     const memories = [
       {

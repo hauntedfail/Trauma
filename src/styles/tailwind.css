@@ -388,6 +388,10 @@
     text-underline-offset: 3px;
   }
 
+  .trauma-reader-content[data-reader-leading-title="true"] > h1:first-child {
+    display: none;
+  }
+
   .trauma-reader-content [data-reader-section-anchor] {
     margin-inline-start: -1.75rem;
     padding-inline-start: 1.75rem;

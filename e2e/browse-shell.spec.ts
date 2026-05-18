@@ -317,6 +317,16 @@ test("closes taxonomy creation popovers on outside clicks", async ({ page }) => 
 
   await expect(page.getByRole("dialog", { name: "New tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+
+  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  await row.getByRole("button", { name: "Add tag" }).click();
+  await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
+
+  await row.locator("p").first().click();
+
+  await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
 
 test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {

@@ -162,7 +162,6 @@ function ReadyMemoryReader(props: {
       toc: props.result.rendered.toc,
     }),
   );
-  const shouldRenderFallbackTitle = () => leadingTitleEntry() === undefined;
   const readerBodyHtml = createMemo(() => props.result.rendered.html);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
@@ -504,11 +503,9 @@ function ReadyMemoryReader(props: {
                 />
               </div>
             </div>
-            <Show when={shouldRenderFallbackTitle()}>
-              <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
-                {props.result.memory.title}
-              </h1>
-            </Show>
+            <h1 class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary">
+              {props.result.memory.title}
+            </h1>
             <ReaderTaxonomyChips
               categories={categories()}
               tags={props.result.memory.tags}
@@ -519,6 +516,7 @@ function ReadyMemoryReader(props: {
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
+            data-reader-leading-title={leadingTitleEntry() !== undefined ? "true" : undefined}
             innerHTML={readerBodyHtml()}
             onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}

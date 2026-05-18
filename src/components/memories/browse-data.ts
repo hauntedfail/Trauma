@@ -374,17 +374,17 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
     if (field !== undefined) {
       const valueStart = field.end + 1;
       if (query[valueStart] === "{") {
-        const closeIndex = query.indexOf("}", valueStart + 1);
-        if (closeIndex !== -1) {
+        const bracedValue = readBracedSearchFieldValue(query, valueStart + 1);
+        if (bracedValue !== undefined) {
           tokens.push({
-            end: closeIndex + 1,
+            end: bracedValue.end,
             kind: "field",
             braced: true,
             field: field.name,
             start: index,
-            value: query.slice(valueStart + 1, closeIndex).trim(),
+            value: bracedValue.value.trim(),
           });
-          index = closeIndex + 1;
+          index = bracedValue.end;
           continue;
         }
       }
@@ -408,6 +408,39 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
   }
 
   return tokens;
+}
+
+function readBracedSearchFieldValue(
+  query: string,
+  start: number,
+): { end: number; value: string } | undefined {
+  let index = start;
+  let value = "";
+
+  while (index < query.length) {
+    const char = query[index];
+    if (char === "\\") {
+      const nextChar = query[index + 1];
+      if (nextChar === undefined) {
+        value += char;
+        index += 1;
+        continue;
+      }
+
+      value += nextChar;
+      index += 2;
+      continue;
+    }
+
+    if (char === "}") {
+      return { end: index + 1, value };
+    }
+
+    value += char;
+    index += 1;
+  }
+
+  return undefined;
 }
 
 function readSearchField(
@@ -523,8 +556,14 @@ function formatBrowseFieldFilterTokens(
   }
 
   return cleanedValues.map((value) =>
-    isSimpleBrowseFieldValue(value) ? `${field}=${value}` : `${field}={${value}}`,
+    isSimpleBrowseFieldValue(value)
+      ? `${field}=${value}`
+      : `${field}={${escapeBrowseBracedFieldValue(value)}}`,
   );
+}
+
+function escapeBrowseBracedFieldValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[{}]/g, "\\$&");
 }
 
 function isSimpleBrowseFieldValue(value: string): boolean {
