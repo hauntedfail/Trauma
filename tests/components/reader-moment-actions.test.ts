@@ -24,6 +24,10 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain('aria-label="Flashback selection"');
     expect(readerSource).toContain('aria-label="Moment section"');
     expect(readerSource).toContain("ReaderSectionMenuState");
+    expect(readerSource).toContain("readerContextMenuClass");
+    expect(readerSource).toContain("border border-transparent bg-transparent");
+    expect(readerSource).toContain("shadow-none");
+    expect(readerSource).not.toContain("border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2");
   });
 
   it("renders Moment affordances for ToC rows and reader headings without shifting text on hover", () => {

@@ -117,6 +117,8 @@ const noTocScrollState: TocScrollState = {
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
+const readerContextMenuClass =
+  "fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent bg-transparent p-1 shadow-none";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -867,7 +869,7 @@ function ReaderContextMenu(props: {
     <div
       ref={props.menuRef}
       aria-label={props.label}
-      class="fixed z-[70] inline-flex items-center gap-1 rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
+      class={readerContextMenuClass}
       role="menu"
       style={{
         left: `${props.position.left}px`,
