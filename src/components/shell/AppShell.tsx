@@ -594,7 +594,7 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeCategory}
-            class="trauma-local-wrap"
+            density="compact"
             emptyLabel="No categories yet"
             items={props.categories}
             kind="category"
@@ -627,7 +627,7 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeTag}
-            class="trauma-local-wrap"
+            density="compact"
             emptyLabel="No tags yet"
             items={props.tags}
             kind="tag"

@@ -64,6 +64,21 @@ describe("taxonomy list", () => {
     expect(html).toContain('aria-pressed="false"');
   });
 
+  it("supports compact chip spacing for dense taxonomy lists", () => {
+    const html = renderToString(() =>
+      <TaxonomyList
+        density="compact"
+        items={items}
+        kind="category"
+        mode="chips"
+      />,
+    );
+
+    expect(html).toContain("gap-x-1.5");
+    expect(html).toContain("gap-y-1.5");
+    expect(html).not.toContain("trauma-local-wrap");
+  });
+
   it("renders the supplied empty state", () => {
     const html = renderToString(() =>
       <TaxonomyList

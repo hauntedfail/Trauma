@@ -54,6 +54,7 @@ describe("app shell taxonomy right rail", () => {
     expect(html).toContain("Empty");
     expect(html).toContain("sqlite");
     expect(html).toContain("rounded-full");
+    expect(html).toContain("gap-x-1.5");
     expect(html).not.toContain("0 memories");
     expect(html).not.toContain("2 memories");
   });

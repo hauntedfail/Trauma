@@ -128,6 +128,8 @@ Use `TaxonomyList` for category/tag chips and right-rail taxonomy filters.
 - `mode="chips"` renders attached categories/tags on memory rows and reader
   intros, and the same chip styling is also used for right-rail category/tag
   filters.
+- Use `density="compact"` for right-rail chip lists when the section needs
+  tighter item spacing than memory-row metadata.
 - Selectable chips use `aria-pressed` for active right-rail filters.
 - `mode="filters"` remains available for full-width taxonomy controls, but the
   current shell does not use it for the right rail.

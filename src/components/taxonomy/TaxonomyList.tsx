@@ -9,6 +9,7 @@ export interface TaxonomyListItem {
 export interface TaxonomyListProps<TItem extends TaxonomyListItem = TaxonomyListItem> {
   activeId?: string;
   class?: string;
+  density?: "compact" | "regular";
   emptyLabel?: string;
   items: readonly TItem[];
   kind: "category" | "tag";
@@ -38,7 +39,7 @@ export function TaxonomyList<TItem extends TaxonomyListItem>(
         </Show>
       }
     >
-      <div class={props.class ?? (props.mode === "chips" ? "trauma-local-wrap" : "grid gap-2")}>
+      <div class={props.class ?? getListClass(props.mode, props.density)}>
         <For each={props.items}>
           {(item) => (
             <TaxonomyListItemView
@@ -53,6 +54,19 @@ export function TaxonomyList<TItem extends TaxonomyListItem>(
       </div>
     </Show>
   );
+}
+
+function getListClass(
+  mode: TaxonomyListProps["mode"],
+  density: TaxonomyListProps["density"],
+): string {
+  if (mode === "filters") {
+    return "grid gap-2";
+  }
+
+  return density === "compact"
+    ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5"
+    : "trauma-local-wrap";
 }
 
 function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
