@@ -515,11 +515,15 @@
     inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
     max-inline-size: var(--trauma-page-shell-max, 52rem);
     margin-inline: auto;
-    padding-inline: clamp(1rem, 4cqi, 2rem);
+    padding-inline: clamp(0.875rem, 3cqi, 1.5rem);
   }
 
   .trauma-fluid-route-padding {
     padding-inline: clamp(1rem, 4cqi, 2rem);
+  }
+
+  .trauma-reader-route-padding {
+    padding-inline: clamp(0.875rem, 3cqi, 1.5rem);
   }
 
   .trauma-fluid-route-stack {

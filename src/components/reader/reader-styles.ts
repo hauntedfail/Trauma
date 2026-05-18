@@ -1,7 +1,7 @@
 export const readerFrame =
   "trauma-route-surface trauma-reader-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 
-export const readerPadding = "trauma-fluid-route-padding px-8";
+export const readerPadding = "trauma-reader-route-padding";
 
 export const readerStatePanel = `${readerPadding} py-12 text-trauma-text-secondary`;
 
