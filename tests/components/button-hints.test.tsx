@@ -23,20 +23,11 @@ const kebabActionMenuSource = readFileSync(
   "src/components/ui/KebabActionMenu.tsx",
   "utf8",
 );
-const emptyTooltipMarkupPattern = /<span(?=[^>]*class="trauma-button-hint")(?=[^>]*role="tooltip")[^>]*><\/span>/;
-
 describe("button hover hints", () => {
-  it("defines animated hover and focus-visible HTML tooltips from a shared data attribute", () => {
-    expect(tailwindSource).toContain("[data-trauma-hint]");
-    expect(tailwindSource).toContain(".trauma-button-hint");
-    expect(tailwindSource).not.toContain("data-trauma-hint-label");
-    expect(tailwindSource).not.toContain("content: attr(data-trauma-hint-label)");
-    expect(tailwindSource).toContain("display: none");
-    expect(tailwindSource).toContain("display: block");
-    expect(tailwindSource).toContain("animation: trauma-button-hint-in");
-    expect(tailwindSource).toContain("@keyframes trauma-button-hint-in");
-    expect(tailwindSource).toContain("[data-trauma-hint]:focus-visible");
-    expect(tailwindSource).toContain("> .trauma-button-hint");
+  it("uses native HTML title tooltips and no custom tooltip styles", () => {
+    expect(tailwindSource).not.toContain("[data-trauma-hint]");
+    expect(tailwindSource).not.toContain(".trauma-button-hint");
+    expect(tailwindSource).not.toContain("trauma-button-hint-in");
   });
 
   it("uses inverse action text for read-status button hints", () => {
@@ -55,11 +46,11 @@ describe("button hover hints", () => {
       }),
     );
 
-    expect(readHtml).toContain('data-trauma-hint="Mark as unread"');
-    expect(unreadHtml).toContain('data-trauma-hint="Mark as read"');
+    expect(readHtml).toContain('title="Mark as unread"');
+    expect(unreadHtml).toContain('title="Mark as read"');
   });
 
-  it("lets shared button primitives expose hints through shared HTML tooltip markup", () => {
+  it("lets shared button primitives expose hints through native HTML title attributes", () => {
     const kebabHtml = renderToString(() =>
       createComponent(KebabActionMenu, {
         id: "memory-actions-test-menu",
@@ -86,17 +77,13 @@ describe("button hover hints", () => {
       }),
     );
 
-    expect(kebabHtml).toContain('data-trauma-hint="Memory actions"');
+    expect(kebabHtml).toContain('title="Memory actions"');
     expect(kebabHtml).toContain('aria-controls="memory-actions-test-menu"');
-    expect(kebabHtml).toContain('role="tooltip"');
-    expect(kebabHtml).toContain("trauma-button-hint");
-    expect(kebabHtml).toMatch(emptyTooltipMarkupPattern);
-    expect(segmentedHtml).toContain('data-trauma-hint="Use light theme"');
-    expect(segmentedHtml).toContain('role="tooltip"');
-    expect(segmentedHtml).toMatch(emptyTooltipMarkupPattern);
-    expect(waxHtml).toContain('data-trauma-hint="Save memory"');
-    expect(waxHtml).toContain('role="tooltip"');
-    expect(waxHtml).toMatch(emptyTooltipMarkupPattern);
+    expect(kebabHtml).not.toContain('role="tooltip"');
+    expect(segmentedHtml).toContain('title="Use light theme"');
+    expect(segmentedHtml).not.toContain('role="tooltip"');
+    expect(waxHtml).toContain('title="Save memory"');
+    expect(waxHtml).not.toContain('role="tooltip"');
   });
 
   it("requires callers to provide stable action-menu ids", () => {
@@ -107,19 +94,19 @@ describe("button hover hints", () => {
   });
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
-    expect(appShellSource).toContain('data-trauma-hint="Theme settings"');
-    expect(appShellSource).toContain('data-trauma-hint="Local archive"');
+    expect(appShellSource).toContain('title="Theme settings"');
+    expect(appShellSource).toContain('title="Local archive"');
     expect(appShellSource).toContain('hint="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
     expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
-    expect(memoryBrowseSource).toContain('data-trauma-hint="Add tag"');
+    expect(memoryBrowseSource).toContain('title="Add tag"');
     expect(addMemoryFormSource).toContain(
       'hint={isSubmitting() ? "Saving..." : props.submitLabel}',
     );
-    expect(readerSource).toContain('data-trauma-hint="Flashback selection"');
-    expect(readerSource).toContain('data-trauma-hint="Moment section"');
+    expect(readerSource).toContain('title="Flashback selection"');
+    expect(readerSource).toContain('title="Moment section"');
     expect(readerSource).toContain(
-      'data-trauma-hint={props.active ? "Remove moment" : "Save moment"}',
+      'title={props.active ? "Remove moment" : "Save moment"}',
     );
     expect(readerSource).toContain('hint="Show current"');
     expect(readerSource).toContain('hint="Show all"');

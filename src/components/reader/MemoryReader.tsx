@@ -48,7 +48,6 @@ import {
 } from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
-import { ButtonHint } from "../ui/ButtonHint";
 import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
@@ -558,26 +557,24 @@ function ReadyMemoryReader(props: {
                 <button
                   aria-label="Flashback selection"
                   class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                  data-trauma-hint="Flashback selection"
+                  title="Flashback selection"
                   disabled={pendingSelectionKey() === menu().key}
                   type="button"
                   onClick={commitSelectionMenu}
                 >
                   {TraumaNavIcons.flashbacks.filled({ size: 18 })}
-                  <ButtonHint>Flashback selection</ButtonHint>
                 </button>
                 <Show when={menu().momentSection}>
                   {(section) => (
                     <button
                       aria-label="Moment selected section"
                       class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                      data-trauma-hint="Moment selected section"
+                      title="Moment selected section"
                       disabled={pendingMomentKey() === getReaderMomentKey(section())}
                       type="button"
                       onClick={commitSelectionMomentMenu}
                     >
                       {TraumaNavIcons.moment.filled({ size: 18 })}
-                      <ButtonHint>Moment selected section</ButtonHint>
                     </button>
                   )}
                 </Show>
@@ -596,13 +593,12 @@ function ReadyMemoryReader(props: {
                 <button
                   aria-label="Moment section"
                   class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                  data-trauma-hint="Moment section"
+                  title="Moment section"
                   disabled={pendingMomentKey() === menu().key}
                   type="button"
                   onClick={commitSectionMenu}
                 >
                   {TraumaNavIcons.moment.filled({ size: 18 })}
-                  <ButtonHint>Moment section</ButtonHint>
                 </button>
               </ReaderContextMenu>
             )}
@@ -1297,7 +1293,7 @@ function ReaderTocEntryRow(props: {
         aria-label={`Moment ${props.entry.text}`}
         aria-pressed={props.active}
         class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
-        data-trauma-hint={props.active ? "Remove moment" : "Save moment"}
+        title={props.active ? "Remove moment" : "Save moment"}
         disabled={props.pending}
         type="button"
         onClick={(event) => {
@@ -1308,7 +1304,6 @@ function ReaderTocEntryRow(props: {
         {props.active
           ? TraumaNavIcons.moment.filled({ size: 14 })
           : TraumaNavIcons.moment.outline({ size: 14 })}
-        <ButtonHint>{props.active ? "Remove moment" : "Save moment"}</ButtonHint>
       </button>
       <a class="hover:text-trauma-link" href={`#${props.entry.id}`}>
         {props.entry.text}

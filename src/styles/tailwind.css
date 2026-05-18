@@ -623,42 +623,6 @@
     background: var(--accent);
   }
 
-  :where([data-trauma-hint]) {
-    position: relative;
-    overflow: visible;
-  }
-
-  .trauma-button-hint {
-    display: none;
-    position: absolute;
-    z-index: 90;
-    inset-block-end: calc(100% + 0.5rem);
-    inset-inline-start: 50%;
-    max-inline-size: min(18rem, calc(100vw - 2rem));
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
-    box-shadow: var(--shadow-2);
-    color: var(--fg-1);
-    font-size: 0.75rem;
-    font-weight: 800;
-    line-height: 1.1;
-    opacity: 0;
-    padding: 0.45rem 0.65rem;
-    pointer-events: none;
-    text-align: center;
-    transform: translate(-50%, 0.25rem) scale(0.96);
-    transform-origin: bottom center;
-    white-space: nowrap;
-  }
-
-  :where([data-trauma-hint]:hover) > .trauma-button-hint,
-  :where([data-trauma-hint]:focus-visible) > .trauma-button-hint,
-  :where([data-trauma-hint]:focus-within) > .trauma-button-hint {
-    display: block;
-    animation: trauma-button-hint-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
   @container trauma-route-surface (width < 42rem) {
     .trauma-route-header {
       align-items: flex-start;
@@ -825,11 +789,6 @@
   :root[data-theme^="paper"] .trauma-paper-wax-label {
     position: relative;
     z-index: 1;
-  }
-
-  :root[data-theme^="paper"] .trauma-paper-wax-seal > .trauma-button-hint {
-    position: absolute;
-    z-index: 90;
   }
 
   :root[data-theme^="paper"] .trauma-paper-wax-seal::before,
@@ -1006,23 +965,6 @@
   }
 }
 
-@keyframes trauma-button-hint-in {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, 0.25rem) scale(0.96);
-  }
-
-  64% {
-    opacity: 1;
-    transform: translate(-50%, -0.0625rem) scale(1.02);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-}
-
 @keyframes trauma-wax-press {
   0% {
     transform: translateY(0) scaleX(1) scaleY(1);
@@ -1065,14 +1007,6 @@
     will-change: auto;
   }
 
-  :where([data-trauma-hint]:hover) > .trauma-button-hint,
-  :where([data-trauma-hint]:focus-visible) > .trauma-button-hint,
-  :where([data-trauma-hint]:focus-within) > .trauma-button-hint {
-    display: block;
-    animation: none;
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
 }
 
 .trauma-reader-content mark[data-flashback-id]:target {

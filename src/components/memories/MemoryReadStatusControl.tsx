@@ -1,7 +1,6 @@
 import { Show, createEffect, createSignal, on } from "solid-js";
 
 import { CheckIcon, EyeClosedIcon, EyeOpenIcon } from "../icons/TraumaIcons";
-import { ButtonHint } from "../ui/ButtonHint";
 
 export interface MemoryReadStatusControlProps {
   memoryId: string;
@@ -107,7 +106,7 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
         type="button"
         aria-pressed={read()}
         aria-label={read() ? "Mark memory unread" : "Mark memory read"}
-        data-trauma-hint={actionHint()}
+        title={actionHint()}
         disabled={pending()}
         onClick={handleToggleClick}
       >
@@ -125,7 +124,6 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
               : <span class={statusDotClass} />}
         </span>
         <ShowVisibleReadStatusLabels compact={props.compact} read={read()} variant={props.variant ?? "label"} />
-        <ButtonHint>{actionHint()}</ButtonHint>
       </button>
       {error() !== "" ? (
         <span class="text-xs font-bold text-trauma-danger">{error()}</span>

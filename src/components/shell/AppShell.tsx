@@ -52,7 +52,6 @@ import {
   type SurfaceMode,
 } from "./theme";
 import { RightRailContentContext } from "./right-rail-context";
-import { ButtonHint } from "../ui/ButtonHint";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
@@ -505,7 +504,7 @@ function NavigationContent(props: {
         onCreated={props.onNavigate}
         popoverId="rail-add-memory-composer"
       />
-      <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive" data-trauma-hint="Local archive">
+      <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive" title="Local archive">
         <span class={`${railIconSlot} rounded-full bg-trauma-accent-soft`}>
           <TraumaMark size={26} />
         </span>
@@ -518,7 +517,6 @@ function NavigationContent(props: {
         <span class="max-[1040px]:hidden">
           <KebabIcon size={16} />
         </span>
-        <ButtonHint>Local archive</ButtonHint>
       </button>
     </div>
   );
@@ -565,12 +563,11 @@ function AddMemoryComposerButton(props: {
                   {...triggerProps}
                   aria-pressed={open}
                   class={compactAddMemoryButton}
-                  data-trauma-hint="Add memory"
+                  title="Add memory"
                   type="button"
                 >
                   <PlusIcon size={28} />
                   <span class="sr-only">Add memory</span>
-                  <ButtonHint>Add memory</ButtonHint>
                 </button>
               </>
             }
@@ -579,7 +576,7 @@ function AddMemoryComposerButton(props: {
               {...triggerProps}
               aria-pressed={open}
               class={`${phoneTabButton} w-full`}
-              data-trauma-hint="Add memory"
+              title="Add memory"
               type="button"
             >
               <span class={phoneIconSlot}>
@@ -588,7 +585,6 @@ function AddMemoryComposerButton(props: {
               <span class={phoneTabLabel} data-phone-tab-label>
                 Add memory
               </span>
-              <ButtonHint>Add memory</ButtonHint>
             </button>
           </Show>
         </>
@@ -749,13 +745,12 @@ function TaxonomyCreateAction(props: {
       aria-expanded={props.expanded}
       class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
       data-taxonomy-create-trigger="true"
-      data-trauma-hint={props.label}
+      title={props.label}
       type="button"
       onClick={props.onClick}
     >
       <PlusIcon size={16} />
       <span>{props.label}</span>
-      <ButtonHint>{props.label}</ButtonHint>
     </button>
   );
 }
@@ -948,7 +943,7 @@ function ThemeNavButton(props: {
             {...triggerProps}
             aria-pressed={open}
             class={`${isPhone() ? `${phoneTabButton} w-full` : navItemBase} ${open ? activeNavItem : ""}`}
-            data-trauma-hint="Theme settings"
+            title="Theme settings"
             type="button"
           >
             <span class={isPhone() ? phoneIconSlot : railIconSlot}>{Icon()}</span>
@@ -970,7 +965,6 @@ function ThemeNavButton(props: {
                 Theme
               </span>
             </Show>
-            <ButtonHint>Theme settings</ButtonHint>
           </button>
         );
       }}

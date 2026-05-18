@@ -1,7 +1,6 @@
 import { type JSX } from "solid-js";
 
 import { KebabIcon } from "../icons";
-import { ButtonHint } from "./ButtonHint";
 import { Popup } from "./Popup";
 
 export interface KebabActionMenuControls {
@@ -50,11 +49,10 @@ export function KebabActionMenu(props: KebabActionMenuProps) {
           {...triggerProps}
           aria-label={props.label}
           class={triggerClass}
-          data-trauma-hint={props.label}
+          title={props.label}
           type="button"
         >
           <KebabIcon />
-          <ButtonHint>{props.label}</ButtonHint>
         </button>
       )}
     >

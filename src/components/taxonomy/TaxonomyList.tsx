@@ -1,6 +1,5 @@
 import { For, Show } from "solid-js";
 
-import { ButtonHint } from "../ui/ButtonHint";
 
 export interface TaxonomyListItem {
   id: string;
@@ -99,7 +98,7 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
       <button
         aria-pressed={props.active}
         class={interactiveChipClass}
-        data-trauma-hint={label()}
+        title={label()}
         type="button"
         onClick={() => props.onSelect?.(props.item)}
       >
@@ -109,7 +108,6 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
             {props.item.memoryCount}
           </span>
         </Show>
-        <ButtonHint>{label()}</ButtonHint>
       </button>
     );
   }
@@ -118,7 +116,7 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
     <button
       aria-pressed={props.onSelect === undefined ? undefined : props.active}
       class={filterClass}
-      data-trauma-hint={label()}
+      title={label()}
       type="button"
       onClick={() => props.onSelect?.(props.item)}
     >
@@ -132,7 +130,6 @@ function TaxonomyListItemView<TItem extends TaxonomyListItem>(props: {
           {formatMemoryCount(props.item.memoryCount ?? 0)}
         </span>
       </Show>
-      <ButtonHint>{label()}</ButtonHint>
     </button>
   );
 }
