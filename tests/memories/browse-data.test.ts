@@ -4,11 +4,13 @@ import {
   buildBrowseHref,
   buildFlashbackBrowseHref,
   filterBrowseMemories,
+  getBrowseReadStateFilter,
   getBrowseSearchFieldValues,
   getMemoryDisplayFlashback,
   getMemoryReaderFlashbacks,
   getRecentFlashbacks,
   parseBrowseQuery,
+  setBrowseReadStateFilter,
   toggleBrowseSearchFieldFilter,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
@@ -183,6 +185,26 @@ describe("browse query state", () => {
       "memory-foundation",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read+unread"))).toHaveLength(0);
+  });
+
+  it("derives read-state tab state from readable search tokens", () => {
+    expect(getBrowseReadStateFilter("")).toBe("all");
+    expect(getBrowseReadStateFilter("reader read")).toBe("read");
+    expect(getBrowseReadStateFilter("reader unread")).toBe("unread");
+    expect(getBrowseReadStateFilter("reader read unread")).toBe("all");
+  });
+
+  it("updates read-state tokens without disturbing other search filters", () => {
+    expect(setBrowseReadStateFilter("reader tag=solidstart unread", "read")).toBe(
+      "reader tag=solidstart read",
+    );
+    expect(setBrowseReadStateFilter("reader read tag=sqlite", "all")).toBe(
+      "reader tag=sqlite",
+    );
+    expect(setBrowseReadStateFilter("title:{Read later} unread", "all")).toBe(
+      "title:{Read later}",
+    );
+    expect(setBrowseReadStateFilter("reader", "unread")).toBe("reader unread");
   });
 
   it("combines free-text, fielded search, and explicit right-rail filters with AND semantics", () => {

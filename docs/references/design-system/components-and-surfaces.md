@@ -55,8 +55,7 @@ buttons. They keep accessible labels on the button. Open eye means unread
 
 Paper themes add one deliberate material exception for archive actions:
 
-- Add-memory commands and List/Grid view toggles use the
-  `trauma-paper-wax-seal` treatment.
+- Add-memory commands use the `trauma-paper-wax-seal` treatment.
 - Do not replace theme colours inside this treatment. The button's existing
   semantic background, text, border, hover, and `aria-pressed` classes stay in
   charge of colour.
@@ -78,14 +77,20 @@ Paper themes add one deliberate material exception for archive actions:
 
 ## Browse Header
 
-The Memories browse header owns the list/grid view toggle. Keep the title block
-and view toggle in one two-column grid row at every route width:
+The Memories browse header owns the read-state tabs, not a large route title
+or list/grid toggle.
 
-- Title/eyebrow column: `minmax(0, 1fr)` so it can shrink.
-- View mode column: `auto`, aligned to the inline end.
-- Do not let phone layout push List/Grid below the `Memories` title.
-- The shared narrow-route header container query can stack other route headers,
-  but `MemoryBrowse` uses its own header marker to remain a single row.
+- Render exactly three equal-width tabs: `All`, `Unread`, and `Read`.
+- `All` is the default state and removes read-state tokens from the search
+  query.
+- `Unread` appends the standalone `unread` search token.
+- `Read` appends the standalone `read` search token.
+- The search bar and URL remain the source of truth for the filter state.
+- The active tab uses bold primary text plus a short rounded accent underline
+  anchored to the tab bottom. Inactive tabs use muted text.
+- The tab strip stays in one sticky row at every route width.
+- These tabs are not wax controls. Paper/Hermès wax treatment remains reserved
+  for archive commands such as Add memory.
 
 ## Shell Popovers
 

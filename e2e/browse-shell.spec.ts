@@ -134,7 +134,7 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
   expect(underlineState.underlineBottom).toBe("5px");
 });
 
-test("updates URL query state from search, taxonomy filters, and view controls", async ({
+test("updates URL query state from search, taxonomy filters, and read-state tabs", async ({
   page,
 }) => {
   await page.goto("/memories");
@@ -156,19 +156,33 @@ test("updates URL query state from search, taxonomy filters, and view controls",
   );
   await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch\+tag%3Dsolidstart/);
 
-  const viewModeGroup = page.getByRole("group", { name: "View mode" });
-  await expect(viewModeGroup).toBeVisible();
-  const toggleBoxBefore = await viewModeGroup.boundingBox();
-  await page.getByRole("button", { name: "Grid" }).click();
-  await expect(page).toHaveURL(/view=grid/);
-  await expect(page.locator(".memory-grid")).toBeVisible();
-  await expect(viewModeGroup).toBeVisible();
-  const toggleBoxAfter = await viewModeGroup.boundingBox();
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  await expect(statusTabs).toBeVisible();
+  await expect(statusTabs.getByRole("tab", { name: "All" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 
-  expect(toggleBoxBefore).not.toBeNull();
-  expect(toggleBoxAfter).not.toBeNull();
-  expect(toggleBoxBefore?.width).toBe(toggleBoxAfter?.width);
-  expect(toggleBoxBefore?.height).toBe(toggleBoxAfter?.height);
+  await statusTabs.getByRole("tab", { name: "Unread" }).click();
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart unread",
+  );
+  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch\+tag%3Dsolidstart\+unread/);
+  await expect(statusTabs.getByRole("tab", { name: "Unread" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await statusTabs.getByRole("tab", { name: "Read", exact: true }).click();
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart read",
+  );
+  await expect(page.getByText("No matching memories")).toBeVisible();
+
+  await statusTabs.getByRole("tab", { name: "All" }).click();
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart",
+  );
 });
 
 test("keeps the memories search focus indicator on the rounded search surface", async ({
@@ -299,7 +313,7 @@ test("closes taxonomy creation popovers on outside clicks", async ({ page }) => 
   await page.getByRole("button", { name: "New tag" }).click();
   await expect(page.getByRole("dialog", { name: "New tag" })).toBeVisible();
 
-  await page.getByRole("heading", { name: "Memories", exact: true }).click();
+  await page.getByRole("tab", { name: "All" }).click();
 
   await expect(page.getByRole("dialog", { name: "New tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
@@ -328,31 +342,35 @@ test("uses bottom primary tabs without drawer chrome on phone viewports", async 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 });
 
-test("keeps phone browse view controls on the memories header right edge", async ({
+test("keeps phone browse read-state tabs in the memories header", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
 
-  const header = page.locator(".trauma-route-header").first();
-  const title = page.getByRole("heading", { name: "Memories", exact: true });
-  const viewModeGroup = page.getByRole("group", { name: "View mode" });
+  const header = page.locator(".trauma-memory-browse-header").first();
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  const allTab = statusTabs.getByRole("tab", { name: "All" });
+  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
+  const readTab = statusTabs.getByRole("tab", { name: "Read", exact: true });
 
   const headerBox = await header.boundingBox();
-  const titleBox = await title.boundingBox();
-  const viewModeBox = await viewModeGroup.boundingBox();
+  const allBox = await allTab.boundingBox();
+  const unreadBox = await unreadTab.boundingBox();
+  const readBox = await readTab.boundingBox();
 
   expect(headerBox).not.toBeNull();
-  expect(titleBox).not.toBeNull();
-  expect(viewModeBox).not.toBeNull();
+  expect(allBox).not.toBeNull();
+  expect(unreadBox).not.toBeNull();
+  expect(readBox).not.toBeNull();
 
-  expect(viewModeBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
-  expect(Math.abs(viewModeBox!.y + viewModeBox!.height / 2 - (titleBox!.y + titleBox!.height / 2))).toBeLessThanOrEqual(
-    12,
+  expect(Math.abs(allBox!.width - unreadBox!.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(unreadBox!.width - readBox!.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(headerBox!.x - allBox!.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(headerBox!.x + headerBox!.width - (readBox!.x + readBox!.width))).toBeLessThanOrEqual(
+    2,
   );
-  expect(Math.abs(headerBox!.x + headerBox!.width - (viewModeBox!.x + viewModeBox!.width))).toBeLessThanOrEqual(
-    32,
-  );
+  await expect(page.getByRole("group", { name: "View mode" })).toHaveCount(0);
 });
 
 test("keeps tablet shell compact without duplicate header or filter drawers", async ({ page }) => {
@@ -451,11 +469,15 @@ test("persists shell theme controls in the browser", async ({ page }) => {
       routeBackgroundImage: "none",
     });
 
-  const gridButton = page.getByRole("button", { name: "Grid" });
-  await gridButton.click();
-  await expect(gridButton).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
+
+  const waxButton = page.getByRole("button", { name: "Add memory" });
+  await waxButton.click();
+  await expect(waxButton).toHaveAttribute("aria-pressed", "true");
   const readWaxStyle = () =>
-    gridButton.evaluate((button) => {
+    waxButton.evaluate((button) => {
       const label = button.querySelector(".trauma-paper-wax-label");
       const style = getComputedStyle(button);
       const edge = getComputedStyle(button, "::before");
@@ -487,7 +509,7 @@ test("persists shell theme controls in the browser", async ({ page }) => {
       };
     });
   await expect
-    .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::before").opacity))
+    .poll(() => waxButton.evaluate((button) => getComputedStyle(button, "::before").opacity))
     .toBe("0.92");
   const waxStyle = await readWaxStyle();
   expect(waxStyle.backgroundImage).toBe("none");
@@ -499,20 +521,19 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   expect(waxStyle.ringBorderWidth).toBe("0px");
   expect(waxStyle.ringBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(waxStyle.ringBackgroundColor).not.toBe("transparent");
-  expect(waxStyle.labelColor).toBe("rgb(250, 242, 220)");
+  expect(waxStyle.labelColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(waxStyle.labelPosition).toBe("relative");
   expect(waxStyle.labelZIndex).toBe("1");
   expect(waxStyle.stampContent).not.toBe("none");
   expect(waxStyle.stampClipPath).toBe("none");
   expect(waxStyle.stampBorderWidth).toBe("0px");
   expect(waxStyle.stampOutlineStyle).toBe("none");
-  expect(waxStyle.stampInset).toBe("6px 7px");
+  expect(waxStyle.stampInset).toBe("7px 10px");
   await expect
-    .poll(() => gridButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
+    .poll(() => waxButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
     .toBe("1");
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
-  await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
+  await expect(waxButton).toHaveAttribute("aria-pressed", "false");
 
   await page.reload();
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);

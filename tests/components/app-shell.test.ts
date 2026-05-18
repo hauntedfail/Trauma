@@ -289,7 +289,7 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("<WaxSealLabel");
   });
 
-  it("uses paper-mode wax seal controls for add memory and view toggles", () => {
+  it("uses paper-mode wax seal controls for add memory commands", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::before');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
@@ -306,9 +306,9 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("rounded-full border border-trauma-border-strong");
     expect(appShellSource).toContain("<WaxSealLabel");
     expect(appShellSource).toContain("max-[1040px]:sr-only");
-    expect(memoryBrowseSource).toContain("<WaxSealButton");
-    expect(memoryBrowseSource).toContain("<WaxSealLabel>List</WaxSealLabel>");
-    expect(memoryBrowseSource).toContain("<WaxSealLabel>Grid</WaxSealLabel>");
+    expect(memoryBrowseSource).not.toContain("<WaxSealButton");
+    expect(memoryBrowseSource).not.toContain("<WaxSealLabel>List</WaxSealLabel>");
+    expect(memoryBrowseSource).not.toContain("<WaxSealLabel>Grid</WaxSealLabel>");
     expect(addMemoryFormSource).toContain("<WaxSealButton");
     expect(addMemoryFormSource).toContain("<WaxSealLabel>");
     expect(appShellSource).not.toContain("trauma-paper-wax-seal trauma-paper-wax-command");

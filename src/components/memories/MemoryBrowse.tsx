@@ -7,8 +7,11 @@ import { OpenIcon, PlusIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
+  getBrowseReadStateFilter,
   getMemoryDisplayFlashback,
   parseBrowseQuery,
+  setBrowseReadStateFilter,
+  type BrowseReadStateFilter,
   type BrowseTaxonomyItem,
   type BrowseMemory,
 } from "./browse-data";
@@ -17,7 +20,6 @@ import {
   getBrowseMemories,
   revalidateBrowseMemoryWorkspace,
 } from "./browse-loader";
-import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
 import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
@@ -35,7 +37,6 @@ import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
-import { RouteHeader } from "../layout/RouteHeader";
 export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -45,12 +46,18 @@ export {
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const controlButton =
-  "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const cardBase =
   "trauma-memory-card trauma-route-row grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 const cardTitle = "mb-0 text-xl font-bold leading-tight text-trauma-text-primary";
 const subduedText = "mb-0 text-[13px] text-trauma-text-muted";
+const readStateTabs = [
+  { label: "All", value: "all" },
+  { label: "Unread", value: "unread" },
+  { label: "Read", value: "read" },
+] as const satisfies readonly {
+  label: string;
+  value: BrowseReadStateFilter;
+}[];
 
 export function MemoryBrowse() {
   const location = useLocation();
@@ -66,10 +73,14 @@ export function MemoryBrowse() {
   );
   const filteredMemories = createMemo(() => filterBrowseMemories(visibleMemories(), query()));
   const isGrid = createMemo(() => query().view === "grid");
+  const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
+  };
+  const updateReadStateFilter = (readState: BrowseReadStateFilter): void => {
+    updateQuery({ q: setBrowseReadStateFilter(query().q, readState) });
   };
 
   onMount(() => setIsClientReady(true));
@@ -77,41 +88,15 @@ export function MemoryBrowse() {
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
       <Title>Memories | TRAUMA</Title>
-      <RouteHeader
-        actions={
-          <div class="grid w-[152px] grid-cols-[72px_72px] gap-2 justify-self-end" role="group" aria-label="View mode">
-            <WaxSealButton
-              aria-pressed={!isGrid()}
-              class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-              hint="List view"
-              type="button"
-              variant="toggle"
-              onClick={() => updateQuery({ view: "list" })}
-            >
-              <WaxSealLabel>List</WaxSealLabel>
-            </WaxSealButton>
-            <WaxSealButton
-              aria-pressed={isGrid()}
-              class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-              hint="Grid view"
-              type="button"
-              variant="toggle"
-              onClick={() => updateQuery({ view: "grid" })}
-            >
-              <WaxSealLabel>Grid</WaxSealLabel>
-            </WaxSealButton>
-          </div>
-        }
-        class="trauma-memory-browse-header"
-        title="Memories"
-        titleId="memories-title"
-        titleSuffix={
-          <span class="ml-2 align-middle text-sm font-medium text-trauma-text-muted" aria-hidden="true">
-            {filteredMemories().length}{" "}
-            {filteredMemories().length === 1 ? "memory" : "memories"}
-          </span>
-        }
-      />
+      <header class="trauma-memory-browse-header sticky top-0 z-[2] border-b border-trauma-border bg-trauma-bg-surface/95 backdrop-blur">
+        <h1 id="memories-title" class="sr-only">
+          Memories
+        </h1>
+        <MemoryReadStateTabs
+          value={readStateFilter()}
+          onChange={updateReadStateFilter}
+        />
+      </header>
       <MemorySearchBar disabled={!isClientReady()} />
       <Show
         when={filteredMemories().length > 0}
@@ -139,6 +124,38 @@ export function MemoryBrowse() {
         </div>
       </Show>
     </section>
+  );
+}
+
+function MemoryReadStateTabs(props: {
+  value: BrowseReadStateFilter;
+  onChange: (value: BrowseReadStateFilter) => void;
+}) {
+  return (
+    <div
+      aria-label="Memory read status"
+      class="trauma-memory-read-tabs"
+      role="tablist"
+    >
+      <For each={readStateTabs}>
+        {(tab) => {
+          const active = createMemo(() => props.value === tab.value);
+
+          return (
+            <button
+              aria-selected={active()}
+              class="trauma-memory-read-tab"
+              data-active={active() ? "true" : "false"}
+              role="tab"
+              type="button"
+              onClick={() => props.onChange(tab.value)}
+            >
+              {tab.label}
+            </button>
+          );
+        }}
+      </For>
+    </div>
   );
 }
 

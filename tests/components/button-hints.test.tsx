@@ -97,8 +97,7 @@ describe("button hover hints", () => {
     expect(appShellSource).toContain('data-trauma-hint="Local archive"');
     expect(appShellSource).toContain('hint="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
-    expect(memoryBrowseSource).toContain('hint="List view"');
-    expect(memoryBrowseSource).toContain('hint="Grid view"');
+    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
     expect(memoryBrowseSource).toContain('data-trauma-hint="Add tag"');
     expect(addMemoryFormSource).toContain(
       'hint={isSubmitting() ? "Saving..." : props.submitLabel}',

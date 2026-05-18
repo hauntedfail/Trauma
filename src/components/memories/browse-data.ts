@@ -1,6 +1,7 @@
 import type { ExtractionStatus } from "../../server/memory-status";
 
 export type BrowseView = "list" | "grid";
+export type BrowseReadStateFilter = "all" | "read" | "unread";
 
 export interface BrowseTaxonomyItem {
   id: string;
@@ -278,6 +279,36 @@ export function getBrowseSearchFieldValues(
       token.kind === "field" && token.field === field
     )
     .flatMap(readBrowseFieldTokenValues);
+}
+
+export function getBrowseReadStateFilter(query: string): BrowseReadStateFilter {
+  const readState = parseBrowseSearch(query).readState;
+  return readState === "read" || readState === "unread" ? readState : "all";
+}
+
+export function setBrowseReadStateFilter(
+  query: string,
+  readState: BrowseReadStateFilter,
+): string {
+  const nextParts = tokenizeBrowseSearch(query)
+    .filter((token) => !isReadStateSearchToken(token))
+    .map((token) => readBrowseTokenText(query, token))
+    .filter((part) => part.length > 0);
+
+  if (readState !== "all") {
+    nextParts.push(readState);
+  }
+
+  return nextParts.join(" ");
+}
+
+function isReadStateSearchToken(token: BrowseSearchToken): boolean {
+  if (token.kind !== "term") {
+    return false;
+  }
+
+  const normalized = normalize(token.value);
+  return normalized === "read" || normalized === "unread";
 }
 
 export function toggleBrowseSearchFieldFilter(

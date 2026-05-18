@@ -574,6 +574,47 @@
     min-inline-size: 0;
   }
 
+  .trauma-memory-browse-header {
+    min-block-size: 3.5rem;
+  }
+
+  .trauma-memory-read-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-block-size: 3.5rem;
+  }
+
+  .trauma-memory-read-tab {
+    position: relative;
+    display: grid;
+    min-block-size: 3.5rem;
+    place-items: center;
+    color: var(--fg-3);
+    font-weight: 800;
+    transition:
+      background-color 160ms ease,
+      color 160ms ease;
+  }
+
+  .trauma-memory-read-tab:hover {
+    background: var(--bg-tint);
+    color: var(--fg-1);
+  }
+
+  .trauma-memory-read-tab[data-active="true"] {
+    color: var(--fg-1);
+  }
+
+  .trauma-memory-read-tab[data-active="true"]::after {
+    content: "";
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline: calc(50% - 1.35rem);
+    block-size: 4px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+
   :where([data-trauma-hint]) {
     position: relative;
     overflow: visible;
@@ -614,10 +655,6 @@
     .trauma-route-header {
       align-items: flex-start;
       flex-direction: column;
-    }
-
-    .trauma-route-header.trauma-memory-browse-header {
-      align-items: center;
     }
 
     .trauma-route-row {

@@ -63,9 +63,8 @@ describe("route header", () => {
     expect(routeHeaderSource).toContain("actions");
   });
 
-  it("keeps route pages on the shared header instead of defining local chrome", () => {
+  it("keeps route pages on shared header chrome unless they own route-specific tabs", () => {
     for (const source of [
-      memoryBrowseSource,
       memoryReaderSource,
       momentBrowseSource,
       flashbacksRouteSource,
@@ -73,6 +72,9 @@ describe("route header", () => {
     ]) {
       expect(source).toContain("RouteHeader");
     }
+
+    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
+    expect(memoryBrowseSource).not.toContain("RouteHeader");
 
     for (const source of [
       memoryBrowseSource,

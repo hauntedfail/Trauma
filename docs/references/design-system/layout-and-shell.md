@@ -262,5 +262,5 @@ Reader image contract:
 Route frame classes belong to the route surface, not the shell. The shell owns
 columns, global navigation, bottom phone tabs, global composer popover state,
 and the right rail slot. Route files own
-headers, search controls, list/grid mode, empty states, reader content, and
+headers, search controls, read-state tabs, empty states, reader content, and
 route-specific loading states.

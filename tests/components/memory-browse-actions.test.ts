@@ -127,6 +127,16 @@ describe("memory browse actions", () => {
     expect(searchBarSource).toContain("navigate(buildBrowseHref(query(), { q: value }), { replace: true })");
   });
 
+  it("renders memories read-state tabs instead of list and grid view controls", () => {
+    expect(browseSource).toContain("MemoryReadStateTabs");
+    expect(browseSource).toContain('role="tablist"');
+    expect(browseSource).toContain('aria-label="Memory read status"');
+    expect(browseSource).toContain("setBrowseReadStateFilter");
+    expect(browseSource).not.toContain('aria-label="View mode"');
+    expect(browseSource).not.toContain('hint="List view"');
+    expect(browseSource).not.toContain('hint="Grid view"');
+  });
+
   it("does not render a header subtitle above the memories title", () => {
     expect(browseSource).not.toContain("Local memory archive");
   });
