@@ -3,7 +3,7 @@ import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
-import { OpenIcon, PlusIcon, SearchIcon } from "../icons";
+import { OpenIcon, PlusIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
@@ -21,6 +21,7 @@ import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
 import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
+import { MemorySearchBar } from "./MemorySearchBar";
 import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import {
@@ -46,8 +47,6 @@ const pageHeader =
   "trauma-route-header trauma-memory-browse-header trauma-fluid-route-padding sticky top-0 z-[1] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
 const controlButton =
   "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
-const surfaceInput =
-  "min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder";
 const cardBase =
   "trauma-memory-card trauma-route-row grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 const cardTitle = "mb-0 text-xl font-bold leading-tight text-trauma-text-primary";
@@ -109,22 +108,7 @@ export function MemoryBrowse() {
           </WaxSealButton>
         </div>
       </header>
-      <div class="trauma-route-row border-b border-trauma-border px-6 py-[18px]">
-        <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface focus-within:ring-1 focus-within:ring-inset focus-within:ring-trauma-border-strong">
-          <span class="grid place-items-center">
-            <SearchIcon />
-          </span>
-          <input
-            class={surfaceInput}
-            disabled={!isClientReady()}
-            type="search"
-            value={query().q}
-            placeholder="Search memories - title, URL, tags, or flashbacks"
-            aria-label="Search memories"
-            onInput={(event) => updateQuery({ q: event.currentTarget.value }, { replace: true })}
-          />
-        </label>
-      </div>
+      <MemorySearchBar disabled={!isClientReady()} />
       <Show
         when={filteredMemories().length > 0}
         fallback={

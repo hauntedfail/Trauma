@@ -25,6 +25,7 @@ const memory = {
   flashbacks: [],
 } satisfies BrowseMemory;
 const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
+const searchBarSource = readFileSync("src/components/memories/MemorySearchBar.tsx", "utf8");
 
 describe("memory browse actions", () => {
   it("renders actions, read status, and attached taxonomy", () => {
@@ -114,8 +115,14 @@ describe("memory browse actions", () => {
   });
 
   it("keeps search focus indication on the rounded search surface", () => {
-    expect(browseSource).toContain("focus-within:ring-inset");
-    expect(browseSource).toContain("focus-within:ring-trauma-border-strong");
+    expect(searchBarSource).toContain("focus-within:ring-inset");
+    expect(searchBarSource).toContain("focus-within:ring-trauma-border-strong");
+  });
+
+  it("uses a dedicated search bar component wired to the URL query state", () => {
+    expect(browseSource).toContain("MemorySearchBar");
+    expect(searchBarSource).toContain("parseBrowseQuery(location.search)");
+    expect(searchBarSource).toContain("navigate(buildBrowseHref(query(), { q: value }), { replace: true })");
   });
 
   it("does not render a header subtitle above the memories title", () => {

@@ -4,10 +4,12 @@ import {
   buildBrowseHref,
   buildFlashbackBrowseHref,
   filterBrowseMemories,
+  getBrowseSearchFieldValues,
   getMemoryDisplayFlashback,
   getMemoryReaderFlashbacks,
   getRecentFlashbacks,
   parseBrowseQuery,
+  toggleBrowseSearchFieldFilter,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
 import { browseFixtureMemories } from "../../src/components/memories/browse-fixtures";
@@ -22,7 +24,10 @@ const fixtures: BrowseMemory[] = [
     read: false,
     extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
-    tags: [{ id: "solidstart", name: "solidstart" }],
+    tags: [
+      { id: "solidstart", name: "solidstart" },
+      { id: "reader", name: "reader" },
+    ],
     flashbacks: [
       {
         id: "h-foundation",
@@ -123,6 +128,50 @@ describe("browse query state", () => {
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=flashback:{repository fixtures}")).map((memory) => memory.id)).toEqual([
       "memory-foundation",
+    ]);
+  });
+
+  it("filters fielded search terms with equals syntax and ampersand value conjunctions", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=sqlite")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26reader")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26sqlite"))).toHaveLength(0);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category=Research")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+  });
+
+  it("updates search text filters without merging adjacent query text", () => {
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test", {
+        field: "tag",
+        value: "kebab",
+      }),
+    ).toBe("test tag=test&kebab");
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test", {
+        field: "category",
+        value: "music",
+      }),
+    ).toBe("test tag=test category=music");
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test&kebab", {
+        field: "tag",
+        value: "test",
+      }),
+    ).toBe("test tag=kebab");
+  });
+
+  it("exposes field values from search text for active right-rail filter state", () => {
+    expect(getBrowseSearchFieldValues("test tag=test&kebab category=music", "tag")).toEqual([
+      "test",
+      "kebab",
+    ]);
+    expect(getBrowseSearchFieldValues("test tag=test&kebab category=music", "category")).toEqual([
+      "music",
     ]);
   });
 

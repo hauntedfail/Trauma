@@ -8,6 +8,7 @@ export interface TaxonomyListItem {
 
 export interface TaxonomyListProps<TItem extends TaxonomyListItem = TaxonomyListItem> {
   activeId?: string;
+  activeIds?: readonly string[];
   class?: string;
   density?: "compact" | "regular";
   emptyLabel?: string;
@@ -43,7 +44,10 @@ export function TaxonomyList<TItem extends TaxonomyListItem>(
         <For each={props.items}>
           {(item) => (
             <TaxonomyListItemView
-              active={props.activeId === item.id}
+              active={
+                props.activeId === item.id ||
+                props.activeIds?.includes(item.id) === true
+              }
               item={item}
               kind={props.kind}
               mode={props.mode}

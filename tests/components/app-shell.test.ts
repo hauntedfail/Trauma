@@ -70,6 +70,16 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain("buildFlashbackBrowseHref");
   });
 
+  it("routes right-rail taxonomy clicks into the search query by human-readable name", () => {
+    expect(appShellSource).toContain("toggleBrowseSearchFieldFilter");
+    expect(appShellSource).toContain('field: "category"');
+    expect(appShellSource).toContain('field: "tag"');
+    expect(appShellSource).toContain("value: category.name");
+    expect(appShellSource).toContain("value: tag.name");
+    expect(appShellSource).not.toContain('toggleFilter("category", category.id)');
+    expect(appShellSource).not.toContain('toggleFilter("tag", tag.id)');
+  });
+
   it("uses filled icons and bold labels for active tabs without active background fills", () => {
     const activeNavStart = appShellSource.indexOf("const activeNavItem =");
     const activeNavEnd = appShellSource.indexOf("const disabledNavItem =", activeNavStart);

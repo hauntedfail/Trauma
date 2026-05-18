@@ -195,7 +195,7 @@ function getSearchableText(memory: BrowseMemory): string[] {
   ];
 }
 
-type BrowseSearchField = "title" | "url" | "tag" | "category" | "flashback";
+export type BrowseSearchField = "title" | "url" | "tag" | "category" | "flashback";
 
 interface BrowseFieldFilter {
   field: BrowseSearchField;
@@ -257,8 +257,72 @@ function parseBrowseSearch(query: string): ParsedBrowseSearch {
 }
 
 type BrowseSearchToken =
-  | { kind: "field"; field: BrowseSearchField; value: string }
-  | { kind: "term"; value: string };
+  | {
+      end: number;
+      field: BrowseSearchField;
+      kind: "field";
+      start: number;
+      value: string;
+    }
+  | { end: number; kind: "term"; start: number; value: string };
+
+export function getBrowseSearchFieldValues(
+  query: string,
+  field: BrowseSearchField,
+): string[] {
+  return tokenizeBrowseSearch(query)
+    .filter((token) => token.kind === "field" && token.field === field)
+    .flatMap((token) => splitBrowseFieldFilterValues(token.value));
+}
+
+export function toggleBrowseSearchFieldFilter(
+  query: string,
+  input: {
+    field: BrowseSearchField;
+    value: string;
+  },
+): string {
+  const targetValue = input.value.trim();
+  if (targetValue.length === 0) {
+    return query;
+  }
+
+  const tokens = tokenizeBrowseSearch(query);
+  const target = normalize(targetValue);
+  let touched = false;
+  const nextParts: string[] = [];
+
+  for (const token of tokens) {
+    if (token.kind !== "field" || token.field !== input.field || touched) {
+      nextParts.push(readBrowseTokenText(query, token));
+      continue;
+    }
+
+    const values = splitBrowseFieldFilterValues(token.value);
+    const hasTarget = values.some((value) => normalize(value) === target);
+    if (hasTarget) {
+      touched = true;
+      nextParts.push(
+        ...formatBrowseFieldFilterTokens(
+          input.field,
+          values.filter((value) => normalize(value) !== target),
+        ),
+      );
+      continue;
+    }
+
+    touched = true;
+    nextParts.push(
+      ...formatBrowseFieldFilterTokens(input.field, [...values, targetValue]),
+    );
+  }
+
+  if (!touched) {
+    nextParts.push(...formatBrowseFieldFilterTokens(input.field, [targetValue]));
+  }
+
+  return nextParts.filter((part) => part.trim().length > 0).join(" ");
+}
 
 function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
   const tokens: BrowseSearchToken[] = [];
@@ -280,8 +344,10 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
         const closeIndex = query.indexOf("}", valueStart + 1);
         if (closeIndex !== -1) {
           tokens.push({
+            end: closeIndex + 1,
             kind: "field",
             field: field.name,
+            start: index,
             value: query.slice(valueStart + 1, closeIndex).trim(),
           });
           index = closeIndex + 1;
@@ -291,8 +357,10 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
 
       const valueEnd = readUntilWhitespace(query, valueStart);
       tokens.push({
+        end: valueEnd,
         kind: "field",
         field: field.name,
+        start: index,
         value: query.slice(valueStart, valueEnd).trim(),
       });
       index = valueEnd;
@@ -300,7 +368,7 @@ function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
     }
 
     const end = readUntilWhitespace(query, index);
-    tokens.push({ kind: "term", value: query.slice(index, end) });
+    tokens.push({ end, kind: "term", start: index, value: query.slice(index, end) });
     index = end;
   }
 
@@ -311,25 +379,38 @@ function readSearchField(
   query: string,
   start: number,
 ): { end: number; name: BrowseSearchField } | undefined {
-  const colon = query.indexOf(":", start);
-  if (colon === -1) {
+  const separator = findSearchFieldSeparator(query, start);
+  if (separator === -1) {
     return undefined;
   }
 
-  const whitespace = query.slice(start, colon).search(/\s/);
+  const whitespace = query.slice(start, separator).search(/\s/);
   if (whitespace !== -1) {
     return undefined;
   }
 
-  const maybeField = query.slice(start, colon).toLocaleLowerCase();
+  const maybeField = query.slice(start, separator).toLocaleLowerCase();
   if (!fieldNames.has(maybeField as BrowseSearchField)) {
     return undefined;
   }
 
   return {
-    end: colon,
+    end: separator,
     name: maybeField as BrowseSearchField,
   };
+}
+
+function findSearchFieldSeparator(query: string, start: number): number {
+  let index = start;
+  while (index < query.length && !/\s/.test(query[index] ?? "")) {
+    const char = query[index];
+    if (char === ":" || char === "=") {
+      return index;
+    }
+    index += 1;
+  }
+
+  return -1;
 }
 
 function readUntilWhitespace(value: string, start: number): number {
@@ -342,6 +423,21 @@ function readUntilWhitespace(value: string, start: number): number {
 }
 
 function matchesFieldFilter(
+  memory: BrowseMemory,
+  filter: BrowseFieldFilter,
+): boolean {
+  const values = splitBrowseFieldFilterValues(filter.value);
+  if (values.length === 0) {
+    return true;
+  }
+
+  return values.every((value) => matchesSingleFieldFilter(memory, {
+    ...filter,
+    value,
+  }));
+}
+
+function matchesSingleFieldFilter(
   memory: BrowseMemory,
   filter: BrowseFieldFilter,
 ): boolean {
@@ -361,6 +457,41 @@ function matchesFieldFilter(
         ),
       );
   }
+}
+
+function splitBrowseFieldFilterValues(value: string): string[] {
+  return value
+    .split("&")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function readBrowseTokenText(query: string, token: BrowseSearchToken): string {
+  return query.slice(token.start, token.end).trim();
+}
+
+function formatBrowseFieldFilterTokens(
+  field: BrowseSearchField,
+  values: readonly string[],
+): string[] {
+  const cleanedValues = values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (cleanedValues.length === 0) {
+    return [];
+  }
+
+  if (cleanedValues.every(isSimpleBrowseFieldValue)) {
+    return [`${field}=${cleanedValues.join("&")}`];
+  }
+
+  return cleanedValues.map((value) =>
+    isSimpleBrowseFieldValue(value) ? `${field}=${value}` : `${field}={${value}}`,
+  );
+}
+
+function isSimpleBrowseFieldValue(value: string): boolean {
+  return /^[^\s&{}]+$/.test(value);
 }
 
 function getUniqueTaxonomyItems(items: BrowseTaxonomyItem[]): BrowseTaxonomyItem[] {

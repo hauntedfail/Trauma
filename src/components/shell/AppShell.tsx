@@ -32,8 +32,11 @@ import {
 } from "../memories/browse-loader";
 import {
   buildBrowseHref,
+  getBrowseSearchFieldValues,
   getRecentFlashbacks,
   parseBrowseQuery,
+  toggleBrowseSearchFieldFilter,
+  type BrowseSearchField,
   type BrowseFlashback,
   type BrowseQuery,
   type BrowseTaxonomySummaryItem,
@@ -156,6 +159,22 @@ export function AppShell(props: AppShellProps) {
   const tags = createMemo(() => taxonomy()?.tags ?? []);
   const flashbacks = createMemo(() => getRecentFlashbacks(browseMemories()));
   const activePath = createMemo(() => location.pathname);
+  const activeCategoryIds = createMemo(() =>
+    getActiveTaxonomyIds({
+      explicitId: query().category,
+      field: "category",
+      items: categories(),
+      search: query().q,
+    }),
+  );
+  const activeTagIds = createMemo(() =>
+    getActiveTaxonomyIds({
+      explicitId: query().tag,
+      field: "tag",
+      items: tags(),
+      search: query().q,
+    }),
+  );
 
   onMount(() => {
     setBrightness(readStoredBrightness());
@@ -184,9 +203,14 @@ export function AppShell(props: AppShellProps) {
     navigate(buildBrowseHref(query(), patch));
   };
 
-  const toggleFilter = (key: "category" | "tag" | "flashback", value: string) => {
-    const patch = { [key]: query()[key] === value ? "" : value } satisfies Partial<BrowseQuery>;
-    goToFilter(patch);
+  const toggleSearchFieldFilter = (input: {
+    field: Extract<BrowseSearchField, "category" | "tag">;
+    value: string;
+  }) => {
+    goToFilter({
+      [input.field]: "",
+      q: toggleBrowseSearchFieldFilter(query().q, input),
+    });
   };
 
   return (
@@ -217,15 +241,27 @@ export function AppShell(props: AppShellProps) {
           </Show>
           <RightRailFilters
             activeCategory={query().category}
+            activeCategoryIds={activeCategoryIds()}
             activeFlashback={query().flashback}
             activeTag={query().tag}
+            activeTagIds={activeTagIds()}
             categories={categories()}
             flashbacks={flashbacks()}
             idPrefix="desktop"
             onCreatedCategory={() => void revalidateBrowseTaxonomy()}
             onCreatedTag={() => void revalidateBrowseTaxonomy()}
-            onSelectCategory={(category) => toggleFilter("category", category.id)}
-            onSelectTag={(tag) => toggleFilter("tag", tag.id)}
+            onSelectCategory={(category) =>
+              toggleSearchFieldFilter({
+                field: "category",
+                value: category.name,
+              })
+            }
+            onSelectTag={(tag) =>
+              toggleSearchFieldFilter({
+                field: "tag",
+                value: tag.name,
+              })
+            }
             showFlashbacks={
               rightRailContent() === undefined &&
               !activePath().startsWith("/flashbacks")
@@ -252,6 +288,30 @@ function PhoneBrandHeader() {
       <BrandHomeLink markSize={28} showLabel={false} />
     </header>
   );
+}
+
+function getActiveTaxonomyIds(input: {
+  explicitId: string;
+  field: Extract<BrowseSearchField, "category" | "tag">;
+  items: readonly BrowseTaxonomySummaryItem[];
+  search: string;
+}): string[] {
+  const activeNames = new Set(
+    getBrowseSearchFieldValues(input.search, input.field).map((value) =>
+      normalizeTaxonomyFilterValue(value),
+    ),
+  );
+  const ids = input.items
+    .filter((item) => activeNames.has(normalizeTaxonomyFilterValue(item.name)))
+    .map((item) => item.id);
+
+  return input.explicitId.length > 0 && !ids.includes(input.explicitId)
+    ? [input.explicitId, ...ids]
+    : ids;
+}
+
+function normalizeTaxonomyFilterValue(value: string): string {
+  return value.trim().toLocaleLowerCase();
 }
 
 function BrandHomeLink(props: {
@@ -540,8 +600,10 @@ function AddMemoryComposerButton(props: {
 
 export function RightRailFilters(props: {
   activeCategory: string;
+  activeCategoryIds?: readonly string[];
   activeFlashback: string;
   activeTag: string;
+  activeTagIds?: readonly string[];
   categories: BrowseTaxonomySummaryItem[];
   flashbacks: BrowseFlashback[];
   idPrefix: string;
@@ -588,6 +650,7 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeCategory}
+            activeIds={props.activeCategoryIds}
             density="compact"
             emptyLabel="No categories yet"
             items={props.categories}
@@ -621,6 +684,7 @@ export function RightRailFilters(props: {
         <div class="relative grid gap-2">
           <TaxonomyList
             activeId={props.activeTag}
+            activeIds={props.activeTagIds}
             density="compact"
             emptyLabel="No tags yet"
             items={props.tags}

@@ -145,10 +145,16 @@ test("updates URL query state from search, taxonomy filters, and view controls",
   await expect(page.getByRole("main").locator("mark", { hasText: /flashback-aware/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Research" }).click();
-  await expect(page).toHaveURL(/category=research/);
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research",
+  );
+  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch/);
 
   await page.getByRole("button", { name: "solidstart" }).click();
-  await expect(page).toHaveURL(/tag=solidstart/);
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader mode category=Research tag=solidstart",
+  );
+  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch\+tag%3Dsolidstart/);
 
   const viewModeGroup = page.getByRole("group", { name: "View mode" });
   await expect(viewModeGroup).toBeVisible();
@@ -487,10 +493,15 @@ test("lets active filters be cleared without resetting the rest of the query", a
   await page.goto("/memories?q=reader&view=grid");
 
   await page.getByRole("button", { name: "Research" }).click();
-  await expect(page).toHaveURL(/category=research/);
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader category=Research",
+  );
 
   await page.getByRole("button", { name: "Research" }).click();
-  await expect(page).not.toHaveURL(/category=research/);
+  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
+    "reader",
+  );
+  await expect(page).not.toHaveURL(/category%3DResearch/);
   await expect(page).toHaveURL(/q=reader/);
   await expect(page).toHaveURL(/view=grid/);
 });
