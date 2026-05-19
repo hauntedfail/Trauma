@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import type { ExtractionStatus } from "../memory-status";
@@ -1024,11 +1024,19 @@ function taxonomyNameEquals(
   column: typeof schema.tags.name | typeof schema.categories.name,
   name: string,
 ) {
-  return sql`lower(${column}) = ${normalizeTaxonomyLookupName(name)}`;
+  const normalizedName = normalizeTaxonomyLookupName(name);
+  return or(
+    eq(column, normalizedName),
+    sql`lower(${column}) = ${foldAsciiTaxonomyLookupName(normalizedName)}`,
+  );
 }
 
 function normalizeTaxonomyLookupName(name: string): string {
-  return name.trim().toLocaleLowerCase();
+  return name.trim();
+}
+
+function foldAsciiTaxonomyLookupName(name: string): string {
+  return name.replace(/[A-Z]/g, (character) => character.toLowerCase());
 }
 
 async function assertMemoryExists(

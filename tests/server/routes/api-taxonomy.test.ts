@@ -237,6 +237,68 @@ describe("taxonomy API routes", () => {
     }
   });
 
+  it("reuses exact non-ASCII taxonomy names for create and attach flows", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const createdTag = await (
+      await createTag(jsonRequest("/api/tags", { name: "Été" }))
+    ).json();
+    const createdCategory = await (
+      await createCategory(jsonRequest("/api/categories", { name: "Résumé" }))
+    ).json();
+
+    const duplicateTagResponse = await createTag(
+      jsonRequest("/api/tags", { name: "Été" }),
+    );
+    const duplicateCategoryResponse = await createCategory(
+      jsonRequest("/api/categories", { name: "Résumé" }),
+    );
+    const attachTagByName = await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "Été",
+      }),
+    );
+    const attachCategoryByName = await attachCategory(
+      jsonRequest("/api/memories/categories", {
+        memoryId: routeMemoryId,
+        name: "Résumé",
+      }),
+    );
+
+    expect(duplicateTagResponse.status).toBe(200);
+    expect(duplicateCategoryResponse.status).toBe(200);
+    expect(attachTagByName.status).toBe(200);
+    expect(attachCategoryByName.status).toBe(200);
+    expect(await duplicateTagResponse.json()).toMatchObject({
+      tag: { id: createdTag.tag.id, name: "Été" },
+    });
+    expect(await duplicateCategoryResponse.json()).toMatchObject({
+      category: { id: createdCategory.category.id, name: "Résumé" },
+    });
+    expect(await attachTagByName.json()).toMatchObject({
+      tagId: createdTag.tag.id,
+      tag: { id: createdTag.tag.id, name: "Été" },
+    });
+    expect(await attachCategoryByName.json()).toMatchObject({
+      categoryId: createdCategory.category.id,
+      category: { id: createdCategory.category.id, name: "Résumé" },
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(connection.sqlite.prepare("select count(*) as count from tags").get())
+        .toEqual({ count: 1 });
+      expect(
+        connection.sqlite.prepare("select count(*) as count from categories").get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("does not attach a duplicate tag name to the same memory", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
