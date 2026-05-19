@@ -17,6 +17,7 @@ import type {
   ReaderMemoryResult,
   ReaderTaxonomyItem,
 } from "../../server/reader/page-data";
+import type { BrowseTaxonomySummaryItem } from "../memories/browse-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
@@ -66,6 +67,7 @@ import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import { RouteHeader } from "../layout/RouteHeader";
 
 interface MemoryReaderProps {
+  categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReaderMemoryResult;
@@ -136,6 +138,7 @@ export function MemoryReader(props: MemoryReaderProps) {
     >
       {(result) => (
         <ReadyMemoryReader
+          categoryOptions={props.categoryOptions ?? []}
           flashbackRows={props.flashbackRows}
           navigate={props.navigate}
           result={result}
@@ -146,6 +149,7 @@ export function MemoryReader(props: MemoryReaderProps) {
 }
 
 function ReadyMemoryReader(props: {
+  categoryOptions: readonly BrowseTaxonomySummaryItem[];
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
@@ -504,6 +508,8 @@ function ReadyMemoryReader(props: {
                 <MemoryActionMenu
                   memoryId={props.result.memory.id}
                   memoryTitle={props.result.memory.title}
+                  attachedCategories={categories()}
+                  categoryOptions={props.categoryOptions}
                   onAttachCategoryByName={attachCategory}
                   onDelete={deleteMemory}
                 />

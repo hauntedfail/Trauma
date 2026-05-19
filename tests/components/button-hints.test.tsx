@@ -18,6 +18,10 @@ const memoryBrowseSource = readFileSync(
   "src/components/memories/MemoryBrowse.tsx",
   "utf8",
 );
+const taxonomyAddControlSource = readFileSync(
+  "src/components/memories/TaxonomyAddControl.tsx",
+  "utf8",
+);
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
 const kebabActionMenuSource = readFileSync(
   "src/components/ui/KebabActionMenu.tsx",
@@ -99,7 +103,8 @@ describe("button hover hints", () => {
     expect(appShellSource).toContain('hint="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
     expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
-    expect(memoryBrowseSource).toContain('title="Add tag"');
+    expect(memoryBrowseSource).toContain("TaxonomyAddControl");
+    expect(taxonomyAddControlSource).toContain("title={label()}");
     expect(addMemoryFormSource).toContain(
       'hint={isSubmitting() ? "Saving..." : props.submitLabel}',
     );

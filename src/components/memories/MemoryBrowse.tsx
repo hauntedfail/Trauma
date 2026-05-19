@@ -3,7 +3,7 @@ import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
-import { OpenIcon, PlusIcon } from "../icons";
+import { OpenIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
@@ -12,19 +12,21 @@ import {
   parseBrowseQuery,
   setBrowseReadStateFilter,
   type BrowseReadStateFilter,
-  type BrowseTaxonomyItem,
   type BrowseMemory,
+  type BrowseTaxonomyItem,
+  type BrowseTaxonomySummaryItem,
 } from "./browse-data";
 import { buildMemoryAnchorHref } from "./memory-anchor-hrefs";
 import {
   getBrowseMemories,
+  getBrowseTaxonomy,
   revalidateBrowseMemoryWorkspace,
 } from "./browse-loader";
 import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
 import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
 import { MemorySearchBar } from "./MemorySearchBar";
-import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
+import { TaxonomyAddControl } from "./TaxonomyAddControl";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import {
   attachCategoryToMemoryByName,
@@ -62,7 +64,10 @@ export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
   const memories = createAsync(() => getBrowseMemories());
+  const taxonomy = createAsync(() => getBrowseTaxonomy());
   const browseMemories = createMemo(() => memories() ?? []);
+  const availableCategories = createMemo(() => taxonomy()?.categories ?? []);
+  const availableTags = createMemo(() => taxonomy()?.tags ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
   const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
     new Set(),
@@ -111,6 +116,8 @@ export function MemoryBrowse() {
             {(memory) => (
               <MemoryItem
                 memory={memory}
+                availableCategories={availableCategories()}
+                availableTags={availableTags()}
                 selectedFlashbackId={query().flashback}
                 view={query().view}
                 onOpen={(href) => navigate(href)}
@@ -200,6 +207,8 @@ function MemoryReadStateTabs(props: {
 }
 
 export function MemoryItem(props: {
+  availableCategories?: readonly BrowseTaxonomySummaryItem[];
+  availableTags?: readonly BrowseTaxonomySummaryItem[];
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
@@ -213,7 +222,6 @@ export function MemoryItem(props: {
   const [categories, setCategories] = createSignal<BrowseTaxonomyItem[]>(
     props.memory.categories,
   );
-  const [tagPopoverOpen, setTagPopoverOpen] = createSignal(false);
   const [actionError, setActionError] = createSignal("");
   const href = createMemo(() =>
     buildMemoryAnchorHref({
@@ -245,10 +253,10 @@ export function MemoryItem(props: {
         name,
       });
       setTags((current) => mergeTaxonomyItem(current, tag));
-      setTagPopoverOpen(false);
       void revalidateAfterTaxonomyChange(props.memory.id);
-    } catch {
+    } catch (error) {
       setActionError("Failed to add tag.");
+      throw error;
     }
   };
 
@@ -261,8 +269,9 @@ export function MemoryItem(props: {
       const category = await attachCategoryToMemoryByName(input);
       setCategories((current) => mergeTaxonomyItem(current, category));
       void revalidateAfterTaxonomyChange(input.memoryId);
-    } catch {
+    } catch (error) {
       setActionError("Failed to add category.");
+      throw error;
     }
   };
 
@@ -322,6 +331,8 @@ export function MemoryItem(props: {
             <MemoryActionMenu
               memoryId={props.memory.id}
               memoryTitle={props.memory.title}
+              attachedCategories={categories()}
+              categoryOptions={props.availableCategories ?? []}
               onDelete={deleteMemory}
               onAttachCategoryByName={submitCategory}
             />
@@ -368,29 +379,14 @@ export function MemoryItem(props: {
               </span>
             </Show>
             <span class="relative inline-grid">
-              <button
-                class="inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary"
-                title="Add tag"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setTagPopoverOpen(true);
-                }}
-              >
-                <PlusIcon />
-                Add tag
-              </button>
-              <Show when={tagPopoverOpen()}>
-                <TaxonomyCreatePopover
-                  title="Add tag"
-                  label="Tag name"
-                  placeholder="sqlite"
-                  submitLabel="Add tag"
-                  onSubmitName={submitTag}
-                  onClose={() => setTagPopoverOpen(false)}
-                />
-              </Show>
+              <TaxonomyAddControl
+                attachedItems={tags()}
+                id={`memory-${props.memory.id}-tags-add`}
+                kind="tag"
+                options={props.availableTags ?? []}
+                onAttachName={submitTag}
+                onError={(message) => setActionError(message)}
+              />
             </span>
           </div>
           <Show when={actionError() !== ""}>
