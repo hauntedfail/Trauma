@@ -13,6 +13,7 @@ import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import { TraumaMark } from "../brand/TraumaMark";
 import { TaxonomyInlineCreateControl } from "../memories/TaxonomyInlineCreateControl";
+import { validateTagName } from "../../taxonomy/name-policy";
 import {
   KebabIcon,
   HermesIcon,
@@ -746,6 +747,7 @@ function RightRailTaxonomyList(props: {
           label={label()}
           onError={(message) => setError(message)}
           onSubmitName={submitName}
+          validateName={props.kind === "tag" ? readTagNameValidationError : undefined}
         />
       </div>
       <Show when={error() !== ""}>
@@ -753,6 +755,11 @@ function RightRailTaxonomyList(props: {
       </Show>
     </div>
   );
+}
+
+function readTagNameValidationError(name: string): string | null {
+  const result = validateTagName(name);
+  return result.ok ? null : result.error;
 }
 
 type FetchFunction = (

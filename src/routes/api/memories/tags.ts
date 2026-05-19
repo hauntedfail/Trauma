@@ -3,6 +3,7 @@ import type { APIEvent } from "@solidjs/start/server";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
+import { validateTagName } from "~/taxonomy/name-policy";
 
 type AttachTagPayload =
   | { ok: true; memoryId: string; tagId: string; name?: never }
@@ -176,14 +177,15 @@ async function parseAttachTagPayload(
   }
 
   const name = payload.name.trim();
-  if (name === "") {
-    return { ok: false, error: "name must be a non-empty string" };
+  const validation = validateTagName(name);
+  if (!validation.ok) {
+    return { ok: false, error: validation.error };
   }
 
   return {
     ok: true,
     memoryId: payload.memoryId.trim(),
-    name,
+    name: validation.name,
   };
 }
 

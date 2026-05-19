@@ -3,6 +3,7 @@ import type { APIEvent } from "@solidjs/start/server";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
+import { validateTagName } from "~/taxonomy/name-policy";
 
 export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseNamePayloadInternal(event.request);
@@ -62,11 +63,12 @@ async function parseNamePayloadInternal(request: Request): Promise<NamePayload> 
   }
 
   const name = payload.name.trim();
-  if (name === "") {
-    return { ok: false, error: "name must be a non-empty string" };
+  const validation = validateTagName(name);
+  if (!validation.ok) {
+    return { ok: false, error: validation.error };
   }
 
-  return { ok: true, name };
+  return { ok: true, name: validation.name };
 }
 
 function json(body: unknown, init: ResponseInit): Response {

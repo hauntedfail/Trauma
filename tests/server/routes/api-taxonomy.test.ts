@@ -13,7 +13,7 @@ import {
 } from "../../../src/routes/api/memories/tags";
 import { POST as createCategory } from "../../../src/routes/api/categories";
 import { POST as createTag } from "../../../src/routes/api/tags";
-import { initializeDatabase } from "../../../src/server/db";
+import { initializeDatabase, schema } from "../../../src/server/db";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -96,6 +96,33 @@ describe("taxonomy API routes", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: "request body must contain only name",
+    });
+  });
+
+  it("rejects unsafe tag names at creation and memory attach boundaries", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const createResponse = await createTag(
+      jsonRequest("/api/tags", { name: "../escape" }),
+    );
+    const attachResponse = await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "unsafe tag",
+      }),
+    );
+
+    expect(createResponse.status).toBe(400);
+    expect(await createResponse.json()).toEqual({
+      error:
+        "tag name may contain only Unicode letters, numbers, hyphen, and underscore",
+    });
+    expect(attachResponse.status).toBe(400);
+    expect(await attachResponse.json()).toEqual({
+      error:
+        "tag name may contain only Unicode letters, numbers, hyphen, and underscore",
     });
   });
 
@@ -207,6 +234,55 @@ describe("taxonomy API routes", () => {
       ).toEqual({ count: 1 });
     } finally {
       connection.close();
+    }
+  });
+
+  it("does not attach a duplicate tag name to the same memory", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const now = new Date("2026-05-14T01:00:00.000Z");
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.tags).values([
+        {
+          id: "tag-lower",
+          name: "harness-engineering",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "tag-upper",
+          name: "Harness-Engineering",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await connection.repositories.taxonomy.attachTagToMemory({
+        memoryId: routeMemoryId,
+        tagId: "tag-lower",
+        now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const duplicateAttach = await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "Harness-Engineering",
+      }),
+    );
+
+    expect(duplicateAttach.status).toBe(200);
+    const afterAttach = initializeDatabase(config);
+    try {
+      expect(
+        afterAttach.sqlite.prepare("select count(*) as count from memory_tags").get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      afterAttach.close();
     }
   });
 

@@ -6,6 +6,7 @@ import {
   DEFAULT_TRANSLATION_TARGET_LANGUAGE,
   type SupportedLanguageCode,
 } from "../../settings/languages";
+import { validateTagName } from "../../taxonomy/name-policy";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
@@ -643,7 +644,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     },
     taxonomy: {
       createTag: async (input) => {
-        const existing = await findTagByName(db, input.name);
+        const name = requireValidTagName(input.name);
+        const existing = await findTagByName(db, name);
         if (existing !== undefined) {
           return existing;
         }
@@ -652,16 +654,17 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .insert(schema.tags)
           .values({
             id: input.id,
-            name: input.name,
+            name,
             createdAt: input.now,
             updatedAt: input.now,
           })
           .onConflictDoNothing({ target: schema.tags.name })
           .run();
-        return requireTagByName(db, input.name);
+        return requireTagByName(db, name);
       },
       createAndAttachTagToMemory: async (input) =>
         db.transaction((tx) => {
+          const name = requireValidTagName(input.name);
           const memory = tx
             .select({ id: schema.memories.id })
             .from(schema.memories)
@@ -673,17 +676,40 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             );
           }
 
+          const attachedTag = tx
+            .select({
+              id: schema.tags.id,
+              name: schema.tags.name,
+              createdAt: schema.tags.createdAt,
+              updatedAt: schema.tags.updatedAt,
+            })
+            .from(schema.tags)
+            .innerJoin(
+              schema.memoryTags,
+              eq(schema.tags.id, schema.memoryTags.tagId),
+            )
+            .where(
+              and(
+                eq(schema.memoryTags.memoryId, input.memoryId),
+                taxonomyNameEquals(schema.tags.name, name),
+              ),
+            )
+            .get();
+          if (attachedTag !== undefined) {
+            return attachedTag;
+          }
+
           let tag = tx
             .select()
             .from(schema.tags)
-            .where(taxonomyNameEquals(schema.tags.name, input.name))
+            .where(taxonomyNameEquals(schema.tags.name, name))
             .get();
           if (tag === undefined) {
             tx
               .insert(schema.tags)
               .values({
                 id: input.id,
-                name: input.name,
+                name,
                 createdAt: input.now,
                 updatedAt: input.now,
               })
@@ -693,12 +719,12 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             tag = tx
               .select()
               .from(schema.tags)
-              .where(taxonomyNameEquals(schema.tags.name, input.name))
+              .where(taxonomyNameEquals(schema.tags.name, name))
               .get();
           }
           if (tag === undefined) {
             throw new MemoryRepositoryError(
-              `Cannot find tag after create: ${input.name}`,
+              `Cannot find tag after create: ${name}`,
             );
           }
 
@@ -807,7 +833,15 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         findCategoryByName(db, name),
       attachTagToMemory: async (input) => {
         await assertMemoryExists(db, input.memoryId, "attach tag to");
-        await assertTagExists(db, input.tagId);
+        const tag = await requireTagById(db, input.tagId);
+        const attachedTag = await findAttachedTagByName(
+          db,
+          input.memoryId,
+          tag.name,
+        );
+        if (attachedTag !== undefined) {
+          return;
+        }
         await db
           .insert(schema.memoryTags)
           .values({
@@ -1027,6 +1061,52 @@ async function assertTagExists(db: TraumaDatabase, tagId: string): Promise<void>
   if (tag === undefined) {
     throw new MemoryRepositoryError(`Cannot attach missing tag: ${tagId}`);
   }
+}
+
+async function requireTagById(
+  db: TraumaDatabase,
+  tagId: string,
+): Promise<Tag> {
+  const tag = await db.query.tags.findFirst({
+    where: eq(schema.tags.id, tagId),
+  });
+  if (tag === undefined) {
+    throw new MemoryRepositoryError(`Cannot attach missing tag: ${tagId}`);
+  }
+
+  return tag;
+}
+
+async function findAttachedTagByName(
+  db: TraumaDatabase,
+  memoryId: string,
+  name: string,
+): Promise<Tag | undefined> {
+  return db
+    .select({
+      id: schema.tags.id,
+      name: schema.tags.name,
+      createdAt: schema.tags.createdAt,
+      updatedAt: schema.tags.updatedAt,
+    })
+    .from(schema.tags)
+    .innerJoin(schema.memoryTags, eq(schema.tags.id, schema.memoryTags.tagId))
+    .where(
+      and(
+        eq(schema.memoryTags.memoryId, memoryId),
+        taxonomyNameEquals(schema.tags.name, name),
+      ),
+    )
+    .get();
+}
+
+function requireValidTagName(name: string): string {
+  const validation = validateTagName(name);
+  if (!validation.ok) {
+    throw new MemoryRepositoryError(validation.error);
+  }
+
+  return validation.name;
 }
 
 async function assertCategoryExists(

@@ -210,7 +210,7 @@ describe("memory and taxonomy repositories", () => {
       duplicateCategory: { id: "category-research", name: "Research" },
       tagAssignment: {
         createdAt: Date.parse("2026-05-10T01:00:00.000Z"),
-        updatedAt: Date.parse("2026-05-11T01:00:00.000Z"),
+        updatedAt: Date.parse("2026-05-10T01:00:00.000Z"),
       },
       categoryAssignment: {
         createdAt: Date.parse("2026-05-10T01:00:00.000Z"),
@@ -221,7 +221,7 @@ describe("memory and taxonomy repositories", () => {
           id: "tag-sqlite",
           name: "sqlite",
           memoryCount: 1,
-          lastAssignedAt: "2026-05-11T01:00:00.000Z",
+          lastAssignedAt: "2026-05-10T01:00:00.000Z",
         },
         {
           id: "tag-empty",
@@ -307,7 +307,7 @@ describe("memory and taxonomy repositories", () => {
             await connection.repositories.taxonomy.createAndAttachTagToMemory({
               id: "tag-rolled-back",
               memoryId,
-              name: "rolled back tag",
+              name: "rolled-back-tag",
               now,
             });
           } catch (error) {

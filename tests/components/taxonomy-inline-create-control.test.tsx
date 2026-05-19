@@ -35,4 +35,9 @@ describe("taxonomy inline create control", () => {
     expect(inlineCreateSource).not.toContain("placeholder=");
     expect(inlineCreateSource).not.toContain("focus:ring");
   });
+
+  it("supports caller-supplied name validation before submission", () => {
+    expect(inlineCreateSource).toContain("validateName");
+    expect(inlineCreateSource).toContain("validationError");
+  });
 });

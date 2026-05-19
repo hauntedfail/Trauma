@@ -8,6 +8,10 @@ import {
 
 import { PlusIcon } from "../icons";
 import { Popup } from "../ui/Popup";
+import {
+  normalizeTaxonomyNameForLookup,
+  validateTagName,
+} from "../../taxonomy/name-policy";
 import type {
   BrowseTaxonomyItem,
   BrowseTaxonomySummaryItem,
@@ -45,9 +49,6 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   const orderedOptions = createMemo(() =>
     sortTaxonomyOptionsByRecentUse(props.options),
   );
-  const attachedIds = createMemo(
-    () => new Set(props.attachedItems.map((item) => item.id)),
-  );
   const label = createMemo(() => getTaxonomyAddLabel(props.kind));
   const newLabel = createMemo(() => getTaxonomyNewLabel(props.kind));
   const triggerClass = createMemo(() => props.triggerClass ?? addTaxonomyPillClass);
@@ -58,7 +59,10 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   const attachExistingOption = async (
     option: BrowseTaxonomySummaryItem,
   ): Promise<void> => {
-    if (pendingName().length > 0) {
+    if (
+      pendingName().length > 0 ||
+      isTaxonomyNameAttached(props.attachedItems, option)
+    ) {
       return;
     }
 
@@ -96,6 +100,10 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
 
     const existingOption = findTaxonomyOptionByName(props.options, name);
     if (existingOption !== undefined) {
+      if (isTaxonomyNameAttached(props.attachedItems, existingOption)) {
+        cancelInlineInput();
+        return;
+      }
       await attachExistingOption(existingOption);
       cancelInlineInput();
       return;
@@ -150,7 +158,10 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
                 <For each={orderedOptions()}>
                   {(option) => (
                     <button
-                      aria-pressed={attachedIds().has(option.id)}
+                      aria-pressed={isTaxonomyNameAttached(
+                        props.attachedItems,
+                        option,
+                      )}
                       class={optionClass}
                       disabled={pendingName() === option.name}
                       title={option.name}
@@ -160,7 +171,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
                         event.stopPropagation();
                         if (
                           props.onDetachName !== undefined &&
-                          attachedIds().has(option.id)
+                          isTaxonomyNameAttached(props.attachedItems, option)
                         ) {
                           void detachExistingOption(option);
                           return;
@@ -200,6 +211,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
             }
           }}
           onSubmitName={submitInlineInput}
+          validateName={props.kind === "tag" ? readTagNameValidationError : undefined}
         />
       </Show>
     </span>
@@ -207,6 +219,18 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
 }
 
 export { normalizeTaxonomyAddName };
+
+export function isTaxonomyNameAttached(
+  attachedItems: readonly BrowseTaxonomyItem[],
+  option: BrowseTaxonomySummaryItem,
+): boolean {
+  const optionName = normalizeTaxonomyNameForLookup(option.name);
+  return attachedItems.some(
+    (item) =>
+      item.id === option.id ||
+      normalizeTaxonomyNameForLookup(item.name) === optionName,
+  );
+}
 
 export function findTaxonomyOptionByName(
   items: readonly BrowseTaxonomySummaryItem[],
@@ -237,7 +261,7 @@ export function sortTaxonomyOptionsByRecentUse(
 }
 
 function normalizeTaxonomyLookupName(name: string): string {
-  return normalizeTaxonomyAddName(name).toLocaleLowerCase();
+  return normalizeTaxonomyNameForLookup(name);
 }
 
 function getTaxonomyAddLabel(kind: TaxonomyAddControlProps["kind"]): string {
@@ -266,4 +290,9 @@ function readAssignedTime(value: string | null): number {
 
 function readTaxonomyAddError(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to update taxonomy.";
+}
+
+function readTagNameValidationError(name: string): string | null {
+  const result = validateTagName(name);
+  return result.ok ? null : result.error;
 }

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findTaxonomyOptionByName,
+  isTaxonomyNameAttached,
   normalizeTaxonomyAddName,
   sortTaxonomyOptionsByRecentUse,
   TaxonomyAddControl,
@@ -69,6 +70,20 @@ describe("taxonomy add control", () => {
     expect(findTaxonomyOptionByName(taxonomyOptions, "missing")).toBeUndefined();
   });
 
+  it("detects attached taxonomy by normalized name as well as id", () => {
+    expect(
+      isTaxonomyNameAttached(
+        [{ id: "tag-attached", name: "Harness-Engineering" }],
+        {
+          id: "tag-duplicate",
+          name: "harness-engineering",
+          memoryCount: 1,
+          lastAssignedAt: null,
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("renders the existing Add pill style as the stable trigger surface", () => {
     const html = renderToString(() =>
       createComponent(TaxonomyAddControl, {
@@ -97,6 +112,7 @@ describe("taxonomy add control", () => {
     expect(inlineCreateSource).toContain('event.key === "Escape"');
     expect(taxonomyAddControlSource).not.toContain("placeholder=");
     expect(taxonomyAddControlSource).not.toContain("focus:ring");
+    expect(taxonomyAddControlSource).toContain("validateTagName");
   });
 
   it("keeps existing taxonomy selection open for repeated assignment", () => {
@@ -107,6 +123,6 @@ describe("taxonomy add control", () => {
   it("treats attached options as detach operations when a detach handler exists", () => {
     expect(taxonomyAddControlSource).toContain("onDetachName");
     expect(taxonomyAddControlSource).toContain("void detachExistingOption(option)");
-    expect(taxonomyAddControlSource).toContain("attachedIds().has(option.id)");
+    expect(taxonomyAddControlSource).toContain("isTaxonomyNameAttached");
   });
 });

@@ -2,12 +2,14 @@ import { Show, createEffect, createSignal, type JSX } from "solid-js";
 
 import { PlusIcon } from "../icons";
 import { useDismissableLayer } from "../ui/dismissable-layer";
+import { normalizeTaxonomyName } from "../../taxonomy/name-policy";
 
 export interface TaxonomyInlineCreateControlProps {
   class?: string;
   disabled?: boolean;
   label: string;
   open?: boolean;
+  validateName?: (name: string) => string | null;
   onError?: (message: string) => void;
   onOpenChange?: (open: boolean) => void;
   onSubmitName: (name: string) => Promise<void> | void;
@@ -54,6 +56,12 @@ export function TaxonomyInlineCreateControl(
   const submit = async (): Promise<void> => {
     const name = normalizeTaxonomyAddName(draftName());
     if (name === "" || pending() || props.disabled === true) {
+      return;
+    }
+
+    const validationError = props.validateName?.(name) ?? null;
+    if (validationError !== null) {
+      props.onError?.(validationError);
       return;
     }
 
@@ -128,6 +136,4 @@ export function TaxonomyInlineCreateControl(
   );
 }
 
-export function normalizeTaxonomyAddName(name: string): string {
-  return name.trim();
-}
+export const normalizeTaxonomyAddName = normalizeTaxonomyName;
