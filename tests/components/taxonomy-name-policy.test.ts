@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateTagName,
   normalizeTaxonomyName,
+  normalizeTaxonomyNameForLookup,
 } from "../../src/taxonomy/name-policy";
 
 describe("taxonomy name policy", () => {
@@ -17,5 +18,13 @@ describe("taxonomy name policy", () => {
       const result = validateTagName(name);
       expect(result).toMatchObject({ ok: false });
     }
+  });
+
+  it("uses locale-invariant ASCII folding for lookup names", () => {
+    expect(normalizeTaxonomyNameForLookup(" Harness-Engineering ")).toBe(
+      "harness-engineering",
+    );
+    expect(normalizeTaxonomyNameForLookup("Été")).toBe("Été");
+    expect(normalizeTaxonomyNameForLookup("été")).toBe("été");
   });
 });

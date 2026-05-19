@@ -84,6 +84,20 @@ describe("taxonomy add control", () => {
     ).toBe(true);
   });
 
+  it("does not treat non-ASCII case variants as attached by locale folding", () => {
+    expect(
+      isTaxonomyNameAttached(
+        [{ id: "tag-attached", name: "Été" }],
+        {
+          id: "tag-distinct",
+          name: "été",
+          memoryCount: 1,
+          lastAssignedAt: null,
+        },
+      ),
+    ).toBe(false);
+  });
+
   it("renders the existing Add pill style as the stable trigger surface", () => {
     const html = renderToString(() =>
       createComponent(TaxonomyAddControl, {

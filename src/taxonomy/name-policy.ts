@@ -12,7 +12,11 @@ export function normalizeTaxonomyName(name: string): string {
 }
 
 export function normalizeTaxonomyNameForLookup(name: string): string {
-  return normalizeTaxonomyName(name).toLocaleLowerCase();
+  return foldAsciiTaxonomyName(normalizeTaxonomyName(name));
+}
+
+function foldAsciiTaxonomyName(name: string): string {
+  return name.replace(/[A-Z]/g, (character) => character.toLowerCase());
 }
 
 export function validateTagName(name: string): TaxonomyNameValidationResult {
