@@ -27,6 +27,7 @@ export default function MemoryReaderRoute() {
       <ReaderBody
         categoryOptions={taxonomy()?.categories ?? []}
         result={readerResult()}
+        tagOptions={taxonomy()?.tags ?? []}
       />
     </>
   );
@@ -35,6 +36,7 @@ export default function MemoryReaderRoute() {
 function ReaderBody(props: {
   categoryOptions: readonly BrowseTaxonomySummaryItem[];
   result: ReaderMemoryResult | undefined;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
 }) {
   return (
     <Show
@@ -51,6 +53,7 @@ function ReaderBody(props: {
         <MemoryReader
           categoryOptions={props.categoryOptions}
           result={result()}
+          tagOptions={props.tagOptions}
         />
       )}
     </Show>

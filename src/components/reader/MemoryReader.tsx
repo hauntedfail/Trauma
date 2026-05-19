@@ -34,7 +34,9 @@ import {
 } from "../memories/memory-anchor-hrefs";
 import {
   attachCategoryToMemoryByName,
+  attachTagToMemoryByName,
   deleteMemoryById,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
   type FetchFunction,
 } from "../memories/memory-action-requests";
@@ -65,12 +67,14 @@ import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import { RouteHeader } from "../layout/RouteHeader";
+import { TaxonomyAddControl } from "../memories/TaxonomyAddControl";
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReaderMemoryResult;
+  tagOptions?: readonly BrowseTaxonomySummaryItem[];
 }
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
@@ -142,6 +146,7 @@ export function MemoryReader(props: MemoryReaderProps) {
           flashbackRows={props.flashbackRows}
           navigate={props.navigate}
           result={result}
+          tagOptions={props.tagOptions ?? []}
         />
       )}
     </Show>
@@ -153,6 +158,7 @@ function ReadyMemoryReader(props: {
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
 }) {
   let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
@@ -174,6 +180,9 @@ function ReadyMemoryReader(props: {
   const readerTitleHtml = createMemo(() => readerContent().titleHtml);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
+  ]);
+  const [tags, setTags] = createSignal([
+    ...props.result.memory.tags,
   ]);
   const [moments, setMoments] = createSignal([
     ...props.result.memory.moments,
@@ -202,6 +211,7 @@ function ReadyMemoryReader(props: {
   createEffect(() => {
     props.result.memory.id;
     setCategories([...props.result.memory.categories]);
+    setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
     setPendingMomentKey("");
@@ -358,6 +368,34 @@ function ReadyMemoryReader(props: {
       revalidateBrowseMemoryWorkspace(),
       revalidateReaderMemory(input.memoryId),
     ]);
+  };
+  const attachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await attachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => mergeReaderTaxonomyItem(current, tag));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to add tag.");
+      throw error;
+    }
+  };
+  const detachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await detachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to remove tag.");
+      throw error;
+    }
   };
   createEffect(() => {
     syncReaderSectionMomentButtons({
@@ -554,7 +592,12 @@ function ReadyMemoryReader(props: {
             <div data-reader-noncontent>
               <ReaderTaxonomyChips
                 categories={categories()}
-                tags={props.result.memory.tags}
+                memoryId={props.result.memory.id}
+                tagOptions={props.tagOptions}
+                tags={tags()}
+                onAddTag={attachTag}
+                onRemoveTag={detachTag}
+                onTaxonomyError={setErrorMessage}
               />
             </div>
             <div
@@ -637,25 +680,39 @@ function ReadyMemoryReader(props: {
 
 function ReaderTaxonomyChips(props: {
   categories: ReaderTaxonomyItem[];
+  memoryId: string;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
   tags: ReaderTaxonomyItem[];
+  onAddTag: (name: string) => Promise<void> | void;
+  onRemoveTag: (name: string) => Promise<void> | void;
+  onTaxonomyError: (message: string) => void;
 }) {
   return (
-    <Show when={props.categories.length + props.tags.length > 0}>
-      <div class="mt-4 trauma-local-wrap">
-        <TaxonomyList
-          class="contents"
-          items={props.categories}
-          kind="category"
-          mode="chips"
-        />
-        <TaxonomyList
-          class="contents"
-          items={props.tags}
+    <div class="mt-4 trauma-local-wrap">
+      <TaxonomyList
+        class="contents"
+        items={props.categories}
+        kind="category"
+        mode="chips"
+      />
+      <TaxonomyList
+        class="contents"
+        items={props.tags}
+        kind="tag"
+        mode="chips"
+      />
+      <span class="relative inline-grid">
+        <TaxonomyAddControl
+          attachedItems={props.tags}
+          id={`memory-${props.memoryId}-tags-add`}
           kind="tag"
-          mode="chips"
+          options={props.tagOptions}
+          onAttachName={props.onAddTag}
+          onDetachName={props.onRemoveTag}
+          onError={props.onTaxonomyError}
         />
-      </div>
-    </Show>
+      </span>
+    </div>
   );
 }
 
@@ -686,6 +743,22 @@ export async function attachReaderCategoryByName(input: {
   name: string;
 }): Promise<ReaderTaxonomyItem> {
   return attachCategoryToMemoryByName(input);
+}
+
+export async function attachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return attachTagToMemoryByName(input);
+}
+
+export async function detachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return detachTagFromMemoryByName(input);
 }
 
 function mergeReaderTaxonomyItem(
@@ -843,6 +916,13 @@ function scheduleReaderHashTargetScroll(root: HTMLElement | undefined): void {
 }
 
 async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterReaderTaxonomyChange(memoryId: string): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
     revalidateReaderMemory(memoryId),

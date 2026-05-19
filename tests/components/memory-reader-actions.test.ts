@@ -1,14 +1,24 @@
+import { readFileSync } from "node:fs";
+
 import { createSignal, type JSX } from "solid-js";
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
 import {
   attachReaderCategoryByName,
+  attachReaderTagByName,
   deleteReaderMemory,
+  detachReaderTagByName,
   MemoryReader,
 } from "../../src/components/reader/MemoryReader";
 import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
+import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
 import type { ReaderMemoryResult } from "../../src/server/reader/page-data";
+
+const memoryReaderRouteSource = readFileSync(
+  "src/routes/memories/[id].tsx",
+  "utf8",
+);
 
 const readyResult = {
   status: "ready",
@@ -48,8 +58,17 @@ const readyResult = {
 } satisfies ReaderMemoryResult;
 
 describe("memory reader actions", () => {
-  it("renders shared actions, read status, attached taxonomy, and existing flashbacks", () => {
-    const html = renderReader(readyResult);
+  it("renders shared actions, read status, attached taxonomy, tag add control, and existing flashbacks", () => {
+    const html = renderReader(readyResult, {
+      tagOptions: [
+        {
+          id: "tag-global",
+          name: "global",
+          memoryCount: 1,
+          lastAssignedAt: null,
+        },
+      ],
+    });
 
     expect(html).toContain("Memory actions for Reader Memory");
     expect(html).toContain('aria-label="Mark memory unread"');
@@ -58,6 +77,8 @@ describe("memory reader actions", () => {
     expect(html).not.toContain("Mark unread");
     expect(html).toContain("Reader");
     expect(html).toContain("solid");
+    expect(html).toContain("Add tag");
+    expect(html).toContain('data-taxonomy-create-trigger="true"');
     expect(html).toContain('data-flashback-id="flashback-1"');
     expect(html).not.toContain("Global category");
     expect(html).not.toContain("#global");
@@ -104,6 +125,7 @@ describe("memory reader actions", () => {
 
     expect(html).not.toContain("No categories");
     expect(html).not.toContain("No tags");
+    expect(html).toContain("Add tag");
   });
 
   it("deletes the active memory and navigates back to memories", async () => {
@@ -173,9 +195,87 @@ describe("memory reader actions", () => {
       name: "Research",
     });
   });
+
+  it("attaches a tag by name through the memory tag API", async () => {
+    const requests: Request[] = [];
+
+    const tag = await attachReaderTagByName({
+      memoryId: "memory-reader",
+      name: "typescript",
+      fetch: async (input, init) => {
+        requests.push(
+          new Request(new URL(String(input), "http://localhost"), init),
+        );
+        return new Response(
+          JSON.stringify({
+            tag: { id: "tag-typescript", name: "typescript" },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+
+    expect(tag).toEqual({ id: "tag-typescript", name: "typescript" });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/memories/tags", "POST"],
+    ]);
+    expect(await requests[0]?.json()).toEqual({
+      memoryId: "memory-reader",
+      name: "typescript",
+    });
+  });
+
+  it("detaches a tag by name through the memory tag API", async () => {
+    const requests: Request[] = [];
+
+    const tag = await detachReaderTagByName({
+      memoryId: "memory-reader",
+      name: "solid",
+      fetch: async (input, init) => {
+        requests.push(
+          new Request(new URL(String(input), "http://localhost"), init),
+        );
+        return new Response(
+          JSON.stringify({
+            tag: { id: "tag-solid", name: "solid" },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+
+    expect(tag).toEqual({ id: "tag-solid", name: "solid" });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/memories/tags", "DELETE"],
+    ]);
+    expect(await requests[0]?.json()).toEqual({
+      memoryId: "memory-reader",
+      name: "solid",
+    });
+  });
+
+  it("passes reader tag options from the route taxonomy loader", () => {
+    expect(memoryReaderRouteSource).toContain(
+      "tagOptions={taxonomy()?.tags ?? []}",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "categoryOptions={taxonomy()?.categories ?? []}",
+    );
+  });
 });
 
-function renderReader(result: ReaderMemoryResult): string {
+function renderReader(
+  result: ReaderMemoryResult,
+  options: {
+    tagOptions?: readonly BrowseTaxonomySummaryItem[];
+  } = {},
+): string {
   return renderToString(() => {
     const [rightRailContent, setRightRailContent] =
       createSignal<JSX.Element | undefined>();
@@ -190,6 +290,7 @@ function renderReader(result: ReaderMemoryResult): string {
           flashbackRows: [],
           navigate: () => {},
           result,
+          tagOptions: options.tagOptions ?? [],
         });
       },
     });

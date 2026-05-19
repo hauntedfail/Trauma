@@ -358,15 +358,15 @@ test("renders category, tag, and flashback shortcut sections in the right panel"
   expect(sectionRadius).toBe("20px");
 });
 
-test("closes taxonomy creation popovers on outside clicks", async ({ page }) => {
+test("closes taxonomy creation controls on outside clicks", async ({ page }) => {
   await page.goto("/memories");
 
   await page.getByRole("button", { name: "New tag" }).click();
-  await expect(page.getByRole("dialog", { name: "New tag" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
 
   await page.getByRole("tab", { name: "All" }).click();
 
-  await expect(page.getByRole("dialog", { name: "New tag" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
