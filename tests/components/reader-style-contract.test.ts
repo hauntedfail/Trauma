@@ -36,7 +36,7 @@ describe("refined reader visual contract", () => {
     expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
     expect(readerStyles).not.toContain("px-8");
     expect(tailwindSource).toContain(".trauma-reader-route-padding");
-    expect(tailwindSource).toContain("padding-inline: clamp(0.875rem, 3cqi, 1.5rem)");
+    expect(tailwindSource).toContain("padding-inline: clamp(0.75rem, 2.5cqi, 1.25rem)");
   });
 
   it("moves the reader table of contents into the contextual right rail", () => {
