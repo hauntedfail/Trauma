@@ -787,6 +787,25 @@ test("closes the add-memory composer on outside row clicks without opening memor
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
 
+test("does not suppress the next normal click after an outside right-click dismissal", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+  await page.waitForLoadState("networkidle");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+
+  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  await row.locator("p").first().click({ button: "right" });
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+});
+
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {
   const layer = await page.evaluate((name) => {
     const dialog = Array.from(

@@ -47,7 +47,10 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
         return;
       }
 
-      if (options.shouldSuppressOutsideClick?.(event.target) ?? true) {
+      if (
+        isClickProducingPrimaryPointerDown(event) &&
+        (options.shouldSuppressOutsideClick?.(event.target) ?? true)
+      ) {
         armOutsideClickSuppression();
       }
       options.onDismiss();
@@ -65,4 +68,8 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       document.removeEventListener("keydown", handleKeyDown);
     });
   });
+}
+
+function isClickProducingPrimaryPointerDown(event: PointerEvent): boolean {
+  return event.button === 0 && event.isPrimary !== false;
 }

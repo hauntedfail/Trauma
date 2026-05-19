@@ -12,7 +12,7 @@ const taxonomyInlineCreateSource = readFileSync(
 );
 
 describe("dismissable popup layers", () => {
-  it("suppresses the next outside click after outside pointer dismissal", () => {
+  it("suppresses the next outside click only after primary outside pointer dismissal", () => {
     expect(dismissableLayerSource).toContain("createEffect");
     expect(dismissableLayerSource).toContain("if (!isEnabled())");
     expect(dismissableLayerSource).not.toContain("onMount");
@@ -27,6 +27,9 @@ describe("dismissable popup layers", () => {
     expect(dismissableLayerSource).toContain("outsideClickSuppressionArmed");
     expect(dismissableLayerSource).toContain("once: true");
     expect(dismissableLayerSource).toContain("shouldSuppressOutsideClick");
+    expect(dismissableLayerSource).toContain("isClickProducingPrimaryPointerDown");
+    expect(dismissableLayerSource).toContain("event.button === 0");
+    expect(dismissableLayerSource).toContain("event.isPrimary !== false");
     expect(dismissableLayerSource).toContain("event.preventDefault()");
     expect(dismissableLayerSource).toContain("event.stopImmediatePropagation()");
   });
