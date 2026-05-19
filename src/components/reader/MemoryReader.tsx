@@ -120,7 +120,7 @@ const readerTocScrollContent =
 const readerContextMenuClass =
   "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
 const readerSourceLinkClass =
-  "wrap-anywhere inline-flex min-h-9 items-center gap-1.5 text-sm leading-tight text-trauma-link";
+  "wrap-anywhere inline-flex min-h-9 max-w-full justify-self-start items-center gap-1.5 text-sm leading-tight text-trauma-link";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>

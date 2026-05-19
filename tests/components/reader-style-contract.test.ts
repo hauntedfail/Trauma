@@ -46,7 +46,9 @@ describe("refined reader visual contract", () => {
 
   it("aligns the memory source URL with the reader action menu row", () => {
     expect(readerSource).toContain("readerSourceLinkClass");
-    expect(readerSource).toContain("inline-flex min-h-9 items-center");
+    expect(readerSource).toContain(
+      "inline-flex min-h-9 max-w-full justify-self-start items-center",
+    );
     expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
     expect(readerSource).toContain('class="flex items-center gap-2"');
     expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");
