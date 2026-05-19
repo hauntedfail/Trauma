@@ -119,6 +119,8 @@ const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
 const readerContextMenuClass =
   "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
+const readerSourceLinkClass =
+  "wrap-anywhere inline-flex min-h-9 items-center gap-1.5 text-sm leading-tight text-trauma-link";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -475,14 +477,14 @@ function ReadyMemoryReader(props: {
       <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
         <div class="trauma-fluid-page-shell">
           <header class="mb-7 grid gap-4">
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
               <Show
                 when={sourceHref()}
-                fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
+                fallback={<span class={readerSourceLinkClass}><OpenIcon />{sourceUrl()}</span>}
               >
                 {(href) => (
                   <a
-                    class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
+                    class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
                     href={href()}
                     rel="noreferrer"
                     target="_blank"
@@ -492,7 +494,7 @@ function ReadyMemoryReader(props: {
                   </a>
                 )}
               </Show>
-              <div class="flex items-start gap-2">
+              <div class="flex items-center gap-2">
                 <MemoryReadStatusControl
                   initialRead={props.result.memory.read}
                   memoryId={props.result.memory.id}

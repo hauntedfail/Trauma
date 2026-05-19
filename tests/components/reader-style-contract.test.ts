@@ -39,6 +39,15 @@ describe("refined reader visual contract", () => {
     expect(tailwindSource).toContain("padding-inline: clamp(0.75rem, 2.5cqi, 1.25rem)");
   });
 
+  it("aligns the memory source URL with the reader action menu row", () => {
+    expect(readerSource).toContain("readerSourceLinkClass");
+    expect(readerSource).toContain("inline-flex min-h-9 items-center");
+    expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
+    expect(readerSource).toContain('class="flex items-center gap-2"');
+    expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");
+    expect(readerSource).not.toContain('class="flex items-start gap-2"');
+  });
+
   it("moves the reader table of contents into the contextual right rail", () => {
     expect(readerSource).toContain("useRightRailContent");
     expect(readerSource).toContain("onCleanup");
