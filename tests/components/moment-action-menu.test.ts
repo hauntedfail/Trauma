@@ -19,6 +19,8 @@ describe("Moment action menu", () => {
     expect(html).toContain('aria-label="Moment actions for Details"');
     expect(html).toContain("hover:bg-trauma-bg-elev");
     expect(html).toContain("Delete moment");
+    expect(html).toContain("text-trauma-danger");
+    expect(html).toContain("M4 7h16");
   });
 
   it("asks for confirmation before deleting", async () => {

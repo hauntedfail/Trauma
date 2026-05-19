@@ -7,6 +7,7 @@ export function SegmentedToggleButton(props: {
   active: boolean;
   children: JSX.Element;
   class?: string;
+  hint?: string;
   onClick: () => void;
 }) {
   const buttonClass = () =>
@@ -18,6 +19,7 @@ export function SegmentedToggleButton(props: {
     <button
       aria-pressed={props.active}
       class={buttonClass()}
+      title={props.hint}
       type="button"
       onClick={props.onClick}
     >

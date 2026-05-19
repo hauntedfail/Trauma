@@ -1,14 +1,21 @@
 import { Show, createSignal } from "solid-js";
 
-import { PlusIcon } from "../icons";
+import { TrashIcon } from "../icons";
 import {
   KebabActionMenu,
+  kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
   kebabActionMenuItemClass,
 } from "../ui/KebabActionMenu";
-import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
+import { TaxonomyAddControl } from "./TaxonomyAddControl";
+import type {
+  BrowseTaxonomyItem,
+  BrowseTaxonomySummaryItem,
+} from "./browse-data";
 
 export interface MemoryActionMenuProps {
+  attachedCategories?: readonly BrowseTaxonomyItem[];
+  categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   memoryId: string;
   memoryTitle: string;
   onDelete?: (memoryId: string) => Promise<void> | void;
@@ -29,7 +36,6 @@ export interface ConfirmAndDeleteMemoryInput {
 }
 
 export function MemoryActionMenu(props: MemoryActionMenuProps) {
-  const [categoryOpen, setCategoryOpen] = createSignal(false);
   const [error, setError] = createSignal("");
 
   const deleteMemory = async (): Promise<boolean> => {
@@ -51,25 +57,29 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
 
   const submitCategory = async (name: string): Promise<void> => {
     setError("");
-    await props.onAttachCategoryByName?.({
-      memoryId: props.memoryId,
-      name,
-    });
-    setCategoryOpen(false);
+    try {
+      await props.onAttachCategoryByName?.({
+        memoryId: props.memoryId,
+        name,
+      });
+    } catch (error) {
+      setError("Failed to add category.");
+      throw error;
+    }
   };
 
   return (
     <KebabActionMenu
       class={props.class}
       disabled={props.disabled}
+      id={`memory-${props.memoryId}-actions-menu`}
       initialOpen={props.initialOpen}
       label={`Memory actions for ${props.memoryTitle}`}
-      onClose={() => setCategoryOpen(false)}
     >
       {({ close }) => (
         <>
           <button
-            class={kebabActionMenuItemClass}
+            class={kebabActionMenuDangerItemClass}
             type="button"
             role="menuitem"
             onClick={(event) => {
@@ -82,35 +92,19 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
               });
             }}
           >
-            <span aria-hidden="true">-</span>
+            <TrashIcon />
             Delete memory
           </button>
-          <button
-            class={kebabActionMenuItemClass}
-            type="button"
-            role="menuitem"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setCategoryOpen(true);
-            }}
-          >
-            <PlusIcon />
-            Add category
-          </button>
-          <Show when={categoryOpen()}>
-            <TaxonomyCreatePopover
-              title="Add category"
-              label="Category name"
-              placeholder="Research"
-              submitLabel="Add category"
-              onSubmitName={async (name) => {
-                await submitCategory(name);
-                close();
-              }}
-              onClose={() => setCategoryOpen(false)}
-            />
-          </Show>
+          <TaxonomyAddControl
+            attachedItems={props.attachedCategories ?? []}
+            id={`memory-${props.memoryId}-categories-add`}
+            kind="category"
+            options={props.categoryOptions ?? []}
+            triggerClass={kebabActionMenuItemClass}
+            triggerRole="menuitem"
+            onAttachName={submitCategory}
+            onError={(message) => setError(message)}
+          />
           <Show when={error() !== ""}>
             <p class={kebabActionMenuErrorClass}>{error()}</p>
           </Show>

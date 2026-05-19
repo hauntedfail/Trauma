@@ -49,10 +49,13 @@ Button shape follows the job:
 Use icons inside buttons when an icon exists. Do not replace familiar icon
 actions with verbose text-only controls.
 
+Read-status controls on memory cards and reader pages are icon-only action
+buttons. They keep accessible labels on the button. Open eye means unread
+(`read: false`), and closed eye means read (`read: true`).
+
 Paper themes add one deliberate material exception for archive actions:
 
-- Add-memory commands and List/Grid view toggles use the
-  `trauma-paper-wax-seal` treatment.
+- Add-memory commands use the `trauma-paper-wax-seal` treatment.
 - Do not replace theme colours inside this treatment. The button's existing
   semantic background, text, border, hover, and `aria-pressed` classes stay in
   charge of colour.
@@ -74,22 +77,31 @@ Paper themes add one deliberate material exception for archive actions:
 
 ## Browse Header
 
-The Memories browse header owns the list/grid view toggle. Keep the title block
-and view toggle in one two-column grid row at every route width:
+The Memories browse header owns the read-state tabs, not a large route title
+or list/grid toggle.
 
-- Title/eyebrow column: `minmax(0, 1fr)` so it can shrink.
-- View mode column: `auto`, aligned to the inline end.
-- Do not let phone layout push List/Grid below the `Memories` title.
-- The shared narrow-route header container query can stack other route headers,
-  but `MemoryBrowse` uses its own header marker to remain a single row.
+- Render exactly three equal-width tabs: `All`, `Unread`, and `Read`.
+- `All` is the default state and removes read-state tokens from the search
+  query.
+- `Unread` appends the standalone `unread` search token.
+- `Read` appends the standalone `read` search token.
+- The search bar and URL remain the source of truth for the filter state.
+- The active tab uses bold primary text plus a short rounded accent underline
+  anchored to the tab bottom. Inactive tabs use muted text.
+- The tab strip stays in one sticky row at every route width.
+- These tabs are not wax controls. Paper/Hermès wax treatment remains reserved
+  for archive commands such as Add memory.
 
 ## Shell Popovers
 
 Left-rail transient controls open as anchored popovers rather than global
 drawers:
 
-- Theme settings and Add memory composer use the same `role="dialog"` popup
-  pattern, `aria-haspopup="dialog"`, `aria-expanded`, and `aria-controls`.
+- Theme settings and Add memory composer use the shared `Popup` shell with
+  `role="dialog"`, `aria-haspopup`, `aria-expanded`, and `aria-controls`.
+- General action menus use the same `Popup` shell with `role="menu"`. Memory,
+  Moment, and Flashback delete actions use one danger menu-item treatment and
+  the shared trash icon.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
 - Add memory keeps the shell-level command globally reachable, but the composer
@@ -110,7 +122,24 @@ Inputs use semantic surfaces:
 Search inputs:
 
 - The browse route owns the memory search field.
+- The focus indicator belongs to the rounded search surface itself, using an
+  inset ring so focus corners follow the search bar shape.
 - The right rail does not contain a search field.
+
+## Taxonomy Rendering
+
+Use `TaxonomyList` for category/tag chips and right-rail taxonomy filters.
+
+- `mode="chips"` renders attached categories/tags on memory rows and reader
+  intros, and the same chip styling is also used for right-rail category/tag
+  filters.
+- Use `density="compact"` for right-rail chip lists when the section needs
+  tighter item spacing than memory-row metadata.
+- Selectable chips use `aria-pressed` for active right-rail filters.
+- `mode="filters"` remains available for full-width taxonomy controls, but the
+  current shell does not use it for the right rail.
+- Parents own route/query state; taxonomy rendering components do not know
+  browse query keys.
 
 ## Memory Browse Rows
 
@@ -136,19 +165,24 @@ Grid mode reuses the same content and adds:
 
 ## Flashback Excerpts
 
-`FlashbackExcerpt` is the shared excerpt component for browse cards and the
-canonical `/flashbacks` view.
+`FlashbackInlineText` is the shared text primitive for right-rail Flashback
+shortcuts and the canonical `/flashbacks` view. `FlashbackExcerpt` is only a
+thin browse-card wrapper around the same primitive.
 
 Contract:
 
-- Rounded quote block.
-- Left border uses `border-trauma-quote-bar`.
-- Background uses `bg-trauma-quote-bg`.
-- Text uses `text-trauma-quote-ink`.
-- Flashback text uses `mark` with `bg-trauma-flashback-bg`.
+- Prefix and suffix context render around the selected Flashback text.
+- Context uses theme secondary/tertiary foreground tokens plus the shared
+  Flashback context blur/mask treatment, so it stays visibly lower contrast
+  than the selected text. The blur belongs to the prefix/suffix text spans, not
+  to the whole Flashback card, list, or right-rail island.
+- The selected Flashback string uses normal primary readable contrast and a
+  semantic `mark` element without becoming a separate highlighter badge.
 - Optional link wraps the whole excerpt.
 
-Do not hand-roll separate flashback quote treatments for each route.
+Do not hand-roll separate Flashback text treatments for each route. `/flashbacks`
+uses dense route rows: shared inline Flashback text first, then the source
+memory title as small supplemental metadata at the bottom.
 
 ## Right Rail Sections
 
@@ -167,17 +201,21 @@ route content containers. Contextual route content must stay small enough to
 act as a right rail aid rather than a second main pane.
 
 When an island contains an unbounded list, the list body must be a bounded
-scroll region. This is required for Flashback shortcut lists and reader TOC. Do not
-let those islands grow vertically for every item.
+scroll region. This is required for Flashback shortcut lists and reader TOC. Do
+not let those islands grow vertically for every item.
 
-Reader TOC should make overflow discoverable. When its bounded list can still
-scroll in a direction, show a low-contrast blur fade on that edge only. The
-fade should make the edge entries look slightly hazy, not like a heavy shadow
-or spotlight. Use neutral black in the fade recipe, not the primary/accent
-colour. The top fade must start at the scroll body edge so text cannot appear
-unblurred between the TOC heading and the fade. Use CSS gradients and masks to
-soften the fade boundary; do not use JavaScript to paint the effect. Do not
-render a fade for a direction that is not currently scrollable.
+Reader TOC should make overflow discoverable. When the bounded TOC can still
+scroll in a direction, show a low-contrast blur fade on that edge only. The fade
+should make the edge entries look slightly hazy, not like a heavy shadow or
+spotlight. Use neutral black in the fade recipe, not the primary/accent colour.
+The top fade must start at the scroll body edge so text cannot appear unblurred
+between the heading and the fade. Use CSS gradients and masks to soften the fade
+boundary. Do not render a fade for a direction that is not currently scrollable.
+
+Flashback shortcut lists do not use TOC scroll-edge overlays. Their focal
+treatment is per Flashback item: selected text remains normal and readable,
+while the stored prefix/suffix context uses the shared Flashback context
+blur/mask classes.
 
 ## Add Memory Composer
 

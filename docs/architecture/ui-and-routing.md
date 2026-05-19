@@ -60,10 +60,11 @@ used by right-panel flashback shortcuts.
 
 Each flashback row shows the source memory title, muted prefix context,
 flashbacked text, and muted suffix context. The visual treatment should feel
-close to a GitHub pull request file-review view: dense rows, quote-focused
-content, clear source labels, and no full article rendering.
+close to a GitHub pull request file-review view: dense rows, selected text as
+the focal content, muted surrounding context, subordinate source metadata, and
+no full article rendering.
 
-Clicking the source title or quote opens `/memories/:id` at the corresponding
+Clicking the row content or source title opens `/memories/:id` at the corresponding
 flashback anchor.
 
 ## Responsive Behavior

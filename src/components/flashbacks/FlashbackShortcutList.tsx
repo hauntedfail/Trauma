@@ -1,4 +1,9 @@
-import { For, Show } from "solid-js";
+import {
+  For,
+  Show,
+} from "solid-js";
+
+import { FlashbackInlineText } from "./FlashbackText";
 
 export interface FlashbackShortcutItem {
   active?: boolean;
@@ -6,6 +11,7 @@ export interface FlashbackShortcutItem {
   id: string;
   onSelect?: () => void;
   prefix: string;
+  suffix?: string;
   text: string;
 }
 
@@ -38,13 +44,16 @@ export function FlashbackShortcutList(props: {
 }
 
 function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
+  const activeClass = () =>
+    props.flashback.active === true
+      ? "bg-trauma-accent text-trauma-accent-ink"
+      : "";
   const content = () => (
-    <>
-      <span class="wrap-anywhere">{props.flashback.text}</span>
-      <small class="text-xs font-semibold text-trauma-text-muted">
-        {props.flashback.prefix}
-      </small>
-    </>
+    <FlashbackInlineText
+      prefix={props.flashback.prefix}
+      suffix={props.flashback.suffix}
+      text={props.flashback.text}
+    />
   );
 
   return (
@@ -53,7 +62,7 @@ function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
       fallback={
         <button
           aria-pressed={props.flashback.active === true}
-          class={flashbackShortcutRowClass}
+          class={`${flashbackShortcutRowClass} ${activeClass()}`}
           type="button"
           onClick={props.flashback.onSelect}
         >
@@ -62,7 +71,11 @@ function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
       }
     >
       {(href) => (
-        <a class={`${flashbackShortcutRowClass} no-underline`} href={href()}>
+        <a
+          aria-current={props.flashback.active === true ? "page" : undefined}
+          class={`${flashbackShortcutRowClass} ${activeClass()} no-underline`}
+          href={href()}
+        >
           {content()}
         </a>
       )}

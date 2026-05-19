@@ -5,6 +5,8 @@ import { Show } from "solid-js";
 
 import { MemoryReader } from "../../components/reader/MemoryReader";
 import { getReaderMemory } from "../../components/reader/reader-memory-loader";
+import { getBrowseTaxonomy } from "../../components/memories/browse-loader";
+import type { BrowseTaxonomySummaryItem } from "../../components/memories/browse-data";
 import { readerFrame, readerStatePanel } from "../../components/reader/reader-styles";
 import {
   readerHttpStatusCode,
@@ -15,18 +17,27 @@ import type { ReaderMemoryResult } from "../../server/reader/page-data";
 export default function MemoryReaderRoute() {
   const params = useParams();
   const result = createAsync(() => getReaderMemory(params.id ?? ""));
+  const taxonomy = createAsync(() => getBrowseTaxonomy());
   const readerResult = () => result();
 
   return (
     <>
       <Title>{titleForReaderResult(readerResult())}</Title>
       <ReaderStatusCode result={readerResult()} />
-      <ReaderBody result={readerResult()} />
+      <ReaderBody
+        categoryOptions={taxonomy()?.categories ?? []}
+        result={readerResult()}
+        tagOptions={taxonomy()?.tags ?? []}
+      />
     </>
   );
 }
 
-function ReaderBody(props: { result: ReaderMemoryResult | undefined }) {
+function ReaderBody(props: {
+  categoryOptions: readonly BrowseTaxonomySummaryItem[];
+  result: ReaderMemoryResult | undefined;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
+}) {
   return (
     <Show
       when={props.result}
@@ -38,7 +49,13 @@ function ReaderBody(props: { result: ReaderMemoryResult | undefined }) {
         </section>
       }
     >
-      {(result) => <MemoryReader result={result()} />}
+      {(result) => (
+        <MemoryReader
+          categoryOptions={props.categoryOptions}
+          result={result()}
+          tagOptions={props.tagOptions}
+        />
+      )}
     </Show>
   );
 }

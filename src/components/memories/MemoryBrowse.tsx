@@ -3,28 +3,36 @@ import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
-import { OpenIcon, PlusIcon, SearchIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
+  getBrowseReadStateFilter,
   getMemoryDisplayFlashback,
   parseBrowseQuery,
-  type BrowseTaxonomyItem,
+  setBrowseReadStateFilter,
+  type BrowseReadStateFilter,
   type BrowseMemory,
+  type BrowseTaxonomyItem,
+  type BrowseTaxonomySummaryItem,
 } from "./browse-data";
+import { buildMemoryAnchorHref } from "./memory-anchor-hrefs";
 import {
   getBrowseMemories,
+  getBrowseTaxonomy,
   revalidateBrowseMemoryWorkspace,
 } from "./browse-loader";
-import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 import { formatCapturedAtForDisplay } from "./captured-at";
 import { MemoryActionMenu } from "./MemoryActionMenu";
 import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
-import { TaxonomyCreatePopover } from "./TaxonomyCreatePopover";
+import { MemorySearchBar } from "./MemorySearchBar";
+import { TaxonomyAddControl } from "./TaxonomyAddControl";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { ScrollableUrlLink } from "../url/ScrollableUrlText";
 import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
@@ -35,30 +43,33 @@ export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const pageHeader =
-  "trauma-route-header trauma-memory-browse-header trauma-fluid-route-padding sticky top-0 z-[1] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
-const controlButton =
-  "min-h-[38px] rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
-const surfaceInput =
-  "min-h-[42px] min-w-0 bg-transparent text-trauma-text-primary outline-none placeholder:text-trauma-text-placeholder";
 const cardBase =
   "trauma-memory-card trauma-route-row grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 const cardTitle = "mb-0 text-xl font-bold leading-tight text-trauma-text-primary";
 const subduedText = "mb-0 text-[13px] text-trauma-text-muted";
-const tagChip =
-  "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink";
+const readStateTabs = [
+  { label: "All", value: "all" },
+  { label: "Unread", value: "unread" },
+  { label: "Read", value: "read" },
+] as const satisfies readonly {
+  label: string;
+  value: BrowseReadStateFilter;
+}[];
 
 export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
   const memories = createAsync(() => getBrowseMemories());
+  const taxonomy = createAsync(() => getBrowseTaxonomy());
   const browseMemories = createMemo(() => memories() ?? []);
+  const availableCategories = createMemo(() => taxonomy()?.categories ?? []);
+  const availableTags = createMemo(() => taxonomy()?.tags ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
   const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
     new Set(),
@@ -68,10 +79,14 @@ export function MemoryBrowse() {
   );
   const filteredMemories = createMemo(() => filterBrowseMemories(visibleMemories(), query()));
   const isGrid = createMemo(() => query().view === "grid");
+  const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
+  };
+  const updateReadStateFilter = (readState: BrowseReadStateFilter): void => {
+    updateQuery({ q: setBrowseReadStateFilter(query().q, readState) });
   };
 
   onMount(() => setIsClientReady(true));
@@ -79,54 +94,16 @@ export function MemoryBrowse() {
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
       <Title>Memories | TRAUMA</Title>
-      <header class={pageHeader}>
-        <div class="min-w-0">
-          <p class={eyebrow}>Local memory archive</p>
-          <h1 class="mb-0 truncate text-3xl font-bold leading-tight" id="memories-title">
-            Memories
-            <span class="ml-2 align-middle text-sm font-medium text-trauma-text-muted" aria-hidden="true">
-              {filteredMemories().length}{" "}
-              {filteredMemories().length === 1 ? "memory" : "memories"}
-            </span>
-          </h1>
-        </div>
-        <div class="grid w-[152px] grid-cols-[72px_72px] gap-2 justify-self-end" role="group" aria-label="View mode">
-          <WaxSealButton
-            aria-pressed={!isGrid()}
-            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-            type="button"
-            variant="toggle"
-            onClick={() => updateQuery({ view: "list" })}
-          >
-            <WaxSealLabel>List</WaxSealLabel>
-          </WaxSealButton>
-          <WaxSealButton
-            aria-pressed={isGrid()}
-            class={`${controlButton} w-[72px] bg-trauma-bg-elev text-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`}
-            type="button"
-            variant="toggle"
-            onClick={() => updateQuery({ view: "grid" })}
-          >
-            <WaxSealLabel>Grid</WaxSealLabel>
-          </WaxSealButton>
-        </div>
+      <header class="trauma-memory-browse-header sticky top-0 z-[2] border-b border-trauma-border bg-trauma-bg-surface/95 backdrop-blur">
+        <h1 id="memories-title" class="sr-only">
+          Memories
+        </h1>
+        <MemoryReadStateTabs
+          value={readStateFilter()}
+          onChange={updateReadStateFilter}
+        />
       </header>
-      <div class="trauma-route-row border-b border-trauma-border px-6 py-[18px]">
-        <label class="grid min-h-12 grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface">
-          <span class="grid place-items-center">
-            <SearchIcon />
-          </span>
-          <input
-            class={surfaceInput}
-            disabled={!isClientReady()}
-            type="search"
-            value={query().q}
-            placeholder="Search memories - title, URL, tags, or flashbacks"
-            aria-label="Search memories"
-            onInput={(event) => updateQuery({ q: event.currentTarget.value }, { replace: true })}
-          />
-        </label>
-      </div>
+      <MemorySearchBar disabled={!isClientReady()} />
       <Show
         when={filteredMemories().length > 0}
         fallback={
@@ -141,6 +118,8 @@ export function MemoryBrowse() {
             {(memory) => (
               <MemoryItem
                 memory={memory}
+                availableCategories={availableCategories()}
+                availableTags={availableTags()}
                 selectedFlashbackId={query().flashback}
                 view={query().view}
                 onOpen={(href) => navigate(href)}
@@ -156,7 +135,82 @@ export function MemoryBrowse() {
   );
 }
 
+function MemoryReadStateTabs(props: {
+  value: BrowseReadStateFilter;
+  onChange: (value: BrowseReadStateFilter) => void;
+}) {
+  const tabButtons: HTMLButtonElement[] = [];
+  const focusTab = (index: number): void => {
+    const tab = readStateTabs[index];
+    if (tab === undefined) {
+      return;
+    }
+
+    props.onChange(tab.value);
+    tabButtons[index]?.focus();
+  };
+  const handleKeyDown = (event: KeyboardEvent, index: number): void => {
+    const lastIndex = readStateTabs.length - 1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      focusTab(index === lastIndex ? 0 : index + 1);
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusTab(index === 0 ? lastIndex : index - 1);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusTab(0);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      focusTab(lastIndex);
+    }
+  };
+
+  return (
+    <div
+      aria-label="Memory read status"
+      class="trauma-memory-read-tabs"
+      role="tablist"
+    >
+      <For each={readStateTabs}>
+        {(tab, index) => {
+          const active = createMemo(() => props.value === tab.value);
+
+          return (
+            <button
+              aria-selected={active()}
+              class="trauma-memory-read-tab"
+              data-active={active() ? "true" : "false"}
+              ref={(element) => {
+                tabButtons[index()] = element;
+              }}
+              role="tab"
+              tabIndex={active() ? 0 : -1}
+              type="button"
+              onKeyDown={(event) => handleKeyDown(event, index())}
+              onClick={() => props.onChange(tab.value)}
+            >
+              {tab.label}
+            </button>
+          );
+        }}
+      </For>
+    </div>
+  );
+}
+
 export function MemoryItem(props: {
+  availableCategories?: readonly BrowseTaxonomySummaryItem[];
+  availableTags?: readonly BrowseTaxonomySummaryItem[];
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
@@ -170,9 +224,17 @@ export function MemoryItem(props: {
   const [categories, setCategories] = createSignal<BrowseTaxonomyItem[]>(
     props.memory.categories,
   );
-  const [tagPopoverOpen, setTagPopoverOpen] = createSignal(false);
   const [actionError, setActionError] = createSignal("");
-  const href = () => `/memories/${props.memory.id}`;
+  const href = createMemo(() =>
+    buildMemoryAnchorHref({
+      anchorId:
+        props.selectedFlashbackId.length > 0 &&
+        displayFlashback()?.id === props.selectedFlashbackId
+          ? props.selectedFlashbackId
+          : null,
+      memoryId: props.memory.id,
+    }),
+  );
 
   const openMemory = (): void => {
     if (props.onOpen !== undefined) {
@@ -193,10 +255,25 @@ export function MemoryItem(props: {
         name,
       });
       setTags((current) => mergeTaxonomyItem(current, tag));
-      setTagPopoverOpen(false);
       void revalidateAfterTaxonomyChange(props.memory.id);
-    } catch {
+    } catch (error) {
       setActionError("Failed to add tag.");
+      throw error;
+    }
+  };
+
+  const detachTag = async (name: string): Promise<void> => {
+    setActionError("");
+    try {
+      const tag = await detachTagFromMemoryByName({
+        memoryId: props.memory.id,
+        name,
+      });
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      void revalidateAfterTaxonomyChange(props.memory.id);
+    } catch (error) {
+      setActionError("Failed to remove tag.");
+      throw error;
     }
   };
 
@@ -209,8 +286,9 @@ export function MemoryItem(props: {
       const category = await attachCategoryToMemoryByName(input);
       setCategories((current) => mergeTaxonomyItem(current, category));
       void revalidateAfterTaxonomyChange(input.memoryId);
-    } catch {
+    } catch (error) {
       setActionError("Failed to add category.");
+      throw error;
     }
   };
 
@@ -260,24 +338,32 @@ export function MemoryItem(props: {
               </a>
             </h2>
           </div>
-          <MemoryActionMenu
-            memoryId={props.memory.id}
-            memoryTitle={props.memory.title}
-            onDelete={deleteMemory}
-            onAttachCategoryByName={submitCategory}
-          />
+          <div class="flex items-start gap-2">
+            <MemoryReadStatusControl
+              memoryId={props.memory.id}
+              initialRead={props.memory.read}
+              variant="icon"
+              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
+            />
+            <MemoryActionMenu
+              memoryId={props.memory.id}
+              memoryTitle={props.memory.title}
+              attachedCategories={categories()}
+              categoryOptions={props.availableCategories ?? []}
+              onDelete={deleteMemory}
+              onAttachCategoryByName={submitCategory}
+            />
+          </div>
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
-        <a
-          class={`${subduedText} wrap-anywhere inline-flex items-center gap-1.5 no-underline hover:text-trauma-accent`}
+        <ScrollableUrlLink
+          class={`${subduedText} no-underline hover:text-trauma-accent`}
           href={props.memory.url}
           rel="noreferrer"
           target="_blank"
+          url={props.memory.url}
           onClick={(event) => event.stopPropagation()}
-        >
-          <OpenIcon />
-          {props.memory.url}
-        </a>
+        />
         <Show when={displayFlashback()}>
           {(flashback) => (
             <FlashbackExcerpt
@@ -289,8 +375,18 @@ export function MemoryItem(props: {
         </Show>
         <footer class="grid gap-3">
           <div class="trauma-local-wrap" aria-label={`${props.memory.title} filters`}>
-            <For each={categories()}>{(category) => <span class={tagChip}>{category.name}</span>}</For>
-            <For each={tags()}>{(tag) => <span class={tagChip}>#{tag.name}</span>}</For>
+            <TaxonomyList
+              class="contents"
+              items={categories()}
+              kind="category"
+              mode="chips"
+            />
+            <TaxonomyList
+              class="contents"
+              items={tags()}
+              kind="tag"
+              mode="chips"
+            />
             <Show when={props.memory.extractionStatus === "link_only"}>
               <span class="inline-flex items-center gap-1 rounded-full bg-trauma-accent-soft px-2.5 py-1 text-xs font-bold text-trauma-accent-soft-ink">
                 <span aria-hidden="true">!</span>
@@ -298,42 +394,20 @@ export function MemoryItem(props: {
               </span>
             </Show>
             <span class="relative inline-grid">
-              <button
-                class="inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setTagPopoverOpen(true);
-                }}
-              >
-                <PlusIcon />
-                Add tag
-              </button>
-              <Show when={tagPopoverOpen()}>
-                <TaxonomyCreatePopover
-                  title="Add tag"
-                  label="Tag name"
-                  placeholder="sqlite"
-                  submitLabel="Add tag"
-                  onSubmitName={submitTag}
-                  onClose={() => setTagPopoverOpen(false)}
-                />
-              </Show>
+              <TaxonomyAddControl
+                attachedItems={tags()}
+                id={`memory-${props.memory.id}-tags-add`}
+                kind="tag"
+                options={props.availableTags ?? []}
+                onAttachName={submitTag}
+                onDetachName={detachTag}
+                onError={(message) => setActionError(message)}
+              />
             </span>
           </div>
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-            <Show when={actionError() !== ""}>
-              <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
-            </Show>
-            <MemoryReadStatusControl
-              class="justify-self-end"
-              memoryId={props.memory.id}
-              initialRead={props.memory.read}
-              compact
-              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
-            />
-          </div>
+          <Show when={actionError() !== ""}>
+            <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
+          </Show>
         </footer>
       </div>
     </article>

@@ -1,5 +1,7 @@
 import { Show, type JSX } from "solid-js";
 
+import { FlashbackInlineText } from "./FlashbackText";
+
 interface FlashbackExcerptProps {
   class?: string;
   href?: string;
@@ -8,22 +10,17 @@ interface FlashbackExcerptProps {
   text: string;
 }
 
-const quoteClass =
-  "m-0 grid gap-1 rounded-2xl border-l-4 border-trauma-quote-bar bg-trauma-quote-bg px-4 py-3 leading-relaxed text-trauma-quote-ink";
-const markClass =
-  "w-fit rounded-md bg-trauma-flashback-bg px-1.5 py-px text-trauma-flashback-ink";
+const excerptClass = "m-0 rounded-2xl px-3 py-2 text-trauma-text-primary";
 
 export function FlashbackExcerpt(props: FlashbackExcerptProps) {
   const content = (
-    <blockquote class={`${quoteClass} ${props.class ?? ""}`}>
-      <Show when={props.prefix.length > 0}>
-        <span>{props.prefix}</span>
-      </Show>
-      <mark class={markClass}>{props.text}</mark>
-      <Show when={props.suffix.length > 0}>
-        <span>{props.suffix}</span>
-      </Show>
-    </blockquote>
+    <p class={`${excerptClass} ${props.class ?? ""}`}>
+      <FlashbackInlineText
+        prefix={props.prefix}
+        suffix={props.suffix}
+        text={props.text}
+      />
+    </p>
   ) satisfies JSX.Element;
 
   return (

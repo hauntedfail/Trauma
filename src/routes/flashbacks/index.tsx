@@ -1,44 +1,66 @@
 import { Title } from "@solidjs/meta";
 import { createAsync } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 
-import { FlashbackExcerpt } from "~/components/flashbacks/FlashbackExcerpt";
-import { getFlashbackBrowseRows } from "~/components/flashbacks/flashbacks-loader";
+import {
+  deleteFlashbackBySelection,
+  FlashbackActionMenu,
+  type FlashbackActionMenuItem,
+} from "~/components/flashbacks/FlashbackActionMenu";
+import { FlashbackInlineText } from "~/components/flashbacks/FlashbackText";
+import {
+  getFlashbackBrowseRows,
+  revalidateFlashbackBrowseRows,
+} from "~/components/flashbacks/flashbacks-loader";
 import { classifyFlashbackRows } from "~/components/flashbacks/route-state";
+import { buildMemoryAnchorHref } from "~/components/memories/memory-anchor-hrefs";
+import { revalidateBrowseMemoryWorkspace } from "~/components/memories/browse-loader";
+import { revalidateReaderMemory } from "~/components/reader/reader-memory-loader";
+import { RouteHeader } from "~/components/layout/RouteHeader";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const pageHeader =
-  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const cardBase =
-  "trauma-route-row grid min-w-0 gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
+  "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export default function FlashbacksIndex() {
   const flashbacks = createAsync(() => getFlashbackBrowseRows());
+  const [removedFlashbackIds, setRemovedFlashbackIds] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
   const flashbackRowsState = () => classifyFlashbackRows(flashbacks());
-  const readyFlashbackRows = () => {
+  const readyFlashbackRows = createMemo(() => {
     const state = flashbackRowsState();
-    return state.status === "ready" ? state.rows : undefined;
+    if (state.status !== "ready") {
+      return undefined;
+    }
+
+    return state.rows.filter((row) => !removedFlashbackIds().has(row.id));
+  });
+  const visibleFlashbackRows = createMemo(() => {
+    const rows = readyFlashbackRows();
+    return rows !== undefined && rows.length > 0 ? rows : undefined;
+  });
+  const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
+    await deleteFlashbackBySelection({ flashback });
+    setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
+    await Promise.all([
+      revalidateFlashbackBrowseRows(),
+      revalidateBrowseMemoryWorkspace(),
+      revalidateReaderMemory(flashback.memoryId),
+    ]);
   };
 
   return (
     <section class={pageFrame} aria-labelledby="flashbacks-title">
       <Title>Flashbacks | TRAUMA</Title>
-      <header class={pageHeader}>
-        <div>
-          <p class={eyebrow}>Marked excerpts</p>
-          <h1 class="mb-0 text-3xl font-bold leading-tight" id="flashbacks-title">
-            Flashbacks
-          </h1>
-        </div>
-      </header>
+      <RouteHeader layout="single" title="Flashbacks" titleId="flashbacks-title" />
       <div class="grid">
         <Show
           when={flashbackRowsState().status === "loading"}
           fallback={
             <Show
-              when={readyFlashbackRows()}
+              when={visibleFlashbackRows()}
               fallback={
                 <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
                   <h2 class="text-xl font-bold text-trauma-text-primary">No flashbacks yet</h2>
@@ -50,20 +72,29 @@ export default function FlashbacksIndex() {
                 <For each={rows()}>
                   {(flashback) => (
                     <article class={cardBase}>
-                      <header class="grid min-w-0 gap-1">
-                        <div>
-                          <p class="mb-0 text-[13px] text-trauma-text-muted">Source memory</p>
-                          <h2 class="mb-0 text-xl font-bold leading-tight">
-                            <a href={`/memories/${flashback.memoryId}#${flashback.id}`}>{flashback.memoryTitle}</a>
-                          </h2>
-                        </div>
-                      </header>
-                      <FlashbackExcerpt
-                        href={`/memories/${flashback.memoryId}#${flashback.id}`}
-                        prefix={flashback.prefix}
-                        suffix={flashback.suffix}
-                        text={flashback.text}
-                      />
+                      <a
+                        class="grid min-w-0 gap-2 no-underline"
+                        href={buildMemoryAnchorHref({
+                          anchorId: flashback.id,
+                          memoryId: flashback.memoryId,
+                        })}
+                      >
+                        <FlashbackInlineText
+                          class="text-base"
+                          prefix={flashback.prefix}
+                          suffix={flashback.suffix}
+                          text={flashback.text}
+                        />
+                        <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
+                          <span>{flashback.memoryTitle}</span>
+                        </footer>
+                      </a>
+                      <div class="pt-0.5">
+                        <FlashbackActionMenu
+                          flashback={flashback}
+                          onDelete={deleteFlashback}
+                        />
+                      </div>
                     </article>
                   )}
                 </For>

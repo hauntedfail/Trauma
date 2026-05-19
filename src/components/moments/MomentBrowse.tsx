@@ -5,13 +5,13 @@ import type { MomentBrowseRow } from "~/server/moments/browse";
 import { deleteMomentById } from "./moment-action-requests";
 import { MomentActionMenu } from "./MomentActionMenu";
 import { getMomentBrowseRows, revalidateMomentBrowseRows } from "./moments-loader";
+import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
+import { RouteHeader } from "../layout/RouteHeader";
+import { ScrollableUrlText } from "../url/ScrollableUrlText";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const pageHeader =
-  "trauma-route-header trauma-fluid-route-padding sticky top-0 z-[1] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur";
-const eyebrow = "mb-1 text-[13px] font-bold uppercase text-trauma-text-muted";
 const rowBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
@@ -43,14 +43,7 @@ export function MomentBrowse() {
 
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
-      <header class={pageHeader}>
-        <div>
-          <p class={eyebrow}>Saved sections</p>
-          <h1 class="mb-0 text-3xl font-bold leading-tight" id="moment-title">
-            Moment
-          </h1>
-        </div>
-      </header>
+      <RouteHeader layout="single" title="Moment" titleId="moment-title" />
       <div class="grid">
         <Show
           when={rows()}
@@ -86,9 +79,11 @@ function MomentRow(props: {
   moment: MomentBrowseRow;
   onDeleteMoment: (momentId: string, memoryId: string) => Promise<void>;
 }) {
-  const href = () => props.moment.targetAnchor === null
-    ? `/memories/${props.moment.memoryId}`
-    : `/memories/${props.moment.memoryId}#${props.moment.targetAnchor}`;
+  const href = () =>
+    buildMemoryAnchorHref({
+      anchorId: props.moment.targetAnchor,
+      memoryId: props.moment.memoryId,
+    });
 
   return (
     <article class={rowBase}>
@@ -101,8 +96,8 @@ function MomentRow(props: {
             {props.moment.sectionTitle}
           </h2>
         </header>
-        <p class="mb-0 wrap-anywhere text-sm text-trauma-link">
-          {props.moment.memoryUrl}
+        <p class="mb-0 text-sm text-trauma-link">
+          <ScrollableUrlText url={props.moment.memoryUrl} />
         </p>
         <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
           <Show when={props.moment.targetStatus === "stale"}>

@@ -23,6 +23,7 @@ architecture, reference, quality, or operations docs.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 18 | [Memory read status and memory actions](task-18-memory-read-status.md) | Persistent read/unread metadata, taxonomy creation/assignment, link-only status, reader action menu, memory deletion, settings page, Flashback marker selection, Moment section bookmarks, product-language migration, and imported media policy | Ready |
+| 18-alpha | [UI component and routing refresh](task-18-alpha-ui-routing-refresh.md) | Shared taxonomy rendering, popup shell consolidation, menu/composer/theme popup migration, and existing route-surface alignment | Ready on `workflow18-read-status` |
 | 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
 
 ## Archived Workflows
@@ -98,4 +99,5 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `feat/memory-actions`
+- `refine/ui-routing-refresh`
 - `feat/codex-translation`

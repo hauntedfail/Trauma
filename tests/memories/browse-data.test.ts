@@ -4,10 +4,14 @@ import {
   buildBrowseHref,
   buildFlashbackBrowseHref,
   filterBrowseMemories,
+  getBrowseReadStateFilter,
+  getBrowseSearchFieldValues,
   getMemoryDisplayFlashback,
   getMemoryReaderFlashbacks,
   getRecentFlashbacks,
   parseBrowseQuery,
+  setBrowseReadStateFilter,
+  toggleBrowseSearchFieldFilter,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
 import { browseFixtureMemories } from "../../src/components/memories/browse-fixtures";
@@ -22,10 +26,14 @@ const fixtures: BrowseMemory[] = [
     read: false,
     extractionStatus: "success",
     categories: [{ id: "research", name: "Research" }],
-    tags: [{ id: "solidstart", name: "solidstart" }],
+    tags: [
+      { id: "solidstart", name: "solidstart" },
+      { id: "reader", name: "reader" },
+    ],
     flashbacks: [
       {
         id: "h-foundation",
+        memoryId: "memory-foundation",
         text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
@@ -39,7 +47,7 @@ const fixtures: BrowseMemory[] = [
     url: "https://example.com/local-hosting",
     description: "Single Bun process and persistent disk assumptions.",
     capturedAt: "2026-05-08",
-    read: false,
+    read: true,
     extractionStatus: "success",
     categories: [{ id: "operations", name: "Operations" }],
     tags: [{ id: "sqlite", name: "sqlite" }],
@@ -48,7 +56,7 @@ const fixtures: BrowseMemory[] = [
 ];
 
 describe("browse query state", () => {
-  it("parses supported query state and falls back to list view", () => {
+  it("parses supported query state and preserves grid view state", () => {
     const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
 
     expect(query).toEqual({
@@ -62,11 +70,11 @@ describe("browse query state", () => {
     expect(parseBrowseQuery("?view=table").view).toBe("list");
   });
 
-  it("trims all text query values before applying filters", () => {
+  it("preserves raw search text while trimming explicit filter values", () => {
     const query = parseBrowseQuery("?q=%20reader%20&category=%20research%20&tag=%20%20&flashback=%20h-foundation%20");
 
     expect(query).toEqual({
-      q: "reader",
+      q: " reader ",
       category: "research",
       tag: "",
       flashback: "h-foundation",
@@ -79,7 +87,7 @@ describe("browse query state", () => {
     expect(parseBrowseQuery("?highlight=old&flashback=h-foundation").flashback).toBe("h-foundation");
   });
 
-  it("builds canonical memories hrefs while preserving unrelated filters", () => {
+  it("builds canonical memories hrefs while preserving non-default view filters", () => {
     const href = buildBrowseHref(
       {
         q: "reader mode",
@@ -107,12 +115,115 @@ describe("browse query state", () => {
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?tag=solidstart&flashback=missing"))).toHaveLength(0);
   });
 
+  it("filters fielded search terms inside the q parameter", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=title:{Reader Mode}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=url:{local-hosting}")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag:sqlite")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category:{Research}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=flashback:{repository fixtures}")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+  });
+
+  it("filters fielded search terms with equals syntax and ampersand value conjunctions", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=sqlite")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26reader")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26sqlite"))).toHaveLength(0);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category=Research")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+  });
+
+  it("updates search text filters without merging adjacent query text", () => {
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test", {
+        field: "tag",
+        value: "kebab",
+      }),
+    ).toBe("test tag=test&kebab");
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test", {
+        field: "category",
+        value: "music",
+      }),
+    ).toBe("test tag=test category=music");
+    expect(
+      toggleBrowseSearchFieldFilter("test tag=test&kebab", {
+        field: "tag",
+        value: "test",
+      }),
+    ).toBe("test tag=kebab");
+  });
+
+  it("exposes field values from search text for active right-rail filter state", () => {
+    expect(getBrowseSearchFieldValues("test tag=test&kebab category=music", "tag")).toEqual([
+      "test",
+      "kebab",
+    ]);
+    expect(getBrowseSearchFieldValues("test tag=test&kebab category=music", "category")).toEqual([
+      "music",
+    ]);
+  });
+
+  it("filters read state tokens and treats mutually exclusive states as empty", () => {
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read")).map((memory) => memory.id)).toEqual([
+      "memory-ops",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=unread")).map((memory) => memory.id)).toEqual([
+      "memory-foundation",
+    ]);
+    expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read+unread"))).toHaveLength(0);
+  });
+
+  it("derives read-state tab state from readable search tokens", () => {
+    expect(getBrowseReadStateFilter("")).toBe("all");
+    expect(getBrowseReadStateFilter("reader read")).toBe("read");
+    expect(getBrowseReadStateFilter("reader unread")).toBe("unread");
+    expect(getBrowseReadStateFilter("reader read unread")).toBe("all");
+  });
+
+  it("updates read-state tokens without disturbing other search filters", () => {
+    expect(setBrowseReadStateFilter("reader tag=solidstart unread", "read")).toBe(
+      "reader tag=solidstart read",
+    );
+    expect(setBrowseReadStateFilter("reader read tag=sqlite", "all")).toBe(
+      "reader tag=sqlite",
+    );
+    expect(setBrowseReadStateFilter("title:{Read later} unread", "all")).toBe(
+      "title:{Read later}",
+    );
+    expect(setBrowseReadStateFilter("reader", "unread")).toBe("reader unread");
+  });
+
+  it("combines free-text, fielded search, and explicit right-rail filters with AND semantics", () => {
+    expect(
+      filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:solidstart&category=research"))
+        .map((memory) => memory.id),
+    ).toEqual(["memory-foundation"]);
+    expect(
+      filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:sqlite&category=research")),
+    ).toHaveLength(0);
+  });
+
   it("selects the active flashback for memory result excerpts", () => {
     const memory: BrowseMemory = {
       ...fixtures[0]!,
       flashbacks: [
         {
           id: "h-first",
+          memoryId: "memory-foundation",
           text: "first flashback",
           prefix: "first",
           suffix: "context",
@@ -120,6 +231,7 @@ describe("browse query state", () => {
         },
         {
           id: "h-selected",
+          memoryId: "memory-foundation",
           text: "selected flashback",
           prefix: "selected",
           suffix: "context",
@@ -140,6 +252,7 @@ describe("browse query state", () => {
         flashbacks: [
           {
             id: "h-newer-memory-old-flashback",
+            memoryId: "memory-foundation",
             text: "older flashback on newer memory",
             prefix: "new memory",
             suffix: "old flashback",
@@ -153,6 +266,7 @@ describe("browse query state", () => {
         flashbacks: [
           {
             id: "h-older-memory-new-flashback",
+            memoryId: "memory-ops",
             text: "newer flashback on older memory",
             prefix: "old memory",
             suffix: "new flashback",
@@ -162,9 +276,9 @@ describe("browse query state", () => {
       },
     ];
 
-    expect(getRecentFlashbacks(memories).map((flashback) => flashback.id)).toEqual([
-      "h-older-memory-new-flashback",
-      "h-newer-memory-old-flashback",
+    expect(getRecentFlashbacks(memories).map((flashback) => [flashback.id, flashback.memoryId])).toEqual([
+      ["h-older-memory-new-flashback", "memory-ops"],
+      ["h-newer-memory-old-flashback", "memory-foundation"],
     ]);
   });
 

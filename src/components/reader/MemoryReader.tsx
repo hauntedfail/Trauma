@@ -10,13 +10,14 @@ import {
   type JSX,
 } from "solid-js";
 
-import { ChevronLeftIcon, OpenIcon, TraumaNavIcons } from "../icons";
+import { ChevronLeftIcon, TraumaNavIcons } from "../icons";
 import type {
   ReaderMomentItem,
   ReaderFlashbackItem,
   ReaderMemoryResult,
   ReaderTaxonomyItem,
 } from "../../server/reader/page-data";
+import type { BrowseTaxonomySummaryItem } from "../memories/browse-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
@@ -28,8 +29,14 @@ import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
 import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
 import {
+  buildMemoryAnchorHref,
+  buildSameMemoryAnchorHref,
+} from "../memories/memory-anchor-hrefs";
+import {
   attachCategoryToMemoryByName,
+  attachTagToMemoryByName,
   deleteMemoryById,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
   type FetchFunction,
 } from "../memories/memory-action-requests";
@@ -58,11 +65,20 @@ import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { RouteHeader } from "../layout/RouteHeader";
+import { TaxonomyAddControl } from "../memories/TaxonomyAddControl";
+import {
+  ScrollableUrlDisplay,
+  ScrollableUrlLink,
+} from "../url/ScrollableUrlText";
 
 interface MemoryReaderProps {
+  categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReaderMemoryResult;
+  tagOptions?: readonly BrowseTaxonomySummaryItem[];
 }
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
@@ -111,6 +127,10 @@ const noTocScrollState: TocScrollState = {
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
+const readerContextMenuClass =
+  "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
+const readerSourceLinkClass =
+  "min-h-9 max-w-full justify-self-start text-sm leading-tight text-trauma-link";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -126,9 +146,11 @@ export function MemoryReader(props: MemoryReaderProps) {
     >
       {(result) => (
         <ReadyMemoryReader
+          categoryOptions={props.categoryOptions ?? []}
           flashbackRows={props.flashbackRows}
           navigate={props.navigate}
           result={result}
+          tagOptions={props.tagOptions ?? []}
         />
       )}
     </Show>
@@ -136,19 +158,35 @@ export function MemoryReader(props: MemoryReaderProps) {
 }
 
 function ReadyMemoryReader(props: {
+  categoryOptions: readonly BrowseTaxonomySummaryItem[];
   flashbackRows?: FlashbackBrowseRow[];
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
 }) {
+  let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
+  let bodyContentRef: HTMLDivElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
   let sectionLongPressTimer: number | undefined;
   const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+  const readerContent = createMemo(() =>
+    splitLeadingReaderTitleContent({
+      html: props.result.rendered.html,
+      title: props.result.memory.title,
+      toc: props.result.rendered.toc,
+    }),
+  );
+  const readerBodyHtml = createMemo(() => readerContent().bodyHtml);
+  const readerTitleHtml = createMemo(() => readerContent().titleHtml);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
+  ]);
+  const [tags, setTags] = createSignal([
+    ...props.result.memory.tags,
   ]);
   const [moments, setMoments] = createSignal([
     ...props.result.memory.moments,
@@ -162,6 +200,7 @@ function ReadyMemoryReader(props: {
   const [selectionMenu, setSelectionMenu] =
     createSignal<ReaderSelectionMenuState>();
   const [sectionMenu, setSectionMenu] = createSignal<ReaderSectionMenuState>();
+  const [isReaderClientReady, setIsReaderClientReady] = createSignal(false);
   const [pendingMomentKey, setPendingMomentKey] = createSignal("");
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
@@ -176,6 +215,7 @@ function ReadyMemoryReader(props: {
   createEffect(() => {
     props.result.memory.id;
     setCategories([...props.result.memory.categories]);
+    setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
     setPendingMomentKey("");
@@ -201,6 +241,7 @@ function ReadyMemoryReader(props: {
   onCleanup(() => setRightRailContent(undefined));
 
   onMount(() => {
+    setIsReaderClientReady(true);
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         closeReaderMenus();
@@ -218,14 +259,18 @@ function ReadyMemoryReader(props: {
 
       closeReaderMenus();
     };
+    const scrollHashTarget = () => scheduleReaderHashTargetScroll(readerRootRef);
 
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOnPointerDown);
     window.addEventListener("scroll", closeReaderMenus, true);
+    window.addEventListener("hashchange", scrollHashTarget);
+    scheduleReaderHashTargetScroll(readerRootRef);
     onCleanup(() => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnPointerDown);
       window.removeEventListener("scroll", closeReaderMenus, true);
+      window.removeEventListener("hashchange", scrollHashTarget);
       clearSectionLongPress();
     });
   });
@@ -268,13 +313,13 @@ function ReadyMemoryReader(props: {
   };
   const commitSelectionMenu = () => {
     const menu = selectionMenu();
-    if (menu === undefined || contentRef === undefined) {
+    if (menu === undefined || bodyContentRef === undefined) {
       return;
     }
 
     closeSelectionMenu();
     void toggleReaderSelection({
-      container: contentRef,
+      container: bodyContentRef,
       memoryId: props.result.memory.id,
       pendingSelectionKey: pendingSelectionKey(),
       selection: menu.selection,
@@ -328,12 +373,45 @@ function ReadyMemoryReader(props: {
       revalidateReaderMemory(input.memoryId),
     ]);
   };
+  const attachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await attachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => mergeReaderTaxonomyItem(current, tag));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to add tag.");
+      throw error;
+    }
+  };
+  const detachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await detachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to remove tag.");
+      throw error;
+    }
+  };
   createEffect(() => {
     syncReaderSectionMomentButtons({
       container: contentRef,
       moments: moments(),
       toc: props.result.rendered.toc,
     });
+  });
+  createEffect(() => {
+    props.result.memory.id;
+    readerBodyHtml();
+    scheduleReaderHashTargetScroll(readerRootRef);
   });
   const toggleMoment = async (
     section: ReaderMomentSection,
@@ -430,57 +508,65 @@ function ReadyMemoryReader(props: {
   };
 
   return (
-    <article class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)_auto] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
-        <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
-          <ChevronLeftIcon />
-        </a>
-        <div class="min-w-0">
-          <p class="mb-2 text-[20px] font-bold text-trauma-text-primary">Memory</p>
-          <Show
-            when={sourceHref()}
-            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
-          >
-            {(href) => (
-              <a
-                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
-                href={href()}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <OpenIcon />
-                {sourceUrl()}
-              </a>
-            )}
-          </Show>
-          <ReaderTaxonomyChips
-            categories={categories()}
-            tags={props.result.memory.tags}
-          />
-        </div>
-        <div class="flex items-start gap-2">
-          <MemoryReadStatusControl
-            compact
-            initialRead={props.result.memory.read}
-            memoryId={props.result.memory.id}
-            onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
-          />
-          <MemoryActionMenu
-            memoryId={props.result.memory.id}
-            memoryTitle={props.result.memory.title}
-            onAttachCategoryByName={attachCategory}
-            onDelete={deleteMemory}
-          />
-        </div>
-      </header>
-      <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+    <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
+      <RouteHeader
+        class={`${readerPadding} trauma-reader-header`}
+        leading={() => (
+          <a class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
+            <ChevronLeftIcon />
+          </a>
+        )}
+        layout="single"
+        title="Memory"
+        titleElement="p"
+      />
+      <div class={`${readerPadding} trauma-reader-body py-5 pb-10`}>
         <div class="trauma-fluid-page-shell">
+          <header class="mb-5 grid gap-4">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+              <Show
+                when={sourceHref()}
+                fallback={(
+                  <ScrollableUrlDisplay
+                    class={readerSourceLinkClass}
+                    url={sourceUrl()}
+                  />
+                )}
+              >
+                {(href) => (
+                  <ScrollableUrlLink
+                    class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
+                    href={href()}
+                    rel="noreferrer"
+                    target="_blank"
+                    url={sourceUrl()}
+                  />
+                )}
+              </Show>
+              <div class="flex items-center gap-2">
+                <MemoryReadStatusControl
+                  initialRead={props.result.memory.read}
+                  memoryId={props.result.memory.id}
+                  variant="icon"
+                  onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
+                />
+                <MemoryActionMenu
+                  memoryId={props.result.memory.id}
+                  memoryTitle={props.result.memory.title}
+                  attachedCategories={categories()}
+                  categoryOptions={props.categoryOptions}
+                  onAttachCategoryByName={attachCategory}
+                  onDelete={deleteMemory}
+                />
+              </div>
+            </div>
+          </header>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
-            innerHTML={props.result.rendered.html}
+            data-reader-ready={isReaderClientReady() ? "true" : undefined}
             onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
@@ -490,7 +576,45 @@ function ReadyMemoryReader(props: {
             onPointerUp={clearSectionLongPress}
             onPointerDown={handleReaderContentPointerDown}
             tabIndex={0}
-          />
+          >
+            <Show
+              when={readerTitleHtml()}
+              fallback={(
+                <h1
+                  class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary"
+                  data-reader-noncontent
+                >
+                  {props.result.memory.title}
+                </h1>
+              )}
+            >
+              {(titleHtml) => (
+                <div
+                  class="trauma-reader-lifted-title"
+                  data-reader-offset-content
+                  data-reader-noncontent
+                  innerHTML={titleHtml()}
+                />
+              )}
+            </Show>
+            <div data-reader-noncontent>
+              <ReaderTaxonomyChips
+                categories={categories()}
+                memoryId={props.result.memory.id}
+                tagOptions={props.tagOptions}
+                tags={tags()}
+                onAddTag={attachTag}
+                onRemoveTag={detachTag}
+                onTaxonomyError={setErrorMessage}
+              />
+            </div>
+            <div
+              ref={bodyContentRef}
+              class="contents"
+              data-reader-mutable-content
+              innerHTML={readerBodyHtml()}
+            />
+          </div>
           <Show when={selectionMenu()}>
             {(menu) => (
               <ReaderContextMenu
@@ -503,6 +627,7 @@ function ReadyMemoryReader(props: {
                 <button
                   aria-label="Flashback selection"
                   class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  title="Flashback selection"
                   disabled={pendingSelectionKey() === menu().key}
                   type="button"
                   onClick={commitSelectionMenu}
@@ -514,6 +639,7 @@ function ReadyMemoryReader(props: {
                     <button
                       aria-label="Moment selected section"
                       class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                      title="Moment selected section"
                       disabled={pendingMomentKey() === getReaderMomentKey(section())}
                       type="button"
                       onClick={commitSelectionMomentMenu}
@@ -537,6 +663,7 @@ function ReadyMemoryReader(props: {
                 <button
                   aria-label="Moment section"
                   class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  title="Moment section"
                   disabled={pendingMomentKey() === menu().key}
                   type="button"
                   onClick={commitSectionMenu}
@@ -561,27 +688,39 @@ function ReadyMemoryReader(props: {
 
 function ReaderTaxonomyChips(props: {
   categories: ReaderTaxonomyItem[];
+  memoryId: string;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
   tags: ReaderTaxonomyItem[];
+  onAddTag: (name: string) => Promise<void> | void;
+  onRemoveTag: (name: string) => Promise<void> | void;
+  onTaxonomyError: (message: string) => void;
 }) {
   return (
-    <Show when={props.categories.length + props.tags.length > 0}>
-      <div class="mt-4 flex flex-wrap gap-2 text-xs font-bold">
-        <For each={props.categories}>
-          {(category) => (
-            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
-              {category.name}
-            </span>
-          )}
-        </For>
-        <For each={props.tags}>
-          {(tag) => (
-            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 py-1 text-trauma-text-secondary">
-              #{tag.name}
-            </span>
-          )}
-        </For>
-      </div>
-    </Show>
+    <div class="mt-4 trauma-local-wrap">
+      <TaxonomyList
+        class="contents"
+        items={props.categories}
+        kind="category"
+        mode="chips"
+      />
+      <TaxonomyList
+        class="contents"
+        items={props.tags}
+        kind="tag"
+        mode="chips"
+      />
+      <span class="relative inline-grid">
+        <TaxonomyAddControl
+          attachedItems={props.tags}
+          id={`memory-${props.memoryId}-tags-add`}
+          kind="tag"
+          options={props.tagOptions}
+          onAttachName={props.onAddTag}
+          onDetachName={props.onRemoveTag}
+          onError={props.onTaxonomyError}
+        />
+      </span>
+    </div>
   );
 }
 
@@ -614,6 +753,22 @@ export async function attachReaderCategoryByName(input: {
   return attachCategoryToMemoryByName(input);
 }
 
+export async function attachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return attachTagToMemoryByName(input);
+}
+
+export async function detachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return detachTagFromMemoryByName(input);
+}
+
 function mergeReaderTaxonomyItem(
   current: ReaderTaxonomyItem[],
   next: ReaderTaxonomyItem,
@@ -644,7 +799,138 @@ function mergeReaderMomentItem(
   return [next, ...current];
 }
 
+export function findLeadingReaderTitleEntry(input: {
+  html: string;
+  title: string;
+  toc: ReaderTocEntry[];
+}): ReaderTocEntry | undefined {
+  const anchor = readLeadingReaderHeadingAnchor(input.html);
+  if (anchor === undefined) {
+    return undefined;
+  }
+
+  const entry = input.toc.find((candidate) => candidate.id === anchor);
+  return entry?.level === 1 && entry.text === input.title ? entry : undefined;
+}
+
+export function splitLeadingReaderTitleContent(input: {
+  html: string;
+  title: string;
+  toc: ReaderTocEntry[];
+}): { bodyHtml: string; titleHtml: string | undefined } {
+  if (findLeadingReaderTitleEntry(input) === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  const match = /^\s*(<h1\b[\s\S]*?<\/h1>)/i.exec(input.html);
+  if (match === null || match[1] === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  return {
+    bodyHtml: input.html.slice(match[0].length),
+    titleHtml: match[1],
+  };
+}
+
+export function readLeadingReaderHeadingAnchor(
+  html: string,
+): string | undefined {
+  const match = /^\s*<h1\b([^>]*)>/i.exec(html);
+  if (match === null) {
+    return undefined;
+  }
+
+  return readHtmlAttribute(match[1] ?? "", "data-reader-section-anchor");
+}
+
+function readHtmlAttribute(
+  attributes: string,
+  name: string,
+): string | undefined {
+  const pattern = new RegExp(
+    `\\b${escapeRegExp(name)}="([^"]*)"`,
+    "i",
+  );
+
+  return pattern.exec(attributes)?.[1];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function readReaderHashTargetId(hash: string): string {
+  if (!hash.startsWith("#")) {
+    return "";
+  }
+
+  const rawTarget = hash.slice(1).trim();
+  if (rawTarget.length === 0) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(rawTarget);
+  } catch {
+    return rawTarget;
+  }
+}
+
+export function scrollReaderHashTarget(input: {
+  behavior?: ScrollBehavior;
+  hash: string;
+  root: HTMLElement | undefined;
+}): boolean {
+  const targetId = readReaderHashTargetId(input.hash);
+  if (targetId.length === 0 || input.root === undefined) {
+    return false;
+  }
+
+  const target = input.root.querySelector<HTMLElement>(
+    `#${CSS.escape(targetId)}`,
+  );
+  if (target === null) {
+    return false;
+  }
+
+  target.scrollIntoView({
+    behavior: input.behavior ?? "auto",
+    block: "start",
+    inline: "nearest",
+  });
+  return true;
+}
+
+function scheduleReaderHashTargetScroll(root: HTMLElement | undefined): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      scrollReaderHashTarget({
+        hash: window.location.hash,
+        root,
+      });
+    });
+  });
+}
+
 async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterReaderTaxonomyChange(memoryId: string): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
     revalidateReaderMemory(memoryId),
@@ -678,7 +964,7 @@ function ReaderContextMenu(props: {
     <div
       ref={props.menuRef}
       aria-label={props.label}
-      class="fixed z-[70] inline-flex items-center gap-1 rounded-full border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2"
+      class={readerContextMenuClass}
       role="menu"
       style={{
         left: `${props.position.left}px`,
@@ -738,12 +1024,14 @@ export function ReaderFlashbackTabs(props: {
       <div class="mb-4 grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1">
         <SegmentedToggleButton
           active={activeTab() === "memory"}
+          hint="Show current"
           onClick={() => setActiveTab("memory")}
         >
           Current
         </SegmentedToggleButton>
         <SegmentedToggleButton
           active={activeTab() === "all"}
+          hint="Show all"
           onClick={() => setActiveTab("all")}
         >
           All
@@ -756,8 +1044,12 @@ export function ReaderFlashbackTabs(props: {
             emptyLabel="No flashbacks yet"
             flashbacks={allRows().map((flashback) => ({
               id: flashback.id,
-              href: `/memories/${flashback.memoryId}#${flashback.id}`,
+              href: buildMemoryAnchorHref({
+                anchorId: flashback.id,
+                memoryId: flashback.memoryId,
+              }),
               prefix: flashback.prefix,
+              suffix: flashback.suffix,
               text: flashback.text,
             }))}
             isLoading={isLoadingAll()}
@@ -768,8 +1060,9 @@ export function ReaderFlashbackTabs(props: {
           emptyLabel="No flashbacks for this memory yet"
           flashbacks={props.currentFlashbacks.map((flashback) => ({
             id: flashback.id,
-            href: `#${flashback.id}`,
+            href: buildSameMemoryAnchorHref(flashback.id),
             prefix: flashback.prefix,
+            suffix: flashback.suffix,
             text: flashback.text,
           }))}
           isLoading={false}
@@ -973,7 +1266,7 @@ function ReaderToc(props: {
         <div class="trauma-toc-scroll-shell">
           <ol
             ref={scrollRef}
-            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
+            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
             {props.toc.map((entry) => (
@@ -1085,7 +1378,7 @@ function ReaderTocEntryRow(props: {
   return (
     <li
       ref={rowRef}
-      class="group grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-1.5"
+      class="group grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
       classList={{
         "ml-2.5": props.entry.level === 2,
         "ml-5": props.entry.level === 3,
@@ -1107,6 +1400,7 @@ function ReaderTocEntryRow(props: {
         aria-label={`Moment ${props.entry.text}`}
         aria-pressed={props.active}
         class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
+        title={props.active ? "Remove moment" : "Save moment"}
         disabled={props.pending}
         type="button"
         onClick={(event) => {
@@ -1261,18 +1555,27 @@ function readReaderSelection(
   if (!containsBoundary(container, range.startContainer) || !containsBoundary(container, range.endContainer)) {
     return undefined;
   }
+  if (
+    isInsideReaderNonContent(range.startContainer) ||
+    isInsideReaderNonContent(range.endContainer) ||
+    rangeIntersectsReaderNonContent(range, container)
+  ) {
+    return undefined;
+  }
 
-  const text = range.toString();
+  const textNodes = collectReaderContentTextNodes(container);
+  const selectionOffsets = readReaderSelectionOffsets(range, textNodes);
+  if (selectionOffsets === undefined) {
+    return undefined;
+  }
+
+  const text = selectionOffsets.text;
   if (text.trim().length === 0) {
     return undefined;
   }
 
-  const preSelectionRange = document.createRange();
-  preSelectionRange.selectNodeContents(container);
-  preSelectionRange.setEnd(range.startContainer, range.startOffset);
-  const startOffset = preSelectionRange.toString().length;
-  const endOffset = startOffset + text.length;
-  const contentText = container.textContent ?? "";
+  const contentText = textNodes.map((node) => node.nodeValue ?? "").join("");
+  const { endOffset, startOffset } = selectionOffsets;
 
   return {
     range,
@@ -1286,6 +1589,44 @@ function readReaderSelection(
 
 function containsBoundary(container: HTMLElement, node: Node): boolean {
   return node === container || container.contains(node);
+}
+
+function readReaderSelectionOffsets(
+  range: Range,
+  textNodes: Text[],
+): { endOffset: number; startOffset: number; text: string } | undefined {
+  let currentOffset = 0;
+  let startOffset: number | undefined;
+  let endOffset: number | undefined;
+  let text = "";
+
+  for (const node of textNodes) {
+    const nodeText = node.nodeValue ?? "";
+    const nodeLength = nodeText.length;
+
+    if (range.intersectsNode(node)) {
+      const nodeStartOffset = currentOffset;
+      const selectedStart = node === range.startContainer ? range.startOffset : 0;
+      const selectedEnd = node === range.endContainer ? range.endOffset : nodeLength;
+      if (selectedEnd > selectedStart) {
+        startOffset ??= nodeStartOffset + selectedStart;
+        endOffset = nodeStartOffset + selectedEnd;
+        text += nodeText.slice(selectedStart, selectedEnd);
+      }
+    }
+
+    currentOffset += nodeLength;
+  }
+
+  if (startOffset === undefined || endOffset === undefined) {
+    return undefined;
+  }
+
+  return {
+    endOffset,
+    startOffset,
+    text,
+  };
 }
 
 function readContextBefore(text: string, startOffset: number): string {
@@ -1312,19 +1653,52 @@ function isRangeFullyMarked(range: Range, container: HTMLElement): boolean {
 }
 
 function collectIntersectingTextNodes(range: Range, container: HTMLElement): Text[] {
+  return collectReaderContentTextNodes(container).filter((node) =>
+    range.intersectsNode(node),
+  );
+}
+
+function collectReaderContentTextNodes(container: HTMLElement): Text[] {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   let current = walker.nextNode();
 
   while (current !== null) {
-    if (range.intersectsNode(current)) {
-      nodes.push(current as Text);
+    const node = current as Text;
+    if (!isInsideReaderNonContent(node) || isInsideReaderOffsetContent(node)) {
+      nodes.push(node);
     }
 
     current = walker.nextNode();
   }
 
   return nodes;
+}
+
+function isInsideReaderNonContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-noncontent]") !== null;
+}
+
+function isInsideReaderOffsetContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-offset-content]") !== null;
+}
+
+function rangeIntersectsReaderNonContent(
+  range: Range,
+  container: HTMLElement,
+): boolean {
+  return [...container.querySelectorAll("[data-reader-noncontent]")].some(
+    (element) => rangeIntersectsElement(range, element),
+  );
+}
+
+function rangeIntersectsElement(range: Range, element: Element): boolean {
+  const elementRange = document.createRange();
+  elementRange.selectNode(element);
+  return range.compareBoundaryPoints(Range.END_TO_START, elementRange) > 0 &&
+    range.compareBoundaryPoints(Range.START_TO_END, elementRange) < 0;
 }
 
 function applyOptimisticFlashback(

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
@@ -68,6 +70,9 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("grid w-full gap-1 rounded-2xl px-3 py-2 text-left");
     expect(html).toContain("hover:bg-trauma-bg-tint");
     expect(html).not.toContain("<blockquote");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
+    expect(html).toContain("font-bold text-trauma-text-primary");
   });
 
   it("defaults to Current when the active memory has flashbacks", () => {
@@ -93,6 +98,13 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("other flashback");
     expect(html).toContain('href="/memories/memory-1#flashback-current"');
     expect(html).toContain('href="/memories/memory-2#flashback-other"');
+  });
+
+  it("uses shared memory anchor href builders for Flashback shortcuts", () => {
+    const source = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
+
+    expect(source).toContain("buildMemoryAnchorHref");
+    expect(source).toContain("buildSameMemoryAnchorHref");
   });
 
   it("renders a concise current-memory empty state", () => {

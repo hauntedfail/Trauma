@@ -17,7 +17,7 @@ describe("app shell taxonomy right rail", () => {
     expect(appShellSource).not.toContain("getBrowseTags(browseMemories())");
   });
 
-  it("renders global taxonomy rows, counts, and create actions", () => {
+  it("renders global taxonomy chips, counts, and create actions", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {
         activeCategory: "",
@@ -36,7 +36,6 @@ describe("app shell taxonomy right rail", () => {
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [
           {
@@ -52,9 +51,23 @@ describe("app shell taxonomy right rail", () => {
     expect(html).toContain("New category");
     expect(html).toContain("New tag");
     expect(html).toContain("Empty");
-    expect(html).toContain("0 memories");
     expect(html).toContain("sqlite");
-    expect(html).toContain("2 memories");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("gap-x-1.5");
+    expect(html).toContain(">0<");
+    expect(html).toContain(">2<");
+  });
+
+  it("keeps right rail taxonomy creation inline at the end of each list", () => {
+    expect(appShellSource).toContain("RightRailTaxonomyList");
+    expect(appShellSource).toContain("TaxonomyInlineCreateControl");
+    expect(appShellSource).not.toContain("TaxonomyCreatePopover");
+    expect(appShellSource).not.toContain("openCreateKind");
+  });
+
+  it("uses locale-invariant taxonomy lookup for active filters", () => {
+    expect(appShellSource).toContain("normalizeTaxonomyNameForLookup");
+    expect(appShellSource).not.toContain("toLocaleLowerCase");
   });
 
   it("renders empty-state hints when no taxonomy exists", () => {
@@ -69,7 +82,6 @@ describe("app shell taxonomy right rail", () => {
         onCreatedCategory: () => {},
         onCreatedTag: () => {},
         onSelectCategory: () => {},
-        onSelectFlashback: () => {},
         onSelectTag: () => {},
         tags: [],
       }),

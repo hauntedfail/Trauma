@@ -15,9 +15,13 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 
   await expect(page.getByText("Memory", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Details" })).toBeVisible();
+  const detailsLink = page.getByRole("link", {
+    exact: true,
+    name: "Details",
+  });
+  await expect(detailsLink).toBeVisible();
   await expect(page.locator("#details")).toBeVisible();
-  await page.getByRole("link", { name: "Details" }).click();
+  await detailsLink.click();
   await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
   await expect(page.locator("[data-reader-content]").getByText("Curated markdown body")).toBeVisible();
   await expect(page.locator("mark[data-flashback-id='flashback-fixture']")).toContainText(
@@ -264,17 +268,25 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   page,
 }) => {
   createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("navigation", { name: "Table of contents" })
     .getByRole("button", { name: "Moment Details" })
     .click();
+  expect((await createResponse).status()).toBe(201);
   expect(readMomentAnchors()).toContain("details");
 
   await page.goto("/moments");
   await page.getByRole("link", { name: /Fixture Reader.*Details/s }).click();
   await expect(page).toHaveURL(new RegExp(`/memories/${READER_MEMORY_ID}#details$`));
+  await expectReaderTargetNearTop(page, "#details");
 
   await page.goto("/moments");
   page.once("dialog", (dialog) => {
@@ -292,6 +304,24 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   expect((await deleteResponse).status()).toBe(204);
   await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);
   expect(readMomentAnchors()).not.toContain("details");
+});
+
+test("opens reader right-rail Flashback shortcuts at the reader flashback mark", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 700 });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await page
+    .getByRole("complementary", { name: "Browse filters" })
+    .getByRole("link", { name: /deep saved flashback/i })
+    .click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/memories/${READER_MEMORY_ID}#flashback-deep$`),
+  );
+  await expectReaderTargetNearTop(page, "#flashback-deep");
 });
 
 test("creates a Moment from the selection menu when the range contains a section", async ({
@@ -466,11 +496,22 @@ function createReaderFixture() {
           "",
           "A [Reference link](https://example.com/reference) belongs to the reader content.",
           "",
+          ...Array.from({ length: 16 }, (_, index) => [
+            \`Reader spacer paragraph \${index + 1} keeps lower anchors below the first viewport.\`,
+            "",
+          ]).flat(),
           "## Details",
+          "",
+          "Details section keeps deep saved flashback in the lower reader body.",
           "",
           "| Kind | Value |",
           "| --- | --- |",
           "| reader | smoke |",
+          "",
+          ...Array.from({ length: 16 }, (_, index) => [
+            \`Reader trailing paragraph \${index + 1} keeps anchored sections scrollable to the top.\`,
+            "",
+          ]).flat(),
         ].join("\\n");
 
         await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
@@ -501,17 +542,31 @@ function createReaderFixture() {
           await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
           await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
           const flashbackStartOffset = readerMarkdown.indexOf("saved flashback");
-          await connection.db.insert(schema.flashbacks).values({
-            id: "flashback-fixture",
-            memoryId,
-            text: "saved flashback",
-            prefix: "Curated markdown body with ",
-            suffix: ".",
-            startOffset: flashbackStartOffset,
-            endOffset: flashbackStartOffset + "saved flashback".length,
-            createdAt: new Date("2026-05-09T00:00:00.000Z"),
-            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
-          });
+          const deepFlashbackStartOffset = readerMarkdown.indexOf("deep saved flashback");
+          await connection.db.insert(schema.flashbacks).values([
+            {
+              id: "flashback-fixture",
+              memoryId,
+              text: "saved flashback",
+              prefix: "Curated markdown body with ",
+              suffix: ".",
+              startOffset: flashbackStartOffset,
+              endOffset: flashbackStartOffset + "saved flashback".length,
+              createdAt: new Date("2026-05-09T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-09T00:00:00.000Z"),
+            },
+            {
+              id: "flashback-deep",
+              memoryId,
+              text: "deep saved flashback",
+              prefix: "Details section keeps ",
+              suffix: " in the lower reader body.",
+              startOffset: deepFlashbackStartOffset,
+              endOffset: deepFlashbackStartOffset + "deep saved flashback".length,
+              createdAt: new Date("2026-05-09T00:01:00.000Z"),
+              updatedAt: new Date("2026-05-09T00:01:00.000Z"),
+            },
+          ]);
         } finally {
           connection.close();
         }
@@ -593,6 +648,10 @@ function readMomentAnchors(): string[] {
 }
 
 async function selectReaderText(page: Page, text: string) {
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
     const findTextNode = (node: Node): Text | undefined => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -628,13 +687,25 @@ async function selectReaderText(page: Page, text: string) {
 }
 
 async function selectReaderSection(page: Page, anchor: string) {
-  await page.locator("[data-reader-content]").evaluate((root, sectionAnchor) => {
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
+  await page.locator("[data-reader-content]").evaluate(async (root, sectionAnchor) => {
     const section = root.querySelector<HTMLElement>(
       `[data-reader-section-anchor="${sectionAnchor}"]`,
     );
     if (section === null) {
       throw new Error(`Section not found: ${sectionAnchor}`);
     }
+
+    section.scrollIntoView({
+      block: "center",
+      inline: "nearest",
+    });
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
 
     const range = document.createRange();
     range.selectNode(section);
@@ -643,4 +714,15 @@ async function selectReaderSection(page: Page, anchor: string) {
     selection?.addRange(range);
     root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   }, anchor);
+}
+
+async function expectReaderTargetNearTop(page: Page, selector: string) {
+  await expect(page.locator(selector)).toBeVisible();
+  await expect
+    .poll(async () =>
+      page.locator(selector).evaluate((target) =>
+        Math.round(target.getBoundingClientRect().top),
+      ),
+    )
+    .toBeLessThan(160);
 }

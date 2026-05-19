@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import {
   classifyFlashbackRows,
   type FlashbackRowsState,
 } from "../../src/components/flashbacks/route-state";
 import type { FlashbackBrowseRow } from "../../src/server/db/repositories";
+
+const flashbacksRouteSource = readFileSync("src/routes/flashbacks/index.tsx", "utf8");
+const flashbackActionMenuSource = readFileSync(
+  "src/components/flashbacks/FlashbackActionMenu.tsx",
+  "utf8",
+);
 
 describe("flashbacks route state", () => {
   it("keeps loading separate from empty flashbacks", () => {
@@ -65,5 +72,19 @@ describe("flashbacks route state", () => {
       status: "ready",
       rows,
     } satisfies FlashbackRowsState);
+  });
+
+  it("keeps route rows on shared inline context, source title metadata, and shared delete menu", () => {
+    expect(flashbacksRouteSource).toContain("buildMemoryAnchorHref");
+    expect(flashbacksRouteSource).toContain("FlashbackInlineText");
+    expect(flashbacksRouteSource).not.toContain("FlashbackExcerpt");
+    expect(flashbacksRouteSource).toContain("prefix={flashback.prefix}");
+    expect(flashbacksRouteSource).toContain("suffix={flashback.suffix}");
+    expect(flashbacksRouteSource).toContain("FlashbackActionMenu");
+    expect(flashbackActionMenuSource).toContain("Delete flashback");
+    expect(flashbacksRouteSource).toContain("visibleFlashbackRows");
+    expect(flashbacksRouteSource).toContain("flashback.memoryTitle");
+    expect(flashbacksRouteSource).not.toContain("Source memory");
+    expect(flashbacksRouteSource).not.toContain("Marked excerpts");
   });
 });

@@ -206,15 +206,20 @@ describe("mobile and cross-device responsive contract", () => {
     );
   });
 
-  it("keeps phone memories view controls on the header right edge", () => {
+  it("keeps phone memories read-state tabs in the sticky header", () => {
     expect(memoryBrowseSource).toContain("trauma-memory-browse-header");
+    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
+    expect(memoryBrowseSource).toContain('role="tablist"');
+    expect(memoryBrowseSource).toContain('aria-label="Memory read status"');
+    expect(memoryBrowseSource).toContain('label: "All"');
+    expect(memoryBrowseSource).toContain('label: "Unread"');
+    expect(memoryBrowseSource).toContain('label: "Read"');
+    expect(tailwindCss).toContain(".trauma-memory-read-tabs");
     expect(tailwindCss).toContain(
-      ".trauma-route-header.trauma-memory-browse-header",
+      "grid-template-columns: repeat(3, minmax(0, 1fr))",
     );
-    expect(memoryBrowseSource).toContain(
-      "grid-cols-[minmax(0,1fr)_auto]",
-    );
-    expect(memoryBrowseSource).toContain("justify-self-end");
+    expect(memoryBrowseSource).not.toContain('aria-label="View mode"');
+    expect(memoryBrowseSource).not.toContain("justify-self-end");
     expect(memoryBrowseSource).not.toContain(
       "flex items-center justify-between gap-4 border-b",
     );
@@ -229,7 +234,7 @@ describe("mobile and cross-device responsive contract", () => {
   });
 
   it("keeps reader chrome legible outside desktop", () => {
-    expect(readFileSync("src/components/reader/MemoryReader.tsx", "utf8")).toContain(
+    expect(readFileSync("src/components/layout/RouteHeader.tsx", "utf8")).toContain(
       "text-[20px] font-bold",
     );
   });

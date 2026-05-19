@@ -32,6 +32,7 @@ const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const rightRailContextSource = existsSync(rightRailContextPath)
   ? readFileSync(rightRailContextPath, "utf8")
   : "";
+const popupSource = readFileSync("src/components/ui/Popup.tsx", "utf8");
 
 describe("refined app shell contract", () => {
   it("uses the refined brand mark and icon system", () => {
@@ -62,6 +63,22 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain('href="/tags"');
     expect(appShellSource).not.toContain('href="/backup"');
     expect(appShellSource).toContain('href: "/settings"');
+  });
+
+  it("keeps right-rail Flashback shortcuts as browse filters", () => {
+    expect(appShellSource).toContain("buildFlashbackBrowseHref");
+    expect(appShellSource).not.toContain("buildMemoryAnchorHref");
+  });
+
+  it("routes right-rail taxonomy clicks into the search query by human-readable name", () => {
+    expect(appShellSource).toContain("toggleBrowseSearchFieldFilter");
+    expect(appShellSource).toContain('field: "category"');
+    expect(appShellSource).toContain('field: "tag"');
+    expect(appShellSource).toContain("explicitId === input.id");
+    expect(appShellSource).toContain("value: category.name");
+    expect(appShellSource).toContain("value: tag.name");
+    expect(appShellSource).not.toContain('toggleFilter("category", category.id)');
+    expect(appShellSource).not.toContain('toggleFilter("tag", tag.id)');
   });
 
   it("uses filled icons and bold labels for active tabs without active background fills", () => {
@@ -133,7 +150,8 @@ describe("refined app shell contract", () => {
     expect(rightRailContextSource).toContain("createContext");
     expect(appShellSource).toContain("RightRailContentContext.Provider");
     expect(appShellSource).toContain("rightRailContent()");
-    expect(appShellSource).toContain("showFlashbacks={rightRailContent() === undefined}");
+    expect(appShellSource).toContain("rightRailContent() === undefined");
+    expect(appShellSource).toContain('!activePath().startsWith("/flashbacks")');
 
     const contextualContentIndex = appShellSource.indexOf("rightRailContent()");
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");
@@ -152,6 +170,17 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain(
       'overflow-y-auto bg-trauma-bg-base px-6 py-4 max-[1040px]:hidden',
     );
+  });
+
+  it("renders a muted right rail footer as the last right pane stack item", () => {
+    expect(appShellSource).toContain("RightRailFooter");
+    expect(appShellSource).toContain("rightRailFooterClass");
+    expect(appShellSource).toContain("shrink-0 px-4 pb-1 text-xs");
+    expect(appShellSource).not.toContain("mt-auto shrink-0 px-4 pb-1 text-xs");
+    expect(appShellSource).toContain('aria-label="Right rail footer"');
+    expect(appShellSource).toContain('href="https://github.com/hauntedfail/Trauma"');
+    expect(appShellSource).toContain("GitHub");
+    expect(appShellSource).toContain("2026 Haunted Fail. All rights reserved.");
   });
 
   it("keeps the left rail scale close to the refined sample", () => {
@@ -185,11 +214,14 @@ describe("refined app shell contract", () => {
   it("opens theme controls from a left rail tab instead of keeping them expanded", () => {
     expect(appShellSource).toContain("ThemeNavButton");
     expect(appShellSource).toContain("TraumaNavIcons.theme");
-    expect(appShellSource).toContain('aria-haspopup="dialog"');
-    expect(appShellSource).toContain("aria-expanded={isThemeOpen()}");
-    expect(appShellSource).toContain('role="dialog"');
-    expect(appShellSource).toContain('aria-label="Theme settings"');
-    expect(appShellSource).toContain("animate-trauma-pop-bounce");
+    expect(appShellSource).toContain("<Popup");
+    expect(appShellSource).toContain('label="Theme settings"');
+    expect(appShellSource).toContain('mode="dialog"');
+    expect(appShellSource).toContain("trigger={({ open, triggerProps })");
+    expect(appShellSource).toContain("aria-pressed={open}");
+    expect(popupSource).toContain('aria-haspopup": mode()');
+    expect(popupSource).toContain("role={mode()}");
+    expect(popupSource).toContain("animate-trauma-pop-bounce");
     expect(appShellSource).not.toContain(
       '<section class="mt-auto grid gap-1.5',
     );
@@ -199,7 +231,8 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain(
       '"trauma-shell-left-rail sticky top-0 z-40 h-[100svh] overflow-visible bg-trauma-bg-base max-[720px]:hidden"',
     );
-    expect(appShellSource).toContain("z-50 mt-1");
+    expect(popupSource).toContain("z-[70]");
+    expect(popupSource).toContain("top-full mt-1");
     expect(appShellSource).not.toContain(
       '"sticky top-0 overflow-y-auto bg-trauma-bg-base max-[720px]:hidden"',
     );
@@ -253,19 +286,21 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("AddMemoryComposerButton");
     expect(appShellSource).toContain('popoverId="rail-add-memory-composer"');
     expect(appShellSource).toContain('popoverId="phone-add-memory-composer"');
-    expect(appShellSource).toContain('aria-controls={isComposerOpen() ? props.popoverId : undefined}');
-    expect(appShellSource).toContain("aria-expanded={isComposerOpen()}");
-    expect(appShellSource).toContain('aria-haspopup="dialog"');
-    expect(appShellSource).toContain('role="dialog"');
-    expect(appShellSource).toContain('aria-label="Add memory"');
+    expect(appShellSource).toContain('label="Add memory"');
+    expect(appShellSource).toContain('mode="dialog"');
+    expect(appShellSource).toContain("trigger={({");
+    expect(popupSource).toContain('"aria-controls": open() ? props.id : undefined');
+    expect(popupSource).toContain('"aria-expanded": open()');
+    expect(popupSource).toContain('"aria-haspopup": mode()');
+    expect(popupSource).toContain("role={mode()}");
     expect(appShellSource).not.toContain('<Drawer ariaLabel="Add memory"');
     expect(appShellSource).not.toContain("setIsComposerOpen(true)");
-    expect(appShellSource).toContain("aria-pressed={isComposerOpen()}");
+    expect(appShellSource).toContain("aria-pressed={open}");
     expect(appShellSource).toContain("<WaxSealButton");
     expect(appShellSource).toContain("<WaxSealLabel");
   });
 
-  it("uses paper-mode wax seal controls for add memory and view toggles", () => {
+  it("uses paper-mode wax seal controls for add memory commands", () => {
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::before');
     expect(tailwindCss).toContain(':root[data-theme^="paper"] .trauma-paper-wax-seal::after');
@@ -282,9 +317,9 @@ describe("refined app shell contract", () => {
     expect(appShellSource).toContain("rounded-full border border-trauma-border-strong");
     expect(appShellSource).toContain("<WaxSealLabel");
     expect(appShellSource).toContain("max-[1040px]:sr-only");
-    expect(memoryBrowseSource).toContain("<WaxSealButton");
-    expect(memoryBrowseSource).toContain("<WaxSealLabel>List</WaxSealLabel>");
-    expect(memoryBrowseSource).toContain("<WaxSealLabel>Grid</WaxSealLabel>");
+    expect(memoryBrowseSource).not.toContain("<WaxSealButton");
+    expect(memoryBrowseSource).not.toContain("<WaxSealLabel>List</WaxSealLabel>");
+    expect(memoryBrowseSource).not.toContain("<WaxSealLabel>Grid</WaxSealLabel>");
     expect(addMemoryFormSource).toContain("<WaxSealButton");
     expect(addMemoryFormSource).toContain("<WaxSealLabel>");
     expect(appShellSource).not.toContain("trauma-paper-wax-seal trauma-paper-wax-command");

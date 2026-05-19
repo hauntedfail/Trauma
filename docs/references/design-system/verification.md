@@ -113,8 +113,8 @@ Check:
 - Phone `Primary tabs` render every rail item and use tab-bar-only horizontal
   scrolling when constrained.
 - Phone tab labels are visually hidden while role names remain available.
-- On phone, Memories List/Grid view controls stay on the right edge of the
-  `Memories` header row instead of wrapping below the title.
+- On phone, Memories read-state tabs stay as one sticky equal-width header row
+  and the obsolete List/Grid view controls are absent.
 - Tablet uses the compact icon rail and does not duplicate brand/filter header
   chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.

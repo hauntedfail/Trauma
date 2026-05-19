@@ -27,13 +27,12 @@ describe("Moment route", () => {
     expect(browseSource).toContain("deleteMomentById");
     expect(browseSource).toContain("revalidateMomentBrowseRows");
     expect(browseSource).toContain("revalidateReaderMemory(memoryId)");
-    expect(browseSource).toContain("props.moment.targetAnchor === null");
+    expect(browseSource).toContain("anchorId: props.moment.targetAnchor");
     expect(browseSource).toContain('props.moment.targetStatus === "stale"');
     expect(browseSource).toContain("Section moved");
-    expect(browseSource).toContain(
-      "/memories/${props.moment.memoryId}#${props.moment.targetAnchor}",
-    );
+    expect(browseSource).toContain("buildMemoryAnchorHref");
     expect(browseSource).toContain("No Moments yet");
     expect(browseSource).toContain("Saved reader sections will appear here.");
+    expect(browseSource).not.toContain("Saved sections");
   });
 });

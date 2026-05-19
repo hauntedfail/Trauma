@@ -20,14 +20,42 @@ describe("refined reader visual contract", () => {
 
   it("keeps safe source-link rendering and read-only flashback toggles", () => {
     expect(readerSource).toContain("toSafeReaderSourceHref");
+    expect(readerSource).toContain("ScrollableUrlDisplay");
+    expect(readerSource).toContain("ScrollableUrlLink");
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).toContain("text-trauma-link");
     expect(readerSource).toContain('aria-label="Memory"');
-    expect(readerSource).toContain(">Memory</p>");
+    expect(readerSource).toContain("RouteHeader");
+    expect(readerSource).toContain('title="Memory"');
+    expect(readerSource).toContain('titleElement="p"');
     expect(readerSource).not.toContain(">Reader mode</p>");
     expect(readerSource).not.toContain("props.result.memory.title}</h1>");
     expect(readerSource).not.toContain("contenteditable");
+  });
+
+  it("uses tighter reader-only main pane padding", () => {
+    expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
+    expect(readerStyles).not.toContain("px-8");
+    expect(tailwindSource).toContain(".trauma-reader-route-padding");
+    expect(tailwindSource).toContain("padding-inline: clamp(0.5rem, 2cqi, 1rem)");
+    expect(tailwindSource).toContain("padding-inline: 0.75rem");
+    expect(readerSource).toContain("trauma-reader-body py-5 pb-10");
+    expect(readerSource).toContain('class="mb-5 grid gap-4"');
+    expect(readerSource).not.toContain("trauma-reader-body py-7 pb-14");
+    expect(readerSource).not.toContain('class="mb-7 grid gap-4"');
+  });
+
+  it("aligns the memory source URL with the reader action menu row", () => {
+    expect(readerSource).toContain("readerSourceLinkClass");
+    expect(readerSource).toContain("ScrollableUrlLink");
+    expect(tailwindSource).toContain(".trauma-scroll-url-link");
+    expect(tailwindSource).toContain(".trauma-scroll-url-shell");
+    expect(readerSource).not.toContain("wrap-anywhere inline-flex");
+    expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
+    expect(readerSource).toContain('class="flex items-center gap-2"');
+    expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");
+    expect(readerSource).not.toContain('class="flex items-start gap-2"');
   });
 
   it("moves the reader table of contents into the contextual right rail", () => {
@@ -58,6 +86,9 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("trauma-toc-scroll-fade");
     expect(readerSource).toContain("trauma-toc-scroll-fade-top");
     expect(readerSource).toContain("trauma-toc-scroll-fade-bottom");
+    expect(readerSource).toContain("pl-0");
+    expect(readerSource).not.toContain("pl-[18px]");
+    expect(readerSource).toContain("grid-cols-[1.125rem_minmax(0,1fr)]");
     expect(readerSource).toContain(
       "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
     );

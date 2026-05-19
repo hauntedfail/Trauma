@@ -1,6 +1,8 @@
 export {
   CheckIcon,
   ChevronLeftIcon,
+  EyeClosedIcon,
+  EyeOpenIcon,
   KebabIcon,
   HermesIcon,
   LockIcon,
@@ -12,5 +14,6 @@ export {
   PlusIcon,
   SearchIcon,
   SunIcon,
+  TrashIcon,
   TraumaNavIcons,
 } from "./TraumaIcons";

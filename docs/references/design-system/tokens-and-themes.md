@@ -177,8 +177,12 @@ Reader links, flashbacks, and flashback excerpts use stable semantic tokens:
 
 - Inline flashbacks: `bg-trauma-flashback-bg`,
   `text-trauma-flashback-ink`.
-- Quote/excerpt cards: `bg-trauma-quote-bg`,
-  `border-trauma-quote-bar`, `text-trauma-quote-ink`.
+- Flashback browse context: shared context spans use secondary/tertiary
+  foreground mixing and the Flashback context blur/mask classes. Route and
+  right-rail Flashback rows should not use quote-card background or border
+  tokens.
+- Reader prose blockquotes still use the quote token family through the reader
+  prose styles.
 - Linked flashback hash targets:
   `.trauma-reader-content mark[data-flashback-id]:target` uses
   `anchor-flashback-bg`, `anchor-flashback-ink`, and

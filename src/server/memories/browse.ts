@@ -60,6 +60,7 @@ function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
     ...row,
     flashbacks: row.flashbacks.map((flashback) => ({
       id: flashback.id,
+      memoryId: flashback.memoryId,
       text: flashback.text,
       prefix: flashback.prefix,
       suffix: flashback.suffix,
