@@ -76,8 +76,18 @@ jobs:
             exit 0
           fi
 
-          gh release create "$TAG_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "TRAUMA $RELEASE_VERSION" \
-            --generate-notes \
-            --verify-tag
+          RELEASE_NOTES_FILE="changelog/v${RELEASE_VERSION}.md"
+
+          if [[ -f "$RELEASE_NOTES_FILE" ]]; then
+            gh release create "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "TRAUMA $RELEASE_VERSION" \
+              --notes-file "$RELEASE_NOTES_FILE" \
+              --verify-tag
+          else
+            gh release create "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "TRAUMA $RELEASE_VERSION" \
+              --generate-notes \
+              --verify-tag
+          fi
