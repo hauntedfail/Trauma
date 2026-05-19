@@ -13,7 +13,10 @@ import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import { TraumaMark } from "../brand/TraumaMark";
 import { TaxonomyInlineCreateControl } from "../memories/TaxonomyInlineCreateControl";
-import { validateTagName } from "../../taxonomy/name-policy";
+import {
+  normalizeTaxonomyNameForLookup,
+  validateTagName,
+} from "../../taxonomy/name-policy";
 import {
   KebabIcon,
   HermesIcon,
@@ -341,7 +344,7 @@ function getActiveTaxonomyIds(input: {
 }
 
 function normalizeTaxonomyFilterValue(value: string): string {
-  return value.trim().toLocaleLowerCase();
+  return normalizeTaxonomyNameForLookup(value);
 }
 
 function BrandHomeLink(props: {

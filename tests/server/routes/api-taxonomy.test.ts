@@ -126,6 +126,51 @@ describe("taxonomy API routes", () => {
     });
   });
 
+  it("allows legacy tag names for existing name-based mutations", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const now = new Date("2026-05-14T01:00:00.000Z");
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.tags).values({
+        id: "tag-legacy",
+        name: "legacy tag",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const attachLegacy = await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "legacy tag",
+      }),
+    );
+    const detachLegacy = await detachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "legacy tag",
+      }),
+    );
+
+    expect(attachLegacy.status).toBe(200);
+    expect(await attachLegacy.json()).toMatchObject({
+      memoryId: routeMemoryId,
+      tagId: "tag-legacy",
+      tag: { id: "tag-legacy", name: "legacy tag" },
+    });
+    expect(detachLegacy.status).toBe(200);
+    expect(await detachLegacy.json()).toMatchObject({
+      memoryId: routeMemoryId,
+      tagId: "tag-legacy",
+      tag: { id: "tag-legacy", name: "legacy tag" },
+    });
+  });
+
   it("attaches tags and categories by ID or name", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

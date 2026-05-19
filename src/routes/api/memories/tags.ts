@@ -3,7 +3,11 @@ import type { APIEvent } from "@solidjs/start/server";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
-import { validateTagName } from "~/taxonomy/name-policy";
+import {
+  normalizeTaxonomyName,
+  TAG_NAME_VALIDATION_ERROR,
+  validateTagName,
+} from "~/taxonomy/name-policy";
 
 type AttachTagPayload =
   | { ok: true; memoryId: string; tagId: string; name?: never }
@@ -46,6 +50,16 @@ export async function POST(event: APIEvent): Promise<Response> {
         { memoryId: payload.memoryId, tagId: payload.tagId },
         { status: 200 },
       );
+    }
+
+    const existingTag = await connection.repositories.taxonomy.findTagByName(
+      payload.name,
+    );
+    if (existingTag === undefined) {
+      const validation = validateTagName(payload.name);
+      if (!validation.ok) {
+        return json({ error: validation.error }, { status: 400 });
+      }
     }
 
     let tag;
@@ -178,15 +192,14 @@ async function parseAttachTagPayload(
   }
 
   const name = payload.name.trim();
-  const validation = validateTagName(name);
-  if (!validation.ok) {
-    return { ok: false, error: validation.error };
+  if (name === "") {
+    return { ok: false, error: "name must be a non-empty string" };
   }
 
   return {
     ok: true,
     memoryId: payload.memoryId.trim(),
-    name: validation.name,
+    name: normalizeTaxonomyName(name),
   };
 }
 
@@ -200,6 +213,12 @@ function formatTagMutationError(
     }
     if (error.message.includes("missing tag")) {
       return json({ error: "tag was not found" }, { status: 404 });
+    }
+    if (
+      error.message === TAG_NAME_VALIDATION_ERROR ||
+      error.message === "name must be a non-empty string"
+    ) {
+      return json({ error: error.message }, { status: 400 });
     }
   }
   return json({ error: `failed to ${action} tag` }, { status: 500 });

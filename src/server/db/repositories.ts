@@ -668,7 +668,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
       createAndAttachTagToMemory: async (input) =>
         db.transaction((tx) => {
-          const name = requireValidTagName(input.name);
+          const name = normalizeTaxonomyLookupName(input.name);
           const memory = tx
             .select({ id: schema.memories.id })
             .from(schema.memories)
@@ -680,51 +680,80 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             );
           }
 
-          const attachedTag = tx
-            .select({
-              id: schema.tags.id,
-              name: schema.tags.name,
-              createdAt: schema.tags.createdAt,
-              updatedAt: schema.tags.updatedAt,
-            })
-            .from(schema.tags)
-            .innerJoin(
-              schema.memoryTags,
-              eq(schema.tags.id, schema.memoryTags.tagId),
-            )
-            .where(
-              and(
-                eq(schema.memoryTags.memoryId, input.memoryId),
-                taxonomyNameEquals(schema.tags.name, name),
-              ),
-            )
-            .get();
+          const attachedTag =
+            tx
+              .select({
+                id: schema.tags.id,
+                name: schema.tags.name,
+                createdAt: schema.tags.createdAt,
+                updatedAt: schema.tags.updatedAt,
+              })
+              .from(schema.tags)
+              .innerJoin(
+                schema.memoryTags,
+                eq(schema.tags.id, schema.memoryTags.tagId),
+              )
+              .where(
+                and(
+                  eq(schema.memoryTags.memoryId, input.memoryId),
+                  eq(schema.tags.name, name),
+                ),
+              )
+              .get() ??
+            tx
+              .select({
+                id: schema.tags.id,
+                name: schema.tags.name,
+                createdAt: schema.tags.createdAt,
+                updatedAt: schema.tags.updatedAt,
+              })
+              .from(schema.tags)
+              .innerJoin(
+                schema.memoryTags,
+                eq(schema.tags.id, schema.memoryTags.tagId),
+              )
+              .where(
+                and(
+                  eq(schema.memoryTags.memoryId, input.memoryId),
+                  taxonomyNameEquals(schema.tags.name, name),
+                ),
+              )
+              .get();
           if (attachedTag !== undefined) {
             return attachedTag;
           }
 
-          let tag = tx
-            .select()
-            .from(schema.tags)
-            .where(taxonomyNameEquals(schema.tags.name, name))
-            .get();
+          let tag =
+            tx.select().from(schema.tags).where(eq(schema.tags.name, name)).get() ??
+            tx
+              .select()
+              .from(schema.tags)
+              .where(taxonomyNameEquals(schema.tags.name, name))
+              .get();
           if (tag === undefined) {
+            const validName = requireValidTagName(name);
             tx
               .insert(schema.tags)
               .values({
                 id: input.id,
-                name,
+                name: validName,
                 createdAt: input.now,
                 updatedAt: input.now,
               })
               .onConflictDoNothing({ target: schema.tags.name })
               .run();
 
-            tag = tx
-              .select()
-              .from(schema.tags)
-              .where(taxonomyNameEquals(schema.tags.name, name))
-              .get();
+            tag =
+              tx
+                .select()
+                .from(schema.tags)
+                .where(eq(schema.tags.name, validName))
+                .get() ??
+              tx
+                .select()
+                .from(schema.tags)
+                .where(taxonomyNameEquals(schema.tags.name, validName))
+                .get();
           }
           if (tag === undefined) {
             throw new MemoryRepositoryError(
@@ -770,6 +799,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
       createAndAttachCategoryToMemory: async (input) =>
         db.transaction((tx) => {
+          const name = normalizeTaxonomyLookupName(input.name);
           const memory = tx
             .select({ id: schema.memories.id })
             .from(schema.memories)
@@ -781,28 +811,40 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             );
           }
 
-          let category = tx
-            .select()
-            .from(schema.categories)
-            .where(taxonomyNameEquals(schema.categories.name, input.name))
-            .get();
+          let category =
+            tx
+              .select()
+              .from(schema.categories)
+              .where(eq(schema.categories.name, name))
+              .get() ??
+            tx
+              .select()
+              .from(schema.categories)
+              .where(taxonomyNameEquals(schema.categories.name, name))
+              .get();
           if (category === undefined) {
             tx
               .insert(schema.categories)
               .values({
                 id: input.id,
-                name: input.name,
+                name,
                 createdAt: input.now,
                 updatedAt: input.now,
               })
               .onConflictDoNothing({ target: schema.categories.name })
               .run();
 
-            category = tx
-              .select()
-              .from(schema.categories)
-              .where(taxonomyNameEquals(schema.categories.name, input.name))
-              .get();
+            category =
+              tx
+                .select()
+                .from(schema.categories)
+                .where(eq(schema.categories.name, name))
+                .get() ??
+              tx
+                .select()
+                .from(schema.categories)
+                .where(taxonomyNameEquals(schema.categories.name, name))
+                .get();
           }
           if (category === undefined) {
             throw new MemoryRepositoryError(
@@ -839,15 +881,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         findCategoryByName(db, name),
       attachTagToMemory: async (input) => {
         await assertMemoryExists(db, input.memoryId, "attach tag to");
-        const tag = await requireTagById(db, input.tagId);
-        const attachedTag = await findAttachedTagByName(
-          db,
-          input.memoryId,
-          tag.name,
-        );
-        if (attachedTag !== undefined) {
-          return;
-        }
+        await requireTagById(db, input.tagId);
         await db
           .insert(schema.memoryTags)
           .values({
@@ -1012,18 +1046,30 @@ async function findTagByName(
   db: TraumaDatabase,
   name: string,
 ): Promise<Tag | undefined> {
-  return db.query.tags.findFirst({
-    where: taxonomyNameEquals(schema.tags.name, name),
-  });
+  const exactName = normalizeTaxonomyLookupName(name);
+  return (
+    (await db.query.tags.findFirst({
+      where: eq(schema.tags.name, exactName),
+    })) ??
+    (await db.query.tags.findFirst({
+      where: taxonomyNameEquals(schema.tags.name, exactName),
+    }))
+  );
 }
 
 async function findCategoryByName(
   db: TraumaDatabase,
   name: string,
 ): Promise<Category | undefined> {
-  return db.query.categories.findFirst({
-    where: taxonomyNameEquals(schema.categories.name, name),
-  });
+  const exactName = normalizeTaxonomyLookupName(name);
+  return (
+    (await db.query.categories.findFirst({
+      where: eq(schema.categories.name, exactName),
+    })) ??
+    (await db.query.categories.findFirst({
+      where: taxonomyNameEquals(schema.categories.name, exactName),
+    }))
+  );
 }
 
 function taxonomyNameEquals(

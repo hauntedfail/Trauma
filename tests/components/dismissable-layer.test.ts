@@ -34,6 +34,13 @@ describe("dismissable popup layers", () => {
     expect(dismissableLayerSource).toContain("event.stopImmediatePropagation()");
   });
 
+  it("dismisses only the topmost active layer", () => {
+    expect(dismissableLayerSource).toContain("activeLayerIds");
+    expect(dismissableLayerSource).toContain("isTopmostLayer");
+    expect(dismissableLayerSource).toContain("activeLayerIds.at(-1) === layerId");
+    expect(dismissableLayerSource).toContain('event.key === "Escape" && isTopmostLayer()');
+  });
+
   it("is shared by inline taxonomy creation controls", () => {
     expect(taxonomyInlineCreateSource).toContain("useDismissableLayer");
     expect(taxonomyInlineCreateSource).toContain("isEnabled: isOpen");

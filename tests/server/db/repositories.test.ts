@@ -210,7 +210,7 @@ describe("memory and taxonomy repositories", () => {
       duplicateCategory: { id: "category-research", name: "Research" },
       tagAssignment: {
         createdAt: Date.parse("2026-05-10T01:00:00.000Z"),
-        updatedAt: Date.parse("2026-05-10T01:00:00.000Z"),
+        updatedAt: Date.parse("2026-05-11T01:00:00.000Z"),
       },
       categoryAssignment: {
         createdAt: Date.parse("2026-05-10T01:00:00.000Z"),
@@ -221,7 +221,7 @@ describe("memory and taxonomy repositories", () => {
           id: "tag-sqlite",
           name: "sqlite",
           memoryCount: 1,
-          lastAssignedAt: "2026-05-10T01:00:00.000Z",
+          lastAssignedAt: "2026-05-11T01:00:00.000Z",
         },
         {
           id: "tag-empty",
@@ -245,6 +245,97 @@ describe("memory and taxonomy repositories", () => {
         },
       ],
       missingError: "Cannot attach tag to missing memory: missing-memory",
+    });
+  });
+
+  it("resolves case-variant taxonomy names deterministically", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f104";
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/taxonomy-case",
+            title: "Taxonomy case",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-lower", "harness", now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-upper", "Harness", now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-lower", "work", now.getTime(), now.getTime());
+          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-upper", "Work", now.getTime(), now.getTime());
+
+          const tag = await connection.repositories.taxonomy.createAndAttachTagToMemory({
+            id: "tag-new",
+            memoryId,
+            name: "Harness",
+            now,
+          });
+          const category = await connection.repositories.taxonomy.createAndAttachCategoryToMemory({
+            id: "category-new",
+            memoryId,
+            name: "Work",
+            now,
+          });
+          await connection.repositories.taxonomy.attachTagToMemory({
+            memoryId,
+            tagId: "tag-lower",
+            now,
+          });
+
+          process.stdout.write(JSON.stringify({
+            tag,
+            category,
+            memoryTags: connection.sqlite.prepare("select tag_id as tagId from memory_tags order by tag_id").all(),
+            memoryCategories: connection.sqlite.prepare("select category_id as categoryId from memory_categories order by category_id").all(),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      tag: { id: "tag-upper", name: "Harness" },
+      category: { id: "category-upper", name: "Work" },
+      memoryTags: [{ tagId: "tag-lower" }, { tagId: "tag-upper" }],
+      memoryCategories: [{ categoryId: "category-upper" }],
     });
   });
 

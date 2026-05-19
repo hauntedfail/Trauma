@@ -65,6 +65,11 @@ describe("app shell taxonomy right rail", () => {
     expect(appShellSource).not.toContain("openCreateKind");
   });
 
+  it("uses locale-invariant taxonomy lookup for active filters", () => {
+    expect(appShellSource).toContain("normalizeTaxonomyNameForLookup");
+    expect(appShellSource).not.toContain("toLocaleLowerCase");
+  });
+
   it("renders empty-state hints when no taxonomy exists", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {

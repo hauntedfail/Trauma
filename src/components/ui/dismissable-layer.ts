@@ -1,5 +1,7 @@
 import { createEffect, onCleanup } from "solid-js";
 
+const activeLayerIds: symbol[] = [];
+
 export interface DismissableLayerOptions<TRoot extends HTMLElement> {
   getRoot: () => TRoot | undefined;
   isEnabled?: () => boolean;
@@ -11,8 +13,10 @@ export interface DismissableLayerOptions<TRoot extends HTMLElement> {
 export function useDismissableLayer<TRoot extends HTMLElement>(
   options: DismissableLayerOptions<TRoot>,
 ): void {
+  const layerId = Symbol("dismissable-layer");
   let outsideClickSuppressionArmed = false;
   const isEnabled = () => options.isEnabled?.() ?? true;
+  const isTopmostLayer = () => activeLayerIds.at(-1) === layerId;
   const isOutside = (target: EventTarget | null): boolean => {
     const root = options.getRoot();
     return root !== undefined && target instanceof Node && !root.contains(target);
@@ -39,7 +43,11 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       return;
     }
 
+    activeLayerIds.push(layerId);
     const handlePointerDown = (event: PointerEvent) => {
+      if (!isTopmostLayer()) {
+        return;
+      }
       if (!isOutside(event.target)) {
         return;
       }
@@ -56,7 +64,7 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       options.onDismiss();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && isTopmostLayer()) {
         options.onDismiss();
       }
     };
@@ -64,6 +72,10 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
+      const layerIndex = activeLayerIds.lastIndexOf(layerId);
+      if (layerIndex !== -1) {
+        activeLayerIds.splice(layerIndex, 1);
+      }
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     });
