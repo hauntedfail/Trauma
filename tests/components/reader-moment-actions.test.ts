@@ -25,9 +25,13 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain('aria-label="Moment section"');
     expect(readerSource).toContain("ReaderSectionMenuState");
     expect(readerSource).toContain("readerContextMenuClass");
-    expect(readerSource).toContain("border border-transparent bg-transparent");
-    expect(readerSource).toContain("opacity-50");
+    expect(readerSource).toContain("trauma-reader-context-menu");
+    expect(readerSource).toContain("border border-transparent");
+    expect(readerSource).not.toContain("opacity-50");
+    expect(readerSource).not.toContain("bg-transparent");
     expect(readerSource).toContain("shadow-none");
+    expect(styleSource).toContain(".trauma-reader-context-menu");
+    expect(styleSource).toContain("var(--bg-elev) 50%");
     expect(readerSource).not.toContain("border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2");
   });
 
