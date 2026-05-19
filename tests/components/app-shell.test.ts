@@ -172,6 +172,16 @@ describe("refined app shell contract", () => {
     );
   });
 
+  it("renders a muted right rail footer below right pane content", () => {
+    expect(appShellSource).toContain("RightRailFooter");
+    expect(appShellSource).toContain("rightRailFooterClass");
+    expect(appShellSource).toContain("mt-auto shrink-0 px-4 pb-1 text-xs");
+    expect(appShellSource).toContain('aria-label="Right rail footer"');
+    expect(appShellSource).toContain('href="https://github.com/hauntedfail/Trauma"');
+    expect(appShellSource).toContain("GitHub");
+    expect(appShellSource).toContain("2026 Haunted Fail. All rights reserved.");
+  });
+
   it("keeps the left rail scale close to the refined sample", () => {
     expect(appShellSource).toContain("px-2 py-1 pb-3");
     expect(appShellSource).toContain("rounded-full px-2.5 text-[22px]");

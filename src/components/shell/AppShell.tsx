@@ -80,6 +80,10 @@ const rightRailStack =
   "flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1";
 const rightRailScrollContent =
   "max-h-[min(34vh,20rem)] overflow-y-auto overscroll-contain pr-1";
+const rightRailFooterClass =
+  "mt-auto shrink-0 px-4 pb-1 text-xs font-semibold leading-5 text-trauma-text-muted";
+const rightRailFooterLinkClass =
+  "rounded-sm hover:text-trauma-text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
 const composerSubmitButton =
   "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
 const railIconSlot = "grid size-10 place-items-center";
@@ -274,6 +278,7 @@ export function AppShell(props: AppShellProps) {
             }
             tags={tags()}
           />
+          <RightRailFooter />
         </div>
       </aside>
       <PhoneTabBar
@@ -285,6 +290,24 @@ export function AppShell(props: AppShellProps) {
       />
       </div>
     </RightRailContentContext.Provider>
+  );
+}
+
+function RightRailFooter() {
+  return (
+    <footer class={rightRailFooterClass} aria-label="Right rail footer">
+      <nav class="mb-1 flex flex-wrap gap-x-3 gap-y-1" aria-label="Footer links">
+        <a
+          class={rightRailFooterLinkClass}
+          href="https://github.com/hauntedfail/Trauma"
+          rel="noreferrer"
+          target="_blank"
+        >
+          GitHub
+        </a>
+      </nav>
+      <p class="mb-0">2026 Haunted Fail. All rights reserved.</p>
+    </footer>
   );
 }
 
