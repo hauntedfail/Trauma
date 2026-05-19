@@ -20,7 +20,25 @@ export async function attachTagToMemoryByName(input: {
   name: string;
   fetch?: FetchFunction;
 }): Promise<BrowseTaxonomyItem> {
-  const body = await postJson({
+  const body = await requestJson({
+    method: "POST",
+    url: "/api/memories/tags",
+    body: {
+      memoryId: input.memoryId,
+      name: input.name,
+    },
+    fetch: input.fetch,
+  });
+  return readTaxonomyResponse(body, "tag");
+}
+
+export async function detachTagFromMemoryByName(input: {
+  memoryId: string;
+  name: string;
+  fetch?: FetchFunction;
+}): Promise<BrowseTaxonomyItem> {
+  const body = await requestJson({
+    method: "DELETE",
     url: "/api/memories/tags",
     body: {
       memoryId: input.memoryId,
@@ -36,7 +54,8 @@ export async function attachCategoryToMemoryByName(input: {
   name: string;
   fetch?: FetchFunction;
 }): Promise<BrowseTaxonomyItem> {
-  const body = await postJson({
+  const body = await requestJson({
+    method: "POST",
     url: "/api/memories/categories",
     body: {
       memoryId: input.memoryId,
@@ -64,14 +83,15 @@ export async function deleteMemoryById(input: {
   }
 }
 
-async function postJson(input: {
+async function requestJson(input: {
+  method: "DELETE" | "POST";
   url: string;
   body: unknown;
   fetch?: FetchFunction;
 }): Promise<unknown> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch(input.url, {
-    method: "POST",
+    method: input.method,
     headers: {
       "content-type": "application/json",
     },

@@ -99,4 +99,10 @@ describe("taxonomy add control", () => {
     expect(taxonomyAddControlSource).toContain("void attachExistingOption(option)");
     expect(taxonomyAddControlSource).not.toContain("setPopoverOpen(false);\\n      await props.onAttachName(option.name)");
   });
+
+  it("treats attached options as detach operations when a detach handler exists", () => {
+    expect(taxonomyAddControlSource).toContain("onDetachName");
+    expect(taxonomyAddControlSource).toContain("void detachExistingOption(option)");
+    expect(taxonomyAddControlSource).toContain("attachedIds().has(option.id)");
+  });
 });

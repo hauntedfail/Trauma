@@ -137,6 +137,10 @@ export interface TaxonomyRepository {
     tagId: string;
     now: Date;
   }) => Promise<void>;
+  detachTagFromMemory: (input: {
+    memoryId: string;
+    tagId: string;
+  }) => Promise<void>;
   attachCategoryToMemory: (input: {
     memoryId: string;
     categoryId: string;
@@ -820,6 +824,19 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           })
           .run();
       },
+      detachTagFromMemory: async (input) => {
+        await assertMemoryExists(db, input.memoryId, "detach tag from");
+        await assertTagExists(db, input.tagId);
+        await db
+          .delete(schema.memoryTags)
+          .where(
+            and(
+              eq(schema.memoryTags.memoryId, input.memoryId),
+              eq(schema.memoryTags.tagId, input.tagId),
+            ),
+          )
+          .run();
+      },
       attachCategoryToMemory: async (input) => {
         await assertMemoryExists(db, input.memoryId, "attach category to");
         await assertCategoryExists(db, input.categoryId);
@@ -983,7 +1000,11 @@ function normalizeTaxonomyLookupName(name: string): string {
 async function assertMemoryExists(
   db: TraumaDatabase,
   memoryId: string,
-  action: "attach tag to" | "attach category to" | "create moment for",
+  action:
+    | "attach category to"
+    | "attach tag to"
+    | "create moment for"
+    | "detach tag from",
 ): Promise<void> {
   const memory = await db.query.memories.findFirst({
     columns: {

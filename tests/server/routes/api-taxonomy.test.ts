@@ -7,7 +7,10 @@ import { transformAsync, type PluginItem } from "@babel/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { POST as attachCategory } from "../../../src/routes/api/memories/categories";
-import { POST as attachTag } from "../../../src/routes/api/memories/tags";
+import {
+  DELETE as detachTag,
+  POST as attachTag,
+} from "../../../src/routes/api/memories/tags";
 import { POST as createCategory } from "../../../src/routes/api/categories";
 import { POST as createTag } from "../../../src/routes/api/tags";
 import { initializeDatabase } from "../../../src/server/db";
@@ -202,6 +205,47 @@ describe("taxonomy API routes", () => {
           .prepare("select count(*) as count from memory_categories")
           .get(),
       ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("detaches tags by ID or name without deleting the tag record", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const createdTag = await (
+      await createTag(jsonRequest("/api/tags", { name: "sqlite" }))
+    ).json();
+    await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        tagId: createdTag.tag.id,
+      }),
+    );
+
+    const detachByName = await detachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "SQLITE",
+      }),
+    );
+
+    expect(detachByName.status).toBe(200);
+    expect(await detachByName.json()).toMatchObject({
+      memoryId: routeMemoryId,
+      tagId: createdTag.tag.id,
+      tag: { id: createdTag.tag.id, name: "sqlite" },
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(
+        connection.sqlite.prepare("select count(*) as count from memory_tags").get(),
+      ).toEqual({ count: 0 });
+      expect(connection.sqlite.prepare("select count(*) as count from tags").get())
+        .toEqual({ count: 1 });
     } finally {
       connection.close();
     }

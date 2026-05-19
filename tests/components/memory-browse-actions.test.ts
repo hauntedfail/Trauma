@@ -7,6 +7,7 @@ import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteBrowseMemory,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
   MemoryItem,
 } from "../../src/components/memories/MemoryBrowse";
@@ -107,6 +108,34 @@ describe("memory browse actions", () => {
     expect(await requests[1]?.json()).toEqual({
       memoryId: "memory-1",
       name: "Notes",
+    });
+  });
+
+  it("posts remove-tag actions by name", async () => {
+    const requests: Request[] = [];
+
+    expect(
+      await detachTagFromMemoryByName({
+        memoryId: "memory-1",
+        name: "sqlite",
+        fetch: async (input, init) => {
+          requests.push(new Request(new URL(String(input), "http://localhost"), init));
+          return new Response(
+            JSON.stringify({ tag: { id: "tag-sqlite", name: "sqlite" } }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        },
+      }),
+    ).toEqual({ id: "tag-sqlite", name: "sqlite" });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/memories/tags", "DELETE"],
+    ]);
+    expect(await requests[0]?.json()).toEqual({
+      memoryId: "memory-1",
+      name: "sqlite",
     });
   });
 

@@ -32,6 +32,7 @@ import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
@@ -42,6 +43,7 @@ export {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
   deleteMemoryById as deleteBrowseMemory,
+  detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
 
@@ -260,6 +262,21 @@ export function MemoryItem(props: {
     }
   };
 
+  const detachTag = async (name: string): Promise<void> => {
+    setActionError("");
+    try {
+      const tag = await detachTagFromMemoryByName({
+        memoryId: props.memory.id,
+        name,
+      });
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      void revalidateAfterTaxonomyChange(props.memory.id);
+    } catch (error) {
+      setActionError("Failed to remove tag.");
+      throw error;
+    }
+  };
+
   const submitCategory = async (input: {
     memoryId: string;
     name: string;
@@ -385,6 +402,7 @@ export function MemoryItem(props: {
                 kind="tag"
                 options={props.availableTags ?? []}
                 onAttachName={submitTag}
+                onDetachName={detachTag}
                 onError={(message) => setActionError(message)}
               />
             </span>

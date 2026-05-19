@@ -23,6 +23,7 @@ export interface TaxonomyAddControlProps {
   triggerClass?: string;
   triggerRole?: JSX.ButtonHTMLAttributes<HTMLButtonElement>["role"];
   onAttachName: (name: string) => Promise<void> | void;
+  onDetachName?: (name: string) => Promise<void> | void;
   onError?: (message: string) => void;
 }
 
@@ -80,6 +81,23 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
     setPendingName(option.name);
     try {
       await props.onAttachName(option.name);
+    } catch (error) {
+      props.onError?.(readTaxonomyAddError(error));
+    } finally {
+      setPendingName("");
+    }
+  };
+
+  const detachExistingOption = async (
+    option: BrowseTaxonomySummaryItem,
+  ): Promise<void> => {
+    if (pendingName().length > 0 || props.onDetachName === undefined) {
+      return;
+    }
+
+    setPendingName(option.name);
+    try {
+      await props.onDetachName(option.name);
     } catch (error) {
       props.onError?.(readTaxonomyAddError(error));
     } finally {
@@ -176,6 +194,14 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (
+                          props.onDetachName !== undefined &&
+                          attachedIds().has(option.id)
+                        ) {
+                          void detachExistingOption(option);
+                          return;
+                        }
+
                         void attachExistingOption(option);
                       }}
                     >

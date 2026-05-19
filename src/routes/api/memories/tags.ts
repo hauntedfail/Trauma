@@ -39,7 +39,7 @@ export async function POST(event: APIEvent): Promise<Response> {
           now: new Date(),
         });
       } catch (error) {
-        return formatAttachError(error, "tag");
+        return formatTagMutationError(error, "attach");
       }
       return json(
         { memoryId: payload.memoryId, tagId: payload.tagId },
@@ -56,7 +56,69 @@ export async function POST(event: APIEvent): Promise<Response> {
         now: new Date(),
       });
     } catch (error) {
-      return formatAttachError(error, "tag");
+      return formatTagMutationError(error, "attach");
+    }
+
+    return json(
+      { memoryId: payload.memoryId, tagId: tag.id, tag },
+      { status: 200 },
+    );
+  } finally {
+    connection.close();
+  }
+}
+
+export async function DELETE(event: APIEvent): Promise<Response> {
+  const payload = await parseAttachTagPayload(event.request);
+  if (!payload.ok) {
+    return json({ error: payload.error }, { status: 400 });
+  }
+
+  let config;
+  try {
+    config = loadRuntimeTraumaConfig();
+  } catch (error) {
+    return json({ error: formatConfigError(error) }, { status: 500 });
+  }
+
+  const connection = initializeDatabase(config);
+  try {
+    const memory = await connection.repositories.memories.findById(
+      payload.memoryId,
+    );
+    if (memory === undefined) {
+      return json({ error: "memory was not found" }, { status: 404 });
+    }
+
+    if (payload.tagId !== undefined) {
+      try {
+        await connection.repositories.taxonomy.detachTagFromMemory({
+          memoryId: payload.memoryId,
+          tagId: payload.tagId,
+        });
+      } catch (error) {
+        return formatTagMutationError(error, "detach");
+      }
+      return json(
+        { memoryId: payload.memoryId, tagId: payload.tagId },
+        { status: 200 },
+      );
+    }
+
+    const tag = await connection.repositories.taxonomy.findTagByName(
+      payload.name,
+    );
+    if (tag === undefined) {
+      return json({ error: "tag was not found" }, { status: 404 });
+    }
+
+    try {
+      await connection.repositories.taxonomy.detachTagFromMemory({
+        memoryId: payload.memoryId,
+        tagId: tag.id,
+      });
+    } catch (error) {
+      return formatTagMutationError(error, "detach");
     }
 
     return json(
@@ -125,16 +187,19 @@ async function parseAttachTagPayload(
   };
 }
 
-function formatAttachError(error: unknown, type: "tag"): Response {
+function formatTagMutationError(
+  error: unknown,
+  action: "attach" | "detach",
+): Response {
   if (error instanceof MemoryRepositoryError) {
     if (error.message.includes("missing memory")) {
       return json({ error: "memory was not found" }, { status: 404 });
     }
-    if (error.message.includes(`missing ${type}`)) {
-      return json({ error: `${type} was not found` }, { status: 404 });
+    if (error.message.includes("missing tag")) {
+      return json({ error: "tag was not found" }, { status: 404 });
     }
   }
-  return json({ error: "failed to attach tag" }, { status: 500 });
+  return json({ error: `failed to ${action} tag` }, { status: 500 });
 }
 
 function json(body: unknown, init: ResponseInit): Response {
