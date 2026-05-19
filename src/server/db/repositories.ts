@@ -132,6 +132,10 @@ export interface TaxonomyRepository {
     now: Date;
   }) => Promise<Category>;
   findTagByName: (name: string) => Promise<Tag | undefined>;
+  findAttachedTagByName: (input: {
+    memoryId: string;
+    name: string;
+  }) => Promise<Tag | undefined>;
   findCategoryByName: (name: string) => Promise<Category | undefined>;
   attachTagToMemory: (input: {
     memoryId: string;
@@ -829,6 +833,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }),
       findTagByName: async (name) =>
         findTagByName(db, name),
+      findAttachedTagByName: async (input) =>
+        findAttachedTagByName(db, input.memoryId, input.name),
       findCategoryByName: async (name) =>
         findCategoryByName(db, name),
       attachTagToMemory: async (input) => {
@@ -1090,6 +1096,27 @@ async function findAttachedTagByName(
   memoryId: string,
   name: string,
 ): Promise<Tag | undefined> {
+  const exactName = normalizeTaxonomyLookupName(name);
+  const exact = db
+    .select({
+      id: schema.tags.id,
+      name: schema.tags.name,
+      createdAt: schema.tags.createdAt,
+      updatedAt: schema.tags.updatedAt,
+    })
+    .from(schema.tags)
+    .innerJoin(schema.memoryTags, eq(schema.tags.id, schema.memoryTags.tagId))
+    .where(
+      and(
+        eq(schema.memoryTags.memoryId, memoryId),
+        eq(schema.tags.name, exactName),
+      ),
+    )
+    .get();
+  if (exact !== undefined) {
+    return exact;
+  }
+
   return db
     .select({
       id: schema.tags.id,

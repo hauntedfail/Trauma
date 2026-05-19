@@ -389,6 +389,63 @@ describe("taxonomy API routes", () => {
     }
   });
 
+  it("detaches name-based tag requests from the target memory attachment", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const now = new Date("2026-05-14T01:00:00.000Z");
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.tags).values([
+        {
+          id: "tag-lower",
+          name: "harness-engineering",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "tag-upper",
+          name: "Harness-Engineering",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await connection.repositories.taxonomy.attachTagToMemory({
+        memoryId: routeMemoryId,
+        tagId: "tag-upper",
+        now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const detachByName = await detachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "Harness-Engineering",
+      }),
+    );
+
+    expect(detachByName.status).toBe(200);
+    expect(await detachByName.json()).toMatchObject({
+      memoryId: routeMemoryId,
+      tagId: "tag-upper",
+      tag: { id: "tag-upper", name: "Harness-Engineering" },
+    });
+
+    const afterDetach = initializeDatabase(config);
+    try {
+      expect(
+        afterDetach.sqlite.prepare("select tag_id as tagId from memory_tags").all(),
+      ).toEqual([]);
+      expect(afterDetach.sqlite.prepare("select count(*) as count from tags").get())
+        .toEqual({ count: 2 });
+    } finally {
+      afterDetach.close();
+    }
+  });
+
   it("rejects ambiguous attach payloads and missing records", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

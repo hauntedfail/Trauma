@@ -106,9 +106,10 @@ export async function DELETE(event: APIEvent): Promise<Response> {
       );
     }
 
-    const tag = await connection.repositories.taxonomy.findTagByName(
-      payload.name,
-    );
+    const tag = await connection.repositories.taxonomy.findAttachedTagByName({
+      memoryId: payload.memoryId,
+      name: payload.name,
+    });
     if (tag === undefined) {
       return json({ error: "tag was not found" }, { status: 404 });
     }
