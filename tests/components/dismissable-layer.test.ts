@@ -6,8 +6,8 @@ const dismissableLayerSource = readFileSync(
   "src/components/ui/dismissable-layer.ts",
   "utf8",
 );
-const taxonomyCreatePopoverSource = readFileSync(
-  "src/components/memories/TaxonomyCreatePopover.tsx",
+const taxonomyInlineCreateSource = readFileSync(
+  "src/components/memories/TaxonomyInlineCreateControl.tsx",
   "utf8",
 );
 
@@ -31,9 +31,9 @@ describe("dismissable popup layers", () => {
     expect(dismissableLayerSource).toContain("event.stopImmediatePropagation()");
   });
 
-  it("is shared by taxonomy creation popovers", () => {
-    expect(taxonomyCreatePopoverSource).toContain("useDismissableLayer");
-    expect(taxonomyCreatePopoverSource).toContain("shouldIgnoreOutsidePointerDown");
-    expect(taxonomyCreatePopoverSource).toContain("isTaxonomyCreateTrigger");
+  it("is shared by inline taxonomy creation controls", () => {
+    expect(taxonomyInlineCreateSource).toContain("useDismissableLayer");
+    expect(taxonomyInlineCreateSource).toContain("isEnabled: isOpen");
+    expect(taxonomyInlineCreateSource).toContain("onDismiss: () => setOpen(false)");
   });
 });

@@ -12,7 +12,7 @@ import {
 import { AddMemoryForm } from "../memories/AddMemoryForm";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import { TraumaMark } from "../brand/TraumaMark";
-import { TaxonomyCreatePopover } from "../memories/TaxonomyCreatePopover";
+import { TaxonomyInlineCreateControl } from "../memories/TaxonomyInlineCreateControl";
 import {
   KebabIcon,
   HermesIcon,
@@ -646,13 +646,6 @@ export function RightRailFilters(props: {
   showFlashbacks?: boolean;
   tags: BrowseTaxonomySummaryItem[];
 }) {
-  const [openCreateKind, setOpenCreateKind] = createSignal<
-    "category" | "tag" | undefined
-  >();
-  const toggleCreateKind = (kind: "category" | "tag") => {
-    setOpenCreateKind((current) => (current === kind ? undefined : kind));
-  };
-  const closeCreatePopover = () => setOpenCreateKind(undefined);
   const createAndRevalidate = async (
     kind: "category" | "tag",
     name: string,
@@ -669,74 +662,32 @@ export function RightRailFilters(props: {
   return (
     <div class="grid gap-4">
       <RightPanelSection
-        action={
-          <TaxonomyCreateAction
-            expanded={openCreateKind() === "category"}
-            label="New category"
-            onClick={() => toggleCreateKind("category")}
-          />
-        }
         title="Categories"
         titleId={`${props.idPrefix}-category-filters-title`}
       >
-        <div class="relative grid gap-2">
-          <TaxonomyList
-            activeId={props.activeCategory}
-            activeIds={props.activeCategoryIds}
-            density="compact"
-            emptyLabel="No categories yet"
-            items={props.categories}
-            kind="category"
-            mode="chips"
-            onSelect={props.onSelectCategory}
-            showCounts
-          />
-          <Show when={openCreateKind() === "category"}>
-            <TaxonomyCreatePopover
-              label="Category name"
-              placeholder="Research"
-              submitLabel="Create category"
-              title="New category"
-              onClose={closeCreatePopover}
-              onSubmitName={(name) => createAndRevalidate("category", name)}
-            />
-          </Show>
-        </div>
+        <RightRailTaxonomyList
+          activeId={props.activeCategory}
+          activeIds={props.activeCategoryIds}
+          emptyLabel="No categories yet"
+          items={props.categories}
+          kind="category"
+          onSelect={props.onSelectCategory}
+          onSubmitName={(name) => createAndRevalidate("category", name)}
+        />
       </RightPanelSection>
       <RightPanelSection
-        action={
-          <TaxonomyCreateAction
-            expanded={openCreateKind() === "tag"}
-            label="New tag"
-            onClick={() => toggleCreateKind("tag")}
-          />
-        }
         title="Tags"
         titleId={`${props.idPrefix}-tag-filters-title`}
       >
-        <div class="relative grid gap-2">
-          <TaxonomyList
-            activeId={props.activeTag}
-            activeIds={props.activeTagIds}
-            density="compact"
-            emptyLabel="No tags yet"
-            items={props.tags}
-            kind="tag"
-            mode="chips"
-            onSelect={props.onSelectTag}
-            showCounts
-          />
-          <Show when={openCreateKind() === "tag"}>
-            <TaxonomyCreatePopover
-              label="Tag name"
-              placeholder="sqlite"
-              submitLabel="Create tag"
-              title="New tag"
-              onClose={closeCreatePopover}
-              onSubmitName={(name) => createAndRevalidate("tag", name)}
-            />
-          </Show>
-        </div>
+        <RightRailTaxonomyList
+          activeId={props.activeTag}
+          activeIds={props.activeTagIds}
+          emptyLabel="No tags yet"
+          items={props.tags}
+          kind="tag"
+          onSelect={props.onSelectTag}
+          onSubmitName={(name) => createAndRevalidate("tag", name)}
+        />
       </RightPanelSection>
       <Show when={props.showFlashbacks !== false}>
         <RightPanelSection title="Flashbacks" titleId={`${props.idPrefix}-flashback-shortcuts-title`}>
@@ -758,23 +709,49 @@ export function RightRailFilters(props: {
   );
 }
 
-function TaxonomyCreateAction(props: {
-  expanded: boolean;
-  label: string;
-  onClick: () => void;
+function RightRailTaxonomyList(props: {
+  activeId: string;
+  activeIds?: readonly string[];
+  emptyLabel: string;
+  items: readonly BrowseTaxonomySummaryItem[];
+  kind: "category" | "tag";
+  onSelect: (item: BrowseTaxonomySummaryItem) => void;
+  onSubmitName: (name: string) => Promise<void> | void;
 }) {
+  const [error, setError] = createSignal("");
+  const label = createMemo(() =>
+    props.kind === "tag" ? "New tag" : "New category",
+  );
+  const submitName = async (name: string): Promise<void> => {
+    setError("");
+    await props.onSubmitName(name);
+  };
+
   return (
-    <button
-      aria-expanded={props.expanded}
-      class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
-      data-taxonomy-create-trigger="true"
-      title={props.label}
-      type="button"
-      onClick={props.onClick}
-    >
-      <PlusIcon size={16} />
-      <span>{props.label}</span>
-    </button>
+    <div class="grid gap-2">
+      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+        <TaxonomyList
+          activeId={props.activeId}
+          activeIds={props.activeIds}
+          class="contents"
+          density="compact"
+          emptyLabel={props.emptyLabel}
+          items={props.items}
+          kind={props.kind}
+          mode="chips"
+          onSelect={props.onSelect}
+          showCounts
+        />
+        <TaxonomyInlineCreateControl
+          label={label()}
+          onError={(message) => setError(message)}
+          onSubmitName={submitName}
+        />
+      </div>
+      <Show when={error() !== ""}>
+        <p class="mb-0 text-xs font-bold text-trauma-danger">{error()}</p>
+      </Show>
+    </div>
   );
 }
 

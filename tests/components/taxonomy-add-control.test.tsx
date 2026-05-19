@@ -15,6 +15,10 @@ const taxonomyAddControlSource = readFileSync(
   "src/components/memories/TaxonomyAddControl.tsx",
   "utf8",
 );
+const inlineCreateSource = readFileSync(
+  "src/components/memories/TaxonomyInlineCreateControl.tsx",
+  "utf8",
+);
 
 const taxonomyOptions = [
   {
@@ -90,7 +94,7 @@ describe("taxonomy add control", () => {
     expect(taxonomyAddControlSource).toContain(
       "findTaxonomyOptionByName(props.options, name)",
     );
-    expect(taxonomyAddControlSource).toContain('event.key === "Escape"');
+    expect(inlineCreateSource).toContain('event.key === "Escape"');
     expect(taxonomyAddControlSource).not.toContain("placeholder=");
     expect(taxonomyAddControlSource).not.toContain("focus:ring");
   });

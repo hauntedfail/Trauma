@@ -1,7 +1,6 @@
 import {
   For,
   Show,
-  createEffect,
   createMemo,
   createSignal,
   type JSX,
@@ -9,11 +8,14 @@ import {
 
 import { PlusIcon } from "../icons";
 import { Popup } from "../ui/Popup";
-import { useDismissableLayer } from "../ui/dismissable-layer";
 import type {
   BrowseTaxonomyItem,
   BrowseTaxonomySummaryItem,
 } from "./browse-data";
+import {
+  TaxonomyInlineCreateControl,
+  normalizeTaxonomyAddName,
+} from "./TaxonomyInlineCreateControl";
 
 export interface TaxonomyAddControlProps {
   attachedItems: readonly BrowseTaxonomyItem[];
@@ -29,8 +31,6 @@ export interface TaxonomyAddControlProps {
 
 const addTaxonomyPillClass =
   "inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary";
-const addTaxonomyInputClass =
-  "min-w-[1ch] max-w-24 border-0 bg-transparent p-0 text-xs font-bold text-trauma-text-muted outline-none ring-0 caret-trauma-text-primary focus:outline-none";
 const selectorPanelClass =
   "w-[min(300px,calc(100vw-2rem))] text-trauma-text-primary";
 const selectorListClass =
@@ -40,9 +40,7 @@ const optionClass =
 
 export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   let rootRef: HTMLSpanElement | undefined;
-  let inputRef: HTMLInputElement | undefined;
   const [inlineInputOpen, setInlineInputOpen] = createSignal(false);
-  const [draftName, setDraftName] = createSignal("");
   const [pendingName, setPendingName] = createSignal("");
   const orderedOptions = createMemo(() =>
     sortTaxonomyOptionsByRecentUse(props.options),
@@ -55,21 +53,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   const triggerClass = createMemo(() => props.triggerClass ?? addTaxonomyPillClass);
   const cancelInlineInput = (): void => {
     setInlineInputOpen(false);
-    setDraftName("");
   };
-
-  createEffect(() => {
-    if (!inlineInputOpen()) {
-      return;
-    }
-    queueMicrotask(() => inputRef?.focus());
-  });
-
-  useDismissableLayer({
-    getRoot: () => rootRef,
-    isEnabled: inlineInputOpen,
-    onDismiss: cancelInlineInput,
-  });
 
   const attachExistingOption = async (
     option: BrowseTaxonomySummaryItem,
@@ -105,8 +89,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
     }
   };
 
-  const submitInlineInput = async (): Promise<void> => {
-    const name = normalizeTaxonomyAddName(draftName());
+  const submitInlineInput = async (name: string): Promise<void> => {
     if (name === "" || pendingName().length > 0) {
       return;
     }
@@ -134,26 +117,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    setDraftName("");
     setInlineInputOpen(true);
-  };
-
-  const onInlineInputSubmit: JSX.EventHandler<
-    HTMLFormElement,
-    SubmitEvent
-  > = (event) => {
-    event.preventDefault();
-    void submitInlineInput();
-  };
-
-  const handleInlineInputKeyDown: JSX.EventHandlerUnion<
-    HTMLInputElement,
-    KeyboardEvent
-  > = (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      cancelInlineInput();
-    }
   };
 
   return (
@@ -224,31 +188,25 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
           </Popup>
         }
       >
-        <form
+        <TaxonomyInlineCreateControl
           class={triggerClass()}
-          data-taxonomy-create-trigger
-          onSubmit={onInlineInputSubmit}
-        >
-          <PlusIcon />
-          <input
-            ref={inputRef}
-            aria-label={newLabel()}
-            class={addTaxonomyInputClass}
-            disabled={pendingName().length > 0}
-            size={Math.max(1, draftName().length)}
-            value={draftName()}
-            onInput={(event) => setDraftName(event.currentTarget.value)}
-            onKeyDown={handleInlineInputKeyDown}
-          />
-        </form>
+          disabled={pendingName().length > 0}
+          label={newLabel()}
+          open={inlineInputOpen()}
+          onError={props.onError}
+          onOpenChange={(open) => {
+            if (!open) {
+              cancelInlineInput();
+            }
+          }}
+          onSubmitName={submitInlineInput}
+        />
       </Show>
     </span>
   );
 }
 
-export function normalizeTaxonomyAddName(name: string): string {
-  return name.trim();
-}
+export { normalizeTaxonomyAddName };
 
 export function findTaxonomyOptionByName(
   items: readonly BrowseTaxonomySummaryItem[],

@@ -58,6 +58,13 @@ describe("app shell taxonomy right rail", () => {
     expect(html).toContain(">2<");
   });
 
+  it("keeps right rail taxonomy creation inline at the end of each list", () => {
+    expect(appShellSource).toContain("RightRailTaxonomyList");
+    expect(appShellSource).toContain("TaxonomyInlineCreateControl");
+    expect(appShellSource).not.toContain("TaxonomyCreatePopover");
+    expect(appShellSource).not.toContain("openCreateKind");
+  });
+
   it("renders empty-state hints when no taxonomy exists", () => {
     const html = renderToString(() =>
       createComponent(RightRailFilters, {
