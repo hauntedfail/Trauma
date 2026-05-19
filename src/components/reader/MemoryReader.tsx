@@ -474,9 +474,9 @@ function ReadyMemoryReader(props: {
         title="Memory"
         titleElement="p"
       />
-      <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+      <div class={`${readerPadding} trauma-reader-body py-5 pb-10`}>
         <div class="trauma-fluid-page-shell">
-          <header class="mb-7 grid gap-4">
+          <header class="mb-5 grid gap-4">
             <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
               <Show
                 when={sourceHref()}

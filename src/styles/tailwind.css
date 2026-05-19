@@ -519,7 +519,7 @@
     inline-size: min(100%, var(--trauma-page-shell-max, 52rem));
     max-inline-size: var(--trauma-page-shell-max, 52rem);
     margin-inline: auto;
-    padding-inline: clamp(0.75rem, 2.5cqi, 1.25rem);
+    padding-inline: clamp(0.5rem, 2cqi, 1rem);
   }
 
   .trauma-fluid-route-padding {
@@ -527,7 +527,7 @@
   }
 
   .trauma-reader-route-padding {
-    padding-inline: clamp(0.75rem, 2.5cqi, 1.25rem);
+    padding-inline: clamp(0.5rem, 2cqi, 1rem);
   }
 
   .trauma-fluid-route-stack {
@@ -655,7 +655,7 @@
   @container trauma-reader-surface (width < 42rem) {
     .trauma-reader-header {
       grid-template-columns: minmax(0, 1fr);
-      padding-inline: 1rem;
+      padding-inline: 0.75rem;
     }
 
     .trauma-reader-header > div:first-child {
@@ -663,7 +663,7 @@
     }
 
     .trauma-reader-body {
-      padding-inline: 1rem;
+      padding-inline: 0.75rem;
     }
   }
 

@@ -36,7 +36,12 @@ describe("refined reader visual contract", () => {
     expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
     expect(readerStyles).not.toContain("px-8");
     expect(tailwindSource).toContain(".trauma-reader-route-padding");
-    expect(tailwindSource).toContain("padding-inline: clamp(0.75rem, 2.5cqi, 1.25rem)");
+    expect(tailwindSource).toContain("padding-inline: clamp(0.5rem, 2cqi, 1rem)");
+    expect(tailwindSource).toContain("padding-inline: 0.75rem");
+    expect(readerSource).toContain("trauma-reader-body py-5 pb-10");
+    expect(readerSource).toContain('class="mb-5 grid gap-4"');
+    expect(readerSource).not.toContain("trauma-reader-body py-7 pb-14");
+    expect(readerSource).not.toContain('class="mb-7 grid gap-4"');
   });
 
   it("aligns the memory source URL with the reader action menu row", () => {
