@@ -83,13 +83,18 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain("compareBoundaryPoints");
   });
 
-  it("keeps lifted reader chrome out of selection offsets and body rollback", () => {
+  it("keeps lifted reader title in the offset basis without making reader chrome mutable", () => {
     expect(readerSource).toContain("let bodyContentRef: HTMLDivElement | undefined");
     expect(readerSource).toContain("container: bodyContentRef");
     expect(readerSource).toContain("data-reader-mutable-content");
     expect(readerSource).toContain("ref={bodyContentRef}");
     expect(readerSource).toContain("data-reader-noncontent");
     expect(readerSource).toContain("class=\"trauma-reader-lifted-title\"");
+    expect(readerSource).toContain("data-reader-offset-content");
+    expect(readerSource).toContain("isInsideReaderOffsetContent");
+    expect(readerSource).toContain(
+      "!isInsideReaderNonContent(node) || isInsideReaderOffsetContent(node)",
+    );
     expect(readerSource).toContain("innerHTML={readerBodyHtml()}");
   });
 

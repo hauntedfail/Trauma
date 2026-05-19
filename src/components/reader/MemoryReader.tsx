@@ -591,6 +591,7 @@ function ReadyMemoryReader(props: {
               {(titleHtml) => (
                 <div
                   class="trauma-reader-lifted-title"
+                  data-reader-offset-content
                   data-reader-noncontent
                   innerHTML={titleHtml()}
                 />
@@ -1664,7 +1665,7 @@ function collectReaderContentTextNodes(container: HTMLElement): Text[] {
 
   while (current !== null) {
     const node = current as Text;
-    if (!isInsideReaderNonContent(node)) {
+    if (!isInsideReaderNonContent(node) || isInsideReaderOffsetContent(node)) {
       nodes.push(node);
     }
 
@@ -1677,6 +1678,11 @@ function collectReaderContentTextNodes(container: HTMLElement): Text[] {
 function isInsideReaderNonContent(node: Node): boolean {
   const element = node instanceof Element ? node : node.parentElement;
   return element?.closest("[data-reader-noncontent]") !== null;
+}
+
+function isInsideReaderOffsetContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-offset-content]") !== null;
 }
 
 function rangeIntersectsReaderNonContent(
