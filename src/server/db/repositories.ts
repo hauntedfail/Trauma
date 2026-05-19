@@ -639,6 +639,11 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     },
     taxonomy: {
       createTag: async (input) => {
+        const existing = await findTagByName(db, input.name);
+        if (existing !== undefined) {
+          return existing;
+        }
+
         await db
           .insert(schema.tags)
           .values({
@@ -664,22 +669,29 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             );
           }
 
-          tx
-            .insert(schema.tags)
-            .values({
-              id: input.id,
-              name: input.name,
-              createdAt: input.now,
-              updatedAt: input.now,
-            })
-            .onConflictDoNothing({ target: schema.tags.name })
-            .run();
-
-          const tag = tx
+          let tag = tx
             .select()
             .from(schema.tags)
-            .where(eq(schema.tags.name, input.name))
+            .where(taxonomyNameEquals(schema.tags.name, input.name))
             .get();
+          if (tag === undefined) {
+            tx
+              .insert(schema.tags)
+              .values({
+                id: input.id,
+                name: input.name,
+                createdAt: input.now,
+                updatedAt: input.now,
+              })
+              .onConflictDoNothing({ target: schema.tags.name })
+              .run();
+
+            tag = tx
+              .select()
+              .from(schema.tags)
+              .where(taxonomyNameEquals(schema.tags.name, input.name))
+              .get();
+          }
           if (tag === undefined) {
             throw new MemoryRepositoryError(
               `Cannot find tag after create: ${input.name}`,
@@ -705,6 +717,11 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           return tag;
         }),
       createCategory: async (input) => {
+        const existing = await findCategoryByName(db, input.name);
+        if (existing !== undefined) {
+          return existing;
+        }
+
         await db
           .insert(schema.categories)
           .values({
@@ -730,22 +747,29 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             );
           }
 
-          tx
-            .insert(schema.categories)
-            .values({
-              id: input.id,
-              name: input.name,
-              createdAt: input.now,
-              updatedAt: input.now,
-            })
-            .onConflictDoNothing({ target: schema.categories.name })
-            .run();
-
-          const category = tx
+          let category = tx
             .select()
             .from(schema.categories)
-            .where(eq(schema.categories.name, input.name))
+            .where(taxonomyNameEquals(schema.categories.name, input.name))
             .get();
+          if (category === undefined) {
+            tx
+              .insert(schema.categories)
+              .values({
+                id: input.id,
+                name: input.name,
+                createdAt: input.now,
+                updatedAt: input.now,
+              })
+              .onConflictDoNothing({ target: schema.categories.name })
+              .run();
+
+            category = tx
+              .select()
+              .from(schema.categories)
+              .where(taxonomyNameEquals(schema.categories.name, input.name))
+              .get();
+          }
           if (category === undefined) {
             throw new MemoryRepositoryError(
               `Cannot find category after create: ${input.name}`,
@@ -774,13 +798,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           return category;
         }),
       findTagByName: async (name) =>
-        db.query.tags.findFirst({
-          where: eq(schema.tags.name, name),
-        }),
+        findTagByName(db, name),
       findCategoryByName: async (name) =>
-        db.query.categories.findFirst({
-          where: eq(schema.categories.name, name),
-        }),
+        findCategoryByName(db, name),
       attachTagToMemory: async (input) => {
         await assertMemoryExists(db, input.memoryId, "attach tag to");
         await assertTagExists(db, input.tagId);
@@ -913,9 +933,7 @@ async function getOrCreateSettings(
 }
 
 async function requireTagByName(db: TraumaDatabase, name: string): Promise<Tag> {
-  const tag = await db.query.tags.findFirst({
-    where: eq(schema.tags.name, name),
-  });
+  const tag = await findTagByName(db, name);
   if (tag === undefined) {
     throw new MemoryRepositoryError(`Cannot find tag after create: ${name}`);
   }
@@ -926,13 +944,40 @@ async function requireCategoryByName(
   db: TraumaDatabase,
   name: string,
 ): Promise<Category> {
-  const category = await db.query.categories.findFirst({
-    where: eq(schema.categories.name, name),
-  });
+  const category = await findCategoryByName(db, name);
   if (category === undefined) {
     throw new MemoryRepositoryError(`Cannot find category after create: ${name}`);
   }
   return category;
+}
+
+async function findTagByName(
+  db: TraumaDatabase,
+  name: string,
+): Promise<Tag | undefined> {
+  return db.query.tags.findFirst({
+    where: taxonomyNameEquals(schema.tags.name, name),
+  });
+}
+
+async function findCategoryByName(
+  db: TraumaDatabase,
+  name: string,
+): Promise<Category | undefined> {
+  return db.query.categories.findFirst({
+    where: taxonomyNameEquals(schema.categories.name, name),
+  });
+}
+
+function taxonomyNameEquals(
+  column: typeof schema.tags.name | typeof schema.categories.name,
+  name: string,
+) {
+  return sql`lower(${column}) = ${normalizeTaxonomyLookupName(name)}`;
+}
+
+function normalizeTaxonomyLookupName(name: string): string {
+  return name.trim().toLocaleLowerCase();
 }
 
 async function assertMemoryExists(

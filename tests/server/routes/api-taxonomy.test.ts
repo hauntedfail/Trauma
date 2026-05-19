@@ -34,27 +34,52 @@ afterEach(async () => {
 describe("taxonomy API routes", () => {
   it("creates tags and categories idempotently", async () => {
     const root = await makeRoot();
-    loadRouteConfig(await writeRouteConfig(root));
+    const config = loadRouteConfig(await writeRouteConfig(root));
 
     const tagResponse = await createTag(jsonRequest("/api/tags", { name: " sqlite " }));
     const duplicateTagResponse = await createTag(jsonRequest("/api/tags", { name: "sqlite" }));
+    const caseDuplicateTagResponse = await createTag(
+      jsonRequest("/api/tags", { name: "SQLite" }),
+    );
     const categoryResponse = await createCategory(
       jsonRequest("/api/categories", { name: " Research " }),
     );
     const duplicateCategoryResponse = await createCategory(
       jsonRequest("/api/categories", { name: "Research" }),
     );
+    const caseDuplicateCategoryResponse = await createCategory(
+      jsonRequest("/api/categories", { name: "research" }),
+    );
 
     expect(tagResponse.status).toBe(201);
     expect(duplicateTagResponse.status).toBe(200);
+    expect(caseDuplicateTagResponse.status).toBe(200);
     expect(categoryResponse.status).toBe(201);
     expect(duplicateCategoryResponse.status).toBe(200);
+    expect(caseDuplicateCategoryResponse.status).toBe(200);
     expect((await tagResponse.json()).tag).toMatchObject({ name: "sqlite" });
     expect((await duplicateTagResponse.json()).tag).toMatchObject({ name: "sqlite" });
+    expect((await caseDuplicateTagResponse.json()).tag).toMatchObject({
+      name: "sqlite",
+    });
     expect((await categoryResponse.json()).category).toMatchObject({ name: "Research" });
     expect((await duplicateCategoryResponse.json()).category).toMatchObject({
       name: "Research",
     });
+    expect((await caseDuplicateCategoryResponse.json()).category).toMatchObject({
+      name: "Research",
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(connection.sqlite.prepare("select count(*) as count from tags").get())
+        .toEqual({ count: 1 });
+      expect(
+        connection.sqlite.prepare("select count(*) as count from categories").get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      connection.close();
+    }
   });
 
   it("rejects malformed taxonomy creation payloads", async () => {
@@ -121,6 +146,62 @@ describe("taxonomy API routes", () => {
           .prepare("select count(*) as count from memory_categories")
           .get(),
       ).toEqual({ count: 2 });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("attaches case-insensitive existing taxonomy names instead of creating duplicates", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+
+    const createdTag = await (
+      await createTag(jsonRequest("/api/tags", { name: "sqlite" }))
+    ).json();
+    const createdCategory = await (
+      await createCategory(jsonRequest("/api/categories", { name: "Research" }))
+    ).json();
+
+    const attachTagByName = await attachTag(
+      jsonRequest("/api/memories/tags", {
+        memoryId: routeMemoryId,
+        name: "SQLITE",
+      }),
+    );
+    const attachCategoryByName = await attachCategory(
+      jsonRequest("/api/memories/categories", {
+        memoryId: routeMemoryId,
+        name: "research",
+      }),
+    );
+
+    expect(attachTagByName.status).toBe(200);
+    expect(attachCategoryByName.status).toBe(200);
+    expect(await attachTagByName.json()).toMatchObject({
+      tagId: createdTag.tag.id,
+      tag: { id: createdTag.tag.id, name: "sqlite" },
+    });
+    expect(await attachCategoryByName.json()).toMatchObject({
+      categoryId: createdCategory.category.id,
+      category: { id: createdCategory.category.id, name: "Research" },
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      expect(connection.sqlite.prepare("select count(*) as count from tags").get())
+        .toEqual({ count: 1 });
+      expect(
+        connection.sqlite.prepare("select count(*) as count from categories").get(),
+      ).toEqual({ count: 1 });
+      expect(
+        connection.sqlite.prepare("select count(*) as count from memory_tags").get(),
+      ).toEqual({ count: 1 });
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memory_categories")
+          .get(),
+      ).toEqual({ count: 1 });
     } finally {
       connection.close();
     }

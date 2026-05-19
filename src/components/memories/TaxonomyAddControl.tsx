@@ -93,6 +93,13 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
       return;
     }
 
+    const existingOption = findTaxonomyOptionByName(props.options, name);
+    if (existingOption !== undefined) {
+      await attachExistingOption(existingOption);
+      cancelInlineInput();
+      return;
+    }
+
     setPendingName(name);
     try {
       await props.onAttachName(name);
@@ -217,6 +224,20 @@ export function normalizeTaxonomyAddName(name: string): string {
   return name.trim();
 }
 
+export function findTaxonomyOptionByName(
+  items: readonly BrowseTaxonomySummaryItem[],
+  name: string,
+): BrowseTaxonomySummaryItem | undefined {
+  const normalizedName = normalizeTaxonomyLookupName(name);
+  if (normalizedName === "") {
+    return undefined;
+  }
+
+  return items.find(
+    (item) => normalizeTaxonomyLookupName(item.name) === normalizedName,
+  );
+}
+
 export function sortTaxonomyOptionsByRecentUse(
   items: readonly BrowseTaxonomySummaryItem[],
 ): BrowseTaxonomySummaryItem[] {
@@ -229,6 +250,10 @@ export function sortTaxonomyOptionsByRecentUse(
 
     return left.name.localeCompare(right.name);
   });
+}
+
+function normalizeTaxonomyLookupName(name: string): string {
+  return normalizeTaxonomyAddName(name).toLocaleLowerCase();
 }
 
 function getTaxonomyAddLabel(kind: TaxonomyAddControlProps["kind"]): string {

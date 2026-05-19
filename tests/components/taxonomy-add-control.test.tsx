@@ -4,6 +4,7 @@ import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
 import {
+  findTaxonomyOptionByName,
   normalizeTaxonomyAddName,
   sortTaxonomyOptionsByRecentUse,
   TaxonomyAddControl,
@@ -57,6 +58,13 @@ describe("taxonomy add control", () => {
     expect(normalizeTaxonomyAddName("   ")).toBe("");
   });
 
+  it("resolves inline-created names to existing options before creation", () => {
+    expect(findTaxonomyOptionByName(taxonomyOptions, " RECENT ")?.id).toBe(
+      "recent",
+    );
+    expect(findTaxonomyOptionByName(taxonomyOptions, "missing")).toBeUndefined();
+  });
+
   it("renders the existing Add pill style as the stable trigger surface", () => {
     const html = renderToString(() =>
       createComponent(TaxonomyAddControl, {
@@ -79,6 +87,9 @@ describe("taxonomy add control", () => {
     expect(taxonomyAddControlSource).toContain("New tag");
     expect(taxonomyAddControlSource).toContain("New category");
     expect(taxonomyAddControlSource).toContain("onClick={(event) => enterInlineInput(event)}");
+    expect(taxonomyAddControlSource).toContain(
+      "findTaxonomyOptionByName(props.options, name)",
+    );
     expect(taxonomyAddControlSource).toContain('event.key === "Escape"');
     expect(taxonomyAddControlSource).not.toContain("placeholder=");
     expect(taxonomyAddControlSource).not.toContain("focus:ring");
