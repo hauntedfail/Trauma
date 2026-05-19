@@ -6,12 +6,19 @@ interface ExtractionCandidate {
   extractionStrategy: ExtractionStrategy;
 }
 
+type CaptureElementResult =
+  | { ok: true; element: Element }
+  | { ok: false; error: string };
+
+type CandidateResult =
+  | { ok: true; candidate: ExtractionCandidate }
+  | { ok: false; error: string };
+
 const REMOVED_SELECTORS = [
   "script",
   "style",
   "noscript",
   "template",
-  "iframe",
   "object",
   "embed",
   "canvas",
@@ -23,15 +30,15 @@ const REMOVED_SELECTORS = [
   "button",
 ];
 
-const SITE_SPECIFIC_SELECTORS = [
-  {
-    hostnameSuffix: "openai.com",
-    selectors: ['[data-testid="page-content"]', "main article", "main"],
-  },
-] as const;
-
 const SEMANTIC_SELECTORS = ["article", "main", '[role="main"]'] as const;
-const MAX_SHADOW_TRAVERSAL_NODES = 5_000;
+const MAX_SHADOW_SEARCH_NODES = 5_000;
+const MAX_CAPTURE_SAFETY_NODES = 100_000;
+const CAPTURE_INCOMPLETE_ERROR =
+  "Could not capture the complete readable content.";
+const CAPTURE_TOO_LARGE_ERROR = "The current page is too large to import.";
+const CAPTURE_IFRAME_SANDBOX =
+  "allow-scripts allow-presentation";
+const textEncoder = new TextEncoder();
 
 export function createCapturedTabSnapshot(
   extensionVersion: string,
@@ -44,26 +51,25 @@ export function createCapturedTabSnapshot(
     };
   }
 
-  const documentElement = cloneElementWithinTraversalLimit(document.documentElement);
-  if (documentElement === null) {
-    return { ok: false, error: "Could not read the current page." };
+  const candidate = selectExtractionCandidate(document, maxBytes);
+  if (!candidate.ok) {
+    return { ok: false, error: candidate.error };
   }
 
-  sanitizeElement(documentElement);
-  const candidate = selectExtractionCandidate(document, documentElement);
-  if (candidate === null) {
+  const articleHtml = candidate.candidate.element.outerHTML;
+  const articleText = normalizeReadableText(
+    candidate.candidate.element.textContent ?? "",
+  );
+
+  if (
+    articleText.length === 0 &&
+    !hasMeaningfulMedia(candidate.candidate.element)
+  ) {
     return { ok: false, error: "Could not find readable page content." };
   }
 
-  const articleHtml = candidate.element.outerHTML;
-  const articleText = normalizeReadableText(candidate.element.textContent ?? "");
-
-  if (articleText.length === 0) {
-    return { ok: false, error: "Could not find readable page content." };
-  }
-
-  if (new TextEncoder().encode(articleHtml).byteLength > maxBytes) {
-    return { ok: false, error: "The current page is too large to import." };
+  if (byteLength(articleHtml) > maxBytes) {
+    return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
   }
 
   const snapshot = {
@@ -73,14 +79,14 @@ export function createCapturedTabSnapshot(
     description: readDescription(),
     articleHtml,
     articleText,
-    selector: candidate.selector,
-    extractionStrategy: candidate.extractionStrategy,
+    selector: candidate.candidate.selector,
+    extractionStrategy: candidate.candidate.extractionStrategy,
     capturedAt: new Date().toISOString(),
     extensionVersion,
   };
 
-  if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > maxBytes) {
-    return { ok: false, error: "The current page is too large to import." };
+  if (byteLength(JSON.stringify(snapshot)) > maxBytes) {
+    return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
   }
 
   return {
@@ -91,64 +97,57 @@ export function createCapturedTabSnapshot(
 
 function selectExtractionCandidate(
   liveDocument: Document,
-  sanitizedDocumentElement: Element,
-): ExtractionCandidate | null {
-  const siteCandidate = selectSiteSpecificCandidate(liveDocument);
-  if (siteCandidate !== null) {
-    return siteCandidate;
-  }
+  maxBytes: number,
+): CandidateResult {
+  let captureError: string | null = null;
 
   for (const selector of SEMANTIC_SELECTORS) {
-    const candidate = selectBestElement(
-      Array.from(sanitizedDocumentElement.querySelectorAll(selector)),
+    const candidate = selectBestClonedElement(
+      querySelectorAllDeep(liveDocument, selector),
+      maxBytes,
     );
-    if (candidate !== null) {
+    if (!candidate.ok) {
+      captureError ??= candidate.error;
+      continue;
+    }
+
+    if (candidate.element !== null) {
       return {
-        element: candidate,
-        selector,
-        extractionStrategy: "semantic_selector",
+        ok: true,
+        candidate: {
+          element: candidate.element,
+          selector,
+          extractionStrategy: "semantic_selector",
+        },
       };
     }
   }
 
-  const body = sanitizedDocumentElement.querySelector("body");
-  return body === null
-    ? null
-    : {
-        element: body,
-        selector: "body",
-        extractionStrategy: "body_fallback",
-      };
-}
-
-function selectSiteSpecificCandidate(liveDocument: Document) {
-  const hostname = location.hostname.toLowerCase();
-  const selectorGroup = SITE_SPECIFIC_SELECTORS.find(
-    (group) =>
-      hostname === group.hostnameSuffix ||
-      hostname.endsWith(`.${group.hostnameSuffix}`),
+  const documentElement = cloneElementWithinByteBudget(
+    liveDocument.documentElement,
+    maxBytes,
   );
-  if (selectorGroup === undefined) {
-    return null;
+  if (!documentElement.ok) {
+    return documentElement;
+  }
+  if (!sanitizeElement(documentElement.element)) {
+    return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
   }
 
-  for (const selector of selectorGroup.selectors) {
-    const candidate = selectBestElement(querySelectorAllDeep(liveDocument, selector));
-    if (candidate !== null) {
-      const clone = cloneElementWithinTraversalLimit(candidate);
-      if (clone === null) {
-        continue;
+  const body = documentElement.element.querySelector("body");
+  return body === null
+    ? {
+        ok: false,
+        error: captureError ?? "Could not find readable page content.",
       }
-      sanitizeElement(clone);
-      return {
-        element: clone,
-        selector,
-        extractionStrategy: "site_selector" as const,
+    : {
+        ok: true,
+        candidate: {
+          element: body,
+          selector: "body",
+          extractionStrategy: "body_fallback",
+        },
       };
-    }
-  }
-
-  return null;
 }
 
 function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
@@ -157,7 +156,7 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
   const visited = new Set<ParentNode>();
   let inspected = 0;
 
-  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+  while (queue.length > 0 && inspected < MAX_SHADOW_SEARCH_NODES) {
     const current = queue.shift();
     if (current === undefined || visited.has(current)) {
       continue;
@@ -170,7 +169,7 @@ function querySelectorAllDeep(root: ParentNode, selector: string): Element[] {
 
     for (const element of childElements(current)) {
       inspected += 1;
-      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
+      if (inspected >= MAX_SHADOW_SEARCH_NODES) {
         break;
       }
 
@@ -192,63 +191,126 @@ function childElements(parent: ParentNode) {
   return Array.from(parent.children as HTMLCollectionOf<Element>);
 }
 
-function cloneElementWithinTraversalLimit(sourceRoot: Element) {
+function cloneElementWithinByteBudget(
+  sourceRoot: Element,
+  maxBytes: number,
+): CaptureElementResult {
   const rootClone = sourceRoot.cloneNode(false);
   if (!(rootClone instanceof Element)) {
-    return null;
+    return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
   }
 
   const queue: { source: Element; clone: Element }[] = [
     { source: sourceRoot, clone: rootClone },
   ];
   let inspected = 0;
+  let estimatedBytes = estimateElementShellBytes(rootClone);
 
-  while (queue.length > 0 && inspected < MAX_SHADOW_TRAVERSAL_NODES) {
+  while (queue.length > 0) {
+    if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+      return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
+    }
+
     const current = queue.shift();
     if (current === undefined) {
       continue;
     }
 
     inspected += 1;
-    for (const child of Array.from(current.source.childNodes)) {
-      if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
-        break;
+    const childNodes = [
+      ...Array.from(current.source.childNodes),
+      ...(current.source.shadowRoot === null
+        ? []
+        : Array.from(current.source.shadowRoot.childNodes)),
+    ];
+    for (const child of childNodes) {
+      if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+        return { ok: false, error: CAPTURE_INCOMPLETE_ERROR };
       }
 
       inspected += 1;
       if (child.nodeType === 1) {
-        const childClone = child.cloneNode(false);
-        if (!(child instanceof Element) || !(childClone instanceof Element)) {
+        if (!(child instanceof Element) || isRemovedElement(child)) {
           continue;
         }
 
+        const childClone = child.cloneNode(false);
+        if (!(childClone instanceof Element)) {
+          continue;
+        }
+        const childBytes = estimateElementShellBytes(childClone);
+        if (estimatedBytes + childBytes > maxBytes) {
+          return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
+        }
+
         current.clone.appendChild(childClone);
+        estimatedBytes += childBytes;
         queue.push({ source: child, clone: childClone });
         continue;
       }
 
       if (child.nodeType === 3) {
+        const childBytes = estimateTextNodeBytes(child.textContent ?? "");
+        if (estimatedBytes + childBytes > maxBytes) {
+          return { ok: false, error: CAPTURE_TOO_LARGE_ERROR };
+        }
+
         current.clone.appendChild(child.cloneNode(false));
+        estimatedBytes += childBytes;
       }
     }
   }
 
-  return rootClone;
+  return { ok: true, element: rootClone };
 }
 
-function selectBestElement(elements: readonly Element[]) {
+function selectBestClonedElement(
+  elements: readonly Element[],
+  maxBytes: number,
+): { ok: true; element: Element | null } | { ok: false; error: string } {
   let best: Element | null = null;
-  let bestLength = 0;
+  let bestScore = 0;
+  let captureError: string | null = null;
 
   for (const element of elements) {
-    const textLength = normalizeReadableText(element.textContent ?? "").length;
-    if (textLength > bestLength) {
-      best = element;
-      bestLength = textLength;
+    const clone = cloneElementWithinByteBudget(element, maxBytes);
+    if (!clone.ok) {
+      captureError ??= clone.error;
+      continue;
+    }
+
+    if (!sanitizeElement(clone.element)) {
+      captureError ??= CAPTURE_INCOMPLETE_ERROR;
+      continue;
+    }
+
+    const score = scoreExtractionElement(clone.element);
+    if (score > bestScore) {
+      best = clone.element;
+      bestScore = score;
     }
   }
 
-  return bestLength > 0 ? best : null;
+  if (bestScore > 0) {
+    return { ok: true, element: best };
+  }
+
+  return captureError === null
+    ? { ok: true, element: null }
+    : { ok: false, error: captureError };
+}
+
+function scoreExtractionElement(element: Element) {
+  return normalizeReadableText(element.textContent ?? "").length +
+    countMeaningfulMedia(element) * 300;
+}
+
+function hasMeaningfulMedia(element: Element) {
+  return countMeaningfulMedia(element) > 0;
+}
+
+function countMeaningfulMedia(element: Element) {
+  return element.querySelectorAll("img[src], iframe[src], picture img[src]").length;
 }
 
 function sanitizeElement(root: Element) {
@@ -256,11 +318,8 @@ function sanitizeElement(root: Element) {
   let inspected = 0;
 
   while (queue.length > 0) {
-    if (inspected >= MAX_SHADOW_TRAVERSAL_NODES) {
-      for (const element of queue) {
-        element.remove();
-      }
-      return;
+    if (inspected >= MAX_CAPTURE_SAFETY_NODES) {
+      return false;
     }
 
     const element = queue.shift();
@@ -274,6 +333,16 @@ function sanitizeElement(root: Element) {
       continue;
     }
 
+    if (element.localName.toLowerCase() === "iframe" && !sanitizeIframeElement(element)) {
+      element.remove();
+      continue;
+    }
+
+    if (element.localName.toLowerCase() === "img" && !sanitizeImageElement(element)) {
+      element.remove();
+      continue;
+    }
+
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || name === "srcdoc") {
@@ -283,10 +352,148 @@ function sanitizeElement(root: Element) {
 
     queue.push(...childElements(element));
   }
+
+  return true;
+}
+
+function estimateElementShellBytes(element: Element) {
+  return byteLength(element.outerHTML);
+}
+
+function estimateTextNodeBytes(value: string) {
+  return byteLength(
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;"),
+  );
+}
+
+function byteLength(value: string) {
+  return textEncoder.encode(value).byteLength;
 }
 
 function isRemovedElement(element: Element) {
   return REMOVED_SELECTORS.includes(element.localName.toLowerCase());
+}
+
+function sanitizeIframeElement(element: Element) {
+  if (element.getAttribute("srcdoc") !== null) {
+    return false;
+  }
+
+  const src = resolveCaptureMediaUrl(element.getAttribute("src"));
+  if (src === null) {
+    return false;
+  }
+
+  const title = element.getAttribute("title");
+  const width = sanitizeDimension(element.getAttribute("width"));
+  const height = sanitizeDimension(element.getAttribute("height"));
+  const allowfullscreen = element.getAttribute("allowfullscreen") !== null;
+  clearAttributes(element);
+  element.setAttribute("src", src);
+  element.setAttribute("loading", "lazy");
+  element.setAttribute("referrerpolicy", "no-referrer");
+  element.setAttribute("sandbox", CAPTURE_IFRAME_SANDBOX);
+  if (title !== null && title.trim() !== "") {
+    element.setAttribute("title", title.trim());
+  }
+  if (width !== null) {
+    element.setAttribute("width", width);
+  }
+  if (height !== null) {
+    element.setAttribute("height", height);
+  }
+  if (allowfullscreen) {
+    element.setAttribute("allowfullscreen", "");
+  }
+
+  return true;
+}
+
+function sanitizeImageElement(element: Element) {
+  const src = resolveCaptureMediaUrl(element.getAttribute("src"));
+  if (src === null) {
+    return false;
+  }
+
+  const alt = element.getAttribute("alt");
+  const title = element.getAttribute("title");
+  const width = sanitizeDimension(element.getAttribute("width"));
+  const height = sanitizeDimension(element.getAttribute("height"));
+  clearAttributes(element);
+  element.setAttribute("src", src);
+  element.setAttribute("loading", "lazy");
+  element.setAttribute("referrerpolicy", "no-referrer");
+  if (alt !== null) {
+    element.setAttribute("alt", alt.trim());
+  }
+  if (title !== null && title.trim() !== "") {
+    element.setAttribute("title", title.trim());
+  }
+  if (width !== null) {
+    element.setAttribute("width", width);
+  }
+  if (height !== null) {
+    element.setAttribute("height", height);
+  }
+  return true;
+}
+
+function clearAttributes(element: Element) {
+  for (const attribute of Array.from(element.attributes)) {
+    element.removeAttribute(attribute.name);
+  }
+}
+
+function resolveCaptureMediaUrl(value: string | null) {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const url = new URL(value, location.href);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      isBlockedCaptureHostname(url.hostname)
+    ) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeDimension(value: string | null) {
+  return value !== null && /^\d{1,5}$/.test(value) ? value : null;
+}
+
+function isBlockedCaptureHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  return (
+    normalized === "" ||
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".local") ||
+    isIpv4CaptureHostname(normalized) ||
+    normalized.includes(":")
+  );
+}
+
+function isIpv4CaptureHostname(hostname: string) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+    return false;
+  }
+
+  const octets = hostname.split(".").map((part) => Number.parseInt(part, 10));
+  return octets.every(
+    (octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255,
+  );
 }
 
 function readCanonicalUrl() {

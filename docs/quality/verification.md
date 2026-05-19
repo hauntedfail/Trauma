@@ -11,11 +11,11 @@ Playwright should cover the main user workflows:
 - Markdown file creation.
 - `/memories` list rendering.
 - `/memories/:id` reader rendering.
-- `/highlights` highlight excerpt rendering.
+- `/flashbacks` flashback excerpt rendering.
 - Category/tag filtering.
-- `/memories?q=...` matching highlight text.
-- Highlight selection and persistence.
-- Highlight toggle removal when selecting already-highlighted text.
+- `/memories?q=...` matching flashback text.
+- Flashback selection and persistence.
+- Flashback toggle removal when selecting already-flashbacked text.
 - Backup status display.
 
 E2E tests should use controlled URLs or fixtures so extraction behavior is
@@ -54,8 +54,8 @@ Unit or integration tests should cover:
 - Drizzle repositories.
 - Importer success and failure mapping.
 - Markdown store writer.
-- Highlight marker insertion.
-- Highlight marker removal, shrink, and split behavior.
+- Flashback marker insertion.
+- Flashback marker removal, shrink, and split behavior.
 - Backup queue behavior.
 - Backup environment failsafe drift, bootstrap, recovery, and push-failure
   behavior.
@@ -79,7 +79,7 @@ mise exec -- bun run scripts/trauma-backup-failsafe.ts delete-missing-record --c
 
 ## Completion Bar
 
-A change that affects storage, import, highlights, backup, routing, or reader
+A change that affects storage, import, flashbacks, backup, routing, or reader
 rendering should include either E2E coverage or a clear reason why focused tests
 are sufficient.
 

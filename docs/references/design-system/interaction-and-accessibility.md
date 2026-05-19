@@ -5,13 +5,15 @@
 Canonical UI routes:
 
 - `/memories`
-- `/highlights`
+- `/flashbacks`
+- `/moments`
 - `/memories/:id`
+- `/settings`
 
 The root route redirects to `/memories`.
 
-Do not add live navigation links to missing `/category`, `/tags`, `/backup`,
-or `/settings` routes. Future items may be rendered as disabled controls only.
+Do not add live navigation links to missing `/category`, `/tags`, or `/backup`
+routes. Future items may be rendered as disabled controls only.
 
 ## Query State
 
@@ -22,11 +24,25 @@ Supported browse concerns:
 - Search query.
 - Category filter.
 - Tag filter.
-- Highlight shortcut filter.
+- Flashback shortcut filter.
 - List/grid view mode.
 
 Filter buttons should toggle their own query key without clearing unrelated
 query state.
+
+The `q` search value is preserved as raw input in the URL and may contain
+fielded filters:
+
+- `title:{some title}`
+- `url:{example.com}`
+- `tag:{sqlite}`
+- `category:{research}`
+- `flashback:{selected text}`
+- standalone `read` or `unread`
+
+Field filters, free-text terms, read-state filters, and explicit right-rail
+filters combine with AND semantics. `read unread` intentionally matches no
+rows.
 
 ## Row Navigation
 
@@ -35,7 +51,8 @@ Memory browse rows are full-row links.
 Rules:
 
 - The entire row/card opens the memory.
-- Nested controls should be avoided inside the row.
+- Nested controls must stop propagation so action buttons do not trigger row
+  navigation.
 - There is no separate trailing `Open` button.
 - Keyboard focus must reach the row link.
 
@@ -67,7 +84,7 @@ Rules:
 - Icon-only buttons need accessible labels on the button.
 - SVG icons are `aria-hidden`.
 - Route rows and reader links must have visible focus treatment.
-- Reader highlight keyboard toggling must remain explicit and must not trigger
+- Reader flashback keyboard toggling must remain explicit and must not trigger
   during ordinary text navigation.
 
 ## Labels And Landmarks
@@ -84,10 +101,11 @@ Required shell labels:
 Route surfaces should use `aria-labelledby` and stable headings:
 
 - `memories-title`.
-- `highlights-title`.
+- `flashbacks-title`.
 - Reader fallback states use `reader-state-title`; ready reader content uses
-  the markdown heading from the stored content rather than a duplicate shell
-  header title.
+  a route-local sticky header with only the back control and `Memory` label.
+  The memory URL/action row, title, and taxonomy chips live in the main reader
+  intro.
 
 ## Selected And Disabled State
 
@@ -110,7 +128,7 @@ Desktop:
 - Left rail, main pane, and right rail are visible.
 - Reader TOC appears at the top of the right rail only on concrete memory
   reader routes.
-- TOC and Recent highlights scroll inside their own bounded list bodies.
+- TOC and Flashback shortcut lists scroll inside their own bounded list bodies.
 
 Tablet:
 
@@ -124,7 +142,7 @@ Tablet:
 
 Mobile:
 
-- Bottom `Primary tabs` render Memories, Highlights, Categories, Tags, Backup,
+- Bottom `Primary tabs` render Memories, Flashbacks, Categories, Tags, Backup,
   Add memory, Theme, and Settings.
 - The tab list scrolls horizontally when space is constrained. The page itself
   must not gain horizontal overflow from the tab bar.

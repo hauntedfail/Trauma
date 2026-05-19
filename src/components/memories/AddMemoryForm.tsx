@@ -92,6 +92,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       <WaxSealButton
         class={props.buttonClass}
         disabled={!canSubmit()}
+        hint={isSubmitting() ? "Saving..." : props.submitLabel}
         type="submit"
         variant="command"
       >

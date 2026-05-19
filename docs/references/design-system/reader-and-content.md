@@ -3,7 +3,7 @@
 ## Reader Purpose
 
 Reader mode is for reading extracted memory content. It is not a markdown
-editor. The only direct text interaction is highlight toggling through text
+editor. The only direct text interaction is flashback toggling through text
 selection.
 
 ## Reader Frame
@@ -43,12 +43,15 @@ Contract:
 - Registered by `MemoryReader` into the shell right rail while a ready memory
   route is mounted.
 - Rendered as the first right rail island on `/memories/:id`.
-- Hidden from `/memories`, `/highlights`, and other non-reader routes.
+- Hidden from `/memories`, `/flashbacks`, and other non-reader routes.
 - Removed from the right rail on reader unmount.
 - Rounded island surface matching right rail section geometry.
 - Text is compact.
 - Links target generated markdown heading anchors and use the reader link
   token on hover.
+- Heading entries are left-aligned inside the island. Do not add global list
+  padding; reserve only the small Moment affordance slot and use heading-level
+  indentation for hierarchy.
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
@@ -78,37 +81,38 @@ Reader prose rules:
 Do not introduce broad global prose selectors outside the reader unless the
 markup cannot be authored directly.
 
-## Highlight Rendering
+## Flashback Rendering
 
-Persisted highlights render as:
+Persisted flashbacks render as:
 
 ```html
-<mark data-highlight-id="...">
+<mark data-flashback-id="...">
 ```
 
 Visual contract:
 
 - Rounded inline mark.
-- `bg-trauma-highlight-bg`.
-- `text-trauma-highlight-ink`.
+- `bg-trauma-flashback-bg`.
+- `text-trauma-flashback-ink`.
 - Small horizontal padding.
-- When a persisted highlight is the URL hash target, the reader scopes the
-  target treatment to `.trauma-reader-content mark[data-highlight-id]:target`
-  and uses anchor highlight tokens so every theme keeps the linked quote legible.
+- When a persisted flashback is the URL hash target, the reader scopes the
+  target treatment to `.trauma-reader-content mark[data-flashback-id]:target`
+  and uses anchor flashback tokens so every theme keeps the linked quote legible.
   Keep this target treatment in the reader scope rather than as a generic mark
   rule.
 
-Highlight excerpts use `HighlightExcerpt`, not the reader prose mark style.
+Flashback browse excerpts and right-rail shortcuts use the shared
+`FlashbackInlineText` primitive, not the reader prose mark style.
 
-## Highlight Interaction
+## Flashback Interaction
 
-Selecting reader text toggles highlight state:
+Selecting reader text toggles flashback state:
 
-- Selecting unmarked text highlights it.
-- Selecting a fully marked range unhighlights it.
+- Selecting unmarked text flashbacks it.
+- Selecting a fully marked range unflashbacks it.
 - The UI applies the optimistic mark immediately.
-- The server persists the highlight state asynchronously.
-- On failure, the reader restores previous HTML and shows "Highlight failed".
+- The server persists the flashback state asynchronously.
+- On failure, the reader restores previous HTML and shows "Flashback failed".
 
 The reader must keep this interaction independent from general content editing.
 

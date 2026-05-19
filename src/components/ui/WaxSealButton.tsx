@@ -4,6 +4,7 @@ export type WaxSealButtonVariant = "command" | "toggle";
 
 export interface WaxSealButtonProps
   extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+  hint?: string;
   variant?: WaxSealButtonVariant;
 }
 
@@ -22,6 +23,7 @@ export function WaxSealButton(props: WaxSealButtonProps) {
   const [local, buttonProps] = splitProps(props, [
     "children",
     "class",
+    "hint",
     "variant",
   ]);
   const variant = local.variant ?? "command";
@@ -34,6 +36,7 @@ export function WaxSealButton(props: WaxSealButtonProps) {
         variantClass[variant],
         local.class,
       ])}
+      title={local.hint}
     >
       {local.children}
     </button>

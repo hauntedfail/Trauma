@@ -1,0 +1,1 @@
+ALTER TABLE `highlights` ADD `content_hash` text;

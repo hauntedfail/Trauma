@@ -13,11 +13,11 @@ Primary token groups:
 - Accent: `accent`, `accent-hover`, `accent-press`, `accent-ink`,
   `accent-soft`, `accent-soft-ink`.
 - Chips: `chip-bg`, `chip-border`, `chip-ink`.
-- Highlights and quotes: `hl-bg`, `hl-ink`, `hl-quote-bg`,
+- Flashbacks and quotes: `hl-bg`, `hl-ink`, `hl-quote-bg`,
   `hl-quote-bar`, `hl-quote-ink`.
 - Links: `link`, `link-hover`.
-- Linked highlight anchors: `anchor-highlight-bg`, `anchor-highlight-ink`,
-  `anchor-highlight-ring`.
+- Linked flashback anchors: `anchor-flashback-bg`, `anchor-flashback-ink`,
+  `anchor-flashback-ring`.
 - State: `state-success`, `state-warning`, `state-danger`, `state-info`.
 - Typography: `font-sans`, `font-serif`, `font-mono`, `font-body`.
 - Shadows: `shadow-1`, `shadow-2`, `shadow-drawer`.
@@ -40,8 +40,8 @@ The `@theme` block exposes tokens as Tailwind utilities:
 - `text-trauma-link`
 - `text-trauma-link-hover`
 - `bg-trauma-accent`
-- `bg-trauma-highlight-bg`
-- `text-trauma-highlight-ink`
+- `bg-trauma-flashback-bg`
+- `text-trauma-flashback-ink`
 - `bg-trauma-quote-bg`
 - `border-trauma-quote-bar`
 - `text-trauma-quote-ink`
@@ -168,21 +168,25 @@ Rules:
 - Match type scale to context: large route titles, compact panel headings,
   dense row metadata, readable reader prose.
 
-## Highlight And Quote Tokens
+## Flashback And Quote Tokens
 
-Reader links, highlights, and highlight excerpts use stable semantic tokens:
+Reader links, flashbacks, and flashback excerpts use stable semantic tokens:
 
 - Reader/content links: `text-trauma-link` and
   `hover:text-trauma-link-hover`.
 
-- Inline highlights: `bg-trauma-highlight-bg`,
-  `text-trauma-highlight-ink`.
-- Quote/excerpt cards: `bg-trauma-quote-bg`,
-  `border-trauma-quote-bar`, `text-trauma-quote-ink`.
-- Linked highlight hash targets:
-  `.trauma-reader-content mark[data-highlight-id]:target` uses
-  `anchor-highlight-bg`, `anchor-highlight-ink`, and
-  `anchor-highlight-ring`.
+- Inline flashbacks: `bg-trauma-flashback-bg`,
+  `text-trauma-flashback-ink`.
+- Flashback browse context: shared context spans use secondary/tertiary
+  foreground mixing and the Flashback context blur/mask classes. Route and
+  right-rail Flashback rows should not use quote-card background or border
+  tokens.
+- Reader prose blockquotes still use the quote token family through the reader
+  prose styles.
+- Linked flashback hash targets:
+  `.trauma-reader-content mark[data-flashback-id]:target` uses
+  `anchor-flashback-bg`, `anchor-flashback-ink`, and
+  `anchor-flashback-ring`.
 
 Do not replace these with ad hoc yellow or paper colours inside components.
 

@@ -1,19 +1,33 @@
+import type { ExtractionStatus } from "../../server/memory-status";
+
 export type BrowseView = "list" | "grid";
+export type BrowseReadStateFilter = "all" | "read" | "unread";
 
 export interface BrowseTaxonomyItem {
   id: string;
   name: string;
 }
 
-export interface BrowseHighlight {
+export interface BrowseTaxonomySummaryItem extends BrowseTaxonomyItem {
+  memoryCount: number;
+  lastAssignedAt: string | null;
+}
+
+export interface BrowseTaxonomySummary {
+  categories: BrowseTaxonomySummaryItem[];
+  tags: BrowseTaxonomySummaryItem[];
+}
+
+export interface BrowseFlashback {
   id: string;
+  memoryId: string;
   text: string;
   prefix: string;
   suffix: string;
   createdAt: string;
 }
 
-export interface BrowseReaderHighlight extends BrowseHighlight {
+export interface BrowseReaderFlashback extends BrowseFlashback {
   anchorId: string;
 }
 
@@ -23,16 +37,18 @@ export interface BrowseMemory {
   url: string;
   description: string;
   capturedAt: string;
+  read: boolean;
+  extractionStatus: ExtractionStatus;
   categories: BrowseTaxonomyItem[];
   tags: BrowseTaxonomyItem[];
-  highlights: BrowseHighlight[];
+  flashbacks: BrowseFlashback[];
 }
 
 export interface BrowseQuery {
   q: string;
   category: string;
   tag: string;
-  highlight: string;
+  flashback: string;
   view: BrowseView;
 }
 
@@ -40,7 +56,7 @@ export const defaultBrowseQuery: BrowseQuery = {
   q: "",
   category: "",
   tag: "",
-  highlight: "",
+  flashback: "",
   view: "list",
 };
 
@@ -49,10 +65,13 @@ export function parseBrowseQuery(search: string): BrowseQuery {
   const view = params.get("view") === "grid" ? "grid" : "list";
 
   return {
-    q: params.get("q")?.trim() ?? "",
+    q: params.get("q") ?? "",
     category: params.get("category")?.trim() ?? "",
     tag: params.get("tag")?.trim() ?? "",
-    highlight: params.get("highlight")?.trim() ?? "",
+    flashback:
+      params.get("flashback")?.trim() ||
+      params.get("highlight")?.trim() ||
+      "",
     view,
   };
 }
@@ -64,11 +83,10 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   };
   const params = new URLSearchParams();
 
-  appendParam(params, "q", next.q.trim());
+  appendParam(params, "q", next.q);
   appendParam(params, "category", next.category.trim());
   appendParam(params, "tag", next.tag.trim());
-  appendParam(params, "highlight", next.highlight.trim());
-
+  appendParam(params, "flashback", next.flashback.trim());
   if (next.view === "grid") {
     params.set("view", "grid");
   }
@@ -77,12 +95,12 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   return queryString.length > 0 ? `/memories?${queryString}` : "/memories";
 }
 
-export function buildHighlightBrowseHref(highlightId: string): string {
-  return buildBrowseHref(defaultBrowseQuery, { highlight: highlightId });
+export function buildFlashbackBrowseHref(flashbackId: string): string {
+  return buildBrowseHref(defaultBrowseQuery, { flashback: flashbackId });
 }
 
 export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuery): BrowseMemory[] {
-  const normalizedSearch = normalize(query.q);
+  const search = parseBrowseSearch(query.q);
 
   return memories.filter((memory) => {
     if (query.category.length > 0 && !memory.categories.some((category) => category.id === query.category)) {
@@ -93,15 +111,35 @@ export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuer
       return false;
     }
 
-    if (query.highlight.length > 0 && !memory.highlights.some((highlight) => highlight.id === query.highlight)) {
+    if (query.flashback.length > 0 && !memory.flashbacks.some((flashback) => flashback.id === query.flashback)) {
       return false;
     }
 
-    if (normalizedSearch.length === 0) {
-      return true;
+    if (search.readState === "both") {
+      return false;
     }
 
-    return getSearchableText(memory).some((value) => normalize(value).includes(normalizedSearch));
+    if (search.readState === "read" && !memory.read) {
+      return false;
+    }
+
+    if (search.readState === "unread" && memory.read) {
+      return false;
+    }
+
+    for (const filter of search.fields) {
+      if (!matchesFieldFilter(memory, filter)) {
+        return false;
+      }
+    }
+
+    for (const term of search.freeTerms) {
+      if (!getSearchableText(memory).some((value) => normalize(value).includes(term))) {
+        return false;
+      }
+    }
+
+    return true;
   });
 }
 
@@ -113,25 +151,30 @@ export function getBrowseTags(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
   return getUniqueTaxonomyItems(memories.flatMap((memory) => memory.tags));
 }
 
-export function getRecentHighlights(memories: BrowseMemory[]): BrowseHighlight[] {
+export function getRecentFlashbacks(memories: BrowseMemory[]): BrowseFlashback[] {
   return memories
-    .flatMap((memory) => memory.highlights)
+    .flatMap((memory) =>
+      memory.flashbacks.map((flashback) => ({
+        ...flashback,
+        memoryId: flashback.memoryId,
+      })),
+    )
     .toSorted((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
     .slice(0, 5);
 }
 
-export function getMemoryDisplayHighlight(memory: BrowseMemory, activeHighlightId: string): BrowseHighlight | undefined {
-  if (activeHighlightId.length > 0) {
-    return memory.highlights.find((highlight) => highlight.id === activeHighlightId) ?? memory.highlights[0];
+export function getMemoryDisplayFlashback(memory: BrowseMemory, activeFlashbackId: string): BrowseFlashback | undefined {
+  if (activeFlashbackId.length > 0) {
+    return memory.flashbacks.find((flashback) => flashback.id === activeFlashbackId) ?? memory.flashbacks[0];
   }
 
-  return memory.highlights[0];
+  return memory.flashbacks[0];
 }
 
-export function getMemoryReaderHighlights(memory: BrowseMemory): BrowseReaderHighlight[] {
-  return memory.highlights.map((highlight) => ({
-    ...highlight,
-    anchorId: highlight.id,
+export function getMemoryReaderFlashbacks(memory: BrowseMemory): BrowseReaderFlashback[] {
+  return memory.flashbacks.map((flashback) => ({
+    ...flashback,
+    anchorId: flashback.id,
   }));
 }
 
@@ -148,8 +191,382 @@ function getSearchableText(memory: BrowseMemory): string[] {
     memory.description,
     ...memory.categories.map((category) => category.name),
     ...memory.tags.map((tag) => tag.name),
-    ...memory.highlights.flatMap((highlight) => [highlight.text, highlight.prefix, highlight.suffix]),
+    ...memory.flashbacks.flatMap((flashback) => [flashback.text, flashback.prefix, flashback.suffix]),
   ];
+}
+
+export type BrowseSearchField = "title" | "url" | "tag" | "category" | "flashback";
+
+interface BrowseFieldFilter {
+  field: BrowseSearchField;
+  value: string;
+}
+
+interface ParsedBrowseSearch {
+  fields: BrowseFieldFilter[];
+  freeTerms: string[];
+  readState: "all" | "both" | "read" | "unread";
+}
+
+const fieldNames = new Set<BrowseSearchField>([
+  "title",
+  "url",
+  "tag",
+  "category",
+  "flashback",
+]);
+
+function parseBrowseSearch(query: string): ParsedBrowseSearch {
+  const fields: BrowseFieldFilter[] = [];
+  const freeTerms: string[] = [];
+  let read = false;
+  let unread = false;
+
+  for (const token of tokenizeBrowseSearch(query)) {
+    if (token.kind === "field") {
+      fields.push(
+        ...readBrowseFieldTokenValues(token).map((value) => ({
+          field: token.field,
+          value: normalize(value),
+        })),
+      );
+      continue;
+    }
+
+    const normalized = normalize(token.value);
+    if (normalized.length === 0) {
+      continue;
+    }
+
+    if (normalized === "read") {
+      read = true;
+      continue;
+    }
+
+    if (normalized === "unread") {
+      unread = true;
+      continue;
+    }
+
+    freeTerms.push(normalized);
+  }
+
+  return {
+    fields: fields.filter((field) => field.value.length > 0),
+    freeTerms,
+    readState: read && unread ? "both" : read ? "read" : unread ? "unread" : "all",
+  };
+}
+
+type BrowseSearchToken =
+  | {
+      end: number;
+      field: BrowseSearchField;
+      braced: boolean;
+      kind: "field";
+      start: number;
+      value: string;
+    }
+  | { end: number; kind: "term"; start: number; value: string };
+
+export function getBrowseSearchFieldValues(
+  query: string,
+  field: BrowseSearchField,
+): string[] {
+  return tokenizeBrowseSearch(query)
+    .filter((token): token is Extract<BrowseSearchToken, { kind: "field" }> =>
+      token.kind === "field" && token.field === field
+    )
+    .flatMap(readBrowseFieldTokenValues);
+}
+
+export function getBrowseReadStateFilter(query: string): BrowseReadStateFilter {
+  const readState = parseBrowseSearch(query).readState;
+  return readState === "read" || readState === "unread" ? readState : "all";
+}
+
+export function setBrowseReadStateFilter(
+  query: string,
+  readState: BrowseReadStateFilter,
+): string {
+  const nextParts = tokenizeBrowseSearch(query)
+    .filter((token) => !isReadStateSearchToken(token))
+    .map((token) => readBrowseTokenText(query, token))
+    .filter((part) => part.length > 0);
+
+  if (readState !== "all") {
+    nextParts.push(readState);
+  }
+
+  return nextParts.join(" ");
+}
+
+function isReadStateSearchToken(token: BrowseSearchToken): boolean {
+  if (token.kind !== "term") {
+    return false;
+  }
+
+  const normalized = normalize(token.value);
+  return normalized === "read" || normalized === "unread";
+}
+
+export function toggleBrowseSearchFieldFilter(
+  query: string,
+  input: {
+    field: BrowseSearchField;
+    value: string;
+  },
+): string {
+  const targetValue = input.value.trim();
+  if (targetValue.length === 0) {
+    return query;
+  }
+
+  const tokens = tokenizeBrowseSearch(query);
+  const target = normalize(targetValue);
+  const existingValues = tokens
+    .filter((token): token is Extract<BrowseSearchToken, { kind: "field" }> =>
+      token.kind === "field" && token.field === input.field
+    )
+    .flatMap(readBrowseFieldTokenValues);
+  const hasExistingField = existingValues.length > 0;
+  const hasTarget = existingValues.some((value) => normalize(value) === target);
+  const nextValues = hasTarget
+    ? existingValues.filter((value) => normalize(value) !== target)
+    : [...existingValues, targetValue];
+  let inserted = false;
+  const nextParts: string[] = [];
+
+  for (const token of tokens) {
+    if (token.kind !== "field" || token.field !== input.field) {
+      nextParts.push(readBrowseTokenText(query, token));
+      continue;
+    }
+
+    if (!inserted) {
+      nextParts.push(...formatBrowseFieldFilterTokens(input.field, nextValues));
+      inserted = true;
+    }
+  }
+
+  if (!hasExistingField) {
+    nextParts.push(...formatBrowseFieldFilterTokens(input.field, [targetValue]));
+  }
+
+  return nextParts.filter((part) => part.trim().length > 0).join(" ");
+}
+
+function tokenizeBrowseSearch(query: string): BrowseSearchToken[] {
+  const tokens: BrowseSearchToken[] = [];
+  let index = 0;
+
+  while (index < query.length) {
+    while (index < query.length && /\s/.test(query[index] ?? "")) {
+      index += 1;
+    }
+
+    if (index >= query.length) {
+      break;
+    }
+
+    const field = readSearchField(query, index);
+    if (field !== undefined) {
+      const valueStart = field.end + 1;
+      if (query[valueStart] === "{") {
+        const bracedValue = readBracedSearchFieldValue(query, valueStart + 1);
+        if (bracedValue !== undefined) {
+          tokens.push({
+            end: bracedValue.end,
+            kind: "field",
+            braced: true,
+            field: field.name,
+            start: index,
+            value: bracedValue.value.trim(),
+          });
+          index = bracedValue.end;
+          continue;
+        }
+      }
+
+      const valueEnd = readUntilWhitespace(query, valueStart);
+      tokens.push({
+        end: valueEnd,
+        kind: "field",
+        braced: false,
+        field: field.name,
+        start: index,
+        value: query.slice(valueStart, valueEnd).trim(),
+      });
+      index = valueEnd;
+      continue;
+    }
+
+    const end = readUntilWhitespace(query, index);
+    tokens.push({ end, kind: "term", start: index, value: query.slice(index, end) });
+    index = end;
+  }
+
+  return tokens;
+}
+
+function readBracedSearchFieldValue(
+  query: string,
+  start: number,
+): { end: number; value: string } | undefined {
+  let index = start;
+  let value = "";
+
+  while (index < query.length) {
+    const char = query[index];
+    if (char === "\\") {
+      const nextChar = query[index + 1];
+      if (nextChar === undefined) {
+        value += char;
+        index += 1;
+        continue;
+      }
+
+      value += nextChar;
+      index += 2;
+      continue;
+    }
+
+    if (char === "}") {
+      return { end: index + 1, value };
+    }
+
+    value += char;
+    index += 1;
+  }
+
+  return undefined;
+}
+
+function readSearchField(
+  query: string,
+  start: number,
+): { end: number; name: BrowseSearchField } | undefined {
+  const separator = findSearchFieldSeparator(query, start);
+  if (separator === -1) {
+    return undefined;
+  }
+
+  const whitespace = query.slice(start, separator).search(/\s/);
+  if (whitespace !== -1) {
+    return undefined;
+  }
+
+  const maybeField = query.slice(start, separator).toLowerCase();
+  if (!fieldNames.has(maybeField as BrowseSearchField)) {
+    return undefined;
+  }
+
+  return {
+    end: separator,
+    name: maybeField as BrowseSearchField,
+  };
+}
+
+function findSearchFieldSeparator(query: string, start: number): number {
+  let index = start;
+  while (index < query.length && !/\s/.test(query[index] ?? "")) {
+    const char = query[index];
+    if (char === ":" || char === "=") {
+      return index;
+    }
+    index += 1;
+  }
+
+  return -1;
+}
+
+function readUntilWhitespace(value: string, start: number): number {
+  let index = start;
+  while (index < value.length && !/\s/.test(value[index] ?? "")) {
+    index += 1;
+  }
+
+  return index;
+}
+
+function matchesFieldFilter(
+  memory: BrowseMemory,
+  filter: BrowseFieldFilter,
+): boolean {
+  if (filter.value.length === 0) {
+    return true;
+  }
+
+  return matchesSingleFieldFilter(memory, filter);
+}
+
+function matchesSingleFieldFilter(
+  memory: BrowseMemory,
+  filter: BrowseFieldFilter,
+): boolean {
+  switch (filter.field) {
+    case "title":
+      return normalize(memory.title).includes(filter.value);
+    case "url":
+      return normalize(memory.url).includes(filter.value);
+    case "tag":
+      return memory.tags.some((tag) => normalize(tag.name) === filter.value);
+    case "category":
+      return memory.categories.some((category) => normalize(category.name) === filter.value);
+    case "flashback":
+      return memory.flashbacks.some((flashback) =>
+        [flashback.text, flashback.prefix, flashback.suffix].some((value) =>
+          normalize(value).includes(filter.value),
+        ),
+      );
+  }
+}
+
+function splitBrowseFieldFilterValues(value: string): string[] {
+  return value
+    .split("&")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function readBrowseFieldTokenValues(
+  token: Extract<BrowseSearchToken, { kind: "field" }>,
+): string[] {
+  return token.braced ? [token.value.trim()].filter((value) => value.length > 0) : splitBrowseFieldFilterValues(token.value);
+}
+
+function readBrowseTokenText(query: string, token: BrowseSearchToken): string {
+  return query.slice(token.start, token.end).trim();
+}
+
+function formatBrowseFieldFilterTokens(
+  field: BrowseSearchField,
+  values: readonly string[],
+): string[] {
+  const cleanedValues = values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (cleanedValues.length === 0) {
+    return [];
+  }
+
+  if (cleanedValues.every(isSimpleBrowseFieldValue)) {
+    return [`${field}=${cleanedValues.join("&")}`];
+  }
+
+  return cleanedValues.map((value) =>
+    isSimpleBrowseFieldValue(value)
+      ? `${field}=${value}`
+      : `${field}={${escapeBrowseBracedFieldValue(value)}}`,
+  );
+}
+
+function escapeBrowseBracedFieldValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[{}]/g, "\\$&");
+}
+
+function isSimpleBrowseFieldValue(value: string): boolean {
+  return /^[^\s&{}]+$/.test(value);
 }
 
 function getUniqueTaxonomyItems(items: BrowseTaxonomyItem[]): BrowseTaxonomyItem[] {
@@ -165,5 +582,5 @@ function getUniqueTaxonomyItems(items: BrowseTaxonomyItem[]): BrowseTaxonomyItem
 }
 
 function normalize(value: string): string {
-  return value.trim().toLocaleLowerCase();
+  return value.trim().toLowerCase();
 }

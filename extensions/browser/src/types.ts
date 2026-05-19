@@ -17,7 +17,6 @@ export interface CapturedTabSnapshot {
 }
 
 export type ExtractionStrategy =
-  | "site_selector"
   | "semantic_selector"
   | "body_fallback";
 

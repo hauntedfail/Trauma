@@ -16,9 +16,9 @@ It is not a separate component package.
 - [Layout and shell](layout-and-shell.md): desktop grid, responsive shell,
   left rail, right rail, phone tabs, and route frame ownership.
 - [Components and surfaces](components-and-surfaces.md): shell controls,
-  memory rows, highlight cards, forms, filter islands, and state surfaces.
+  memory rows, flashback cards, forms, filter islands, and state surfaces.
 - [Reader and content](reader-and-content.md): markdown reader surface,
-  typography, table of contents, code, media, and highlight rendering.
+  typography, table of contents, code, media, and flashback rendering.
 - [Interaction and accessibility](interaction-and-accessibility.md): route
   behaviour, theme persistence, filter state, keyboard/focus rules, and labels.
 - [Assets and icons](assets-and-icons.md): TRAUMA mark, favicon, icon variants,
@@ -34,7 +34,7 @@ It is not a separate component package.
 - `src/components/brand/TraumaMark.tsx`
 - `src/components/icons/TraumaIcons.tsx`
 - `src/components/memories/MemoryBrowse.tsx`
-- `src/routes/highlights/index.tsx`
+- `src/routes/flashbacks/index.tsx`
 - `src/components/reader/MemoryReader.tsx`
 - `src/components/reader/reader-styles.ts`
 

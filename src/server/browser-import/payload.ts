@@ -97,7 +97,7 @@ export function parseBrowserImportPayload(
     return { ok: false, error: "articleHtml is too large" };
   }
 
-  const articleText = normalizeRequiredString(parsed.articleText, {
+  const articleText = normalizeString(parsed.articleText, {
     field: "articleText",
     maxLength: options.maxBytes,
   });
@@ -216,6 +216,28 @@ function normalizeRequiredString(
     return {
       ok: false as const,
       error: `${options.field} must be a non-empty string`,
+    };
+  }
+
+  const normalized = value.trim();
+  if (normalized.length > options.maxLength) {
+    return {
+      ok: false as const,
+      error: `${options.field} must be at most ${options.maxLength} characters`,
+    };
+  }
+
+  return { ok: true as const, value: normalized };
+}
+
+function normalizeString(
+  value: unknown,
+  options: { field: string; maxLength: number },
+) {
+  if (typeof value !== "string") {
+    return {
+      ok: false as const,
+      error: `${options.field} must be a string`,
     };
   }
 

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,11 +13,15 @@ import {
   recordBackupPushFailureAlert,
 } from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
+import { getFlashbackMetadataExportPath } from "../flashbacks/export";
 
 export { BACKUP_STATUSES };
 export type { BackupStatus };
 
-export type BackupTriggerReason = "memory_creation" | "highlight_update";
+export type BackupTriggerReason =
+  | "memory_creation"
+  | "flashback_update"
+  | "memory_deletion";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -51,10 +56,12 @@ export interface RunGitBackupJobInput {
   job: MemoryBackupJob;
 }
 
+export type GitBackupJobRunner = (input: RunGitBackupJobInput) => Promise<void>;
+
 export interface CreateGitMemoryBackupQueueInput {
   config: ResolvedTraumaConfig;
   now?: () => Date;
-  runJob?: (input: RunGitBackupJobInput) => Promise<void>;
+  runJob?: GitBackupJobRunner;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
 }
 
@@ -92,7 +99,7 @@ export function getMemoryBackupQueue(
 export function createGitMemoryBackupQueue(
   input: CreateGitMemoryBackupQueueInput,
 ): GitMemoryBackupQueue {
-  const runJob = input.runJob ?? runGitBackupJob;
+  const runJob = input.runJob ?? runSerializedGitBackupJob;
   const openConnection = input.openConnection ?? initializeDatabase;
   const now = input.now ?? (() => new Date());
   const pendingJobs: MemoryBackupJob[] = [];
@@ -191,6 +198,11 @@ export function createGitMemoryBackupQueue(
     }
 
     const job = normalizeBackupJob(enqueueInput);
+    if (job.reason === "memory_deletion") {
+      throw new GitBackupError(
+        "memory deletion backups must run synchronously before deleting the memory row",
+      );
+    }
     const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
     if (pendingJob !== undefined) {
       mergeBackupJobs(pendingJob, job);
@@ -233,7 +245,7 @@ export function createGitMemoryBackupQueue(
           }
           await enqueue({
             memoryId: backup.id,
-            contentPaths: [backup.contentPath],
+            contentPaths: await getRetryContentPaths(input.config, backup),
             reason: "memory_creation",
           });
           enqueued += 1;
@@ -246,6 +258,22 @@ export function createGitMemoryBackupQueue(
   };
 }
 
+async function getRetryContentPaths(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  backup: { id: string; contentPath: string },
+): Promise<string[]> {
+  const paths = [backup.contentPath];
+  const flashbackExportPath = getFlashbackMetadataExportPath(backup.id);
+  const absoluteFlashbackExportPath = resolve(config.storePath, flashbackExportPath);
+  if (!isInside(config.storePath, absoluteFlashbackExportPath)) {
+    throw new GitBackupError(
+      `git backup content path must stay under storePath: ${flashbackExportPath}`,
+    );
+  }
+  paths.push(flashbackExportPath);
+  return paths;
+}
+
 export async function runGitBackupJob(
   input: RunGitBackupJobInput,
 ): Promise<void> {
@@ -255,11 +283,13 @@ export async function runGitBackupJob(
 
   await assertBackupRepositoryRoot(input.config);
 
-  const stagePaths = input.job.contentPaths.map((contentPath) =>
-    resolveStagePath(input.config, contentPath),
-  );
-  if (stagePaths.length === 0) {
+  if (input.job.contentPaths.length === 0) {
     throw new GitBackupError("git backup job must include at least one content path");
+  }
+
+  const stagePaths = await resolveStagePaths(input.config, input.job.contentPaths);
+  if (stagePaths.length === 0) {
+    return;
   }
 
   await runGit(input.config.projectPath, ["add", "--", ...stagePaths]);
@@ -289,6 +319,35 @@ export async function runGitBackupJob(
     await pushGitBackup(input.config);
   }
 }
+
+export function createSerializedGitBackupRunner(
+  runJob: GitBackupJobRunner = runGitBackupJob,
+): GitBackupJobRunner {
+  const chainsByProjectPath = new Map<string, Promise<void>>();
+
+  return async (input) => {
+    const key = resolve(input.config.projectPath);
+    const previous = chainsByProjectPath.get(key) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolveGate) => {
+      release = resolveGate;
+    });
+    const current = previous.catch(() => undefined).then(() => gate);
+    chainsByProjectPath.set(key, current);
+
+    await previous.catch(() => undefined);
+    try {
+      await runJob(input);
+    } finally {
+      release();
+      if (chainsByProjectPath.get(key) === current) {
+        chainsByProjectPath.delete(key);
+      }
+    }
+  };
+}
+
+export const runSerializedGitBackupJob = createSerializedGitBackupRunner();
 
 function normalizeBackupJob(input: EnqueueMemoryBackupInput): MemoryBackupJob {
   const contentPaths = input.contentPaths ?? (
@@ -330,6 +389,42 @@ async function pushGitBackup(config: ResolvedTraumaConfig) {
     await recordBackupPushFailureAlert(config, formatUnknownError(error));
     throw error;
   }
+}
+
+async function resolveStagePaths(
+  config: ResolvedTraumaConfig,
+  contentPaths: readonly string[],
+): Promise<string[]> {
+  const stagePaths: string[] = [];
+  for (const contentPath of contentPaths) {
+    const stagePath = resolveStagePath(config, contentPath);
+    if (await shouldStagePath(config, stagePath)) {
+      stagePaths.push(stagePath);
+    }
+  }
+  return stagePaths;
+}
+
+async function shouldStagePath(
+  config: ResolvedTraumaConfig,
+  stagePath: string,
+): Promise<boolean> {
+  try {
+    await access(resolve(config.projectPath, stagePath));
+    return true;
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const tracked = await runGit(config.projectPath, [
+    "ls-files",
+    "--error-unmatch",
+    "--",
+    stagePath,
+  ], [0, 1]);
+  return tracked.exitCode === 0;
 }
 
 function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {
@@ -437,8 +532,21 @@ function formatGitProcessError(error: unknown) {
 
 function formatCommitMessage(template: string, job: MemoryBackupJob) {
   return template
+    .replaceAll("{action}", formatBackupAction(job.reason))
     .replaceAll("{memoryId}", job.memoryId)
+    .replaceAll("{memory_id}", job.memoryId)
     .replaceAll("{reason}", job.reason);
+}
+
+function formatBackupAction(reason: BackupTriggerReason): string {
+  switch (reason) {
+    case "memory_creation":
+      return "created memory";
+    case "flashback_update":
+      return "updated flashbacks";
+    case "memory_deletion":
+      return "deleted memory";
+  }
 }
 
 function createQueueConfigKey(config: ResolvedTraumaConfig) {
@@ -455,6 +563,15 @@ function createQueueConfigKey(config: ResolvedTraumaConfig) {
 
 function formatUnknownError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  );
 }
 
 export class GitBackupError extends Error {

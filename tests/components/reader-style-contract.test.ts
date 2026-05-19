@@ -12,22 +12,50 @@ describe("refined reader visual contract", () => {
   it("uses TRAUMA design tokens instead of legacy reader palette utilities", () => {
     expect(combinedSource).toContain("text-trauma-text-primary");
     expect(combinedSource).toContain("bg-trauma-bg-surface");
-    expect(combinedSource).toContain("prose-mark:bg-trauma-highlight-bg");
+    expect(combinedSource).toContain("prose-mark:bg-trauma-flashback-bg");
     expect(combinedSource).toContain("trauma-reader-content");
     expect(combinedSource).toContain("prose-a:text-trauma-link");
     expect(combinedSource).not.toMatch(/text-slate|border-slate|bg-slate|text-blue|bg-white|yellow-/);
   });
 
-  it("keeps safe source-link rendering and read-only highlight toggles", () => {
+  it("keeps safe source-link rendering and read-only flashback toggles", () => {
     expect(readerSource).toContain("toSafeReaderSourceHref");
+    expect(readerSource).toContain("ScrollableUrlDisplay");
+    expect(readerSource).toContain("ScrollableUrlLink");
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).toContain("text-trauma-link");
     expect(readerSource).toContain('aria-label="Memory"');
-    expect(readerSource).toContain(">Memory</p>");
+    expect(readerSource).toContain("RouteHeader");
+    expect(readerSource).toContain('title="Memory"');
+    expect(readerSource).toContain('titleElement="p"');
     expect(readerSource).not.toContain(">Reader mode</p>");
     expect(readerSource).not.toContain("props.result.memory.title}</h1>");
     expect(readerSource).not.toContain("contenteditable");
+  });
+
+  it("uses tighter reader-only main pane padding", () => {
+    expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
+    expect(readerStyles).not.toContain("px-8");
+    expect(tailwindSource).toContain(".trauma-reader-route-padding");
+    expect(tailwindSource).toContain("padding-inline: clamp(0.5rem, 2cqi, 1rem)");
+    expect(tailwindSource).toContain("padding-inline: 0.75rem");
+    expect(readerSource).toContain("trauma-reader-body py-5 pb-10");
+    expect(readerSource).toContain('class="mb-5 grid gap-4"');
+    expect(readerSource).not.toContain("trauma-reader-body py-7 pb-14");
+    expect(readerSource).not.toContain('class="mb-7 grid gap-4"');
+  });
+
+  it("aligns the memory source URL with the reader action menu row", () => {
+    expect(readerSource).toContain("readerSourceLinkClass");
+    expect(readerSource).toContain("ScrollableUrlLink");
+    expect(tailwindSource).toContain(".trauma-scroll-url-link");
+    expect(tailwindSource).toContain(".trauma-scroll-url-shell");
+    expect(readerSource).not.toContain("wrap-anywhere inline-flex");
+    expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
+    expect(readerSource).toContain('class="flex items-center gap-2"');
+    expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");
+    expect(readerSource).not.toContain('class="flex items-start gap-2"');
   });
 
   it("moves the reader table of contents into the contextual right rail", () => {
@@ -58,6 +86,9 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("trauma-toc-scroll-fade");
     expect(readerSource).toContain("trauma-toc-scroll-fade-top");
     expect(readerSource).toContain("trauma-toc-scroll-fade-bottom");
+    expect(readerSource).toContain("pl-0");
+    expect(readerSource).not.toContain("pl-[18px]");
+    expect(readerSource).toContain("grid-cols-[1.125rem_minmax(0,1fr)]");
     expect(readerSource).toContain(
       "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
     );
@@ -84,18 +115,18 @@ describe("refined reader visual contract", () => {
     expect(fadeRule).not.toContain("var(--accent)");
   });
 
-  it("gives linked highlight anchors a target-specific contrast treatment", () => {
-    expect(tailwindSource).toContain("--anchor-highlight-bg");
-    expect(tailwindSource).toContain("--anchor-highlight-ink");
-    expect(tailwindSource).toContain("--anchor-highlight-ring");
+  it("gives linked flashback anchors a target-specific contrast treatment", () => {
+    expect(tailwindSource).toContain("--anchor-flashback-bg");
+    expect(tailwindSource).toContain("--anchor-flashback-ink");
+    expect(tailwindSource).toContain("--anchor-flashback-ring");
     expect(tailwindSource).toContain(
-      ".trauma-reader-content mark[data-highlight-id]:target",
+      ".trauma-reader-content mark[data-flashback-id]:target",
     );
     expect(tailwindSource).toContain(
-      "background-color: var(--anchor-highlight-bg)",
+      "background-color: var(--anchor-flashback-bg)",
     );
-    expect(tailwindSource).toContain("color: var(--anchor-highlight-ink)");
-    expect(tailwindSource).toContain("var(--anchor-highlight-ring)");
+    expect(tailwindSource).toContain("color: var(--anchor-flashback-ink)");
+    expect(tailwindSource).toContain("var(--anchor-flashback-ring)");
     expect(tailwindSource).toContain("scroll-margin-block");
   });
 

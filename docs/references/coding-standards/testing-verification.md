@@ -3,7 +3,7 @@
 ## Tests And Verification
 
 - MUST include tests with behavior changes.
-- MUST cover storage, importer, markdown, highlight, backup, routing, and reader
+- MUST cover storage, importer, markdown, flashback, backup, routing, and reader
   changes with either focused tests or Playwright coverage.
 - MUST run `bun run typecheck` for TypeScript-facing changes.
 - MUST run relevant verification before handoff and record exact commands and

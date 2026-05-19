@@ -1,17 +1,60 @@
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createAsync, useNavigate } from "@solidjs/router";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js";
 
-import { ChevronLeftIcon, OpenIcon } from "../icons";
-import type { ReaderMemoryResult } from "../../server/reader/page-data";
+import { ChevronLeftIcon, TraumaNavIcons } from "../icons";
+import type {
+  ReaderMomentItem,
+  ReaderFlashbackItem,
+  ReaderMemoryResult,
+  ReaderTaxonomyItem,
+} from "../../server/reader/page-data";
+import type { BrowseTaxonomySummaryItem } from "../memories/browse-data";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
+import type { FlashbackBrowseRow } from "../../server/db/repositories";
+import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
-  canStartHighlightToggle,
-  isExplicitHighlightKeyboardToggle,
-} from "./highlight-events";
+  getFlashbackBrowseRows,
+  revalidateFlashbackBrowseRows,
+} from "../flashbacks/flashbacks-loader";
+import { MemoryActionMenu } from "../memories/MemoryActionMenu";
+import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
+import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
+import {
+  buildMemoryAnchorHref,
+  buildSameMemoryAnchorHref,
+} from "../memories/memory-anchor-hrefs";
+import {
+  attachCategoryToMemoryByName,
+  attachTagToMemoryByName,
+  deleteMemoryById,
+  detachTagFromMemoryByName,
+  isBackupFailsafeMemoryActionError,
+  type FetchFunction,
+} from "../memories/memory-action-requests";
+import {
+  createMomentForSection,
+  type ReaderMomentSection,
+} from "./moment-requests";
+import { deleteMomentById } from "../moments/moment-action-requests";
+import {
+  canStartFlashbackToggle,
+  isExplicitFlashbackKeyboardToggle,
+} from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import {
-  readHighlightFailure,
-  shouldRevalidateBackupFailsafeAfterHighlightFailure,
-} from "./highlight-failure";
+  readFlashbackFailure,
+  shouldRevalidateBackupFailsafeAfterFlashbackFailure,
+} from "./flashback-failure";
 import {
   readerArticle,
   readerFrame,
@@ -20,9 +63,22 @@ import {
 } from "./reader-styles";
 import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
+import { revalidateMomentBrowseRows } from "../moments/moments-loader";
+import { revalidateReaderMemory } from "./reader-memory-loader";
+import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { RouteHeader } from "../layout/RouteHeader";
+import { TaxonomyAddControl } from "../memories/TaxonomyAddControl";
+import {
+  ScrollableUrlDisplay,
+  ScrollableUrlLink,
+} from "../url/ScrollableUrlText";
 
 interface MemoryReaderProps {
+  categoryOptions?: readonly BrowseTaxonomySummaryItem[];
+  flashbackRows?: FlashbackBrowseRow[];
+  navigate?: (path: string) => void;
   result: ReaderMemoryResult;
+  tagOptions?: readonly BrowseTaxonomySummaryItem[];
 }
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
@@ -38,7 +94,27 @@ interface ReaderSelection extends ReaderSelectionPayload {
   range: Range;
 }
 
-type ReaderHighlightOperation = "highlight" | "unhighlight";
+interface ReaderSelectionMenuState {
+  key: string;
+  momentSection?: ReaderMomentSection;
+  position: ReaderSelectionMenuPosition;
+  selection: ReaderSelection;
+}
+
+interface ReaderSectionMenuState {
+  key: string;
+  position: ReaderSelectionMenuPosition;
+  section: ReaderMomentSection;
+}
+
+interface ReaderSelectionMenuPosition {
+  left: number;
+  placement: "above" | "below";
+  top: number;
+}
+
+type ReaderFlashbackOperation = "flashback" | "unflashback";
+type ReaderMenuElement = HTMLDivElement | undefined;
 interface TocScrollState {
   canScrollDown: boolean;
   canScrollUp: boolean;
@@ -51,6 +127,10 @@ const noTocScrollState: TocScrollState = {
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
+const readerContextMenuClass =
+  "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
+const readerSourceLinkClass =
+  "min-h-9 max-w-full justify-self-start text-sm leading-tight text-trauma-link";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -64,85 +144,535 @@ export function MemoryReader(props: MemoryReaderProps) {
       when={readyResult()}
       fallback={<ReaderState message={stateMessage()} />}
     >
-      {(result) => <ReadyMemoryReader result={result} />}
+      {(result) => (
+        <ReadyMemoryReader
+          categoryOptions={props.categoryOptions ?? []}
+          flashbackRows={props.flashbackRows}
+          navigate={props.navigate}
+          result={result}
+          tagOptions={props.tagOptions ?? []}
+        />
+      )}
     </Show>
   );
 }
 
-function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
+function ReadyMemoryReader(props: {
+  categoryOptions: readonly BrowseTaxonomySummaryItem[];
+  flashbackRows?: FlashbackBrowseRow[];
+  navigate?: (path: string) => void;
+  result: ReadyReaderMemoryResult;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
+}) {
+  let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
+  let bodyContentRef: HTMLDivElement | undefined;
+  let selectionMenuRef: ReaderMenuElement;
+  let sectionMenuRef: ReaderMenuElement;
+  let sectionLongPressTimer: number | undefined;
+  const navigate = props.navigate ?? useNavigate();
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
+  const readerContent = createMemo(() =>
+    splitLeadingReaderTitleContent({
+      html: props.result.rendered.html,
+      title: props.result.memory.title,
+      toc: props.result.rendered.toc,
+    }),
+  );
+  const readerBodyHtml = createMemo(() => readerContent().bodyHtml);
+  const readerTitleHtml = createMemo(() => readerContent().titleHtml);
+  const [categories, setCategories] = createSignal([
+    ...props.result.memory.categories,
+  ]);
+  const [tags, setTags] = createSignal([
+    ...props.result.memory.tags,
+  ]);
+  const [moments, setMoments] = createSignal([
+    ...props.result.memory.moments,
+  ]);
+  const [currentFlashbacks, setCurrentFlashbacks] = createSignal([
+    ...props.result.memory.flashbacks,
+  ]);
+  const allFlashbacks = props.flashbackRows === undefined
+    ? createAsync(() => getFlashbackBrowseRows())
+    : () => props.flashbackRows;
+  const [selectionMenu, setSelectionMenu] =
+    createSignal<ReaderSelectionMenuState>();
+  const [sectionMenu, setSectionMenu] = createSignal<ReaderSectionMenuState>();
+  const [isReaderClientReady, setIsReaderClientReady] = createSignal(false);
+  const [pendingMomentKey, setPendingMomentKey] = createSignal("");
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
 
+  const closeSelectionMenu = () => setSelectionMenu(undefined);
+  const closeSectionMenu = () => setSectionMenu(undefined);
+  const closeReaderMenus = () => {
+    closeSelectionMenu();
+    closeSectionMenu();
+  };
   createEffect(() => {
-    setRightRailContent(<ReaderToc toc={props.result.rendered.toc} />);
+    props.result.memory.id;
+    setCategories([...props.result.memory.categories]);
+    setTags([...props.result.memory.tags]);
+    setMoments([...props.result.memory.moments]);
+    setCurrentFlashbacks([...props.result.memory.flashbacks]);
+    setPendingMomentKey("");
+    setPendingSelectionKey("");
+    setErrorMessage("");
+    closeReaderMenus();
+  });
+  createEffect(() => {
+    setRightRailContent(
+      <ReaderRightRailContent
+        allFlashbacks={allFlashbacks()}
+        currentFlashbacks={currentFlashbacks()}
+        moments={moments()}
+        memoryId={props.result.memory.id}
+        onCreateMoment={(section) => void toggleMoment(section)}
+        onOpenSectionMenu={openSectionMenu}
+        pendingMomentKey={pendingMomentKey()}
+        toc={props.result.rendered.toc}
+      />,
+    );
   });
 
   onCleanup(() => setRightRailContent(undefined));
 
-  const handleSelectionToggle = () => {
-    if (contentRef === undefined) {
+  onMount(() => {
+    setIsReaderClientReady(true);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeReaderMenus();
+      }
+    };
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        ((selectionMenuRef !== undefined && selectionMenuRef.contains(target)) ||
+          (sectionMenuRef !== undefined && sectionMenuRef.contains(target)))
+      ) {
+        return;
+      }
+
+      closeReaderMenus();
+    };
+    const scrollHashTarget = () => scheduleReaderHashTargetScroll(readerRootRef);
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("scroll", closeReaderMenus, true);
+    window.addEventListener("hashchange", scrollHashTarget);
+    scheduleReaderHashTargetScroll(readerRootRef);
+    onCleanup(() => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("scroll", closeReaderMenus, true);
+      window.removeEventListener("hashchange", scrollHashTarget);
+      clearSectionLongPress();
+    });
+  });
+  const openSelectionMenu = () => {
+    const selection = readReaderSelection(contentRef);
+    if (selection === undefined) {
+      closeSelectionMenu();
       return;
     }
 
-    void toggleReaderSelection({
-      container: contentRef,
-      memoryId: props.result.memory.id,
-      pendingSelectionKey: pendingSelectionKey(),
-      setErrorMessage,
-      setPendingSelectionKey,
+    closeSectionMenu();
+    const momentSection = findReaderSectionInSelection(
+      selection.range,
+      contentRef,
+    );
+    setSelectionMenu({
+      key: getReaderSelectionKey(selection),
+      momentSection,
+      position: positionReaderSelectionMenu(
+        selection.range.getBoundingClientRect(),
+        {
+          height: window.innerHeight,
+          width: window.innerWidth,
+        },
+        momentSection === undefined ? 48 : 92,
+      ),
+      selection,
     });
   };
+  const openSectionMenu = (section: ReaderMomentSection, rect: DOMRect) => {
+    closeSelectionMenu();
+    setSectionMenu({
+      key: getReaderMomentKey(section),
+      position: positionReaderSelectionMenu(rect, {
+        height: window.innerHeight,
+        width: window.innerWidth,
+      }),
+      section,
+    });
+  };
+  const commitSelectionMenu = () => {
+    const menu = selectionMenu();
+    if (menu === undefined || bodyContentRef === undefined) {
+      return;
+    }
+
+    closeSelectionMenu();
+    void toggleReaderSelection({
+      container: bodyContentRef,
+      memoryId: props.result.memory.id,
+      pendingSelectionKey: pendingSelectionKey(),
+      selection: menu.selection,
+      setErrorMessage,
+      setPendingSelectionKey,
+      onFlashbacksChanged: setCurrentFlashbacks,
+      onSuccess: () =>
+        revalidateAfterFlashbackToggle(props.result.memory.id),
+    });
+  };
+  const commitSelectionMomentMenu = () => {
+    const section = selectionMenu()?.momentSection;
+    if (section === undefined) {
+      return;
+    }
+
+    closeSelectionMenu();
+    void toggleMoment(section);
+  };
+  const commitSectionMenu = () => {
+    const menu = sectionMenu();
+    if (menu === undefined) {
+      return;
+    }
+
+    closeSectionMenu();
+    void toggleMoment(menu.section);
+  };
   const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
-    if (!isExplicitHighlightKeyboardToggle(event)) {
+    if (!isExplicitFlashbackKeyboardToggle(event)) {
       return;
     }
 
     event.preventDefault();
-    handleSelectionToggle();
+    openSelectionMenu();
+  };
+  const deleteMemory = async (memoryId: string): Promise<void> => {
+    await deleteReaderMemory({
+      memoryId,
+      navigate,
+    });
+  };
+  const attachCategory = async (input: {
+    memoryId: string;
+    name: string;
+  }): Promise<void> => {
+    const category = await attachReaderCategoryByName(input);
+    setCategories((current) => mergeReaderTaxonomyItem(current, category));
+    void Promise.all([
+      revalidateBrowseMemoryWorkspace(),
+      revalidateReaderMemory(input.memoryId),
+    ]);
+  };
+  const attachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await attachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => mergeReaderTaxonomyItem(current, tag));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to add tag.");
+      throw error;
+    }
+  };
+  const detachTag = async (name: string): Promise<void> => {
+    setErrorMessage("");
+    try {
+      const tag = await detachReaderTagByName({
+        memoryId: props.result.memory.id,
+        name,
+      });
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+    } catch (error) {
+      setErrorMessage("Failed to remove tag.");
+      throw error;
+    }
+  };
+  createEffect(() => {
+    syncReaderSectionMomentButtons({
+      container: contentRef,
+      moments: moments(),
+      toc: props.result.rendered.toc,
+    });
+  });
+  createEffect(() => {
+    props.result.memory.id;
+    readerBodyHtml();
+    scheduleReaderHashTargetScroll(readerRootRef);
+  });
+  const toggleMoment = async (
+    section: ReaderMomentSection,
+  ): Promise<void> => {
+    const sectionKey = getReaderMomentKey(section);
+    if (pendingMomentKey().length > 0) {
+      return;
+    }
+
+    setErrorMessage("");
+    setPendingMomentKey(sectionKey);
+    try {
+      const existingMoment = findReaderMomentForSection(
+        moments(),
+        props.result.rendered.toc,
+        section,
+      );
+      if (existingMoment !== undefined) {
+        await deleteMomentById({ momentId: existingMoment.id });
+        setMoments((current) =>
+          current.filter((moment) => moment.id !== existingMoment.id),
+        );
+        await Promise.all([
+          revalidateMomentBrowseRows(),
+          revalidateReaderMemory(props.result.memory.id),
+        ]);
+        return;
+      }
+
+      const result = await createMomentForSection({
+        memoryId: props.result.memory.id,
+        section,
+      });
+      setMoments((current) =>
+        mergeReaderMomentItem(current, result.moment),
+      );
+      await Promise.all([
+        revalidateMomentBrowseRows(),
+        revalidateReaderMemory(props.result.memory.id),
+      ]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Moment failed");
+    } finally {
+      setPendingMomentKey("");
+    }
+  };
+  const handleReaderContentClick = (event: MouseEvent) => {
+    const trigger = findReaderMomentTrigger(event.target, contentRef);
+    if (trigger === undefined) {
+      return;
+    }
+
+    const sectionElement = findReaderSectionElement(trigger, contentRef);
+    if (sectionElement === undefined) {
+      return;
+    }
+
+    const section = readReaderSection(sectionElement);
+    if (section === undefined) {
+      return;
+    }
+
+    event.preventDefault();
+    void toggleMoment(section);
+  };
+  const handleReaderContentPointerDown = (event: PointerEvent) => {
+    clearSectionLongPress();
+    if (event.button !== 0) {
+      return;
+    }
+    if (findReaderMomentTrigger(event.target, contentRef) !== undefined) {
+      return;
+    }
+
+    const sectionElement = findReaderSectionElement(event.target, contentRef);
+    const section = sectionElement === undefined
+      ? undefined
+      : readReaderSection(sectionElement);
+    if (section === undefined || sectionElement === undefined) {
+      return;
+    }
+
+    sectionLongPressTimer = window.setTimeout(() => {
+      openSectionMenu(section, sectionElement.getBoundingClientRect());
+    }, 500);
+  };
+  const clearSectionLongPress = () => {
+    if (sectionLongPressTimer === undefined) {
+      return;
+    }
+
+    window.clearTimeout(sectionLongPressTimer);
+    sectionLongPressTimer = undefined;
   };
 
   return (
-    <article class={readerFrame} aria-label="Memory">
-      <header class={`${readerPadding} trauma-reader-header sticky top-0 z-[1] grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-trauma-border bg-trauma-bg-surface/95 py-6 backdrop-blur`}>
-        <a class="mt-1 grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
-          <ChevronLeftIcon />
-        </a>
-        <div class="min-w-0">
-          <p class="mb-2 text-[20px] font-bold text-trauma-text-primary">Memory</p>
-          <Show
-            when={sourceHref()}
-            fallback={<span class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link"><OpenIcon />{sourceUrl()}</span>}
-          >
-            {(href) => (
-              <a
-                class="wrap-anywhere inline-flex items-center gap-1.5 text-sm text-trauma-link hover:text-trauma-link-hover hover:underline"
-                href={href()}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <OpenIcon />
-                {sourceUrl()}
-              </a>
-            )}
-          </Show>
-        </div>
-      </header>
-      <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
+    <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
+      <RouteHeader
+        class={`${readerPadding} trauma-reader-header`}
+        leading={() => (
+          <a class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
+            <ChevronLeftIcon />
+          </a>
+        )}
+        layout="single"
+        title="Memory"
+        titleElement="p"
+      />
+      <div class={`${readerPadding} trauma-reader-body py-5 pb-10`}>
         <div class="trauma-fluid-page-shell">
+          <header class="mb-5 grid gap-4">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+              <Show
+                when={sourceHref()}
+                fallback={(
+                  <ScrollableUrlDisplay
+                    class={readerSourceLinkClass}
+                    url={sourceUrl()}
+                  />
+                )}
+              >
+                {(href) => (
+                  <ScrollableUrlLink
+                    class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
+                    href={href()}
+                    rel="noreferrer"
+                    target="_blank"
+                    url={sourceUrl()}
+                  />
+                )}
+              </Show>
+              <div class="flex items-center gap-2">
+                <MemoryReadStatusControl
+                  initialRead={props.result.memory.read}
+                  memoryId={props.result.memory.id}
+                  variant="icon"
+                  onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
+                />
+                <MemoryActionMenu
+                  memoryId={props.result.memory.id}
+                  memoryTitle={props.result.memory.title}
+                  attachedCategories={categories()}
+                  categoryOptions={props.categoryOptions}
+                  onAttachCategoryByName={attachCategory}
+                  onDelete={deleteMemory}
+                />
+              </div>
+            </div>
+          </header>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
             class={readerArticle}
             data-reader-content
-            innerHTML={props.result.rendered.html}
+            data-reader-ready={isReaderClientReady() ? "true" : undefined}
+            onClick={handleReaderContentClick}
             onKeyUp={handleKeyboardSelectionToggle}
-            onMouseUp={handleSelectionToggle}
+            onMouseUp={openSelectionMenu}
+            onPointerCancel={clearSectionLongPress}
+            onPointerLeave={clearSectionLongPress}
+            onPointerMove={clearSectionLongPress}
+            onPointerUp={clearSectionLongPress}
+            onPointerDown={handleReaderContentPointerDown}
             tabIndex={0}
-          />
+          >
+            <Show
+              when={readerTitleHtml()}
+              fallback={(
+                <h1
+                  class="mb-0 text-[clamp(2rem,8cqi,3.35rem)] font-extrabold leading-[1.03] text-trauma-text-primary"
+                  data-reader-noncontent
+                >
+                  {props.result.memory.title}
+                </h1>
+              )}
+            >
+              {(titleHtml) => (
+                <div
+                  class="trauma-reader-lifted-title"
+                  data-reader-offset-content
+                  data-reader-noncontent
+                  innerHTML={titleHtml()}
+                />
+              )}
+            </Show>
+            <div data-reader-noncontent>
+              <ReaderTaxonomyChips
+                categories={categories()}
+                memoryId={props.result.memory.id}
+                tagOptions={props.tagOptions}
+                tags={tags()}
+                onAddTag={attachTag}
+                onRemoveTag={detachTag}
+                onTaxonomyError={setErrorMessage}
+              />
+            </div>
+            <div
+              ref={bodyContentRef}
+              class="contents"
+              data-reader-mutable-content
+              innerHTML={readerBodyHtml()}
+            />
+          </div>
+          <Show when={selectionMenu()}>
+            {(menu) => (
+              <ReaderContextMenu
+                label="Reader text selection actions"
+                menuRef={(element) => {
+                  selectionMenuRef = element;
+                }}
+                position={menu().position}
+              >
+                <button
+                  aria-label="Flashback selection"
+                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  title="Flashback selection"
+                  disabled={pendingSelectionKey() === menu().key}
+                  type="button"
+                  onClick={commitSelectionMenu}
+                >
+                  {TraumaNavIcons.flashbacks.filled({ size: 18 })}
+                </button>
+                <Show when={menu().momentSection}>
+                  {(section) => (
+                    <button
+                      aria-label="Moment selected section"
+                      class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                      title="Moment selected section"
+                      disabled={pendingMomentKey() === getReaderMomentKey(section())}
+                      type="button"
+                      onClick={commitSelectionMomentMenu}
+                    >
+                      {TraumaNavIcons.moment.filled({ size: 18 })}
+                    </button>
+                  )}
+                </Show>
+              </ReaderContextMenu>
+            )}
+          </Show>
+          <Show when={sectionMenu()}>
+            {(menu) => (
+              <ReaderContextMenu
+                label="Reader section actions"
+                menuRef={(element) => {
+                  sectionMenuRef = element;
+                }}
+                position={menu().position}
+              >
+                <button
+                  aria-label="Moment section"
+                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  title="Moment section"
+                  disabled={pendingMomentKey() === menu().key}
+                  type="button"
+                  onClick={commitSectionMenu}
+                >
+                  {TraumaNavIcons.moment.filled({ size: 18 })}
+                </button>
+              </ReaderContextMenu>
+            )}
+          </Show>
           <Show when={errorMessage()}>
             {(message) => (
               <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="status">
@@ -156,6 +686,515 @@ function ReadyMemoryReader(props: { result: ReadyReaderMemoryResult }) {
   );
 }
 
+function ReaderTaxonomyChips(props: {
+  categories: ReaderTaxonomyItem[];
+  memoryId: string;
+  tagOptions: readonly BrowseTaxonomySummaryItem[];
+  tags: ReaderTaxonomyItem[];
+  onAddTag: (name: string) => Promise<void> | void;
+  onRemoveTag: (name: string) => Promise<void> | void;
+  onTaxonomyError: (message: string) => void;
+}) {
+  return (
+    <div class="mt-4 trauma-local-wrap">
+      <TaxonomyList
+        class="contents"
+        items={props.categories}
+        kind="category"
+        mode="chips"
+      />
+      <TaxonomyList
+        class="contents"
+        items={props.tags}
+        kind="tag"
+        mode="chips"
+      />
+      <span class="relative inline-grid">
+        <TaxonomyAddControl
+          attachedItems={props.tags}
+          id={`memory-${props.memoryId}-tags-add`}
+          kind="tag"
+          options={props.tagOptions}
+          onAttachName={props.onAddTag}
+          onDetachName={props.onRemoveTag}
+          onError={props.onTaxonomyError}
+        />
+      </span>
+    </div>
+  );
+}
+
+export async function deleteReaderMemory(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  navigate: (path: string) => void;
+  revalidate?: (memoryId: string) => Promise<void>;
+}): Promise<void> {
+  try {
+    await deleteMemoryById({
+      memoryId: input.memoryId,
+      fetch: input.fetch,
+    });
+  } catch (error) {
+    if (isBackupFailsafeMemoryActionError(error)) {
+      void revalidateBackupFailsafeAlert();
+    }
+    throw error;
+  }
+  await (input.revalidate ?? revalidateAfterMemoryDeletion)(input.memoryId);
+  input.navigate("/memories");
+}
+
+export async function attachReaderCategoryByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return attachCategoryToMemoryByName(input);
+}
+
+export async function attachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return attachTagToMemoryByName(input);
+}
+
+export async function detachReaderTagByName(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+  name: string;
+}): Promise<ReaderTaxonomyItem> {
+  return detachTagFromMemoryByName(input);
+}
+
+function mergeReaderTaxonomyItem(
+  current: ReaderTaxonomyItem[],
+  next: ReaderTaxonomyItem,
+): ReaderTaxonomyItem[] {
+  if (current.some((item) => item.id === next.id)) {
+    return current;
+  }
+
+  return [...current, next];
+}
+
+function mergeReaderMomentItem(
+  current: ReaderMomentItem[],
+  next: ReaderMomentItem,
+): ReaderMomentItem[] {
+  if (
+    current.some(
+      (item) => item.id === next.id || item.sectionAnchor === next.sectionAnchor,
+    )
+  ) {
+    return current.map((item) =>
+      item.id === next.id || item.sectionAnchor === next.sectionAnchor
+        ? next
+        : item,
+    );
+  }
+
+  return [next, ...current];
+}
+
+export function findLeadingReaderTitleEntry(input: {
+  html: string;
+  title: string;
+  toc: ReaderTocEntry[];
+}): ReaderTocEntry | undefined {
+  const anchor = readLeadingReaderHeadingAnchor(input.html);
+  if (anchor === undefined) {
+    return undefined;
+  }
+
+  const entry = input.toc.find((candidate) => candidate.id === anchor);
+  return entry?.level === 1 && entry.text === input.title ? entry : undefined;
+}
+
+export function splitLeadingReaderTitleContent(input: {
+  html: string;
+  title: string;
+  toc: ReaderTocEntry[];
+}): { bodyHtml: string; titleHtml: string | undefined } {
+  if (findLeadingReaderTitleEntry(input) === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  const match = /^\s*(<h1\b[\s\S]*?<\/h1>)/i.exec(input.html);
+  if (match === null || match[1] === undefined) {
+    return {
+      bodyHtml: input.html,
+      titleHtml: undefined,
+    };
+  }
+
+  return {
+    bodyHtml: input.html.slice(match[0].length),
+    titleHtml: match[1],
+  };
+}
+
+export function readLeadingReaderHeadingAnchor(
+  html: string,
+): string | undefined {
+  const match = /^\s*<h1\b([^>]*)>/i.exec(html);
+  if (match === null) {
+    return undefined;
+  }
+
+  return readHtmlAttribute(match[1] ?? "", "data-reader-section-anchor");
+}
+
+function readHtmlAttribute(
+  attributes: string,
+  name: string,
+): string | undefined {
+  const pattern = new RegExp(
+    `\\b${escapeRegExp(name)}="([^"]*)"`,
+    "i",
+  );
+
+  return pattern.exec(attributes)?.[1];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function readReaderHashTargetId(hash: string): string {
+  if (!hash.startsWith("#")) {
+    return "";
+  }
+
+  const rawTarget = hash.slice(1).trim();
+  if (rawTarget.length === 0) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(rawTarget);
+  } catch {
+    return rawTarget;
+  }
+}
+
+export function scrollReaderHashTarget(input: {
+  behavior?: ScrollBehavior;
+  hash: string;
+  root: HTMLElement | undefined;
+}): boolean {
+  const targetId = readReaderHashTargetId(input.hash);
+  if (targetId.length === 0 || input.root === undefined) {
+    return false;
+  }
+
+  const target = input.root.querySelector<HTMLElement>(
+    `#${CSS.escape(targetId)}`,
+  );
+  if (target === null) {
+    return false;
+  }
+
+  target.scrollIntoView({
+    behavior: input.behavior ?? "auto",
+    block: "start",
+    inline: "nearest",
+  });
+  return true;
+}
+
+function scheduleReaderHashTargetScroll(root: HTMLElement | undefined): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      scrollReaderHashTarget({
+        hash: window.location.hash,
+        root,
+      });
+    });
+  });
+}
+
+async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterReaderTaxonomyChange(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterMemoryDeletion(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateBrowseMemoryWorkspace(),
+    revalidateFlashbackBrowseRows(),
+    revalidateMomentBrowseRows(),
+    revalidateReaderMemory(memoryId),
+  ]);
+}
+
+async function revalidateAfterFlashbackToggle(memoryId: string): Promise<void> {
+  await Promise.all([
+    revalidateFlashbackBrowseRows(),
+    revalidateReaderMemory(memoryId),
+    revalidateBrowseMemoryWorkspace(),
+  ]);
+}
+
+function ReaderContextMenu(props: {
+  children: JSX.Element;
+  label: string;
+  menuRef: (element: HTMLDivElement) => void;
+  position: ReaderSelectionMenuPosition;
+}) {
+  return (
+    <div
+      ref={props.menuRef}
+      aria-label={props.label}
+      class={readerContextMenuClass}
+      role="menu"
+      style={{
+        left: `${props.position.left}px`,
+        top: `${props.position.top}px`,
+      }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function ReaderRightRailContent(props: {
+  allFlashbacks: FlashbackBrowseRow[] | undefined;
+  currentFlashbacks: ReaderFlashbackItem[];
+  moments: ReaderMomentItem[];
+  memoryId: string;
+  onCreateMoment: (section: ReaderMomentSection) => void;
+  onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
+  pendingMomentKey: string;
+  toc: ReaderTocEntry[];
+}) {
+  return (
+    <div class="grid gap-4">
+      <ReaderToc
+        moments={props.moments}
+        onCreateMoment={props.onCreateMoment}
+        onOpenSectionMenu={props.onOpenSectionMenu}
+        pendingMomentKey={props.pendingMomentKey}
+        toc={props.toc}
+      />
+      <ReaderFlashbackTabs
+        allFlashbacks={props.allFlashbacks}
+        currentFlashbacks={props.currentFlashbacks}
+        memoryId={props.memoryId}
+      />
+    </div>
+  );
+}
+
+export function ReaderFlashbackTabs(props: {
+  allFlashbacks: FlashbackBrowseRow[] | undefined;
+  currentFlashbacks: ReaderFlashbackItem[];
+  initialTab?: "all" | "memory";
+  memoryId: string;
+}) {
+  const [activeTab, setActiveTab] = createSignal<"all" | "memory">(
+    props.initialTab ?? "memory",
+  );
+  const allRows = createMemo(() => props.allFlashbacks ?? []);
+  const isLoadingAll = () => props.allFlashbacks === undefined;
+
+  return (
+    <section class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5">
+      <h2 class="mb-3 text-[20px] font-extrabold text-trauma-text-primary">
+        Flashbacks
+      </h2>
+      <div class="mb-4 grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1">
+        <SegmentedToggleButton
+          active={activeTab() === "memory"}
+          hint="Show current"
+          onClick={() => setActiveTab("memory")}
+        >
+          Current
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={activeTab() === "all"}
+          hint="Show all"
+          onClick={() => setActiveTab("all")}
+        >
+          All
+        </SegmentedToggleButton>
+      </div>
+      <Show
+        when={activeTab() === "memory"}
+        fallback={
+          <FlashbackShortcutList
+            emptyLabel="No flashbacks yet"
+            flashbacks={allRows().map((flashback) => ({
+              id: flashback.id,
+              href: buildMemoryAnchorHref({
+                anchorId: flashback.id,
+                memoryId: flashback.memoryId,
+              }),
+              prefix: flashback.prefix,
+              suffix: flashback.suffix,
+              text: flashback.text,
+            }))}
+            isLoading={isLoadingAll()}
+          />
+        }
+      >
+        <FlashbackShortcutList
+          emptyLabel="No flashbacks for this memory yet"
+          flashbacks={props.currentFlashbacks.map((flashback) => ({
+            id: flashback.id,
+            href: buildSameMemoryAnchorHref(flashback.id),
+            prefix: flashback.prefix,
+            suffix: flashback.suffix,
+            text: flashback.text,
+          }))}
+          isLoading={false}
+        />
+      </Show>
+    </section>
+  );
+}
+
+function getReaderSelectionKey(selection: ReaderSelectionPayload): string {
+  return `${selection.startOffset}:${selection.endOffset}:${selection.text}`;
+}
+
+function getReaderMomentKey(section: ReaderMomentSection): string {
+  return `${section.id}:${section.path}`;
+}
+
+function findReaderSectionElement(
+  target: EventTarget | null,
+  container: HTMLElement | undefined,
+): HTMLElement | undefined {
+  if (!(target instanceof Element) || container === undefined) {
+    return undefined;
+  }
+
+  const section = target.closest<HTMLElement>("[data-reader-section-anchor]");
+  if (section === null || !container.contains(section)) {
+    return undefined;
+  }
+
+  return section;
+}
+
+function findReaderMomentTrigger(
+  target: EventTarget | null,
+  container: HTMLElement | undefined,
+): HTMLButtonElement | undefined {
+  if (!(target instanceof Element) || container === undefined) {
+    return undefined;
+  }
+
+  const trigger = target.closest<HTMLButtonElement>(
+    "button[data-reader-moment-trigger='true']",
+  );
+  if (trigger === null || !container.contains(trigger)) {
+    return undefined;
+  }
+
+  return trigger;
+}
+
+function readReaderSection(
+  sectionElement: HTMLElement,
+): ReaderMomentSection | undefined {
+  const id = sectionElement.dataset.readerSectionAnchor;
+  const path = sectionElement.dataset.readerSectionPath;
+  const title = sectionElement.dataset.readerSectionTitle
+    ?? sectionElement.textContent
+    ?? "";
+  const level = Number.parseInt(
+    sectionElement.dataset.readerSectionLevel ?? "",
+    10,
+  );
+
+  if (
+    id === undefined ||
+    id.trim() === "" ||
+    path === undefined ||
+    path.trim() === "" ||
+    title.trim() === "" ||
+    !Number.isInteger(level)
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: id.trim(),
+    level,
+    path: path.trim(),
+    text: title.trim(),
+  };
+}
+
+function findReaderSectionInSelection(
+  range: Range,
+  container: HTMLElement | undefined,
+): ReaderMomentSection | undefined {
+  if (container === undefined) {
+    return undefined;
+  }
+
+  for (const sectionElement of container.querySelectorAll<HTMLElement>(
+    "[data-reader-section-anchor]",
+  )) {
+    if (!range.intersectsNode(sectionElement)) {
+      continue;
+    }
+
+    const section = readReaderSection(sectionElement);
+    if (section !== undefined) {
+      return section;
+    }
+  }
+
+  return undefined;
+}
+
+export function positionReaderSelectionMenu(
+  rect: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width">,
+  viewport: { height: number; width: number },
+  menuWidth = 48,
+): ReaderSelectionMenuPosition {
+  const menuHeight = 48;
+  const gap = 8;
+  const centeredLeft = rect.left + rect.width / 2 - menuWidth / 2;
+  const left = clamp(centeredLeft, gap, viewport.width - menuWidth - gap);
+  const canPlaceAbove = rect.top >= menuHeight + gap;
+  const top = canPlaceAbove
+    ? rect.top - menuHeight - gap
+    : Math.min(rect.bottom + gap, viewport.height - menuHeight - gap);
+
+  return {
+    left,
+    top: Math.max(gap, top),
+    placement: canPlaceAbove ? "above" : "below",
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 function ReaderState(props: { message: string }) {
   return (
     <section class={readerFrame} aria-labelledby="reader-state-title">
@@ -167,7 +1206,13 @@ function ReaderState(props: { message: string }) {
   );
 }
 
-function ReaderToc(props: { toc: ReaderTocEntry[] }) {
+function ReaderToc(props: {
+  moments: ReaderMomentItem[];
+  onCreateMoment: (section: ReaderMomentSection) => void;
+  onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
+  pendingMomentKey: string;
+  toc: ReaderTocEntry[];
+}) {
   let scrollRef: HTMLOListElement | undefined;
   const [tocScrollState, setTocScrollState] =
     createSignal<TocScrollState>(noTocScrollState);
@@ -221,20 +1266,20 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
         <div class="trauma-toc-scroll-shell">
           <ol
             ref={scrollRef}
-            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-[18px]`}
+            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
             {props.toc.map((entry) => (
-              <li
-                classList={{
-                  "ml-2.5": entry.level === 2,
-                  "ml-5": entry.level === 3,
-                }}
-              >
-                <a class="hover:text-trauma-link" href={`#${entry.id}`}>
-                  {entry.text}
-                </a>
-              </li>
+              <ReaderTocEntryRow
+                active={props.moments.some(
+                  (moment) =>
+                    resolveReaderMomentTarget(moment, props.toc)?.id === entry.id,
+                )}
+                entry={entry}
+                onCreateMoment={props.onCreateMoment}
+                onOpenSectionMenu={props.onOpenSectionMenu}
+                pending={props.pendingMomentKey === getReaderMomentKey(entry)}
+              />
             ))}
           </ol>
         </div>
@@ -255,37 +1300,159 @@ function ReaderToc(props: { toc: ReaderTocEntry[] }) {
   );
 }
 
+export function resolveReaderMomentTarget(
+  moment: ReaderMomentItem,
+  toc: ReaderTocEntry[],
+): ReaderTocEntry | undefined {
+  const exact = toc.find((entry) =>
+    entry.id === moment.sectionAnchor &&
+    entry.path === moment.sectionPath
+  );
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const pathMatches = toc.filter((entry) => entry.path === moment.sectionPath);
+  return pathMatches.length === 1 ? pathMatches[0] : undefined;
+}
+
+export function findReaderMomentForSection(
+  moments: ReaderMomentItem[],
+  toc: ReaderTocEntry[],
+  section: ReaderMomentSection,
+): ReaderMomentItem | undefined {
+  return moments.find((moment) =>
+    resolveReaderMomentTarget(moment, toc)?.id === section.id
+  );
+}
+
+function syncReaderSectionMomentButtons(input: {
+  container: HTMLElement | undefined;
+  moments: ReaderMomentItem[];
+  toc: ReaderTocEntry[];
+}): void {
+  if (input.container === undefined) {
+    return;
+  }
+
+  for (const button of input.container.querySelectorAll<HTMLButtonElement>(
+    "button[data-reader-moment-trigger='true']",
+  )) {
+    const sectionElement = findReaderSectionElement(button, input.container);
+    const section = sectionElement === undefined
+      ? undefined
+      : readReaderSection(sectionElement);
+    const active = section !== undefined &&
+      findReaderMomentForSection(input.moments, input.toc, section) !== undefined;
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function ReaderTocEntryRow(props: {
+  active: boolean;
+  entry: ReaderTocEntry;
+  onCreateMoment: (section: ReaderMomentSection) => void;
+  onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
+  pending: boolean;
+}) {
+  let rowRef: HTMLLIElement | undefined;
+  let longPressTimer: number | undefined;
+  const clearLongPress = () => {
+    if (longPressTimer === undefined) {
+      return;
+    }
+
+    window.clearTimeout(longPressTimer);
+    longPressTimer = undefined;
+  };
+  const openLongPressMenu = () => {
+    if (rowRef === undefined) {
+      return;
+    }
+
+    props.onOpenSectionMenu(props.entry, rowRef.getBoundingClientRect());
+  };
+
+  onCleanup(clearLongPress);
+
+  return (
+    <li
+      ref={rowRef}
+      class="group grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
+      classList={{
+        "ml-2.5": props.entry.level === 2,
+        "ml-5": props.entry.level === 3,
+      }}
+      onPointerCancel={clearLongPress}
+      onPointerLeave={clearLongPress}
+      onPointerMove={clearLongPress}
+      onPointerUp={clearLongPress}
+      onPointerDown={(event) => {
+        clearLongPress();
+        if (event.button !== 0) {
+          return;
+        }
+
+        longPressTimer = window.setTimeout(openLongPressMenu, 500);
+      }}
+    >
+      <button
+        aria-label={`Moment ${props.entry.text}`}
+        aria-pressed={props.active}
+        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
+        title={props.active ? "Remove moment" : "Save moment"}
+        disabled={props.pending}
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          props.onCreateMoment(props.entry);
+        }}
+      >
+        {props.active
+          ? TraumaNavIcons.moment.filled({ size: 14 })
+          : TraumaNavIcons.moment.outline({ size: 14 })}
+      </button>
+      <a class="hover:text-trauma-link" href={`#${props.entry.id}`}>
+        {props.entry.text}
+      </a>
+    </li>
+  );
+}
+
 async function toggleReaderSelection(input: {
   container: HTMLDivElement;
   memoryId: string;
+  onFlashbacksChanged: (flashbacks: ReaderFlashbackItem[]) => void;
+  onSuccess: () => Promise<void> | void;
   pendingSelectionKey: string;
+  selection: ReaderSelection;
   setErrorMessage: (message: string) => void;
   setPendingSelectionKey: (key: string) => void;
 }) {
-  if (!canStartHighlightToggle(input.pendingSelectionKey)) {
+  if (!canStartFlashbackToggle(input.pendingSelectionKey)) {
     return;
   }
 
-  const selection = readReaderSelection(input.container);
-  if (selection === undefined) {
-    return;
-  }
-
-  const selectionKey = `${selection.startOffset}:${selection.endOffset}:${selection.text}`;
+  const selection = input.selection;
+  const selectionKey = getReaderSelectionKey(selection);
   const previousHtml = input.container.innerHTML;
-  const shouldUnhighlight = isRangeFullyMarked(selection.range, input.container);
-  const operation: ReaderHighlightOperation = shouldUnhighlight
-    ? "unhighlight"
-    : "highlight";
+  const shouldUnflashback = isRangeFullyMarked(selection.range, input.container);
+  const operation: ReaderFlashbackOperation = shouldUnflashback
+    ? "unflashback"
+    : "flashback";
   input.setErrorMessage("");
   input.setPendingSelectionKey(selectionKey);
   input.container.focus({ preventScroll: true });
 
   try {
-    applyOptimisticHighlight(selection.range, shouldUnhighlight, input.container);
+    const optimisticFlashbackId = applyOptimisticFlashback(
+      selection.range,
+      shouldUnflashback,
+      input.container,
+    );
     window.getSelection()?.removeAllRanges();
 
-    const response = await fetch("/api/highlights", {
+    const response = await fetch("/api/flashbacks", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -297,23 +1464,88 @@ async function toggleReaderSelection(input: {
       }),
     });
 
-    const failure = await readHighlightFailure(response);
+    const failure = await readFlashbackFailure(response);
     if (failure !== undefined) {
-      if (shouldRevalidateBackupFailsafeAfterHighlightFailure(failure)) {
+      if (shouldRevalidateBackupFailsafeAfterFlashbackFailure(failure)) {
         void revalidateBackupFailsafeAlert();
       }
 
       throw new Error(failure.message);
     }
+    const payload = await readFlashbackToggleSuccess(response);
+    if (optimisticFlashbackId !== undefined) {
+      syncOptimisticFlashbackMark({
+        container: input.container,
+        flashback: findFlashbackForOptimisticSelection(
+          payload.result.flashbacks,
+          selection,
+        ),
+        pendingId: optimisticFlashbackId,
+      });
+    }
+    input.onFlashbacksChanged(payload.result.flashbacks);
+    void Promise.resolve(input.onSuccess()).catch(() => undefined);
   } catch {
     input.container.innerHTML = previousHtml;
-    input.setErrorMessage("Highlight failed");
+    input.setErrorMessage("Flashback failed");
   } finally {
     input.setPendingSelectionKey("");
   }
 }
 
-function readReaderSelection(container: HTMLElement): ReaderSelection | undefined {
+interface ReaderFlashbackToggleSuccess {
+  result: {
+    flashbacks: ReaderFlashbackItem[];
+  };
+}
+
+async function readFlashbackToggleSuccess(
+  response: Response,
+): Promise<ReaderFlashbackToggleSuccess> {
+  const payload: unknown = await response.json();
+  if (!isReaderFlashbackToggleSuccess(payload)) {
+    throw new Error("invalid flashback toggle response");
+  }
+
+  return payload;
+}
+
+function isReaderFlashbackToggleSuccess(
+  value: unknown,
+): value is ReaderFlashbackToggleSuccess {
+  if (!isRecord(value) || !isRecord(value.result)) {
+    return false;
+  }
+
+  return Array.isArray(value.result.flashbacks) &&
+    value.result.flashbacks.every(isReaderFlashbackItem);
+}
+
+function isReaderFlashbackItem(value: unknown): value is ReaderFlashbackItem {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.text === "string" &&
+    typeof value.prefix === "string" &&
+    typeof value.suffix === "string" &&
+    typeof value.startOffset === "number" &&
+    typeof value.endOffset === "number" &&
+    (value.contentHash === undefined ||
+      value.contentHash === null ||
+      typeof value.contentHash === "string") &&
+    typeof value.createdAt === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readReaderSelection(
+  container: HTMLElement | undefined,
+): ReaderSelection | undefined {
+  if (container === undefined) {
+    return undefined;
+  }
+
   const selection = window.getSelection();
   if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) {
     return undefined;
@@ -323,18 +1555,27 @@ function readReaderSelection(container: HTMLElement): ReaderSelection | undefine
   if (!containsBoundary(container, range.startContainer) || !containsBoundary(container, range.endContainer)) {
     return undefined;
   }
+  if (
+    isInsideReaderNonContent(range.startContainer) ||
+    isInsideReaderNonContent(range.endContainer) ||
+    rangeIntersectsReaderNonContent(range, container)
+  ) {
+    return undefined;
+  }
 
-  const text = range.toString();
+  const textNodes = collectReaderContentTextNodes(container);
+  const selectionOffsets = readReaderSelectionOffsets(range, textNodes);
+  if (selectionOffsets === undefined) {
+    return undefined;
+  }
+
+  const text = selectionOffsets.text;
   if (text.trim().length === 0) {
     return undefined;
   }
 
-  const preSelectionRange = document.createRange();
-  preSelectionRange.selectNodeContents(container);
-  preSelectionRange.setEnd(range.startContainer, range.startOffset);
-  const startOffset = preSelectionRange.toString().length;
-  const endOffset = startOffset + text.length;
-  const contentText = container.textContent ?? "";
+  const contentText = textNodes.map((node) => node.nodeValue ?? "").join("");
+  const { endOffset, startOffset } = selectionOffsets;
 
   return {
     range,
@@ -348,6 +1589,44 @@ function readReaderSelection(container: HTMLElement): ReaderSelection | undefine
 
 function containsBoundary(container: HTMLElement, node: Node): boolean {
   return node === container || container.contains(node);
+}
+
+function readReaderSelectionOffsets(
+  range: Range,
+  textNodes: Text[],
+): { endOffset: number; startOffset: number; text: string } | undefined {
+  let currentOffset = 0;
+  let startOffset: number | undefined;
+  let endOffset: number | undefined;
+  let text = "";
+
+  for (const node of textNodes) {
+    const nodeText = node.nodeValue ?? "";
+    const nodeLength = nodeText.length;
+
+    if (range.intersectsNode(node)) {
+      const nodeStartOffset = currentOffset;
+      const selectedStart = node === range.startContainer ? range.startOffset : 0;
+      const selectedEnd = node === range.endContainer ? range.endOffset : nodeLength;
+      if (selectedEnd > selectedStart) {
+        startOffset ??= nodeStartOffset + selectedStart;
+        endOffset = nodeStartOffset + selectedEnd;
+        text += nodeText.slice(selectedStart, selectedEnd);
+      }
+    }
+
+    currentOffset += nodeLength;
+  }
+
+  if (startOffset === undefined || endOffset === undefined) {
+    return undefined;
+  }
+
+  return {
+    endOffset,
+    startOffset,
+    text,
+  };
 }
 
 function readContextBefore(text: string, startOffset: number): string {
@@ -368,19 +1647,26 @@ function isRangeFullyMarked(range: Range, container: HTMLElement): boolean {
   return (
     textNodes.length > 0 &&
     textNodes.every((node) =>
-      node.parentElement?.closest("mark[data-highlight-id]") !== null,
+      node.parentElement?.closest("mark[data-flashback-id]") !== null,
     )
   );
 }
 
 function collectIntersectingTextNodes(range: Range, container: HTMLElement): Text[] {
+  return collectReaderContentTextNodes(container).filter((node) =>
+    range.intersectsNode(node),
+  );
+}
+
+function collectReaderContentTextNodes(container: HTMLElement): Text[] {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   let current = walker.nextNode();
 
   while (current !== null) {
-    if (range.intersectsNode(current)) {
-      nodes.push(current as Text);
+    const node = current as Text;
+    if (!isInsideReaderNonContent(node) || isInsideReaderOffsetContent(node)) {
+      nodes.push(node);
     }
 
     current = walker.nextNode();
@@ -389,32 +1675,95 @@ function collectIntersectingTextNodes(range: Range, container: HTMLElement): Tex
   return nodes;
 }
 
-function applyOptimisticHighlight(
+function isInsideReaderNonContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-noncontent]") !== null;
+}
+
+function isInsideReaderOffsetContent(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest("[data-reader-offset-content]") !== null;
+}
+
+function rangeIntersectsReaderNonContent(
   range: Range,
-  shouldUnhighlight: boolean,
   container: HTMLElement,
-): void {
-  if (shouldUnhighlight) {
+): boolean {
+  return [...container.querySelectorAll("[data-reader-noncontent]")].some(
+    (element) => rangeIntersectsElement(range, element),
+  );
+}
+
+function rangeIntersectsElement(range: Range, element: Element): boolean {
+  const elementRange = document.createRange();
+  elementRange.selectNode(element);
+  return range.compareBoundaryPoints(Range.END_TO_START, elementRange) > 0 &&
+    range.compareBoundaryPoints(Range.START_TO_END, elementRange) < 0;
+}
+
+function applyOptimisticFlashback(
+  range: Range,
+  shouldUnflashback: boolean,
+  container: HTMLElement,
+): string | undefined {
+  if (shouldUnflashback) {
     const placeholder = document.createElement("span");
     const fragment = range.extractContents();
-    stripHighlightElements(fragment);
+    stripFlashbackElements(fragment);
     placeholder.append(fragment);
     range.insertNode(placeholder);
-    liftNodeOutOfHighlightMarks(placeholder);
+    liftNodeOutOfFlashbackMarks(placeholder);
     placeholder.replaceWith(...Array.from(placeholder.childNodes));
     container.normalize();
-    return;
+    return undefined;
   }
 
+  const pendingId = `pending-${Date.now()}`;
   const mark = document.createElement("mark");
-  mark.dataset.highlightId = `pending-${Date.now()}`;
+  mark.dataset.flashbackId = pendingId;
+  mark.id = pendingId;
   mark.append(range.extractContents());
   range.insertNode(mark);
   container.normalize();
+  return pendingId;
 }
 
-function stripHighlightElements(fragment: DocumentFragment): void {
-  for (const mark of [...fragment.querySelectorAll("mark[data-highlight-id]")]) {
+export function findFlashbackForOptimisticSelection(
+  flashbacks: ReaderFlashbackItem[],
+  selection: ReaderSelectionPayload,
+): ReaderFlashbackItem | undefined {
+  return flashbacks.find((flashback) =>
+    flashback.startOffset <= selection.startOffset &&
+    flashback.endOffset >= selection.endOffset
+  ) ?? flashbacks.find((flashback) =>
+    flashback.text === selection.text &&
+    flashback.startOffset === selection.startOffset &&
+    flashback.endOffset === selection.endOffset
+  );
+}
+
+function syncOptimisticFlashbackMark(input: {
+  container: HTMLElement;
+  flashback: ReaderFlashbackItem | undefined;
+  pendingId: string;
+}): void {
+  if (input.flashback === undefined) {
+    return;
+  }
+
+  const mark = input.container.querySelector<HTMLElement>(
+    `mark[data-flashback-id="${CSS.escape(input.pendingId)}"]`,
+  );
+  if (mark === null) {
+    return;
+  }
+
+  mark.dataset.flashbackId = input.flashback.id;
+  mark.id = input.flashback.id;
+}
+
+function stripFlashbackElements(fragment: DocumentFragment): void {
+  for (const mark of [...fragment.querySelectorAll("mark[data-flashback-id]")]) {
     const parent = mark.parentNode;
     if (parent === null) {
       continue;
@@ -427,9 +1776,9 @@ function stripHighlightElements(fragment: DocumentFragment): void {
   }
 }
 
-function liftNodeOutOfHighlightMarks(node: HTMLElement): void {
+function liftNodeOutOfFlashbackMarks(node: HTMLElement): void {
   let mark =
-    node.parentElement?.closest<HTMLElement>("mark[data-highlight-id]") ?? null;
+    node.parentElement?.closest<HTMLElement>("mark[data-flashback-id]") ?? null;
 
   while (mark !== null) {
     const liftTarget = directChildContaining(mark, node);
@@ -439,7 +1788,7 @@ function liftNodeOutOfHighlightMarks(node: HTMLElement): void {
 
     liftChildOutOfMark(liftTarget, mark);
     mark =
-      node.parentElement?.closest<HTMLElement>("mark[data-highlight-id]") ??
+      node.parentElement?.closest<HTMLElement>("mark[data-flashback-id]") ??
       null;
   }
 }

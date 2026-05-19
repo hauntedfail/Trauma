@@ -1,0 +1,96 @@
+import { readFileSync } from "node:fs";
+
+import { createComponent, renderToString } from "solid-js/web";
+import { describe, expect, it } from "vitest";
+
+import { FlashbackExcerpt } from "../../src/components/flashbacks/FlashbackExcerpt";
+import { FlashbackShortcutList } from "../../src/components/flashbacks/FlashbackShortcutList";
+import { FlashbackInlineText } from "../../src/components/flashbacks/FlashbackText";
+
+const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
+
+describe("Flashback excerpt rendering", () => {
+  it("centralizes inline Flashback text for route and right rail rows", () => {
+    const html = renderToString(() =>
+      createComponent(FlashbackInlineText, {
+        prefix: "before ",
+        text: "selected text",
+        suffix: " after",
+        class: "text-base",
+      }),
+    );
+
+    expect(html).toContain("wrap-anywhere");
+    expect(html).toContain("text-base");
+    expect(html).toContain("before ");
+    expect(html).toContain("selected text");
+    expect(html).toContain(" after");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
+    expect(html).not.toContain("<blockquote");
+  });
+
+  it("renders selected text with blurred context around it", () => {
+    const html = renderToString(() =>
+      createComponent(FlashbackExcerpt, {
+        prefix: "before ",
+        text: "selected text",
+        suffix: " after",
+      }),
+    );
+
+    expect(html).toContain("before ");
+    expect(html).toContain("selected text");
+    expect(html).toContain(" after");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
+    expect(html).toContain("font-bold text-trauma-text-primary");
+    expect(html).not.toContain("<blockquote");
+    expect(html).not.toContain("border-trauma-quote-bar");
+    expect(html).not.toContain("bg-trauma-quote-bg");
+  });
+
+  it("renders shortcut list item context without component-level fade hooks", () => {
+    const html = renderToString(() =>
+      createComponent(FlashbackShortcutList, {
+        emptyLabel: "No flashbacks",
+        flashbacks: [
+          {
+            id: "flashback-1",
+            prefix: "before ",
+            suffix: " after",
+            text: "selected",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("before ");
+    expect(html).toContain("selected");
+    expect(html).toContain(" after");
+    expect(html).toContain("trauma-flashback-context-before");
+    expect(html).toContain("trauma-flashback-context-after");
+    expect(html).not.toContain("trauma-toc-scroll-fade");
+    expect(html).not.toContain("<blockquote");
+  });
+
+  it("keeps Flashback context blur scoped to prefix and suffix text", () => {
+    const contextRuleStart = tailwindCss.indexOf(".trauma-flashback-context {");
+    const beforeRuleStart = tailwindCss.indexOf(
+      ".trauma-flashback-context-before",
+      contextRuleStart,
+    );
+    const contextRule = tailwindCss.slice(contextRuleStart, beforeRuleStart);
+
+    expect(contextRuleStart).toBeGreaterThan(-1);
+    expect(beforeRuleStart).toBeGreaterThan(contextRuleStart);
+    expect(contextRule).toContain(
+      "color: color-mix(in srgb, var(--fg-2) 72%, var(--fg-3))",
+    );
+    expect(contextRule).not.toContain("var(--text-muted)");
+    expect(contextRule).toContain("filter: blur(");
+    expect(tailwindCss).toContain(".trauma-flashback-context-before");
+    expect(tailwindCss).toContain(".trauma-flashback-context-after");
+    expect(tailwindCss).toContain("mask-image: linear-gradient");
+  });
+});

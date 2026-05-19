@@ -22,7 +22,7 @@ lifecycle hooks.
       "remote": "origin",
       "branch": "main",
       "push": false,
-      "commitMessageTemplate": "backup memory {memoryId}"
+      "commitMessageTemplate": "backup {action} {memoryId}"
     }
   }
 }
@@ -81,6 +81,14 @@ still have recoverable markdown content.
 
 When enabled, TRAUMA stages only files under `storePath`, commits with
 `commitMessageTemplate`, and pushes only when `backup.git.push` is true.
+
+`commitMessageTemplate` supports these placeholders:
+
+- `{action}`: human-readable backup action, such as `created memory`,
+  `deleted memory`, or `updated flashbacks`.
+- `{memoryId}` and `{memory_id}`: the memory id.
+- `{reason}`: the raw backup trigger, such as `memory_creation`,
+  `memory_deletion`, or `flashback_update`.
 
 `projectPath` is the backup repository root. TRAUMA does not use the application
 repository as an implicit backup repository. On a clean first start, TRAUMA may

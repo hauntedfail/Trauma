@@ -56,8 +56,8 @@ The token tests verify:
 - The surface toggle labels are Light/Paper in sun brightness and
   Midnight/Hermès in night brightness while stored surface values remain
   `normal` and `paper`.
-- Linked highlight anchor tokens exist per theme and are not reused blindly from
-  the default yellow highlight colours.
+- Linked flashback anchor tokens exist per theme and are not reused blindly from
+  the default yellow flashback colours.
 - Material textures render through layered backgrounds plus fixed grain/fibre/pore
   and glow overlays.
 - Paper mode material textures do not include repeating dot/grid overlays.
@@ -98,7 +98,7 @@ tests cannot fully prove:
 
 - `/memories` desktop.
 - `/memories?view=grid` desktop.
-- `/highlights` desktop.
+- `/flashbacks` desktop.
 - `/memories/:id` reader.
 - `/memories` tablet.
 - `/memories` mobile.
@@ -113,8 +113,8 @@ Check:
 - Phone `Primary tabs` render every rail item and use tab-bar-only horizontal
   scrolling when constrained.
 - Phone tab labels are visually hidden while role names remain available.
-- On phone, Memories List/Grid view controls stay on the right edge of the
-  `Memories` header row instead of wrapping below the title.
+- On phone, Memories read-state tabs stay as one sticky equal-width header row
+  and the obsolete List/Grid view controls are absent.
 - Tablet uses the compact icon rail and does not duplicate brand/filter header
   chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
@@ -127,7 +127,7 @@ Check:
   Hermès wax-seal chrome shifting the icon.
 - Browse filters update URL state without clearing unrelated query state.
 - Reader links remain readable in Light, Paper, Midnight, and Hermès modes.
-- Linked highlight hash targets remain readable in every theme.
+- Linked flashback hash targets remain readable in every theme.
 - Reader TOC scroll fades appear only on scrollable edges. The top fade begins
   at the bounded list edge after scrolling down, and CSS mask gradients soften
   the transition into unblurred content.

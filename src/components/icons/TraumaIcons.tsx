@@ -1,15 +1,23 @@
 import type { JSX } from "solid-js";
 
+import {
+  momentIconBookmarkPath,
+  momentIconLineOnePath,
+  momentIconLineTwoPath,
+} from "./moment-icon-markup";
+
 interface IconProps {
   size?: number;
 }
 
 type NavIconName =
   | "memories"
-  | "highlights"
+  | "flashbacks"
+  | "moment"
   | "categories"
   | "tags"
   | "backup"
+  | "theme"
   | "settings";
 
 type NavIconFactory = (props?: IconProps) => JSX.Element;
@@ -72,18 +80,29 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
       </Svg>
     ),
   },
-  highlights: {
+  flashbacks: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <path {...stroke} d="m5 14 8-8 5 5-8 8H5v-5z" />
-        <path {...stroke} d="m13 6 3-3 5 5-3 3" />
-        <path {...stroke} d="M4 22h18" />
+        <path {...stroke} d="M15 2 6 14h6l-1 10 9-13h-6l1-9z" />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <path {...fill} d="m5 14 8-8 5 5-8 8H5v-5z" />
-        <path {...stroke} d="m13 6 3-3 5 5-3 3M4 22h18" />
+        <path {...fill} d="M15 2 6 14h6l-1 10 9-13h-6l1-9z" />
+      </Svg>
+    ),
+  },
+  moment: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <path {...stroke} d={momentIconBookmarkPath} />
+        <path {...stroke} d={`${momentIconLineOnePath}${momentIconLineTwoPath}`} />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <path {...fill} d={momentIconBookmarkPath} />
+        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-width="1.7" d={`${momentIconLineOnePath}${momentIconLineTwoPath}`} />
       </Svg>
     ),
   },
@@ -126,6 +145,22 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
       <Svg {...props}>
         <path {...fill} d="M6 18a4 4 0 0 1-1-7.9A6 6 0 0 1 17 9a4 4 0 0 1 1 7.9z" />
         <path {...stroke} d="M13 13v8m0 0-3-3m3 3 3-3" stroke-width="2" />
+      </Svg>
+    ),
+  },
+  theme: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <path {...stroke} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
+        <path {...stroke} d="M15.4 8.4 18.6 11.6" />
+        <path {...stroke} d="M9 14.8l3.3 3.3" />
+        <path {...stroke} d="M6.5 20.5l4.2-1.1" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <path {...fill} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
+        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M15.4 8.4 18.6 11.6M9 14.8l3.3 3.3" />
       </Svg>
     ),
   },
@@ -206,6 +241,37 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function EyeOpenIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+      <circle {...stroke} cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function EyeClosedIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M3 5l18 14" />
+      <path {...stroke} d="M4.5 9.5C6.2 7.5 8.6 6 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-2.2 2.8" />
+      <path {...stroke} d="M14.1 14.1A3 3 0 0 1 9.9 9.9" />
+      <path {...stroke} d="M6.1 12.2A17 17 0 0 1 2.5 12s3.5 6 9.5 6c1.5 0 2.8-.4 4-.9" />
+    </svg>
+  );
+}
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M4 7h16" />
+      <path {...stroke} d="M9 7V4h6v3" />
+      <path {...stroke} d="M7 7l1 14h8l1-14" />
+      <path {...stroke} d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 export function SunIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
@@ -230,6 +296,10 @@ export function MoonIcon(props: IconProps) {
       <path {...stroke} d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
     </svg>
   );
+}
+
+export function PaintToolIcon(props: IconProps) {
+  return TraumaNavIcons.theme.outline(props);
 }
 
 export function PageIcon(props: IconProps) {

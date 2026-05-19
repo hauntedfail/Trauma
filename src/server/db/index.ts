@@ -1,11 +1,14 @@
 import {
+  appSettings,
   backupEnvironmentStamps,
   backupFailsafeAlerts,
   categories,
-  highlights,
+  flashbacks,
   memories,
   memoryCategories,
   memoryTags,
+  moments,
+  openaiAuthCredentials,
   tags,
 } from "./schema";
 
@@ -18,20 +21,24 @@ export type {
   BackupEnvironmentRepository,
   BackupEnvironmentStamp,
   BackupFailsafeAlert,
-  HighlightRepository,
+  FlashbackRepository,
   MemoryRepository,
+  MomentRepository,
   TraumaDatabase,
   TraumaRepositories,
 } from "./repositories";
 export * from "./schema";
 
 export const schema = {
+  appSettings,
   backupEnvironmentStamps,
   backupFailsafeAlerts,
   categories,
-  highlights,
+  flashbacks,
   memories,
   memoryCategories,
   memoryTags,
+  moments,
+  openaiAuthCredentials,
   tags,
 };

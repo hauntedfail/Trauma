@@ -23,18 +23,28 @@
 `tag`
 : Ad-hoc label. A memory can have multiple tags.
 
-`highlight`
-: User-created text selection inside reader content. Persisted in SQLite and as
-`<mark data-highlight-id="...">...</mark>` inside `CONTENT.md`.
+`Flashback`
+: Product term for a user-created text marker inside reader content.
 
-`unhighlight`
-: Toggle action caused by selecting already-highlighted reader text. Only the
-selected range is removed from highlight coverage; surrounding highlighted text
-remains highlighted.
+`unflashback`
+: Toggle action caused by selecting reader text that is already covered by a
+Flashback marker. Only the selected range is removed from Flashback coverage;
+surrounding marked text remains marked.
 
-`/highlights`
-: Canonical highlight browse route. It lists highlighted excerpts with muted
+`/flashbacks`
+: Canonical Flashback marker browse route. It lists marked excerpts with muted
 prefix/suffix context and the source memory title.
+
+`Moment`
+: Product term for a saved reader section/chapter bookmark. This replaces the
+older use of `Flashback` for section bookmarks.
+
+`/moments`
+: Canonical Moment browse route for section bookmarks.
+
+`bookmark`
+: Generic behaviour description for what TRAUMA product language calls a
+`Moment`. Prefer `Moment` in user-facing docs.
 
 ## Status Fields
 

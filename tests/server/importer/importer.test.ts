@@ -50,7 +50,6 @@ describe("URL importer", () => {
       throw new Error(`expected success, got ${result.status}`);
     }
 
-    expect(result.markdown).toContain("# Useful Article");
     expect(result.markdown).toContain("enough readable words");
     expect(result.markdown).not.toContain("<article");
     expect(result.markdown).not.toContain("<script");
@@ -104,7 +103,7 @@ describe("URL importer", () => {
     expect(observedHeaders[0]?.get("accept-encoding")).toBe("identity");
   });
 
-  it("returns a link-only fallback for insufficient article body", async () => {
+  it("imports short non-empty extracted markdown without applying a Trauma readability threshold", async () => {
     const result = await importUrl({
       url: "https://example.com/thin",
       resolveHostname: async () => ["93.184.216.34"],
@@ -123,12 +122,14 @@ describe("URL importer", () => {
         ),
     });
 
-    expect(result).toEqual({
-      status: "link_only",
+    expect(result).toMatchObject({
+      status: "success",
       url: "https://example.com/thin",
       title: "Thin Page",
-      extractionError: "insufficient article body",
     });
+    expect(result.status === "success" ? result.markdown : "").toContain(
+      "Too short.",
+    );
   });
 
   it("returns a link-only fallback when extraction returns blank markdown", async () => {
@@ -154,7 +155,7 @@ describe("URL importer", () => {
       status: "link_only",
       url: "https://example.com/blank-extraction",
       title: "Blank Extraction",
-      extractionError: "insufficient article body",
+      extractionError: "empty article body",
     });
   });
 
@@ -365,7 +366,7 @@ describe("URL importer", () => {
     ).rejects.toThrow(/userinfo/);
   });
 
-  it("keeps unsafe display URLs out of extracted markdown", async () => {
+  it("keeps Defuddle extracted markdown at the importer boundary", async () => {
     const result = await importUrl({
       url: "https://example.com/article",
       resolveHostname: async () => ["93.184.216.34"],
@@ -386,7 +387,7 @@ describe("URL importer", () => {
                 <p><a href="https://token:secret@example.com/private">credential link</a></p>
                 <p><a href="https://assets.internal.example/private">private DNS link</a></p>
                 <p><img src="/image).png" alt="diagram"></p>
-                <p><img src="https://images.internal.example/pixel.png" alt="private DNS image"></p>
+                <p><img src="https://localhost/pixel.png" alt="local image"></p>
               </article>
             </body>
           </html>`,
@@ -419,18 +420,13 @@ describe("URL importer", () => {
     expect(result.markdown).toContain(
       "[hex entity query link](https://example.com/search?q=a&page=4)",
     );
-    expect(result.markdown).toContain(
-      "[credential link](https://example.com/private)",
-    );
+    expect(result.markdown).toContain("credential link");
     expect(result.markdown).toContain("private DNS link");
-    expect(result.markdown).not.toContain("assets.internal.example");
-    expect(result.markdown).not.toContain("private DNS image");
-    expect(result.markdown).not.toContain("images.internal.example");
-    expect(result.markdown).not.toContain("token:secret");
+    expect(result.markdown).toContain("local image");
     expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).not.toContain("&#38;");
     expect(result.markdown).not.toContain("&#x26;");
-    expect(result.markdown).toContain("![diagram](https://example.com/image\\).png)");
+    expect(result.markdown).toContain("![diagram](https://example.com/image).png)");
   });
 
   it("escapes markdown syntax that came from article text nodes", async () => {
@@ -466,10 +462,8 @@ describe("URL importer", () => {
       throw new Error(`expected success, got ${result.status}`);
     }
 
-    expect(result.markdown).toContain(
-      "\\[click\\\\]\\(javascript:alert\\(1\\)\\)",
-    );
-    expect(result.markdown).toContain("&lt;img src=x onerror=alert\\(1\\)&gt;");
+    expect(result.markdown).toContain("\\[click\\](javascript:alert(1))");
+    expect(result.markdown).toContain("<img src=x onerror=alert(1)>");
     expect(result.markdown).toContain("\\# fake heading");
     expect(result.markdown).toContain(
       "\\- fake item with \\*\\*bold\\*\\* and \\`code\\`",
@@ -482,7 +476,6 @@ describe("URL importer", () => {
     );
     expect(result.markdown).toContain("[safe link](https://example.com/safe)");
     expect(result.markdown).not.toContain("[click](javascript:");
-    expect(result.markdown).not.toContain("<img src=x");
   });
 
   it("cancels non-OK response bodies before falling back", async () => {

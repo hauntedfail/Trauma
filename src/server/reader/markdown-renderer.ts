@@ -4,9 +4,21 @@ import anchor from "markdown-it-anchor";
 import footnote from "markdown-it-footnote";
 import sanitizeHtml from "sanitize-html";
 
+import {
+  isSafeReaderImageUrl,
+  isSafeReaderIframeUrl,
+  READER_IFRAME_SANDBOX,
+  resolveSafeImageUrl,
+  resolveTrustedDisplayUrl,
+} from "../media-policy";
+import { renderMomentIconSvgMarkup } from "../../components/icons/moment-icon-markup";
+
 export interface ReaderTocEntry {
   id: string;
   level: number;
+  path: string;
+  startOffset?: number;
+  endOffset?: number;
   text: string;
 }
 
@@ -15,24 +27,27 @@ export interface RenderedMemoryMarkdown {
   toc: ReaderTocEntry[];
 }
 
-const ALLOWED_IFRAME_HOSTNAMES = new Set([
-  "player.vimeo.com",
-  "www.youtube-nocookie.com",
-  "www.youtube.com",
-]);
+export interface RenderMemoryMarkdownOptions {
+  sourceUrl?: string;
+}
 
-export function renderMemoryMarkdown(markdown: string): RenderedMemoryMarkdown {
+export function renderMemoryMarkdown(
+  markdown: string,
+  options: RenderMemoryMarkdownOptions = {},
+): RenderedMemoryMarkdown {
   const toc: ReaderTocEntry[] = [];
   const markdownIt = createMarkdownIt(toc);
   const rendered = markdownIt.render(markdown);
 
   return {
-    html: sanitizeReaderHtml(rendered),
+    html: addReaderHeadingMomentButtons(sanitizeReaderHtml(rendered, options)),
     toc,
   };
 }
 
 function createMarkdownIt(toc: ReaderTocEntry[]) {
+  const headingPathTracker = createHeadingPathTracker();
+
   return new MarkdownIt({
     html: true,
     linkify: true,
@@ -45,10 +60,18 @@ function createMarkdownIt(toc: ReaderTocEntry[]) {
       level: [1, 2, 3],
       slugify,
       tabIndex: false,
-      callback: (_token, info) => {
+      callback: (token, info) => {
+        const level = readHeadingLevel(token.tag);
+        const path = nextHeadingPath(headingPathTracker, level);
+        token.attrJoin("class", "trauma-reader-section-heading");
+        token.attrSet("data-reader-section-anchor", info.slug);
+        token.attrSet("data-reader-section-title", info.title);
+        token.attrSet("data-reader-section-level", String(level));
+        token.attrSet("data-reader-section-path", path);
         toc.push({
           id: info.slug,
-          level: readHeadingLevel(_token.tag),
+          level,
+          path,
           text: info.title,
         });
       },
@@ -63,8 +86,17 @@ function highlightCode(code: string, language: string) {
   return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
 }
 
-function sanitizeReaderHtml(html: string) {
-  return sanitizeHtml(html, {
+function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) {
+  const htmlWithoutSrcdocIframes = html.replace(
+    /<iframe\b(?=[^>]*\ssrcdoc\s*=)[\s\S]*?<\/iframe>/gi,
+    "",
+  );
+  const htmlWithoutUnsafeButtons = htmlWithoutSrcdocIframes.replace(
+    /<button\b[\s\S]*?<\/button>/gi,
+    "",
+  );
+
+  return sanitizeHtml(htmlWithoutUnsafeButtons, {
     allowedTags: [
       "a",
       "blockquote",
@@ -110,18 +142,42 @@ function sanitizeReaderHtml(html: string) {
       a: ["aria-label", "class", "href", "id", "name", "rel"],
       code: ["class"],
       div: ["class"],
-      h1: ["id"],
-      h2: ["id"],
-      h3: ["id"],
+      h1: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
+      h2: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
+      h3: [
+        "class",
+        "data-reader-section-anchor",
+        "data-reader-section-level",
+        "data-reader-section-path",
+        "data-reader-section-title",
+        "id",
+      ],
       h4: ["id"],
       h5: ["id"],
       h6: ["id"],
       iframe: [
         "allowfullscreen",
+        "height",
         "loading",
         "referrerpolicy",
+        "sandbox",
         "src",
         "title",
+        "width",
       ],
       img: [
         "alt",
@@ -136,7 +192,7 @@ function sanitizeReaderHtml(html: string) {
       ],
       input: ["checked", "class", "disabled", "type"],
       li: ["class", "id"],
-      mark: ["data-highlight-id", "id"],
+      mark: ["data-flashback-id", "id"],
       ol: ["class"],
       section: ["class"],
       source: ["media", "sizes", "srcset", "type"],
@@ -156,24 +212,54 @@ function sanitizeReaderHtml(html: string) {
       sup: ["footnote-ref"],
       ul: ["contains-task-list"],
     },
-    allowedIframeHostnames: [...ALLOWED_IFRAME_HOSTNAMES],
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: {
       img: ["http", "https"],
     },
     allowProtocolRelative: false,
     exclusiveFilter: (frame) =>
-      (frame.tag === "iframe" && !isAllowedIframeSource(frame.attribs.src)) ||
+      (frame.tag === "iframe" &&
+        (frame.attribs.srcdoc !== undefined ||
+          !isSafeReaderIframeUrl(frame.attribs.src))) ||
+      (frame.tag === "img" &&
+        resolveReaderImageUrl(frame.attribs.src, options.sourceUrl) === null) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
-      a: sanitizeAnchor,
+      a: createAnchorSanitizer(options.sourceUrl),
       iframe: sanitizeIframe,
-      img: sanitizeImage,
+      img: createImageSanitizer(options.sourceUrl),
       input: sanitizeTaskCheckbox,
-      mark: sanitizeHighlightMark,
-      source: sanitizePictureSource,
+      mark: sanitizeFlashbackMark,
+      source: createPictureSourceSanitizer(options.sourceUrl),
     },
   });
+}
+
+function addReaderHeadingMomentButtons(html: string) {
+  return html.replace(
+    /<(h[1-3])([^>]*\bdata-reader-section-anchor="[^"]+"[^>]*)>/g,
+    (match: string, tagName: string, attributes: string) => {
+      const title = readHtmlAttribute(attributes, "data-reader-section-title")
+        ?? "section";
+      const outline = renderMomentIconSvgMarkup({
+        className: "trauma-reader-section-moment-icon-outline",
+        filled: false,
+        size: 18,
+      });
+      const filled = renderMomentIconSvgMarkup({
+        className: "trauma-reader-section-moment-icon-filled",
+        filled: true,
+        size: 18,
+      });
+      return `<${tagName}${attributes}><button type="button" class="trauma-reader-section-moment" data-reader-moment-trigger="true" aria-label="Moment ${escapeHtmlTextAttribute(title)}" aria-pressed="false">${outline}${filled}</button>`;
+    },
+  );
+}
+
+function readHtmlAttribute(attributes: string, name: string): string | undefined {
+  const pattern = new RegExp(`\\b${name}="([^"]*)"`);
+  const match = pattern.exec(attributes);
+  return match?.[1];
 }
 
 function taskListPlugin(md: MarkdownIt) {
@@ -212,6 +298,27 @@ function taskListPlugin(md: MarkdownIt) {
 }
 
 type MarkdownToken = ReturnType<MarkdownIt["parse"]>[number];
+type HeadingPathTracker = Map<number, number>;
+
+function createHeadingPathTracker(): HeadingPathTracker {
+  return new Map<number, number>();
+}
+
+function nextHeadingPath(tracker: HeadingPathTracker, level: number): string {
+  const normalizedLevel = Math.max(1, Math.min(6, level));
+  tracker.set(normalizedLevel, (tracker.get(normalizedLevel) ?? 0) + 1);
+
+  for (const key of [...tracker.keys()]) {
+    if (key > normalizedLevel) {
+      tracker.delete(key);
+    }
+  }
+
+  return Array.from({ length: normalizedLevel }, (_value, index) => {
+    const key = index + 1;
+    return String(tracker.get(key) ?? 0);
+  }).join("/");
+}
 
 function findOpenToken(
   tokens: MarkdownToken[],
@@ -236,87 +343,145 @@ function findOpenToken(
   return undefined;
 }
 
-function sanitizeAnchor(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const href = attribs.href;
-  return {
-    tagName: "a",
-    attribs: {
-      ...attribs,
-      ...(href?.startsWith("http://") || href?.startsWith("https://")
-        ? { rel: "nofollow noopener noreferrer" }
-        : {}),
-    },
+function createAnchorSanitizer(sourceUrl: string | undefined) {
+  return (_tagName: string, attribs: sanitizeHtml.Attributes) => {
+    const href = attribs.href;
+    if (sourceUrl !== undefined && href !== undefined) {
+      const trustedHref = resolveTrustedDisplayUrl(sourceUrl, href);
+      if (trustedHref === null) {
+        const { href: _href, rel: _rel, ...safeAttribs } = attribs;
+        return {
+          tagName: "a",
+          attribs: safeAttribs,
+        };
+      }
+
+      return {
+        tagName: "a",
+        attribs: {
+          ...attribs,
+          href: trustedHref,
+          rel: "nofollow noopener noreferrer",
+        },
+      };
+    }
+
+    return {
+      tagName: "a",
+      attribs: {
+        ...attribs,
+        ...(href?.startsWith("http://") || href?.startsWith("https://")
+          ? { rel: "nofollow noopener noreferrer" }
+          : {}),
+      },
+    };
   };
 }
 
 function sanitizeIframe(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const { allow: _allow, ...safeAttribs } = attribs;
+  const {
+    allow: _allow,
+    height,
+    referrerpolicy: _referrerpolicy,
+    sandbox: _sandbox,
+    width,
+    ...safeAttribs
+  } = attribs;
   return {
     tagName: "iframe",
     attribs: {
       ...safeAttribs,
-      loading: attribs.loading ?? "lazy",
-      referrerpolicy: "no-referrer",
-    },
-  };
-}
-
-function sanitizeImage(_tagName: string, attribs: sanitizeHtml.Attributes) {
-  const { decoding: _decoding, sizes, srcset, ...safeAttribs } = attribs;
-  const safeSourceSet = sanitizeSourceSet(srcset);
-  return {
-    tagName: "img",
-    attribs: {
-      ...safeAttribs,
-      ...(safeSourceSet !== undefined
-        ? {
-            srcset: safeSourceSet,
-            ...(sizes !== undefined ? { sizes } : {}),
-          }
+      ...(sanitizeDimension(width) !== undefined
+        ? { width: sanitizeDimension(width) }
         : {}),
-      decoding: "async",
-      loading: attribs.loading ?? "lazy",
+      ...(sanitizeDimension(height) !== undefined
+        ? { height: sanitizeDimension(height) }
+        : {}),
+      loading: "lazy",
+      referrerpolicy: "no-referrer",
+      sandbox: READER_IFRAME_SANDBOX,
     },
   };
 }
 
-function sanitizePictureSource(
-  _tagName: string,
-  attribs: sanitizeHtml.Attributes,
-): sanitizeHtml.Tag {
-  const safeSourceSet = sanitizeSourceSet(attribs.srcset);
-  if (safeSourceSet === undefined) {
+function createImageSanitizer(sourceUrl: string | undefined) {
+  return (_tagName: string, attribs: sanitizeHtml.Attributes) => {
+    const {
+      decoding: _decoding,
+      sizes,
+      src,
+      srcset,
+      ...safeAttribs
+    } = attribs;
+    const safeSource = resolveReaderImageUrl(src, sourceUrl);
+    const safeSourceSet = sanitizeSourceSet(srcset, sourceUrl);
     return {
-      tagName: "span",
-      attribs: {},
+      tagName: "img",
+      attribs: {
+        ...safeAttribs,
+        ...(safeSource !== null ? { src: safeSource } : {}),
+        ...(safeSourceSet !== undefined
+          ? {
+              srcset: safeSourceSet,
+              ...(sizes !== undefined ? { sizes } : {}),
+            }
+          : {}),
+        decoding: "async",
+        loading: attribs.loading ?? "lazy",
+      },
     };
-  }
-
-  return {
-    tagName: "source",
-    attribs: {
-      ...(attribs.type !== undefined ? { type: attribs.type } : {}),
-      ...(attribs.media !== undefined ? { media: attribs.media } : {}),
-      srcset: safeSourceSet,
-      ...(attribs.sizes !== undefined ? { sizes: attribs.sizes } : {}),
-    },
   };
 }
 
-function sanitizeSourceSet(value: string | undefined): string | undefined {
+function createPictureSourceSanitizer(sourceUrl: string | undefined) {
+  return (
+    _tagName: string,
+    attribs: sanitizeHtml.Attributes,
+  ): sanitizeHtml.Tag => {
+    const safeSourceSet = sanitizeSourceSet(attribs.srcset, sourceUrl);
+    if (safeSourceSet === undefined) {
+      return {
+        tagName: "span",
+        attribs: {},
+      };
+    }
+
+    return {
+      tagName: "source",
+      attribs: {
+        ...(attribs.type !== undefined ? { type: attribs.type } : {}),
+        ...(attribs.media !== undefined ? { media: attribs.media } : {}),
+        srcset: safeSourceSet,
+        ...(attribs.sizes !== undefined ? { sizes: attribs.sizes } : {}),
+      },
+    };
+  };
+}
+
+function sanitizeSourceSet(
+  value: string | undefined,
+  sourceUrl: string | undefined,
+): string | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   const candidates = value
     .split(",")
-    .map((candidate) => sanitizeSourceSetCandidate(candidate))
+    .map((candidate) => sanitizeSourceSetCandidate(candidate, sourceUrl))
     .filter((candidate): candidate is string => candidate !== undefined);
 
   return candidates.length > 0 ? candidates.join(", ") : undefined;
 }
 
-function sanitizeSourceSetCandidate(value: string): string | undefined {
+function sanitizeDimension(value: string | undefined): string | undefined {
+  return value !== undefined && /^\d{1,5}$/.test(value) ? value : undefined;
+}
+
+function sanitizeSourceSetCandidate(
+  value: string,
+  sourceUrl: string | undefined,
+): string | undefined {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const [rawUrl, descriptor] = parts;
   if (rawUrl === undefined || parts.length > 2) {
@@ -324,20 +489,43 @@ function sanitizeSourceSetCandidate(value: string): string | undefined {
   }
 
   try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
+    const safeUrl = resolveReaderImageUrl(rawUrl, sourceUrl);
+    if (safeUrl === null) {
       return undefined;
     }
 
     if (descriptor === undefined) {
-      return url.toString();
+      return safeUrl;
     }
 
     return isSafeSourceSetDescriptor(descriptor)
-      ? `${url.toString()} ${descriptor}`
+      ? `${safeUrl} ${descriptor}`
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function resolveReaderImageUrl(
+  value: string | undefined,
+  sourceUrl: string | undefined,
+): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (sourceUrl !== undefined) {
+    return resolveSafeImageUrl(sourceUrl, value);
+  }
+
+  if (!isSafeReaderImageUrl(value)) {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
   }
 }
 
@@ -357,12 +545,12 @@ function sanitizeTaskCheckbox(_tagName: string, attribs: sanitizeHtml.Attributes
   };
 }
 
-function sanitizeHighlightMark(
+function sanitizeFlashbackMark(
   _tagName: string,
   attribs: sanitizeHtml.Attributes,
 ): sanitizeHtml.Tag {
-  const highlightId = attribs["data-highlight-id"];
-  if (highlightId === undefined || highlightId.trim() === "") {
+  const flashbackId = attribs["data-flashback-id"];
+  if (flashbackId === undefined || flashbackId.trim() === "") {
     return {
       tagName: "span",
       attribs: {},
@@ -372,27 +560,10 @@ function sanitizeHighlightMark(
   return {
     tagName: "mark",
     attribs: {
-      "data-highlight-id": highlightId,
-      id: highlightId,
+      "data-flashback-id": flashbackId,
+      id: flashbackId,
     },
   };
-}
-
-function isAllowedIframeSource(src: string | undefined) {
-  if (src === undefined) {
-    return false;
-  }
-
-  try {
-    const url = new URL(src);
-    return (
-      url.protocol === "https:" &&
-      ALLOWED_IFRAME_HOSTNAMES.has(url.hostname) &&
-      (url.pathname.startsWith("/embed/") || url.hostname === "player.vimeo.com")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function readHeadingLevel(tag: string) {
@@ -416,4 +587,12 @@ function slugify(value: string) {
 
 function escapeAttribute(value: string) {
   return value.replace(/[^a-z0-9-]/gi, "");
+}
+
+function escapeHtmlTextAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
