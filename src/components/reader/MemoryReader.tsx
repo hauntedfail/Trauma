@@ -118,7 +118,7 @@ const noTocScrollState: TocScrollState = {
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
 const readerContextMenuClass =
-  "fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent bg-transparent p-1 shadow-none";
+  "fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent bg-transparent p-1 opacity-50 shadow-none";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>

@@ -26,6 +26,7 @@ describe("reader Moment actions", () => {
     expect(readerSource).toContain("ReaderSectionMenuState");
     expect(readerSource).toContain("readerContextMenuClass");
     expect(readerSource).toContain("border border-transparent bg-transparent");
+    expect(readerSource).toContain("opacity-50");
     expect(readerSource).toContain("shadow-none");
     expect(readerSource).not.toContain("border border-trauma-border bg-trauma-bg-elev p-1 shadow-trauma-2");
   });
