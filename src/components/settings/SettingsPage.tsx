@@ -114,7 +114,6 @@ export function SettingsPage(props: SettingsPageProps) {
         eyebrow="Settings"
         layout="single"
         title="Workspace settings"
-        titleClass="mb-0 text-[32px] font-extrabold text-trauma-text-primary"
         titleId="settings-title"
       />
       <div class={contentClass}>

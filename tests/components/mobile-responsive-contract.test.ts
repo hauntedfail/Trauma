@@ -234,7 +234,7 @@ describe("mobile and cross-device responsive contract", () => {
   });
 
   it("keeps reader chrome legible outside desktop", () => {
-    expect(readFileSync("src/components/reader/MemoryReader.tsx", "utf8")).toContain(
+    expect(readFileSync("src/components/layout/RouteHeader.tsx", "utf8")).toContain(
       "text-[20px] font-bold",
     );
   });

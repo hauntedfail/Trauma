@@ -20,7 +20,7 @@ const headerBaseClass =
 const headerSplitClass = "grid-cols-[minmax(0,1fr)_auto]";
 const headerSingleClass = "grid-cols-[minmax(0,1fr)]";
 const headerTitleClass =
-  "mb-0 min-w-0 truncate text-3xl font-bold leading-tight text-trauma-text-primary";
+  "mb-0 min-w-0 truncate text-[20px] font-bold leading-tight text-trauma-text-primary";
 const headerEyebrowClass =
   "mb-2 text-sm font-extrabold uppercase text-trauma-text-muted";
 

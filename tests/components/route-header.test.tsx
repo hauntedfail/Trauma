@@ -58,6 +58,8 @@ describe("route header", () => {
     expect(routeHeaderSource).toContain("trauma-fluid-route-padding");
     expect(routeHeaderSource).toContain("sticky top-0");
     expect(routeHeaderSource).toContain("min-h-[3.5rem]");
+    expect(routeHeaderSource).toContain("text-[20px] font-bold");
+    expect(routeHeaderSource).not.toContain("text-3xl");
     expect(routeHeaderSource).not.toContain("py-6");
     expect(routeHeaderSource).toContain("items-center gap-3");
     expect(routeHeaderSource).toContain("grid-cols-[minmax(0,1fr)_auto]");
@@ -70,6 +72,15 @@ describe("route header", () => {
     expect(memoryReaderSource).toContain('title="Memory"');
     expect(memoryReaderSource).toContain("grid size-10 place-items-center");
     expect(memoryReaderSource).not.toContain("mt-1 grid size-10");
+    expect(memoryReaderSource).not.toContain("titleClass=");
+  });
+
+  it("keeps route header title sizing centralised", () => {
+    expect(memoryReaderSource).not.toContain("text-[20px] font-bold text-trauma-text-primary");
+    expect(settingsPageSource).not.toContain("text-[32px] font-extrabold");
+    expect(settingsPageSource).not.toContain("titleClass=");
+    expect(momentBrowseSource).not.toContain("titleClass=");
+    expect(flashbacksRouteSource).not.toContain("titleClass=");
   });
 
   it("keeps route pages on shared header chrome unless they own route-specific tabs", () => {

@@ -470,7 +470,6 @@ function ReadyMemoryReader(props: {
         )}
         layout="single"
         title="Memory"
-        titleClass="mb-0 text-[20px] font-bold text-trauma-text-primary"
         titleElement="p"
       />
       <div class={`${readerPadding} trauma-reader-body py-7 pb-14`}>
