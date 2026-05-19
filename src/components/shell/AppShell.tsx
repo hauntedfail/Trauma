@@ -81,7 +81,7 @@ const rightRailStack =
 const rightRailScrollContent =
   "max-h-[min(34vh,20rem)] overflow-y-auto overscroll-contain pr-1";
 const rightRailFooterClass =
-  "mt-auto shrink-0 px-4 pb-1 text-xs font-semibold leading-5 text-trauma-text-muted";
+  "shrink-0 px-4 pb-1 text-xs font-semibold leading-5 text-trauma-text-muted";
 const rightRailFooterLinkClass =
   "rounded-sm hover:text-trauma-text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
 const composerSubmitButton =

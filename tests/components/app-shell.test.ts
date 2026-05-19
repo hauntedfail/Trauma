@@ -172,10 +172,11 @@ describe("refined app shell contract", () => {
     );
   });
 
-  it("renders a muted right rail footer below right pane content", () => {
+  it("renders a muted right rail footer as the last right pane stack item", () => {
     expect(appShellSource).toContain("RightRailFooter");
     expect(appShellSource).toContain("rightRailFooterClass");
-    expect(appShellSource).toContain("mt-auto shrink-0 px-4 pb-1 text-xs");
+    expect(appShellSource).toContain("shrink-0 px-4 pb-1 text-xs");
+    expect(appShellSource).not.toContain("mt-auto shrink-0 px-4 pb-1 text-xs");
     expect(appShellSource).toContain('aria-label="Right rail footer"');
     expect(appShellSource).toContain('href="https://github.com/hauntedfail/Trauma"');
     expect(appShellSource).toContain("GitHub");
