@@ -563,6 +563,80 @@
     block-size: 100lvh;
   }
 
+  .trauma-scroll-url-link {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.375rem;
+    inline-size: fit-content;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+  }
+
+  .trauma-scroll-url-link > svg {
+    flex: none;
+  }
+
+  .trauma-scroll-url-shell {
+    position: relative;
+    display: block;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+
+  .trauma-scroll-url-body {
+    display: block;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    white-space: nowrap;
+  }
+
+  .trauma-scroll-url-body[data-can-scroll-right="true"] {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0) 0%,
+      rgb(0 0 0) calc(100% - 2.25rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgb(0 0 0) 0%,
+      rgb(0 0 0) calc(100% - 2.25rem),
+      transparent 100%
+    );
+  }
+
+  .trauma-scroll-url-text {
+    display: inline-block;
+    white-space: nowrap;
+  }
+
+  .trauma-scroll-url-fade {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: -1px;
+    inline-size: 2.75rem;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(1.5px);
+    backdrop-filter: blur(1.5px);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      rgb(0 0 0) 44%,
+      rgb(0 0 0) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      rgb(0 0 0) 44%,
+      rgb(0 0 0) 100%
+    );
+  }
+
   .trauma-safe-area-shell {
     padding-block-start: var(--trauma-layout-safe-area-top);
     padding-inline-end: var(--trauma-layout-safe-area-right);

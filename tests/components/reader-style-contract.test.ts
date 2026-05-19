@@ -20,6 +20,8 @@ describe("refined reader visual contract", () => {
 
   it("keeps safe source-link rendering and read-only flashback toggles", () => {
     expect(readerSource).toContain("toSafeReaderSourceHref");
+    expect(readerSource).toContain("ScrollableUrlDisplay");
+    expect(readerSource).toContain("ScrollableUrlLink");
     expect(readerSource).toContain("data-reader-content");
     expect(readerSource).toContain("toggleReaderSelection");
     expect(readerSource).toContain("text-trauma-link");
@@ -46,9 +48,10 @@ describe("refined reader visual contract", () => {
 
   it("aligns the memory source URL with the reader action menu row", () => {
     expect(readerSource).toContain("readerSourceLinkClass");
-    expect(readerSource).toContain(
-      "inline-flex min-h-9 max-w-full justify-self-start items-center",
-    );
+    expect(readerSource).toContain("ScrollableUrlLink");
+    expect(tailwindSource).toContain(".trauma-scroll-url-link");
+    expect(tailwindSource).toContain(".trauma-scroll-url-shell");
+    expect(readerSource).not.toContain("wrap-anywhere inline-flex");
     expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
     expect(readerSource).toContain('class="flex items-center gap-2"');
     expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");

@@ -230,21 +230,12 @@ test("keeps source URL link hitboxes limited to the rendered URL text", async ({
 }) => {
   await page.goto("/memories");
 
-  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  const sourceLink = row.locator('a[href="https://example.com/reader-mode"]');
+  const row = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  const sourceLink = row.locator('a[href="https://example.com/local-hosting"]');
   const metrics = await sourceLink.evaluate((link) => {
     const linkRect = link.getBoundingClientRect();
-    const textNode = Array.from(link.childNodes).find(
-      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== "",
-    );
-    const textRange = document.createRange();
-
-    if (textNode !== undefined) {
-      textRange.selectNodeContents(textNode);
-    }
-
-    const textRect =
-      textNode === undefined ? new DOMRect() : textRange.getBoundingClientRect();
+    const text = link.querySelector(".trauma-scroll-url-text");
+    const textRect = text?.getBoundingClientRect() ?? new DOMRect();
     const parentRect = link.parentElement?.getBoundingClientRect() ?? new DOMRect();
 
     return {
@@ -258,6 +249,40 @@ test("keeps source URL link hitboxes limited to the rendered URL text", async ({
   expect(metrics.linkWidth).toBeLessThan(metrics.parentWidth * 0.6);
   expect(metrics.linkWidth).toBeLessThan(metrics.textWidth + 48);
   expect(metrics.rightSlack).toBeGreaterThan(120);
+});
+
+test("keeps long source URLs to one scrollable line with a right-edge fade", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const sourceLink = row.locator('a[href^="https://example.com/reader-mode/source"]');
+  await expect(sourceLink.locator(".trauma-scroll-url-fade")).toBeVisible();
+
+  const metrics = await sourceLink.evaluate((link) => {
+    const linkRect = link.getBoundingClientRect();
+    const body = link.querySelector<HTMLElement>(".trauma-scroll-url-body");
+    const fade = link.querySelector<HTMLElement>(".trauma-scroll-url-fade");
+    const parentRect = link.parentElement?.getBoundingClientRect() ?? new DOMRect();
+    const bodyStyle = body === null ? null : getComputedStyle(body);
+
+    return {
+      bodyClientWidth: body?.clientWidth ?? 0,
+      bodyOverflowX: bodyStyle?.overflowX ?? "",
+      bodyScrollWidth: body?.scrollWidth ?? 0,
+      bodyWhiteSpace: bodyStyle?.whiteSpace ?? "",
+      fadeVisible: fade !== null,
+      linkWidth: linkRect.width,
+      parentWidth: parentRect.width,
+    };
+  });
+
+  expect(metrics.linkWidth).toBeLessThanOrEqual(metrics.parentWidth + 1);
+  expect(metrics.bodyWhiteSpace).toBe("nowrap");
+  expect(metrics.bodyOverflowX).toBe("auto");
+  expect(metrics.bodyScrollWidth).toBeGreaterThan(metrics.bodyClientWidth + 40);
+  expect(metrics.fadeVisible).toBe(true);
 });
 
 test("keeps browse read-status toggles from opening the memory row", async ({

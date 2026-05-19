@@ -4,7 +4,7 @@ export const browseFixtureMemories: BrowseMemory[] = [
   {
     id: "memory-foundation",
     title: "Reader Mode Notes",
-    url: "https://example.com/reader-mode",
+    url: "https://example.com/reader-mode/source/with/a/very/long/path/that/should/remain/on/one/line?encoded=%E3%81%82%E3%81%AA%E3%81%9F%E3%81%AE%E4%BB%95%E4%BA%8B%E3%81%AF%E5%8B%95%E4%BD%9C%E3%81%99%E3%82%8B%E3%82%B3%E3%83%BC%E3%83%89",
     description: "SolidStart route data and shell architecture notes for the canonical reader.",
     capturedAt: "2026-05-09",
     read: false,

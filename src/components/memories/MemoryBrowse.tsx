@@ -3,7 +3,6 @@ import { createAsync, useLocation, useNavigate } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
-import { OpenIcon } from "../icons";
 import {
   buildBrowseHref,
   filterBrowseMemories,
@@ -28,6 +27,7 @@ import { MemoryReadStatusControl } from "./MemoryReadStatusControl";
 import { MemorySearchBar } from "./MemorySearchBar";
 import { TaxonomyAddControl } from "./TaxonomyAddControl";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
+import { ScrollableUrlLink } from "../url/ScrollableUrlText";
 import {
   attachCategoryToMemoryByName,
   attachTagToMemoryByName,
@@ -356,16 +356,14 @@ export function MemoryItem(props: {
           </div>
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
-        <a
-          class={`${subduedText} wrap-anywhere inline-flex w-fit max-w-full justify-self-start items-center gap-1.5 no-underline hover:text-trauma-accent`}
+        <ScrollableUrlLink
+          class={`${subduedText} no-underline hover:text-trauma-accent`}
           href={props.memory.url}
           rel="noreferrer"
           target="_blank"
+          url={props.memory.url}
           onClick={(event) => event.stopPropagation()}
-        >
-          <OpenIcon />
-          {props.memory.url}
-        </a>
+        />
         <Show when={displayFlashback()}>
           {(flashback) => (
             <FlashbackExcerpt

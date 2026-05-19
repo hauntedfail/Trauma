@@ -10,7 +10,7 @@ import {
   type JSX,
 } from "solid-js";
 
-import { ChevronLeftIcon, OpenIcon, TraumaNavIcons } from "../icons";
+import { ChevronLeftIcon, TraumaNavIcons } from "../icons";
 import type {
   ReaderMomentItem,
   ReaderFlashbackItem,
@@ -68,6 +68,10 @@ import { revalidateReaderMemory } from "./reader-memory-loader";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import { RouteHeader } from "../layout/RouteHeader";
 import { TaxonomyAddControl } from "../memories/TaxonomyAddControl";
+import {
+  ScrollableUrlDisplay,
+  ScrollableUrlLink,
+} from "../url/ScrollableUrlText";
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -126,7 +130,7 @@ const readerTocScrollContent =
 const readerContextMenuClass =
   "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
 const readerSourceLinkClass =
-  "wrap-anywhere inline-flex min-h-9 max-w-full justify-self-start items-center gap-1.5 text-sm leading-tight text-trauma-link";
+  "min-h-9 max-w-full justify-self-start text-sm leading-tight text-trauma-link";
 
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
@@ -522,18 +526,21 @@ function ReadyMemoryReader(props: {
             <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
               <Show
                 when={sourceHref()}
-                fallback={<span class={readerSourceLinkClass}><OpenIcon />{sourceUrl()}</span>}
+                fallback={(
+                  <ScrollableUrlDisplay
+                    class={readerSourceLinkClass}
+                    url={sourceUrl()}
+                  />
+                )}
               >
                 {(href) => (
-                  <a
+                  <ScrollableUrlLink
                     class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
                     href={href()}
                     rel="noreferrer"
                     target="_blank"
-                  >
-                    <OpenIcon />
-                    {sourceUrl()}
-                  </a>
+                    url={sourceUrl()}
+                  />
                 )}
               </Show>
               <div class="flex items-center gap-2">

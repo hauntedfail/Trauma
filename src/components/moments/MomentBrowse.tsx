@@ -8,6 +8,7 @@ import { getMomentBrowseRows, revalidateMomentBrowseRows } from "./moments-loade
 import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { RouteHeader } from "../layout/RouteHeader";
+import { ScrollableUrlText } from "../url/ScrollableUrlText";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -95,8 +96,8 @@ function MomentRow(props: {
             {props.moment.sectionTitle}
           </h2>
         </header>
-        <p class="mb-0 wrap-anywhere text-sm text-trauma-link">
-          {props.moment.memoryUrl}
+        <p class="mb-0 text-sm text-trauma-link">
+          <ScrollableUrlText url={props.moment.memoryUrl} />
         </p>
         <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
           <Show when={props.moment.targetStatus === "stale"}>
