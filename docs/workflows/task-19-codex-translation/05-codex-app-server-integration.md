@@ -50,8 +50,9 @@ The MVP connects to an already-running Codex app-server. It does not auto-start 
 Rules:
 
 - Read app-server endpoint from `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value.
-- Default Brilliant MVP endpoint is `unix://`.
+- Default Brilliant MVP endpoint is `unix://`, but only when the operator started Codex with `codex app-server --listen unix://`.
 - Default local app-server startup command is `codex app-server --listen unix://`.
+- `codex app-server` without `--listen unix://` uses the Codex CLI `stdio` default and is not a Brilliant endpoint.
 - Support Unix socket as the default JSON-RPC transport and loopback WebSocket only as a local development fallback.
 - Loopback WebSocket fallback example: `codex app-server --listen ws://127.0.0.1:4500` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
 - HTTP is health-probe-only and must not be used for JSON-RPC app-server requests.
@@ -87,6 +88,7 @@ Rules:
 
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk, then `turn/start` for chunk translation.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
+- `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
 - If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
@@ -120,7 +122,7 @@ Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
 - missing app-server endpoint returns setup-required
-- default Unix socket endpoint config is accepted
+- default Unix socket endpoint config is accepted only when paired with the explicit `codex app-server --listen unix://` startup requirement
 - loopback WebSocket fallback config is accepted and documented as local-dev-only
 - Unix socket JSON-RPC transport is accepted
 - loopback WebSocket JSON-RPC transport is accepted
@@ -139,6 +141,7 @@ Use a fake app-server client. Cover:
 - `turn/start` request passes through the caller-provided output schema
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation
+- `thread/start` request includes the same locked-down policy where the generated schema supports it, or tests document that `turn/start` overrides thread defaults
 - rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `translateChunk()` yields thread id and turn id before item events when available
 - `cancelTurn()` sends `turn/interrupt` with thread id and turn id

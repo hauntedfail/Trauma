@@ -91,9 +91,10 @@ Rules:
 
 - MVP connects to an already-running Codex app-server through server-side config.
 - Use `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value as `endpoint`.
-- Default Brilliant MVP configuration is the Codex app-server default Unix socket.
+- Default Brilliant MVP configuration is an explicitly configured Codex app-server Unix socket listener. This is TRAUMA's default, not the Codex CLI's no-flag default.
 - Default startup command: `codex app-server --listen unix://`.
 - Default endpoint example: `TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix://`.
+- `codex app-server` without `--listen unix://` uses `stdio`; do not treat that process as a Brilliant endpoint.
 - Loopback WebSocket remains supported only as a local development fallback, for example `codex app-server --listen ws://127.0.0.1:4500` with `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
 - If the Unix socket implementation is blocked by platform/runtime support, the implementation may use loopback WebSocket temporarily but must document that it is using the experimental upstream transport and keep the fallback local-only.
 - The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
@@ -115,20 +116,21 @@ Rules:
 - Do not let Codex write files.
 - Do not expose app-server URL, token, or raw auth state to the browser.
 - Deltas are progress only. Final output must come from completed item content and pass schema validation.
-- Translation turns must use a locked-down turn policy:
+- Translation threads and turns must use a locked-down policy. Apply the policy on `thread/start` and again on `turn/start` where the schema supports it so turn-specific settings cannot inherit a broader thread default:
   - `approvalPolicy: "never"`.
-  - `sandboxPolicy.type = "readOnly"`.
-  - `sandboxPolicy.access.type = "restricted"` with no TRAUMA project root or memory store root in `readableRoots`.
-  - `networkAccess = false` where the selected sandbox shape supports it.
+  - `sandboxPolicy.type = "readOnly"` or the generated schema's equivalent read-only sandbox value.
+  - restricted filesystem access with no TRAUMA project root or memory store root in readable roots.
+  - `networkAccess = false` where the generated schema supports network control for the selected sandbox.
   - `cwd` must be a safe empty runtime directory, not the TRAUMA project root and not the configured memory store path.
   - Source Markdown is supplied only as a prompt/input item by the Reader backend.
   - Codex must not receive local paths to source `CONTENT.md`, translated `CONTENT.md`, credential files, the project root, or the store root.
+  - If the generated schema cannot express `readOnly` plus disabled network access directly, do not attach network-capable tools, dynamic tools, MCP servers, or project/store readable roots. Update this contract with the exact equivalent minimum-privilege payload before implementing the client.
 - `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
 
 ## Protocol schema and version contract
 
 - Record the Codex CLI/app-server version used for Brilliant implementation in the PR handoff.
-- Generate protocol fixtures or schemas with `codex app-server generate-ts --out tests/fixtures/codex-app-server-schema` or `codex app-server generate-json-schema --out tests/fixtures/codex-app-server-schema` when the local Codex CLI supports it.
+- Generate protocol fixtures or schemas with `codex app-server generate-ts --out tests/fixtures/translation/codex-app-server-schema` or `codex app-server generate-json-schema --out tests/fixtures/translation/codex-app-server-schema` when the local Codex CLI supports it.
 - If generated artifacts are too large for the repo, commit a focused fixture set covering `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `thread/start`, `turn/start`, `turn/started`, `item/agentMessage/delta`, `item/completed`, `turn/completed`, and `turn/interrupt`.
 - Fake app-server tests must be based on the recorded schema/fixture version, not only on hand-written assumptions.
 - Before implementing `translateChunk()`, confirm the exact `turn/start`

@@ -122,12 +122,13 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - JSON-RPC app-server initialization before requests
-- Unix socket default JSON-RPC transport support, loopback WebSocket local-dev fallback support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Unix socket default JSON-RPC transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - locked-down `turn/start` policy payload is verified against generated app-server schema or focused protocol fixtures before implementation
+- translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `app_server_unavailable` maps to HTTP `503`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
