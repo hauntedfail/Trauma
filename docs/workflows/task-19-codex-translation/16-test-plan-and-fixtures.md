@@ -158,9 +158,11 @@ mise exec -- bun run typecheck
 - default app-server endpoint uses Unix socket `unix://`
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
-- pending cancellation transitions directly to `canceled`; running cancellation uses `cancel_requested`
+- pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`
 - recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
 - recovered orphaned `running` job becomes `pending` or `stale`; recovered `stitching`/`committing` job uses final-output recovery
+- recovered orphaned `running` or `validating` chunks consume one retry budget and become `retrying`, or fail when retry budget is exhausted; recovered `retrying` chunks do not increment `retry_count` again
+- interrupted final-file recovery verifies the existing final file hash against the re-stitched output hash before marking a job complete
 - in-flight `threadId` and `turnId` live only in the in-process runner registry and are not added to SQLite
 - duplicate route calls do not enqueue the same job id more than once
 - completed event includes `reader_url`

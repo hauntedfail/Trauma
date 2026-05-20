@@ -100,7 +100,8 @@ Rules:
 - Before accepting a new job, recover interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs.
 - Job-start recovery must run before active lookup or new job creation for the same `(memory_id, lang_code)`.
 - A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
-- A recovered `running` job with no in-process runner ownership is converted back to `pending` after any `running` chunk is returned to a retryable state, unless source hash has changed, in which case the job becomes `stale`.
+- A recovered `running` job with no in-process runner ownership is converted back to `pending` only after orphaned non-terminal chunks are normalized, unless source hash has changed, in which case the job becomes `stale`.
+- Orphaned chunk recovery handles `running`, `validating`, and `retrying` explicitly. `running` or `validating` chunks are treated as abandoned attempts with safe `stream_disconnected` diagnostics: if `retry_count < maxRetries`, increment `retry_count` once and set the chunk to `retrying`; if retry budget is exhausted, mark the chunk `failed` and mark the job `failed`. Existing `retrying` chunks keep their current `retry_count` and remain retryable; recovery must not increment them a second time.
 - A recovered `stitching` job re-runs final stitching from completed/purged chunk metadata when possible; if required completed chunk bodies have already been purged before a committed final output exists, mark the job failed with `filesystem_failure` and safe diagnostics.
 - A recovered `committing` job delegates to the atomic commit recovery contract: verify final output, complete and purge when safe, or fail/stale/unavailable according to `contracts/07-atomic-commit-purge-recovery.md`.
 - A server restart may pause a job, but must not corrupt an existing completed translation.

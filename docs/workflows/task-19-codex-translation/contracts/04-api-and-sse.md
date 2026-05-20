@@ -311,12 +311,22 @@ POST /api/translation-jobs/:job_id/cancel
 
 Cancelable statuses:
 
-- `pending` and `running` transition to `cancel_requested`.
+- `pending` with no in-flight Codex turn transitions directly to `canceled`.
+- `running` transitions to `cancel_requested`.
 - `cancel_requested` and `canceled` are idempotent success responses.
 - `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable`
   return `409` with `code = "cancellation_conflict"`.
 
-Pending/running response:
+Pending cancellation response:
+
+```json
+{
+  "job_id": "018f...",
+  "status": "canceled"
+}
+```
+
+Running cancellation response:
 
 ```json
 {
