@@ -69,6 +69,14 @@ export interface TranslationJobSnapshot {
   error: TranslationJobSnapshotError | null;
 }
 
+export type TranslationErrorAction =
+  | "open_settings"
+  | "setup_codex_auth"
+  | "retry"
+  | "open_source_reader"
+  | "start_fresh_translation"
+  | "none";
+
 export interface TranslationJobSnapshotError {
   code:
     | "translation_unavailable"
@@ -86,6 +94,7 @@ export interface TranslationJobSnapshotError {
     | "filesystem_failure"
     | "unknown";
   message: string;
+  action?: TranslationErrorAction;
 }
 
 export interface ProtectedSpan {

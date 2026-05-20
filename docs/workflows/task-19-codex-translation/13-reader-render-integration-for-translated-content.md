@@ -7,11 +7,14 @@ Render committed translated content variants without overwriting source reader c
 ## Files likely owned
 
 - `src/server/reader/page-data.ts`
-- `src/server/translation/current-translation.ts`
 - `src/components/reader/MemoryVariantTabs.tsx`
 - `src/routes/memories/[id].tsx`
 - `src/routes/memories/[langCode]/[id].tsx` or project-equivalent translated reader route
 - `tests/server/reader/translated-page-data.test.ts`
+
+Consumed but not owned:
+
+- `src/server/translation/current-translation.ts` from 19.3. Reader work imports `resolveCurrentTranslation()` read-only and must not edit this helper.
 
 ## Contract references
 
@@ -32,6 +35,8 @@ Dependencies: 19.2 provides translation repository methods; 19.10/19.11 define c
 Parallelization notes: can run with 19.12 only after route shape and variant metadata types are frozen.
 
 Implementation risks: silently falling back to source on translated routes or listing stale files as current tabs breaks URL/content truthfulness.
+
+Ownership boundary: do not edit `src/server/translation/current-translation.ts` in this subtask. If reader work needs a new resolver shape, update the 19.3 current-translation contract first.
 
 ## Route contract
 

@@ -26,7 +26,7 @@
 - Create: `src/server/translation/types.ts`
 - Create: `src/server/translation/languages.ts` in 19.2 so settings validation, prompt display names, route validation, and reader tabs share one frozen table.
 - Create: `src/server/translation/source-loader.ts`
-- Create: `src/server/translation/current-translation.ts`
+- Create: `src/server/translation/current-translation.ts` in 19.3. This file is owned by the job-state/current-translation domain; reader route work consumes it but does not edit it.
 - Create: `src/server/translation/markdown-blocks.ts`
 - Create: `src/server/translation/chunker.ts`
 - Create: `src/server/translation/job-state.ts`

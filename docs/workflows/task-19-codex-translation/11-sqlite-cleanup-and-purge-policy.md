@@ -62,10 +62,14 @@ Handle these startup or job-resume cases:
 1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 2. Final file exists, job complete, chunks not purged: purge before reporting complete.
 3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-4. Complete job with missing or hash-mismatched final output: mark unavailable.
+4. Complete job with missing or hash-mismatched final output: call the shared `repairUnavailableTranslation()` helper from `src/server/translation/current-translation.ts`.
 5. Source hash changed during interrupted non-complete job: mark stale.
 
 Completed jobs are immutable history while their final output remains available. If the source changes after completion, do not mutate the completed job to `stale`; reader/API freshness is derived by comparing current source hash with job `source_hash`. If the final output is missing or hash-mismatched, mark the job `unavailable` so the user can retry the same source hash.
+
+Recovery does not own a second unavailable-repair implementation. It reuses
+`repairUnavailableTranslation()` from 19.3 so job start, metadata API, and
+startup recovery mark broken completed translations consistently.
 
 ## Tests
 
@@ -79,6 +83,7 @@ Cover:
 - recovery deletes orphan final-write temp files
 - recovery handles final file without complete DB status
 - recovery marks complete jobs with missing or hash-mismatched final output unavailable
+- recovery uses the shared `repairUnavailableTranslation()` helper instead of duplicating unavailable repair
 - recovery marks interrupted non-complete jobs stale when source hash changed
 - completed jobs remain complete when source hash later changes; stale/current is derived at read time
 

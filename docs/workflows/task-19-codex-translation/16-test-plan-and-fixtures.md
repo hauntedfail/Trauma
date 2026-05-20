@@ -142,6 +142,8 @@ mise exec -- bun run typecheck
 - job start, metadata API, reader route, and variant tabs use one shared current-translation resolver
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - job start and metadata API use explicit unavailable repair before retry/recovery
+- 19.3 owns `current-translation.ts`; 19.13 consumes it read-only; 19.11 recovery reuses `repairUnavailableTranslation()`
+- job snapshot errors include optional `action`, including `start_fresh_translation`
 - unavailable status is snapshot-only and does not emit a dedicated SSE terminal event
 
 ## Acceptance criteria
