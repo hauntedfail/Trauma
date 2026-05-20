@@ -54,7 +54,7 @@ CREATE INDEX translation_chunks_status_idx
 ## Rules
 
 - `source_hash`, `source_chunk_hash`, and `output_hash` use `sha256:<hex>`.
-- `output_path` is store-relative, for example `memory/abc123/ja-JP/CONTENT.md`.
+- `output_path` is store-relative, for example `memories/abc123/ja-JP/CONTENT.md`.
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
 - Do not add token, refresh token, credential, or raw Codex auth columns.
 - The user-selected target language is persisted in SQLite settings state, not frontend-only state.
@@ -83,7 +83,8 @@ setTranslationTargetLanguage(langCode: string): Promise<void>
 
 ## Path constraints
 
-- Source content remains `memory/<memory_id>/CONTENT.md`.
-- Translated content is `memory/<memory_id>/<lang_code>/CONTENT.md`.
+- Source content remains store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`.
+- Translated content is store-relative `memories/<memory_id>/<lang_code>/CONTENT.md` under configured `storePath`.
+- Do not create a parallel singular `memory/` storage tree.
 - `lang_code` must be validated before path resolution.
 - Never store translated content outside the memory directory.

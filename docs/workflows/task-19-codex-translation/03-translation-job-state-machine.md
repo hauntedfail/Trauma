@@ -25,7 +25,7 @@ Implement the Reader-owned Brilliant job and chunk lifecycle. This subtask creat
 
 ## Source loading contract
 
-Load `memory/<memory_id>/CONTENT.md` and compute:
+Load store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath` and compute:
 
 - `source_hash` as `sha256:<hex>`
 - byte size
@@ -58,7 +58,7 @@ Start algorithm:
 8. If a compatible active job exists, return that running job.
 9. Create a new `pending` job with `lang_code = settingsLangCode`.
 10. Schedule the job on the local in-process Brilliant runner.
-11. Emit `translation.job.started`.
+11. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
 
 ## Runner contract
 
@@ -71,7 +71,8 @@ Rules:
 - The runner processes one job at a time by default.
 - Chunks inside a job are processed sequentially by default.
 - Runner state is recoverable from SQLite rows.
-- Before accepting a new job, recover interrupted `running`, `stitching`, `committing`, and `cancel_requested` jobs.
+- Before accepting a new job, recover interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs.
+- A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
 - A server restart may pause a job, but must not corrupt an existing completed translation.
 
 ## State transition contract
@@ -99,6 +100,8 @@ Cover:
 - active job reuse returns job metadata with `event_url`
 - failed/canceled/stale job does not block a user retry job
 - runner schedules a newly created pending job without blocking the request
+- runner recovery schedules an interrupted pending job when the source hash still matches
+- runner recovery marks an interrupted pending job stale when the source hash changed
 - runner recovery handles interrupted active jobs
 - stale source hash prevents commit
 - invalid state transitions are rejected

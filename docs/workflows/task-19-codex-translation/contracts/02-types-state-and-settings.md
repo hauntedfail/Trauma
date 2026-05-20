@@ -159,6 +159,7 @@ export interface TranslationEventEnvelope<TData = unknown> {
 
 ```text
 pending -> running
+pending -> stale
 running -> stale
 running -> stitching
 running -> failed
@@ -179,7 +180,8 @@ Hash values use `sha256:<hex>`.
 
 Source hash input:
 
-- Hash the exact UTF-8 bytes read from `memory/<memory_id>/CONTENT.md`.
+- Hash the exact UTF-8 bytes read from `memories/<memory_id>/CONTENT.md`.
+- Resolve that path under configured `storePath`.
 - Do not normalize line endings.
 - Do not trim leading or trailing bytes.
 - Do not parse and reserialize Markdown before hashing.
@@ -235,5 +237,6 @@ Rules:
 - Chunks inside a job are processed sequentially by default.
 - Later concurrency tuning may add configurable chunk concurrency, but the MVP should avoid parallel Codex turns for the same document.
 - Runner state is recoverable from SQLite job/chunk rows.
-- On server startup, or before accepting a new translation job, recover interrupted `running`, `stitching`, `committing`, and `cancel_requested` jobs according to the recovery contract.
+- On server startup, or before accepting a new translation job, recover interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs according to the recovery contract.
+- A `pending` job left by a process restart must either be scheduled if the source hash still matches or marked `stale` if the source changed before it started.
 - A process restart may pause a job, but must not corrupt an existing completed translation.

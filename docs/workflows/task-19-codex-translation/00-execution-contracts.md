@@ -14,15 +14,16 @@ If a contract conflict exists, use this precedence order:
 2. The assigned `19.x` subtask file.
 3. Parent workflow and README summaries.
 
-`TASK_19_INSTRUCTION.md` was the source input for this planning branch, but implementation workers must not depend on that root file being present.
+Implementation workers must treat this workflow directory as the source of truth. Do not depend on any root-level scratch instruction files being present.
 
 ## Canonical names
 
 - Product task name: `Brilliant`
 - Implementation branch: `feat/brilliant`
 - Feature purpose: Codex app-server powered translation for Reader memory content
-- Source content path: `memory/<memory_id>/CONTENT.md`
-- Translated content path: `memory/<memory_id>/<lang_code>/CONTENT.md`
+- Source content path: store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`
+- Translated content path: store-relative `memories/<memory_id>/<lang_code>/CONTENT.md` under configured `storePath`
+- Do not introduce singular `memory/<memory_id>/...` paths; the existing store layout uses plural `memories/`.
 - Japanese language code: `ja-JP`
 - Translation target language source: `/settings` user setting persisted in SQLite
 - Default progress transport: SSE

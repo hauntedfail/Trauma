@@ -29,13 +29,13 @@ Stitch validated translated chunks and atomically commit the final translated `C
 Final path:
 
 ```text
-memory/<memory_id>/<lang_code>/CONTENT.md
+memories/<memory_id>/<lang_code>/CONTENT.md
 ```
 
 Temporary path:
 
 ```text
-memory/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
+memories/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
 ```
 
 Commit sequence follows `contracts/07-atomic-commit-purge-recovery.md` exactly.

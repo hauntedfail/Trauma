@@ -9,9 +9,9 @@
 - Scope: Add a Codex-powered translation pipeline for Reader memory content, including app-server integration, Reader-owned chunk orchestration, streaming progress, validation, retry, atomic translated `CONTENT.md` persistence, and SQLite cleanup.
 - Out of scope: multi-user auth, hosted OAuth service, direct browser access to Codex app-server, direct OpenAI Responses API integration, non-Codex providers, collaborative translation editing, and storing completed translated article bodies in SQLite.
 
-## Instruction basis
+## Plan basis
 
-This plan is rebuilt from `TASK_19_INSTRUCTION.md` and supersedes the earlier `codex exec`-first design. The preferred integration surface is Codex app-server because it supports application integration, thread/turn control, managed ChatGPT sign-in flows, and streamed agent events. The Reader backend remains the owner of memory storage, chunking, validation, retry, final file writes, SQLite cleanup, and frontend event streaming.
+This plan supersedes the earlier `codex exec`-first design. The preferred integration surface is Codex app-server because it supports application integration, thread/turn control, managed ChatGPT sign-in flows, and streamed agent events. The Reader backend remains the owner of memory storage, chunking, validation, retry, final file writes, SQLite cleanup, and frontend event streaming.
 
 Research reference captured by the instruction:
 
@@ -27,8 +27,9 @@ Research reference captured by the instruction:
 - Keep document-level state, glossary, style profile, chunk manifest, retries, and stitching in Reader code and SQLite.
 - Use SSE as the default frontend transport because the MVP only needs server-to-client progress streaming.
 - Add cancellation through a normal backend endpoint and job state; defer WebSocket until bidirectional live steering is required.
-- Store source memory content at `memory/<memory_id>/CONTENT.md`.
-- Store translated content at `memory/<memory_id>/<lang_code>/CONTENT.md`, for example `memory/abc123/ja-JP/CONTENT.md`.
+- Resolve source and translated content under configured `storePath`.
+- Store source memory content at store-relative `memories/<memory_id>/CONTENT.md`.
+- Store translated content at store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`, for example `memories/abc123/ja-JP/CONTENT.md`.
 - Use BCP 47 language codes such as `ja-JP`.
 - Persist the user-selected translation target language in SQLite through `/settings`; Brilliant reads this server-side value when starting translation.
 - Do not introduce persistent `.work/<job_id>` artifacts.
@@ -38,7 +39,7 @@ Research reference captured by the instruction:
 
 ## End-to-end pipeline
 
-1. Source loading reads `memory/<memory_id>/CONTENT.md`, computes `source_hash`, file size, rough token estimate, document type hint, source URL, and source title.
+1. Source loading reads store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`, computes `source_hash`, file size, rough token estimate, document type hint, source URL, and source title.
 2. Block manifest generation parses Markdown into deterministic blocks with stable ids such as `b000001`.
 3. Chunking groups contiguous blocks, prefers section boundaries, splits oversized sections by block groups, and preserves document order.
 4. Codex translation sends one chunk plus metadata and policy to Codex app-server `turn/start` with an output schema.
@@ -47,7 +48,7 @@ Research reference captured by the instruction:
 7. Retry handles chunk-level validation, auth, usage, timeout, context, and stream failures without retrying the whole document unnecessarily.
 8. Stitching reassembles translated blocks in manifest order and performs final full-document validation.
 9. Atomic commit writes a same-directory temp file, flushes it, renames it to `CONTENT.md`, flushes the parent directory when supported, marks the job complete, and purges completed chunk bodies.
-10. Reader rendering reloads `memory/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds.
+10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds.
 
 ## Minimal SQLite schema direction
 
@@ -176,7 +177,7 @@ Subagents may work only on non-overlapping files and must report changed files, 
 
 ## Redefined plan acceptance criteria
 
-- Uses `memory/<memory_id>/<lang_code>/CONTENT.md`.
+- Uses store-relative `memories/<memory_id>/<lang_code>/CONTENT.md` under configured `storePath`.
 - Uses `ja-JP`-style BCP 47 language codes.
 - Does not introduce `.work/<job_id>`.
 - Allows temporary SQLite chunk storage during translation.

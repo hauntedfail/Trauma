@@ -8,10 +8,10 @@ Use this exact sequence:
 2. If current source hash differs from job `source_hash`, mark job `stale` and stop.
 3. Stitch validated chunks in block order.
 4. Validate final full document.
-5. Ensure `memory/<memory_id>/<lang_code>/` exists.
-6. Write full Markdown to `memory/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp`.
+5. Ensure store-relative `memories/<memory_id>/<lang_code>/` exists under configured `storePath`.
+6. Write full Markdown to store-relative `memories/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp`.
 7. Flush file contents.
-8. Rename temp file to `memory/<memory_id>/<lang_code>/CONTENT.md`.
+8. Rename temp file to `memories/<memory_id>/<lang_code>/CONTENT.md`.
 9. Flush parent directory if supported.
 10. Compute `output_hash` from committed `CONTENT.md`.
 11. In a SQLite transaction, set job `status = 'complete'`, `output_path`, `output_hash`, and `completed_at`.
@@ -21,8 +21,8 @@ Use this exact sequence:
 ## Final paths
 
 ```text
-memory/<memory_id>/<lang_code>/CONTENT.md
-memory/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
+memories/<memory_id>/<lang_code>/CONTENT.md
+memories/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
 ```
 
 ## Purge SQL
@@ -38,10 +38,11 @@ WHERE job_id = ?
 
 ## Recovery cases
 
-1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
-2. Final file exists, job complete, chunks not purged: purge before reporting complete.
-3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-4. Source hash changed during interrupted non-complete job: mark stale.
+1. Pending job exists without a running worker: if source hash still matches, schedule it; if source hash changed, mark stale.
+2. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
+3. Final file exists, job complete, chunks not purged: purge before reporting complete.
+4. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
+5. Source hash changed during interrupted non-complete job: mark stale.
 
 ## Rules
 

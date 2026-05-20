@@ -31,8 +31,8 @@ The browser never talks to Codex app-server directly. The browser talks only to 
 The canonical translated file layout is:
 
 ```text
-memory/<memory_id>/CONTENT.md
-memory/<memory_id>/<lang_code>/CONTENT.md
+memories/<memory_id>/CONTENT.md
+memories/<memory_id>/<lang_code>/CONTENT.md
 ```
 
 The selected target language comes from the SQLite-backed `/settings` value, for example `translation_target_lang_code = "ja-JP"`.
@@ -49,7 +49,7 @@ Before later subtasks start, confirm these names and contracts are stable:
 - SSE event names under `translation.*`.
 - Markdown block id format `b000001`.
 - Hash format `sha256:<hex>`.
-- Final output path `memory/<memory_id>/<lang_code>/CONTENT.md`.
+- Final output path `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
 
 ## Tests

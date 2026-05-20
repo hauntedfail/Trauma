@@ -32,8 +32,8 @@ Manual or automated smoke:
 7. Inject one validation failure and confirm only the failed chunk retries.
 8. Confirm every source block id appears exactly once in validated translated output.
 9. Confirm final stitched Markdown passes full-document validation.
-10. Confirm final file is committed to `memory/<memory_id>/ja-JP/CONTENT.md`.
-11. Confirm source `memory/<memory_id>/CONTENT.md` is unchanged.
+10. Confirm final file is committed to `memories/<memory_id>/ja-JP/CONTENT.md`.
+11. Confirm source `memories/<memory_id>/CONTENT.md` is unchanged.
 12. Confirm `translation_jobs` records completion, output path, output hash, and source hash.
 13. Confirm `translation_chunks.translated_markdown` is purged after commit.
 14. Confirm `/memories/:id?lang=ja-JP` renders the translated variant.
@@ -47,11 +47,7 @@ mise exec -- bun run typecheck
 mise exec -- bun run verify
 ```
 
-Optional live Codex smoke when credentials and usage limits permit:
-
-```sh
-# Exact command should be documented by the implementation once app-server startup is wired.
-```
+Optional live Codex smoke is not required for MVP completion. If a live Codex run is attempted, document the exact app-server URL, command, credentials boundary, and outcome in the PR handoff. If it is not attempted, explicitly record `live Codex smoke: not attempted`.
 
 ## PR handoff checklist
 
@@ -74,7 +70,7 @@ PR body must include:
 
 - Long paper translation completes through chunking, validation, retry, stitching, atomic commit, and purge.
 - Source content remains unchanged.
-- Translated content is stored only at `memory/<memory_id>/<lang_code>/CONTENT.md` after completion.
+- Translated content is stored only at `memories/<memory_id>/<lang_code>/CONTENT.md` after completion.
 - SQLite retains metadata but not completed translated article bodies.
 - Reader can render the translated variant.
 - Verification results are documented for handoff.
