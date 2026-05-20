@@ -148,6 +148,13 @@ Runtime `cwd` rules:
   - Delete only a directory whose canonical parent is exactly the canonical runtime root.
   - Refuse deletion if the candidate path equals, contains, or is contained by the TRAUMA project root, configured memory store path, backup store path, or any user-controlled article content path.
   - Delete only empty job-scoped runtime directories. If a runtime directory is non-empty, leave it in place and persist/log a safe cleanup warning instead of recursively deleting unknown content.
+
+Runtime cleanup warnings:
+
+- MVP surfaces non-empty runtime cleanup leftovers as safe server logs plus job diagnostic metadata only.
+- Do not show a blocking frontend popup for runtime cleanup leftovers in Brilliant MVP.
+- Runtime cleanup leftovers do not by themselves fail an otherwise completed translation job after the final `CONTENT.md` commit and SQLite purge succeeded.
+- Warning text must include the job id and a safe runtime-root-relative path only; do not include source content, prompts, credentials, app-server payloads, or absolute project/store paths unless the project-standard diagnostics UI later explicitly permits them.
 - `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
 
 ## Protocol schema and version contract

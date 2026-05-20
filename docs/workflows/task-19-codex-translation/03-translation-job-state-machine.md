@@ -69,16 +69,17 @@ Start algorithm:
 3. If the request supplied `lang_code`, verify it matches the SQLite setting.
 4. Reject with `translation_language_required` when no settings language exists.
 5. Load source `CONTENT.md` and compute source metadata.
-6. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
-7. Resolve the complete job through `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
-8. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata without checking Codex auth, because no new Codex work is required.
-9. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
-10. If a compatible active job exists, return that running job and its `event_url` without creating another job. The running job itself may later fail with an execution-time auth/setup error if Codex auth is lost.
-11. Check Codex auth/setup preconditions with `account/read` through the app-server client immediately before creating a new job.
-12. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
-13. Create a new `pending` job with `lang_code = settingsLangCode`.
-14. Schedule the job on the local in-process Brilliant runner.
-15. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
+6. Before active lookup or new job creation, run focused recovery for interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs for the same `(memory_id, settingsLangCode)`. If a recovered active job's stored `source_hash` no longer matches the current source hash, mark that old job `stale`.
+7. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
+8. Resolve the complete job through `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
+9. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata without checking Codex auth, because no new Codex work is required.
+10. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
+11. If a compatible active job exists, return that job's status and `event_url` without creating another job. Active job reuse does not perform a request-path auth precondition check, but the runner/recovery path must process the reused `pending` or `running` job and mark it failed with `auth_required` or `setup_required` if Codex auth/setup is no longer available when execution resumes.
+12. Check Codex auth/setup preconditions with `account/read` through the app-server client immediately before creating a new job.
+13. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
+14. Create a new `pending` job with `lang_code = settingsLangCode`.
+15. Schedule the job on the local in-process Brilliant runner.
+16. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
 
 ## Runner contract
 
@@ -92,8 +93,10 @@ Rules:
 - Chunks inside a job are processed sequentially by default.
 - Runner state is recoverable from SQLite rows.
 - Before accepting a new job, recover interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs.
+- Job-start recovery must run before active lookup or new job creation for the same `(memory_id, lang_code)`.
 - A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
 - A server restart may pause a job, but must not corrupt an existing completed translation.
+- A recovered `pending` or `running` job whose source hash still matches must re-check Codex auth/setup before continuing execution. If auth/setup is now missing, mark the existing job failed with `auth_required` or `setup_required` and emit a safe failure event/snapshot instead of returning an indefinitely running job.
 
 ## State transition contract
 
@@ -134,6 +137,8 @@ Cover:
 - runner schedules a newly created pending job without blocking the request
 - runner recovery schedules an interrupted pending job when the source hash still matches
 - runner recovery marks an interrupted pending job stale when the source hash changed
+- job start runs focused recovery before active lookup or new job creation
+- recovered pending/running job with missing Codex auth/setup becomes failed with `auth_required` or `setup_required`
 - runner recovery handles interrupted active jobs
 - stale source hash prevents commit
 - stale source hash emits `translation.job.stale`

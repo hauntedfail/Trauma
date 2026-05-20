@@ -65,6 +65,8 @@ run authenticated translation work. This precondition check happens only after
 the backend has ruled out a current committed translation and compatible active
 job reuse. If Codex auth/setup is lost after a job row has been created, the
 job records a normal execution failure with `auth_required` or `setup_required`.
+Reused active jobs must not remain indefinitely running after auth loss; runner
+recovery or the next execution tick marks them failed with the same safe code.
 
 SSE failure events use the same stable error shape. `translation.job.failed`
 emits `{ error }`; `translation.chunk.failed` emits `{ error, retry_count,
@@ -125,6 +127,7 @@ Cover:
 - auth/setup precondition failures do not create job rows
 - current committed translation reuse does not require Codex auth
 - in-flight auth/setup loss after job creation is persisted as a safe job error
+- reused active job with auth/setup loss transitions to failed instead of remaining indefinitely running
 - timeout and stream-disconnected errors preserve their stable codes
 - invalid-final-output errors preserve their stable code
 - validation-failed errors are reserved for schema-valid semantic validation failures
