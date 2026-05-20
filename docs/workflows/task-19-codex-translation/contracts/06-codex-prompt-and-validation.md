@@ -131,6 +131,12 @@ Rules:
 - Generate protocol fixtures or schemas with `codex app-server generate-ts --out tests/fixtures/codex-app-server-schema` or `codex app-server generate-json-schema --out tests/fixtures/codex-app-server-schema` when the local Codex CLI supports it.
 - If generated artifacts are too large for the repo, commit a focused fixture set covering `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `thread/start`, `turn/start`, `turn/started`, `item/agentMessage/delta`, `item/completed`, `turn/completed`, and `turn/interrupt`.
 - Fake app-server tests must be based on the recorded schema/fixture version, not only on hand-written assumptions.
+- Before implementing `translateChunk()`, confirm the exact `turn/start`
+  payload shape for `approvalPolicy`, `sandboxPolicy`, `cwd`, and
+  network-disable semantics from the generated schema or focused fixtures. If
+  the literal values in this contract differ from the installed Codex
+  app-server schema, update the Brilliant contracts first with the equivalent
+  minimum-privilege payload, then implement.
 
 ## Auth JSON-RPC contract
 

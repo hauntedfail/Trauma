@@ -9,7 +9,7 @@ CREATE TABLE translation_jobs (
   lang_code TEXT NOT NULL,
   source_hash TEXT NOT NULL,
   model TEXT,
-  skill_version TEXT NOT NULL,
+  prompt_policy_version TEXT NOT NULL,
   chunker_version TEXT NOT NULL,
   status TEXT NOT NULL,
   chunk_count INTEGER NOT NULL DEFAULT 0,
@@ -58,7 +58,7 @@ CREATE INDEX translation_chunks_status_idx
 - `reader_url` is derived from `memory_id` and `lang_code` as `/memories/<lang_code>/<memory_id>`; do not add a column unless implementation proves a durable need.
 - `translation_jobs.error` stores either `NULL` or a JSON string matching `TranslationPersistedError` from `contracts/02-types-state-and-settings.md`.
 - `translation_chunks.error` stores either `NULL` or a JSON string matching `TranslationPersistedError` from `contracts/02-types-state-and-settings.md`.
-- Do not persist request-boundary API errors such as `invalid_language`, `missing_memory`, `missing_source_content`, or `cancellation_conflict` in `translation_jobs.error` or `translation_chunks.error`.
+- Do not persist request-boundary API errors such as `translation_language_required`, `translation_language_mismatch`, `invalid_language`, `missing_memory`, `missing_source_content`, or `cancellation_conflict` in `translation_jobs.error` or `translation_chunks.error`.
 - `markTranslationUnavailable(jobId, reason)` stores `error` as JSON with `code = "translation_unavailable"`, `action = "start_fresh_translation"`, and `reason = "output_missing"` or `"output_hash_mismatch"`.
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
 - Do not add token, refresh token, credential, or raw Codex auth columns.

@@ -100,6 +100,8 @@ export type TranslationErrorCode =
 
 export type PersistableTranslationErrorCode = Exclude<
   TranslationErrorCode,
+  | "translation_language_required"
+  | "translation_language_mismatch"
   | "invalid_language"
   | "missing_memory"
   | "missing_source_content"
@@ -187,9 +189,10 @@ export interface CodexChunkOutput {
 `TranslationErrorCode` is the shared safe error-code namespace used by API error
 responses, job snapshots, and SSE failure events. `TranslationPersistedError`
 uses the narrower `PersistableTranslationErrorCode` because request-boundary
-errors such as `missing_memory`, `missing_source_content`, `invalid_language`,
-and `cancellation_conflict` must not be stored as job/chunk lifecycle failures
-in SQLite.
+errors such as `translation_language_required`, `translation_language_mismatch`,
+`missing_memory`, `missing_source_content`, `invalid_language`, and
+`cancellation_conflict` must not be stored as job/chunk lifecycle failures in
+SQLite.
 
 `TranslationJobSnapshot.reader_url` is derived, not stored. It is non-null only when a current committed translation exists for `(memory_id, lang_code, source_hash)` and the output file hash matches the completed translation row. For pending, running, cancel-requested, canceled, failed, stale, or renderable-output-missing states, it is `null`.
 

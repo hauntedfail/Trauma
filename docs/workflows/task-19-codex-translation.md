@@ -68,7 +68,7 @@ translation_jobs
 translation_chunks
 ```
 
-`translation_jobs` tracks job metadata, status, hashes, output path, model, chunker version, skill version, errors, and timestamps.
+`translation_jobs` tracks job metadata, status, hashes, output path, model, chunker version, prompt policy version, errors, and timestamps.
 
 `translation_chunks` tracks per-chunk source hash, ordered block ids, status, retry count, temporary translated Markdown, translated hash, error state, and timestamps.
 

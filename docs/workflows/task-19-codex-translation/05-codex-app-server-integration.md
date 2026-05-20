@@ -61,7 +61,7 @@ Rules:
 - Speak JSON-RPC 2.0 over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
 - Reject or retry connection setup if any request is attempted before initialization.
-- Missing base URL returns `setup_required`.
+- Missing endpoint returns `setup_required`.
 - Configured but unreachable app-server returns `app_server_unavailable`.
 - Health/auth probe uses `account/read` before scheduling translation work.
 - Device-code completion and account update notifications are converted to typed auth events for settings/auth services.
@@ -74,6 +74,14 @@ Protocol schema rules:
 - Prefer generated Codex app-server TypeScript or JSON Schema artifacts from `codex app-server generate-ts` or `codex app-server generate-json-schema` for fake app-server tests.
 - If generated artifacts are too large, add focused protocol fixtures for the JSON-RPC methods and notifications Brilliant consumes.
 - Hand-written event types must be checked against the generated schema or focused fixture version.
+- Before implementing the production transport, run a focused Unix socket adapter
+  spike. Confirm how Bun/Node connects to Codex app-server's `unix://` endpoint,
+  which uses a Unix domain socket plus HTTP Upgrade/WebSocket framing, and define
+  how `unix://` resolves the default Codex app-server control socket path.
+- If Bun/Node cannot support the Unix socket WebSocket upgrade without adding a
+  fragile custom frame implementation, document the blocker in the subtask
+  handoff and use loopback WebSocket only as the local development fallback while
+  keeping `unix://` as the intended default contract.
 
 Rules:
 
@@ -130,6 +138,7 @@ Use a fake app-server client. Cover:
 - chunk translation starts an ephemeral thread before starting a turn
 - `turn/start` request passes through the caller-provided output schema
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
+- `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation
 - rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `translateChunk()` yields thread id and turn id before item events when available
 - `cancelTurn()` sends `turn/interrupt` with thread id and turn id

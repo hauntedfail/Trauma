@@ -84,5 +84,8 @@ If no skill validation exists, record that this is a policy-file-only subtask.
 
 - Repo-local skill exists.
 - Skill policy matches Brilliant prompt contract.
-- Skill can be versioned through `translation_jobs.skill_version`.
+- Skill policy can be tracked through `translation_jobs.prompt_policy_version`
+  when the deterministic runtime prompt policy intentionally mirrors this file.
+  This field records policy provenance only and does not mean the runtime invokes
+  `$reader-translate`.
 - MVP translation turns can run without giving Codex filesystem read access to the repo-local skill file.
