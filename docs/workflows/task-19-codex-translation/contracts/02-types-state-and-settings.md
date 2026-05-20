@@ -53,6 +53,20 @@ export interface TranslationSourceSnapshot {
   documentType: "article" | "paper" | "unknown";
 }
 
+export interface TranslationJobSnapshot {
+  job_id: string;
+  memory_id: string;
+  lang_code: string;
+  status: TranslationJobStatus;
+  source_hash: string;
+  chunk_count: number;
+  completed_chunks: number;
+  failed_chunks: number;
+  retrying_chunks: number;
+  output_path: string | null;
+  error: string | null;
+}
+
 export interface ProtectedSpan {
   kind:
     | "code_fence"
@@ -158,6 +172,22 @@ failed -> pending only when a user explicitly retries by creating a new job
 ```
 
 Completed jobs are immutable history. Do not mutate `complete -> stale`. Reader/API freshness is derived by comparing the job `source_hash` with the current source `CONTENT.md` hash.
+
+## Hash contract
+
+Hash values use `sha256:<hex>`.
+
+Source hash input:
+
+- Hash the exact UTF-8 bytes read from `memory/<memory_id>/CONTENT.md`.
+- Do not normalize line endings.
+- Do not trim leading or trailing bytes.
+- Do not parse and reserialize Markdown before hashing.
+- If the file cannot be decoded as UTF-8 for Markdown parsing, fail source loading before creating translation chunks.
+
+Translated output hash input:
+
+- Hash the exact UTF-8 bytes of the committed translated `CONTENT.md` after atomic rename.
 
 ## Chunk transitions
 

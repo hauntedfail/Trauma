@@ -26,6 +26,19 @@ translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEve
 cancelTurn(turnId: string): Promise<void>
 ```
 
+## Connection contract
+
+The MVP connects to an already-running Codex app-server. It does not auto-start or supervise the app-server process.
+
+Rules:
+
+- Read app-server base URL from `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value.
+- Missing base URL returns `setup_required`.
+- Configured but unreachable app-server returns `app_server_unavailable`.
+- Health/auth probe runs before scheduling translation work.
+- No fallback to `codex exec` exists in this client.
+- Request timeout and health timeout are explicit config values or documented defaults.
+
 Rules:
 
 - Use Codex app-server `turn/start` for chunk translation.
@@ -36,6 +49,7 @@ Rules:
 - Do not allow Codex to write canonical `CONTENT.md` files.
 - Streamed app-server deltas are progress only.
 - Final output must come from completed app-server item content.
+- `translateChunk()` yields `turn.started` when a turn id is available so the orchestrator can cancel the in-flight turn.
 
 ## Error contract
 
@@ -56,8 +70,11 @@ Map app-server failures to typed backend errors:
 Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
+- missing app-server URL returns setup-required
+- unreachable app-server returns app-server-unavailable
 - device-code login response is safe to return to settings UI
 - `turn/start` request passes through the caller-provided output schema
+- `translateChunk()` yields turn id before item events when available
 - chunk translation uses ephemeral chunk scope
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
@@ -75,6 +92,7 @@ mise exec -- bun run typecheck
 
 - Codex app-server integration is isolated behind one backend module.
 - Prompt and output-schema construction remain owned by 19.8.
+- App-server startup is outside MVP scope; connection is through server-side URL config.
 - Frontend code cannot call app-server directly.
 - The client can be faked for deterministic tests.
 - No canonical file writes happen inside the Codex client.

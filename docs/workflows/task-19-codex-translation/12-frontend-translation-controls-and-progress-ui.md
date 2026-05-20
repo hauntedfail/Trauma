@@ -37,10 +37,11 @@ Reader UI shows:
 1. Read configured `lang_code` from page/settings data.
 2. POST `/api/memories/:memory_id/translations` with `{}` or with `lang_code` as a consistency assertion.
 3. If `202`, open the returned `event_url`.
-4. If `200 current`, navigate to `/memories/:id?lang=<lang_code>`.
-5. If `409 translation_language_required`, link to `/settings`.
-6. If `409 translation_language_mismatch`, refresh settings state and ask the user to retry.
-7. If `409 setup_required`, show Codex auth setup guidance.
+4. If `200 running`, open the returned `event_url` for the active job.
+5. If `200 current`, navigate to `/memories/:id?lang=<lang_code>`.
+6. If `409 translation_language_required`, link to `/settings`.
+7. If `409 translation_language_mismatch`, refresh settings state and ask the user to retry.
+8. If `409 setup_required`, show Codex auth setup guidance.
 
 ## Tests
 
@@ -51,6 +52,7 @@ Cover:
 - auth unavailable renders setup-required state
 - click starts translation API request
 - `202` opens SSE progress
+- `200 running` opens SSE progress for the reused active job
 - `200 current` navigates to translated variant
 - progress shows chunk count and current chunk
 - delta transcript is labelled non-authoritative

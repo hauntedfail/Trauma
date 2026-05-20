@@ -36,6 +36,14 @@ Load `memory/<memory_id>/CONTENT.md` and compute:
 
 Do not load translated files in this subtask.
 
+Hashing rule:
+
+- Hash the exact UTF-8 bytes read from source `CONTENT.md`.
+- Do not normalize line endings.
+- Do not trim bytes.
+- Do not parse and reserialize Markdown before hashing.
+- If the file cannot be decoded as UTF-8 for Markdown parsing, fail source loading before chunk creation.
+
 ## Job start contract
 
 Start algorithm:
@@ -88,6 +96,7 @@ Cover:
 - missing settings language returns `translation_language_required`
 - current completed job is reused
 - active non-terminal job is reused
+- active job reuse returns job metadata with `event_url`
 - failed/canceled/stale job does not block a user retry job
 - runner schedules a newly created pending job without blocking the request
 - runner recovery handles interrupted active jobs

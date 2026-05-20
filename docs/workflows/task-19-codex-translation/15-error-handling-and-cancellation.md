@@ -10,7 +10,7 @@ Define consistent failure, retry, cancellation, and recovery behaviour across Br
 - `src/server/translation/job-state.ts`
 - `src/server/translation/codex-app-server.ts`
 - `src/server/translation/orchestrator.ts`
-- `src/routes/api/translation-jobs/[jobId]/cancel.ts`
+- route file implementing `POST /api/translation-jobs/:job_id/cancel`, following existing `src/routes/api/` conventions
 - `tests/server/routes/api-translation-jobs.test.ts`
 - `tests/server/translation/orchestrator.test.ts`
 
@@ -44,6 +44,8 @@ User-facing errors must not include tokens, raw prompts, credential paths, app-s
 - `POST /api/translation-jobs/:job_id/cancel` marks the job `cancel_requested`.
 - Scheduler stops starting new chunks.
 - In-flight Codex turn is canceled if app-server supports cancellation.
+- The orchestrator stores the latest in-flight Codex `turnId` from `turn.started` events.
+- `cancelTurn(turnId)` is called only when an in-flight `turnId` is known.
 - If app-server cannot cancel, late output is ignored.
 - Canceled jobs do not commit final `CONTENT.md`.
 - SSE emits `translation.job.canceled` when cancellation completes.
@@ -55,6 +57,8 @@ Cover:
 - cancel pending job
 - cancel running job
 - canceled job stops scheduling chunks
+- known in-flight turn id triggers `cancelTurn(turnId)`
+- missing in-flight turn id falls back to ignoring late output
 - late chunk output is ignored
 - canceled job never commits final file
 - auth and usage errors surface actionable messages

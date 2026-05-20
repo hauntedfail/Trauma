@@ -39,6 +39,19 @@ Current translation response:
 }
 ```
 
+Active job reuse response:
+
+```json
+{
+  "status": "running",
+  "job_id": "018f...",
+  "memory_id": "018f...",
+  "lang_code": "ja-JP",
+  "source_hash": "sha256:...",
+  "event_url": "/api/translation-jobs/018f.../events"
+}
+```
+
 Status codes:
 
 - `202` for newly started async job
@@ -65,6 +78,8 @@ GET /api/memories/:memory_id/translations/:lang_code
   "completed_at": "2026-05-20T00:00:00.000Z"
 }
 ```
+
+`translation.job.snapshot` uses the same payload shape as `GET /api/translation-jobs/:job_id`.
 
 ## Read job status
 

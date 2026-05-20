@@ -7,7 +7,7 @@ Expose Brilliant job progress to the browser through SSE. This subtask does not 
 ## Files likely owned
 
 - `src/server/translation/events.ts`
-- `src/routes/api/translation-jobs/[jobId]/events.ts`
+- route file implementing `GET /api/translation-jobs/:job_id/events`, following existing `src/routes/api/` conventions
 - `tests/server/translation/events.test.ts`
 - `tests/server/routes/api-translation-events.test.ts`
 
@@ -41,6 +41,11 @@ The MVP does not require a durable event replay table. On reconnect, send `trans
 
 The frontend must be able to combine `GET /api/translation-jobs/:job_id` and SSE to recover after refresh.
 
+Snapshot payload:
+
+- `translation.job.snapshot` uses the same payload shape as `GET /api/translation-jobs/:job_id`.
+- The payload includes `job_id`, `memory_id`, `lang_code`, `status`, `source_hash`, `chunk_count`, `completed_chunks`, `failed_chunks`, `retrying_chunks`, `output_path`, and `error`.
+
 ## Event mapping contract
 
 Map backend and Codex events to:
@@ -71,6 +76,7 @@ Cover:
 - heartbeat output
 - terminal events close the stream
 - reconnect emits `translation.job.snapshot` before new events
+- snapshot payload matches job status API payload
 - Codex delta events are marked non-authoritative
 - stream disconnect does not cancel job
 

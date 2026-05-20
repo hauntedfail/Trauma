@@ -14,6 +14,12 @@ export interface CodexAppServerClient {
 Supporting types:
 
 ```ts
+export interface CodexAppServerConfig {
+  baseUrl: string;
+  healthTimeoutMs: number;
+  requestTimeoutMs: number;
+}
+
 export type CodexAuthStatus =
   | { status: "enabled" }
   | { status: "setup_required"; reason: string }
@@ -39,10 +45,11 @@ export interface CodexTranslateChunkInput {
 }
 
 export type CodexAppServerEvent =
-  | { type: "item.started"; itemId: string; title: string | null }
-  | { type: "item.agentMessage.delta"; itemId: string; delta: string }
-  | { type: "item.completed"; itemId: string; outputText: string }
-  | { type: "turn.failed"; error: CodexAppServerError };
+  | { type: "turn.started"; turnId: string }
+  | { type: "item.started"; turnId: string; itemId: string; title: string | null }
+  | { type: "item.agentMessage.delta"; turnId: string; itemId: string; delta: string }
+  | { type: "item.completed"; turnId: string; itemId: string; outputText: string }
+  | { type: "turn.failed"; turnId: string | null; error: CodexAppServerError };
 
 export interface CodexAppServerError {
   code:
@@ -61,6 +68,13 @@ export interface CodexAppServerError {
 
 Rules:
 
+- MVP connects to an already-running Codex app-server through server-side config.
+- Use `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value as `baseUrl`.
+- Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
+- If `baseUrl` is missing, return `setup_required`.
+- If `baseUrl` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
+- Run a health/auth probe before scheduling translation work.
+- Do not fall back to `codex exec` from this app-server client.
 - Use app-server `turn/start` with `outputSchema` when available.
 - The concrete output schema builder is owned by 19.8. The app-server client accepts a schema object from caller code rather than defining Brilliant translation schema internally.
 - Do not send the full document unless the chunker produced one chunk.
@@ -68,6 +82,7 @@ Rules:
 - Do not expose app-server URL, token, or raw auth state to the browser.
 - Deltas are progress only. Final output must come from completed item content and pass schema validation.
 - Disable network/tool access for translation turns if app-server exposes such controls.
+- `translateChunk()` must yield `turn.started` before item events when app-server returns a turn id. The orchestrator stores the latest in-flight `turnId` so cancellation can call `cancelTurn(turnId)`.
 
 ## Typed app-server errors
 
