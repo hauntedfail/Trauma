@@ -91,6 +91,10 @@ Rules:
 
 - MVP connects to an already-running Codex app-server through server-side config.
 - Use `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value as `endpoint`.
+- Default Brilliant MVP configuration is loopback WebSocket because it is easy to configure from a local web app and supports app-server health probes.
+- Default startup command: `codex app-server --listen ws://127.0.0.1:4500`.
+- Default endpoint example: `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
+- Unix socket endpoints remain supported as the secondary local transport when the implementation can open the app-server Unix socket with a WebSocket upgrade.
 - The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
 - Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.

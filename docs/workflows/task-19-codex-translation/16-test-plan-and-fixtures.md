@@ -133,6 +133,7 @@ mise exec -- bun run typecheck
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
+- default app-server endpoint uses loopback WebSocket `ws://127.0.0.1:4500`
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - completed event includes `reader_url`
 - API errors use stable `code` values consumed by frontend state branches
@@ -144,7 +145,8 @@ mise exec -- bun run typecheck
 - `translation_unavailable` uses `action = "start_fresh_translation"`
 - unavailable job snapshots return `reader_url: null` and `error.code = "translation_unavailable"`
 - current translation metadata API returns `409 translation_unavailable` for complete rows with missing or hash-mismatched output
-- job start, metadata API, reader route, and variant tabs use one shared current-translation resolver
+- job start and metadata API use `resolveCurrentTranslationReadOnly()` plus explicit `repairUnavailableTranslation()` when mutation is allowed
+- reader route and variant tabs use `resolveCurrentTranslationReadOnly()` only and never call `repairUnavailableTranslation()`
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - job start and metadata API use explicit unavailable repair before retry/recovery
 - job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots

@@ -77,27 +77,37 @@ export type TranslationErrorAction =
   | "start_fresh_translation"
   | "none";
 
+export type TranslationErrorCode =
+  | "translation_unavailable"
+  | "translation_language_required"
+  | "translation_language_mismatch"
+  | "invalid_language"
+  | "missing_memory"
+  | "missing_source_content"
+  | "auth_required"
+  | "setup_required"
+  | "app_server_unavailable"
+  | "stale_source"
+  | "cancellation_conflict"
+  | "usage_limit"
+  | "context_overflow"
+  | "timeout"
+  | "stream_disconnected"
+  | "invalid_final_output"
+  | "validation_failed"
+  | "filesystem_failure"
+  | "unknown";
+
+export type PersistableTranslationErrorCode = Exclude<
+  TranslationErrorCode,
+  | "invalid_language"
+  | "missing_memory"
+  | "missing_source_content"
+  | "cancellation_conflict"
+>;
+
 export interface TranslationJobSnapshotError {
-  code:
-    | "translation_unavailable"
-    | "translation_language_required"
-    | "translation_language_mismatch"
-    | "invalid_language"
-    | "missing_memory"
-    | "missing_source_content"
-    | "auth_required"
-    | "setup_required"
-    | "app_server_unavailable"
-    | "stale_source"
-    | "cancellation_conflict"
-    | "usage_limit"
-    | "context_overflow"
-    | "timeout"
-    | "stream_disconnected"
-    | "invalid_final_output"
-    | "validation_failed"
-    | "filesystem_failure"
-    | "unknown";
+  code: TranslationErrorCode;
   message: string;
   action?: TranslationErrorAction;
 }
@@ -107,7 +117,7 @@ export type TranslationUnavailableReason =
   | "output_hash_mismatch";
 
 export interface TranslationPersistedError {
-  code: TranslationJobSnapshotError["code"];
+  code: PersistableTranslationErrorCode;
   message: string;
   action?: TranslationErrorAction;
   reason?: TranslationUnavailableReason | string;
@@ -174,11 +184,12 @@ export interface CodexChunkOutput {
 }
 ```
 
-`TranslationJobSnapshotError` is the shared safe error object used by API error
-responses, job snapshots, and SSE failure events. Some codes, such as
-`missing_memory` or `invalid_language`, normally appear only in API responses,
-but they remain in the shared union so frontend branching uses one stable `code`
-namespace.
+`TranslationErrorCode` is the shared safe error-code namespace used by API error
+responses, job snapshots, and SSE failure events. `TranslationPersistedError`
+uses the narrower `PersistableTranslationErrorCode` because request-boundary
+errors such as `missing_memory`, `missing_source_content`, `invalid_language`,
+and `cancellation_conflict` must not be stored as job/chunk lifecycle failures
+in SQLite.
 
 `TranslationJobSnapshot.reader_url` is derived, not stored. It is non-null only when a current committed translation exists for `(memory_id, lang_code, source_hash)` and the output file hash matches the completed translation row. For pending, running, cancel-requested, canceled, failed, stale, or renderable-output-missing states, it is `null`.
 

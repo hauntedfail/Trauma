@@ -14,7 +14,7 @@ Render committed translated content variants without overwriting source reader c
 
 Consumed but not owned:
 
-- `src/server/translation/current-translation.ts` from 19.3. Reader work imports `resolveCurrentTranslation()` read-only and must not edit this helper.
+- `src/server/translation/current-translation.ts` from 19.3. Reader work imports `resolveCurrentTranslationReadOnly()` and must not edit this helper.
 
 ## Contract references
 
@@ -52,7 +52,7 @@ Ownership boundary: do not edit `src/server/translation/current-translation.ts` 
 3. If `lang_code` route param is present, validate BCP 47, traversal safety, and canonical casing against the supported-language table.
 4. Compute current source hash.
 5. Look up complete translation for `(memory_id, lang_code, source_hash)`.
-6. Use read-only `resolveCurrentTranslation()` from `src/server/translation/current-translation.ts`, not the SQLite repository alone, to verify output file existence and hash under `storePath`.
+6. Use `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, not the SQLite repository alone, to verify output file existence and hash under `storePath`.
 7. If output path exists and its hash matches `translation_jobs.output_hash` on the completed translation row, render translated file from store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`.
 8. If the complete row exists but the output file is missing or hash-mismatched, return the project-standard not-found response for the translated route without mutating SQLite. Backend API/job-start recovery owns `repairUnavailableTranslation()`.
 9. If missing or stale, return the project-standard not-found response for the translated route; do not silently fall back to source content.
@@ -99,7 +99,7 @@ Cover:
 - translated route reads store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`
 - stale translated output is not rendered as current
 - complete row with missing or hash-mismatched output is treated as unavailable/not current and is not rendered
-- reader route and variant tab logic use the shared read-only `resolveCurrentTranslation()` helper
+- reader route and variant tab logic use the shared read-only `resolveCurrentTranslationReadOnly()` helper
 - reader route and variant tab rendering do not mutate SQLite when translated output is missing or hash-mismatched
 - missing translated route returns not found without silently rendering source content
 - stale translated route returns not found without silently rendering source content

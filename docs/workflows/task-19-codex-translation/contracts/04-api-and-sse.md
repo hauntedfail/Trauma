@@ -150,9 +150,9 @@ GET /api/memories/:memory_id/translations/:lang_code
 Rules:
 
 - This endpoint returns only current committed translation metadata.
-- It must use `resolveCurrentTranslation()` from `src/server/translation/current-translation.ts`.
+- It must use `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`.
 - If no complete translation exists for the current source hash, return the project-standard not-found response.
-- If a complete row exists but the output file is missing or hash-mismatched, mark the row `unavailable` and return `409` with `code = "translation_unavailable"`.
+- If a complete row exists but the output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark the row `unavailable` and return `409` with `code = "translation_unavailable"`.
 - Clients recover from `translation_unavailable` by navigating to the source reader route `/memories/:id` and starting a fresh translation through `POST /api/memories/:memory_id/translations`; do not retry this metadata endpoint as the recovery action.
 - It must not silently return metadata for stale, unavailable, missing, or hash-mismatched output.
 
@@ -308,9 +308,31 @@ Cancelable statuses:
 - `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable`
   return `409` with `code = "cancellation_conflict"`.
 
+Pending/running response:
+
 ```json
 {
   "job_id": "018f...",
   "status": "cancel_requested"
+}
+```
+
+Already-canceled idempotent response:
+
+```json
+{
+  "job_id": "018f...",
+  "status": "canceled"
+}
+```
+
+Conflict response:
+
+```json
+{
+  "status": "error",
+  "code": "cancellation_conflict",
+  "message": "This translation job can no longer be canceled.",
+  "action": "none"
 }
 ```

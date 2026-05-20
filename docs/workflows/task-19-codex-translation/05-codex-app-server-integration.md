@@ -50,6 +50,8 @@ The MVP connects to an already-running Codex app-server. It does not auto-start 
 Rules:
 
 - Read app-server endpoint from `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value.
+- Default Brilliant MVP endpoint is `ws://127.0.0.1:4500`.
+- Default local app-server startup command is `codex app-server --listen ws://127.0.0.1:4500`.
 - Support only Unix socket or loopback WebSocket JSON-RPC transports in the MVP.
 - HTTP is health-probe-only and must not be used for JSON-RPC app-server requests.
 - Reject `http://` and `https://` endpoints for JSON-RPC.
@@ -101,6 +103,7 @@ Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
 - missing app-server endpoint returns setup-required
+- default loopback WebSocket endpoint config is accepted
 - Unix socket JSON-RPC transport is accepted
 - loopback WebSocket JSON-RPC transport is accepted
 - HTTP endpoints are rejected for JSON-RPC
