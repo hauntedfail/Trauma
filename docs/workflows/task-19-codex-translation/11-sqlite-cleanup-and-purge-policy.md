@@ -19,6 +19,20 @@ Ensure SQLite does not retain completed translated chunk bodies after final comm
 - `contracts/03-sqlite-and-repositories.md`
 - `contracts/07-atomic-commit-purge-recovery.md`
 
+## Instruction alignment
+
+Scope: post-commit SQLite cleanup, completed chunk body purge, and crash recovery for final write states.
+
+Inputs: job rows, chunk rows, final output file, temp file state, source hash, and output hash.
+
+Outputs: purged chunk bodies, retained metadata, recovered terminal states, and stale non-complete jobs.
+
+Dependencies: 19.2 provides schema/repository methods and 19.10 writes final output.
+
+Parallelization notes: can run beside 19.10 only after commit sequence is frozen; avoid changing Codex client or frontend UI.
+
+Implementation risks: retaining completed translated chunks in SQLite violates the instruction; reporting complete before purge creates false completion.
+
 ## Purge contract
 
 After successful final file commit:
@@ -38,6 +52,8 @@ Rules:
 - Preserve `block_ids_json`.
 - Preserve retry count and timestamps.
 - Do not emit `translation.job.completed` before purge succeeds.
+- Public progress and snapshot aggregation counts purged chunks as completed chunks.
+- Final-write temp files are not retained for failed-job debugging. Keep diagnostics in SQLite metadata/logs and delete `.CONTENT.<job_id>.tmp` after failed commit or recovery cleanup.
 
 ## Recovery contract
 
@@ -46,9 +62,10 @@ Handle these startup or job-resume cases:
 1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 2. Final file exists, job complete, chunks not purged: purge before reporting complete.
 3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-4. Source hash changed during interrupted non-complete job: mark stale.
+4. Complete job with missing or hash-mismatched final output: mark unavailable.
+5. Source hash changed during interrupted non-complete job: mark stale.
 
-Completed jobs are immutable history. If the source changes after completion, do not mutate the completed job to `stale`; reader/API freshness is derived by comparing current source hash with job `source_hash`.
+Completed jobs are immutable history while their final output remains available. If the source changes after completion, do not mutate the completed job to `stale`; reader/API freshness is derived by comparing current source hash with job `source_hash`. If the final output is missing or hash-mismatched, mark the job `unavailable` so the user can retry the same source hash.
 
 ## Tests
 
@@ -56,10 +73,12 @@ Cover:
 
 - completed chunks are purged after commit
 - purged chunks retain hash and block ids
-- failed jobs retain temporary output only under documented retention policy
+- failed jobs do not retain `.CONTENT.<job_id>.tmp` final-write files
 - recovery purges complete job with unpurged chunks
 - recovery handles temp file without final output
+- recovery deletes orphan final-write temp files
 - recovery handles final file without complete DB status
+- recovery marks complete jobs with missing or hash-mismatched final output unavailable
 - recovery marks interrupted non-complete jobs stale when source hash changed
 - completed jobs remain complete when source hash later changes; stale/current is derived at read time
 

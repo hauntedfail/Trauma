@@ -6,6 +6,7 @@
 - Codex receives chunk text plus translation instructions and returns machine-readable translated chunk output.
 - Codex must not write canonical `CONTENT.md` files.
 - Codex app-server is backend-only. The browser must not connect to it directly.
+- Codex app-server is JSON-RPC 2.0 over the configured transport. Backend code must not model `thread/start`, `turn/start`, or auth methods as ordinary REST endpoints.
 - OpenAI/ChatGPT tokens must not enter TRAUMA SQLite, browser state, logs, or API responses.
 - Source article Markdown is untrusted data, not instructions.
 
@@ -23,8 +24,9 @@
 ### Translation domain
 
 - Create: `src/server/translation/types.ts`
-- Create: `src/server/translation/languages.ts`
+- Create: `src/server/translation/languages.ts` in 19.2 so settings validation, prompt display names, route validation, and reader tabs share one frozen table.
 - Create: `src/server/translation/source-loader.ts`
+- Create: `src/server/translation/current-translation.ts`
 - Create: `src/server/translation/markdown-blocks.ts`
 - Create: `src/server/translation/chunker.ts`
 - Create: `src/server/translation/job-state.ts`
@@ -49,16 +51,18 @@
 ### Settings and auth
 
 - Modify: `src/components/settings/SettingsPage.tsx`
-- Modify: Task 18 settings persistence schema/repository used for SQLite-backed settings
+- Modify: current settings persistence schema/repository used for SQLite-backed settings
 - Modify or create: `src/server/settings/codex-auth.ts`
 - Create: `src/server/settings/translation-language.ts` if no focused settings service exists
-- Modify: settings API routes created by Task 18
+- Modify: current settings API routes under `src/routes/api/settings*`
 
 ### Reader frontend
 
 - Modify: `src/server/reader/page-data.ts`
 - Modify: `src/routes/memories/[id].tsx`
+- Create or modify: `src/routes/memories/[langCode]/[id].tsx`
 - Modify: `src/components/reader/MemoryReader.tsx`
+- Create: `src/components/reader/MemoryVariantTabs.tsx`
 - Create: `src/components/reader/TranslationControls.tsx`
 - Create: `src/components/reader/TranslationProgress.tsx`
 

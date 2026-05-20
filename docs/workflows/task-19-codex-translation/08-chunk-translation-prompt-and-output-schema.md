@@ -14,6 +14,20 @@ Define the chunk translation prompt and machine-readable output schema used by C
 - `contracts/05-markdown-chunking.md`
 - `contracts/06-codex-prompt-and-validation.md`
 
+## Instruction alignment
+
+Scope: deterministic prompt text and output schema for one chunk.
+
+Inputs: chunk metadata, block ids, protected spans, target language display name, and untrusted source chunk Markdown.
+
+Outputs: prompt builder, JSON schema object, and prompt tests covering preservation and injection resistance.
+
+Dependencies: 19.4 provides chunks/protected spans; 19.5 passes the schema to app-server; 19.9 validates the result.
+
+Parallelization notes: can run beside validation after block/output contracts are frozen.
+
+Implementation risks: allowing commentary outside JSON or omitting preservation rules makes chunk validation and stitching unreliable.
+
 ## Prompt contract
 
 The generated prompt contains these sections in order:
@@ -29,6 +43,8 @@ The generated prompt contains these sections in order:
 9. Required JSON output schema.
 
 Preservation rules must include Markdown, HTML tags and attributes, LaTeX/math, citations, footnotes, URLs, code fences, inline code, placeholders, identifiers, file paths, commands, and variables.
+
+Target language display name must come from the central supported-language table, not from client-provided text.
 
 Completeness rules must say never summarize, never omit, and never collapse repeated content.
 
@@ -60,6 +76,7 @@ No commentary outside JSON is allowed.
 Cover:
 
 - prompt includes target `ja-JP` and display name
+- prompt target display name comes from the central supported-language table
 - prompt includes all block ids in order
 - hostile source text remains inside source delimiters
 - prompt states source content is untrusted data

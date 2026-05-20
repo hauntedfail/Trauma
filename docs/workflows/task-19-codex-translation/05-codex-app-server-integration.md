@@ -15,6 +15,20 @@ Implement the backend-only Codex app-server client used by Brilliant. This subta
 - `contracts/04-api-and-sse.md`
 - `contracts/06-codex-prompt-and-validation.md`
 
+## Instruction alignment
+
+Scope: backend-only Codex app-server client, auth probe, thread/turn creation, notification parsing, and cancellation primitive.
+
+Inputs: configured app-server transport, JSON-RPC protocol, output schema from 19.8, and chunk payloads from the orchestrator.
+
+Outputs: fakeable `CodexAppServerClient`, typed events, typed errors, and app-server-safe auth/device-code adapters.
+
+Dependencies: 19.1 freezes app-server boundary; 19.8 owns prompt/schema content.
+
+Parallelization notes: can run with 19.6 and 19.7 after JSON-RPC types are frozen; avoid editing frontend or final file writing.
+
+Implementation risks: treating app-server as REST or skipping `initialize` will fail against the real protocol; exposing app-server details to the browser violates security requirements.
+
 ## Client contract
 
 Implement a server-only client with these operations:
@@ -22,8 +36,11 @@ Implement a server-only client with these operations:
 ```ts
 checkAuth(): Promise<CodexAuthStatus>
 startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin>
+observeAuthEvents(): AsyncIterable<CodexAuthEvent>
+cancelDeviceCodeLogin(input: { loginId: string }): Promise<void>
+logout(): Promise<CodexLogoutResult>
 translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEvent>
-cancelTurn(turnId: string): Promise<void>
+cancelTurn(input: { threadId: string; turnId: string }): Promise<void>
 ```
 
 ## Connection contract
@@ -33,23 +50,32 @@ The MVP connects to an already-running Codex app-server. It does not auto-start 
 Rules:
 
 - Read app-server base URL from `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value.
+- Support only URL-based app-server transports in the MVP: WebSocket or HTTP. Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
+- Speak JSON-RPC 2.0 over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
+- After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
+- Reject or retry connection setup if any request is attempted before initialization.
 - Missing base URL returns `setup_required`.
 - Configured but unreachable app-server returns `app_server_unavailable`.
-- Health/auth probe runs before scheduling translation work.
+- Health/auth probe uses `account/read` before scheduling translation work.
+- Device-code completion and account update notifications are converted to typed auth events for settings/auth services.
 - No fallback to `codex exec` exists in this client.
 - Request timeout and health timeout are explicit config values or documented defaults.
 
 Rules:
 
-- Use Codex app-server `turn/start` for chunk translation.
+- Use Codex app-server `thread/start` to create one ephemeral thread per chunk, then `turn/start` for chunk translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
+- If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
 - Use one ephemeral Codex thread per chunk by default.
 - Do not expose app-server URL, auth state, or connection details to frontend code.
 - Do not allow Codex to write canonical `CONTENT.md` files.
 - Streamed app-server deltas are progress only.
 - Final output must come from completed app-server item content.
-- `translateChunk()` yields `turn.started` when a turn id is available so the orchestrator can cancel the in-flight turn.
+- `translateChunk()` yields `thread.started` and `turn.started` when ids are available so the orchestrator can cancel the in-flight turn.
+- Cancellation uses `turn/interrupt` with both `threadId` and `turnId`.
+- Raw JSON-RPC notifications are parsed only in this module and converted into typed `CodexAppServerEvent` values before reaching orchestrator or SSE code.
+- Auth JSON-RPC notifications are parsed only in this module and converted into typed `CodexAuthEvent` values before reaching settings/auth services.
 
 ## Error contract
 
@@ -71,14 +97,24 @@ Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
 - missing app-server URL returns setup-required
+- `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
+- JSON-RPC initialize and initialized happen before `account/read`, `thread/start`, or `turn/start`
 - device-code login response is safe to return to settings UI
+- device-code cancel wraps `account/login/cancel` and requires a known `loginId`
+- logout wraps `account/logout` when supported and reports unsupported logout explicitly
+- auth notifications map to typed `CodexAuthEvent` values
+- auth check uses `account/read`
+- chunk translation starts an ephemeral thread before starting a turn
 - `turn/start` request passes through the caller-provided output schema
-- `translateChunk()` yields turn id before item events when available
+- rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
+- `translateChunk()` yields thread id and turn id before item events when available
+- `cancelTurn()` sends `turn/interrupt` with thread id and turn id
 - chunk translation uses ephemeral chunk scope
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
 - usage limit, context overflow, timeout, and disconnect are typed
+- raw JSON-RPC notifications are converted to typed internal events inside the app-server client module
 - no token, credential file content, or app-server secret is returned
 
 ## Verification

@@ -6,8 +6,11 @@
 export interface CodexAppServerClient {
   checkAuth(): Promise<CodexAuthStatus>;
   startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin>;
+  observeAuthEvents(): AsyncIterable<CodexAuthEvent>;
+  cancelDeviceCodeLogin(input: { loginId: string }): Promise<void>;
+  logout(): Promise<CodexLogoutResult>;
   translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEvent>;
-  cancelTurn(turnId: string): Promise<void>;
+  cancelTurn(input: { threadId: string; turnId: string }): Promise<void>;
 }
 ```
 
@@ -16,6 +19,7 @@ Supporting types:
 ```ts
 export interface CodexAppServerConfig {
   baseUrl: string;
+  transport: "websocket" | "http";
   healthTimeoutMs: number;
   requestTimeoutMs: number;
 }
@@ -28,11 +32,25 @@ export type CodexAuthStatus =
   | { status: "error"; error: string };
 
 export interface CodexDeviceCodeLogin {
+  loginId: string;
   userCode: string;
-  verificationUri: string;
-  expiresAt: string;
-  intervalSeconds: number | null;
+  verificationUrl: string;
 }
+
+export type CodexDeviceCodeLoginState =
+  | { status: "login_started"; loginId: string; verificationUrl: string; userCode: string }
+  | { status: "enabled" }
+  | { status: "setup_required"; reason: string }
+  | { status: "failed"; loginId: string | null; error: string }
+  | { status: "canceled"; loginId: string };
+
+export type CodexAuthEvent =
+  | { type: "auth.login.completed"; loginId: string | null }
+  | { type: "auth.account.updated" };
+
+export type CodexLogoutResult =
+  | { status: "logged_out" }
+  | { status: "unsupported"; message: string };
 
 export interface CodexTranslateChunkInput {
   jobId: string;
@@ -45,11 +63,13 @@ export interface CodexTranslateChunkInput {
 }
 
 export type CodexAppServerEvent =
-  | { type: "turn.started"; turnId: string }
-  | { type: "item.started"; turnId: string; itemId: string; title: string | null }
-  | { type: "item.agentMessage.delta"; turnId: string; itemId: string; delta: string }
-  | { type: "item.completed"; turnId: string; itemId: string; outputText: string }
-  | { type: "turn.failed"; turnId: string | null; error: CodexAppServerError };
+  | { type: "thread.started"; threadId: string }
+  | { type: "turn.started"; threadId: string; turnId: string }
+  | { type: "item.started"; threadId: string; turnId: string; itemId: string; title: string | null }
+  | { type: "item.agentMessage.delta"; threadId: string; turnId: string; itemId: string; delta: string }
+  | { type: "item.completed"; threadId: string; turnId: string; itemId: string; outputText: string }
+  | { type: "turn.completed"; threadId: string; turnId: string; status: "completed" | "interrupted" | "failed" }
+  | { type: "turn.failed"; threadId: string | null; turnId: string | null; error: CodexAppServerError };
 
 export interface CodexAppServerError {
   code:
@@ -70,19 +90,51 @@ Rules:
 
 - MVP connects to an already-running Codex app-server through server-side config.
 - Use `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value as `baseUrl`.
+- The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
+- Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
 - If `baseUrl` is missing, return `setup_required`.
+- Brilliant MVP supports only URL-based app-server transports: `websocket` or `http`. `stdio` process ownership is out of scope because TRAUMA does not auto-start or supervise the app-server process.
 - If `baseUrl` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
-- Run a health/auth probe before scheduling translation work.
+- Run `account/read` before scheduling translation work. If `requiresOpenaiAuth` is true and no ChatGPT/API account is available, surface `auth_required` or `setup_required`.
 - Do not fall back to `codex exec` from this app-server client.
-- Use app-server `turn/start` with `outputSchema` when available.
+- Use one ephemeral `thread/start` per chunk, then app-server `turn/start`.
+- Prefer `outputSchema` on `turn/start`. If the configured app-server rejects or does not advertise `outputSchema`, fall back to prompt-only JSON output and require the same `CodexChunkOutput` validation before persistence. If the app-server rejects both structured output and prompt-only JSON output, fail the chunk with `invalid_final_output`.
 - The concrete output schema builder is owned by 19.8. The app-server client accepts a schema object from caller code rather than defining Brilliant translation schema internally.
 - Do not send the full document unless the chunker produced one chunk.
 - Do not let Codex write files.
 - Do not expose app-server URL, token, or raw auth state to the browser.
 - Deltas are progress only. Final output must come from completed item content and pass schema validation.
 - Disable network/tool access for translation turns if app-server exposes such controls.
-- `translateChunk()` must yield `turn.started` before item events when app-server returns a turn id. The orchestrator stores the latest in-flight `turnId` so cancellation can call `cancelTurn(turnId)`.
+- `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
+
+## Auth JSON-RPC contract
+
+- Auth status uses `account/read` with `{ "refreshToken": false }` by default.
+- Forced refresh is allowed only in server-side auth status checks and must not expose tokens.
+- Device-code login uses `account/login/start` with `{ "type": "chatgptDeviceCode" }`.
+- Safe device-code response fields are `loginId`, `verificationUrl`, and `userCode`.
+- Device-code cancellation uses `account/login/cancel` through `cancelDeviceCodeLogin({ loginId })`.
+- Completion is detected from `account/login/completed` and `account/updated` notifications, followed by `account/read` confirmation.
+- Auth notification consumption uses `observeAuthEvents()`. Settings/auth services must not subscribe to raw JSON-RPC notifications directly.
+- `observeAuthEvents()` is consumed only while a device-code login is pending. The settings/auth service owns the listener lifecycle and must cancel/close the listener when login completes, is canceled, fails, or the server request scope is disposed.
+- Losing the auth event listener is not fatal. Auth status refresh must always call `account/read` through `checkAuth()` and may return safe pending metadata when known.
+- Logout uses `logout()`, which wraps app-server `account/logout` when supported. If logout is unavailable, delete only TRAUMA-owned metadata and report that Codex credentials were not removed.
+- Do not use `chatgptAuthTokens` mode in Brilliant MVP; TRAUMA must not own ChatGPT access or refresh tokens.
+
+## Raw notification adapter boundary
+
+The transport layer receives raw JSON-RPC notifications such as:
+
+- `thread/started`
+- `turn/started`
+- `item/agentMessage/delta`
+- `item/completed`
+- `turn/completed`
+- `account/login/completed`
+- `account/updated`
+
+`src/server/translation/codex-app-server.ts` owns conversion from raw notification payloads to typed internal `CodexAppServerEvent` and `CodexAuthEvent` values. The orchestrator, settings/auth services, and SSE API consume only typed internal events and must not switch on raw JSON-RPC method names directly.
 
 ## Typed app-server errors
 

@@ -35,7 +35,8 @@ Current translation response:
   "memory_id": "018f...",
   "lang_code": "ja-JP",
   "source_hash": "sha256:...",
-  "output_path": "memory/018f.../ja-JP/CONTENT.md"
+  "output_path": "memories/018f.../ja-JP/CONTENT.md",
+  "reader_url": "/memories/ja-JP/018f..."
 }
 ```
 
@@ -59,7 +60,69 @@ Status codes:
 - `400` for invalid language code
 - `404` for missing memory or source content
 - `409` for missing configured target language, request/setting language mismatch, Codex auth/setup required, stale running conflict, or cancellation conflict
+- `503` for configured but unavailable Codex app-server
 - `500` for unexpected server failure
+
+Error response shape:
+
+```json
+{
+  "status": "error",
+  "code": "translation_language_required",
+  "message": "Translation target language is not configured.",
+  "action": "open_settings"
+}
+```
+
+Rules:
+
+- `code` is the stable frontend branch key.
+- `message` is safe for display and must not include source chunks, prompts,
+  credential paths, tokens, app-server URLs, or raw app-server payloads.
+- `action` is optional and uses one of `open_settings`, `setup_codex_auth`,
+  `retry`, `open_source_reader`, `start_fresh_translation`, or `none`.
+
+Required error codes:
+
+- `translation_language_required`
+- `translation_language_mismatch`
+- `invalid_language`
+- `missing_memory`
+- `missing_source_content`
+- `auth_required`
+- `setup_required`
+- `app_server_unavailable`
+- `translation_unavailable`
+- `stale_source`
+- `cancellation_conflict`
+- `usage_limit`
+- `context_overflow`
+- `timeout`
+- `stream_disconnected`
+- `validation_failed`
+- `filesystem_failure`
+- `unknown`
+
+HTTP mapping:
+
+- `translation_language_required`: `409`
+- `translation_language_mismatch`: `409`
+- `invalid_language`: `400`
+- `missing_memory`: `404`
+- `missing_source_content`: `404`
+- `auth_required`: `409`
+- `setup_required`: `409`
+- `app_server_unavailable`: `503`
+- `translation_unavailable`: `409`
+- `stale_source`: `409`
+- `cancellation_conflict`: `409`
+- `usage_limit`: `409`
+- `context_overflow`: `409`
+- `timeout`: `504`
+- `stream_disconnected`: `503`
+- `validation_failed`: `409`
+- `filesystem_failure`: `500`
+- `unknown`: `500`
 
 ## Read committed translation metadata
 
@@ -74,12 +137,53 @@ GET /api/memories/:memory_id/translations/:lang_code
   "status": "current",
   "source_hash": "sha256:...",
   "output_hash": "sha256:...",
-  "output_path": "memory/018f.../ja-JP/CONTENT.md",
+  "output_path": "memories/018f.../ja-JP/CONTENT.md",
+  "reader_url": "/memories/ja-JP/018f...",
   "completed_at": "2026-05-20T00:00:00.000Z"
 }
 ```
 
+Rules:
+
+- This endpoint returns only current committed translation metadata.
+- It must use `resolveCurrentTranslation()` from `src/server/translation/current-translation.ts`.
+- If no complete translation exists for the current source hash, return the project-standard not-found response.
+- If a complete row exists but the output file is missing or hash-mismatched, mark the row `unavailable` and return `409` with `code = "translation_unavailable"`.
+- Clients recover from `translation_unavailable` by navigating to the source reader route `/memories/:id` and starting a fresh translation through `POST /api/memories/:memory_id/translations`; do not retry this metadata endpoint as the recovery action.
+- It must not silently return metadata for stale, unavailable, missing, or hash-mismatched output.
+
 `translation.job.snapshot` uses the same payload shape as `GET /api/translation-jobs/:job_id`.
+
+`reader_url` is derived, not stored. It is non-null only when a current committed translation exists for `(memory_id, lang_code, source_hash)` and the output file hash matches the completed translation row. For pending, running, cancel-requested, canceled, failed, stale, or renderable-output-missing states, `reader_url` is `null`.
+
+For historical completed jobs whose `source_hash` no longer matches the current
+source `CONTENT.md` hash, `GET /api/translation-jobs/:job_id` returns
+`reader_url: null` even if the old translated file still exists. For complete
+jobs whose output file is missing or hash-mismatched, mark the job
+`unavailable` and return `reader_url: null`.
+
+Unavailable job status response:
+
+```json
+{
+  "job_id": "018f...",
+  "memory_id": "018f...",
+  "lang_code": "ja-JP",
+  "status": "unavailable",
+  "source_hash": "sha256:...",
+  "chunk_count": 42,
+  "completed_chunks": 42,
+  "failed_chunks": 0,
+  "retrying_chunks": 0,
+  "output_path": null,
+  "reader_url": null,
+  "error": {
+    "code": "translation_unavailable",
+    "message": "The translated output is no longer available. Start a new translation.",
+    "action": "start_fresh_translation"
+  }
+}
+```
 
 ## Read job status
 
@@ -99,9 +203,14 @@ GET /api/translation-jobs/:job_id
   "failed_chunks": 0,
   "retrying_chunks": 1,
   "output_path": null,
+  "reader_url": null,
   "error": null
 }
 ```
+
+`completed_chunks` in this response counts chunks with status `complete` or
+`purged`, so a successfully committed-and-purged job still reports all chunks as
+completed.
 
 ## Stream job events
 
@@ -118,6 +227,26 @@ event: translation.chunk.completed
 data: {"id":"000000000013","type":"translation.chunk.completed","job_id":"018f...","memory_id":"018f...","lang_code":"ja-JP","chunk_index":3,"timestamp":1710000000000,"data":{"translated_hash":"sha256:..."}}
 ```
 
+Completed event data:
+
+```json
+{
+  "output_path": "memories/018f.../ja-JP/CONTENT.md",
+  "output_hash": "sha256:...",
+  "reader_url": "/memories/ja-JP/018f..."
+}
+```
+
+Stale event data:
+
+```json
+{
+  "reason": "source_changed",
+  "job_source_hash": "sha256:...",
+  "current_source_hash": "sha256:..."
+}
+```
+
 Rules:
 
 - Event ids are monotonic decimal strings padded to 12 digits per job.
@@ -125,8 +254,9 @@ Rules:
 - On reconnect, emit `translation.job.snapshot` first using current SQLite job/chunk state, then stream new events.
 - `Last-Event-ID` support may be added later if an in-memory or SQLite event buffer is implemented.
 - Send heartbeat comments every 15 seconds while the job is active.
-- Stream closes after completed, failed, or canceled terminal events.
+- Stream closes after completed, failed, stale, or canceled terminal events.
 - Stream disconnect does not cancel the backend job.
+- Frontend completion navigation uses `translation.job.completed.data.reader_url`; it must not reconstruct a different route shape.
 
 ## Cancel job
 

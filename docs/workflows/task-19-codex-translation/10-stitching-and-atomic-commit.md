@@ -17,10 +17,26 @@ Stitch validated translated chunks and atomically commit the final translated `C
 - `contracts/05-markdown-chunking.md`
 - `contracts/07-atomic-commit-purge-recovery.md`
 
+## Instruction alignment
+
+Scope: validated chunk stitching and atomic final translated `CONTENT.md` commit.
+
+Inputs: complete validated chunks, original manifest order, current source hash, and output path contract.
+
+Outputs: stitched Markdown, same-directory temp file, atomic rename, output hash, and final output metadata.
+
+Dependencies: 19.9 completes chunk validation; 19.2 provides repository methods; 19.11 purges completed chunk bodies.
+
+Parallelization notes: can run with purge policy only after final path and transaction boundaries are frozen.
+
+Implementation risks: writing outside the language directory, skipping source re-hash, or emitting completion before purge can corrupt existing translations.
+
 ## Stitching contract
 
 - Stitch translated blocks in original manifest order.
 - Do not include internal chunk metadata in final Markdown.
+- If the source file had frontmatter, prepend the exact original frontmatter unchanged before the stitched translated body.
+- If the source file had no frontmatter, do not invent frontmatter.
 - Preserve source-level document structure after translation.
 - Final validation checks chunk count, block count, missing block ids, duplicate block ids, duplicate sections caused by retries, and Markdown sanity.
 
@@ -53,6 +69,8 @@ Rules:
 Cover:
 
 - stitched output follows manifest order
+- source frontmatter is preserved unchanged at the top of translated output
+- translated output without source frontmatter does not invent frontmatter
 - missing block fails final validation
 - duplicate block fails final validation
 - source hash mismatch marks job stale before write

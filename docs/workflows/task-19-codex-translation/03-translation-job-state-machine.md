@@ -7,7 +7,7 @@ Implement the Reader-owned Brilliant job and chunk lifecycle. This subtask creat
 ## Files likely owned
 
 - `src/server/translation/types.ts`
-- `src/server/translation/languages.ts`
+- `src/server/translation/current-translation.ts`
 - `src/server/translation/source-loader.ts`
 - `src/server/translation/job-state.ts`
 - `src/server/translation/orchestrator.ts`
@@ -22,6 +22,20 @@ Implement the Reader-owned Brilliant job and chunk lifecycle. This subtask creat
 - `contracts/03-sqlite-and-repositories.md`
 - `contracts/04-api-and-sse.md`
 - `contracts/07-atomic-commit-purge-recovery.md`
+
+## Instruction alignment
+
+Scope: Reader-owned job lifecycle, source freshness, idempotent job start, and local runner scheduling.
+
+Inputs: SQLite repositories, settings language, source `CONTENT.md`, source hash, and runner recovery contract.
+
+Outputs: job start orchestration, state transition guards, source snapshot loading, and recoverable runner scheduling.
+
+Dependencies: 19.2 provides schema/repository methods; 19.4/19.5 plug into this later.
+
+Parallelization notes: can run beside 19.4 after shared types are frozen; do not implement Codex transport or Markdown chunking here.
+
+Implementation risks: blocking the POST route until full translation completes violates async pipeline requirements; failing to re-check source hash before commit risks stale output.
 
 ## Source loading contract
 
@@ -54,11 +68,13 @@ Start algorithm:
 4. Reject with `translation_language_required` when no settings language exists.
 5. Load source `CONTENT.md` and compute source metadata.
 6. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
-7. If the complete job has an existing output path, return current translation metadata.
-8. If a compatible active job exists, return that running job.
-9. Create a new `pending` job with `lang_code = settingsLangCode`.
-10. Schedule the job on the local in-process Brilliant runner.
-11. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
+7. Resolve the complete job through `resolveCurrentTranslation()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
+8. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata.
+9. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
+10. If a compatible active job exists, return that running job.
+11. Create a new `pending` job with `lang_code = settingsLangCode`.
+12. Schedule the job on the local in-process Brilliant runner.
+13. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
 
 ## Runner contract
 
@@ -83,8 +99,11 @@ Rules:
 
 - A job cannot become `complete` before atomic commit and chunk purge finish.
 - A chunk cannot become `purged` unless `translated_markdown IS NULL` and `translated_hash` remains available.
+- A complete job becomes `unavailable` only when its committed output file is missing or its file hash differs from `translation_jobs.output_hash`.
+- `unavailable` is terminal history state. Runner recovery and scheduling must treat it like `failed`, `canceled`, and `stale`: it is not active, not resumed, and does not block a new job.
 - Late Codex output for canceled jobs is ignored.
 - Source hash is checked at job start and again before commit.
+- `stale` is terminal for a job attempt and emits `translation.job.stale`, not `translation.job.failed`.
 
 ## Tests
 
@@ -96,6 +115,9 @@ Cover:
 - request language mismatch returns `translation_language_mismatch`
 - missing settings language returns `translation_language_required`
 - current completed job is reused
+- completed job with mismatched `output_hash` is not returned as current
+- completed job with missing or hash-mismatched output is marked unavailable and does not block a new job
+- unavailable jobs are not scheduled or resumed by runner recovery
 - active non-terminal job is reused
 - active job reuse returns job metadata with `event_url`
 - failed/canceled/stale job does not block a user retry job
@@ -104,6 +126,7 @@ Cover:
 - runner recovery marks an interrupted pending job stale when the source hash changed
 - runner recovery handles interrupted active jobs
 - stale source hash prevents commit
+- stale source hash emits `translation.job.stale`
 - invalid state transitions are rejected
 - canceled jobs ignore late chunk output
 

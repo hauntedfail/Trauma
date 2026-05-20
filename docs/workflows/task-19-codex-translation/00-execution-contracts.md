@@ -24,11 +24,18 @@ Implementation workers must treat this workflow directory as the source of truth
 - Source content path: store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`
 - Translated content path: store-relative `memories/<memory_id>/<lang_code>/CONTENT.md` under configured `storePath`
 - Do not introduce singular `memory/<memory_id>/...` paths; the existing store layout uses plural `memories/`.
+- Instruction path mapping: when the instruction says `memory/<memory_id>/...`, implement it as store-relative `memories/<memory_id>/...` because that is the merged TRAUMA store layout.
+- Source reader route: `/memories/:id`
+- Translated reader route: `/memories/:lang_code/:id`, mapping to store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`
+- Translation trigger: Codex icon at the source reader title right edge, shown only when the configured target-language variant is missing
+- Variant tabs: shown under the memory header only when two or more `CONTENT.md` variants exist
 - Japanese language code: `ja-JP`
 - Translation target language source: `/settings` user setting persisted in SQLite
 - Default progress transport: SSE
 - Codex integration: backend-only Codex app-server client
+- Codex protocol: JSON-RPC 2.0 over the configured app-server transport; initialize before any request, then `thread/start`, then `turn/start`
 - Default Codex thread strategy: one ephemeral Codex thread per chunk
+- Codex cancellation: call `turn/interrupt` with both `threadId` and `turnId` when known
 
 ## Contract files
 
@@ -49,7 +56,7 @@ Implementation workers must treat this workflow directory as the source of truth
 - 19.4 Markdown block manifest and chunker: read 02, 05.
 - 19.5 Codex app-server integration: read 04, 06.
 - 19.6 Codex auth and device-code setup flow: read 02, 04, 06.
-- 19.7 Streaming event bridge to frontend: read 04.
+- 19.7 Streaming event bridge to frontend: read 04, 06.
 - 19.8 Chunk translation prompt and output schema: read 05, 06.
 - 19.9 Chunk validation and retry logic: read 05, 06.
 - 19.10 Stitching and atomic commit: read 03, 05, 07.
@@ -57,7 +64,7 @@ Implementation workers must treat this workflow directory as the source of truth
 - 19.12 Frontend translation controls and progress UI: read 02, 04.
 - 19.13 Reader render integration for translated CONTENT.md: read 02, 03, 07.
 - 19.14 Translation skill definition: read 06.
-- 19.15 Error handling and cancellation: read 02, 04, 07.
+- 19.15 Error handling and cancellation: read 02, 04, 06, 07.
 - 19.16 Test plan and fixtures: read the contract files for the tests being implemented.
 - 19.17 End-to-end validation with long paper fixture: read 02, 03, 04, 05, 06, 07.
 

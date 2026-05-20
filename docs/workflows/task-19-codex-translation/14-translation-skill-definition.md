@@ -13,6 +13,20 @@ Create a repo-local Codex skill that captures reusable Brilliant translation pol
 
 - `contracts/06-codex-prompt-and-validation.md`
 
+## Instruction alignment
+
+Scope: repo-local policy skill only.
+
+Inputs: Brilliant prompt contract, preservation rules, academic-paper requirements, and untrusted-content policy.
+
+Outputs: `.agents/skills/reader-translate/SKILL.md` and optional skill validation.
+
+Dependencies: 19.8 freezes MVP prompt policy before the skill mirrors it.
+
+Parallelization notes: can run beside validator work after preservation rules are stable; do not add scripts unless a validation task proves they are required.
+
+Implementation risks: overbuilding scripts or granting file-write authority to the skill violates the instruction's boundary.
+
 ## Skill contract
 
 The skill must instruct Codex to:

@@ -3,6 +3,7 @@
 ## Block algorithm
 
 1. Parse frontmatter separately. Frontmatter is metadata, not a translatable body block.
+   Preserve the exact raw frontmatter bytes/text so stitching can prepend it unchanged to translated output when the source file had frontmatter.
 2. Scan Markdown line by line.
 3. Treat fenced code blocks as one `code_fence` block from opening fence to closing fence.
 4. Treat `$$` math blocks as one `math_block` block.

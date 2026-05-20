@@ -5,7 +5,7 @@
 - State: Planning only; ready for implementation after this workflow is accepted.
 - Base branch: `main`
 - Implementation branch: `feat/brilliant`
-- Depends on: Task 18 settings page, BCP 47 target-language setting, and OpenAI/Codex auth status surface.
+- Depends on: merged `/settings` page, SQLite-backed BCP 47 target-language setting, and current OpenAI auth settings boundary.
 - Scope: Add a Codex-powered translation pipeline for Reader memory content, including app-server integration, Reader-owned chunk orchestration, streaming progress, validation, retry, atomic translated `CONTENT.md` persistence, and SQLite cleanup.
 - Out of scope: multi-user auth, hosted OAuth service, direct browser access to Codex app-server, direct OpenAI Responses API integration, non-Codex providers, collaborative translation editing, and storing completed translated article bodies in SQLite.
 
@@ -20,6 +20,7 @@ Research reference captured by the instruction:
 ## Core architecture decisions
 
 - Use Codex app-server as the production integration path.
+- Treat Codex app-server as a JSON-RPC 2.0 integration, not a REST endpoint. The backend client must connect over a configured app-server transport, run `initialize` plus `initialized`, create an ephemeral thread with `thread/start`, then start translation work with `turn/start`.
 - Use Codex managed ChatGPT sign-in; surface app-server `chatgptDeviceCode` login when auth is missing.
 - Keep OpenAI/ChatGPT tokens out of TRAUMA SQLite, logs, frontend responses, and browser storage.
 - Do not expose Codex app-server directly to the browser; only the Reader backend talks to Codex.
@@ -30,6 +31,11 @@ Research reference captured by the instruction:
 - Resolve source and translated content under configured `storePath`.
 - Store source memory content at store-relative `memories/<memory_id>/CONTENT.md`.
 - Store translated content at store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`, for example `memories/abc123/ja-JP/CONTENT.md`.
+- Instruction note: `TASK_19_INSTRUCTION.md` uses conceptual `memory/<memory_id>/...` paths. Implementation must use TRAUMA's existing plural store layout under configured `storePath`: `memories/<memory_id>/...`.
+- Expose translated content through a dedicated reader route shaped as `/memories/:lang_code/:id`, mapping to store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`.
+- On the source memory reader page, show a Codex icon at the right edge of the title only when the configured target-language translation does not exist yet.
+- Do not show the Codex translation icon on translated reader routes.
+- Show variant tabs under the memory header only when more than one `CONTENT.md` variant exists. Hide tabs when only the default source `CONTENT.md` exists.
 - Use BCP 47 language codes such as `ja-JP`.
 - Persist the user-selected translation target language in SQLite through `/settings`; Brilliant reads this server-side value when starting translation.
 - Do not introduce persistent `.work/<job_id>` artifacts.
@@ -42,13 +48,13 @@ Research reference captured by the instruction:
 1. Source loading reads store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`, computes `source_hash`, file size, rough token estimate, document type hint, source URL, and source title.
 2. Block manifest generation parses Markdown into deterministic blocks with stable ids such as `b000001`.
 3. Chunking groups contiguous blocks, prefers section boundaries, splits oversized sections by block groups, and preserves document order.
-4. Codex translation sends one chunk plus metadata and policy to Codex app-server `turn/start` with an output schema.
+4. Codex translation creates or opens the configured app-server transport, completes JSON-RPC initialization, starts one ephemeral thread for the chunk, then sends one chunk plus metadata and policy through `turn/start` with an output schema when supported.
 5. Streaming maps Codex notifications such as `item/agentMessage/delta`, `item/started`, and `item/completed` into Reader SSE events.
 6. Validation checks every completed chunk before it can become authoritative.
 7. Retry handles chunk-level validation, auth, usage, timeout, context, and stream failures without retrying the whole document unnecessarily.
 8. Stitching reassembles translated blocks in manifest order and performs final full-document validation.
 9. Atomic commit writes a same-directory temp file, flushes it, renames it to `CONTENT.md`, flushes the parent directory when supported, marks the job complete, and purges completed chunk bodies.
-10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds.
+10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds, then exposes it through the translated reader route and variant tabs.
 
 ## Minimal SQLite schema direction
 
@@ -120,6 +126,8 @@ translation.job.canceled
 
 Partial Codex deltas are non-authoritative progress only. Persistence must use final completed, parsed, validated chunk output.
 
+`translation.job.completed` must include `output_path`, `output_hash`, and `reader_url`. `reader_url` is `/memories/<lang_code>/<memory_id>` and is the frontend's canonical completion navigation target.
+
 ## Minimal backend API shape
 
 ```http
@@ -178,6 +186,10 @@ Subagents may work only on non-overlapping files and must report changed files, 
 ## Redefined plan acceptance criteria
 
 - Uses store-relative `memories/<memory_id>/<lang_code>/CONTENT.md` under configured `storePath`.
+- Explicitly maps the instruction's conceptual `memory/<memory_id>/...` path to the existing plural `memories/<memory_id>/...` store layout.
+- Uses a dedicated translated reader route for translated `CONTENT.md` variants.
+- Shows the Codex icon trigger only on the source reader page when the configured target translation is missing.
+- Shows memory variant tabs only when two or more `CONTENT.md` variants exist.
 - Uses `ja-JP`-style BCP 47 language codes.
 - Does not introduce `.work/<job_id>`.
 - Allows temporary SQLite chunk storage during translation.
@@ -186,6 +198,7 @@ Subagents may work only on non-overlapping files and must report changed files, 
 - Supports long documents and academic papers through deterministic chunking.
 - Includes frontend streaming progress through SSE.
 - Uses Codex app-server as the preferred integration path.
+- Defines Codex app-server JSON-RPC transport, initialization, thread, turn, auth, and cancellation boundaries.
 - Keeps Codex tokens out of the frontend and TRAUMA SQLite.
 - Treats external article content as untrusted data.
 - Defines validation and retry at chunk level.

@@ -5,7 +5,7 @@
 Use this exact sequence:
 
 1. Re-read current source `CONTENT.md` hash.
-2. If current source hash differs from job `source_hash`, mark job `stale` and stop.
+2. If current source hash differs from job `source_hash`, mark job `stale`, emit `translation.job.stale`, and stop.
 3. Stitch validated chunks in block order.
 4. Validate final full document.
 5. Ensure store-relative `memories/<memory_id>/<lang_code>/` exists under configured `storePath`.
@@ -16,7 +16,8 @@ Use this exact sequence:
 10. Compute `output_hash` from committed `CONTENT.md`.
 11. In a SQLite transaction, set job `status = 'complete'`, `output_path`, `output_hash`, and `completed_at`.
 12. In the same transaction or immediately following transaction, set completed chunks to `status = 'purged'`, `translated_markdown = NULL`, preserving `translated_hash`.
-13. Emit `translation.job.completed` only after purge succeeds.
+13. Derive `reader_url` as `/memories/<lang_code>/<memory_id>`.
+14. Emit `translation.job.completed` only after purge succeeds, including `output_path`, `output_hash`, and derived `reader_url`.
 
 ## Final paths
 
@@ -40,9 +41,10 @@ WHERE job_id = ?
 
 1. Pending job exists without a running worker: if source hash still matches, schedule it; if source hash changed, mark stale.
 2. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
-3. Final file exists, job complete, chunks not purged: purge before reporting complete.
-4. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-5. Source hash changed during interrupted non-complete job: mark stale.
+3. Final file missing or hash-mismatched for a complete job: mark the job `unavailable` and allow a future retry for the same `(memory_id, lang_code, source_hash)`.
+4. Final file exists, job complete, chunks not purged: purge before reporting complete.
+5. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
+6. Source hash changed during interrupted non-complete job: mark stale.
 
 ## Rules
 
@@ -51,3 +53,5 @@ WHERE job_id = ?
 - Completion event is emitted only after purge succeeds.
 - Startup recovery cannot report complete until final file exists, hash matches, and purge is done.
 - Completed jobs are immutable history. If source content changes later, keep the completed job status unchanged and derive stale/current state at read time.
+- If a complete job's committed output file is missing or hash-mismatched, mark it `unavailable` instead of reporting it as current.
+- Same-directory `.CONTENT.<job_id>.tmp` files are short-lived final-write artifacts only. Do not retain them for failed-job debugging. If a commit fails before final rename or recovery finds an orphan temp file, delete the temp file and preserve failure diagnostics in SQLite metadata/logs instead.

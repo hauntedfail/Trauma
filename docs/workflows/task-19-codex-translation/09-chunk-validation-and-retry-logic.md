@@ -14,6 +14,20 @@ Validate final chunk output and retry only failed chunks. This subtask does not 
 - `contracts/05-markdown-chunking.md`
 - `contracts/06-codex-prompt-and-validation.md`
 
+## Instruction alignment
+
+Scope: final chunk output validation and chunk-level retry decisions.
+
+Inputs: expected chunk manifest, protected spans, Codex final item output, retry count, and chunk config thresholds.
+
+Outputs: structured validation errors, retry prompt context, chunk status updates, and retry exhaustion behaviour.
+
+Dependencies: 19.4 provides expected blocks; 19.8 defines output schema; 19.3 owns job/chunk state transitions.
+
+Parallelization notes: can run beside prompt work after schema names are frozen; do not stitch full documents here.
+
+Implementation risks: retrying the whole document or accepting missing block ids violates completeness guarantees.
+
 ## Validation contract
 
 Validate in this order:

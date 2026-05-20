@@ -18,6 +18,20 @@ Parse source Markdown into deterministic blocks and chunk contiguous block group
 - `contracts/02-types-state-and-settings.md`
 - `contracts/05-markdown-chunking.md`
 
+## Instruction alignment
+
+Scope: deterministic block manifest, protected spans, and chunk construction only.
+
+Inputs: source Markdown body, frontmatter parser behaviour, required block types, and chunk config defaults.
+
+Outputs: ordered block ids, block metadata, protected spans, section paths, and contiguous block-group chunks.
+
+Dependencies: 19.1 freezes block id format and 19.3 supplies source snapshots.
+
+Parallelization notes: can run in parallel with Codex client work after shared translation types are frozen.
+
+Implementation risks: slicing raw characters or splitting inside protected structures can corrupt Markdown and make validation unreliable.
+
 ## Block manifest contract
 
 Generate blocks with ids in source order:

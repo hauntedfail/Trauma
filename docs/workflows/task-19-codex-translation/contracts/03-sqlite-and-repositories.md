@@ -55,11 +55,14 @@ CREATE INDEX translation_chunks_status_idx
 
 - `source_hash`, `source_chunk_hash`, and `output_hash` use `sha256:<hex>`.
 - `output_path` is store-relative, for example `memories/abc123/ja-JP/CONTENT.md`.
+- `reader_url` is derived from `memory_id` and `lang_code` as `/memories/<lang_code>/<memory_id>`; do not add a column unless implementation proves a durable need.
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
 - Do not add token, refresh token, credential, or raw Codex auth columns.
 - The user-selected target language is persisted in SQLite settings state, not frontend-only state.
 - Translation jobs copy the currently configured settings language into `translation_jobs.lang_code` at job creation.
+- Settings language writes must validate against `SUPPORTED_TRANSLATION_LANGUAGES` from the shared language contract.
 - Failed, canceled, and stale jobs remain as history and must not block a user retry for the same `(memory_id, lang_code, source_hash)`.
+- `unavailable` jobs are historical records for completed translations whose output file is missing or whose file hash no longer matches `output_hash`; they must not block a user retry for the same `(memory_id, lang_code, source_hash)`.
 - At most one complete job and at most one active job may exist for the same `(memory_id, lang_code, source_hash)`.
 
 ## Required repository methods
@@ -69,9 +72,10 @@ Expose these methods or exact equivalents:
 ```ts
 createTranslationJob(input): Promise<TranslationJobRecord>
 getTranslationJob(jobId): Promise<TranslationJobRecord | null>
-findCurrentTranslation(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
+findCompleteTranslationRecord(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
+markTranslationUnavailable(jobId, reason): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
 updateTranslationChunk(jobId, chunkIndex, patch): Promise<void>
@@ -80,6 +84,25 @@ countTranslationChunksByStatus(jobId): Promise<Record<TranslationChunkStatus, nu
 getTranslationTargetLanguage(): Promise<string | null>
 setTranslationTargetLanguage(langCode: string): Promise<void>
 ```
+
+Progress aggregation rules:
+
+- `completed_chunks` in public snapshots equals `complete + purged`.
+- `failed_chunks` equals chunks with status `failed`.
+- `retrying_chunks` equals chunks with status `retrying`.
+- Raw per-status counts may still be returned by repository/internal methods for diagnostics, but frontend/API snapshot math must use the public aggregation above.
+
+Current-translation lookup rules:
+
+- Repository methods remain SQLite-only. They do not read `storePath`, check file existence, compute output file hashes, or open `CONTENT.md`.
+- `findCompleteTranslationRecord()` returns only the SQLite `status = 'complete'` row for `(memory_id, lang_code, source_hash)`.
+- `src/server/translation/current-translation.ts` owns current-translation resolution and is the single shared boundary for storePath resolution, output file existence checks, output hash verification, unavailable repair, and `reader_url` derivation.
+- It exposes a read-only resolver and an explicit repair helper:
+  - `resolveCurrentTranslation()` verifies current output and derives `reader_url` without mutating SQLite.
+  - `repairUnavailableTranslation()` marks a known broken complete row `unavailable` after the caller has decided mutation is allowed.
+- Job start and current translation metadata API may call `repairUnavailableTranslation()` because they are backend API boundaries that can return `translation_unavailable` or create a replacement job.
+- Reader route loading and variant tab page-data must call `resolveCurrentTranslation()` in read-only mode and must not mutate SQLite while rendering. If they detect missing or hash-mismatched output, they return not-found/unavailable UI state and leave repair to API/job-start recovery.
+- The partial unique index on `status = 'complete'` remains valid because `unavailable` rows are not current and do not block replacement translations.
 
 ## Path constraints
 

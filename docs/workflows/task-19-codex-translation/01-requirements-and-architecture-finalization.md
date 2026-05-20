@@ -20,6 +20,20 @@ Freeze Brilliant implementation boundaries before code work starts. This subtask
 
 Read all focused contract files for this subtask.
 
+## Instruction alignment
+
+Scope: planning contracts only; no application code.
+
+Inputs: `TASK_19_INSTRUCTION.md`, current TRAUMA docs, current settings/storage implementation, and official Codex app-server protocol.
+
+Outputs: frozen Brilliant contract files, storage path mapping, route shape, app-server JSON-RPC boundary, auth boundary, and subtask dependency map.
+
+Dependencies: none; this subtask gates all other Brilliant work.
+
+Parallelization notes: do not parallelize downstream implementation until this subtask freezes shared names and interfaces.
+
+Implementation risks: copying the instruction's conceptual `memory/` path literally would create a second store tree; omitting JSON-RPC lifecycle details would make Codex integration non-implementable.
+
 ## Architecture contract
 
 Brilliant uses Codex app-server as the preferred production integration surface. The Reader backend owns source loading, chunking, metadata, translation job state, validation, retry, stitching, atomic final writes, SQLite cleanup, and frontend event streaming.
@@ -34,6 +48,8 @@ The canonical translated file layout is:
 memories/<memory_id>/CONTENT.md
 memories/<memory_id>/<lang_code>/CONTENT.md
 ```
+
+This is the repo-correct implementation of the instruction's conceptual `memory/<memory_id>/<lang_code>/CONTENT.md` requirement. Do not create a singular `memory/` directory.
 
 The selected target language comes from the SQLite-backed `/settings` value, for example `translation_target_lang_code = "ja-JP"`.
 
@@ -50,6 +66,8 @@ Before later subtasks start, confirm these names and contracts are stable:
 - Markdown block id format `b000001`.
 - Hash format `sha256:<hex>`.
 - Final output path `memories/<memory_id>/<lang_code>/CONTENT.md`.
+- Translated reader route `/memories/:lang_code/:id`.
+- Codex app-server JSON-RPC lifecycle: connect, `initialize`, `initialized`, `account/read`, `thread/start`, `turn/start`, notifications, and optional `turn/interrupt`.
 - Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
 
 ## Tests
