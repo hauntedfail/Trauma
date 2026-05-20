@@ -74,12 +74,13 @@ Start algorithm:
 8. Resolve the complete job through `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
 9. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata without checking Codex auth, because no new Codex work is required.
 10. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
-11. If a compatible active job exists, return that job's status and `event_url` without creating another job. Active job reuse does not perform a request-path auth precondition check, but the runner/recovery path must process the reused `pending` or `running` job and mark it failed with `auth_required` or `setup_required` if Codex auth/setup is no longer available when execution resumes.
-12. Check Codex auth/setup preconditions with `account/read` through the app-server client immediately before creating a new job.
-13. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
-14. Create a new `pending` job with `lang_code = settingsLangCode`.
-15. Schedule the job on the local in-process Brilliant runner.
-16. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
+11. If a compatible active job exists in `pending`, `running`, `stitching`, or `committing`, return `200` with `status = "active"`, the actual `job_status`, and `event_url` without creating another job. Active job reuse does not perform a request-path auth precondition check, but the runner/recovery path must process the reused `pending` or `running` job and mark it failed with `auth_required` or `setup_required` if Codex auth/setup is no longer available when execution resumes.
+12. If the only compatible active row is `cancel_requested`, return `409 cancellation_conflict` and do not create a new job until the cancellation reaches `canceled`.
+13. Check Codex auth/setup preconditions with `account/read` through the app-server client immediately before creating a new job.
+14. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
+15. Create a new `pending` job with `lang_code = settingsLangCode`.
+16. Schedule the job on the local in-process Brilliant runner.
+17. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
 
 ## Runner contract
 
@@ -123,7 +124,8 @@ Cover:
 - request language mismatch returns `translation_language_mismatch`
 - missing settings language returns `translation_language_required`
 - current completed translation is returned without requiring current Codex auth
-- active job reuse returns the existing job without creating another row
+- active job reuse returns `status = "active"`, actual `job_status`, and `event_url` without creating another row
+- `cancel_requested` compatible job returns `cancellation_conflict` until cancellation reaches `canceled`
 - missing Codex auth/setup returns `auth_required` or `setup_required` before creating a new job row
 - in-flight auth/setup loss after job creation persists `auth_required` or `setup_required` as the job failure code
 - current completed job is reused

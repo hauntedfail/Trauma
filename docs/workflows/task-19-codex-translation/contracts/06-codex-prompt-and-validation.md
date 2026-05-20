@@ -151,7 +151,7 @@ Runtime `cwd` rules:
 
 Runtime cleanup warnings:
 
-- MVP surfaces non-empty runtime cleanup leftovers as safe server logs plus job diagnostic metadata only.
+- MVP surfaces non-empty runtime cleanup leftovers as safe server logs only.
 - Do not show a blocking frontend popup for runtime cleanup leftovers in Brilliant MVP.
 - Runtime cleanup leftovers do not by themselves fail an otherwise completed translation job after the final `CONTENT.md` commit and SQLite purge succeeded.
 - Warning text must include the job id and a safe runtime-root-relative path only; do not include source content, prompts, credentials, app-server payloads, or absolute project/store paths unless the project-standard diagnostics UI later explicitly permits them.

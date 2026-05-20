@@ -44,7 +44,8 @@ Active job reuse response:
 
 ```json
 {
-  "status": "running",
+  "status": "active",
+  "job_status": "pending",
   "job_id": "018f...",
   "memory_id": "018f...",
   "lang_code": "ja-JP",
@@ -83,6 +84,13 @@ Rules:
   credential paths, tokens, app-server URLs, or raw app-server payloads.
 - `action` is optional and uses one of `open_settings`, `setup_codex_auth`,
   `retry`, `open_source_reader`, `start_fresh_translation`, or `none`.
+
+Active reuse rules:
+
+- `POST /api/memories/:memory_id/translations` returns `200` with `status = "active"` and the actual `job_status` for reused jobs in `pending`, `running`, `stitching`, or `committing`.
+- The response must not collapse reused `pending`, `stitching`, or `committing` jobs into `status = "running"`.
+- A reused active response always includes `event_url`; the frontend then reads `GET /api/translation-jobs/:job_id` or the first SSE `translation.job.snapshot` for exact progress state.
+- A `cancel_requested` job remains covered by the active unique index until cancellation reaches `canceled`, but start/reuse does not return it as an active translation. Return `409` with `code = "cancellation_conflict"` and `action = "none"` so the user can retry after cancellation completes.
 
 Required error codes:
 

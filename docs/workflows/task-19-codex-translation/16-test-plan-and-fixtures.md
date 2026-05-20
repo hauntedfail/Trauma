@@ -102,7 +102,8 @@ mise exec -- bun run typecheck
 - settings select options, prompt display names, and variant tab labels use one central supported-language table
 - translation start using SQLite settings language
 - current committed translation reuse returns `200 current` without checking Codex auth
-- active job reuse returns the existing `event_url` without creating another row
+- active job reuse returns `status = "active"`, the actual `job_status`, and the existing `event_url` without creating another row
+- compatible `cancel_requested` job returns `409 cancellation_conflict` until cancellation reaches `canceled`
 - active job reuse triggers or depends on focused recovery so stale old-source jobs are marked `stale` before new job creation
 - reused pending/running job whose Codex auth/setup is now missing becomes failed with `auth_required` or `setup_required`
 - auth/setup precondition failures return `409` without creating `translation_jobs` rows only when a new job would be required
@@ -135,7 +136,7 @@ mise exec -- bun run typecheck
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
 - runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories
-- non-empty runtime cleanup leftovers produce safe logs/job diagnostics only and do not create a blocking frontend popup in MVP
+- non-empty runtime cleanup leftovers produce safe server logs only and do not create a blocking frontend popup or require a diagnostics SQLite column in MVP
 - `networkAccess = false` is tested as sandbox/tool-network control and does not block required app-server/model traffic
 - locked-down `turn/start` policy payload is verified against generated app-server schema or focused protocol fixtures before implementation
 - translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults

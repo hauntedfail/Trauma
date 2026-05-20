@@ -59,7 +59,7 @@ Reader UI shows:
 5. If the configured target-language variant is missing on the source reader route, render the Codex icon at the title right edge.
 6. On icon click, POST `/api/memories/:memory_id/translations` with `{}` or with `lang_code` as a consistency assertion.
 7. If `202`, open the returned `event_url`.
-8. If `200 running`, open the returned `event_url` for the active job.
+8. If `200 active`, open the returned `event_url` for the reused active job and use `job_status` plus the first snapshot to render the exact progress state.
 9. If `200 current`, navigate to the response `reader_url`.
 10. For non-2xx responses, branch on the stable response `code` field, not free-form `message`.
 11. If `code = "translation_language_required"`, link to `/settings`.
@@ -71,6 +71,7 @@ Reader UI shows:
 17. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
 18. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
 19. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
+20. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
 
 Progress and reconnect behaviour:
 
@@ -106,7 +107,8 @@ Cover:
 - Codex icon tooltip contains the target language code
 - icon click starts translation API request
 - `202` opens SSE progress
-- `200 running` opens SSE progress for the reused active job
+- `200 active` opens SSE progress for the reused active job
+- reused active response renders from `job_status` and snapshot instead of assuming `running`
 - `200 current` navigates to translated reader route
 - completion event navigates with `reader_url`
 - tabs are hidden when only default `CONTENT.md` exists
@@ -125,6 +127,7 @@ Cover:
 - invalid-final-output failure is rendered separately from generic validation failure
 - translation-unavailable failure navigates to the source reader route and starts a fresh translation
 - stale-source failure offers a fresh translation action
+- cancellation-conflict failure tells the user to retry after cancellation completes
 - failure message is actionable and does not expose secrets
 
 ## Verification
