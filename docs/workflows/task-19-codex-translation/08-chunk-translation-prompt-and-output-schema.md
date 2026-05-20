@@ -30,6 +30,15 @@ Implementation risks: allowing commentary outside JSON or omitting preservation 
 
 ## Prompt contract
 
+Export the deterministic policy version used for job metadata:
+
+```ts
+export const BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-prompt-v1";
+```
+
+Update this constant only when prompt semantics, preservation rules, output schema
+expectations, or validation assumptions intentionally change.
+
 The generated prompt contains these sections in order:
 
 1. Role: faithful article translation worker.
@@ -86,6 +95,7 @@ Cover:
 - schema requires `chunk_index`, `blocks`, and `warnings`
 - prompt forbids summarization and omission
 - prompt preserves protected span policy text
+- `BRILLIANT_PROMPT_POLICY_VERSION` is exported and stable
 
 ## Verification
 

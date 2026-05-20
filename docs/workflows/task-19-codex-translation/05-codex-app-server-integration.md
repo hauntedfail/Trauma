@@ -89,6 +89,8 @@ Rules:
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk, then `turn/start` for chunk translation.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
+- Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
+- `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
 - If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
@@ -142,6 +144,8 @@ Use a fake app-server client. Cover:
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation
 - `thread/start` request includes the same locked-down policy where the generated schema supports it, or tests document that `turn/start` overrides thread defaults
+- `thread/start` and `turn/start` use a job-scoped empty runtime `cwd`, never project root or store root
+- network-disabled sandbox policy does not disable required app-server/model traffic
 - rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `translateChunk()` yields thread id and turn id before item events when available
 - `cancelTurn()` sends `turn/interrupt` with thread id and turn id

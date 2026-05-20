@@ -50,7 +50,7 @@ Rules:
 - `translated_markdown` is nullable and temporary.
 - `output_path` is store-relative.
 - Hash values use `sha256:<hex>`.
-- `prompt_policy_version` records the deterministic Brilliant prompt policy version used by `src/server/translation/prompt.ts`; it does not imply runtime `$reader-translate` skill invocation.
+- `prompt_policy_version` records the deterministic Brilliant prompt policy version used by `src/server/translation/prompt.ts`; it does not imply runtime `$reader-translate` skill invocation. Start with a static exported constant such as `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-prompt-v1"` and bump it only when prompt semantics or validation assumptions intentionally change.
 - No table stores Codex credentials, ChatGPT tokens, app-server tokens, refresh tokens, or raw auth files.
 
 ## Settings language contract

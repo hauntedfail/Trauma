@@ -125,6 +125,21 @@ Rules:
   - Source Markdown is supplied only as a prompt/input item by the Reader backend.
   - Codex must not receive local paths to source `CONTENT.md`, translated `CONTENT.md`, credential files, the project root, or the store root.
   - If the generated schema cannot express `readOnly` plus disabled network access directly, do not attach network-capable tools, dynamic tools, MCP servers, or project/store readable roots. Update this contract with the exact equivalent minimum-privilege payload before implementing the client.
+
+`networkAccess = false` refers only to sandboxed agent/tool execution inside the
+translation turn. It must not disable the TRAUMA backend's connection to Codex
+app-server or Codex app-server's own authenticated model/service traffic needed
+to run the translation.
+
+Runtime `cwd` rules:
+
+- Add `TRAUMA_CODEX_RUNTIME_DIR` as an optional config value for the parent runtime directory.
+- If unset, use an OS temp directory under `trauma-codex-runtime/`.
+- Create one empty job-scoped directory such as `<runtimeRoot>/<job_id>/` before `thread/start`.
+- The directory must not be inside the TRAUMA project root, the configured memory store path, backup store paths, or user-controlled article content paths.
+- Do not copy source `CONTENT.md`, translated `CONTENT.md`, prompts, credentials, or chunk bodies into this directory.
+- Remove the job-scoped runtime directory when the job reaches `complete`, `failed`, `stale`, or `canceled`.
+- Startup recovery may delete stale empty runtime directories after confirming they are under `TRAUMA_CODEX_RUNTIME_DIR` or the OS temp `trauma-codex-runtime/` root.
 - `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
 
 ## Protocol schema and version contract

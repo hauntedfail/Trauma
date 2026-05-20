@@ -101,6 +101,7 @@ mise exec -- bun run typecheck
 - supported-language canonical casing: `ja-JP` accepted, `ja-jp`/`JA-JP` redirected only through a project-standard canonical redirect helper or rejected as not found
 - settings select options, prompt display names, and variant tab labels use one central supported-language table
 - translation start using SQLite settings language
+- auth/setup precondition failures return `409` without creating `translation_jobs` rows
 - `409 translation_language_required`
 - `409 translation_language_mismatch`
 - source hash and stale detection
@@ -127,6 +128,8 @@ mise exec -- bun run typecheck
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
+- job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
+- `networkAccess = false` is tested as sandbox/tool-network control and does not block required app-server/model traffic
 - locked-down `turn/start` policy payload is verified against generated app-server schema or focused protocol fixtures before implementation
 - translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
@@ -156,6 +159,7 @@ mise exec -- bun run typecheck
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - runtime translation prompt builder does not require `$reader-translate` skill invocation or project-root read access
 - `prompt_policy_version` records deterministic prompt policy provenance without implying runtime skill invocation
+- `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-prompt-v1"` is stored on new jobs and changes only by explicit prompt policy bump
 - job start and metadata API use explicit unavailable repair before retry/recovery
 - job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots
 - unavailable repair persists structured JSON error with reason `output_missing` or `output_hash_mismatch`

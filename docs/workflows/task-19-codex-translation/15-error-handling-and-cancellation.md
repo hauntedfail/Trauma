@@ -58,6 +58,11 @@ User-facing errors must not include tokens, raw prompts, credential paths, app-s
 
 API error responses use the shared shape from `contracts/04-api-and-sse.md`. The stable frontend branch key is `code`, not free-form `message`.
 
+Auth/setup failures during translation start are precondition failures. `POST
+/api/memories/:memory_id/translations` returns `409 auth_required` or `409
+setup_required` and does not create a `translation_jobs` row when Codex cannot
+run authenticated translation work.
+
 SSE failure events use the same stable error shape. `translation.job.failed`
 emits `{ error }`; `translation.chunk.failed` emits `{ error, retry_count,
 will_retry }`. Error payloads must not include raw prompts, source chunks,
@@ -114,6 +119,7 @@ Cover:
 - late chunk output is ignored
 - canceled job never commits final file
 - auth and usage errors surface actionable messages
+- auth/setup precondition failures do not create job rows
 - timeout and stream-disconnected errors preserve their stable codes
 - invalid-final-output errors preserve their stable code
 - validation-failed errors are reserved for schema-valid semantic validation failures
