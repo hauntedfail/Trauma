@@ -268,7 +268,9 @@ Chunk failed event data:
 ```
 
 Failure event error objects use the same `code`, `message`, and optional
-`action` contract as `TranslationJobSnapshotError`.
+`action` contract as `TranslationJobSnapshotError`. Chunk failure events derive
+their `error` object from the structured `translation_chunks.error` JSON when it
+exists; otherwise they synthesize a safe structured error before emitting.
 
 Stale event data:
 

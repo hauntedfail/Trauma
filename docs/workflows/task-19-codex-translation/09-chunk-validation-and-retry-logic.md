@@ -46,6 +46,16 @@ Validate in this order:
 12. Omission markers are rejected when used as omission markers.
 13. Prose length ratio stays within configured thresholds.
 
+Error code boundary:
+
+- `invalid_final_output` means Codex final output cannot be parsed as JSON or
+  does not match the required `CodexChunkOutput` schema after all configured
+  output-mode fallbacks are exhausted.
+- `validation_failed` means the output is schema-valid `CodexChunkOutput` JSON
+  but semantic validation fails.
+- Store chunk validation failures in `translation_chunks.error` as structured
+  `TranslationPersistedError` JSON.
+
 ## Retry contract
 
 - Retry only the failed chunk.
@@ -74,6 +84,9 @@ Cover:
 
 - valid chunk passes
 - each failure example returns a structured validation error
+- JSON parse/schema failures use `invalid_final_output`
+- semantic validation failures use `validation_failed`
+- chunk error persistence uses structured `TranslationPersistedError` JSON
 - media-only block may remain empty when explicitly allowed
 - retry prompt includes validation errors and original block ids
 - retry count increments

@@ -70,6 +70,14 @@ Codex transport failures map to stable API/job error codes:
 - `invalid_final_output` remains `invalid_final_output` and maps to HTTP `502` when returned from an API request.
 - Do not collapse `timeout`, `stream_disconnected`, or `invalid_final_output` into `unknown`, `app_server_unavailable`, or `validation_failed`.
 
+Validation error boundary:
+
+- Use `invalid_final_output` only for JSON parse failure or `CodexChunkOutput`
+  schema mismatch after all configured output-mode fallbacks are exhausted.
+- Use `validation_failed` for schema-valid output that fails semantic checks.
+- Persist job and chunk errors as structured `TranslationPersistedError` JSON,
+  never raw exception text.
+
 Stale source is not reported as a generic failed job. When a pending or running job becomes stale because the source hash changed, emit `translation.job.stale` with safe hash metadata and close the stream.
 
 Unavailable translation output is not reported as current. If a previously
@@ -103,6 +111,8 @@ Cover:
 - auth and usage errors surface actionable messages
 - timeout and stream-disconnected errors preserve their stable codes
 - invalid-final-output errors preserve their stable code
+- validation-failed errors are reserved for schema-valid semantic validation failures
+- job and chunk errors persist as structured JSON, not raw strings
 - filesystem failure does not corrupt existing translation
 - unavailable completed output does not block a fresh translation
 - stream disconnect does not cancel job

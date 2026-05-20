@@ -109,6 +109,12 @@ export interface TranslationPersistedError {
   reason?: TranslationUnavailableReason | string;
 }
 
+`TranslationPersistedError` is the storage format for both
+`translation_jobs.error` and `translation_chunks.error`. Store it as a JSON
+string in SQLite, or `NULL` when no error exists. Do not store raw exception
+strings, prompts, source chunks, credential paths, tokens, app-server URLs, or
+raw app-server payloads in either column.
+
 export interface ProtectedSpan {
   kind:
     | "code_fence"

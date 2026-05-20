@@ -111,6 +111,8 @@ mise exec -- bun run typecheck
 - partial delta streaming as non-authoritative progress
 - SSE job/chunk failure events include safe error objects with stable codes
 - chunk validation success and failure
+- chunk errors persist structured `TranslationPersistedError` JSON in `translation_chunks.error`
+- invalid final output covers JSON parse/schema failure; validation failed covers schema-valid semantic failure
 - chunk-level retry
 - final stitching order
 - atomic writer failure cases

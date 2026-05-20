@@ -211,6 +211,18 @@ Validate each completed chunk in this order:
 12. Output does not include obvious omission markers: `omitted`, `summary`, `summarized`, `省略`, `要約`, `...` when used as a standalone omission marker.
 13. Total translated length is between configured `minLengthRatio` and `maxLengthRatio`, except for blocks classified as code, math, image, or raw HTML.
 
+Error code boundary:
+
+- Use `invalid_final_output` when final Codex output cannot be parsed as JSON or
+  does not match the required `CodexChunkOutput` JSON schema after the
+  structured-output and prompt-only fallback paths are exhausted.
+- Use `validation_failed` when output is valid `CodexChunkOutput` JSON but fails
+  semantic validation such as wrong block ids, duplicate or reordered block ids,
+  missing protected spans, corrupted Markdown/HTML/math structure, omission
+  markers, or length-ratio checks.
+- Persist chunk failures as structured `TranslationPersistedError` JSON in
+  `translation_chunks.error`.
+
 ## Retry behavior
 
 - Retry only the failed chunk.

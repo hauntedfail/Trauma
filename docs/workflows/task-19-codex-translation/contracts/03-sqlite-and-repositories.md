@@ -57,6 +57,7 @@ CREATE INDEX translation_chunks_status_idx
 - `output_path` is store-relative, for example `memories/abc123/ja-JP/CONTENT.md`.
 - `reader_url` is derived from `memory_id` and `lang_code` as `/memories/<lang_code>/<memory_id>`; do not add a column unless implementation proves a durable need.
 - `translation_jobs.error` stores either `NULL` or a JSON string matching `TranslationPersistedError` from `contracts/02-types-state-and-settings.md`.
+- `translation_chunks.error` stores either `NULL` or a JSON string matching `TranslationPersistedError` from `contracts/02-types-state-and-settings.md`.
 - `markTranslationUnavailable(jobId, reason)` stores `error` as JSON with `code = "translation_unavailable"`, `action = "start_fresh_translation"`, and `reason = "output_missing"` or `"output_hash_mismatch"`.
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
 - Do not add token, refresh token, credential, or raw Codex auth columns.
