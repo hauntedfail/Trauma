@@ -106,8 +106,9 @@ data: {"id":"000000000013","type":"translation.chunk.completed","job_id":"018f..
 Rules:
 
 - Event ids are monotonic decimal strings padded to 12 digits per job.
-- Support `Last-Event-ID` if an in-memory or SQLite event buffer is implemented.
-- If no replay buffer exists in MVP, reconnect returns current job state first, then new events.
+- MVP does not require a durable event replay table.
+- On reconnect, emit `translation.job.snapshot` first using current SQLite job/chunk state, then stream new events.
+- `Last-Event-ID` support may be added later if an in-memory or SQLite event buffer is implemented.
 - Send heartbeat comments every 15 seconds while the job is active.
 - Stream closes after completed, failed, or canceled terminal events.
 - Stream disconnect does not cancel the backend job.

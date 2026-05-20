@@ -29,7 +29,8 @@ cancelTurn(turnId: string): Promise<void>
 Rules:
 
 - Use Codex app-server `turn/start` for chunk translation.
-- Use `outputSchema` when app-server supports it.
+- Accept an `outputSchema` from caller code and pass it to app-server when supported.
+- Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
 - Use one ephemeral Codex thread per chunk by default.
 - Do not expose app-server URL, auth state, or connection details to frontend code.
 - Do not allow Codex to write canonical `CONTENT.md` files.
@@ -56,7 +57,7 @@ Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
 - device-code login response is safe to return to settings UI
-- `turn/start` request includes output schema
+- `turn/start` request passes through the caller-provided output schema
 - chunk translation uses ephemeral chunk scope
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
@@ -73,6 +74,7 @@ mise exec -- bun run typecheck
 ## Acceptance criteria
 
 - Codex app-server integration is isolated behind one backend module.
+- Prompt and output-schema construction remain owned by 19.8.
 - Frontend code cannot call app-server directly.
 - The client can be faked for deterministic tests.
 - No canonical file writes happen inside the Codex client.

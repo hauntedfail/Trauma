@@ -10,10 +10,11 @@ Read this file first, then read only the contract files listed for your assigned
 
 If a contract conflict exists, use this precedence order:
 
-1. `TASK_19_INSTRUCTION.md` for product intent while the planning PR is being edited.
-2. Focused files under `docs/workflows/task-19-codex-translation/contracts/`.
-3. The assigned `19.x` subtask file.
-4. Parent workflow and README summaries.
+1. Focused files under `docs/workflows/task-19-codex-translation/contracts/`.
+2. The assigned `19.x` subtask file.
+3. Parent workflow and README summaries.
+
+`TASK_19_INSTRUCTION.md` was the source input for this planning branch, but implementation workers must not depend on that root file being present.
 
 ## Canonical names
 

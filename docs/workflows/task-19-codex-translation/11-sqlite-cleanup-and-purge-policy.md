@@ -46,7 +46,9 @@ Handle these startup or job-resume cases:
 1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 2. Final file exists, job complete, chunks not purged: purge before reporting complete.
 3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-4. Source hash changed during interrupted job: mark stale.
+4. Source hash changed during interrupted non-complete job: mark stale.
+
+Completed jobs are immutable history. If the source changes after completion, do not mutate the completed job to `stale`; reader/API freshness is derived by comparing current source hash with job `source_hash`.
 
 ## Tests
 
@@ -58,7 +60,8 @@ Cover:
 - recovery purges complete job with unpurged chunks
 - recovery handles temp file without final output
 - recovery handles final file without complete DB status
-- recovery marks stale when source hash changed
+- recovery marks interrupted non-complete jobs stale when source hash changed
+- completed jobs remain complete when source hash later changes; stale/current is derived at read time
 
 ## Verification
 

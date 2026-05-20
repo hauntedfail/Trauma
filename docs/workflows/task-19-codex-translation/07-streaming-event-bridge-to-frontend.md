@@ -35,7 +35,9 @@ Rules:
 
 ## Reconnect contract
 
-If an event replay buffer exists, support `Last-Event-ID`. If not, send a current-state snapshot event before new events after reconnect.
+The MVP does not require a durable event replay table. On reconnect, send `translation.job.snapshot` using current SQLite job/chunk state before new events.
+
+`Last-Event-ID` may be supported later if an in-memory or SQLite event buffer is added.
 
 The frontend must be able to combine `GET /api/translation-jobs/:job_id` and SSE to recover after refresh.
 
@@ -53,6 +55,7 @@ Map backend and Codex events to:
 - `translation.chunk.completed`
 - `translation.chunk.failed`
 - `translation.chunk.retrying`
+- `translation.job.snapshot`
 - `translation.job.stitching`
 - `translation.job.committing`
 - `translation.job.completed`
@@ -67,7 +70,7 @@ Cover:
 - monotonic event ids
 - heartbeat output
 - terminal events close the stream
-- reconnect with `Last-Event-ID` when replay buffer exists, or current-state snapshot fallback
+- reconnect emits `translation.job.snapshot` before new events
 - Codex delta events are marked non-authoritative
 - stream disconnect does not cancel job
 
@@ -84,3 +87,4 @@ mise exec -- bun run typecheck
 - Frontend can stream progress without WebSocket.
 - Partial deltas are never treated as persisted translation.
 - Event payloads are stable enough for 19.12 UI work.
+- Reconnect behaviour is deterministic without requiring an event replay table.

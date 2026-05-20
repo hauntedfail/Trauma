@@ -28,7 +28,9 @@ Add `translation_jobs` and `translation_chunks` using the SQL shape in `contract
 Rules:
 
 - `translation_jobs.memory_id` references `memories.id` with `ON DELETE CASCADE`.
-- `(memory_id, lang_code, source_hash)` is unique for current translation reuse.
+- Complete jobs use a partial unique index on `(memory_id, lang_code, source_hash)` where `status = 'complete'`.
+- Active jobs use a partial unique index on `(memory_id, lang_code, source_hash)` where status is one of `pending`, `running`, `cancel_requested`, `stitching`, or `committing`.
+- Failed, canceled, and stale jobs do not block a new retry job for the same source hash.
 - `translation_chunks` uses `(job_id, chunk_index)` as primary key.
 - `translated_markdown` is nullable and temporary.
 - `output_path` is store-relative.
@@ -55,6 +57,7 @@ Expose focused methods or exact equivalents:
 createTranslationJob(input): Promise<TranslationJobRecord>
 getTranslationJob(jobId): Promise<TranslationJobRecord | null>
 findCurrentTranslation(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
+findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
@@ -78,7 +81,9 @@ Cover:
 
 - migration creates `translation_jobs` and `translation_chunks`
 - memory delete cascades translation job and chunk rows
-- duplicate `(memory_id, lang_code, source_hash)` is rejected or returned idempotently according to repository contract
+- duplicate complete `(memory_id, lang_code, source_hash)` is rejected or returned idempotently according to repository contract
+- duplicate active `(memory_id, lang_code, source_hash)` is rejected or returned idempotently according to repository contract
+- failed/canceled/stale jobs do not block a new retry job for the same `(memory_id, lang_code, source_hash)`
 - `output_path` stores a relative path
 - `translated_markdown` can be nulled while `translated_hash` remains
 - purge converts complete chunks to purged chunks with `translated_markdown = NULL`

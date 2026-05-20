@@ -41,7 +41,7 @@ WHERE job_id = ?
 1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 2. Final file exists, job complete, chunks not purged: purge before reporting complete.
 3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
-4. Source hash changed during interrupted job: mark stale.
+4. Source hash changed during interrupted non-complete job: mark stale.
 
 ## Rules
 
@@ -49,3 +49,4 @@ WHERE job_id = ?
 - Source `CONTENT.md` is never mutated.
 - Completion event is emitted only after purge succeeds.
 - Startup recovery cannot report complete until final file exists, hash matches, and purge is done.
+- Completed jobs are immutable history. If source content changes later, keep the completed job status unchanged and derive stale/current state at read time.

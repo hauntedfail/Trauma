@@ -21,8 +21,13 @@ CREATE TABLE translation_jobs (
   completed_at INTEGER
 );
 
-CREATE UNIQUE INDEX translation_jobs_current_idx
-  ON translation_jobs(memory_id, lang_code, source_hash);
+CREATE UNIQUE INDEX translation_jobs_current_complete_idx
+  ON translation_jobs(memory_id, lang_code, source_hash)
+  WHERE status = 'complete';
+
+CREATE UNIQUE INDEX translation_jobs_active_idx
+  ON translation_jobs(memory_id, lang_code, source_hash)
+  WHERE status IN ('pending', 'running', 'cancel_requested', 'stitching', 'committing');
 
 CREATE INDEX translation_jobs_memory_lang_idx
   ON translation_jobs(memory_id, lang_code, updated_at);
@@ -54,6 +59,8 @@ CREATE INDEX translation_chunks_status_idx
 - Do not add token, refresh token, credential, or raw Codex auth columns.
 - The user-selected target language is persisted in SQLite settings state, not frontend-only state.
 - Translation jobs copy the currently configured settings language into `translation_jobs.lang_code` at job creation.
+- Failed, canceled, and stale jobs remain as history and must not block a user retry for the same `(memory_id, lang_code, source_hash)`.
+- At most one complete job and at most one active job may exist for the same `(memory_id, lang_code, source_hash)`.
 
 ## Required repository methods
 
@@ -63,12 +70,15 @@ Expose these methods or exact equivalents:
 createTranslationJob(input): Promise<TranslationJobRecord>
 getTranslationJob(jobId): Promise<TranslationJobRecord | null>
 findCurrentTranslation(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
+findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
 updateTranslationChunk(jobId, chunkIndex, patch): Promise<void>
 purgeCompletedTranslationChunks(jobId): Promise<void>
 countTranslationChunksByStatus(jobId): Promise<Record<TranslationChunkStatus, number>>
+getTranslationTargetLanguage(): Promise<string | null>
+setTranslationTargetLanguage(langCode: string): Promise<void>
 ```
 
 ## Path constraints

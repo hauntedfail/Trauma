@@ -62,7 +62,7 @@ translation_chunks
 
 `translation_chunks` tracks per-chunk source hash, ordered block ids, status, retry count, temporary translated Markdown, translated hash, error state, and timestamps.
 
-Status values must be explicit. At minimum: `pending`, `running`, `validating`, `failed`, `complete`, and `purged`.
+Status values must be explicit and separated by job/chunk domain. Job status includes `pending`, `running`, `stale`, `cancel_requested`, `canceled`, `stitching`, `committing`, `complete`, and `failed`. Chunk status includes `pending`, `running`, `validating`, `retrying`, `complete`, `purged`, and `failed`.
 
 Completed chunk body cleanup is required:
 
@@ -109,10 +109,12 @@ translation.chunk.validating
 translation.chunk.completed
 translation.chunk.failed
 translation.chunk.retrying
+translation.job.snapshot
 translation.job.stitching
 translation.job.committing
 translation.job.completed
 translation.job.failed
+translation.job.canceled
 ```
 
 Partial Codex deltas are non-authoritative progress only. Persistence must use final completed, parsed, validated chunk output.
@@ -127,7 +129,7 @@ GET  /api/translation-jobs/:job_id/events
 POST /api/translation-jobs/:job_id/cancel
 ```
 
-`POST /api/memories/:memory_id/translations` starts or reuses a translation job for the SQLite-persisted settings `lang_code`. A request body `lang_code`, if present, is only a consistency assertion and must match the stored setting.
+`POST /api/memories/:memory_id/translations` starts or reuses a translation job for the SQLite-persisted settings `lang_code`. A request body `lang_code`, if present, is only a consistency assertion and must match the stored setting. The route schedules work on the local in-process Brilliant runner and returns without waiting for full translation.
 
 `GET /api/memories/:memory_id/translations/:lang_code` returns committed translation metadata and renderability state.
 

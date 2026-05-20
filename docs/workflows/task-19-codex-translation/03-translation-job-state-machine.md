@@ -11,6 +11,7 @@ Implement the Reader-owned Brilliant job and chunk lifecycle. This subtask creat
 - `src/server/translation/source-loader.ts`
 - `src/server/translation/job-state.ts`
 - `src/server/translation/orchestrator.ts`
+- `src/server/translation/job-runner.ts`
 - `tests/server/translation/source-loader.test.ts`
 - `tests/server/translation/job-state.test.ts`
 - `tests/server/translation/orchestrator.test.ts`
@@ -46,9 +47,24 @@ Start algorithm:
 5. Load source `CONTENT.md` and compute source metadata.
 6. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
 7. If the complete job has an existing output path, return current translation metadata.
-8. If a compatible non-terminal job exists, return that running job.
+8. If a compatible active job exists, return that running job.
 9. Create a new `pending` job with `lang_code = settingsLangCode`.
-10. Emit `translation.job.started`.
+10. Schedule the job on the local in-process Brilliant runner.
+11. Emit `translation.job.started`.
+
+## Runner contract
+
+Brilliant uses a local in-process runner for the MVP.
+
+Rules:
+
+- `POST /api/memories/:memory_id/translations` must not block until full translation finishes.
+- The route creates or reuses a job, schedules it, and returns `202` or `200`.
+- The runner processes one job at a time by default.
+- Chunks inside a job are processed sequentially by default.
+- Runner state is recoverable from SQLite rows.
+- Before accepting a new job, recover interrupted `running`, `stitching`, `committing`, and `cancel_requested` jobs.
+- A server restart may pause a job, but must not corrupt an existing completed translation.
 
 ## State transition contract
 
@@ -72,6 +88,9 @@ Cover:
 - missing settings language returns `translation_language_required`
 - current completed job is reused
 - active non-terminal job is reused
+- failed/canceled/stale job does not block a user retry job
+- runner schedules a newly created pending job without blocking the request
+- runner recovery handles interrupted active jobs
 - stale source hash prevents commit
 - invalid state transitions are rejected
 - canceled jobs ignore late chunk output
@@ -91,4 +110,4 @@ mise exec -- bun run typecheck
 - Job start is idempotent.
 - Translation language comes from SQLite settings.
 - Source freshness is enforced.
-- Later chunking and Codex subtasks can plug into the orchestrator without redefining state.
+- Later chunking and Codex subtasks can plug into the orchestrator and runner without redefining state.

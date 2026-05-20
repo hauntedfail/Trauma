@@ -122,6 +122,7 @@ export type TranslationEventType =
   | "translation.chunk.completed"
   | "translation.chunk.failed"
   | "translation.chunk.retrying"
+  | "translation.job.snapshot"
   | "translation.job.stitching"
   | "translation.job.committing"
   | "translation.job.completed"
@@ -154,8 +155,9 @@ stitching -> failed
 committing -> complete
 committing -> failed
 failed -> pending only when a user explicitly retries by creating a new job
-complete -> stale only when source_hash no longer matches current CONTENT.md
 ```
+
+Completed jobs are immutable history. Do not mutate `complete -> stale`. Reader/API freshness is derived by comparing the job `source_hash` with the current source `CONTENT.md` hash.
 
 ## Chunk transitions
 
@@ -191,3 +193,17 @@ Rules:
 - If the request language differs from the persisted setting, reject with `409 translation_language_mismatch`.
 - If no translation target language is configured, reject with `409 translation_language_required`.
 - Old jobs retain their own `lang_code`; future jobs use the latest settings value.
+
+## Local runner contract
+
+Brilliant uses a local in-process runner for the MVP because TRAUMA is a local-first single-user app.
+
+Rules:
+
+- `POST /api/memories/:memory_id/translations` creates or reuses a job, schedules it on the local runner, and returns `202` or `200`.
+- The runner processes one translation job at a time by default.
+- Chunks inside a job are processed sequentially by default.
+- Later concurrency tuning may add configurable chunk concurrency, but the MVP should avoid parallel Codex turns for the same document.
+- Runner state is recoverable from SQLite job/chunk rows.
+- On server startup, or before accepting a new translation job, recover interrupted `running`, `stitching`, `committing`, and `cancel_requested` jobs according to the recovery contract.
+- A process restart may pause a job, but must not corrupt an existing completed translation.

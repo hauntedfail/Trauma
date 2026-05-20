@@ -35,14 +35,16 @@
 - Create: `src/server/translation/atomic-writer.ts`
 - Create: `src/server/translation/events.ts`
 - Create: `src/server/translation/orchestrator.ts`
+- Create: `src/server/translation/job-runner.ts`
 
 ### API routes
 
-- Create: `src/routes/api/memories/[memoryId]/translations.ts`
-- Create: `src/routes/api/memories/[memoryId]/translations/[langCode].ts`
-- Create: `src/routes/api/translation-jobs/[jobId].ts`
-- Create: `src/routes/api/translation-jobs/[jobId]/events.ts`
-- Create: `src/routes/api/translation-jobs/[jobId]/cancel.ts`
+- Create route files that implement these endpoint paths, following the existing route-file convention in `src/routes/api/`:
+- `POST /api/memories/:memory_id/translations`
+- `GET /api/memories/:memory_id/translations/:lang_code`
+- `GET /api/translation-jobs/:job_id`
+- `GET /api/translation-jobs/:job_id/events`
+- `POST /api/translation-jobs/:job_id/cancel`
 
 ### Settings and auth
 

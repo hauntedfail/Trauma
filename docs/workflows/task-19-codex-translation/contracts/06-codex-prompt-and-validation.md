@@ -11,9 +11,58 @@ export interface CodexAppServerClient {
 }
 ```
 
+Supporting types:
+
+```ts
+export type CodexAuthStatus =
+  | { status: "enabled" }
+  | { status: "setup_required"; reason: string }
+  | { status: "disabled"; reason: string }
+  | { status: "unknown"; reason: string }
+  | { status: "error"; error: string };
+
+export interface CodexDeviceCodeLogin {
+  userCode: string;
+  verificationUri: string;
+  expiresAt: string;
+  intervalSeconds: number | null;
+}
+
+export interface CodexTranslateChunkInput {
+  jobId: string;
+  memoryId: string;
+  langCode: string;
+  chunkIndex: number;
+  prompt: string;
+  outputSchema: Record<string, unknown>;
+  timeoutMs: number;
+}
+
+export type CodexAppServerEvent =
+  | { type: "item.started"; itemId: string; title: string | null }
+  | { type: "item.agentMessage.delta"; itemId: string; delta: string }
+  | { type: "item.completed"; itemId: string; outputText: string }
+  | { type: "turn.failed"; error: CodexAppServerError };
+
+export interface CodexAppServerError {
+  code:
+    | "auth_required"
+    | "setup_required"
+    | "app_server_unavailable"
+    | "usage_limit"
+    | "context_overflow"
+    | "stream_disconnected"
+    | "timeout"
+    | "invalid_final_output"
+    | "unknown";
+  message: string;
+}
+```
+
 Rules:
 
 - Use app-server `turn/start` with `outputSchema` when available.
+- The concrete output schema builder is owned by 19.8. The app-server client accepts a schema object from caller code rather than defining Brilliant translation schema internally.
 - Do not send the full document unless the chunker produced one chunk.
 - Do not let Codex write files.
 - Do not expose app-server URL, token, or raw auth state to the browser.
