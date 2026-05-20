@@ -132,7 +132,9 @@ mise exec -- bun run typecheck
 - Unix socket default JSON-RPC transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
+- Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
+- retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
 - runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories
@@ -152,6 +154,7 @@ mise exec -- bun run typecheck
 - default app-server endpoint uses Unix socket `unix://`
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
+- recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
 - completed event includes `reader_url`
 - API errors use stable `code` values consumed by frontend state branches
 - historical completed jobs for older source hashes return `reader_url: null`

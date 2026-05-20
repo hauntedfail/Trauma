@@ -98,6 +98,7 @@ Rules:
 - A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
 - A server restart may pause a job, but must not corrupt an existing completed translation.
 - A recovered `pending` or `running` job whose source hash still matches must re-check Codex auth/setup before continuing execution. If auth/setup is now missing, mark the existing job failed with `auth_required` or `setup_required` and emit a safe failure event/snapshot instead of returning an indefinitely running job.
+- A recovered `cancel_requested` job with no resumable in-flight `threadId` and `turnId` is finalized as `canceled`; late Codex output is ignored if it appears after restart. This prevents `cancel_requested` from blocking future retries through the active unique index indefinitely.
 
 ## State transition contract
 
@@ -142,6 +143,7 @@ Cover:
 - job start runs focused recovery before active lookup or new job creation
 - recovered pending/running job with missing Codex auth/setup becomes failed with `auth_required` or `setup_required`
 - runner recovery handles interrupted active jobs
+- runner recovery finalizes non-resumable `cancel_requested` jobs as `canceled`
 - stale source hash prevents commit
 - stale source hash emits `translation.job.stale`
 - invalid state transitions are rejected

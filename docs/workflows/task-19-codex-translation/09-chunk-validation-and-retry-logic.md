@@ -59,8 +59,11 @@ Error code boundary:
 ## Retry contract
 
 - Retry only the failed chunk.
+- Start a fresh ephemeral Codex thread for each retry attempt.
+- Do not reuse the failed attempt's Codex thread because the thread history may contain invalid output or failed repair context.
 - Increment `retry_count` before each retry.
 - Include structured validation failures in the retry prompt.
+- Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
 - Use `maxRetries` from chunk config.
 - After retry exhaustion, mark chunk and job failed.
 
@@ -89,6 +92,8 @@ Cover:
 - chunk error persistence uses structured `TranslationPersistedError` JSON
 - media-only block may remain empty when explicitly allowed
 - retry prompt includes validation errors and original block ids
+- retry starts a fresh ephemeral Codex thread for each attempt
+- retry prompt does not depend on prior failed thread history
 - retry count increments
 - retry exhaustion marks failed
 

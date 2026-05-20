@@ -60,6 +60,7 @@ Rules:
 - Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
 - Reject non-loopback WebSocket endpoints until a separate security subtask defines remote listener authentication and secret storage.
 - Speak JSON-RPC 2.0 over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
+- Use the Codex app-server wire envelope exactly: requests are `{ method, params, id }`, responses are `{ id, result }` or `{ id, error }`, and notifications are `{ method, params }`. Do not add a top-level `jsonrpc` field unless the generated schema or focused fixtures for the installed Codex version explicitly accept it.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
 - Reject or retry connection setup if any request is attempted before initialization.
 - Missing endpoint returns `setup_required`.
@@ -86,7 +87,7 @@ Protocol schema rules:
 
 Rules:
 
-- Use Codex app-server `thread/start` to create one ephemeral thread per chunk, then `turn/start` for chunk translation.
+- Use Codex app-server `thread/start` to create one ephemeral thread per chunk attempt, then `turn/start` for chunk translation.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
 - Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
@@ -94,7 +95,7 @@ Rules:
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
 - If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
-- Use one ephemeral Codex thread per chunk by default.
+- Use one ephemeral Codex thread per chunk attempt by default.
 - Do not expose app-server URL, auth state, or connection details to frontend code.
 - Do not allow Codex to write canonical `CONTENT.md` files.
 - Streamed app-server deltas are progress only.
@@ -134,12 +135,14 @@ Use a fake app-server client. Cover:
 - unreachable app-server returns app-server-unavailable
 - JSON-RPC initialize and initialized happen before `account/read`, `thread/start`, or `turn/start`
 - generated schema or focused protocol fixtures cover the JSON-RPC methods and notifications used by the fake app-server
+- fake app-server fixtures omit top-level `jsonrpc` unless generated schema proves it is accepted
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
 - logout wraps `account/logout` when supported and reports unsupported logout explicitly
 - auth notifications map to typed `CodexAuthEvent` values including login success, failure, and cancellation
 - auth check uses `account/read`
 - chunk translation starts an ephemeral thread before starting a turn
+- retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread
 - `turn/start` request passes through the caller-provided output schema
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation

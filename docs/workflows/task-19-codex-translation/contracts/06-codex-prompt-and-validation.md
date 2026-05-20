@@ -98,6 +98,10 @@ Rules:
 - Loopback WebSocket remains supported only as a local development fallback, for example `codex app-server --listen ws://127.0.0.1:4500` with `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
 - If the Unix socket implementation is blocked by platform/runtime support, the implementation may use loopback WebSocket temporarily but must document that it is using the experimental upstream transport and keep the fallback local-only.
 - The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
+- Codex app-server wire messages use the app-server's documented JSON-RPC-like envelope and omit a top-level `jsonrpc: "2.0"` field. Do not use a generic JSON-RPC client that injects `jsonrpc` unless generated schema/fixtures prove it is accepted by the installed Codex app-server.
+- Request envelope shape is `{ "method": "...", "params": {...}, "id": 1 }`.
+- Response envelope shape is `{ "id": 1, "result": {...} }` or `{ "id": 1, "error": { "code": 123, "message": "..." } }`.
+- Notification envelope shape is `{ "method": "...", "params": {...} }`.
 - Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
 - If `endpoint` is missing, return `setup_required`.
@@ -109,7 +113,7 @@ Rules:
 - If `endpoint` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
 - Run `account/read` before scheduling translation work. If `requiresOpenaiAuth` is true and no ChatGPT/API account is available, surface `auth_required` or `setup_required`.
 - Do not fall back to `codex exec` from this app-server client.
-- Use one ephemeral `thread/start` per chunk, then app-server `turn/start`.
+- Use one ephemeral `thread/start` per chunk attempt, then app-server `turn/start`.
 - Prefer `outputSchema` on `turn/start`. If the configured app-server rejects or does not advertise `outputSchema`, fall back to prompt-only JSON output and require the same `CodexChunkOutput` validation before persistence. If the app-server rejects both structured output and prompt-only JSON output, fail the chunk with `invalid_final_output`.
 - The concrete output schema builder is owned by 19.8. The app-server client accepts a schema object from caller code rather than defining Brilliant translation schema internally.
 - Do not send the full document unless the chunker produced one chunk.
@@ -162,6 +166,7 @@ Runtime cleanup warnings:
 - Record the Codex CLI/app-server version used for Brilliant implementation in the PR handoff.
 - Generate protocol fixtures or schemas with `codex app-server generate-ts --out tests/fixtures/translation/codex-app-server-schema` or `codex app-server generate-json-schema --out tests/fixtures/translation/codex-app-server-schema` when the local Codex CLI supports it.
 - If generated artifacts are too large for the repo, commit a focused fixture set covering `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `thread/start`, `turn/start`, `turn/started`, `item/agentMessage/delta`, `item/completed`, `turn/completed`, and `turn/interrupt`.
+- Focused fixtures must use the Codex app-server wire envelope without top-level `jsonrpc`.
 - Fake app-server tests must be based on the recorded schema/fixture version, not only on hand-written assumptions.
 - Before implementing `translateChunk()`, confirm the exact `turn/start`
   payload shape for `approvalPolicy`, `sandboxPolicy`, `cwd`, and
@@ -289,6 +294,9 @@ Error code boundary:
 ## Retry behavior
 
 - Retry only the failed chunk.
+- Start a fresh ephemeral Codex thread for each retry attempt.
+- Do not reuse the failed attempt's Codex thread because the thread history may contain invalid output or failed repair context.
 - Increment `retry_count` before each retry attempt.
 - On validation retry, include validation failures in the retry prompt.
+- Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
 - After `maxRetries`, mark chunk and job failed.

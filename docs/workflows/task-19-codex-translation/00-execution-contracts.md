@@ -36,7 +36,7 @@ Implementation workers must treat this workflow directory as the source of truth
 - Codex protocol: JSON-RPC 2.0 over the configured app-server transport; initialize before any request, then `thread/start`, then `turn/start`
 - Codex app-server transport: TRAUMA's required default is an explicitly configured Unix socket listener via `codex app-server --listen unix://` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix://`; loopback WebSocket is local development fallback only; HTTP is health-probe-only and must not be used for JSON-RPC. `codex app-server` without `--listen unix://` uses `stdio`, which is not a Brilliant endpoint because TRAUMA does not start or supervise the app-server process.
 - Codex thread/turn policy: translation threads and turns use `approvalPolicy: "never"`, read-only sandboxing, disabled network access when supported by the generated schema, and prompt-supplied source content only. If the schema cannot represent network-disabled read-only turns directly, implement the closest minimum-privilege payload only after updating the Brilliant contract.
-- Default Codex thread strategy: one ephemeral Codex thread per chunk
+- Default Codex thread strategy: one ephemeral Codex thread per chunk attempt, including retry attempts
 - Codex cancellation: call `turn/interrupt` with both `threadId` and `turnId` when known
 
 ## Contract files

@@ -26,7 +26,7 @@ Research reference captured by the instruction:
 - Use Codex managed ChatGPT sign-in; surface app-server `chatgptDeviceCode` login when auth is missing.
 - Keep OpenAI/ChatGPT tokens out of TRAUMA SQLite, logs, frontend responses, and browser storage.
 - Do not expose Codex app-server directly to the browser; only the Reader backend talks to Codex.
-- Use one ephemeral Codex thread per chunk by default so long documents do not depend on one long model context.
+- Use one ephemeral Codex thread per chunk attempt by default so long documents do not depend on one long model context and retry attempts do not inherit invalid prior model output.
 - Start translation work with a locked-down thread and turn policy: no approvals, read-only sandboxing, no project/store filesystem access beyond the prompt input supplied by the Reader backend, and disabled network access when the installed app-server schema can express it for the selected sandbox. If the schema cannot express network-disabled read-only turns directly, do not attach network-capable tools, dynamic tools, MCP servers, or writable/readable project roots; update the Brilliant contract with the equivalent minimum-privilege payload before implementation.
 - Keep document-level state, glossary, style profile, chunk manifest, retries, and stitching in Reader code and SQLite.
 - Use SSE as the default frontend transport because the MVP only needs server-to-client progress streaming.
@@ -51,7 +51,7 @@ Research reference captured by the instruction:
 1. Source loading reads store-relative `memories/<memory_id>/CONTENT.md` under configured `storePath`, computes `source_hash`, file size, rough token estimate, document type hint, source URL, and source title.
 2. Block manifest generation parses Markdown into deterministic blocks with stable ids such as `b000001`.
 3. Chunking groups contiguous blocks, prefers section boundaries, splits oversized sections by block groups, and preserves document order.
-4. Codex translation creates or opens the configured app-server transport, completes JSON-RPC initialization, starts one ephemeral thread for the chunk, then sends one chunk plus metadata and policy through `turn/start` with an output schema when supported.
+4. Codex translation creates or opens the configured app-server transport, completes JSON-RPC initialization, starts one ephemeral thread for the chunk attempt, then sends one chunk plus metadata and policy through `turn/start` with an output schema when supported.
 5. Streaming maps Codex notifications such as `item/agentMessage/delta`, `item/started`, and `item/completed` into Reader SSE events.
 6. Validation checks every completed chunk before it can become authoritative.
 7. Retry handles chunk-level validation, auth, usage, timeout, context, and stream failures without retrying the whole document unnecessarily.
