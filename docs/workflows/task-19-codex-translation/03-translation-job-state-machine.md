@@ -93,12 +93,17 @@ Rules:
 - The runner processes one job at a time by default.
 - Chunks inside a job are processed sequentially by default.
 - Runner state is recoverable from SQLite rows.
+- Runner scheduling is idempotent by job id. Enqueuing the same job id multiple times is a no-op.
+- The runner claims work with an atomic compare-and-set repository method such as `claimTranslationJob(jobId, "pending")` that transitions `pending -> running` only if the row is still `pending`.
+- If `claimTranslationJob()` returns false, the runner does not execute the job body and instead reloads the job state.
+- Jobs already in `running`, `stitching`, `committing`, terminal states, or `cancel_requested` must not be re-enqueued as new work.
 - Before accepting a new job, recover interrupted `pending`, `running`, `stitching`, `committing`, and `cancel_requested` jobs.
 - Job-start recovery must run before active lookup or new job creation for the same `(memory_id, lang_code)`.
 - A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
 - A server restart may pause a job, but must not corrupt an existing completed translation.
 - A recovered `pending` or `running` job whose source hash still matches must re-check Codex auth/setup before continuing execution. If auth/setup is now missing, mark the existing job failed with `auth_required` or `setup_required` and emit a safe failure event/snapshot instead of returning an indefinitely running job.
 - A recovered `cancel_requested` job with no resumable in-flight `threadId` and `turnId` is finalized as `canceled`; late Codex output is ignored if it appears after restart. This prevents `cancel_requested` from blocking future retries through the active unique index indefinitely.
+- In-flight Codex `threadId` and `turnId` live only in the in-process runner registry for Brilliant MVP. Do not add SQLite columns for them. Restart recovery treats missing in-memory ids as non-resumable for cancellation.
 
 ## State transition contract
 
@@ -138,6 +143,8 @@ Cover:
 - active job reuse returns job metadata with `event_url`
 - failed/canceled/stale job does not block a user retry job
 - runner schedules a newly created pending job without blocking the request
+- duplicate route calls do not enqueue the same job id more than once
+- runner uses atomic `pending -> running` claim and does not execute a job when claim fails
 - runner recovery schedules an interrupted pending job when the source hash still matches
 - runner recovery marks an interrupted pending job stale when the source hash changed
 - job start runs focused recovery before active lookup or new job creation

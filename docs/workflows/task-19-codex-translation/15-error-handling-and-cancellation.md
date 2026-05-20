@@ -106,6 +106,8 @@ and allow a fresh translation for the same `(memory_id, lang_code, source_hash)`
 - The orchestrator stores the latest in-flight Codex `threadId` and `turnId` from app-server events.
 - `cancelTurn({ threadId, turnId })` sends app-server `turn/interrupt`.
 - `cancelTurn()` is called only when both an in-flight `threadId` and `turnId` are known.
+- In-flight `threadId` and `turnId` are stored only in the in-process runner registry for Brilliant MVP. Do not add SQLite columns for them.
+- After process restart, a `cancel_requested` job without registry ids is non-resumable and is finalized as `canceled`; late output is ignored.
 - If app-server cannot cancel, late output is ignored.
 - Canceled jobs do not commit final `CONTENT.md`.
 - SSE emits `translation.job.canceled` when cancellation completes.
@@ -121,6 +123,7 @@ Cover:
 - canceled job stops scheduling chunks
 - known in-flight thread id and turn id trigger `turn/interrupt`
 - missing in-flight thread id or turn id falls back to ignoring late output
+- in-flight thread id and turn id are not persisted in SQLite
 - late chunk output is ignored
 - canceled job never commits final file
 - auth and usage errors surface actionable messages

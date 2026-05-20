@@ -104,6 +104,7 @@ mise exec -- bun run typecheck
 - current committed translation reuse returns `200 current` without checking Codex auth
 - active job reuse returns `status = "active"`, the actual `job_status`, and the existing `event_url` without creating another row
 - compatible `cancel_requested` job returns `409 cancellation_conflict` until cancellation reaches `canceled`
+- runner claim uses atomic compare-and-set `pending -> running` semantics
 - active job reuse triggers or depends on focused recovery so stale old-source jobs are marked `stale` before new job creation
 - reused pending/running job whose Codex auth/setup is now missing becomes failed with `auth_required` or `setup_required`
 - auth/setup precondition failures return `409` without creating `translation_jobs` rows only when a new job would be required
@@ -136,6 +137,7 @@ mise exec -- bun run typecheck
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - `maxRetries: 3` means one initial attempt plus three retry attempts
+- output-mode fallback does not increment `retry_count` or consume `maxRetries`
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
 - runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories
@@ -156,6 +158,8 @@ mise exec -- bun run typecheck
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
+- in-flight `threadId` and `turnId` live only in the in-process runner registry and are not added to SQLite
+- duplicate route calls do not enqueue the same job id more than once
 - completed event includes `reader_url`
 - API errors use stable `code` values consumed by frontend state branches
 - historical completed jobs for older source hashes return `reader_url: null`

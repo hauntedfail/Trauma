@@ -80,6 +80,7 @@ getTranslationJob(jobId): Promise<TranslationJobRecord | null>
 findCompleteTranslationRecord(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
+claimTranslationJob(jobId, expectedStatus: "pending"): Promise<boolean>
 markTranslationUnavailable(jobId, reason: "output_missing" | "output_hash_mismatch"): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
@@ -96,6 +97,13 @@ Progress aggregation rules:
 - `failed_chunks` equals chunks with status `failed`.
 - `retrying_chunks` equals chunks with status `retrying`.
 - Raw per-status counts may still be returned by repository/internal methods for diagnostics, but frontend/API snapshot math must use the public aggregation above.
+
+Runner claim rules:
+
+- `claimTranslationJob()` is a compare-and-set transition used by the runner to atomically claim `pending -> running`.
+- It returns `false` if another runner tick already claimed, canceled, failed, or otherwise changed the job.
+- In-flight Codex `threadId` and `turnId` are not persisted in SQLite for Brilliant MVP. They live only in the local in-process runner registry.
+- After restart, a `cancel_requested` job without in-memory ids is recovered as `canceled`.
 
 Current-translation lookup rules:
 

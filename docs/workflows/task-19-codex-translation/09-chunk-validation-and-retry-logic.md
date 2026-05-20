@@ -68,6 +68,8 @@ Error code boundary:
 - `maxRetries` is the number of retry attempts after the initial attempt, so total attempts are `1 + maxRetries`.
 - The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts.
 - After retry exhaustion, mark chunk and job failed.
+- `outputSchema` rejection or fallback to prompt-only JSON mode is not a validation retry and does not change `retry_count`.
+- Retry logic starts only after Codex returns final output for the selected output mode and that output fails parsing/schema/semantic validation.
 
 ## Failure examples to test
 
@@ -96,6 +98,7 @@ Cover:
 - retry prompt includes validation errors and original block ids
 - retry starts a fresh ephemeral Codex thread for each attempt
 - retry prompt does not depend on prior failed thread history
+- output-mode fallback does not increment retry count
 - retry count increments
 - `maxRetries: 3` allows four total attempts: one initial attempt and three retry attempts
 - retry exhaustion marks failed

@@ -93,7 +93,8 @@ Rules:
 - Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
 - `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
-- If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
+- If `outputSchema` is unsupported or rejected, switch to prompt-only JSON response mode. The returned JSON must still pass `CodexChunkOutput` validation before persistence. This is output-mode negotiation, not chunk validation retry; it must not increment `retry_count`, must not consume `maxRetries`, and should be cached per app-server client/job when possible.
+- If both structured-output mode and prompt-only JSON mode are unavailable or rejected, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
 - Use one ephemeral Codex thread per chunk attempt by default.
 - Do not expose app-server URL, auth state, or connection details to frontend code.
@@ -102,6 +103,7 @@ Rules:
 - Final output must come from completed app-server item content.
 - `translateChunk()` yields `thread.started` and `turn.started` when ids are available so the orchestrator can cancel the in-flight turn.
 - Cancellation uses `turn/interrupt` with both `threadId` and `turnId`.
+- In-flight `threadId` and `turnId` are kept in the local runner registry only. The app-server client does not require SQLite columns for these ids in Brilliant MVP.
 - Raw app-server notifications are parsed only in this module and converted into typed `CodexAppServerEvent` values before reaching orchestrator or SSE code.
 - Auth app-server notifications are parsed only in this module and converted into typed `CodexAuthEvent` values before reaching settings/auth services.
 
@@ -144,6 +146,7 @@ Use a fake app-server client. Cover:
 - chunk translation starts an ephemeral thread before starting a turn
 - retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread
 - `turn/start` request passes through the caller-provided output schema
+- output-schema rejection falls back to prompt-only JSON mode without incrementing `retry_count`
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation
 - `thread/start` request includes the same locked-down policy where the generated schema supports it, or tests document that `turn/start` overrides thread defaults
@@ -152,6 +155,7 @@ Use a fake app-server client. Cover:
 - rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `translateChunk()` yields thread id and turn id before item events when available
 - `cancelTurn()` sends `turn/interrupt` with thread id and turn id
+- in-flight thread/turn ids are exposed to the runner for cancellation but are not persisted in SQLite
 - chunk translation uses ephemeral chunk scope
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
