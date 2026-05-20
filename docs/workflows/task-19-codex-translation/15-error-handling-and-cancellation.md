@@ -88,6 +88,9 @@ and allow a fresh translation for the same `(memory_id, lang_code, source_hash)`
 ## Cancellation contract
 
 - `POST /api/translation-jobs/:job_id/cancel` marks the job `cancel_requested`.
+- Cancellation is accepted for `pending` and `running` jobs.
+- Cancellation is idempotent for `cancel_requested` and `canceled` jobs.
+- Cancellation returns `409 cancellation_conflict` for `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable` jobs.
 - Scheduler stops starting new chunks.
 - In-flight Codex turn is canceled if app-server supports cancellation.
 - The orchestrator stores the latest in-flight Codex `threadId` and `turnId` from app-server events.
@@ -103,6 +106,8 @@ Cover:
 
 - cancel pending job
 - cancel running job
+- cancel already requested or canceled job is idempotent
+- cancel non-cancelable job returns `cancellation_conflict`
 - canceled job stops scheduling chunks
 - known in-flight thread id and turn id trigger `turn/interrupt`
 - missing in-flight thread id or turn id falls back to ignoring late output

@@ -68,6 +68,7 @@ Before later subtasks start, confirm these names and contracts are stable:
 - Final output path `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - Translated reader route `/memories/:lang_code/:id`.
 - Codex app-server JSON-RPC lifecycle: connect, `initialize`, `initialized`, `account/read`, `thread/start`, `turn/start`, notifications, and optional `turn/interrupt`.
+- Codex app-server transport boundary: Unix socket or loopback WebSocket only for JSON-RPC; HTTP is health-probe-only; `stdio` process ownership is outside Brilliant MVP.
 - Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
 
 ## Tests

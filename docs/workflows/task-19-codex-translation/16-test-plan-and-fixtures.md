@@ -122,17 +122,18 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - JSON-RPC app-server initialization before requests
-- URL-based app-server transport support and `stdio` rejection for Brilliant MVP
+- Unix socket or loopback WebSocket JSON-RPC transport support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `app_server_unavailable` maps to HTTP `503`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
 - Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`
-- device-code login safe fields and completion notification handling
+- device-code login safe fields and success/failure/cancellation notification handling
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
+- cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - completed event includes `reader_url`
 - API errors use stable `code` values consumed by frontend state branches
 - historical completed jobs for older source hashes return `reader_url: null`

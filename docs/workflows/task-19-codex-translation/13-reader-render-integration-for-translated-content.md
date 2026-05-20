@@ -98,7 +98,7 @@ Cover:
 - translated route renders committed translated `CONTENT.md`
 - translated route reads store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`
 - stale translated output is not rendered as current
-- complete row with missing or hash-mismatched output is marked unavailable and not rendered as current
+- complete row with missing or hash-mismatched output is treated as unavailable/not current and is not rendered
 - reader route and variant tab logic use the shared read-only `resolveCurrentTranslation()` helper
 - reader route and variant tab rendering do not mutate SQLite when translated output is missing or hash-mismatched
 - missing translated route returns not found without silently rendering source content

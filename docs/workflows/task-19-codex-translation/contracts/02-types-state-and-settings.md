@@ -82,10 +82,14 @@ export interface TranslationJobSnapshotError {
     | "translation_unavailable"
     | "translation_language_required"
     | "translation_language_mismatch"
+    | "invalid_language"
+    | "missing_memory"
+    | "missing_source_content"
     | "auth_required"
     | "setup_required"
     | "app_server_unavailable"
     | "stale_source"
+    | "cancellation_conflict"
     | "usage_limit"
     | "context_overflow"
     | "timeout"
@@ -169,6 +173,12 @@ export interface CodexChunkOutput {
   warnings: string[];
 }
 ```
+
+`TranslationJobSnapshotError` is the shared safe error object used by API error
+responses, job snapshots, and SSE failure events. Some codes, such as
+`missing_memory` or `invalid_language`, normally appear only in API responses,
+but they remain in the shared union so frontend branching uses one stable `code`
+namespace.
 
 `TranslationJobSnapshot.reader_url` is derived, not stored. It is non-null only when a current committed translation exists for `(memory_id, lang_code, source_hash)` and the output file hash matches the completed translation row. For pending, running, cancel-requested, canceled, failed, stale, or renderable-output-missing states, it is `null`.
 
@@ -273,6 +283,7 @@ retry the old source hash.
 ```text
 pending -> running
 pending -> stale
+pending -> cancel_requested
 running -> stale
 running -> stitching
 running -> failed
@@ -292,6 +303,11 @@ Completed jobs are immutable history while their committed output file remains a
 scheduled by the runner, and it must not emit its own SSE terminal event. It is
 surfaced through job snapshots and API error responses with
 `error.code = "translation_unavailable"`.
+
+Cancellation is allowed only while a job is `pending`, `running`, or already in
+`cancel_requested`. Requests for `cancel_requested` or `canceled` jobs are
+idempotent. Requests for `stitching`, `committing`, `complete`, `stale`,
+`failed`, or `unavailable` jobs return `cancellation_conflict`.
 
 ## Hash contract
 

@@ -62,6 +62,7 @@ Status codes:
 - `409` for missing configured target language, request/setting language mismatch, Codex auth/setup required, stale running conflict, or cancellation conflict
 - `502` for invalid final Codex/model output
 - `503` for configured but unavailable Codex app-server
+- `504` for Codex timeout
 - `500` for unexpected server failure
 
 Error response shape:
@@ -299,6 +300,13 @@ Rules:
 ```http
 POST /api/translation-jobs/:job_id/cancel
 ```
+
+Cancelable statuses:
+
+- `pending` and `running` transition to `cancel_requested`.
+- `cancel_requested` and `canceled` are idempotent success responses.
+- `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable`
+  return `409` with `code = "cancellation_conflict"`.
 
 ```json
 {

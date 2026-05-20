@@ -49,8 +49,12 @@ The MVP connects to an already-running Codex app-server. It does not auto-start 
 
 Rules:
 
-- Read app-server base URL from `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value.
-- Support only URL-based app-server transports in the MVP: WebSocket or HTTP. Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
+- Read app-server endpoint from `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value.
+- Support only Unix socket or loopback WebSocket JSON-RPC transports in the MVP.
+- HTTP is health-probe-only and must not be used for JSON-RPC app-server requests.
+- Reject `http://` and `https://` endpoints for JSON-RPC.
+- Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
+- Reject non-loopback WebSocket endpoints until a separate security subtask defines remote listener authentication and secret storage.
 - Speak JSON-RPC 2.0 over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
 - Reject or retry connection setup if any request is attempted before initialization.
@@ -96,14 +100,18 @@ Map app-server failures to typed backend errors:
 Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
-- missing app-server URL returns setup-required
+- missing app-server endpoint returns setup-required
+- Unix socket JSON-RPC transport is accepted
+- loopback WebSocket JSON-RPC transport is accepted
+- HTTP endpoints are rejected for JSON-RPC
+- non-loopback WebSocket endpoints are rejected for Brilliant MVP
 - `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
 - JSON-RPC initialize and initialized happen before `account/read`, `thread/start`, or `turn/start`
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
 - logout wraps `account/logout` when supported and reports unsupported logout explicitly
-- auth notifications map to typed `CodexAuthEvent` values
+- auth notifications map to typed `CodexAuthEvent` values including login success, failure, and cancellation
 - auth check uses `account/read`
 - chunk translation starts an ephemeral thread before starting a turn
 - `turn/start` request passes through the caller-provided output schema

@@ -18,8 +18,9 @@ Supporting types:
 
 ```ts
 export interface CodexAppServerConfig {
-  baseUrl: string;
-  transport: "websocket" | "http";
+  endpoint: string;
+  transport: "unix_socket" | "websocket";
+  healthProbeUrl?: string;
   healthTimeoutMs: number;
   requestTimeoutMs: number;
 }
@@ -45,7 +46,7 @@ export type CodexDeviceCodeLoginState =
   | { status: "canceled"; loginId: string };
 
 export type CodexAuthEvent =
-  | { type: "auth.login.completed"; loginId: string | null }
+  | { type: "auth.login.completed"; loginId: string | null; success: boolean; error: string | null }
   | { type: "auth.account.updated" };
 
 export type CodexLogoutResult =
@@ -89,13 +90,17 @@ export interface CodexAppServerError {
 Rules:
 
 - MVP connects to an already-running Codex app-server through server-side config.
-- Use `TRAUMA_CODEX_APP_SERVER_URL` or the equivalent typed TRAUMA config value as `baseUrl`.
+- Use `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value as `endpoint`.
 - The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
 - Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
-- If `baseUrl` is missing, return `setup_required`.
-- Brilliant MVP supports only URL-based app-server transports: `websocket` or `http`. `stdio` process ownership is out of scope because TRAUMA does not auto-start or supervise the app-server process.
-- If `baseUrl` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
+- If `endpoint` is missing, return `setup_required`.
+- Brilliant MVP supports JSON-RPC only over a Unix socket or a loopback WebSocket endpoint such as `ws://127.0.0.1:<port>`.
+- HTTP is not a JSON-RPC transport for Brilliant. It may be used only for app-server health probes such as `/readyz` or `/healthz` when the selected endpoint exposes them.
+- Reject `http://` and `https://` endpoints for JSON-RPC with `setup_required`.
+- Reject `stdio` process ownership because TRAUMA does not auto-start or supervise the app-server process in Brilliant MVP.
+- Reject non-loopback WebSocket endpoints in the MVP. Remote app-server exposure and WebSocket bearer/capability-token management require a separate security subtask.
+- If `endpoint` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
 - Run `account/read` before scheduling translation work. If `requiresOpenaiAuth` is true and no ChatGPT/API account is available, surface `auth_required` or `setup_required`.
 - Do not fall back to `codex exec` from this app-server client.
 - Use one ephemeral `thread/start` per chunk, then app-server `turn/start`.
@@ -116,6 +121,7 @@ Rules:
 - Safe device-code response fields are `loginId`, `verificationUrl`, and `userCode`.
 - Device-code cancellation uses `account/login/cancel` through `cancelDeviceCodeLogin({ loginId })`.
 - Completion is detected from `account/login/completed` and `account/updated` notifications, followed by `account/read` confirmation.
+- `account/login/completed` is adapted to `CodexAuthEvent` with `loginId`, `success`, and safe `error` text. If `success` is false, the settings/auth service must clean up the pending observer and return a safe failed or canceled state instead of treating the login as enabled.
 - Auth notification consumption uses `observeAuthEvents()`. Settings/auth services must not subscribe to raw JSON-RPC notifications directly.
 - `observeAuthEvents()` is consumed only while a device-code login is pending. The settings/auth service owns the listener lifecycle and must cancel/close the listener when login completes, is canceled, fails, or the server request scope is disposed.
 - Losing the auth event listener is not fatal. Auth status refresh must always call `account/read` through `checkAuth()` and may return safe pending metadata when known.
