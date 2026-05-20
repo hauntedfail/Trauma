@@ -138,6 +138,7 @@ mise exec -- bun run typecheck
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - `maxRetries: 3` means one initial attempt plus three retry attempts
 - output-mode fallback does not increment `retry_count` or consume `maxRetries`
+- output-mode fallback after a rejected thread starts a fresh prompt-only thread without consuming retry budget
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
 - runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories
@@ -157,7 +158,9 @@ mise exec -- bun run typecheck
 - default app-server endpoint uses Unix socket `unix://`
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
+- pending cancellation transitions directly to `canceled`; running cancellation uses `cancel_requested`
 - recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
+- recovered orphaned `running` job becomes `pending` or `stale`; recovered `stitching`/`committing` job uses final-output recovery
 - in-flight `threadId` and `turnId` live only in the in-process runner registry and are not added to SQLite
 - duplicate route calls do not enqueue the same job id more than once
 - completed event includes `reader_url`

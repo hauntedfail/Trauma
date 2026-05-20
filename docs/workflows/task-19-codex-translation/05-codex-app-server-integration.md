@@ -94,6 +94,8 @@ Rules:
 - `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
 - If `outputSchema` is unsupported or rejected, switch to prompt-only JSON response mode. The returned JSON must still pass `CodexChunkOutput` validation before persistence. This is output-mode negotiation, not chunk validation retry; it must not increment `retry_count`, must not consume `maxRetries`, and should be cached per app-server client/job when possible.
+- Prefer probing or caching output-mode support before chunk translation starts. Once a job/client determines prompt-only JSON mode is required, use that mode for later chunk attempts without first sending rejected `outputSchema` payloads again.
+- If `outputSchema` is rejected after a chunk attempt thread has already been created, discard that thread and start a fresh ephemeral thread in prompt-only JSON mode. This fresh thread is still the same chunk attempt for retry accounting and must not increment `retry_count`.
 - If both structured-output mode and prompt-only JSON mode are unavailable or rejected, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
 - Use one ephemeral Codex thread per chunk attempt by default.
@@ -147,6 +149,7 @@ Use a fake app-server client. Cover:
 - retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread
 - `turn/start` request passes through the caller-provided output schema
 - output-schema rejection falls back to prompt-only JSON mode without incrementing `retry_count`
+- output-schema fallback after thread creation discards the rejected thread and starts a fresh thread without consuming retry budget
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - `turn/start` locked-down policy is verified against generated schema or focused fixtures before implementation
 - `thread/start` request includes the same locked-down policy where the generated schema supports it, or tests document that `turn/start` overrides thread defaults

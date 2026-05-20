@@ -99,6 +99,8 @@ and allow a fresh translation for the same `(memory_id, lang_code, source_hash)`
 
 - `POST /api/translation-jobs/:job_id/cancel` marks the job `cancel_requested`.
 - Cancellation is accepted for `pending` and `running` jobs.
+- Canceling a `pending` job with no in-flight Codex turn transitions directly to `canceled`; it does not wait in `cancel_requested`.
+- Canceling a `running` job transitions to `cancel_requested`, then interrupts the in-flight turn when ids are known or ignores late output when ids/cancel support are unavailable.
 - Cancellation is idempotent for `cancel_requested` and `canceled` jobs.
 - Cancellation returns `409 cancellation_conflict` for `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable` jobs.
 - Scheduler stops starting new chunks.
@@ -117,6 +119,7 @@ and allow a fresh translation for the same `(memory_id, lang_code, source_hash)`
 Cover:
 
 - cancel pending job
+- cancel pending job transitions directly to `canceled`
 - cancel running job
 - cancel already requested or canceled job is idempotent
 - cancel non-cancelable job returns `cancellation_conflict`
