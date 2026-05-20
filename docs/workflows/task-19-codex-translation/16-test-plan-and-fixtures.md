@@ -125,6 +125,7 @@ mise exec -- bun run typecheck
 - `app_server_unavailable` maps to HTTP `503`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
+- Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`
 - device-code login safe fields and completion notification handling
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout

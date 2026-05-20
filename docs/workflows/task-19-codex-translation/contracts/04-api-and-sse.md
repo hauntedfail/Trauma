@@ -60,6 +60,7 @@ Status codes:
 - `400` for invalid language code
 - `404` for missing memory or source content
 - `409` for missing configured target language, request/setting language mismatch, Codex auth/setup required, stale running conflict, or cancellation conflict
+- `502` for invalid final Codex/model output
 - `503` for configured but unavailable Codex app-server
 - `500` for unexpected server failure
 
@@ -99,6 +100,7 @@ Required error codes:
 - `context_overflow`
 - `timeout`
 - `stream_disconnected`
+- `invalid_final_output`
 - `validation_failed`
 - `filesystem_failure`
 - `unknown`
@@ -120,6 +122,7 @@ HTTP mapping:
 - `context_overflow`: `409`
 - `timeout`: `504`
 - `stream_disconnected`: `503`
+- `invalid_final_output`: `502`
 - `validation_failed`: `409`
 - `filesystem_failure`: `500`
 - `unknown`: `500`

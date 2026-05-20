@@ -90,6 +90,7 @@ export interface TranslationJobSnapshotError {
     | "context_overflow"
     | "timeout"
     | "stream_disconnected"
+    | "invalid_final_output"
     | "validation_failed"
     | "filesystem_failure"
     | "unknown";

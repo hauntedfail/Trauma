@@ -69,7 +69,8 @@ Reader UI shows:
 15. If `code = "translation_unavailable"` or `action = "start_fresh_translation"`, tell the user the translated output is no longer available, navigate to the source reader route `/memories/:id` if necessary, and start a fresh translation through `POST /api/memories/:memory_id/translations`.
 16. If `code = "timeout"`, tell the user the Codex turn timed out and offer retry.
 17. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
-18. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
+18. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
+19. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
 
 Progress and reconnect behaviour:
 
@@ -120,6 +121,7 @@ Cover:
 - job snapshot with `status = "unavailable"` renders a fresh-translation recovery action
 - app-server-unavailable failure is rendered separately from auth/setup-required
 - timeout and stream-disconnected failures are rendered separately from validation and auth/setup failures
+- invalid-final-output failure is rendered separately from generic validation failure
 - translation-unavailable failure navigates to the source reader route and starts a fresh translation
 - stale-source failure offers a fresh translation action
 - failure message is actionable and does not expose secrets

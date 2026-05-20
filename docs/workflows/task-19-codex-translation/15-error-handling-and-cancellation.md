@@ -46,6 +46,7 @@ Use typed errors for:
 - context overflow
 - timeout
 - stream disconnect
+- invalid final output
 - validation failure
 - stale source
 - unavailable translation output
@@ -61,7 +62,8 @@ Codex transport failures map to stable API/job error codes:
 
 - `timeout` remains `timeout` and maps to HTTP `504` when returned from an API request.
 - `stream_disconnected` remains `stream_disconnected` and maps to HTTP `503` when returned from an API request.
-- Do not collapse `timeout` or `stream_disconnected` into `unknown`, `app_server_unavailable`, or `validation_failed`.
+- `invalid_final_output` remains `invalid_final_output` and maps to HTTP `502` when returned from an API request.
+- Do not collapse `timeout`, `stream_disconnected`, or `invalid_final_output` into `unknown`, `app_server_unavailable`, or `validation_failed`.
 
 Stale source is not reported as a generic failed job. When a pending or running job becomes stale because the source hash changed, emit `translation.job.stale` with safe hash metadata and close the stream.
 
@@ -95,6 +97,7 @@ Cover:
 - canceled job never commits final file
 - auth and usage errors surface actionable messages
 - timeout and stream-disconnected errors preserve their stable codes
+- invalid-final-output errors preserve their stable code
 - filesystem failure does not corrupt existing translation
 - unavailable completed output does not block a fresh translation
 - stream disconnect does not cancel job

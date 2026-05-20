@@ -3,7 +3,7 @@
 **Reviewed:** 2026-05-21  
 **Reviewer:** Claude (pre-implementation gate review)  
 **Scope:** All files under `docs/workflows/task-19-codex-translation/` plus parent README, against `TASK_19_INSTRUCTION.md` acceptance criteria (lines 706–725) and security requirements (lines 1–705).  
-**Verdict:** **READY — with tracked weaknesses.** No blocker found. See §5 for non-blocking risks to address during implementation.
+**Verdict:** **HISTORICAL REVIEW SNAPSHOT.** The canonical implementation plan is `docs/workflows/task-19-codex-translation/README.md` plus `00-execution-contracts.md` and the focused contracts under `docs/workflows/task-19-codex-translation/contracts/`. Findings below may be superseded by later plan edits.
 
 ---
 
@@ -146,11 +146,11 @@ contracts/04 states: "On reconnect, emit `translation.job.snapshot` first using 
 
 For MVP this is acceptable (the snapshot covers state). Flag for subtask 07 to document this gap explicitly so future implementors do not assume replay coverage.
 
-### 5.5 `repairUnavailableTranslation()` not specified in any subtask contract
+### 5.5 `repairUnavailableTranslation()` ownership
 
-contracts/04 defines the `unavailable` state and specifies that recovery happens by starting a fresh translation. But no subtask contract explicitly owns or specifies the body of `repairUnavailableTranslation()`. contracts/07 recovery case 3 covers the logic. Subtask 11 (SQLite cleanup and purge) is the natural owner.
+**Resolved after this review snapshot.** `repairUnavailableTranslation()` is now owned by 19.3 through `src/server/translation/current-translation.ts`. 19.11 recovery reuses that helper instead of implementing a second unavailable-repair path.
 
-**Recommendation:** Subtask 11 acceptance criteria should include: "Implements `repairUnavailableTranslation()` per contracts/07 recovery case 3."
+**Canonical source:** use the focused contracts and subtask files, not this historical note, when implementing unavailable repair.
 
 ### 5.6 Oversized single block handling is deferred
 

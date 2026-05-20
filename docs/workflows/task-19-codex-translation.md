@@ -2,6 +2,7 @@
 
 ## Status
 
+- Implementation source of truth: this parent file is an overview only. Implementation workers must start from `docs/workflows/task-19-codex-translation/README.md`, then `00-execution-contracts.md`, then the focused contracts listed for their assigned subtask.
 - State: Planning only; ready for implementation after this workflow is accepted.
 - Base branch: `main`
 - Implementation branch: `feat/brilliant`
@@ -69,7 +70,7 @@ translation_chunks
 
 `translation_chunks` tracks per-chunk source hash, ordered block ids, status, retry count, temporary translated Markdown, translated hash, error state, and timestamps.
 
-Status values must be explicit and separated by job/chunk domain. Job status includes `pending`, `running`, `stale`, `cancel_requested`, `canceled`, `stitching`, `committing`, `complete`, and `failed`. Chunk status includes `pending`, `running`, `validating`, `retrying`, `complete`, `purged`, and `failed`.
+Status values must be explicit and separated by job/chunk domain. Job status includes `pending`, `running`, `stale`, `cancel_requested`, `canceled`, `unavailable`, `stitching`, `committing`, `complete`, and `failed`. Chunk status includes `pending`, `running`, `validating`, `retrying`, `complete`, `purged`, and `failed`.
 
 Completed chunk body cleanup is required:
 
@@ -121,6 +122,7 @@ translation.job.stitching
 translation.job.committing
 translation.job.completed
 translation.job.failed
+translation.job.stale
 translation.job.canceled
 ```
 
