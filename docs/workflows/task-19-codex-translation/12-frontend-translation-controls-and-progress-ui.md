@@ -2,79 +2,72 @@
 
 ## Goal
 
-Add Reader UI controls for starting Brilliant translation and showing streaming progress.
+Add reader controls for starting Brilliant translation and showing streaming progress.
 
-## Scope
+## Files likely owned
 
-Implement reader-page controls, auth/setup states, target-language display, progress transcript, chunk count, validation/retry messages, completion state, and failure state. This subtask does not implement translated document parsing.
+- `src/components/reader/MemoryReader.tsx`
+- `src/components/reader/TranslationControls.tsx`
+- `src/components/reader/TranslationProgress.tsx`
+- `tests/components/reader-translation-controls.test.tsx`
+- `tests/components/reader-translation-progress.test.tsx`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- Task 18 settings language and auth surfaces
-- 19.6 auth status API
-- 19.7 SSE envelope
-- 19.3 job status API
+- `contracts/02-types-state-and-settings.md`
+- `contracts/04-api-and-sse.md`
 
-## Outputs
+## Rendering contract
 
-- Modify: `src/components/reader/MemoryReader.tsx`
-- Create: `src/components/reader/TranslationControls.tsx`
-- Create: `src/components/reader/TranslationProgress.tsx`
-- Test: `tests/components/reader-translation-controls.test.tsx`
-- Test: `tests/components/reader-translation-progress.test.tsx`
+Reader UI shows:
 
-## Dependencies
+- selected target language from persisted settings/page data
+- settings-required state when no target language exists
+- auth/setup-required state when Codex cannot run
+- translate action when ready
+- current chunk index and total chunk count while running
+- live Codex delta transcript labelled as progress, not saved content
+- validation and retry events
+- committing state
+- completion action to open translated reader variant
+- actionable failure state
 
-- 19.6 for auth/setup API shape.
-- 19.7 for event envelope.
-- 19.13 for final navigation details.
+## Start behaviour
 
-## Concrete UI states
-
-```text
-idle_current_source
-settings_required
-auth_required
-ready_to_translate
-starting
-running
-retrying
-committing
-completed
-failed
-canceled
-```
-
-Start action:
-
-1. Read configured `lang_code`.
-2. POST `/api/memories/:memory_id/translations` with `{}` or with the configured `lang_code` as a consistency assertion.
-3. If `202`, open SSE `event_url`.
+1. Read configured `lang_code` from page/settings data.
+2. POST `/api/memories/:memory_id/translations` with `{}` or with `lang_code` as a consistency assertion.
+3. If `202`, open the returned `event_url`.
 4. If `200 current`, navigate to `/memories/:id?lang=<lang_code>`.
-5. If `409 setup_required`, show auth/setup callout.
-6. If `409 translation_language_required`, link the user to `/settings`.
-7. If `409 translation_language_mismatch`, refresh settings state and ask the user to retry.
+5. If `409 translation_language_required`, link to `/settings`.
+6. If `409 translation_language_mismatch`, refresh settings state and ask the user to retry.
+7. If `409 setup_required`, show Codex auth setup guidance.
+
+## Tests
+
+Cover:
+
+- target language renders from persisted settings value
+- missing language renders settings-required state
+- auth unavailable renders setup-required state
+- click starts translation API request
+- `202` opens SSE progress
+- `200 current` navigates to translated variant
+- progress shows chunk count and current chunk
+- delta transcript is labelled non-authoritative
+- retry event renders visibly
+- failure message is actionable and does not expose secrets
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/components/reader-translation-controls.test.tsx
+mise exec -- bun run test tests/components/reader-translation-progress.test.tsx
+mise exec -- bun run typecheck
+```
 
 ## Acceptance criteria
 
-- The translate button uses settings target language.
-- The displayed target language comes from the persisted settings value loaded through the settings/page-data API.
-- Missing target language shows settings-required state.
-- Auth unavailable shows setup guidance without starting blindly.
-- Progress shows chunk index and total chunk count.
-- Delta transcript is labelled as live progress, not saved content.
-- Validation and retry events are visible.
-- Completion navigates or links to translated reader variant.
-- Failure displays actionable error without tokens, raw prompts, or secret paths.
-- UI never reads `.work` files or Codex app-server directly.
-
-## Parallelization notes
-
-Can run after 19.6 and 19.7 stabilize. Can run in parallel with 19.13 if URL/query contract is fixed.
-
-## Implementation risks
-
-- Displaying deltas as saved content misrepresents unvalidated output.
-- Page refresh must recover via job status endpoint.
-- Auth-required state must not leak internal Codex setup details.
+- Reader can start translation from UI.
+- UI uses SQLite-backed settings state through backend/page data.
+- UI never talks to Codex app-server directly.
+- UI does not present partial deltas as saved translation.

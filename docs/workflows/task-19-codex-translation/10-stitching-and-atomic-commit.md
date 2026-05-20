@@ -2,35 +2,29 @@
 
 ## Goal
 
-Stitch validated chunks into final translated Markdown and atomically commit `memory/<memory_id>/<lang_code>/CONTENT.md`.
+Stitch validated translated chunks and atomically commit the final translated `CONTENT.md`.
 
-## Scope
+## Files likely owned
 
-Implement manifest-order stitching, final validation, translated frontmatter policy, same-directory temp file writing, fsync/flush behavior, atomic rename, output hash verification, and commit metadata update.
+- `src/server/translation/stitcher.ts`
+- `src/server/translation/atomic-writer.ts`
+- `tests/server/translation/stitcher.test.ts`
+- `tests/server/translation/atomic-writer.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.4 block manifest
-- 19.9 validated chunk outputs
-- 19.2 job metadata schema
+- `contracts/03-sqlite-and-repositories.md`
+- `contracts/05-markdown-chunking.md`
+- `contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
+## Stitching contract
 
-- Create: `src/server/translation/stitcher.ts`
-- Create: `src/server/translation/atomic-writer.ts`
-- Test: `tests/server/translation/stitcher.test.ts`
-- Test: `tests/server/translation/atomic-writer.test.ts`
+- Stitch translated blocks in original manifest order.
+- Do not include internal chunk metadata in final Markdown.
+- Preserve source-level document structure after translation.
+- Final validation checks chunk count, block count, missing block ids, duplicate block ids, duplicate sections caused by retries, and Markdown sanity.
 
-## Dependencies
-
-- 19.2 for metadata fields.
-- 19.4 for block order.
-- 19.9 for validated chunk outputs.
-
-## Concrete commit sequence
-
-Use the 13-step atomic commit and purge sequence from `00-execution-contracts.md`.
+## Atomic write contract
 
 Final path:
 
@@ -44,22 +38,39 @@ Temporary path:
 memory/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
 ```
 
+Commit sequence follows `contracts/07-atomic-commit-purge-recovery.md` exactly.
+
+Rules:
+
+- Re-read source hash before commit.
+- Do not mutate source `CONTENT.md`.
+- Use same-directory temp file.
+- Existing completed translation must remain intact if commit fails.
+- Job completion event is emitted only after purge succeeds.
+
+## Tests
+
+Cover:
+
+- stitched output follows manifest order
+- missing block fails final validation
+- duplicate block fails final validation
+- source hash mismatch marks job stale before write
+- temp file is same-directory
+- failure before rename leaves existing translation intact
+- failure after rename is recoverable
+- source `CONTENT.md` is unchanged
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/translation/stitcher.test.ts
+mise exec -- bun run test tests/server/translation/atomic-writer.test.ts
+mise exec -- bun run typecheck
+```
+
 ## Acceptance criteria
 
-- Stitched output follows manifest block order exactly.
-- Final validation detects missing, duplicate, or reordered block ids before writing.
-- Existing completed translation remains intact if write, flush, rename, DB update, or purge fails.
-- Source `CONTENT.md` is never mutated.
-- Temp file is same-directory and short-lived.
-- Job completion event is emitted only after purge succeeds.
-- Tests simulate failure before rename and after rename.
-
-## Parallelization notes
-
-Should run after 19.9. Can run beside 19.11 if commit/purge handoff stays identical to the contract.
-
-## Implementation risks
-
-- Cross-directory temp files make rename non-atomic.
-- DB complete before rename creates missing-file metadata.
-- Rename success plus DB failure needs recovery handling.
+- Final translated file is committed atomically.
+- Existing translations are not corrupted by failed jobs.
+- Commit is safe for long multi-chunk documents.

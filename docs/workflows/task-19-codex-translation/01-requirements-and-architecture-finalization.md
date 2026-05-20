@@ -2,50 +2,75 @@
 
 ## Goal
 
-Freeze the Brilliant architecture before implementation begins.
+Freeze Brilliant implementation boundaries before code work starts. This subtask turns the product instruction into stable implementation contracts and does not implement application code.
 
-## Scope
-
-Document the final contracts for storage layout, app-server integration, auth boundary, SSE transport, chunk orchestration, SQLite cleanup, and Reader rendering. This subtask is planning and interface finalization only.
-
-## Inputs
+## Files likely owned
 
 - `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- `TASK_19_INSTRUCTION.md`
-- `docs/INDEX.md`
-- `docs/architecture/data-and-storage.md`
-- `docs/architecture/flows.md`
-- `docs/architecture/ui-and-routing.md`
-- `docs/references/glossary.md`
-- `docs/workflows/task-18-memory-actions/README.md`
+- `docs/workflows/task-19-codex-translation/contracts/README.md`
+- `docs/workflows/task-19-codex-translation/contracts/01-architecture-and-ownership.md`
+- `docs/workflows/task-19-codex-translation/contracts/02-types-state-and-settings.md`
+- `docs/workflows/task-19-codex-translation/contracts/03-sqlite-and-repositories.md`
+- `docs/workflows/task-19-codex-translation/contracts/04-api-and-sse.md`
+- `docs/workflows/task-19-codex-translation/contracts/05-markdown-chunking.md`
+- `docs/workflows/task-19-codex-translation/contracts/06-codex-prompt-and-validation.md`
+- `docs/workflows/task-19-codex-translation/contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
+## Contract references
 
-- A short architecture note under `docs/architecture/` or `docs/workflows/task-19-codex-translation/` that records the frozen Brilliant interfaces.
-- Final names for job statuses, chunk statuses, SSE event types, and API routes.
-- Confirmation that `codex exec` is not the primary production path for Brilliant.
+Read all focused contract files for this subtask.
 
-## Dependencies
+## Architecture contract
 
-- Task 18 settings contract for target language and OpenAI/Codex auth surface.
+Brilliant uses Codex app-server as the preferred production integration surface. The Reader backend owns source loading, chunking, metadata, translation job state, validation, retry, stitching, atomic final writes, SQLite cleanup, and frontend event streaming.
+
+Codex receives chunk text, metadata, and translation instructions. Codex does not own article storage layout and must not write canonical translated `CONTENT.md` files.
+
+The browser never talks to Codex app-server directly. The browser talks only to TRAUMA backend APIs and SSE endpoints.
+
+The canonical translated file layout is:
+
+```text
+memory/<memory_id>/CONTENT.md
+memory/<memory_id>/<lang_code>/CONTENT.md
+```
+
+The selected target language comes from the SQLite-backed `/settings` value, for example `translation_target_lang_code = "ja-JP"`.
+
+## Freeze checklist
+
+Before later subtasks start, confirm these names and contracts are stable:
+
+- `feat/brilliant` implementation branch.
+- `translation_jobs` and `translation_chunks` table names.
+- `TranslationJobStatus` and `TranslationChunkStatus` values.
+- `POST /api/memories/:memory_id/translations` job start route.
+- `GET /api/translation-jobs/:job_id/events` SSE route.
+- SSE event names under `translation.*`.
+- Markdown block id format `b000001`.
+- Hash format `sha256:<hex>`.
+- Final output path `memory/<memory_id>/<lang_code>/CONTENT.md`.
+- Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
+
+## Tests
+
+No application tests are required in this subtask. If docs tooling exists, run the focused docs validation command used by the project.
+
+## Verification
+
+```sh
+# Optional only if docs validation exists in the repo
+mise exec -- bun run verify:docs
+```
+
+If no docs verification command exists, record that this subtask is documentation-only and no validation was run.
 
 ## Acceptance criteria
 
-- The architecture note states that Codex app-server is the preferred integration surface.
-- The Reader backend owns storage, chunking, validation, retry, stitching, atomic writes, SQLite cleanup, and frontend SSE.
-- The plan chooses SSE as the default transport and justifies it as minimal server-to-client streaming.
-- The plan chooses one ephemeral Codex thread per chunk by default.
-- The final storage layout is `memory/<memory_id>/<lang_code>/CONTENT.md`.
-- The note explicitly forbids persistent `.work/<job_id>` artifacts.
-- The note explicitly forbids storing completed translated article bodies in SQLite.
-- No implementation files are changed in this subtask unless documentation tooling requires link updates.
-
-## Parallelization notes
-
-This task must complete before parallel implementation tracks begin. It freezes names and contracts consumed by all later subtasks.
-
-## Implementation risks
-
-- If names are not frozen here, later subagents will create incompatible schemas and event envelopes.
-- If app-server is treated as optional instead of primary, implementation may regress to the obsolete `codex exec` design.
-- If SSE is not chosen explicitly, frontend and backend workers may overbuild WebSocket infrastructure before cancellation or live steering require it.
+- The focused contract files are small enough for subtask workers to load selectively.
+- The parent README maps each subtask to only the contracts it needs.
+- Codex app-server is documented as the preferred integration path.
+- Reader-owned orchestration is explicit.
+- SQLite-backed settings language is explicit.
+- Persistent `.work/<job_id>` artifacts are forbidden.
+- Later subtasks do not need to invent table names, route names, event names, or storage paths.

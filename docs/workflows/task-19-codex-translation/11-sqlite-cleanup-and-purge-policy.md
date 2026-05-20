@@ -2,32 +2,26 @@
 
 ## Goal
 
-Ensure completed translated chunk bodies do not remain in SQLite after final file commit.
+Ensure SQLite does not retain completed translated chunk bodies after final commit.
 
-## Scope
+## Files likely owned
 
-Implement purge rules, audit metadata retention, startup recovery for interrupted jobs, temp-file cleanup, and cleanup tests.
+- `src/server/translation/job-state.ts`
+- `src/server/translation/orchestrator.ts`
+- `src/server/db/repositories.ts`
+- optional `src/server/db/translation-repositories.ts`
+- `tests/server/translation/job-state.test.ts`
+- `tests/server/translation/orchestrator.test.ts`
+- `tests/server/db/translation-repositories.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.2 schema
-- 19.3 state machine
-- 19.10 commit success boundary
+- `contracts/03-sqlite-and-repositories.md`
+- `contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
+## Purge contract
 
-- Implement purge in `src/server/translation/job-state.ts` or repository layer
-- Implement recovery in `src/server/translation/orchestrator.ts` or startup hook selected in 19.1
-- Test: `tests/server/translation/job-state.test.ts`
-- Test: `tests/server/translation/orchestrator.test.ts`
-
-## Dependencies
-
-- 19.2 schema.
-- 19.10 commit/purge boundary.
-
-## Concrete purge SQL
+After successful final file commit:
 
 ```sql
 UPDATE translation_chunks
@@ -38,27 +32,45 @@ WHERE job_id = ?
   AND status = 'complete';
 ```
 
-Recovery cases:
+Rules:
+
+- Preserve `translated_hash`.
+- Preserve `block_ids_json`.
+- Preserve retry count and timestamps.
+- Do not emit `translation.job.completed` before purge succeeds.
+
+## Recovery contract
+
+Handle these startup or job-resume cases:
 
 1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 2. Final file exists, job complete, chunks not purged: purge before reporting complete.
 3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
 4. Source hash changed during interrupted job: mark stale.
 
+## Tests
+
+Cover:
+
+- completed chunks are purged after commit
+- purged chunks retain hash and block ids
+- failed jobs retain temporary output only under documented retention policy
+- recovery purges complete job with unpurged chunks
+- recovery handles temp file without final output
+- recovery handles final file without complete DB status
+- recovery marks stale when source hash changed
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/db/translation-repositories.test.ts
+mise exec -- bun run test tests/server/translation/job-state.test.ts
+mise exec -- bun run test tests/server/translation/orchestrator.test.ts
+mise exec -- bun run typecheck
+```
+
 ## Acceptance criteria
 
-- Completed jobs have no non-null `translated_markdown` rows.
-- Purged chunks retain `translated_hash`, `block_ids_json`, retry count, status, and timestamps.
-- Failed jobs retain temporary output only under documented retry/debug retention.
-- Startup recovery cannot report complete until file exists, hash matches, and purge is done.
-- Tests cover all recovery cases above.
-
-## Parallelization notes
-
-Can run after 19.2 and beside 19.10 if handoff is frozen.
-
-## Implementation risks
-
-- Purging before final file commit destroys the only successful output.
-- Forgetting purge creates a second persistent article store.
-- Startup recovery must not silently delete a valid committed translation.
+- Completed translated body exists only on disk.
+- SQLite retains metadata but not completed article text.
+- Crash recovery cannot falsely report complete without purge.

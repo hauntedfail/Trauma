@@ -2,49 +2,76 @@
 
 ## Goal
 
-Define consistent failure, retry, cancellation, and recovery behavior across backend, frontend, SQLite, and Codex app-server boundaries.
+Define consistent failure, retry, cancellation, and recovery behaviour across Brilliant backend, frontend, SQLite, and Codex app-server boundaries.
 
-## Scope
+## Files likely owned
 
-Implement typed error categories, user-facing messages, cancellation endpoint behavior, job state transitions, stream termination, and recovery for interrupted jobs.
+- `src/server/translation/types.ts`
+- `src/server/translation/job-state.ts`
+- `src/server/translation/codex-app-server.ts`
+- `src/server/translation/orchestrator.ts`
+- `src/routes/api/translation-jobs/[jobId]/cancel.ts`
+- `tests/server/routes/api-translation-jobs.test.ts`
+- `tests/server/translation/orchestrator.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.3 state machine
-- 19.5 app-server typed errors
-- 19.7 SSE stream behavior
-- 19.9 validation/retry policy
-- 19.10 atomic commit boundaries
+- `contracts/02-types-state-and-settings.md`
+- `contracts/04-api-and-sse.md`
+- `contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
+## Error taxonomy
 
-- Error taxonomy for auth failure, setup required, app-server unavailable, usage limit, context overflow, timeout, stream disconnect, validation failure, stale source, filesystem failure, and cancellation.
-- `POST /api/translation-jobs/:job_id/cancel` behavior.
-- Frontend-safe error payloads.
+Use typed errors for:
 
-## Dependencies
+- auth required
+- setup required
+- app-server unavailable
+- usage limit
+- context overflow
+- timeout
+- stream disconnect
+- validation failure
+- stale source
+- filesystem failure
+- cancellation
+- unknown failure
 
-- 19.3, 19.5, 19.7, and 19.9 must define their local failure surfaces first.
+User-facing errors must not include tokens, raw prompts, credential paths, app-server secrets, or full source chunks.
+
+## Cancellation contract
+
+- `POST /api/translation-jobs/:job_id/cancel` marks the job `cancel_requested`.
+- Scheduler stops starting new chunks.
+- In-flight Codex turn is canceled if app-server supports cancellation.
+- If app-server cannot cancel, late output is ignored.
+- Canceled jobs do not commit final `CONTENT.md`.
+- SSE emits `translation.job.canceled` when cancellation completes.
+
+## Tests
+
+Cover:
+
+- cancel pending job
+- cancel running job
+- canceled job stops scheduling chunks
+- late chunk output is ignored
+- canceled job never commits final file
+- auth and usage errors surface actionable messages
+- filesystem failure does not corrupt existing translation
+- stream disconnect does not cancel job
+- error payloads contain no secrets
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/routes/api-translation-jobs.test.ts
+mise exec -- bun run test tests/server/translation/orchestrator.test.ts
+mise exec -- bun run typecheck
+```
 
 ## Acceptance criteria
 
-- Cancellation marks the job cancel-requested or canceled in Reader state.
-- Cancellation stops scheduling new chunks.
-- In-flight Codex work is aborted if app-server supports it; otherwise its output is ignored after cancellation.
-- Canceled jobs do not commit final `CONTENT.md`.
-- Failed jobs do not corrupt existing completed translations.
-- Usage-limit and auth failures stop the job with actionable setup guidance.
-- Validation failures retry at chunk level before failing the job.
-- Stream disconnect does not necessarily cancel the backend job.
-- User-facing errors do not include tokens, raw prompts, secret paths, or raw credential details.
-
-## Parallelization notes
-
-This should run after core backend interfaces exist. It can run beside frontend work if error payload shapes are frozen early.
-
-## Implementation risks
-
-- WebSocket is not required for MVP cancellation; overbuilding it would increase surface area.
-- Aborting in-flight app-server turns may not be supported; the backend must be able to ignore late output safely.
-- Error messages must be actionable without leaking sensitive details.
+- Cancellation works without WebSocket.
+- Failures are typed and user-actionable.
+- Failed and canceled jobs do not corrupt committed translations.

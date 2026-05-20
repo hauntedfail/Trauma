@@ -2,49 +2,68 @@
 
 ## Goal
 
-Surface Codex managed ChatGPT sign-in status and login setup without TRAUMA owning credential material.
+Expose Codex managed ChatGPT sign-in state through TRAUMA settings without TRAUMA owning credential material.
 
-## Scope
+## Files likely owned
 
-Implement server-side auth status detection, settings API integration, and device-code login UX through Codex app-server. This subtask shares the `/settings` surface with the SQLite-backed translation target language setting, but it does not make auth credentials part of that settings record. Do not read or store raw Codex credential files.
+- `src/server/settings/codex-auth.ts`
+- settings API routes created by Task 18
+- `src/components/settings/SettingsPage.tsx`
+- `tests/server/settings/codex-auth.test.ts`
+- `tests/components/settings-codex-auth.test.tsx`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- Task 18 settings page contract
-- 19.1 auth boundary
-- Codex app-server login flow, especially `chatgptDeviceCode`
+- `contracts/02-types-state-and-settings.md`
+- `contracts/04-api-and-sse.md`
+- `contracts/06-codex-prompt-and-validation.md`
 
-## Outputs
+## Auth boundary contract
 
-- Auth status service returning enabled, disabled, unknown, setup_required, and error states or the frozen equivalents.
-- Settings API responses that include safe setup instructions or device-code metadata.
-- UI-ready state for login required, enabled, and failure cases.
+Rules:
 
-## Dependencies
+- Codex owns ChatGPT credentials through its managed auth flow.
+- TRAUMA stores only non-secret auth metadata and status.
+- TRAUMA does not read, parse, print, copy, or back up Codex credential files.
+- Frontend responses never include access tokens, refresh tokens, auth file contents, or sensitive credential paths.
+- Auth state and `translation_target_lang_code` may share the settings page but must remain separate values.
 
-- 19.1 for auth boundary.
-- Task 18 settings UI surface.
-- 19.5 if auth detection depends on app-server connectivity.
-- Translation target language persistence from `00-execution-contracts.md`, because `/settings` must expose both auth state and the SQLite-backed target language consistently.
+## Device-code setup contract
+
+If auth is missing and app-server supports `chatgptDeviceCode`, return safe setup metadata for the settings UI. The UI can show user code and verification URL if provided by Codex app-server.
+
+Do not invent a direct ChatGPT OAuth URL flow outside Codex app-server.
+
+## Enable/delete behaviour
+
+- Enable does not mark auth as enabled until the server verifies Codex can run an authenticated operation.
+- If provider setup is missing, return a normal `setup_required` or `not_configured` response rather than a fake enabled state.
+- Already-enabled enable requests are idempotent.
+- Delete auth clears only TRAUMA-owned metadata unless Codex exposes a supported logout flow or an app-specific Codex home was explicitly configured and confirmed.
+
+## Tests
+
+Cover:
+
+- auth status disabled, enabled, setup-required, unknown, and error
+- enable verifies server-side auth before marking enabled
+- provider-missing enable does not fake enabled state
+- already-enabled enable is idempotent
+- device-code response contains only safe fields
+- delete auth does not delete arbitrary `~/.codex` files
+- no secret material is returned to frontend
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/settings/codex-auth.test.ts
+mise exec -- bun run test tests/components/settings-codex-auth.test.tsx
+mise exec -- bun run typecheck
+```
 
 ## Acceptance criteria
 
-- TRAUMA SQLite stores only non-secret auth metadata.
-- The frontend never receives access tokens, refresh tokens, raw credential file contents, or sensitive credential paths.
-- If auth is missing, the backend surfaces app-server device-code login details when supported.
-- The UI can show actionable setup state for login-required cases.
-- Enabling auth does not mark status as enabled until the server verifies Codex can run an authenticated operation.
-- Delete auth clears or invalidates only TRAUMA-owned metadata unless Codex exposes a supported logout flow or the user configured an app-specific credential home and explicitly confirms deletion.
-- Direct API requests cannot force enabled auth status without server verification.
-- Auth state and translation target language may share a settings page, but auth metadata must not be stored in the same value as `translation_target_lang_code`.
-
-## Parallelization notes
-
-This can run beside 19.5 and 19.7. Coordinate API response shapes with 19.12 before frontend work starts.
-
-## Implementation risks
-
-- Reading `~/.codex/auth.json` creates secret-handling risk and should be avoided.
-- A fake enabled state would cause translation jobs to fail later with poor UX.
-- Device-code login must be treated as a setup flow, not a reason to store ChatGPT credentials in SQLite.
+- Settings UI can explain Codex setup state.
+- Auth verification is server-side.
+- TRAUMA does not own raw Codex credentials.
+- Task 18 target-language settings remain independent from auth metadata.

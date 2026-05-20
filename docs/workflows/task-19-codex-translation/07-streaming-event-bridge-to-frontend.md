@@ -2,55 +2,85 @@
 
 ## Goal
 
-Bridge Reader backend job events and Codex app-server notifications to frontend SSE progress events.
+Expose Brilliant job progress to the browser through SSE. This subtask does not implement reader controls or Codex prompt validation.
 
-## Scope
+## Files likely owned
 
-Implement the event envelope, event id sequence, SSE endpoint, heartbeat, reconnect behavior, event broadcaster, and mapping from app-server notifications to Reader event types.
+- `src/server/translation/events.ts`
+- `src/routes/api/translation-jobs/[jobId]/events.ts`
+- `tests/server/translation/events.test.ts`
+- `tests/server/routes/api-translation-events.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.3 job state events
-- 19.5 app-server notification adapter
+- `contracts/04-api-and-sse.md`
 
-## Outputs
+## SSE contract
 
-- Create: `src/server/translation/events.ts`
-- Create: `src/routes/api/translation-jobs/[jobId]/events.ts`
-- Test: `tests/server/translation/events.test.ts`
-- Test: `tests/server/routes/api-translation-events.test.ts`
+Endpoint:
 
-## Dependencies
+```http
+GET /api/translation-jobs/:job_id/events
+```
 
-- 19.3 for state event names.
-- 19.5 for Codex notification names.
+Rules:
 
-## Concrete SSE behavior
-
-- `GET /api/translation-jobs/:job_id/events` returns `text/event-stream`.
-- Each message uses `id`, `event`, and JSON `data` fields as defined in `00-execution-contracts.md`.
+- Response content type is `text/event-stream`.
 - Event ids are monotonic decimal strings padded to 12 digits per job.
+- Event name equals `TranslationEventEnvelope.type`.
+- Event data is the JSON envelope.
 - Send heartbeat comments every 15 seconds while active.
-- If `Last-Event-ID` replay buffer is available, replay missed events.
-- If no replay buffer exists in MVP, emit a current-state snapshot event before new events.
 - Close stream after `translation.job.completed`, `translation.job.failed`, or `translation.job.canceled`.
+- Disconnecting the SSE client does not cancel the backend job.
+
+## Reconnect contract
+
+If an event replay buffer exists, support `Last-Event-ID`. If not, send a current-state snapshot event before new events after reconnect.
+
+The frontend must be able to combine `GET /api/translation-jobs/:job_id` and SSE to recover after refresh.
+
+## Event mapping contract
+
+Map backend and Codex events to:
+
+- `translation.job.started`
+- `translation.chunk.queued`
+- `translation.chunk.started`
+- `translation.codex.delta`
+- `translation.codex.item.started`
+- `translation.codex.item.completed`
+- `translation.chunk.validating`
+- `translation.chunk.completed`
+- `translation.chunk.failed`
+- `translation.chunk.retrying`
+- `translation.job.stitching`
+- `translation.job.committing`
+- `translation.job.completed`
+- `translation.job.failed`
+- `translation.job.canceled`
+
+## Tests
+
+Cover:
+
+- SSE envelope formatting
+- monotonic event ids
+- heartbeat output
+- terminal events close the stream
+- reconnect with `Last-Event-ID` when replay buffer exists, or current-state snapshot fallback
+- Codex delta events are marked non-authoritative
+- stream disconnect does not cancel job
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/translation/events.test.ts
+mise exec -- bun run test tests/server/routes/api-translation-events.test.ts
+mise exec -- bun run typecheck
+```
 
 ## Acceptance criteria
 
-- All required event types are emitted through the shared envelope.
-- `translation.codex.delta` is explicitly non-authoritative.
-- Authoritative chunk completion is emitted only after parsing and validation.
-- Reconnecting clients can recover current state through job status plus stream continuation.
-- Stream disconnect does not cancel the backend job.
-- Raw deltas are not persisted as completed translation.
-
-## Parallelization notes
-
-Can run with 19.5 after event names are frozen. 19.12 must wait for this envelope.
-
-## Implementation risks
-
-- Event ordering bugs can show completed state before purge.
-- No heartbeat can make long jobs look stalled.
-- Persisting every delta bloats SQLite and violates the storage boundary.
+- Frontend can stream progress without WebSocket.
+- Partial deltas are never treated as persisted translation.
+- Event payloads are stable enough for 19.12 UI work.

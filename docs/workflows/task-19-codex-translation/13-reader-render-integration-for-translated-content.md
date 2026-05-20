@@ -2,63 +2,67 @@
 
 ## Goal
 
-Render committed translated memory content without overwriting or mutating source reader content.
+Render committed translated content variants without overwriting source reader content.
 
-## Scope
+## Files likely owned
 
-Extend reader data loading and route behavior so `memory/<memory_id>/<lang_code>/CONTENT.md` can be selected and rendered after commit.
+- `src/server/reader/page-data.ts`
+- `src/routes/memories/[id].tsx`
+- `tests/server/reader/translated-page-data.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- Existing memory reader route and page-data loader
-- 19.2 committed translation metadata
-- 19.10 atomic output writer
+- `contracts/02-types-state-and-settings.md`
+- `contracts/03-sqlite-and-repositories.md`
+- `contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
-
-- Modify: `src/server/reader/page-data.ts`
-- Modify: `src/routes/memories/[id].tsx`
-- Test: `tests/server/reader/translated-page-data.test.ts`
-
-## Dependencies
-
-- 19.2 for translation metadata.
-- 19.10 for final file layout.
-- 19.12 for UI navigation.
-
-## Concrete route behavior
+## Route contract
 
 ```text
-/memories/:id                -> source CONTENT.md
-/memories/:id?lang=ja-JP     -> translated ja-JP CONTENT.md when current
+/memories/:id             -> source CONTENT.md
+/memories/:id?lang=ja-JP  -> translated ja-JP CONTENT.md when current
 ```
 
-Reader loader algorithm:
+## Loader contract
 
 1. Load memory metadata.
-2. If no `lang`, resolve source `CONTENT.md`.
-3. If `lang` exists, validate BCP 47 and path traversal.
-4. Look up complete translation for current source hash.
-5. If output exists and hash matches, render translated file.
-6. If missing or stale, return source metadata plus translation unavailable/stale state.
+2. If `lang` is absent, resolve source `CONTENT.md`.
+3. If `lang` is present, validate BCP 47 and traversal safety.
+4. Compute current source hash.
+5. Look up complete translation for `(memory_id, lang, source_hash)`.
+6. If output path exists and hash matches, render translated file.
+7. If missing or stale, return source metadata plus translation unavailable/stale state.
+
+## Rendering rules
+
+- Source route remains unchanged.
+- Translated route uses the same Markdown safety/sanitization rules as source content.
+- Source metadata remains available when viewing translated content.
+- Stale translations are not silently served as current.
+- Missing translations do not create jobs automatically.
+
+## Tests
+
+Cover:
+
+- source route renders source `CONTENT.md`
+- translated route renders committed translated `CONTENT.md`
+- stale translated output is not rendered as current
+- missing translated output returns unavailable state
+- invalid `lang` is rejected
+- traversal-like `lang` is rejected
+- source metadata remains present
+- source file is not mutated
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/reader/translated-page-data.test.ts
+mise exec -- bun run typecheck
+```
 
 ## Acceptance criteria
 
-- Source route remains unchanged.
-- Translated route renders only committed current translations.
-- Stale translations are not silently served as current.
-- Missing translations show a clear not-translated state or source fallback with translation action.
-- Reader safety/sanitization rules apply equally to translated Markdown.
-- Source metadata remains visible when viewing translation.
-- Source `CONTENT.md` is never changed.
-
-## Parallelization notes
-
-Can run after 19.2 and 19.10 define metadata/path contracts. Coordinate with 19.12.
-
-## Implementation risks
-
-- Treating translated files as source memories can break frontmatter assumptions.
-- Path traversal validation must happen before resolving translated files.
-- Stale translation handling must not surprise the user by rendering old content as current.
+- Reader supports translated variants.
+- Source and translated content paths remain distinct.
+- Stale content is visible as stale/unavailable, not silently current.

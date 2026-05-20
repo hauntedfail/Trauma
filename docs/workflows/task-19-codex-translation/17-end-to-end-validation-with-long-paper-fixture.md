@@ -2,50 +2,79 @@
 
 ## Goal
 
-Validate that the full translation pipeline completes a long academic-style document without omission.
+Verify that Brilliant completes a long academic-style document without omission.
 
-## Scope
+## Files likely owned
 
-Run an end-to-end translation flow using a long paper fixture and fake app-server output by default, with optional live Codex app-server smoke when credentials and usage limits permit.
+- `tests/server/translation/brilliant-e2e.test.ts` or the project-equivalent E2E test path
+- `tests/fixtures/translation/academic-paper.md`
+- PR description / handoff notes
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.16 long-paper fixture
-- Completed implementation from 19.2 through 19.15
-- SQLite-backed settings value `translation_target_lang_code = ja-JP`
-- Optional local Codex app-server with ChatGPT sign-in
+- `contracts/02-types-state-and-settings.md`
+- `contracts/03-sqlite-and-repositories.md`
+- `contracts/04-api-and-sse.md`
+- `contracts/05-markdown-chunking.md`
+- `contracts/06-codex-prompt-and-validation.md`
+- `contracts/07-atomic-commit-purge-recovery.md`
 
-## Outputs
+## Required integration checks
 
-- E2E verification script or test case for long-document translation.
-- Verification notes for deterministic fake-client run.
-- Optional manual smoke notes for live Codex app-server run.
+Manual or automated smoke:
 
-## Dependencies
+1. Set `/settings` translation target language to `ja-JP` and confirm SQLite persists it.
+2. Load a memory backed by the long academic fixture.
+3. Start translation with `POST /api/memories/:memory_id/translations` without trusting a client language as canonical.
+4. Confirm job uses `ja-JP` from SQLite settings.
+5. Confirm chunker creates multiple block-group chunks.
+6. Confirm fake Codex app-server emits deltas and final structured outputs.
+7. Inject one validation failure and confirm only the failed chunk retries.
+8. Confirm every source block id appears exactly once in validated translated output.
+9. Confirm final stitched Markdown passes full-document validation.
+10. Confirm final file is committed to `memory/<memory_id>/ja-JP/CONTENT.md`.
+11. Confirm source `memory/<memory_id>/CONTENT.md` is unchanged.
+12. Confirm `translation_jobs` records completion, output path, output hash, and source hash.
+13. Confirm `translation_chunks.translated_markdown` is purged after commit.
+14. Confirm `/memories/:id?lang=ja-JP` renders the translated variant.
+15. Confirm SSE shows progress from job start through completion.
 
-- All implementation subtasks 19.2 through 19.16.
+## Commands
+
+```sh
+mise exec -- bun run test tests/server/translation/brilliant-e2e.test.ts
+mise exec -- bun run typecheck
+mise exec -- bun run verify
+```
+
+Optional live Codex smoke when credentials and usage limits permit:
+
+```sh
+# Exact command should be documented by the implementation once app-server startup is wired.
+```
+
+## PR handoff checklist
+
+PR body must include:
+
+- SQLite schema/migration summary
+- settings language persistence strategy
+- API summary
+- Codex app-server integration boundary
+- SSE progress strategy
+- chunking and validation strategy
+- atomic commit and purge strategy
+- crash recovery strategy
+- reader UI/rendering summary
+- exact verification commands and outcomes
+- live Codex smoke status, if attempted
+- known deferred work
 
 ## Acceptance criteria
 
-- The long paper fixture is chunked into multiple chunks by block groups, not raw character slicing.
-- The job uses the target language configured through `/settings` and persisted in SQLite.
-- Every source block id appears exactly once in validated translated output.
-- Chunk retry can recover from one injected validation failure.
-- Final stitched Markdown passes full-document validation.
-- Final output is committed to `memory/<memory_id>/<lang_code>/CONTENT.md` atomically.
-- Source `memory/<memory_id>/CONTENT.md` remains unchanged.
-- SQLite job metadata records completion, output path, output hash, and source hash.
-- Completed chunk bodies are purged from SQLite after commit.
+- Long paper translation completes through chunking, validation, retry, stitching, atomic commit, and purge.
+- Source content remains unchanged.
+- Translated content is stored only at `memory/<memory_id>/<lang_code>/CONTENT.md` after completion.
+- SQLite retains metadata but not completed translated article bodies.
 - Reader can render the translated variant.
-- The frontend can show progress from job start through completion.
-
-## Parallelization notes
-
-This is the final validation subtask and should not start until core implementation is complete. A worker can prepare fixture data earlier, but the E2E run depends on the integrated pipeline.
-
-## Implementation risks
-
-- A short article smoke test is insufficient because it will not exercise chunking, retry, and stitching.
-- Live Codex app-server runs may be blocked by auth, usage, or network state; deterministic fake-client E2E must be the baseline.
-- The final validation must inspect SQLite cleanup as well as the committed file.
+- Verification results are documented for handoff.

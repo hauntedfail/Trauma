@@ -2,68 +2,78 @@
 
 ## Goal
 
-Validate completed chunk outputs and retry failed chunks without retrying the full document.
+Validate final chunk output and retry only failed chunks. This subtask does not stitch the full document or write final files.
 
-## Scope
+## Files likely owned
 
-Implement JSON parsing, schema validation, structural validation, protected-span checks, truncation heuristics, configurable length checks, retry prompts, and retry event emission.
+- `src/server/translation/validator.ts`
+- `tests/server/translation/validator.test.ts`
 
-## Inputs
+## Contract references
 
-- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
-- 19.4 block manifest and protected spans
-- 19.8 output schema
-- 19.3 chunk state machine
+- `contracts/05-markdown-chunking.md`
+- `contracts/06-codex-prompt-and-validation.md`
 
-## Outputs
+## Validation contract
 
-- Create: `src/server/translation/validator.ts`
-- Test: `tests/server/translation/validator.test.ts`
+Validate in this order:
 
-## Dependencies
+1. JSON parses and matches output schema.
+2. `chunk_index` equals requested chunk index.
+3. Output block ids exactly equal input block ids in the same order.
+4. No duplicate block ids.
+5. `translated_markdown` is non-empty unless the source block is non-translatable media-only content.
+6. Protected spans are preserved per block.
+7. Code fence delimiter count is unchanged.
+8. Math delimiters are unchanged.
+9. HTML tag names and balance are unchanged for HTML blocks.
+10. Citation markers and footnote markers are preserved.
+11. URLs and Markdown link destinations are preserved.
+12. Omission markers are rejected when used as omission markers.
+13. Prose length ratio stays within configured thresholds.
 
-- 19.4 and 19.8 are required.
-- 19.3 is required for retry counters.
+## Retry contract
 
-## Concrete validation order
+- Retry only the failed chunk.
+- Increment `retry_count` before each retry.
+- Include structured validation failures in the retry prompt.
+- Use `maxRetries` from chunk config.
+- After retry exhaustion, mark chunk and job failed.
 
-Use the 13-step validation algorithm in `00-execution-contracts.md` exactly. Do not add fuzzy success modes unless a test documents why they are safe.
+## Failure examples to test
 
-Retry policy:
+- missing block id
+- duplicate block id
+- reordered block ids
+- lost URL
+- lost citation marker
+- lost footnote marker
+- corrupted code fence
+- corrupted math delimiter
+- corrupted HTML tag
+- omission marker such as `summary`, `omitted`, or `省略`
+- prose length ratio outside threshold
 
-```ts
-maxRetries: 3
-retryPromptIncludes: validationErrors, chunkMetadata, originalBlockIds, originalSourceChunk
+## Tests
+
+Cover:
+
+- valid chunk passes
+- each failure example returns a structured validation error
+- media-only block may remain empty when explicitly allowed
+- retry prompt includes validation errors and original block ids
+- retry count increments
+- retry exhaustion marks failed
+
+## Verification
+
+```sh
+mise exec -- bun run test tests/server/translation/validator.test.ts
+mise exec -- bun run typecheck
 ```
-
-Failure examples that must be tested:
-
-- Missing block id
-- Duplicate block id
-- Reordered block ids
-- Lost URL
-- Lost citation marker
-- Lost footnote marker
-- Corrupted code fence
-- Corrupted math delimiter
-- Omission marker such as `summary` or `省略`
-- Length ratio outside threshold for prose chunk
 
 ## Acceptance criteria
 
-- Validator returns structured error codes, not only strings.
-- Validation failure retries only the failed chunk.
-- Retry increments `retry_count` before the retry run.
-- Exhausted retries mark chunk and job failed.
-- Protected non-prose blocks are exempted from prose length ratio checks.
-- Tests cover both valid translation and every failure example above.
-
-## Parallelization notes
-
-Can run after 19.4 and 19.8. It can run beside 19.10 once the validated-output interface is stable.
-
-## Implementation risks
-
-- Over-strict ratios can reject valid translations.
-- Under-strict validation can allow omissions that become invisible after stitching.
-- Retry prompts must not drop original protected-span requirements.
+- Validation is deterministic.
+- Retry is chunk-level, not full-document.
+- Validator preserves the structures needed for academic papers.
