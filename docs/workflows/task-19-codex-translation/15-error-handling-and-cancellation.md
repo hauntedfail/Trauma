@@ -102,6 +102,8 @@ and allow a fresh translation for the same `(memory_id, lang_code, source_hash)`
 - Canceling a `pending` job with no in-flight Codex turn transitions directly to `canceled`; it does not wait in `cancel_requested`.
 - Canceling a `running` job transitions to `cancel_requested`, then interrupts the in-flight turn when ids are known or ignores late output when ids/cancel support are unavailable.
 - Pending and running cancellation must be compare-and-set transitions so the cancel API cannot race incorrectly with runner claim. If `pending -> canceled` fails because the runner already claimed the job, reload the job and apply the `running -> cancel_requested` path when applicable.
+- A `cancel_requested` job must finalize to `canceled` when any one of these conditions is true: app-server acknowledges `turn/interrupt`, app-server emits `turn.completed` with interrupted status, the in-process runner registry has no in-flight `threadId`/`turnId`, or the cancel request exceeds the configured cancellation grace timeout.
+- The cancellation grace timeout is a fixed MVP server constant of `BRILLIANT_CANCEL_GRACE_MS = 30000`.
 - Cancellation is idempotent for `cancel_requested` and `canceled` jobs.
 - Cancellation returns `409 cancellation_conflict` for `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable` jobs.
 - Scheduler stops starting new chunks.

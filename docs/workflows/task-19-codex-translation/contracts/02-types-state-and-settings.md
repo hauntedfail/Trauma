@@ -186,6 +186,17 @@ export interface CodexChunkOutput {
 }
 ```
 
+## Retry constants
+
+```ts
+export const BRILLIANT_MAX_RETRIES = 3;
+```
+
+`BRILLIANT_MAX_RETRIES` is a fixed MVP constant. Do not read retry budget from
+mutable runtime settings during a job. If retry policy becomes configurable in a
+later task, copy the selected value into `translation_jobs` at job creation and
+use that copied value for all retry and recovery decisions for the job.
+
 `TranslationErrorCode` is the shared safe error-code namespace used by API error
 responses, job snapshots, and SSE failure events. `TranslationPersistedError`
 uses the narrower `PersistableTranslationErrorCode` because request-boundary

@@ -94,6 +94,8 @@ Rules:
 - Chunks inside a job are processed sequentially by default.
 - Runner state is recoverable from SQLite rows.
 - Runner scheduling is idempotent by job id. Enqueuing the same job id multiple times is a no-op.
+- After a job is claimed, the runner executes chunks whose status is `pending` or `retrying`.
+- `retrying` chunks enter the normal retry-attempt path: create a fresh ephemeral Codex thread, increment `retry_count` exactly once before the attempt starts, and use the retry prompt contract from 19.9.
 - The runner claims work with an atomic compare-and-set repository method such as `claimTranslationJob(jobId, "pending")` that transitions `pending -> running` only if the row is still `pending`.
 - If `claimTranslationJob()` returns false, the runner does not execute the job body and instead reloads the job state.
 - The cancel API races the runner through compare-and-set repository methods. `cancelPendingTranslationJob()` transitions `pending -> canceled`; `requestRunningTranslationJobCancellation()` transitions `running -> cancel_requested`.
@@ -103,7 +105,8 @@ Rules:
 - Job-start recovery must run before active lookup or new job creation for the same `(memory_id, lang_code)`.
 - A recovered `pending` job is either scheduled when the source hash still matches or marked `stale` when the source changed before execution.
 - A recovered `running` job with no in-process runner ownership is converted back to `pending` only after orphaned non-terminal chunks are normalized, unless source hash has changed, in which case the job becomes `stale`.
-- Orphaned chunk recovery handles `running`, `validating`, and `retrying` explicitly. `running` or `validating` chunks are treated as abandoned attempts with safe `stream_disconnected` diagnostics: if `retry_count < maxRetries`, set the chunk to `retrying` without incrementing `retry_count`; the next normal retry attempt consumes the retry budget and increments once. If retry budget is already exhausted, mark the chunk `failed` and mark the job `failed`. Existing `retrying` chunks keep their current `retry_count` and remain retryable; recovery must not increment them.
+- Orphaned chunk recovery handles `running`, `validating`, and `retrying` explicitly. `running` or `validating` chunks are treated as abandoned attempts with safe `stream_disconnected` diagnostics: if `retry_count < BRILLIANT_MAX_RETRIES`, set the chunk to `retrying` without incrementing `retry_count`; the next normal retry attempt consumes the retry budget and increments once. If retry budget is already exhausted, mark the chunk `failed` and mark the job `failed`. Existing `retrying` chunks keep their current `retry_count` and remain retryable; recovery must not increment them.
+- A recovered job containing retryable `retrying` chunks must be scheduled normally after the job is converted back to `pending`; otherwise recovery would leave retryable chunks stranded.
 - A recovered `stitching` job re-runs final stitching from completed/purged chunk metadata when possible; if required completed chunk bodies have already been purged before a committed final output exists, mark the job failed with `filesystem_failure` and safe diagnostics.
 - A recovered `committing` job delegates to the atomic commit recovery contract: verify final output, complete and purge when safe, or fail/stale/unavailable according to `contracts/07-atomic-commit-purge-recovery.md`.
 - A server restart may pause a job, but must not corrupt an existing completed translation.

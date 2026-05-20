@@ -161,6 +161,12 @@ Runtime cleanup warnings:
 - Warning text must include the job id and a safe runtime-root-relative path only; do not include source content, prompts, credentials, app-server payloads, or absolute project/store paths unless the project-standard diagnostics UI later explicitly permits them.
 - `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
 
+## Retry and cancellation constants
+
+- `BRILLIANT_MAX_RETRIES = 3` is the fixed MVP retry budget and is imported from the shared translation types/settings contract.
+- `BRILLIANT_CANCEL_GRACE_MS = 30000` is the fixed MVP timeout for finalizing a `cancel_requested` job when app-server interrupt acknowledgement or interrupted completion does not arrive.
+- Do not read either value from mutable runtime settings during a job. If either becomes configurable later, copy the selected value into job metadata at job creation and use the copied value during retry, cancellation, and recovery.
+
 ## Protocol schema and version contract
 
 - Record the Codex CLI/app-server version used for Brilliant implementation in the PR handoff.

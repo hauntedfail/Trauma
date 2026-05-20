@@ -160,9 +160,12 @@ mise exec -- bun run typecheck
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`
 - pending cancellation races runner claim through compare-and-set; if `pending -> canceled` loses to `pending -> running`, cancel API reloads and requests `running -> cancel_requested`
+- `cancel_requested` finalizes to `canceled` after interrupt acknowledgement, interrupted turn completion, missing in-flight registry ids, or `BRILLIANT_CANCEL_GRACE_MS` timeout
 - recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
 - recovered orphaned `running` job becomes `pending` or `stale`; recovered `stitching`/`committing` job uses final-output recovery
 - recovered orphaned `running` or `validating` chunks become `retrying` without incrementing `retry_count`; the next normal retry attempt increments exactly once, and exhausted retry budget fails the chunk/job
+- runner executes both `pending` and `retrying` chunks after job claim
+- retry budget uses fixed `BRILLIANT_MAX_RETRIES = 3` for MVP and is not read from mutable runtime settings during recovery
 - interrupted final-file recovery verifies the existing final file hash against the re-stitched output hash before marking a job complete
 - interrupted final-file recovery overwrites an existing final file only when completed chunk bodies can be re-stitched, source hash still matches, final validation passes, and the full atomic commit sequence can be rerun safely
 - in-flight `threadId` and `turnId` live only in the in-process runner registry and are not added to SQLite

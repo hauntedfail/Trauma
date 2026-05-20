@@ -65,9 +65,10 @@ Error code boundary:
 - Runner recovery must not increment `retry_count` when it only normalizes orphaned `running` or `validating` chunks to `retrying`; the next normal retry attempt owns the increment.
 - Include structured validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
-- Use `maxRetries` from chunk config.
-- `maxRetries` is the number of retry attempts after the initial attempt, so total attempts are `1 + maxRetries`.
+- Use `BRILLIANT_MAX_RETRIES = 3` from the shared types/settings contract for Brilliant MVP.
+- `BRILLIANT_MAX_RETRIES` is the number of retry attempts after the initial attempt, so total attempts are `1 + BRILLIANT_MAX_RETRIES`.
 - The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts, and never from recovery-only normalization.
+- Job execution must pick up chunks in `pending` or `retrying` status. A `retrying` chunk is not terminal and must not be skipped by the runner.
 - After retry exhaustion, mark chunk and job failed.
 - `outputSchema` rejection or fallback to prompt-only JSON mode is not a validation retry and does not change `retry_count`.
 - If `outputSchema` is rejected after a thread has been created, the app-server client discards that thread and starts a fresh prompt-only thread for the same chunk attempt.
