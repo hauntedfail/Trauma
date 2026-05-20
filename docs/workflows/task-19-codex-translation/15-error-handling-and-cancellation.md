@@ -10,6 +10,7 @@ Implement typed error categories, user-facing messages, cancellation endpoint be
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.3 state machine
 - 19.5 app-server typed errors
 - 19.7 SSE stream behavior

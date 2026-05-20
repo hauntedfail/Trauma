@@ -6,41 +6,59 @@ Ensure completed translated chunk bodies do not remain in SQLite after final fil
 
 ## Scope
 
-Implement purge rules, audit metadata retention, startup recovery for interrupted jobs, and cleanup tests. This subtask owns privacy/storage hygiene after translation completes.
+Implement purge rules, audit metadata retention, startup recovery for interrupted jobs, temp-file cleanup, and cleanup tests.
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.2 schema
 - 19.3 state machine
-- 19.10 commit success signal
+- 19.10 commit success boundary
 
 ## Outputs
 
-- Purge function for completed chunk bodies.
-- Recovery policy for jobs stuck after crash or interruption.
-- Tests proving completed chunk bodies are nulled after commit.
+- Implement purge in `src/server/translation/job-state.ts` or repository layer
+- Implement recovery in `src/server/translation/orchestrator.ts` or startup hook selected in 19.1
+- Test: `tests/server/translation/job-state.test.ts`
+- Test: `tests/server/translation/orchestrator.test.ts`
 
 ## Dependencies
 
-- 19.2 schema must exist.
-- 19.10 must expose a reliable commit-complete boundary.
+- 19.2 schema.
+- 19.10 commit/purge boundary.
+
+## Concrete purge SQL
+
+```sql
+UPDATE translation_chunks
+SET translated_markdown = NULL,
+    status = 'purged',
+    updated_at = ?
+WHERE job_id = ?
+  AND status = 'complete';
+```
+
+Recovery cases:
+
+1. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
+2. Final file exists, job complete, chunks not purged: purge before reporting complete.
+3. Final file exists, job not complete, all chunks complete: verify hash, complete job, purge.
+4. Source hash changed during interrupted job: mark stale.
 
 ## Acceptance criteria
 
-- After successful final `CONTENT.md` commit, `translation_chunks.translated_markdown` is set to `NULL` for that job.
-- Purged chunk rows retain `translated_hash`, `status`, `retry_count`, `error`, `block_ids_json`, and timestamps needed for audit and stale detection.
-- The job remains queryable after purge.
-- Failed jobs may retain temporary chunk output only when needed for retry/debug and only within the documented retention policy.
-- A startup recovery path identifies jobs that were committing or running when the process stopped.
-- Recovery never marks a job complete unless the final file exists, output hash matches, and purge is complete.
-- Cleanup behavior is covered by tests.
+- Completed jobs have no non-null `translated_markdown` rows.
+- Purged chunks retain `translated_hash`, `block_ids_json`, retry count, status, and timestamps.
+- Failed jobs retain temporary output only under documented retry/debug retention.
+- Startup recovery cannot report complete until file exists, hash matches, and purge is done.
+- Tests cover all recovery cases above.
 
 ## Parallelization notes
 
-This can run after 19.2 and beside 19.10 if the commit/purge handoff is explicitly defined.
+Can run after 19.2 and beside 19.10 if handoff is frozen.
 
 ## Implementation risks
 
-- Forgetting purge creates a second persistent translated article store in SQLite.
-- Purging before final file commit can destroy the only successful translation output.
-- Crash recovery must handle the gap between rename success and SQLite update.
+- Purging before final file commit destroys the only successful output.
+- Forgetting purge creates a second persistent article store.
+- Startup recovery must not silently delete a valid committed translation.

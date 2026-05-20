@@ -2,50 +2,74 @@
 
 ## Goal
 
-Connect the Reader backend to Codex app-server and translate chunks through controlled app-server turns.
+Implement the backend-only Codex app-server client for Brilliant chunk translation.
 
 ## Scope
 
-Implement the backend-only app-server client, turn creation, streamed notification handling, final output extraction, and transport error mapping. Do not expose app-server directly to frontend code.
+Implement app-server connection/configuration, auth probing hooks, `turn/start`, streamed notification handling, final output extraction, typed error mapping, and test fakes. Do not expose app-server directly to frontend code.
 
 ## Inputs
 
-- 19.1 app-server integration boundary
-- 19.4 chunk metadata and source chunk Markdown
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.8 prompt and output schema
-- Codex app-server documentation for `turn/start`, `outputSchema`, and notifications
+- Codex app-server docs for `turn/start`, `outputSchema`, `item/agentMessage/delta`, `item/started`, and `item/completed`
 
 ## Outputs
 
-- Backend Codex app-server client module.
-- Per-chunk translation call that starts an ephemeral thread/turn.
-- Notification adapter for `item/agentMessage/delta`, `item/started`, `item/completed`, and failure events.
-- Final machine-readable chunk output extraction.
+- Create: `src/server/translation/codex-app-server.ts`
+- Test: `tests/server/translation/codex-app-server.test.ts`
+- Fake client: colocated test fake or `tests/server/translation/fakes/fake-codex-app-server.ts`
 
 ## Dependencies
 
-- 19.1 for thread strategy and security boundary.
-- 19.6 for auth readiness detection.
-- 19.8 for prompt and output schema.
+- 19.1 for integration boundary.
+- 19.6 for auth status behavior.
+- 19.8 for prompt and schema.
+
+## Concrete client interface
+
+Implement the interface frozen in `00-execution-contracts.md`:
+
+```ts
+checkAuth(): Promise<CodexAuthStatus>
+startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin>
+translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEvent>
+cancelTurn(turnId: string): Promise<void>
+```
+
+Typed errors:
+
+```text
+auth_required
+setup_required
+app_server_unavailable
+usage_limit
+context_overflow
+stream_disconnected
+timeout
+invalid_final_output
+unknown
+```
 
 ## Acceptance criteria
 
-- The Reader backend starts or connects to Codex app-server through a server-side module.
-- One ephemeral Codex thread per chunk is the default.
-- Codex receives only chunk text, metadata, and translation instructions.
-- Codex does not receive permission to write canonical `CONTENT.md` files.
-- `turn/start` uses an output schema when app-server supports it.
-- Streamed deltas are forwarded as non-authoritative progress events only.
-- Persistence waits for final completed output and validation.
-- Auth failure, usage limit, context overflow, stream disconnect, and app-server unavailable errors are mapped to typed backend errors.
-- Tokens and credential material never enter frontend responses or logs.
+- App-server base URL and startup mode are configured server-side only.
+- The browser never receives app-server credentials or direct connection details.
+- `turn/start` uses `outputSchema` when available.
+- One ephemeral thread per chunk is the default.
+- Codex receives chunk text and metadata only.
+- Codex is not allowed to write canonical translated files.
+- Streamed deltas map to progress events but are not returned as final output.
+- Final output is extracted only from completed app-server item content.
+- Auth, usage, context, timeout, and disconnect failures are typed.
+- Tests use a fake app-server and do not require live Codex.
 
 ## Parallelization notes
 
-This can run in parallel with 19.6 and 19.7 after event names are frozen. It should not run in parallel with 19.8 if prompt schema names are still changing.
+Can run with 19.6 and 19.7 after event names are frozen. Coordinate with 19.8 before finalizing `CodexTranslateChunkInput`.
 
 ## Implementation risks
 
 - Treating delta text as final output can persist invalid partial JSON.
-- Reusing one long thread for a full paper can exceed context limits and omit late chunks.
-- Letting frontend talk to app-server would leak internal auth and control surfaces.
+- Reusing one long thread for a full paper can exceed context limits.
+- Exposing app-server to the browser leaks internal auth/control surfaces.

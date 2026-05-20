@@ -10,6 +10,7 @@ Implement server-side auth status detection, settings API integration, and devic
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - Task 18 settings page contract
 - 19.1 auth boundary
 - Codex app-server login flow, especially `chatgptDeviceCode`

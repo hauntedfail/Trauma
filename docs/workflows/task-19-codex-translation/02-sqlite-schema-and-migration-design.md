@@ -2,47 +2,81 @@
 
 ## Goal
 
-Add minimal SQLite schema for translation jobs and chunks without making SQLite the canonical store for completed translated content.
+Add the concrete SQLite foundation for Brilliant without making SQLite the canonical store for completed translated content.
 
 ## Scope
 
-Design and implement Drizzle schema and migration for `translation_jobs` and `translation_chunks`, including indexes, constraints, and status values.
+Implement Drizzle schema, migration SQL, repository methods, and schema tests for `translation_jobs` and `translation_chunks` exactly as frozen in `00-execution-contracts.md`.
 
 ## Inputs
 
-- Frozen contracts from 19.1
-- Existing Drizzle schema and migration patterns
-- Existing memory table and memory deletion semantics
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
+- Existing `src/server/db/schema.ts`
+- Existing `src/server/db/repositories.ts`
+- Existing migration naming and timestamp conventions under `drizzle/`
 
 ## Outputs
 
-- `translation_jobs` table or equivalent Drizzle schema object.
-- `translation_chunks` table or equivalent Drizzle schema object.
-- Migration SQL for the new tables and indexes.
-- Repository methods for creating jobs, reading jobs, updating status, inserting chunks, updating chunks, and querying retryable failures.
+- Modify: `src/server/db/schema.ts`
+- Modify: `src/server/db/repositories.ts` or create `src/server/db/translation-repositories.ts` if domain repositories are split
+- Create: `drizzle/<next>_brilliant_translation_jobs.sql`
+- Test: `tests/server/db/translation-schema.test.ts`
+- Test: `tests/server/db/translation-repositories.test.ts`
 
 ## Dependencies
 
-- 19.1 for status names and route/job identity contracts.
+- 19.1 must freeze the execution contracts.
+
+## Concrete schema
+
+Implement the SQL shape from `00-execution-contracts.md`:
+
+```sql
+translation_jobs(job_id, memory_id, lang_code, source_hash, model, skill_version, chunker_version, status, chunk_count, output_path, output_hash, error, created_at, updated_at, completed_at)
+translation_chunks(job_id, chunk_index, source_chunk_hash, block_ids_json, status, retry_count, translated_markdown, translated_hash, error, created_at, updated_at)
+```
+
+Indexes:
+
+```sql
+CREATE UNIQUE INDEX translation_jobs_current_idx ON translation_jobs(memory_id, lang_code, source_hash);
+CREATE INDEX translation_jobs_memory_lang_idx ON translation_jobs(memory_id, lang_code, updated_at);
+CREATE INDEX translation_chunks_status_idx ON translation_chunks(job_id, status, chunk_index);
+```
+
+## Required repository methods
+
+Expose these methods or exact equivalents:
+
+```ts
+createTranslationJob(input): Promise<TranslationJobRecord>
+getTranslationJob(jobId): Promise<TranslationJobRecord | null>
+findCurrentTranslation(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
+updateTranslationJobStatus(jobId, status, patch): Promise<void>
+insertTranslationChunks(jobId, chunks): Promise<void>
+getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
+updateTranslationChunk(jobId, chunkIndex, patch): Promise<void>
+purgeCompletedTranslationChunks(jobId): Promise<void>
+countTranslationChunksByStatus(jobId): Promise<Record<TranslationChunkStatus, number>>
+```
 
 ## Acceptance criteria
 
-- `translation_jobs` includes `job_id`, `memory_id`, `lang_code`, `source_hash`, `model`, `skill_version`, `chunker_version`, `status`, `chunk_count`, `created_at`, `updated_at`, `completed_at`, `output_path`, `output_hash`, and `error` or equivalent fields.
-- `translation_chunks` includes `job_id`, `chunk_index`, `source_chunk_hash`, `block_ids_json`, `status`, `retry_count`, `translated_markdown`, `translated_hash`, `error`, `created_at`, and `updated_at` or equivalent fields.
-- `memory_id` references memories with cascade delete.
-- `(memory_id, lang_code, source_hash)` or an equivalent lookup supports reuse/staleness checks.
-- `(job_id, chunk_index)` is unique.
-- `lang_code` accepts only supported BCP 47 values from the settings/language contract.
-- `output_path` is relative to the configured store path.
-- No table stores Codex credentials or ChatGPT tokens.
-- Completed translated article bodies are not stored outside `translation_chunks.translated_markdown`, and that field is temporary.
+- Schema exactly supports the TypeScript contracts in `00-execution-contracts.md`.
+- `memory_id` cascades on memory delete.
+- `lang_code` validation rejects path traversal and unsupported values before repository write.
+- `source_hash`, `source_chunk_hash`, and `output_hash` use `sha256:<hex>`.
+- `output_path` is store-relative and never absolute.
+- `translated_markdown` is nullable and documented as temporary.
+- No credentials, tokens, auth files, or raw Codex state are stored.
+- Repository tests prove unique current-translation lookup and chunk purge.
 
 ## Parallelization notes
 
-This can run in parallel with 19.4 after 19.1 freezes contracts. It should not run in parallel with 19.3 unless repository method names and status transitions are already agreed.
+Can run in parallel with 19.4 after 19.1. Do not run in parallel with 19.3 unless repository method names above are accepted unchanged.
 
 ## Implementation risks
 
-- A `memory_translations` table may duplicate `translation_jobs` unless its role is clearly limited to committed output metadata.
-- Storing absolute paths makes backup/restore brittle; use store-relative paths.
-- Adding a full-text translated body column outside chunk temp state violates the cleanup requirement.
+- Adding a separate persistent translated body table violates the Brilliant storage model.
+- Using absolute `output_path` makes backup/restore brittle.
+- Letting status strings drift from `00-execution-contracts.md` will break orchestration and UI.

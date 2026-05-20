@@ -6,49 +6,64 @@ Validate completed chunk outputs and retry failed chunks without retrying the fu
 
 ## Scope
 
-Implement chunk result parsing, structural validation, protected-span checks, truncation heuristics, configurable length sanity checks, retry policy, and retry event emission.
+Implement JSON parsing, schema validation, structural validation, protected-span checks, truncation heuristics, configurable length checks, retry prompts, and retry event emission.
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.4 block manifest and protected spans
 - 19.8 output schema
 - 19.3 chunk state machine
-- 19.7 event bridge
 
 ## Outputs
 
-- Chunk validator module.
-- Retry classifier for validation failure, app-server failure, auth failure, usage limit, context overflow, timeout, and stream disconnect.
-- Retry event emission for `translation.chunk.failed` and `translation.chunk.retrying`.
+- Create: `src/server/translation/validator.ts`
+- Test: `tests/server/translation/validator.test.ts`
 
 ## Dependencies
 
 - 19.4 and 19.8 are required.
-- 19.3 is required for retry counters and status updates.
+- 19.3 is required for retry counters.
+
+## Concrete validation order
+
+Use the 13-step validation algorithm in `00-execution-contracts.md` exactly. Do not add fuzzy success modes unless a test documents why they are safe.
+
+Retry policy:
+
+```ts
+maxRetries: 3
+retryPromptIncludes: validationErrors, chunkMetadata, originalBlockIds, originalSourceChunk
+```
+
+Failure examples that must be tested:
+
+- Missing block id
+- Duplicate block id
+- Reordered block ids
+- Lost URL
+- Lost citation marker
+- Lost footnote marker
+- Corrupted code fence
+- Corrupted math delimiter
+- Omission marker such as `summary` or `省略`
+- Length ratio outside threshold for prose chunk
 
 ## Acceptance criteria
 
-- Output parses as the expected JSON schema.
-- All expected block ids are present.
-- No unexpected block ids are accepted unless explicitly allowed by frozen contract.
-- No duplicate block ids are accepted.
-- Block order is preserved.
-- Protected spans are preserved.
-- Markdown code fence count is preserved.
-- HTML tags are not corrupted.
-- LaTeX delimiters are preserved.
-- Citation markers and footnote markers are preserved.
-- Obvious truncation markers such as `...`, `omitted`, `省略`, and `summary` fail validation when they indicate omitted content.
-- Translated length ratio is checked against configurable sanity thresholds.
-- Validation failure retries only the failed chunk up to the configured retry limit.
-- Exhausted retries fail the job with an actionable error.
+- Validator returns structured error codes, not only strings.
+- Validation failure retries only the failed chunk.
+- Retry increments `retry_count` before the retry run.
+- Exhausted retries mark chunk and job failed.
+- Protected non-prose blocks are exempted from prose length ratio checks.
+- Tests cover both valid translation and every failure example above.
 
 ## Parallelization notes
 
-This can run after 19.4 and 19.8. It can run beside 19.10 if final stitching consumes only the validator result interface.
+Can run after 19.4 and 19.8. It can run beside 19.10 once the validated-output interface is stable.
 
 ## Implementation risks
 
-- Over-strict length thresholds can reject valid translations between languages with different density.
-- Under-strict validation can allow omissions that are hard to detect after stitching.
-- Retrying without preserving the original block manifest can duplicate or reorder blocks.
+- Over-strict ratios can reject valid translations.
+- Under-strict validation can allow omissions that become invisible after stitching.
+- Retry prompts must not drop original protected-span requirements.

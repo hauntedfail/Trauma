@@ -10,6 +10,7 @@ Plan and implement `.agents/skills/reader-translate/SKILL.md` as the reusable po
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.8 prompt contract
 - 19.9 validation rules
 - Security requirements from parent workflow

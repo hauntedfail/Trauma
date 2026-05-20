@@ -2,43 +2,109 @@
 
 ## Goal
 
-Create deterministic tests and fixtures for the Brilliant translation pipeline without requiring live Codex for most coverage.
+Create deterministic tests and fixtures for the Brilliant translation pipeline without requiring live Codex for normal verification.
 
 ## Scope
 
-Add unit, integration, and component tests using fake app-server clients, deterministic chunk outputs, and Markdown fixtures. This subtask defines test assets and expected behavior across storage, chunking, streaming, validation, atomic commit, cleanup, and reader rendering.
+Add unit, integration, component, and fake app-server tests for storage, chunking, streaming, validation, retry, atomic commit, cleanup, reader rendering, and frontend progress.
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - Interfaces from 19.2 through 19.15
 - Existing test conventions
-- Existing memory fixture patterns
 
 ## Outputs
 
-- Markdown fixtures covering ordinary articles, long academic paper structure, code fences, math, citations, footnotes, tables, HTML blocks, images, captions, and bibliography entries.
-- Fake Codex app-server client for deterministic streaming and final outputs.
-- Test coverage map tied to acceptance criteria.
+- Create: `tests/fixtures/translation/simple-article.md`
+- Create: `tests/fixtures/translation/academic-paper.md`
+- Create: `tests/fixtures/translation/hostile-prompt-injection.md`
+- Create: `tests/fixtures/translation/markdown-protected-spans.md`
+- Create fake app-server client used by backend tests
+- Add the test files listed in `00-execution-contracts.md`
 
 ## Dependencies
 
 - Core interfaces from 19.2 through 19.10 must be stable before broad fixture implementation.
 
+## Required fixtures
+
+`simple-article.md`:
+
+- frontmatter
+- one heading
+- two paragraphs
+- one image
+- one link
+
+`markdown-protected-spans.md`:
+
+- code fence
+- inline code
+- math block
+- citation marker
+- footnote
+- Markdown link
+- raw HTML block
+- command and file path examples
+
+`hostile-prompt-injection.md`:
+
+- text telling the model to ignore instructions
+- text asking the model to omit paragraphs
+- text asking the model to print secrets
+
+`academic-paper.md`:
+
+- abstract
+- numbered sections
+- equations
+- citations
+- table
+- footnotes
+- references/bibliography
+- enough repeated structure to require multiple chunks under default test config
+
+## Required verification commands
+
+```sh
+mise exec -- bun run test tests/server/db/translation-schema.test.ts
+mise exec -- bun run test tests/server/db/translation-repositories.test.ts
+mise exec -- bun run test tests/server/translation/source-loader.test.ts
+mise exec -- bun run test tests/server/translation/markdown-blocks.test.ts
+mise exec -- bun run test tests/server/translation/chunker.test.ts
+mise exec -- bun run test tests/server/translation/job-state.test.ts
+mise exec -- bun run test tests/server/translation/codex-app-server.test.ts
+mise exec -- bun run test tests/server/translation/prompt.test.ts
+mise exec -- bun run test tests/server/translation/validator.test.ts
+mise exec -- bun run test tests/server/translation/stitcher.test.ts
+mise exec -- bun run test tests/server/translation/atomic-writer.test.ts
+mise exec -- bun run test tests/server/translation/events.test.ts
+mise exec -- bun run test tests/server/translation/orchestrator.test.ts
+mise exec -- bun run test tests/server/routes/api-memory-translations.test.ts
+mise exec -- bun run test tests/server/routes/api-translation-jobs.test.ts
+mise exec -- bun run test tests/server/routes/api-translation-events.test.ts
+mise exec -- bun run test tests/server/reader/translated-page-data.test.ts
+mise exec -- bun run test tests/components/reader-translation-controls.test.tsx
+mise exec -- bun run test tests/components/reader-translation-progress.test.tsx
+mise exec -- bun run typecheck
+```
+
 ## Acceptance criteria
 
-- Tests cover BCP 47 `lang_code` path resolution and path traversal rejection.
+- Tests cover BCP 47 path resolution and traversal rejection.
 - Tests cover source hash and stale translation detection.
 - Tests cover deterministic block ids and chunk grouping.
-- Tests cover prompt schema construction without shell interpolation or credential exposure.
+- Tests cover prompt injection containment.
 - Tests cover partial delta streaming as non-authoritative progress.
 - Tests cover chunk validation success and failure.
 - Tests cover chunk-level retry.
 - Tests cover final stitching order.
-- Tests cover atomic writer behavior and existing translation preservation on failure.
+- Tests cover atomic writer failure cases.
 - Tests cover purge of `translated_markdown` after commit.
-- Tests cover reader source rendering and translated variant rendering.
+- Tests cover source rendering and translated variant rendering.
 - Tests cover auth-required and setup-required UI states.
-- Live Codex app-server smoke is separated from deterministic CI tests.
+- Live Codex app-server smoke is separate from deterministic CI tests.
 
 ## Parallelization notes
 
@@ -46,6 +112,6 @@ Fixture creation can begin once 19.4 block types are known. Full tests should wa
 
 ## Implementation risks
 
-- Live Codex-dependent tests will be flaky and should be smoke-only unless the environment explicitly provides app-server credentials.
-- Fixtures must include enough hostile/untrusted content to test prompt-injection defenses.
-- Tests must assert cleanup, not only successful file output.
+- Live Codex tests will be flaky and must not be required for normal CI.
+- Fixtures must include hostile content because website content is untrusted.
+- Tests must assert cleanup, not only successful output.

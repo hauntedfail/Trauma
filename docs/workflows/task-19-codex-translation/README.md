@@ -4,6 +4,8 @@ Brilliant adds Codex app-server powered translation for Reader memory content. T
 
 ## Required order
 
+0. [Execution contracts](00-execution-contracts.md) - read this before every subtask.
+
 1. [19.1 Requirements and architecture finalization](01-requirements-and-architecture-finalization.md)
 2. [19.2 SQLite schema and migration design](02-sqlite-schema-and-migration-design.md)
 3. [19.3 Translation job state machine](03-translation-job-state-machine.md)

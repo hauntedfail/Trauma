@@ -10,6 +10,7 @@ Document the final contracts for storage layout, app-server integration, auth bo
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - `TASK_19_INSTRUCTION.md`
 - `docs/INDEX.md`
 - `docs/architecture/data-and-storage.md`

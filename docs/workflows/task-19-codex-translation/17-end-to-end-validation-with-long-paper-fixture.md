@@ -10,6 +10,7 @@ Run an end-to-end translation flow using a long paper fixture and fake app-serve
 
 ## Inputs
 
+- `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.16 long-paper fixture
 - Completed implementation from 19.2 through 19.15
 - Optional local Codex app-server with ChatGPT sign-in
