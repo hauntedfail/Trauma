@@ -2,7 +2,7 @@
 
 ## Goal
 
-Freeze the Task 19 architecture before implementation begins.
+Freeze the Brilliant architecture before implementation begins.
 
 ## Scope
 
@@ -20,9 +20,9 @@ Document the final contracts for storage layout, app-server integration, auth bo
 
 ## Outputs
 
-- A short architecture note under `docs/architecture/` or `docs/workflows/task-19-codex-translation/` that records the frozen Task 19 interfaces.
+- A short architecture note under `docs/architecture/` or `docs/workflows/task-19-codex-translation/` that records the frozen Brilliant interfaces.
 - Final names for job statuses, chunk statuses, SSE event types, and API routes.
-- Confirmation that `codex exec` is not the primary production path for Task 19.
+- Confirmation that `codex exec` is not the primary production path for Brilliant.
 
 ## Dependencies
 

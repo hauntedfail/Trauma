@@ -1,10 +1,10 @@
-# Task 19: Codex app-server translation for memories
+# Brilliant: Codex app-server translation for memories
 
 ## Status
 
 - State: Planning only; ready for implementation after this workflow is accepted.
 - Base branch: `main`
-- Implementation branch: `feat/codex-translation`
+- Implementation branch: `feat/brilliant`
 - Depends on: Task 18 settings page, BCP 47 target-language setting, and OpenAI/Codex auth status surface.
 - Scope: Add a Codex-powered translation pipeline for Reader memory content, including app-server integration, Reader-owned chunk orchestration, streaming progress, validation, retry, atomic translated `CONTENT.md` persistence, and SQLite cleanup.
 - Out of scope: multi-user auth, hosted OAuth service, direct browser access to Codex app-server, direct OpenAI Responses API integration, non-Codex providers, collaborative translation editing, and storing completed translated article bodies in SQLite.
@@ -50,7 +50,7 @@ Research reference captured by the instruction:
 
 ## Minimal SQLite schema direction
 
-Task 19 should add these tables or equivalent Drizzle schema objects:
+Brilliant should add these tables or equivalent Drizzle schema objects:
 
 ```sql
 translation_jobs
@@ -186,4 +186,4 @@ Subagents may work only on non-overlapping files and must report changed files, 
 - Defines final stitching and full-document validation.
 - Includes repo-local `reader-translate` skill planning.
 - Produces numbered subtasks with dependencies and parallelization notes.
-- Keeps Task 19 planning-only until implementation is explicitly authorized.
+- Keeps Brilliant planning-only until implementation is explicitly authorized.

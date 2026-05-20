@@ -33,7 +33,7 @@ Plan and implement `.agents/skills/reader-translate/SKILL.md` as the reusable po
 - The skill requires schema-compliant output.
 - The skill supports academic paper translation.
 - The skill distinguishes reusable policy from per-job metadata supplied by Reader.
-- The implementation can start with the MVP prompt template before using the skill directly, but the final Task 19 plan includes this skill as a tracked subtask.
+- The implementation can start with the MVP prompt template before using the skill directly, but the final Brilliant plan includes this skill as a tracked subtask.
 
 ## Parallelization notes
 

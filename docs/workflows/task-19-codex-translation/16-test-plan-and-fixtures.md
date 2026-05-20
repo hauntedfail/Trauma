@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create deterministic tests and fixtures for the Task 19 translation pipeline without requiring live Codex for most coverage.
+Create deterministic tests and fixtures for the Brilliant translation pipeline without requiring live Codex for most coverage.
 
 ## Scope
 

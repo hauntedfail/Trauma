@@ -1,6 +1,6 @@
-# Task 19 subtasks
+# Brilliant subtasks
 
-Task 19 adds Codex app-server powered translation for Reader memory content. This directory is an implementation handoff plan only; do not implement code from these files until explicitly instructed.
+Brilliant adds Codex app-server powered translation for Reader memory content. This directory is an implementation handoff plan only; do not implement code from these files until explicitly instructed.
 
 ## Required order
 
