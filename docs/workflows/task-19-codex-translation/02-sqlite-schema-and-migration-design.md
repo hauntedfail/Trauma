@@ -14,6 +14,7 @@ Implement Drizzle schema, migration SQL, repository methods, and schema tests fo
 - Existing `src/server/db/schema.ts`
 - Existing `src/server/db/repositories.ts`
 - Existing migration naming and timestamp conventions under `drizzle/`
+- Task 18 settings persistence schema, because the translation target language is stored in SQLite settings state
 
 ## Outputs
 
@@ -69,6 +70,8 @@ countTranslationChunksByStatus(jobId): Promise<Record<TranslationChunkStatus, nu
 - `output_path` is store-relative and never absolute.
 - `translated_markdown` is nullable and documented as temporary.
 - No credentials, tokens, auth files, or raw Codex state are stored.
+- The user-selected translation target language is persisted in SQLite settings state, not only in frontend component state.
+- Translation jobs copy the currently configured settings language into `translation_jobs.lang_code` at job creation.
 - Repository tests prove unique current-translation lookup and chunk purge.
 
 ## Parallelization notes

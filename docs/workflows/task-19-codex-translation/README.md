@@ -35,6 +35,7 @@ Brilliant adds Codex app-server powered translation for Reader memory content. T
 - Keep source `CONTENT.md` immutable during translation.
 - Store translated content under `memory/<memory_id>/<lang_code>/CONTENT.md`.
 - Use BCP 47 language codes, with Japanese represented as `ja-JP`.
+- Treat the `/settings` translation target language as SQLite-backed server state; Brilliant must read that persisted value when starting a job.
 - Do not create persistent `.work/<job_id>` translation artifacts.
 - Allow SQLite to hold translated chunk bodies only while a job is in progress.
 - Purge completed translated chunk bodies from SQLite immediately after atomic final commit.

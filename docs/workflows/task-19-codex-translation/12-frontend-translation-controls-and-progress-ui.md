@@ -49,14 +49,17 @@ canceled
 Start action:
 
 1. Read configured `lang_code`.
-2. POST `/api/memories/:memory_id/translations`.
+2. POST `/api/memories/:memory_id/translations` with `{}` or with the configured `lang_code` as a consistency assertion.
 3. If `202`, open SSE `event_url`.
 4. If `200 current`, navigate to `/memories/:id?lang=<lang_code>`.
 5. If `409 setup_required`, show auth/setup callout.
+6. If `409 translation_language_required`, link the user to `/settings`.
+7. If `409 translation_language_mismatch`, refresh settings state and ask the user to retry.
 
 ## Acceptance criteria
 
 - The translate button uses settings target language.
+- The displayed target language comes from the persisted settings value loaded through the settings/page-data API.
 - Missing target language shows settings-required state.
 - Auth unavailable shows setup guidance without starting blindly.
 - Progress shows chunk index and total chunk count.

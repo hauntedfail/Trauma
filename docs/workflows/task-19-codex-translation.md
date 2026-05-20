@@ -30,6 +30,7 @@ Research reference captured by the instruction:
 - Store source memory content at `memory/<memory_id>/CONTENT.md`.
 - Store translated content at `memory/<memory_id>/<lang_code>/CONTENT.md`, for example `memory/abc123/ja-JP/CONTENT.md`.
 - Use BCP 47 language codes such as `ja-JP`.
+- Persist the user-selected translation target language in SQLite through `/settings`; Brilliant reads this server-side value when starting translation.
 - Do not introduce persistent `.work/<job_id>` artifacts.
 - Allow temporary SQLite chunk content during translation only.
 - Immediately purge completed translated chunk bodies from SQLite after final `CONTENT.md` has been atomically committed.
@@ -126,7 +127,7 @@ GET  /api/translation-jobs/:job_id/events
 POST /api/translation-jobs/:job_id/cancel
 ```
 
-`POST /api/memories/:memory_id/translations` starts or reuses a translation job for the requested `lang_code`.
+`POST /api/memories/:memory_id/translations` starts or reuses a translation job for the SQLite-persisted settings `lang_code`. A request body `lang_code`, if present, is only a consistency assertion and must match the stored setting.
 
 `GET /api/memories/:memory_id/translations/:lang_code` returns committed translation metadata and renderability state.
 

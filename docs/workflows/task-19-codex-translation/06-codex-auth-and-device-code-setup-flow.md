@@ -6,7 +6,7 @@ Surface Codex managed ChatGPT sign-in status and login setup without TRAUMA owni
 
 ## Scope
 
-Implement server-side auth status detection, settings API integration, and device-code login UX through Codex app-server. Do not read or store raw Codex credential files.
+Implement server-side auth status detection, settings API integration, and device-code login UX through Codex app-server. This subtask shares the `/settings` surface with the SQLite-backed translation target language setting, but it does not make auth credentials part of that settings record. Do not read or store raw Codex credential files.
 
 ## Inputs
 
@@ -26,6 +26,7 @@ Implement server-side auth status detection, settings API integration, and devic
 - 19.1 for auth boundary.
 - Task 18 settings UI surface.
 - 19.5 if auth detection depends on app-server connectivity.
+- Translation target language persistence from `00-execution-contracts.md`, because `/settings` must expose both auth state and the SQLite-backed target language consistently.
 
 ## Acceptance criteria
 
@@ -36,6 +37,7 @@ Implement server-side auth status detection, settings API integration, and devic
 - Enabling auth does not mark status as enabled until the server verifies Codex can run an authenticated operation.
 - Delete auth clears or invalidates only TRAUMA-owned metadata unless Codex exposes a supported logout flow or the user configured an app-specific credential home and explicitly confirms deletion.
 - Direct API requests cannot force enabled auth status without server verification.
+- Auth state and translation target language may share a settings page, but auth metadata must not be stored in the same value as `translation_target_lang_code`.
 
 ## Parallelization notes
 

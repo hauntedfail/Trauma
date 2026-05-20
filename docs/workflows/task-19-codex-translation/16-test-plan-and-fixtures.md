@@ -84,6 +84,7 @@ mise exec -- bun run test tests/server/translation/orchestrator.test.ts
 mise exec -- bun run test tests/server/routes/api-memory-translations.test.ts
 mise exec -- bun run test tests/server/routes/api-translation-jobs.test.ts
 mise exec -- bun run test tests/server/routes/api-translation-events.test.ts
+mise exec -- bun run test tests/server/settings/translation-language.test.ts
 mise exec -- bun run test tests/server/reader/translated-page-data.test.ts
 mise exec -- bun run test tests/components/reader-translation-controls.test.tsx
 mise exec -- bun run test tests/components/reader-translation-progress.test.tsx
@@ -93,6 +94,9 @@ mise exec -- bun run typecheck
 ## Acceptance criteria
 
 - Tests cover BCP 47 path resolution and traversal rejection.
+- Tests cover persistence and retrieval of the `/settings` translation target language from SQLite.
+- Tests cover translation start using the SQLite settings language when the request body omits `lang_code`.
+- Tests cover `409 translation_language_required` and `409 translation_language_mismatch`.
 - Tests cover source hash and stale translation detection.
 - Tests cover deterministic block ids and chunk grouping.
 - Tests cover prompt injection containment.

@@ -36,14 +36,17 @@ Use the job and chunk transition tables from `00-execution-contracts.md` without
 Start job algorithm:
 
 1. Validate `memory_id` and `lang_code`.
-2. Load `memory/<memory_id>/CONTENT.md`.
-3. Compute `source_hash`, byte size, rough token estimate, title, source URL, and document type hint.
-4. Look up a `complete` job for `(memory_id, lang_code, source_hash)`.
-5. If found and `output_path` exists, return `current`.
-6. If a compatible non-terminal job exists, return the running job.
-7. Create a new `pending` job.
-8. Emit `translation.job.started`.
-9. Let later tasks generate chunks and run Codex.
+2. Read `translation_target_lang_code` from SQLite settings.
+3. If the request supplied `lang_code`, verify it matches the SQLite setting.
+4. Reject with `translation_language_required` when no settings language exists.
+5. Load `memory/<memory_id>/CONTENT.md`.
+6. Compute `source_hash`, byte size, rough token estimate, title, source URL, and document type hint.
+7. Look up a `complete` job for `(memory_id, settingsLangCode, source_hash)`.
+8. If found and `output_path` exists, return `current`.
+9. If a compatible non-terminal job exists, return the running job.
+10. Create a new `pending` job with `lang_code = settingsLangCode`.
+11. Emit `translation.job.started`.
+12. Let later tasks generate chunks and run Codex.
 
 Commit guard algorithm:
 
@@ -55,6 +58,7 @@ Commit guard algorithm:
 
 - `TranslationJobStatus`, `TranslationChunkStatus`, and event types are centralized in `types.ts`.
 - Starting a job is idempotent for current translations and active jobs.
+- Starting a job uses the SQLite-persisted settings language, not frontend-only state.
 - Source freshness is checked at start and again before commit.
 - Job completion is impossible before final file commit and purge.
 - Retry count is per chunk.

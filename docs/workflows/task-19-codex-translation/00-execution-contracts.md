@@ -12,6 +12,7 @@ This file freezes the implementation contracts for Brilliant before code work st
 - Source content path: `memory/<memory_id>/CONTENT.md`
 - Translated content path: `memory/<memory_id>/<lang_code>/CONTENT.md`
 - Japanese language code: `ja-JP`
+- Translation target language source: user setting persisted in SQLite from `/settings`
 - Default progress transport: SSE
 - Codex integration: backend-only Codex app-server client
 - Default Codex thread strategy: one ephemeral Codex thread per chunk
@@ -70,9 +71,12 @@ Use these paths unless existing code clearly has a more specific equivalent. If 
 ### Settings and auth
 
 - Modify: `src/components/settings/SettingsPage.tsx`
+- Modify: Task 18 settings persistence schema/repository used for SQLite-backed settings
 - Modify: `src/server/settings/codex-auth.ts` or create it if missing
+- Create: `src/server/settings/translation-language.ts` if no focused settings service exists
 - Modify: settings API routes created by Task 18
 - Test: `tests/server/settings/codex-auth.test.ts`
+- Test: `tests/server/settings/translation-language.test.ts`
 - Test: `tests/components/settings-codex-auth.test.tsx`
 
 ### Reader frontend
@@ -285,6 +289,29 @@ Rules:
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
 - Do not add any token, refresh token, credential, or raw Codex auth column.
 
+## Settings language contract
+
+The frontend language selector already belongs to `/settings`, but the selected translation language is not frontend-only state. Brilliant must read the canonical target language from SQLite.
+
+Canonical setting:
+
+```text
+translation_target_lang_code = "ja-JP"
+```
+
+Rules:
+
+- `/settings` lets the user select the translation target language.
+- The settings API persists the selected value in SQLite.
+- The persisted value must be a supported BCP 47 language code.
+- `ja-JP` is the Japanese value.
+- Brilliant translation start reads this value server-side before creating a job.
+- The browser may display the selected language, but the translation backend must not trust a client-provided language as the source of truth.
+- If `POST /api/memories/:memory_id/translations` includes a `lang_code`, the backend must verify that it matches the persisted SQLite setting.
+- If the request language differs from the persisted setting, reject with `409 translation_language_mismatch`.
+- If no translation target language is configured, reject with `409 translation_language_required`.
+- The selected language must be recorded separately from translation job rows so future jobs use the latest user setting while old jobs retain their own `lang_code`.
+
 ## State transition table
 
 ### Job transitions
@@ -337,6 +364,8 @@ content-type: application/json
 }
 ```
 
+For the MVP frontend, the request body may be `{}`. The backend reads `translation_target_lang_code` from SQLite and uses that value. If `lang_code` is present, it is a consistency assertion, not the canonical source.
+
 Responses:
 
 ```json
@@ -367,7 +396,7 @@ Status codes:
 - `200` for current committed translation or already running job reuse
 - `400` for invalid language code
 - `404` for missing memory or source content
-- `409` for Codex auth/setup required, stale running conflict, or cancellation conflict
+- `409` for missing configured target language, request/setting language mismatch, Codex auth/setup required, stale running conflict, or cancellation conflict
 - `500` for unexpected server failure
 
 ### Read committed translation metadata

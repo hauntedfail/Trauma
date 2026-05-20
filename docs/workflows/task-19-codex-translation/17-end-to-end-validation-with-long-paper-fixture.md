@@ -13,6 +13,7 @@ Run an end-to-end translation flow using a long paper fixture and fake app-serve
 - `docs/workflows/task-19-codex-translation/00-execution-contracts.md`
 - 19.16 long-paper fixture
 - Completed implementation from 19.2 through 19.15
+- SQLite-backed settings value `translation_target_lang_code = ja-JP`
 - Optional local Codex app-server with ChatGPT sign-in
 
 ## Outputs
@@ -28,6 +29,7 @@ Run an end-to-end translation flow using a long paper fixture and fake app-serve
 ## Acceptance criteria
 
 - The long paper fixture is chunked into multiple chunks by block groups, not raw character slicing.
+- The job uses the target language configured through `/settings` and persisted in SQLite.
 - Every source block id appears exactly once in validated translated output.
 - Chunk retry can recover from one injected validation failure.
 - Final stitched Markdown passes full-document validation.
