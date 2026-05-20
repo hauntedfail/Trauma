@@ -61,12 +61,13 @@ Error code boundary:
 - Retry only the failed chunk.
 - Start a fresh ephemeral Codex thread for each retry attempt.
 - Do not reuse the failed attempt's Codex thread because the thread history may contain invalid output or failed repair context.
-- Increment `retry_count` before each retry.
+- Increment `retry_count` exactly once before starting each retry attempt.
+- Runner recovery must not increment `retry_count` when it only normalizes orphaned `running` or `validating` chunks to `retrying`; the next normal retry attempt owns the increment.
 - Include structured validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
 - Use `maxRetries` from chunk config.
 - `maxRetries` is the number of retry attempts after the initial attempt, so total attempts are `1 + maxRetries`.
-- The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts.
+- The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts, and never from recovery-only normalization.
 - After retry exhaustion, mark chunk and job failed.
 - `outputSchema` rejection or fallback to prompt-only JSON mode is not a validation retry and does not change `retry_count`.
 - If `outputSchema` is rejected after a thread has been created, the app-server client discards that thread and starts a fresh prompt-only thread for the same chunk attempt.

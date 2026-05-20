@@ -313,6 +313,7 @@ Cancelable statuses:
 
 - `pending` with no in-flight Codex turn transitions directly to `canceled`.
 - `running` transitions to `cancel_requested`.
+- Both transitions are compare-and-set operations. If `pending -> canceled` loses the race to the runner's `pending -> running` claim, reload the job and apply `running -> cancel_requested`.
 - `cancel_requested` and `canceled` are idempotent success responses.
 - `stitching`, `committing`, `complete`, `stale`, `failed`, and `unavailable`
   return `409` with `code = "cancellation_conflict"`.

@@ -81,6 +81,8 @@ findCompleteTranslationRecord(memoryId, langCode, sourceHash): Promise<Translati
 findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
 claimTranslationJob(jobId, expectedStatus: "pending"): Promise<boolean>
+cancelPendingTranslationJob(jobId): Promise<boolean>
+requestRunningTranslationJobCancellation(jobId): Promise<boolean>
 markTranslationUnavailable(jobId, reason: "output_missing" | "output_hash_mismatch"): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>
@@ -102,6 +104,9 @@ Runner claim rules:
 
 - `claimTranslationJob()` is a compare-and-set transition used by the runner to atomically claim `pending -> running`.
 - It returns `false` if another runner tick already claimed, canceled, failed, or otherwise changed the job.
+- `cancelPendingTranslationJob()` is a compare-and-set transition used by the cancel API to atomically claim `pending -> canceled`.
+- `requestRunningTranslationJobCancellation()` is a compare-and-set transition used by the cancel API to atomically claim `running -> cancel_requested`.
+- If either cancellation compare-and-set returns `false`, the cancel API reloads the job and branches on the current status instead of assuming the previous state still holds.
 - In-flight Codex `threadId` and `turnId` are not persisted in SQLite for Brilliant MVP. They live only in the local in-process runner registry.
 - After restart, a `cancel_requested` job without in-memory ids is recovered as `canceled`.
 

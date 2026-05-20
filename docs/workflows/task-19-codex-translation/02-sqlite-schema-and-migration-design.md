@@ -77,6 +77,9 @@ getTranslationJob(jobId): Promise<TranslationJobRecord | null>
 findCompleteTranslationRecord(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 findActiveTranslationJob(memoryId, langCode, sourceHash): Promise<TranslationJobRecord | null>
 updateTranslationJobStatus(jobId, status, patch): Promise<void>
+claimTranslationJob(jobId, expectedStatus: "pending"): Promise<boolean>
+cancelPendingTranslationJob(jobId): Promise<boolean>
+requestRunningTranslationJobCancellation(jobId): Promise<boolean>
 markTranslationUnavailable(jobId, reason): Promise<void>
 insertTranslationChunks(jobId, chunks): Promise<void>
 getTranslationChunks(jobId): Promise<TranslationChunkRecord[]>

@@ -159,10 +159,12 @@ mise exec -- bun run typecheck
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`
+- pending cancellation races runner claim through compare-and-set; if `pending -> canceled` loses to `pending -> running`, cancel API reloads and requests `running -> cancel_requested`
 - recovered non-resumable `cancel_requested` job becomes `canceled` so it does not block future retries indefinitely
 - recovered orphaned `running` job becomes `pending` or `stale`; recovered `stitching`/`committing` job uses final-output recovery
-- recovered orphaned `running` or `validating` chunks consume one retry budget and become `retrying`, or fail when retry budget is exhausted; recovered `retrying` chunks do not increment `retry_count` again
+- recovered orphaned `running` or `validating` chunks become `retrying` without incrementing `retry_count`; the next normal retry attempt increments exactly once, and exhausted retry budget fails the chunk/job
 - interrupted final-file recovery verifies the existing final file hash against the re-stitched output hash before marking a job complete
+- interrupted final-file recovery overwrites an existing final file only when completed chunk bodies can be re-stitched, source hash still matches, final validation passes, and the full atomic commit sequence can be rerun safely
 - in-flight `threadId` and `turnId` live only in the in-process runner registry and are not added to SQLite
 - duplicate route calls do not enqueue the same job id more than once
 - completed event includes `reader_url`

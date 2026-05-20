@@ -43,7 +43,7 @@ WHERE job_id = ?
 2. Temp file exists, final file absent, job not complete: delete temp and mark failed or retryable.
 3. Final file missing or hash-mismatched for a complete job: mark the job `unavailable` and allow a future retry for the same `(memory_id, lang_code, source_hash)`.
 4. Final file exists, job complete, chunks not purged: purge before reporting complete.
-5. Final file exists, job not complete, all chunks complete: re-stitch completed chunk bodies, compute the expected output hash, and compare it with the existing final file hash. Complete and purge only when the current source hash still matches and the final file hash equals the re-stitched output hash. If the final file differs, do not assume it belongs to this job; preserve the existing final file and either re-run the atomic commit sequence from the re-stitched output or fail the job with `filesystem_failure` if safe rewrite cannot be completed.
+5. Final file exists, job not complete, all chunks complete: re-stitch completed chunk bodies, compute the expected output hash, and compare it with the existing final file hash. Complete and purge only when the current source hash still matches and the final file hash equals the re-stitched output hash. If the final file differs, do not assume it belongs to this job. A rewrite is allowed only when the current source hash still matches `translation_jobs.source_hash`, all required completed chunk bodies are still available for re-stitching, final validation passes, and the same-directory temp-file plus atomic rename sequence can run again safely. Otherwise preserve the existing final file and mark the interrupted job failed with `filesystem_failure`.
 6. Source hash changed during interrupted non-complete job: mark stale.
 
 ## Rules
@@ -53,6 +53,7 @@ WHERE job_id = ?
 - Completion event is emitted only after purge succeeds.
 - Startup recovery cannot report complete until final file exists, hash matches, and purge is done.
 - Recovery must never mark an interrupted job complete merely because `memories/<memory_id>/<lang_code>/CONTENT.md` exists. The file must match the re-stitched output hash for that job.
+- Recovery must never overwrite an existing final `CONTENT.md` unless it can re-stitch this job's completed chunk bodies, validate the output, confirm the current source hash still matches, and perform the full atomic commit sequence again.
 - Completed jobs are immutable history. If source content changes later, keep the completed job status unchanged and derive stale/current state at read time.
 - If a complete job's committed output file is missing or hash-mismatched, mark it `unavailable` instead of reporting it as current.
 - Same-directory `.CONTENT.<job_id>.tmp` files are short-lived final-write artifacts only. Do not retain them for failed-job debugging. If a commit fails before final rename or recovery finds an orphan temp file, delete the temp file and preserve failure diagnostics in SQLite metadata/logs instead.
