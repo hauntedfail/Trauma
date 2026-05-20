@@ -128,13 +128,14 @@ mise exec -- bun run typecheck
 - failed or interrupted final writes delete `.CONTENT.<job_id>.tmp` temp files
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
-- JSON-RPC app-server initialization before requests
-- Unix socket default JSON-RPC transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- app-server initialization before requests
+- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP wire-protocol rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
+- `maxRetries: 3` means one initial attempt plus three retry attempts
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
 - runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories

@@ -94,7 +94,7 @@ Typed Codex app-server event mapping:
 - `turn.completed` with successful final output is followed by validation events, not immediate persistence.
 - `turn.completed` with interrupted status maps to cancellation flow.
 
-Raw JSON-RPC notification names such as `item/agentMessage/delta` are parsed only by `src/server/translation/codex-app-server.ts`. This subtask consumes typed internal events only.
+Raw app-server notification names such as `item/agentMessage/delta` are parsed only by `src/server/translation/codex-app-server.ts`. This subtask consumes typed internal events only.
 
 Completed event payload includes `output_path`, `output_hash`, and `reader_url`.
 Failed event payloads include `error` with the same `code`, `message`, and optional `action` shape as `TranslationJobSnapshotError`. Chunk failure payloads also include `retry_count` and `will_retry`.
@@ -122,7 +122,7 @@ Cover:
 - job failed event includes a safe `error` object with stable `code`
 - chunk failed event includes safe `error`, `retry_count`, and `will_retry`
 - app-server item notifications map to Reader events
-- streaming bridge consumes typed Codex events rather than raw JSON-RPC method names
+- streaming bridge consumes typed Codex events rather than raw app-server method names
 - `turn.started` stores cancellation ids without exposing app-server connection details
 - Codex delta events are marked non-authoritative
 - stream disconnect does not cancel job

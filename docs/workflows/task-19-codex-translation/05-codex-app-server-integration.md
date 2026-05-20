@@ -19,13 +19,13 @@ Implement the backend-only Codex app-server client used by Brilliant. This subta
 
 Scope: backend-only Codex app-server client, auth probe, thread/turn creation, notification parsing, and cancellation primitive.
 
-Inputs: configured app-server transport, JSON-RPC protocol, output schema from 19.8, and chunk payloads from the orchestrator.
+Inputs: configured app-server transport, Codex app-server wire protocol, output schema from 19.8, and chunk payloads from the orchestrator.
 
 Outputs: fakeable `CodexAppServerClient`, typed events, typed errors, and app-server-safe auth/device-code adapters.
 
 Dependencies: 19.1 freezes app-server boundary; 19.8 owns prompt/schema content.
 
-Parallelization notes: can run with 19.6 and 19.7 after JSON-RPC types are frozen; avoid editing frontend or final file writing.
+Parallelization notes: can run with 19.6 and 19.7 after app-server wire types are frozen; avoid editing frontend or final file writing.
 
 Implementation risks: treating app-server as REST or skipping `initialize` will fail against the real protocol; exposing app-server details to the browser violates security requirements.
 
@@ -53,13 +53,13 @@ Rules:
 - Default Brilliant MVP endpoint is `unix://`, but only when the operator started Codex with `codex app-server --listen unix://`.
 - Default local app-server startup command is `codex app-server --listen unix://`.
 - `codex app-server` without `--listen unix://` uses the Codex CLI `stdio` default and is not a Brilliant endpoint.
-- Support Unix socket as the default JSON-RPC transport and loopback WebSocket only as a local development fallback.
+- Support Unix socket as the default app-server wire-protocol transport and loopback WebSocket only as a local development fallback.
 - Loopback WebSocket fallback example: `codex app-server --listen ws://127.0.0.1:4500` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
-- HTTP is health-probe-only and must not be used for JSON-RPC app-server requests.
-- Reject `http://` and `https://` endpoints for JSON-RPC.
+- HTTP is health-probe-only and must not be used for app-server wire-protocol requests.
+- Reject `http://` and `https://` endpoints for app-server wire-protocol calls.
 - Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
 - Reject non-loopback WebSocket endpoints until a separate security subtask defines remote listener authentication and secret storage.
-- Speak JSON-RPC 2.0 over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
+- Speak the Codex app-server wire protocol over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - Use the Codex app-server wire envelope exactly: requests are `{ method, params, id }`, responses are `{ id, result }` or `{ id, error }`, and notifications are `{ method, params }`. Do not add a top-level `jsonrpc` field unless the generated schema or focused fixtures for the installed Codex version explicitly accept it.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
 - Reject or retry connection setup if any request is attempted before initialization.
@@ -74,7 +74,7 @@ Protocol schema rules:
 
 - Record the local Codex CLI/app-server version used to implement the client.
 - Prefer generated Codex app-server TypeScript or JSON Schema artifacts from `codex app-server generate-ts` or `codex app-server generate-json-schema` for fake app-server tests.
-- If generated artifacts are too large, add focused protocol fixtures for the JSON-RPC methods and notifications Brilliant consumes.
+- If generated artifacts are too large, add focused protocol fixtures for the app-server methods and notifications Brilliant consumes.
 - Hand-written event types must be checked against the generated schema or focused fixture version.
 - Before implementing the production transport, run a focused Unix socket adapter
   spike. Confirm how Bun/Node connects to Codex app-server's `unix://` endpoint,
@@ -102,8 +102,8 @@ Rules:
 - Final output must come from completed app-server item content.
 - `translateChunk()` yields `thread.started` and `turn.started` when ids are available so the orchestrator can cancel the in-flight turn.
 - Cancellation uses `turn/interrupt` with both `threadId` and `turnId`.
-- Raw JSON-RPC notifications are parsed only in this module and converted into typed `CodexAppServerEvent` values before reaching orchestrator or SSE code.
-- Auth JSON-RPC notifications are parsed only in this module and converted into typed `CodexAuthEvent` values before reaching settings/auth services.
+- Raw app-server notifications are parsed only in this module and converted into typed `CodexAppServerEvent` values before reaching orchestrator or SSE code.
+- Auth app-server notifications are parsed only in this module and converted into typed `CodexAuthEvent` values before reaching settings/auth services.
 
 ## Error contract
 
@@ -127,14 +127,14 @@ Use a fake app-server client. Cover:
 - missing app-server endpoint returns setup-required
 - default Unix socket endpoint config is accepted only when paired with the explicit `codex app-server --listen unix://` startup requirement
 - loopback WebSocket fallback config is accepted and documented as local-dev-only
-- Unix socket JSON-RPC transport is accepted
-- loopback WebSocket JSON-RPC transport is accepted
-- HTTP endpoints are rejected for JSON-RPC
+- Unix socket app-server wire transport is accepted
+- loopback WebSocket app-server wire transport is accepted
+- HTTP endpoints are rejected for app-server wire-protocol calls
 - non-loopback WebSocket endpoints are rejected for Brilliant MVP
 - `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
-- JSON-RPC initialize and initialized happen before `account/read`, `thread/start`, or `turn/start`
-- generated schema or focused protocol fixtures cover the JSON-RPC methods and notifications used by the fake app-server
+- app-server `initialize` and `initialized` happen before `account/read`, `thread/start`, or `turn/start`
+- generated schema or focused protocol fixtures cover the app-server methods and notifications used by the fake app-server
 - fake app-server fixtures omit top-level `jsonrpc` unless generated schema proves it is accepted
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
@@ -156,7 +156,7 @@ Use a fake app-server client. Cover:
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
 - usage limit, context overflow, timeout, and disconnect are typed
-- raw JSON-RPC notifications are converted to typed internal events inside the app-server client module
+- raw app-server notifications are converted to typed internal events inside the app-server client module
 - no token, credential file content, or app-server secret is returned
 
 ## Verification

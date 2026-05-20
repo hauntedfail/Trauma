@@ -42,7 +42,7 @@ Manual or automated smoke:
 3. Start translation with `POST /api/memories/:memory_id/translations` without trusting a client language as canonical.
 4. Confirm job uses `ja-JP` from SQLite settings.
 5. Confirm chunker creates multiple block-group chunks.
-6. Confirm fake Codex app-server requires JSON-RPC initialization, starts ephemeral chunk threads, emits deltas, and returns final structured outputs.
+6. Confirm fake Codex app-server requires app-server initialization, starts ephemeral chunk-attempt threads, emits deltas, and returns final structured outputs.
 7. Inject one validation failure and confirm only the failed chunk retries.
 8. Confirm every source block id appears exactly once in validated translated output.
 9. Confirm source frontmatter, when present, is preserved unchanged at the top of translated output.

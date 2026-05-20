@@ -128,6 +128,9 @@ mise exec -- bun run test tests/server/translation/chunker.test.ts
 mise exec -- bun run typecheck
 ```
 
+`maxRetries: 3` means one initial attempt plus up to three retry attempts for a
+maximum of four total attempts per chunk.
+
 ## Acceptance criteria
 
 - Chunking is deterministic.

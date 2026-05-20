@@ -39,6 +39,10 @@ export const DEFAULT_TRANSLATION_CHUNK_CONFIG = {
 } as const;
 ```
 
+`maxRetries` is the number of retry attempts after the initial attempt. With
+`maxRetries: 3`, the runner may make at most four total attempts for one chunk:
+one initial attempt plus three retry attempts.
+
 ## Chunking rules
 
 - Prefer section boundaries from heading path.

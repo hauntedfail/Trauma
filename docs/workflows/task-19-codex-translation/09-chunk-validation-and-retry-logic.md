@@ -65,6 +65,8 @@ Error code boundary:
 - Include structured validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
 - Use `maxRetries` from chunk config.
+- `maxRetries` is the number of retry attempts after the initial attempt, so total attempts are `1 + maxRetries`.
+- The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts.
 - After retry exhaustion, mark chunk and job failed.
 
 ## Failure examples to test
@@ -95,6 +97,7 @@ Cover:
 - retry starts a fresh ephemeral Codex thread for each attempt
 - retry prompt does not depend on prior failed thread history
 - retry count increments
+- `maxRetries: 3` allows four total attempts: one initial attempt and three retry attempts
 - retry exhaustion marks failed
 
 ## Verification

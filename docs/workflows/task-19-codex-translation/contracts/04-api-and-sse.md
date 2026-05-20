@@ -57,7 +57,7 @@ Active job reuse response:
 Status codes:
 
 - `202` for newly started async job
-- `200` for current committed translation or already running job reuse
+- `200` for current committed translation or active job reuse
 - `400` for invalid language code
 - `404` for missing memory or source content
 - `409` for missing configured target language, request/setting language mismatch, Codex auth/setup required, stale running conflict, or cancellation conflict

@@ -357,6 +357,14 @@ failed -> retrying while retry_count < maxRetryCount
 failed -> failed when retry_count >= maxRetryCount
 ```
 
+Retry count semantics:
+
+- `maxRetries` / `maxRetryCount` means the number of additional retry attempts allowed after the initial attempt fails.
+- `maxAttempts = 1 + maxRetries`.
+- The initial attempt starts with `retry_count = 0`.
+- Increment `retry_count` before each retry attempt is started.
+- Exhaustion occurs when the next retry would make `retry_count > maxRetries`.
+
 ## Settings language contract
 
 Canonical setting:

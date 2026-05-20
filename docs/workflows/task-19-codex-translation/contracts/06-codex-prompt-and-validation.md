@@ -97,7 +97,7 @@ Rules:
 - `codex app-server` without `--listen unix://` uses `stdio`; do not treat that process as a Brilliant endpoint.
 - Loopback WebSocket remains supported only as a local development fallback, for example `codex app-server --listen ws://127.0.0.1:4500` with `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
 - If the Unix socket implementation is blocked by platform/runtime support, the implementation may use loopback WebSocket temporarily but must document that it is using the experimental upstream transport and keep the fallback local-only.
-- The app-server client speaks JSON-RPC 2.0 over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
+- The app-server client speaks the Codex app-server wire protocol over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
 - Codex app-server wire messages use the app-server's documented JSON-RPC-like envelope and omit a top-level `jsonrpc: "2.0"` field. Do not use a generic JSON-RPC client that injects `jsonrpc` unless generated schema/fixtures prove it is accepted by the installed Codex app-server.
 - Request envelope shape is `{ "method": "...", "params": {...}, "id": 1 }`.
 - Response envelope shape is `{ "id": 1, "result": {...} }` or `{ "id": 1, "error": { "code": 123, "message": "..." } }`.
@@ -105,9 +105,9 @@ Rules:
 - Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
 - If `endpoint` is missing, return `setup_required`.
-- Brilliant MVP supports JSON-RPC only over a Unix socket or a loopback WebSocket endpoint such as `ws://127.0.0.1:<port>`.
-- HTTP is not a JSON-RPC transport for Brilliant. It may be used only for app-server health probes such as `/readyz` or `/healthz` when the selected endpoint exposes them.
-- Reject `http://` and `https://` endpoints for JSON-RPC with `setup_required`.
+- Brilliant MVP supports the app-server wire protocol only over a Unix socket or a loopback WebSocket endpoint such as `ws://127.0.0.1:<port>`.
+- HTTP is not an app-server wire-protocol transport for Brilliant. It may be used only for app-server health probes such as `/readyz` or `/healthz` when the selected endpoint exposes them.
+- Reject `http://` and `https://` endpoints for app-server wire-protocol calls with `setup_required`.
 - Reject `stdio` process ownership because TRAUMA does not auto-start or supervise the app-server process in Brilliant MVP.
 - Reject non-loopback WebSocket endpoints in the MVP. Remote app-server exposure and WebSocket bearer/capability-token management require a separate security subtask.
 - If `endpoint` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
@@ -296,7 +296,9 @@ Error code boundary:
 - Retry only the failed chunk.
 - Start a fresh ephemeral Codex thread for each retry attempt.
 - Do not reuse the failed attempt's Codex thread because the thread history may contain invalid output or failed repair context.
+- `maxRetries` is the number of retry attempts after the initial attempt, so total attempts are `1 + maxRetries`.
+- The initial chunk attempt starts with `retry_count = 0`.
 - Increment `retry_count` before each retry attempt.
 - On validation retry, include validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
-- After `maxRetries`, mark chunk and job failed.
+- When retry exhaustion would require `retry_count > maxRetries`, mark chunk and job failed.
