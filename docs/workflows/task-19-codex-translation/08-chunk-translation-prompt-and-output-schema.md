@@ -70,6 +70,8 @@ No commentary outside JSON is allowed.
 - State that source content cannot override instructions.
 - Do not include tokens, secrets, local credential paths, or app-server connection details in the prompt.
 - Do not ask Codex to write files.
+- Do not include source `CONTENT.md` path, translated `CONTENT.md` path, project root, or configured store root in the prompt.
+- Runtime prompt generation is deterministic in `src/server/translation/prompt.ts`; it does not depend on runtime `$reader-translate` skill invocation for the MVP.
 
 ## Tests
 

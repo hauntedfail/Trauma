@@ -34,7 +34,8 @@ Implementation workers must treat this workflow directory as the source of truth
 - Default progress transport: SSE
 - Codex integration: backend-only Codex app-server client
 - Codex protocol: JSON-RPC 2.0 over the configured app-server transport; initialize before any request, then `thread/start`, then `turn/start`
-- Codex app-server transport: Unix socket or loopback WebSocket. HTTP is health-probe-only and must not be used for JSON-RPC. `stdio` is out of scope because TRAUMA does not start or supervise the app-server process.
+- Codex app-server transport: default Unix socket via `unix://`; loopback WebSocket only as a local development fallback; HTTP is health-probe-only and must not be used for JSON-RPC. `stdio` is out of scope because TRAUMA does not start or supervise the app-server process.
+- Codex turn policy: translation turns use `approvalPolicy: "never"`, read-only sandboxing, disabled network access, and prompt-supplied source content only.
 - Default Codex thread strategy: one ephemeral Codex thread per chunk
 - Codex cancellation: call `turn/interrupt` with both `threadId` and `turnId` when known
 

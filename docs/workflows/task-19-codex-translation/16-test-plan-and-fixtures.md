@@ -122,8 +122,10 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - JSON-RPC app-server initialization before requests
-- Unix socket or loopback WebSocket JSON-RPC transport support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Unix socket default JSON-RPC transport support, loopback WebSocket local-dev fallback support, HTTP JSON-RPC rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
+- translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `app_server_unavailable` maps to HTTP `503`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
@@ -133,7 +135,8 @@ mise exec -- bun run typecheck
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
-- default app-server endpoint uses loopback WebSocket `ws://127.0.0.1:4500`
+- default app-server endpoint uses Unix socket `unix://`
+- loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - completed event includes `reader_url`
 - API errors use stable `code` values consumed by frontend state branches
@@ -148,6 +151,7 @@ mise exec -- bun run typecheck
 - job start and metadata API use `resolveCurrentTranslationReadOnly()` plus explicit `repairUnavailableTranslation()` when mutation is allowed
 - reader route and variant tabs use `resolveCurrentTranslationReadOnly()` only and never call `repairUnavailableTranslation()`
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
+- runtime translation prompt builder does not require `$reader-translate` skill invocation or project-root read access
 - job start and metadata API use explicit unavailable repair before retry/recovery
 - job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots
 - unavailable repair persists structured JSON error with reason `output_missing` or `output_hash_mismatch`

@@ -52,9 +52,13 @@ The skill must instruct Codex to:
 ## Boundary rules
 
 - The skill is policy only.
+- Brilliant MVP does not invoke `$reader-translate` as a runtime app-server skill item during translation turns.
+- Runtime translation prompts are generated deterministically by `src/server/translation/prompt.ts` from the frozen prompt contract.
+- The repo-local skill is for human/agent implementation consistency, future prompt policy reuse, and review guidance.
 - Reader backend still owns chunking, validation, retry, stitching, final writes, and cleanup.
 - Do not add scripts unless validation reliability requires them.
 - Do not let the skill authorize Codex to write canonical files.
+- Do not require the app-server translation turn to read `.agents/skills/reader-translate/SKILL.md`; this avoids adding project-root read access to the locked-down runtime sandbox.
 
 ## Tests
 
@@ -65,6 +69,7 @@ If skill validation exists, cover:
 - skill contains preservation requirements
 - skill forbids omission and summarization
 - skill does not instruct Codex to write files
+- runtime translation prompt builder does not require app-server skill invocation
 
 ## Verification
 
@@ -80,3 +85,4 @@ If no skill validation exists, record that this is a policy-file-only subtask.
 - Repo-local skill exists.
 - Skill policy matches Brilliant prompt contract.
 - Skill can be versioned through `translation_jobs.skill_version`.
+- MVP translation turns can run without giving Codex filesystem read access to the repo-local skill file.

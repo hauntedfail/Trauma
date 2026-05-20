@@ -68,7 +68,8 @@ Before later subtasks start, confirm these names and contracts are stable:
 - Final output path `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - Translated reader route `/memories/:lang_code/:id`.
 - Codex app-server JSON-RPC lifecycle: connect, `initialize`, `initialized`, `account/read`, `thread/start`, `turn/start`, notifications, and optional `turn/interrupt`.
-- Codex app-server transport boundary: Unix socket or loopback WebSocket only for JSON-RPC; HTTP is health-probe-only; `stdio` process ownership is outside Brilliant MVP.
+- Codex app-server transport boundary: Unix socket is the default JSON-RPC transport; loopback WebSocket is local development fallback only; HTTP is health-probe-only; `stdio` process ownership is outside Brilliant MVP.
+- Codex translation turn security policy: `approvalPolicy: "never"`, read-only sandbox, no network access, and no direct filesystem reads from the TRAUMA project or store.
 - Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
 
 ## Tests

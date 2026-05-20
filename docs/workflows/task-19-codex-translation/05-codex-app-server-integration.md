@@ -50,9 +50,10 @@ The MVP connects to an already-running Codex app-server. It does not auto-start 
 Rules:
 
 - Read app-server endpoint from `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value.
-- Default Brilliant MVP endpoint is `ws://127.0.0.1:4500`.
-- Default local app-server startup command is `codex app-server --listen ws://127.0.0.1:4500`.
-- Support only Unix socket or loopback WebSocket JSON-RPC transports in the MVP.
+- Default Brilliant MVP endpoint is `unix://`.
+- Default local app-server startup command is `codex app-server --listen unix://`.
+- Support Unix socket as the default JSON-RPC transport and loopback WebSocket only as a local development fallback.
+- Loopback WebSocket fallback example: `codex app-server --listen ws://127.0.0.1:4500` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
 - HTTP is health-probe-only and must not be used for JSON-RPC app-server requests.
 - Reject `http://` and `https://` endpoints for JSON-RPC.
 - Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
@@ -67,9 +68,17 @@ Rules:
 - No fallback to `codex exec` exists in this client.
 - Request timeout and health timeout are explicit config values or documented defaults.
 
+Protocol schema rules:
+
+- Record the local Codex CLI/app-server version used to implement the client.
+- Prefer generated Codex app-server TypeScript or JSON Schema artifacts from `codex app-server generate-ts` or `codex app-server generate-json-schema` for fake app-server tests.
+- If generated artifacts are too large, add focused protocol fixtures for the JSON-RPC methods and notifications Brilliant consumes.
+- Hand-written event types must be checked against the generated schema or focused fixture version.
+
 Rules:
 
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk, then `turn/start` for chunk translation.
+- `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
 - If `outputSchema` is unsupported or rejected, retry the same chunk with a prompt-only JSON response contract. The returned JSON must still pass `CodexChunkOutput` validation before persistence. If both paths fail, mark the chunk/job with `invalid_final_output`.
 - Do not define the Brilliant translation output schema in this module; schema construction is owned by 19.8.
@@ -103,7 +112,8 @@ Use a fake app-server client. Cover:
 
 - auth check success and auth-required failure
 - missing app-server endpoint returns setup-required
-- default loopback WebSocket endpoint config is accepted
+- default Unix socket endpoint config is accepted
+- loopback WebSocket fallback config is accepted and documented as local-dev-only
 - Unix socket JSON-RPC transport is accepted
 - loopback WebSocket JSON-RPC transport is accepted
 - HTTP endpoints are rejected for JSON-RPC
@@ -111,6 +121,7 @@ Use a fake app-server client. Cover:
 - `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
 - JSON-RPC initialize and initialized happen before `account/read`, `thread/start`, or `turn/start`
+- generated schema or focused protocol fixtures cover the JSON-RPC methods and notifications used by the fake app-server
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
 - logout wraps `account/logout` when supported and reports unsupported logout explicitly
@@ -118,6 +129,7 @@ Use a fake app-server client. Cover:
 - auth check uses `account/read`
 - chunk translation starts an ephemeral thread before starting a turn
 - `turn/start` request passes through the caller-provided output schema
+- `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
 - rejected `outputSchema` falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `translateChunk()` yields thread id and turn id before item events when available
 - `cancelTurn()` sends `turn/interrupt` with thread id and turn id
