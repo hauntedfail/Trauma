@@ -69,13 +69,13 @@ Start algorithm:
 3. If the request supplied `lang_code`, verify it matches the SQLite setting.
 4. Reject with `translation_language_required` when no settings language exists.
 5. Load source `CONTENT.md` and compute source metadata.
-6. Check Codex auth/setup preconditions with `account/read` through the app-server client before creating or reusing a job.
-7. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
-8. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
-9. Resolve the complete job through `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
-10. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata.
-11. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
-12. If a compatible active job exists, return that running job.
+6. Look up a complete job for `(memory_id, settingsLangCode, source_hash)`.
+7. Resolve the complete job through `resolveCurrentTranslationReadOnly()` from `src/server/translation/current-translation.ts`, which checks output file existence and output hash under `storePath`.
+8. If the complete job has an existing output path and the output file hash matches `translation_jobs.output_hash`, return current translation metadata without checking Codex auth, because no new Codex work is required.
+9. If the complete job's output file is missing or hash-mismatched, call `repairUnavailableTranslation()` to mark that job `unavailable` before continuing.
+10. If a compatible active job exists, return that running job and its `event_url` without creating another job. The running job itself may later fail with an execution-time auth/setup error if Codex auth is lost.
+11. Check Codex auth/setup preconditions with `account/read` through the app-server client immediately before creating a new job.
+12. If Codex auth/setup is missing, return `409 auth_required` or `409 setup_required` and do not create a `translation_jobs` row.
 13. Create a new `pending` job with `lang_code = settingsLangCode`.
 14. Schedule the job on the local in-process Brilliant runner.
 15. The runner emits `translation.job.started` after it claims the job and transitions `pending -> running`.
@@ -119,7 +119,10 @@ Cover:
 - job start uses SQLite settings language when request body omits `lang_code`
 - request language mismatch returns `translation_language_mismatch`
 - missing settings language returns `translation_language_required`
-- missing Codex auth/setup returns `auth_required` or `setup_required` before creating a job row
+- current completed translation is returned without requiring current Codex auth
+- active job reuse returns the existing job without creating another row
+- missing Codex auth/setup returns `auth_required` or `setup_required` before creating a new job row
+- in-flight auth/setup loss after job creation persists `auth_required` or `setup_required` as the job failure code
 - current completed job is reused
 - completed job with mismatched `output_hash` is not returned as current
 - completed job with missing or hash-mismatched output is marked unavailable and does not block a new job

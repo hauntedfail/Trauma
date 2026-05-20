@@ -140,6 +140,14 @@ Runtime `cwd` rules:
 - Do not copy source `CONTENT.md`, translated `CONTENT.md`, prompts, credentials, or chunk bodies into this directory.
 - Remove the job-scoped runtime directory when the job reaches `complete`, `failed`, `stale`, or `canceled`.
 - Startup recovery may delete stale empty runtime directories after confirming they are under `TRAUMA_CODEX_RUNTIME_DIR` or the OS temp `trauma-codex-runtime/` root.
+- Runtime cleanup must be defensive:
+  - Validate `job_id` before deriving the directory name; reject separators, traversal segments, and empty ids.
+  - Resolve the runtime root to a canonical path before cleanup.
+  - Build the candidate path as `<canonicalRuntimeRoot>/<job_id>` only.
+  - Use `lstat` on the candidate and reject symlinks; do not follow or delete symlink targets.
+  - Delete only a directory whose canonical parent is exactly the canonical runtime root.
+  - Refuse deletion if the candidate path equals, contains, or is contained by the TRAUMA project root, configured memory store path, backup store path, or any user-controlled article content path.
+  - Delete only empty job-scoped runtime directories. If a runtime directory is non-empty, leave it in place and persist/log a safe cleanup warning instead of recursively deleting unknown content.
 - `translateChunk()` must yield `thread.started` and `turn.started` before item events when app-server returns those ids. The orchestrator stores the latest in-flight `threadId` and `turnId` so cancellation can call `turn/interrupt`.
 
 ## Protocol schema and version contract

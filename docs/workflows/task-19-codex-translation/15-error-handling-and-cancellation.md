@@ -61,7 +61,10 @@ API error responses use the shared shape from `contracts/04-api-and-sse.md`. The
 Auth/setup failures during translation start are precondition failures. `POST
 /api/memories/:memory_id/translations` returns `409 auth_required` or `409
 setup_required` and does not create a `translation_jobs` row when Codex cannot
-run authenticated translation work.
+run authenticated translation work. This precondition check happens only after
+the backend has ruled out a current committed translation and compatible active
+job reuse. If Codex auth/setup is lost after a job row has been created, the
+job records a normal execution failure with `auth_required` or `setup_required`.
 
 SSE failure events use the same stable error shape. `translation.job.failed`
 emits `{ error }`; `translation.chunk.failed` emits `{ error, retry_count,
@@ -120,6 +123,8 @@ Cover:
 - canceled job never commits final file
 - auth and usage errors surface actionable messages
 - auth/setup precondition failures do not create job rows
+- current committed translation reuse does not require Codex auth
+- in-flight auth/setup loss after job creation is persisted as a safe job error
 - timeout and stream-disconnected errors preserve their stable codes
 - invalid-final-output errors preserve their stable code
 - validation-failed errors are reserved for schema-valid semantic validation failures

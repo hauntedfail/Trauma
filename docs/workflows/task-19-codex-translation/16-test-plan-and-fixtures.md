@@ -101,7 +101,10 @@ mise exec -- bun run typecheck
 - supported-language canonical casing: `ja-JP` accepted, `ja-jp`/`JA-JP` redirected only through a project-standard canonical redirect helper or rejected as not found
 - settings select options, prompt display names, and variant tab labels use one central supported-language table
 - translation start using SQLite settings language
-- auth/setup precondition failures return `409` without creating `translation_jobs` rows
+- current committed translation reuse returns `200 current` without checking Codex auth
+- active job reuse returns the existing `event_url` without creating another row
+- auth/setup precondition failures return `409` without creating `translation_jobs` rows only when a new job would be required
+- in-flight auth/setup loss after job creation persists `auth_required` or `setup_required` as a safe job error
 - `409 translation_language_required`
 - `409 translation_language_mismatch`
 - source hash and stale detection
@@ -129,6 +132,7 @@ mise exec -- bun run typecheck
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - translation `turn/start` uses locked-down approval, sandbox, network, and cwd settings
 - job-scoped runtime `cwd` is created outside project/store roots and cleaned up on terminal job states
+- runtime directory cleanup validates canonical root containment, rejects symlinks/traversal, refuses project/store/backup/article paths, and deletes only empty job-scoped directories
 - `networkAccess = false` is tested as sandbox/tool-network control and does not block required app-server/model traffic
 - locked-down `turn/start` policy payload is verified against generated app-server schema or focused protocol fixtures before implementation
 - translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults
