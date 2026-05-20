@@ -98,6 +98,17 @@ export interface TranslationJobSnapshotError {
   action?: TranslationErrorAction;
 }
 
+export type TranslationUnavailableReason =
+  | "output_missing"
+  | "output_hash_mismatch";
+
+export interface TranslationPersistedError {
+  code: TranslationJobSnapshotError["code"];
+  message: string;
+  action?: TranslationErrorAction;
+  reason?: TranslationUnavailableReason | string;
+}
+
 export interface ProtectedSpan {
   kind:
     | "code_fence"
@@ -224,6 +235,28 @@ export interface TranslationJobStaleData {
   current_source_hash: string;
 }
 ```
+
+Terminal `translation.job.failed` event data must include:
+
+```ts
+export interface TranslationJobFailedData {
+  error: TranslationJobSnapshotError;
+}
+```
+
+`translation.chunk.failed` event data must include:
+
+```ts
+export interface TranslationChunkFailedData {
+  error: TranslationJobSnapshotError;
+  retry_count: number;
+  will_retry: boolean;
+}
+```
+
+Failure event messages must be safe for UI display and must not include source
+chunks, prompts, credential paths, tokens, app-server URLs, or raw app-server
+payloads.
 
 `stale` is a terminal state for a job attempt. It is distinct from `failed`
 because user action is to start a new translation for the changed source, not to

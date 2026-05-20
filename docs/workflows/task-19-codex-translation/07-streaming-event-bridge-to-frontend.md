@@ -97,6 +97,7 @@ Typed Codex app-server event mapping:
 Raw JSON-RPC notification names such as `item/agentMessage/delta` are parsed only by `src/server/translation/codex-app-server.ts`. This subtask consumes typed internal events only.
 
 Completed event payload includes `output_path`, `output_hash`, and `reader_url`.
+Failed event payloads include `error` with the same `code`, `message`, and optional `action` shape as `TranslationJobSnapshotError`. Chunk failure payloads also include `retry_count` and `will_retry`.
 Stale event payload includes `reason`, `job_source_hash`, and `current_source_hash`.
 
 `unavailable` is snapshot-only. Do not add `translation.job.unavailable` as an
@@ -118,6 +119,8 @@ Cover:
 - snapshot payload matches job status API payload
 - snapshot `completed_chunks` still includes purged chunks after final commit
 - completed event includes `reader_url`
+- job failed event includes a safe `error` object with stable `code`
+- chunk failed event includes safe `error`, `retry_count`, and `will_retry`
 - app-server item notifications map to Reader events
 - streaming bridge consumes typed Codex events rather than raw JSON-RPC method names
 - `turn.started` stores cancellation ids without exposing app-server connection details

@@ -117,6 +117,7 @@ Cover:
 - progress shows chunk count and current chunk
 - delta transcript is labelled non-authoritative
 - retry event renders visibly
+- live job/chunk failure events branch on `data.error.code`
 - API failure UI branches on stable `code` values
 - job snapshot with `status = "unavailable"` renders a fresh-translation recovery action
 - app-server-unavailable failure is rendered separately from auth/setup-required

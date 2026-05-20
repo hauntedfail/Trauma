@@ -58,6 +58,11 @@ User-facing errors must not include tokens, raw prompts, credential paths, app-s
 
 API error responses use the shared shape from `contracts/04-api-and-sse.md`. The stable frontend branch key is `code`, not free-form `message`.
 
+SSE failure events use the same stable error shape. `translation.job.failed`
+emits `{ error }`; `translation.chunk.failed` emits `{ error, retry_count,
+will_retry }`. Error payloads must not include raw prompts, source chunks,
+tokens, credential paths, app-server URLs, or raw app-server payloads.
+
 Codex transport failures map to stable API/job error codes:
 
 - `timeout` remains `timeout` and maps to HTTP `504` when returned from an API request.
@@ -103,6 +108,7 @@ Cover:
 - stream disconnect does not cancel job
 - stale source emits `translation.job.stale` rather than `translation.job.failed`
 - error payloads contain no secrets
+- SSE job/chunk failure payloads expose stable codes and safe messages only
 
 ## Verification
 

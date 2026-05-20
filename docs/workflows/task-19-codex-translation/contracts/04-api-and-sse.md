@@ -162,8 +162,9 @@ Rules:
 For historical completed jobs whose `source_hash` no longer matches the current
 source `CONTENT.md` hash, `GET /api/translation-jobs/:job_id` returns
 `reader_url: null` even if the old translated file still exists. For complete
-jobs whose output file is missing or hash-mismatched, mark the job
-`unavailable` and return `reader_url: null`.
+jobs whose output file is missing or hash-mismatched, the job status API may
+call `repairUnavailableTranslation()`, mark the job `unavailable`, and return
+`reader_url: null`.
 
 Unavailable job status response:
 
@@ -240,6 +241,35 @@ Completed event data:
 }
 ```
 
+Job failed event data:
+
+```json
+{
+  "error": {
+    "code": "timeout",
+    "message": "The Codex turn timed out.",
+    "action": "retry"
+  }
+}
+```
+
+Chunk failed event data:
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "Translated chunk failed validation.",
+    "action": "retry"
+  },
+  "retry_count": 1,
+  "will_retry": true
+}
+```
+
+Failure event error objects use the same `code`, `message`, and optional
+`action` contract as `TranslationJobSnapshotError`.
+
 Stale event data:
 
 ```json
@@ -260,6 +290,7 @@ Rules:
 - Stream closes after completed, failed, stale, or canceled terminal events.
 - Stream disconnect does not cancel the backend job.
 - Frontend completion navigation uses `translation.job.completed.data.reader_url`; it must not reconstruct a different route shape.
+- Frontend failure rendering uses failure event `data.error.code` as the stable branch key, not free-form `message`.
 
 ## Cancel job
 

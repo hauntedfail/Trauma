@@ -109,6 +109,7 @@ mise exec -- bun run typecheck
 - source frontmatter is preserved unchanged in translated `CONTENT.md`
 - prompt injection containment
 - partial delta streaming as non-authoritative progress
+- SSE job/chunk failure events include safe error objects with stable codes
 - chunk validation success and failure
 - chunk-level retry
 - final stitching order
@@ -143,6 +144,8 @@ mise exec -- bun run typecheck
 - job start, metadata API, reader route, and variant tabs use one shared current-translation resolver
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - job start and metadata API use explicit unavailable repair before retry/recovery
+- job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots
+- unavailable repair persists structured JSON error with reason `output_missing` or `output_hash_mismatch`
 - 19.3 owns `current-translation.ts`; 19.13 consumes it read-only; 19.11 recovery reuses `repairUnavailableTranslation()`
 - job snapshot errors include optional `action`, including `start_fresh_translation`
 - unavailable status is snapshot-only and does not emit a dedicated SSE terminal event

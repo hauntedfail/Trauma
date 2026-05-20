@@ -103,7 +103,7 @@ Rules:
 - A chunk cannot become `purged` unless `translated_markdown IS NULL` and `translated_hash` remains available.
 - A complete job becomes `unavailable` only when its committed output file is missing or its file hash differs from `translation_jobs.output_hash`.
 - `unavailable` is terminal history state. Runner recovery and scheduling must treat it like `failed`, `canceled`, and `stale`: it is not active, not resumed, and does not block a new job.
-- `repairUnavailableTranslation()` is implemented here for job-start repair and calls the repository `markTranslationUnavailable()` method. 19.11 may add recovery callers, but it must reuse this helper rather than reimplementing unavailable repair.
+- `repairUnavailableTranslation()` is implemented here for job-start, metadata API, and job status/snapshot repair. It calls the repository `markTranslationUnavailable()` method with `output_missing` or `output_hash_mismatch`. 19.11 may add recovery callers, but it must reuse this helper rather than reimplementing unavailable repair.
 - Late Codex output for canceled jobs is ignored.
 - Source hash is checked at job start and again before commit.
 - `stale` is terminal for a job attempt and emits `translation.job.stale`, not `translation.job.failed`.
@@ -120,7 +120,7 @@ Cover:
 - current completed job is reused
 - completed job with mismatched `output_hash` is not returned as current
 - completed job with missing or hash-mismatched output is marked unavailable and does not block a new job
-- `repairUnavailableTranslation()` marks unavailable through the shared helper used by later recovery code
+- `repairUnavailableTranslation()` marks unavailable through the shared helper used by metadata API, job status/snapshot API, and later recovery code
 - unavailable jobs are not scheduled or resumed by runner recovery
 - active non-terminal job is reused
 - active job reuse returns job metadata with `event_url`
