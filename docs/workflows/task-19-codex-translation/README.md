@@ -4,7 +4,7 @@ Brilliant adds Codex app-server powered translation for Reader memory content. T
 
 ## Required order
 
-0. [Execution contracts](00-execution-contracts.md) - read this before every subtask.
+0. [Execution contract index](00-execution-contracts.md) - read this first, then only the focused contract files listed for your subtask.
 
 1. [19.1 Requirements and architecture finalization](01-requirements-and-architecture-finalization.md)
 2. [19.2 SQLite schema and migration design](02-sqlite-schema-and-migration-design.md)

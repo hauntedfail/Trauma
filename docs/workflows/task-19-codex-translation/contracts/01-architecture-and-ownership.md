@@ -1,0 +1,73 @@
+# Brilliant architecture and ownership contract
+
+## Boundary rules
+
+- The Reader backend owns source loading, chunking, metadata, job state, validation, retry, stitching, atomic file writes, SQLite cleanup, and frontend events.
+- Codex receives chunk text plus translation instructions and returns machine-readable translated chunk output.
+- Codex must not write canonical `CONTENT.md` files.
+- Codex app-server is backend-only. The browser must not connect to it directly.
+- OpenAI/ChatGPT tokens must not enter TRAUMA SQLite, browser state, logs, or API responses.
+- Source article Markdown is untrusted data, not instructions.
+
+## File ownership map
+
+### Schema and repositories
+
+- Modify: `src/server/db/schema.ts`
+- Modify: `src/server/db/repositories.ts`
+- Create: `src/server/db/translation-repositories.ts` if repositories are already split by domain
+- Create: `drizzle/<next>_brilliant_translation_jobs.sql`
+- Test: `tests/server/db/translation-schema.test.ts`
+- Test: `tests/server/db/translation-repositories.test.ts`
+
+### Translation domain
+
+- Create: `src/server/translation/types.ts`
+- Create: `src/server/translation/languages.ts`
+- Create: `src/server/translation/source-loader.ts`
+- Create: `src/server/translation/markdown-blocks.ts`
+- Create: `src/server/translation/chunker.ts`
+- Create: `src/server/translation/job-state.ts`
+- Create: `src/server/translation/codex-app-server.ts`
+- Create: `src/server/translation/prompt.ts`
+- Create: `src/server/translation/validator.ts`
+- Create: `src/server/translation/stitcher.ts`
+- Create: `src/server/translation/atomic-writer.ts`
+- Create: `src/server/translation/events.ts`
+- Create: `src/server/translation/orchestrator.ts`
+
+### API routes
+
+- Create: `src/routes/api/memories/[memoryId]/translations.ts`
+- Create: `src/routes/api/memories/[memoryId]/translations/[langCode].ts`
+- Create: `src/routes/api/translation-jobs/[jobId].ts`
+- Create: `src/routes/api/translation-jobs/[jobId]/events.ts`
+- Create: `src/routes/api/translation-jobs/[jobId]/cancel.ts`
+
+### Settings and auth
+
+- Modify: `src/components/settings/SettingsPage.tsx`
+- Modify: Task 18 settings persistence schema/repository used for SQLite-backed settings
+- Modify or create: `src/server/settings/codex-auth.ts`
+- Create: `src/server/settings/translation-language.ts` if no focused settings service exists
+- Modify: settings API routes created by Task 18
+
+### Reader frontend
+
+- Modify: `src/server/reader/page-data.ts`
+- Modify: `src/routes/memories/[id].tsx`
+- Modify: `src/components/reader/MemoryReader.tsx`
+- Create: `src/components/reader/TranslationControls.tsx`
+- Create: `src/components/reader/TranslationProgress.tsx`
+
+### Skill and fixtures
+
+- Create: `.agents/skills/reader-translate/SKILL.md`
+- Create: `tests/fixtures/translation/simple-article.md`
+- Create: `tests/fixtures/translation/academic-paper.md`
+- Create: `tests/fixtures/translation/hostile-prompt-injection.md`
+- Create: `tests/fixtures/translation/markdown-protected-spans.md`
+
+## Parallel write-scope rule
+
+A subagent may edit only the files owned by its assigned subtask. Shared files such as `types.ts`, `schema.ts`, and route contracts must be frozen before downstream workers edit dependent code.

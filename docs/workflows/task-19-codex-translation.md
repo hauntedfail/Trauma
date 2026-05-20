@@ -139,7 +139,7 @@ POST /api/translation-jobs/:job_id/cancel
 
 ## Subtask execution order
 
-0. [Execution contracts](task-19-codex-translation/00-execution-contracts.md) - read this before every subtask.
+0. [Execution contract index](task-19-codex-translation/00-execution-contracts.md) - read this first, then only the focused contract files listed for your subtask.
 
 1. [19.1 Requirements and architecture finalization](task-19-codex-translation/01-requirements-and-architecture-finalization.md)
 2. [19.2 SQLite schema and migration design](task-19-codex-translation/02-sqlite-schema-and-migration-design.md)
