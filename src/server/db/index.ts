@@ -10,6 +10,8 @@ import {
   moments,
   openaiAuthCredentials,
   tags,
+  translationChunks,
+  translationJobs,
 } from "./schema";
 
 export { initializeDatabase } from "./connection";
@@ -26,6 +28,7 @@ export type {
   MomentRepository,
   TraumaDatabase,
   TraumaRepositories,
+  TranslationRepository,
 } from "./repositories";
 export * from "./schema";
 
@@ -41,4 +44,6 @@ export const schema = {
   moments,
   openaiAuthCredentials,
   tags,
+  translationChunks,
+  translationJobs,
 };

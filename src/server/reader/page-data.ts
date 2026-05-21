@@ -5,13 +5,23 @@ import {
   TraumaConfigError,
   type ResolvedTraumaConfig,
 } from "../config";
-import { MemoryContentStoreError, readMemoryContent } from "../store";
+import {
+  MemoryContentStoreError,
+  readMemoryContent,
+  readResolvedMemoryContent,
+} from "../store";
 import { FlashbackMarkerError } from "../store/flashback-markers";
 import {
   renderMemoryMarkdown,
   type RenderedMemoryMarkdown,
 } from "./markdown-renderer";
 import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
+import {
+  repairUnavailableTranslation,
+  resolveCurrentTranslationReadOnly,
+} from "../translation/current-translation";
+import { resolveTranslatedMemoryContentPath } from "../translation/paths";
+import type { SupportedLanguageCode } from "../translation/languages";
 
 type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
 
@@ -20,7 +30,9 @@ export type ReaderMemoryResult =
       status: "ready";
       memory: ReaderMemory;
       content: {
+        langCode?: SupportedLanguageCode;
         relativePath: string;
+        sourceReaderUrl?: string;
       };
       rendered: RenderedMemoryMarkdown;
     }
@@ -76,6 +88,7 @@ export interface ReaderFlashbackItem {
 
 export interface LoadReaderMemoryOptions {
   config?: ResolvedTraumaConfig;
+  langCode?: SupportedLanguageCode;
 }
 
 export async function loadReaderMemory(
@@ -96,16 +109,29 @@ export async function loadReaderMemory(
       };
     }
 
-    const content = await readMemoryContent({ config, memoryId });
+    const content = options.langCode === undefined
+      ? await readMemoryContent({ config, memoryId })
+      : await readTranslatedReaderContent({
+        config,
+        connection,
+        langCode: options.langCode,
+        memoryId,
+      });
     const rendered = renderMemoryMarkdownSafely(
       content.markdown,
-      memory.flashbacks,
+      options.langCode === undefined ? memory.flashbacks : [],
       memory.url,
     );
     return {
       status: "ready",
       memory: toReaderMemory(memory, rendered),
       content: {
+        ...(options.langCode === undefined
+          ? {}
+          : {
+            langCode: options.langCode,
+            sourceReaderUrl: `/memories/${memoryId}`,
+          }),
         relativePath: content.relativePath,
       },
       rendered,
@@ -135,6 +161,45 @@ export async function loadReaderMemory(
   } finally {
     connection?.close();
   }
+}
+
+async function readTranslatedReaderContent(input: {
+  config: ResolvedTraumaConfig;
+  connection: ReturnType<typeof initializeDatabase>;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+}) {
+  const current = await resolveCurrentTranslationReadOnly({
+    config: input.config,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    repository: input.connection.repositories.translations,
+  });
+  if (current.status === "missing") {
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md is missing for ${input.langCode}`,
+      "missing_content",
+    );
+  }
+  if (current.status === "unavailable") {
+    await repairUnavailableTranslation({
+      jobId: current.job.jobId,
+      reason: current.reason,
+      repository: input.connection.repositories.translations,
+    });
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md is unavailable for ${input.langCode}`,
+      "missing_content",
+    );
+  }
+
+  return readResolvedMemoryContent(
+    resolveTranslatedMemoryContentPath({
+      config: input.config,
+      langCode: input.langCode,
+      memoryId: input.memoryId,
+    }),
+  );
 }
 
 function renderMemoryMarkdownSafely(

@@ -71,6 +71,13 @@
       "when": 1778934734173,
       "tag": "0009_product_language_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1779412761000,
+      "tag": "0010_brilliant_translation_jobs",
+      "breakpoints": true
     }
   ]
 }

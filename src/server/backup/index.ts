@@ -21,7 +21,8 @@ export type { BackupStatus };
 export type BackupTriggerReason =
   | "memory_creation"
   | "flashback_update"
-  | "memory_deletion";
+  | "memory_deletion"
+  | "translation_update";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -546,6 +547,8 @@ function formatBackupAction(reason: BackupTriggerReason): string {
       return "updated flashbacks";
     case "memory_deletion":
       return "deleted memory";
+    case "translation_update":
+      return "updated translation";
   }
 }
 

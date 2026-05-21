@@ -3,24 +3,42 @@ import { createAsync, useParams } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
 import { Show } from "solid-js";
 
-import { MemoryReader } from "../../components/reader/MemoryReader";
-import { getReaderMemory } from "../../components/reader/reader-memory-loader";
-import { getBrowseTaxonomy } from "../../components/memories/browse-loader";
-import { getSettingsState } from "../../components/settings/settings-loader";
-import type { BrowseTaxonomySummaryItem } from "../../components/memories/browse-data";
-import { readerFrame, readerStatePanel } from "../../components/reader/reader-styles";
+import { getBrowseTaxonomy } from "../../../components/memories/browse-loader";
+import type { BrowseTaxonomySummaryItem } from "../../../components/memories/browse-data";
+import { MemoryReader } from "../../../components/reader/MemoryReader";
+import { getReaderMemory } from "../../../components/reader/reader-memory-loader";
+import {
+  readerFrame,
+  readerStatePanel,
+} from "../../../components/reader/reader-styles";
 import {
   readerHttpStatusCode,
   titleForReaderResult,
-} from "../../components/reader/route-state";
-import type { ReaderMemoryResult } from "../../server/reader/page-data";
-import type { SupportedLanguageCode } from "../../settings/languages";
+} from "../../../components/reader/route-state";
+import type { ReaderMemoryResult } from "../../../server/reader/page-data";
+import {
+  isSupportedLanguageCode,
+  type SupportedLanguageCode,
+} from "../../../server/translation/languages";
 
-export default function MemoryReaderRoute() {
+export default function TranslatedMemoryReaderRoute() {
   const params = useParams();
-  const result = createAsync(() => getReaderMemory(params.id ?? ""));
+  const langCode = (): SupportedLanguageCode | undefined => {
+    const value = params.langCode ?? "";
+    return isSupportedLanguageCode(value) ? value : undefined;
+  };
+  const result = createAsync(() => {
+    const language = langCode();
+    if (language === undefined) {
+      return Promise.resolve({
+        status: "not_found",
+        message: "Translated memory was not found.",
+      } satisfies ReaderMemoryResult);
+    }
+
+    return getReaderMemory(params.id ?? "", language);
+  });
   const taxonomy = createAsync(() => getBrowseTaxonomy());
-  const settings = createAsync(() => getSettingsState());
   const readerResult = () => result();
 
   return (
@@ -31,7 +49,6 @@ export default function MemoryReaderRoute() {
         categoryOptions={taxonomy()?.categories ?? []}
         result={readerResult()}
         tagOptions={taxonomy()?.tags ?? []}
-        translationTargetLanguage={settings()?.translationTargetLanguage}
       />
     </>
   );
@@ -41,7 +58,6 @@ function ReaderBody(props: {
   categoryOptions: readonly BrowseTaxonomySummaryItem[];
   result: ReaderMemoryResult | undefined;
   tagOptions: readonly BrowseTaxonomySummaryItem[];
-  translationTargetLanguage?: SupportedLanguageCode;
 }) {
   return (
     <Show
@@ -59,7 +75,6 @@ function ReaderBody(props: {
           categoryOptions={props.categoryOptions}
           result={result()}
           tagOptions={props.tagOptions}
-          translationTargetLanguage={props.translationTargetLanguage}
         />
       )}
     </Show>

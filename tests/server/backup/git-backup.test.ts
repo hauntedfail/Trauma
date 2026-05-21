@@ -206,6 +206,7 @@ describe("git backup runner", () => {
     const storePath = join(projectPath, "store");
     const contentPath = `memories/${memoryId}/CONTENT.md`;
     const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
+    const translationPath = `memories/${memoryId}/ja-JP/CONTENT.md`;
     await mkdir(join(storePath, "memories", memoryId), { recursive: true });
     initializeGitRepository(projectPath);
     const config = createConfig({
@@ -235,6 +236,16 @@ describe("git backup runner", () => {
       }),
     });
 
+    await mkdir(join(storePath, "memories", memoryId, "ja-JP"), { recursive: true });
+    await writeFile(join(storePath, translationPath), "# Translated", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [translationPath],
+        reason: "translation_update",
+      }),
+    });
+
     await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
     await runGitBackupJob({
       config,
@@ -247,6 +258,7 @@ describe("git backup runner", () => {
     expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
       .toEqual([
         `backup deleted memory ${memoryId}`,
+        `backup updated translation ${memoryId}`,
         `backup updated flashbacks ${memoryId}`,
         `backup created memory ${memoryId}`,
       ]);

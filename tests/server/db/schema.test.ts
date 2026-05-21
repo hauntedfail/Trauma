@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { schema } from "../../../src/server/db";
 import { readBundledMigrations } from "../../../src/server/db/bundled-migrations";
 
+const PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS = 1778934734173;
+
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
     expect(Object.keys(schema).sort()).toEqual([
@@ -23,6 +25,8 @@ describe("db foundation", () => {
       "moments",
       "openaiAuthCredentials",
       "tags",
+      "translationChunks",
+      "translationJobs",
     ]);
   });
 
@@ -297,18 +301,12 @@ describe("db foundation", () => {
       },
     );
 
-    expect(JSON.parse(output)).toEqual([
-      { id: 1, id_type: "integer" },
-      { id: 2, id_type: "integer" },
-      { id: 3, id_type: "integer" },
-      { id: 4, id_type: "integer" },
-      { id: 5, id_type: "integer" },
-      { id: 6, id_type: "integer" },
-      { id: 7, id_type: "integer" },
-      { id: 8, id_type: "integer" },
-      { id: 9, id_type: "integer" },
-      { id: 10, id_type: "integer" },
-    ]);
+    expect(JSON.parse(output)).toEqual(
+      Array.from({ length: readBundledMigrations().length }, (_, index) => ({
+        id: index + 1,
+        id_type: "integer",
+      })),
+    );
   });
 
   it("migrates existing memories to unread", () => {
@@ -330,7 +328,9 @@ describe("db foundation", () => {
           try {
             sqlite.run("PRAGMA foreign_keys = ON");
             const migrations = readBundledMigrations();
-            const previousMigrations = migrations.slice(0, -1);
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS},
+            );
             applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             const now = Date.now();
@@ -361,7 +361,7 @@ describe("db foundation", () => {
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f008",
         read: 0,
       },
-      migrationCount: 10,
+      migrationCount: readBundledMigrations().length,
     });
   });
 
@@ -384,7 +384,9 @@ describe("db foundation", () => {
           try {
             sqlite.run("PRAGMA foreign_keys = ON");
             const migrations = readBundledMigrations();
-            const previousMigrations = migrations.slice(0, -1);
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS},
+            );
             applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             const now = Date.parse("2026-05-15T00:00:00.000Z");
@@ -439,7 +441,7 @@ describe("db foundation", () => {
         contentHash: "section-hash",
       },
       legacyTables: [],
-      migrationCount: 10,
+      migrationCount: readBundledMigrations().length,
     });
   });
 
@@ -462,7 +464,9 @@ describe("db foundation", () => {
           try {
             sqlite.run("PRAGMA foreign_keys = ON");
             const migrations = readBundledMigrations();
-            const previousMigrations = migrations.slice(0, -1);
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS},
+            );
             applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             sqlite.run("PRAGMA foreign_keys = OFF");
@@ -639,7 +643,7 @@ describe("db foundation", () => {
 
     expect(result).toMatchObject({
       flashbackCount: 1,
-      migrationCount: 10,
+      migrationCount: readBundledMigrations().length,
     });
     expect(result.checkSql).toMatch(/end_offset.*>.*start_offset/s);
   });
@@ -832,7 +836,9 @@ describe("db foundation", () => {
 
           try {
             const migrations = readBundledMigrations();
-            const previousMigrations = migrations.slice(0, -1);
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS},
+            );
             applyRuntimeMigrations(sqlite, previousMigrations, "previous");
 
             sqlite.run("PRAGMA foreign_keys = OFF");

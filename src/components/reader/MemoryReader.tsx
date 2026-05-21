@@ -10,7 +10,7 @@ import {
   type JSX,
 } from "solid-js";
 
-import { ChevronLeftIcon, TraumaNavIcons } from "../icons";
+import { ChevronLeftIcon, CodexIcon, TraumaNavIcons } from "../icons";
 import type {
   ReaderMomentItem,
   ReaderFlashbackItem,
@@ -18,6 +18,7 @@ import type {
   ReaderTaxonomyItem,
 } from "../../server/reader/page-data";
 import type { BrowseTaxonomySummaryItem } from "../memories/browse-data";
+import type { SupportedLanguageCode } from "../../settings/languages";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
@@ -79,6 +80,7 @@ interface MemoryReaderProps {
   navigate?: (path: string) => void;
   result: ReaderMemoryResult;
   tagOptions?: readonly BrowseTaxonomySummaryItem[];
+  translationTargetLanguage?: SupportedLanguageCode;
 }
 
 type ReadyReaderMemoryResult = Extract<ReaderMemoryResult, { status: "ready" }>;
@@ -120,6 +122,14 @@ interface TocScrollState {
   canScrollUp: boolean;
 }
 
+interface TranslationProgressState {
+  eventUrl: string;
+  jobId: string;
+  message: string;
+  preview: string;
+  status: "idle" | "starting" | "running" | "completed" | "failed";
+}
+
 const noTocScrollState: TocScrollState = {
   canScrollDown: false,
   canScrollUp: false,
@@ -151,6 +161,7 @@ export function MemoryReader(props: MemoryReaderProps) {
           navigate={props.navigate}
           result={result}
           tagOptions={props.tagOptions ?? []}
+          translationTargetLanguage={props.translationTargetLanguage}
         />
       )}
     </Show>
@@ -163,6 +174,7 @@ function ReadyMemoryReader(props: {
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
   tagOptions: readonly BrowseTaxonomySummaryItem[];
+  translationTargetLanguage?: SupportedLanguageCode;
 }) {
   let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
@@ -204,7 +216,10 @@ function ReadyMemoryReader(props: {
   const [pendingMomentKey, setPendingMomentKey] = createSignal("");
   const [pendingSelectionKey, setPendingSelectionKey] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
+  const [translationProgress, setTranslationProgress] =
+    createSignal<TranslationProgressState>();
   const { setRightRailContent } = useRightRailContent();
+  let translationEventSource: EventSource | undefined;
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
   const closeSectionMenu = () => setSectionMenu(undefined);
@@ -221,6 +236,9 @@ function ReadyMemoryReader(props: {
     setPendingMomentKey("");
     setPendingSelectionKey("");
     setErrorMessage("");
+    setTranslationProgress(undefined);
+    translationEventSource?.close();
+    translationEventSource = undefined;
     closeReaderMenus();
   });
   createEffect(() => {
@@ -238,7 +256,10 @@ function ReadyMemoryReader(props: {
     );
   });
 
-  onCleanup(() => setRightRailContent(undefined));
+  onCleanup(() => {
+    translationEventSource?.close();
+    setRightRailContent(undefined);
+  });
 
   onMount(() => {
     setIsReaderClientReady(true);
@@ -401,6 +422,107 @@ function ReadyMemoryReader(props: {
       throw error;
     }
   };
+  const isTranslatedReader = () => props.result.content.langCode !== undefined;
+  const canStartTranslation = () =>
+    !isTranslatedReader() && props.translationTargetLanguage !== undefined;
+  const connectTranslationProgress = (eventUrl: string, jobId: string) => {
+    translationEventSource?.close();
+    const eventSource = new EventSource(eventUrl);
+    translationEventSource = eventSource;
+    const onProgress = (event: MessageEvent) => {
+      const envelope = parseTranslationEventEnvelope(event.data);
+      if (envelope === undefined) {
+        return;
+      }
+      const currentPreview = translationProgress()?.preview ?? "";
+      const delta = readTranslationDelta(envelope);
+      const preview = delta === ""
+        ? currentPreview
+        : `${currentPreview}${delta}`.slice(-480);
+      setTranslationProgress({
+        eventUrl,
+        jobId,
+        message: messageForTranslationEvent(envelope),
+        preview,
+        status: isTerminalTranslationEvent(envelope.type)
+          ? envelope.type === "translation.job.completed"
+            ? "completed"
+            : "failed"
+          : "running",
+      });
+
+      if (envelope.type === "translation.job.completed") {
+        const readerUrl = readTranslationReaderUrl(envelope);
+        eventSource.close();
+        translationEventSource = undefined;
+        if (readerUrl !== undefined) {
+          navigate(readerUrl);
+        }
+      } else if (isTerminalTranslationEvent(envelope.type)) {
+        eventSource.close();
+        translationEventSource = undefined;
+      }
+    };
+
+    for (const eventName of TRANSLATION_EVENT_NAMES) {
+      eventSource.addEventListener(eventName, onProgress);
+    }
+    eventSource.onerror = () => {
+      setTranslationProgress({
+        eventUrl,
+        jobId,
+        message: "Translation stream disconnected.",
+        preview: translationProgress()?.preview ?? "",
+        status: "failed",
+      });
+      eventSource.close();
+      translationEventSource = undefined;
+    };
+  };
+  const startTranslation = async (): Promise<void> => {
+    const langCode = props.translationTargetLanguage;
+    if (langCode === undefined || !canStartTranslation()) {
+      return;
+    }
+
+    setErrorMessage("");
+    setTranslationProgress({
+      eventUrl: "",
+      jobId: "",
+      message: `Starting ${langCode} translation...`,
+      preview: "",
+      status: "starting",
+    });
+    try {
+      const result = await startReaderTranslation({
+        langCode,
+        memoryId: props.result.memory.id,
+      });
+      if (result.status === "current") {
+        navigate(result.reader_url);
+        return;
+      }
+
+      setTranslationProgress({
+        eventUrl: result.event_url,
+        jobId: result.job_id,
+        message: result.status === "active"
+          ? "Translation is already running."
+          : "Translation queued.",
+        preview: "",
+        status: "running",
+      });
+      connectTranslationProgress(result.event_url, result.job_id);
+    } catch (error) {
+      setTranslationProgress({
+        eventUrl: "",
+        jobId: "",
+        message: error instanceof Error ? error.message : "Translation failed.",
+        preview: "",
+        status: "failed",
+      });
+    }
+  };
   createEffect(() => {
     syncReaderSectionMomentButtons({
       container: contentRef,
@@ -544,6 +666,18 @@ function ReadyMemoryReader(props: {
                 )}
               </Show>
               <div class="flex items-center gap-2">
+                <Show when={canStartTranslation()}>
+                  <button
+                    aria-label={`Translate memory to ${props.translationTargetLanguage}`}
+                    class="grid size-9 place-items-center rounded-full text-trauma-text-muted transition hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
+                    disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
+                    title="Translate memory"
+                    type="button"
+                    onClick={() => void startTranslation()}
+                  >
+                    <CodexIcon size={17} />
+                  </button>
+                </Show>
                 <MemoryReadStatusControl
                   initialRead={props.result.memory.read}
                   memoryId={props.result.memory.id}
@@ -561,6 +695,27 @@ function ReadyMemoryReader(props: {
               </div>
             </div>
           </header>
+          <Show when={translationProgress()}>
+            {(progress) => (
+              <section
+                aria-live="polite"
+                class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev px-4 py-3 text-sm font-bold text-trauma-text-secondary"
+                role="status"
+              >
+                <div class="flex items-center gap-2 text-trauma-text-primary">
+                  <CodexIcon size={16} />
+                  <span>{progress().message}</span>
+                </div>
+                <Show when={progress().preview.trim()}>
+                  {(preview) => (
+                    <p class="mb-0 max-h-20 overflow-hidden text-xs leading-relaxed text-trauma-text-muted">
+                      {preview()}
+                    </p>
+                  )}
+                </Show>
+              </section>
+            )}
+          </Show>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
@@ -721,6 +876,228 @@ function ReaderTaxonomyChips(props: {
         />
       </span>
     </div>
+  );
+}
+
+type ReaderTranslationStartResult =
+  | {
+      status: "current";
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      output_path: string;
+      reader_url: string;
+    }
+  | {
+      status: "active";
+      job_status: string;
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      event_url: string;
+    }
+  | {
+      status: "started";
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      event_url: string;
+    };
+
+interface ReaderTranslationEventEnvelope {
+  type: string;
+  data: unknown;
+}
+
+const TRANSLATION_EVENT_NAMES = [
+  "translation.job.snapshot",
+  "translation.job.started",
+  "translation.chunk.queued",
+  "translation.chunk.started",
+  "translation.codex.delta",
+  "translation.codex.item.started",
+  "translation.codex.item.completed",
+  "translation.chunk.validating",
+  "translation.chunk.completed",
+  "translation.chunk.failed",
+  "translation.chunk.retrying",
+  "translation.job.stitching",
+  "translation.job.committing",
+  "translation.job.completed",
+  "translation.job.failed",
+  "translation.job.stale",
+  "translation.job.canceled",
+] as const;
+
+export async function startReaderTranslation(input: {
+  fetch?: FetchFunction;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+}): Promise<ReaderTranslationStartResult> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(
+    `/api/memories/${input.memoryId}/translations`,
+    {
+      body: JSON.stringify({ lang_code: input.langCode }),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readTranslationFailureMessage(response));
+  }
+
+  const payload: unknown = await response.json();
+  if (!isReaderTranslationStartResult(payload)) {
+    throw new Error("Translation response was invalid.");
+  }
+
+  return payload;
+}
+
+async function readTranslationFailureMessage(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.json();
+    if (isRecord(payload)) {
+      const error = payload.error;
+      if (typeof error === "string") {
+        return error;
+      }
+      if (isRecord(error) && typeof error.message === "string") {
+        return error.message;
+      }
+    }
+  } catch {
+    return "Translation failed.";
+  }
+
+  return "Translation failed.";
+}
+
+function isReaderTranslationStartResult(
+  value: unknown,
+): value is ReaderTranslationStartResult {
+  if (!isRecord(value) || typeof value.status !== "string") {
+    return false;
+  }
+  if (
+    value.status === "started" ||
+    value.status === "active"
+  ) {
+    return (
+      typeof value.event_url === "string" &&
+      typeof value.job_id === "string" &&
+      typeof value.lang_code === "string" &&
+      typeof value.memory_id === "string" &&
+      typeof value.source_hash === "string"
+    );
+  }
+  if (value.status === "current") {
+    return (
+      typeof value.job_id === "string" &&
+      typeof value.lang_code === "string" &&
+      typeof value.memory_id === "string" &&
+      typeof value.output_path === "string" &&
+      typeof value.reader_url === "string" &&
+      typeof value.source_hash === "string"
+    );
+  }
+
+  return false;
+}
+
+function parseTranslationEventEnvelope(
+  raw: string,
+): ReaderTranslationEventEnvelope | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed) || typeof parsed.type !== "string") {
+      return undefined;
+    }
+    return {
+      data: parsed.data,
+      type: parsed.type,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function messageForTranslationEvent(
+  envelope: ReaderTranslationEventEnvelope,
+): string {
+  switch (envelope.type) {
+    case "translation.job.snapshot":
+      return "Translation stream connected.";
+    case "translation.job.started":
+      return "Translation started.";
+    case "translation.chunk.queued":
+      return "Chunk queued.";
+    case "translation.chunk.started":
+      return "Codex is translating a chunk.";
+    case "translation.codex.delta":
+      return "Codex is translating...";
+    case "translation.chunk.validating":
+      return "Validating translated chunk.";
+    case "translation.chunk.completed":
+      return "Translated chunk completed.";
+    case "translation.job.stitching":
+      return "Stitching translated Markdown.";
+    case "translation.job.committing":
+      return "Writing translated CONTENT.md.";
+    case "translation.job.completed":
+      return "Translation completed.";
+    case "translation.job.canceled":
+      return "Translation canceled.";
+    case "translation.job.stale":
+      return "Source changed while translating.";
+    case "translation.chunk.failed":
+    case "translation.job.failed":
+      return readTranslationEventErrorMessage(envelope.data);
+    default:
+      return "Translation is running.";
+  }
+}
+
+function readTranslationDelta(envelope: ReaderTranslationEventEnvelope): string {
+  if (envelope.type !== "translation.codex.delta" || !isRecord(envelope.data)) {
+    return "";
+  }
+  return typeof envelope.data.text === "string" ? envelope.data.text : "";
+}
+
+function readTranslationReaderUrl(
+  envelope: ReaderTranslationEventEnvelope,
+): string | undefined {
+  if (!isRecord(envelope.data)) {
+    return undefined;
+  }
+  return typeof envelope.data.reader_url === "string"
+    ? envelope.data.reader_url
+    : undefined;
+}
+
+function readTranslationEventErrorMessage(data: unknown): string {
+  if (!isRecord(data) || !isRecord(data.error)) {
+    return "Translation failed.";
+  }
+  return typeof data.error.message === "string"
+    ? data.error.message
+    : "Translation failed.";
+}
+
+function isTerminalTranslationEvent(type: string): boolean {
+  return (
+    type === "translation.job.completed" ||
+    type === "translation.job.failed" ||
+    type === "translation.job.stale" ||
+    type === "translation.job.canceled"
   );
 }
 

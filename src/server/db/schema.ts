@@ -16,6 +16,12 @@ import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../../settings/languages";
+import {
+  TRANSLATION_CHUNK_STATUSES,
+  TRANSLATION_JOB_STATUSES,
+  type TranslationChunkStatus,
+  type TranslationJobStatus,
+} from "../translation/types";
 
 export type { BackupStatus } from "../backup/status";
 
@@ -40,6 +46,12 @@ const supportedLanguageSqlList = sql.raw(
   SUPPORTED_TRANSLATION_LANGUAGES.map((language) =>
     toSqlStringLiteral(language.code),
   ).join(", "),
+);
+const translationJobStatusSqlList = sql.raw(
+  TRANSLATION_JOB_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+const translationChunkStatusSqlList = sql.raw(
+  TRANSLATION_CHUNK_STATUSES.map(toSqlStringLiteral).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -292,11 +304,102 @@ export const openaiAuthCredentials = sqliteTable(
   ],
 );
 
+export const translationJobs = sqliteTable(
+  "translation_jobs",
+  {
+    jobId: text("job_id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    langCode: text("lang_code").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    model: text("model"),
+    promptPolicyVersion: text("prompt_policy_version").notNull(),
+    chunkerVersion: text("chunker_version").notNull(),
+    status: text("status").$type<TranslationJobStatus>().notNull(),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    outputPath: text("output_path"),
+    outputHash: text("output_hash"),
+    error: text("error"),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("translation_jobs_current_complete_idx")
+      .on(table.memoryId, table.langCode, table.sourceHash)
+      .where(sql`${table.status} = 'complete'`),
+    uniqueIndex("translation_jobs_active_idx")
+      .on(table.memoryId, table.langCode, table.sourceHash)
+      .where(
+        sql`${table.status} in ('pending', 'running', 'cancel_requested', 'stitching', 'committing')`,
+      ),
+    index("translation_jobs_memory_lang_idx").on(
+      table.memoryId,
+      table.langCode,
+      table.updatedAt,
+    ),
+    check(
+      "translation_jobs_status_check",
+      sql`${table.status} in (${translationJobStatusSqlList})`,
+    ),
+    check(
+      "translation_jobs_source_hash_check",
+      sql`${table.sourceHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_jobs_output_hash_check",
+      sql`${table.outputHash} is null or ${table.outputHash} glob 'sha256:*'`,
+    ),
+    check("translation_jobs_chunk_count_check", sql`${table.chunkCount} >= 0`),
+  ],
+);
+
+export const translationChunks = sqliteTable(
+  "translation_chunks",
+  {
+    jobId: text("job_id")
+      .notNull()
+      .references(() => translationJobs.jobId, { onDelete: "cascade" }),
+    chunkIndex: integer("chunk_index").notNull(),
+    sourceChunkHash: text("source_chunk_hash").notNull(),
+    blockIdsJson: text("block_ids_json").notNull(),
+    status: text("status").$type<TranslationChunkStatus>().notNull(),
+    retryCount: integer("retry_count").notNull().default(0),
+    translatedMarkdown: text("translated_markdown"),
+    translatedHash: text("translated_hash"),
+    error: text("error"),
+    ...timestamps(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.jobId, table.chunkIndex] }),
+    index("translation_chunks_status_idx").on(
+      table.jobId,
+      table.status,
+      table.chunkIndex,
+    ),
+    check(
+      "translation_chunks_status_check",
+      sql`${table.status} in (${translationChunkStatusSqlList})`,
+    ),
+    check(
+      "translation_chunks_source_hash_check",
+      sql`${table.sourceChunkHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_chunks_translated_hash_check",
+      sql`${table.translatedHash} is null or ${table.translatedHash} glob 'sha256:*'`,
+    ),
+    check("translation_chunks_retry_count_check", sql`${table.retryCount} >= 0`),
+    check("translation_chunks_index_check", sql`${table.chunkIndex} >= 0`),
+  ],
+);
+
 export const memoriesRelations = relations(memories, ({ many }) => ({
   flashbacks: many(flashbacks),
   memoryCategories: many(memoryCategories),
   memoryTags: many(memoryTags),
   moments: many(moments),
+  translationJobs: many(translationJobs),
 }));
 
 export const tagsRelations = relations(tags, ({ many }) => ({
@@ -345,3 +448,24 @@ export const momentsRelations = relations(moments, ({ one }) => ({
     references: [memories.id],
   }),
 }));
+
+export const translationJobsRelations = relations(
+  translationJobs,
+  ({ many, one }) => ({
+    chunks: many(translationChunks),
+    memory: one(memories, {
+      fields: [translationJobs.memoryId],
+      references: [memories.id],
+    }),
+  }),
+);
+
+export const translationChunksRelations = relations(
+  translationChunks,
+  ({ one }) => ({
+    job: one(translationJobs, {
+      fields: [translationChunks.jobId],
+      references: [translationJobs.jobId],
+    }),
+  }),
+);

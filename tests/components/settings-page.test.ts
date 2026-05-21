@@ -34,7 +34,6 @@ describe("settings page", () => {
       "French",
       "German",
       "Spanish",
-      "Italian",
       "Portuguese",
     ]) {
       expect(html).toContain(label);
@@ -42,12 +41,13 @@ describe("settings page", () => {
     for (const code of [
       "ja-JP",
       "en-US",
+      "en-GB",
       "ko-KR",
       "zh-CN",
+      "zh-TW",
       "fr-FR",
       "de-DE",
       "es-ES",
-      "it-IT",
       "pt-BR",
     ]) {
       expect(html).toContain(code);

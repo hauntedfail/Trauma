@@ -7,6 +7,13 @@ import {
   type SupportedLanguageCode,
 } from "../../settings/languages";
 import { validateTagName } from "../../taxonomy/name-policy";
+import {
+  TRANSLATION_CHUNK_STATUSES,
+  type TranslationChunkStatus,
+  type TranslationJobStatus,
+  type TranslationPersistedError,
+  type TranslationUnavailableReason,
+} from "../translation/types";
 import * as schema from "./schema";
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
@@ -19,6 +26,8 @@ type NewMoment = typeof schema.moments.$inferInsert;
 type Flashback = typeof schema.flashbacks.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
+type TranslationJob = typeof schema.translationJobs.$inferSelect;
+type TranslationChunk = typeof schema.translationChunks.$inferSelect;
 export type BackupEnvironmentStamp =
   typeof schema.backupEnvironmentStamps.$inferSelect;
 export type BackupFailsafeAlert =
@@ -170,6 +179,118 @@ export interface MomentRepository {
   listForBrowse: () => Promise<MomentBrowseRow[]>;
 }
 
+export type TranslationJobRecord = Omit<TranslationJob, "error"> & {
+  error: TranslationPersistedError | null;
+};
+
+export type TranslationChunkRecord = Omit<
+  TranslationChunk,
+  "blockIdsJson" | "error"
+> & {
+  blockIds: string[];
+  error: TranslationPersistedError | null;
+};
+
+export interface CreateTranslationJobInput {
+  jobId: string;
+  memoryId: string;
+  langCode: string;
+  sourceHash: string;
+  model: string | null;
+  promptPolicyVersion: string;
+  chunkerVersion: string;
+  chunkCount: number;
+  now: Date;
+}
+
+export interface InsertTranslationChunkInput {
+  chunkIndex: number;
+  sourceChunkHash: string;
+  blockIds: string[];
+  status: TranslationChunkStatus;
+  now: Date;
+}
+
+export interface TranslationChunkPatch {
+  status?: TranslationChunkStatus;
+  retryCount?: number;
+  translatedMarkdown?: string | null;
+  translatedHash?: string | null;
+  error?: TranslationPersistedError | null;
+  updatedAt: Date;
+}
+
+export interface TranslationJobPatch {
+  chunkCount?: number;
+  outputPath?: string | null;
+  outputHash?: string | null;
+  error?: TranslationPersistedError | null;
+  completedAt?: Date | null;
+  updatedAt: Date;
+}
+
+export interface TranslationRepository {
+  createTranslationJob: (
+    input: CreateTranslationJobInput,
+  ) => Promise<TranslationJobRecord>;
+  getTranslationJob: (jobId: string) => Promise<TranslationJobRecord | null>;
+  findCompleteTranslationRecord: (
+    memoryId: string,
+    langCode: string,
+    sourceHash: string,
+  ) => Promise<TranslationJobRecord | null>;
+  findActiveTranslationJob: (
+    memoryId: string,
+    langCode: string,
+    sourceHash: string,
+  ) => Promise<TranslationJobRecord | null>;
+  updateTranslationJobStatus: (
+    jobId: string,
+    status: TranslationJobStatus,
+    patch: TranslationJobPatch,
+  ) => Promise<void>;
+  claimTranslationJob: (
+    jobId: string,
+    expectedStatus: "pending",
+    updatedAt: Date,
+  ) => Promise<boolean>;
+  cancelPendingTranslationJob: (
+    jobId: string,
+    updatedAt: Date,
+  ) => Promise<boolean>;
+  requestRunningTranslationJobCancellation: (
+    jobId: string,
+    updatedAt: Date,
+  ) => Promise<boolean>;
+  markTranslationUnavailable: (
+    jobId: string,
+    reason: TranslationUnavailableReason,
+    updatedAt: Date,
+  ) => Promise<void>;
+  insertTranslationChunks: (
+    jobId: string,
+    chunks: InsertTranslationChunkInput[],
+  ) => Promise<void>;
+  getTranslationChunks: (jobId: string) => Promise<TranslationChunkRecord[]>;
+  updateTranslationChunk: (
+    jobId: string,
+    chunkIndex: number,
+    patch: TranslationChunkPatch,
+  ) => Promise<void>;
+  purgeCompletedTranslationChunks: (
+    jobId: string,
+    updatedAt: Date,
+  ) => Promise<void>;
+  countTranslationChunksByStatus: (
+    jobId: string,
+  ) => Promise<Record<TranslationChunkStatus, number>>;
+  getTranslationTargetLanguage: () => Promise<SupportedLanguageCode | null>;
+  setTranslationTargetLanguage: (
+    langCode: SupportedLanguageCode,
+    updatedAt: Date,
+  ) => Promise<void>;
+}
+
 export interface BackupEnvironmentRepository {
   getBackupEnvironmentStamp: () => Promise<BackupEnvironmentStamp | undefined>;
   upsertBackupEnvironmentStamp: (
@@ -204,6 +325,7 @@ export interface TraumaRepositories {
   flashbacks: FlashbackRepository;
   settings: SettingsRepository;
   taxonomy: TaxonomyRepository;
+  translations: TranslationRepository;
 }
 
 export class MemoryRepositoryError extends Error {
@@ -936,6 +1058,250 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       listTagsForBrowse: async () => listTagsForBrowse(db),
       listCategoriesForBrowse: async () => listCategoriesForBrowse(db),
     },
+    translations: {
+      createTranslationJob: async (input) => {
+        await assertMemoryExists(db, input.memoryId, "create translation for");
+        const row = await db
+          .insert(schema.translationJobs)
+          .values({
+            jobId: input.jobId,
+            memoryId: input.memoryId,
+            langCode: input.langCode,
+            sourceHash: input.sourceHash,
+            model: input.model,
+            promptPolicyVersion: input.promptPolicyVersion,
+            chunkerVersion: input.chunkerVersion,
+            status: "pending",
+            chunkCount: input.chunkCount,
+            outputPath: null,
+            outputHash: null,
+            error: null,
+            completedAt: null,
+            createdAt: input.now,
+            updatedAt: input.now,
+          })
+          .returning()
+          .get();
+        return toTranslationJobRecord(row);
+      },
+      getTranslationJob: async (jobId) => {
+        const row = await db.query.translationJobs.findFirst({
+          where: eq(schema.translationJobs.jobId, jobId),
+        });
+        return row === undefined ? null : toTranslationJobRecord(row);
+      },
+      findCompleteTranslationRecord: async (memoryId, langCode, sourceHash) => {
+        const row = await db.query.translationJobs.findFirst({
+          where: and(
+            eq(schema.translationJobs.memoryId, memoryId),
+            eq(schema.translationJobs.langCode, langCode),
+            eq(schema.translationJobs.sourceHash, sourceHash),
+            eq(schema.translationJobs.status, "complete"),
+          ),
+        });
+        return row === undefined ? null : toTranslationJobRecord(row);
+      },
+      findActiveTranslationJob: async (memoryId, langCode, sourceHash) => {
+        const row = await db.query.translationJobs.findFirst({
+          where: and(
+            eq(schema.translationJobs.memoryId, memoryId),
+            eq(schema.translationJobs.langCode, langCode),
+            eq(schema.translationJobs.sourceHash, sourceHash),
+            inArray(schema.translationJobs.status, [
+              "pending",
+              "running",
+              "cancel_requested",
+              "stitching",
+              "committing",
+            ]),
+          ),
+        });
+        return row === undefined ? null : toTranslationJobRecord(row);
+      },
+      updateTranslationJobStatus: async (jobId, status, patch) => {
+        await db
+          .update(schema.translationJobs)
+          .set({
+            status,
+            chunkCount: patch.chunkCount,
+            outputPath: patch.outputPath,
+            outputHash: patch.outputHash,
+            error: serializeTranslationError(patch.error),
+            completedAt: patch.completedAt,
+            updatedAt: patch.updatedAt,
+          })
+          .where(eq(schema.translationJobs.jobId, jobId))
+          .run();
+      },
+      claimTranslationJob: async (jobId, expectedStatus, updatedAt) => {
+        const updated = await db
+          .update(schema.translationJobs)
+          .set({
+            status: "running",
+            updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationJobs.jobId, jobId),
+              eq(schema.translationJobs.status, expectedStatus),
+            ),
+          )
+          .returning({ jobId: schema.translationJobs.jobId })
+          .get();
+        return updated !== undefined;
+      },
+      cancelPendingTranslationJob: async (jobId, updatedAt) => {
+        const updated = await db
+          .update(schema.translationJobs)
+          .set({
+            status: "canceled",
+            updatedAt,
+            completedAt: updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationJobs.jobId, jobId),
+              eq(schema.translationJobs.status, "pending"),
+            ),
+          )
+          .returning({ jobId: schema.translationJobs.jobId })
+          .get();
+        return updated !== undefined;
+      },
+      requestRunningTranslationJobCancellation: async (jobId, updatedAt) => {
+        const updated = await db
+          .update(schema.translationJobs)
+          .set({
+            status: "cancel_requested",
+            updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationJobs.jobId, jobId),
+              eq(schema.translationJobs.status, "running"),
+            ),
+          )
+          .returning({ jobId: schema.translationJobs.jobId })
+          .get();
+        return updated !== undefined;
+      },
+      markTranslationUnavailable: async (jobId, reason, updatedAt) => {
+        await db
+          .update(schema.translationJobs)
+          .set({
+            status: "unavailable",
+            outputPath: null,
+            error: serializeTranslationError({
+              code: "translation_unavailable",
+              message:
+                "The translated output is no longer available. Start a new translation.",
+              action: "start_fresh_translation",
+              reason,
+            }),
+            updatedAt,
+          })
+          .where(eq(schema.translationJobs.jobId, jobId))
+          .run();
+      },
+      insertTranslationChunks: async (jobId, chunks) => {
+        if (chunks.length === 0) {
+          return;
+        }
+
+        await db
+          .insert(schema.translationChunks)
+          .values(
+            chunks.map((chunk) => ({
+              jobId,
+              chunkIndex: chunk.chunkIndex,
+              sourceChunkHash: chunk.sourceChunkHash,
+              blockIdsJson: serializeBlockIds(chunk.blockIds),
+              status: chunk.status,
+              retryCount: 0,
+              translatedMarkdown: null,
+              translatedHash: null,
+              error: null,
+              createdAt: chunk.now,
+              updatedAt: chunk.now,
+            })),
+          )
+          .run();
+      },
+      getTranslationChunks: async (jobId) => {
+        const rows = await db.query.translationChunks.findMany({
+          where: eq(schema.translationChunks.jobId, jobId),
+          orderBy: [asc(schema.translationChunks.chunkIndex)],
+        });
+        return rows.map(toTranslationChunkRecord);
+      },
+      updateTranslationChunk: async (jobId, chunkIndex, patch) => {
+        await db
+          .update(schema.translationChunks)
+          .set({
+            status: patch.status,
+            retryCount: patch.retryCount,
+            translatedMarkdown: patch.translatedMarkdown,
+            translatedHash: patch.translatedHash,
+            error: serializeTranslationError(patch.error),
+            updatedAt: patch.updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationChunks.jobId, jobId),
+              eq(schema.translationChunks.chunkIndex, chunkIndex),
+            ),
+          )
+          .run();
+      },
+      purgeCompletedTranslationChunks: async (jobId, updatedAt) => {
+        await db
+          .update(schema.translationChunks)
+          .set({
+            status: "purged",
+            translatedMarkdown: null,
+            updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationChunks.jobId, jobId),
+              eq(schema.translationChunks.status, "complete"),
+            ),
+          )
+          .run();
+      },
+      countTranslationChunksByStatus: async (jobId) => {
+        const counts = createEmptyTranslationChunkCounts();
+        const rows = await db
+          .select({
+            status: schema.translationChunks.status,
+            count: sql<number>`count(*)`,
+          })
+          .from(schema.translationChunks)
+          .where(eq(schema.translationChunks.jobId, jobId))
+          .groupBy(schema.translationChunks.status);
+        for (const row of rows) {
+          counts[row.status] = Number(row.count);
+        }
+        return counts;
+      },
+      getTranslationTargetLanguage: async () => {
+        const settings = await db.query.appSettings.findFirst({
+          where: eq(schema.appSettings.id, "default"),
+        });
+        return settings?.translationTargetLanguage ?? null;
+      },
+      setTranslationTargetLanguage: async (langCode, updatedAt) => {
+        await getOrCreateSettings(db, updatedAt);
+        await db
+          .update(schema.appSettings)
+          .set({
+            translationTargetLanguage: langCode,
+            updatedAt,
+          })
+          .where(eq(schema.appSettings.id, "default"))
+          .run();
+      },
+    },
     settings: {
       getSettings: async (now) => getOrCreateSettings(db, now),
       updateTranslationTargetLanguage: async (input) => {
@@ -1023,6 +1389,86 @@ async function getOrCreateSettings(
   return current;
 }
 
+function toTranslationJobRecord(row: TranslationJob): TranslationJobRecord {
+  return {
+    ...row,
+    error: parseTranslationError(row.error),
+  };
+}
+
+function toTranslationChunkRecord(
+  row: TranslationChunk,
+): TranslationChunkRecord {
+  const { blockIdsJson, error, ...rest } = row;
+  return {
+    ...rest,
+    blockIds: parseBlockIds(blockIdsJson),
+    error: parseTranslationError(error),
+  };
+}
+
+function serializeBlockIds(blockIds: string[]): string {
+  return JSON.stringify(blockIds);
+}
+
+function parseBlockIds(value: string): string[] {
+  const parsed: unknown = JSON.parse(value);
+  if (
+    Array.isArray(parsed) &&
+    parsed.every((item) => typeof item === "string")
+  ) {
+    return parsed;
+  }
+
+  throw new MemoryRepositoryError("Invalid translation block ids.");
+}
+
+function serializeTranslationError(
+  error: TranslationPersistedError | null | undefined,
+): string | null | undefined {
+  if (error === undefined || error === null) {
+    return error;
+  }
+
+  return JSON.stringify(error);
+}
+
+function parseTranslationError(
+  value: string | null,
+): TranslationPersistedError | null {
+  if (value === null) {
+    return null;
+  }
+
+  const parsed: unknown = JSON.parse(value);
+  if (!isTranslationPersistedError(parsed)) {
+    throw new MemoryRepositoryError("Invalid persisted translation error.");
+  }
+  return parsed;
+}
+
+function isTranslationPersistedError(
+  value: unknown,
+): value is TranslationPersistedError {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.code === "string" &&
+    typeof record.message === "string" &&
+    (record.action === undefined || typeof record.action === "string") &&
+    (record.reason === undefined || typeof record.reason === "string")
+  );
+}
+
+function createEmptyTranslationChunkCounts(): Record<TranslationChunkStatus, number> {
+  return Object.fromEntries(
+    TRANSLATION_CHUNK_STATUSES.map((status) => [status, 0]),
+  ) as Record<TranslationChunkStatus, number>;
+}
+
 async function requireTagByName(db: TraumaDatabase, name: string): Promise<Tag> {
   const tag = await findTagByName(db, name);
   if (tag === undefined) {
@@ -1097,6 +1543,7 @@ async function assertMemoryExists(
   action:
     | "attach category to"
     | "attach tag to"
+    | "create translation for"
     | "create moment for"
     | "detach tag from",
 ): Promise<void> {

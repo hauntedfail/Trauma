@@ -241,6 +241,16 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function CodexIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>
+      <path {...stroke} d="M12 2.5v19M2.5 12h19" stroke-width="2" />
+      <path {...stroke} d="m5.3 5.3 13.4 13.4M18.7 5.3 5.3 18.7" stroke-width="2" />
+      <circle fill="currentColor" cx="12" cy="12" r="2.2" />
+    </svg>
+  );
+}
+
 export function EyeOpenIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" height={props.size ?? 16} viewBox="0 0 24 24" width={props.size ?? 16}>

@@ -10,6 +10,7 @@ import {
   deleteReaderMemory,
   detachReaderTagByName,
   MemoryReader,
+  startReaderTranslation,
 } from "../../src/components/reader/MemoryReader";
 import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
 import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
@@ -226,6 +227,41 @@ describe("memory reader actions", () => {
       memoryId: "memory-reader",
       name: "typescript",
     });
+  });
+
+  it("starts reader translation through the memory translation API", async () => {
+    const requests: Request[] = [];
+
+    const result = await startReaderTranslation({
+      langCode: "ja-JP",
+      memoryId: "memory-reader",
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(
+          JSON.stringify({
+            status: "started",
+            event_url: "/api/translation-jobs/job-reader/events",
+            job_id: "job-reader",
+            lang_code: "ja-JP",
+            memory_id: "memory-reader",
+            source_hash: "sha256:source",
+          }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+
+    expect(result).toMatchObject({
+      event_url: "/api/translation-jobs/job-reader/events",
+      status: "started",
+    });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/memories/memory-reader/translations", "POST"],
+    ]);
+    expect(await requests[0]?.json()).toEqual({ lang_code: "ja-JP" });
   });
 
   it("detaches a tag by name through the memory tag API", async () => {

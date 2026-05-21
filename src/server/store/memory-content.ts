@@ -164,7 +164,12 @@ export async function readMemoryContent(
   input: ReadMemoryContentInput,
 ): Promise<ReadMemoryContentResult> {
   const resolvedPath = resolveMemoryContentPath(input.config, input.memoryId);
+  return readResolvedMemoryContent(resolvedPath);
+}
 
+export async function readResolvedMemoryContent(
+  resolvedPath: ResolvedMemoryContentPath,
+): Promise<ReadMemoryContentResult> {
   let content: string;
   try {
     content = await readFile(resolvedPath.absolutePath, "utf8");
@@ -182,7 +187,7 @@ export async function readMemoryContent(
   const { frontmatter, markdown } = parseMemoryContentFixture(
     content,
     resolvedPath.relativePath,
-    input.memoryId,
+    resolvedPath.memoryId,
   );
 
   return {
