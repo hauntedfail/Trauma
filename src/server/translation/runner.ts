@@ -34,6 +34,7 @@ import {
   createCodexChunkOutputSchema,
   stringifyCodexChunkOutput,
   validateCodexChunkOutput,
+  TranslationOutputSchemaError,
   TranslationOutputValidationError,
 } from "./prompt";
 import { loadTranslationSourceSnapshot } from "./source-loader";
@@ -112,6 +113,33 @@ interface TranslationRunOptions {
 }
 
 let queue: Promise<void> = Promise.resolve();
+
+interface InFlightTranslationTurn {
+  client: TranslationClient;
+  threadId?: string;
+  turnId?: string;
+}
+
+const inFlightTranslationTurns = new Map<string, InFlightTranslationTurn>();
+
+export async function interruptRunningTranslationJobTurn(
+  jobId: string,
+): Promise<boolean> {
+  const inFlight = inFlightTranslationTurns.get(jobId);
+  if (
+    inFlight === undefined ||
+    inFlight.client.cancelTurn === undefined ||
+    inFlight.threadId === undefined ||
+    inFlight.turnId === undefined
+  ) {
+    return false;
+  }
+  await inFlight.client.cancelTurn({
+    threadId: inFlight.threadId,
+    turnId: inFlight.turnId,
+  });
+  return true;
+}
 
 export async function startTranslationJob(
   input: StartTranslationJobInput,
@@ -521,12 +549,20 @@ async function translateAndPersistChunk(input: {
         chunk: input.chunk,
         targetLanguage: input.jobLangCode as SupportedLanguageCode,
       });
+      const inFlightTurn: InFlightTranslationTurn = {
+        client: input.client,
+      };
+      inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
       const rawOutput = await input.client.translateChunk({
         chunk: input.chunk,
         outputSchema: createCodexChunkOutputSchema(input.chunk),
         prompt,
         onEvent: (event) => {
-          if (event.type === "delta") {
+          if (event.type === "thread.started") {
+            inFlightTurn.threadId = event.threadId;
+          } else if (event.type === "turn.started") {
+            inFlightTurn.turnId = event.turnId;
+          } else if (event.type === "delta") {
             translationEventBus.emit({
               chunkIndex: input.chunk.chunkIndex,
               data: { text: event.text },
@@ -556,6 +592,9 @@ async function translateAndPersistChunk(input: {
           }
         },
       });
+      if (inFlightTranslationTurns.get(input.chunk.jobId) === inFlightTurn) {
+        inFlightTranslationTurns.delete(input.chunk.jobId);
+      }
       await input.connection.repositories.translations.updateTranslationChunk(
         input.chunk.jobId,
         input.chunk.chunkIndex,
@@ -598,6 +637,7 @@ async function translateAndPersistChunk(input: {
       });
       return;
     } catch (error) {
+      inFlightTranslationTurns.delete(input.chunk.jobId);
       const willRetry = attempt < BRILLIANT_MAX_RETRIES;
       const persistedError = toPersistedError(error);
       await input.connection.repositories.translations.updateTranslationChunk(
@@ -717,6 +757,13 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
       code: error.code,
       message: error.message,
       action: error.code === "auth_required" ? "setup_codex_auth" : "retry",
+    };
+  }
+  if (error instanceof TranslationOutputSchemaError) {
+    return {
+      code: "invalid_final_output",
+      message: error.message,
+      action: "retry",
     };
   }
   if (error instanceof TranslationOutputValidationError) {

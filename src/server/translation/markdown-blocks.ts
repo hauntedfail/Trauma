@@ -306,7 +306,9 @@ function extractProtectedSpans(
   collectMatches(spans, markdown, blockId, /\b(?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]+\b/g, "file_path");
   collectMatches(spans, markdown, blockId, /\b(?:bun|npm|pnpm|yarn|git|mise|codex)\s+[^\n]+/g, "command");
   collectMatches(spans, markdown, blockId, /\{[A-Za-z0-9_.-]+\}/g, "placeholder");
-  collectMatches(spans, markdown, blockId, /\b[A-Za-z_$][A-Za-z0-9_$]*\b/g, "identifier");
+  if (type === "code_fence") {
+    collectMatches(spans, markdown, blockId, /\b[A-Za-z_$][A-Za-z0-9_$]*\b/g, "identifier");
+  }
   return spans;
 }
 

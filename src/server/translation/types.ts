@@ -153,6 +153,7 @@ export interface TranslationChunk {
   styleProfile: string | null;
   glossary: Record<string, string>;
   blockIds: string[];
+  sourceBlocks: TranslationBlock[];
   sourceMarkdown: string;
   sourceChunkHash: string;
 }

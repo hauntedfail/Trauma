@@ -56,6 +56,7 @@ export interface TranslateChunkInput {
 }
 
 export interface TranslationClient {
+  cancelTurn?: (input: { threadId: string; turnId: string }) => Promise<void>;
   probe: () => Promise<void>;
   translateChunk: (input: TranslateChunkInput) => Promise<CodexChunkOutput>;
 }
@@ -141,6 +142,7 @@ export class CodexAppServerClient implements TranslationClient {
   private connectionClosed = false;
   private readonly closeListeners = new Set<(error: CodexAppServerError) => void>();
   private readonly notificationListeners = new Set<(message: WireMessage) => void>();
+  private outputSchemaMode: "structured" | "prompt_only" | undefined;
   private requestId = 1;
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private connection: CodexWireConnection | undefined;
@@ -255,6 +257,30 @@ export class CodexAppServerClient implements TranslationClient {
     input: TranslateChunkInput,
   ): Promise<CodexChunkOutput> {
     await this.probe();
+    const shouldTryStructured =
+      input.outputSchema !== undefined && this.outputSchemaMode !== "prompt_only";
+    if (!shouldTryStructured) {
+      return this.translateChunkAttempt(input, { includeOutputSchema: false });
+    }
+    try {
+      const output = await this.translateChunkAttempt(input, {
+        includeOutputSchema: true,
+      });
+      this.outputSchemaMode = "structured";
+      return output;
+    } catch (error) {
+      if (!isOutputSchemaUnsupportedError(error)) {
+        throw error;
+      }
+      this.outputSchemaMode = "prompt_only";
+      return this.translateChunkAttempt(input, { includeOutputSchema: false });
+    }
+  }
+
+  private async translateChunkAttempt(
+    input: TranslateChunkInput,
+    options: { includeOutputSchema: boolean },
+  ): Promise<CodexChunkOutput> {
     const thread = await this.request("thread/start", {
       cwd: await createRuntimeCwd(input.chunk.jobId),
       ephemeral: true,
@@ -282,16 +308,19 @@ export class CodexAppServerClient implements TranslationClient {
       turnId: () => turnId,
     });
     let turn: unknown;
+    const turnStartParams = {
+      threadId,
+      input: [{ type: "text", text: input.prompt, text_elements: [] }],
+      approvalPolicy: "never",
+      approvalsReviewer: "auto_review",
+      environments: [],
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      ...(options.includeOutputSchema && input.outputSchema !== undefined
+        ? { outputSchema: input.outputSchema }
+        : {}),
+    };
     try {
-      turn = await this.request("turn/start", {
-        threadId,
-        input: [{ type: "text", text: input.prompt, text_elements: [] }],
-        approvalPolicy: "never",
-        approvalsReviewer: "auto_review",
-        environments: [],
-        sandboxPolicy: { type: "readOnly", networkAccess: false },
-        ...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
-      });
+      turn = await this.request("turn/start", turnStartParams);
     } catch (error) {
       completed.unsubscribe();
       throw error;
@@ -311,6 +340,14 @@ export class CodexAppServerClient implements TranslationClient {
     } finally {
       completed.unsubscribe();
     }
+  }
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    await this.ensureInitialized();
+    await this.request("turn/interrupt", {
+      threadId: input.threadId,
+      turnId: input.turnId,
+    });
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -983,6 +1020,19 @@ function createCodexWireError(error: unknown): CodexAppServerError {
     return new CodexAppServerError("timeout", message);
   }
   return new CodexAppServerError("app_server_unavailable", message);
+}
+
+function isOutputSchemaUnsupportedError(error: unknown): boolean {
+  if (!(error instanceof CodexAppServerError)) {
+    return false;
+  }
+  const normalized = error.message.toLowerCase();
+  return (
+    /output\s*schema|structured|schema/.test(normalized) &&
+    /unsupported|unknown|invalid|unrecognized|not supported|not allowed|unexpected/.test(
+      normalized,
+    )
+  );
 }
 
 function readRequestTimeoutMs(): number {

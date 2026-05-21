@@ -4,6 +4,7 @@ import { loadRuntimeTraumaConfig } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { formatConfigError, jsonResponse } from "~/server/http/json";
 import { translationEventBus } from "~/server/translation/events";
+import { interruptRunningTranslationJobTurn } from "~/server/translation/runner";
 
 export async function POST(event: APIEvent): Promise<Response> {
   const jobId = event.params.jobId?.trim();
@@ -42,6 +43,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       if (job.status === "running") {
         await connection.repositories.translations
           .requestRunningTranslationJobCancellation(jobId, new Date());
+        await interruptRunningTranslationJobTurn(jobId).catch(() => false);
         return jsonResponse(
           { status: "cancel_requested", job_id: jobId },
           { status: 202 },

@@ -9,6 +9,7 @@ import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { createMemoryContentFixture } from "../../../src/server/store";
 import {
+  interruptRunningTranslationJobTurn,
   runTranslationJob,
   startTranslationJob,
 } from "../../../src/server/translation/runner";
@@ -16,7 +17,10 @@ import type {
   CodexChunkOutput,
   TranslationChunk,
 } from "../../../src/server/translation/types";
-import type { TranslationClient } from "../../../src/server/translation/codex-app-server";
+import type {
+  TranslateChunkInput,
+  TranslationClient,
+} from "../../../src/server/translation/codex-app-server";
 
 const tempRoots: string[] = [];
 const now = new Date("2026-05-21T00:00:00.000Z");
@@ -85,6 +89,37 @@ describe("translation runner", () => {
       reader_url: `/memories/ja-JP/${memoryId}`,
     });
   });
+
+  it("tracks active Codex turns so cancellation can interrupt app-server work", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new InterruptibleTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000002",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const runPromise = runTranslationJob(started.job_id, {
+      client,
+      config,
+    });
+
+    await client.waitUntilTurnStarted();
+
+    await expect(interruptRunningTranslationJobTurn(started.job_id))
+      .resolves.toBe(true);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-active", turnId: "turn-active" },
+    ]);
+
+    client.completeTranslation();
+    await runPromise;
+  });
 });
 
 class FakeTranslationClient implements TranslationClient {
@@ -95,15 +130,64 @@ class FakeTranslationClient implements TranslationClient {
   }): Promise<CodexChunkOutput> {
     return {
       chunk_index: input.chunk.chunkIndex,
-      blocks: input.chunk.blockIds.map((id) => ({
-        id,
-        translated_markdown: input.chunk.sourceMarkdown.replaceAll(
+      blocks: input.chunk.sourceBlocks.map((block) => ({
+        id: block.id,
+        translated_markdown: block.markdown.replaceAll(
           "Brilliant Source",
           "華麗なソース",
         ).replaceAll("Body.", "本文。"),
       })),
       warnings: [],
     };
+  }
+}
+
+class InterruptibleTranslationClient implements TranslationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+  private readonly translationCanFinish: Promise<void>;
+  private readonly turnStarted: Promise<void>;
+  private resolveTranslation: () => void = () => undefined;
+  private resolveTurnStarted: () => void = () => undefined;
+
+  constructor() {
+    this.turnStarted = new Promise((resolve) => {
+      this.resolveTurnStarted = resolve;
+    });
+    this.translationCanFinish = new Promise((resolve) => {
+      this.resolveTranslation = resolve;
+    });
+  }
+
+  async probe(): Promise<void> {}
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async translateChunk(input: TranslateChunkInput): Promise<CodexChunkOutput> {
+    input.onEvent?.({ type: "thread.started", threadId: "thread-active" });
+    input.onEvent?.({ type: "turn.started", turnId: "turn-active" });
+    this.resolveTurnStarted();
+    await this.translationCanFinish;
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      blocks: input.chunk.sourceBlocks.map((block) => ({
+        id: block.id,
+        translated_markdown: block.markdown.replaceAll(
+          "Brilliant Source",
+          "割り込み可能な翻訳見出し",
+        ).replaceAll("Body.", "割り込み可能な翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+
+  completeTranslation(): void {
+    this.resolveTranslation();
+  }
+
+  waitUntilTurnStarted(): Promise<void> {
+    return this.turnStarted;
   }
 }
 

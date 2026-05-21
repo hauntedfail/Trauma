@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import net from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import {
   CodexAppServerError,
   parseCodexAppServerEndpoint,
 } from "../../../src/server/translation/codex-app-server";
+import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
 import type { TranslationChunk } from "../../../src/server/translation/types";
 
 const originalSocketPath = process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
@@ -93,6 +94,79 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("keeps focused protocol fixtures in the app-server wire envelope shape", async () => {
+    const fixtureText = await readFile(
+      new URL(
+        "../../fixtures/translation/codex-app-server-protocol.focused.json",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const fixture = JSON.parse(fixtureText) as FocusedProtocolFixture;
+
+    expect(fixtureText).not.toContain("\"jsonrpc\"");
+    expect(fixture.schemaFacts.turnStart.supportsOutputSchema).toBe(true);
+    expect(fixture.schemaFacts.turnStart.readOnlySandboxPolicy).toEqual({
+      type: "readOnly",
+      networkAccessType: "boolean",
+    });
+    expect(fixture.wireExamples.map((example) => example.message.method))
+      .toEqual(expect.arrayContaining([
+        "initialize",
+        "initialized",
+        "account/read",
+        "account/login/start",
+        "account/login/cancel",
+        "account/logout",
+        "thread/start",
+        "turn/start",
+        "turn/interrupt",
+        "turn/started",
+        "item/agentMessage/delta",
+        "item/completed",
+        "turn/completed",
+      ]));
+  });
+
+  it("falls back to prompt-only turn starts when output schemas are unsupported", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-schema-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      rejectOutputSchemaOnce: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      const output = await client.translateChunk({
+        chunk: createChunk(),
+        outputSchema: {
+          type: "object",
+          required: ["blocks"],
+          properties: {
+            blocks: { type: "array" },
+          },
+        },
+        prompt: "translate chunk",
+      });
+
+      expect(output.blocks).toEqual([
+        { id: "b000001", translated_markdown: "翻訳本文" },
+      ]);
+      expect(receivedMethods.filter((method) => method === "thread/start"))
+        .toHaveLength(2);
+      expect(receivedMethods.filter((method) => method === "turn/start"))
+        .toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("uses Codex account methods for device-code auth without exposing credentials", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-auth-"));
     tempRoots.push(root);
@@ -127,6 +201,33 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("sends turn interrupts through the app-server wire protocol", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-cancel-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.cancelTurn({ threadId: "thread-1", turnId: "turn-1" }),
+      ).resolves.toBeUndefined();
+
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "turn/interrupt",
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("fails an unfinished turn when the Unix socket closes", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-close-"));
     tempRoots.push(root);
@@ -155,6 +256,8 @@ describe("Codex app-server endpoint parsing", () => {
 });
 
 function createChunk(): TranslationChunk {
+  const sourceMarkdown = "Source body";
+  const manifest = parseMarkdownTranslationBlocks(sourceMarkdown);
   return {
     blockIds: ["b000001"],
     chunkCount: 1,
@@ -166,9 +269,10 @@ function createChunk(): TranslationChunk {
     langCode: "ja-JP",
     memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f999",
     sectionPath: ["1"],
+    sourceBlocks: manifest.blocks,
     sourceChunkHash: "sha256:chunk",
     sourceHash: "sha256:source",
-    sourceMarkdown: "Source body",
+    sourceMarkdown,
     sourceUrl: "https://example.com",
     styleProfile: null,
   };
@@ -177,7 +281,7 @@ function createChunk(): TranslationChunk {
 async function startFakeAppServer(
   socketPath: string,
   receivedMethods: string[],
-  options: { closeAfterTurnStart?: boolean } = {},
+  options: FakeAppServerOptions = {},
 ): Promise<{ close: () => Promise<void> }> {
   const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
@@ -273,7 +377,7 @@ function handleClientMessage(
   socket: net.Socket,
   receivedMethods: string[],
   value: unknown,
-  options: { closeAfterTurnStart?: boolean } = {},
+  options: FakeAppServerOptions = {},
 ): void {
   if (!isRecord(value) || typeof value.method !== "string") {
     return;
@@ -305,6 +409,18 @@ function handleClientMessage(
       sendJson(socket, { id, result: { threadId: "thread-1" } });
       break;
     case "turn/start":
+      if (
+        options.rejectOutputSchemaOnce === true &&
+        isRecord(value.params) &&
+        "outputSchema" in value.params
+      ) {
+        options.rejectOutputSchemaOnce = false;
+        sendJson(socket, {
+          id,
+          error: { message: "outputSchema is unsupported by this app-server" },
+        });
+        break;
+      }
       sendJson(socket, { id, result: { turnId: "turn-1" } });
       if (options.closeAfterTurnStart === true) {
         socket.end();
@@ -335,7 +451,32 @@ function handleClientMessage(
         },
       });
       break;
+    case "turn/interrupt":
+      sendJson(socket, { id, result: {} });
+      break;
   }
+}
+
+interface FakeAppServerOptions {
+  closeAfterTurnStart?: boolean;
+  rejectOutputSchemaOnce?: boolean;
+}
+
+interface FocusedProtocolFixture {
+  schemaFacts: {
+    turnStart: {
+      supportsOutputSchema: boolean;
+      readOnlySandboxPolicy: {
+        type: string;
+        networkAccessType: string;
+      };
+    };
+  };
+  wireExamples: Array<{
+    message: {
+      method: string;
+    };
+  }>;
 }
 
 function createUpgradeResponse(key: string): string {

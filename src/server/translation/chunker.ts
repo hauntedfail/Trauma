@@ -41,6 +41,7 @@ export function createTranslationChunks(
       langCode: input.langCode,
       memoryId: input.memoryId,
       sectionPath: blocks[0]?.sectionPath ?? [],
+      sourceBlocks: blocks,
       sourceChunkHash: createSha256ContentHash(sourceMarkdown),
       sourceHash: input.source.sourceHash,
       sourceMarkdown,

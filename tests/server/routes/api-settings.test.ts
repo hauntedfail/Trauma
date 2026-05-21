@@ -107,6 +107,11 @@ describe("settings API routes", () => {
 async function useTempRouteConfig() {
   const root = await mkdtemp(join(tmpdir(), "trauma-api-settings-"));
   tempDirs.push(root);
+  process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "unix://";
+  process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH = join(
+    root,
+    "missing-codex-app-server.sock",
+  );
   return loadRouteConfig(await writeRouteConfig(root));
 }
 

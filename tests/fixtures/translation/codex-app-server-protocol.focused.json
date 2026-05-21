@@ -1,0 +1,158 @@
+{
+  "codexCliVersion": "0.130.0",
+  "generatedCommand": "codex app-server generate-json-schema --out /private/tmp/trauma-codex-app-server-schema-check",
+  "notes": [
+    "Focused fixture extracted from generated app-server protocol schema because the full schema bundle is too large for routine test context.",
+    "Wire examples intentionally omit top-level jsonrpc."
+  ],
+  "schemaFacts": {
+    "threadStart": {
+      "method": "thread/start",
+      "sandboxEnum": ["read-only", "workspace-write", "danger-full-access"]
+    },
+    "turnStart": {
+      "method": "turn/start",
+      "required": ["input", "threadId"],
+      "supportsOutputSchema": true,
+      "readOnlySandboxPolicy": {
+        "type": "readOnly",
+        "networkAccessType": "boolean"
+      }
+    },
+    "turnInterrupt": {
+      "method": "turn/interrupt",
+      "required": ["threadId", "turnId"]
+    }
+  },
+  "wireExamples": [
+    {
+      "kind": "request",
+      "message": {
+        "id": "1",
+        "method": "initialize",
+        "params": {
+          "clientInfo": { "name": "TRAUMA Brilliant", "version": "0.2.0" },
+          "capabilities": null
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": { "method": "initialized" }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "2",
+        "method": "account/read",
+        "params": { "refreshToken": true }
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "3",
+        "method": "account/login/start",
+        "params": { "type": "chatgptDeviceCode" }
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "4",
+        "method": "account/login/cancel",
+        "params": { "loginId": "login-1" }
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "5",
+        "method": "account/logout",
+        "params": {}
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "6",
+        "method": "thread/start",
+        "params": {
+          "cwd": "/tmp/trauma-codex-runtime/job-1",
+          "ephemeral": true,
+          "approvalPolicy": "never",
+          "approvalsReviewer": "auto_review",
+          "sandbox": "read-only",
+          "threadSource": "user"
+        }
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "7",
+        "method": "turn/start",
+        "params": {
+          "threadId": "thread-1",
+          "input": [{ "type": "text", "text": "translate chunk", "text_elements": [] }],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "auto_review",
+          "sandboxPolicy": { "type": "readOnly", "networkAccess": false },
+          "outputSchema": { "type": "object" }
+        }
+      }
+    },
+    {
+      "kind": "request",
+      "message": {
+        "id": "8",
+        "method": "turn/interrupt",
+        "params": { "threadId": "thread-1", "turnId": "turn-1" }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": {
+        "method": "turn/started",
+        "params": { "threadId": "thread-1", "turnId": "turn-1" }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": { "threadId": "thread-1", "turnId": "turn-1", "delta": "translated" }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "item": {
+            "id": "item-1",
+            "type": "agentMessage",
+            "text": "{\"chunk_index\":0,\"blocks\":[{\"id\":\"b000001\",\"translated_markdown\":\"translated\"}],\"warnings\":[]}"
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "output": {
+            "chunk_index": 0,
+            "blocks": [{ "id": "b000001", "translated_markdown": "translated" }],
+            "warnings": []
+          }
+        }
+      }
+    }
+  ]
+}
