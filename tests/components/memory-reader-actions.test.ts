@@ -51,6 +51,15 @@ const readyResult = {
   },
   content: {
     relativePath: "memories/memory-reader/CONTENT.md",
+    variants: [
+      {
+        active: true,
+        kind: "source",
+        label: "Original",
+        readerUrl: "/memories/memory-reader",
+        relativePath: "memories/memory-reader/CONTENT.md",
+      },
+    ],
   },
   rendered: {
     html: '<h1 id="reader-memory">Reader Memory</h1><p>A <mark data-flashback-id="flashback-1" id="flashback-1">flashback</mark>.</p>',
@@ -264,6 +273,62 @@ describe("memory reader actions", () => {
     expect(await requests[0]?.json()).toEqual({ lang_code: "ja-JP" });
   });
 
+  it("branches reader translation API errors by stable code", async () => {
+    await expect(
+      startReaderTranslation({
+        langCode: "ja-JP",
+        memoryId: "memory-reader",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              status: "error",
+              code: "auth_required",
+              message: "raw auth message",
+              action: "setup_codex_auth",
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow("Codex ChatGPT sign-in is required before translation can run.");
+  });
+
+  it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
+    const html = renderReader({
+      ...readyResult,
+      content: {
+        ...readyResult.content,
+        variants: [
+          {
+            active: true,
+            kind: "source",
+            label: "Original",
+            readerUrl: "/memories/memory-reader",
+            relativePath: "memories/memory-reader/CONTENT.md",
+          },
+          {
+            active: false,
+            kind: "translation",
+            label: "Japanese",
+            langCode: "ja-JP",
+            readerUrl: "/memories/ja-JP/memory-reader",
+            relativePath: "memories/memory-reader/ja-JP/CONTENT.md",
+          },
+        ],
+      },
+    }, {
+      translationTargetLanguage: "ja-JP",
+    });
+
+    expect(html).toContain('aria-label="Memory content variants"');
+    expect(html).toContain(">Original<");
+    expect(html).toContain(">Japanese<");
+    expect(html).toContain('href="/memories/ja-JP/memory-reader"');
+    expect(html).not.toContain("Translate memory to ja-JP");
+  });
+
   it("detaches a tag by name through the memory tag API", async () => {
     const requests: Request[] = [];
 
@@ -310,6 +375,7 @@ function renderReader(
   result: ReaderMemoryResult,
   options: {
     tagOptions?: readonly BrowseTaxonomySummaryItem[];
+    translationTargetLanguage?: "ja-JP";
   } = {},
 ): string {
   return renderToString(() => {
@@ -327,6 +393,7 @@ function renderReader(
           navigate: () => {},
           result,
           tagOptions: options.tagOptions ?? [],
+          translationTargetLanguage: options.translationTargetLanguage,
         });
       },
     });

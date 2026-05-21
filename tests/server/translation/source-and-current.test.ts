@@ -114,7 +114,26 @@ describe("translation source and current output", () => {
       await expect(
         loadReaderMemory(memoryId, { config, langCode: "ja-JP" }),
       ).resolves.toMatchObject({
-        content: { relativePath: `memories/${memoryId}/ja-JP/CONTENT.md` },
+        content: {
+          relativePath: `memories/${memoryId}/ja-JP/CONTENT.md`,
+          variants: [
+            {
+              active: false,
+              kind: "source",
+              label: "Original",
+              readerUrl: `/memories/${memoryId}`,
+              relativePath: `memories/${memoryId}/CONTENT.md`,
+            },
+            {
+              active: true,
+              kind: "translation",
+              label: "Japanese",
+              langCode: "ja-JP",
+              readerUrl: `/memories/ja-JP/${memoryId}`,
+              relativePath: `memories/${memoryId}/ja-JP/CONTENT.md`,
+            },
+          ],
+        },
         memory: { id: memoryId },
         rendered: {
           html: expect.stringContaining("本文。"),
@@ -123,6 +142,14 @@ describe("translation source and current output", () => {
       });
 
       await rm(outputPath.absolutePath);
+      await expect(
+        loadReaderMemory(memoryId, { config, langCode: "ja-JP" }),
+      ).resolves.toMatchObject({
+        status: "content_missing",
+      });
+      expect(
+        await connection.repositories.translations.getTranslationJob("job-current"),
+      ).toMatchObject({ status: "complete" });
       const missing = await resolveCurrentTranslationReadOnly({
         config,
         langCode: "ja-JP",

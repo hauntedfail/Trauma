@@ -63,6 +63,10 @@ export async function parseStartTranslationPayload(
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };
   }
+  const keys = Object.keys(payload);
+  if (keys.length === 0) {
+    return { ok: true };
+  }
   if (!hasOnlyKeys(payload, ["lang_code"])) {
     return { ok: false, error: "request body must contain only lang_code" };
   }
@@ -80,11 +84,10 @@ function formatStartTranslationError(error: unknown): Response {
   if (error instanceof TranslationApiError) {
     return jsonResponse(
       {
-        error: {
-          action: error.action,
-          code: error.code,
-          message: error.message,
-        },
+        action: error.action,
+        code: error.code,
+        message: error.message,
+        status: "error",
       },
       { status: statusForTranslationError(error) },
     );
@@ -106,12 +109,22 @@ function statusForTranslationError(error: TranslationApiError): number {
       return 409;
     case "auth_required":
     case "setup_required":
+    case "translation_unavailable":
+    case "stale_source":
+    case "usage_limit":
+    case "context_overflow":
+    case "validation_failed":
       return 409;
     case "app_server_unavailable":
-    case "usage_limit":
-    case "timeout":
     case "stream_disconnected":
       return 503;
+    case "timeout":
+      return 504;
+    case "invalid_final_output":
+      return 502;
+    case "filesystem_failure":
+    case "unknown":
+      return 500;
     default:
       return 500;
   }

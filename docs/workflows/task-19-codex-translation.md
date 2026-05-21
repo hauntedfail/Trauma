@@ -3,7 +3,8 @@
 ## Status
 
 - Implementation source of truth: this parent file is an overview only. Implementation workers must start from `docs/workflows/task-19-codex-translation/README.md`, then `00-execution-contracts.md`, then the focused contracts listed for their assigned subtask.
-- State: Planning only; ready for implementation after this workflow is accepted.
+- State: Implementation authorized; this workflow is the execution contract
+  baseline for Brilliant implementation and review.
 - Base branch: `main`
 - Implementation branch: `feat/brilliant`
 - Depends on: merged `/settings` page, SQLite-backed BCP 47 target-language setting, and current OpenAI auth settings boundary.
@@ -174,7 +175,8 @@ POST /api/translation-jobs/:job_id/cancel
 16. [19.16 Test plan and fixtures](task-19-codex-translation/16-test-plan-and-fixtures.md)
 17. [19.17 End-to-end validation with long paper fixture](task-19-codex-translation/17-end-to-end-validation-with-long-paper-fixture.md)
 
-Do not start implementation until the plan is accepted.
+Implementation must continue to follow the focused contract files above; update
+this workflow when accepted contracts change.
 
 ## Parallelization map
 

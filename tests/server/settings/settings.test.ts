@@ -33,7 +33,11 @@ describe("settings service", () => {
 
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "ja-JP",
-      openaiAuth: { status: "disabled" },
+      openaiAuth: {
+        status: "setup_required",
+        provider: "codex",
+        reason: "codex_app_server_unavailable",
+      },
     });
 
     const connection = initializeDatabase(config);
@@ -57,11 +61,19 @@ describe("settings service", () => {
     ).resolves.toEqual([
       {
         translationTargetLanguage: "ja-JP",
-        openaiAuth: { status: "disabled" },
+        openaiAuth: {
+          status: "setup_required",
+          provider: "codex",
+          reason: "codex_app_server_unavailable",
+        },
       },
       {
         translationTargetLanguage: "ja-JP",
-        openaiAuth: { status: "disabled" },
+        openaiAuth: {
+          status: "setup_required",
+          provider: "codex",
+          reason: "codex_app_server_unavailable",
+        },
       },
     ]);
 
@@ -199,7 +211,11 @@ describe("settings service", () => {
     });
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "fr-FR",
-      openaiAuth: { status: "disabled" },
+      openaiAuth: {
+        status: "setup_required",
+        provider: "codex",
+        reason: "codex_app_server_unavailable",
+      },
     });
   });
 });

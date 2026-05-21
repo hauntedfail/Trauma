@@ -9,7 +9,10 @@ import type {
   TranslationRepository,
 } from "../db/repositories";
 import { createSha256ContentHash } from "./hash";
-import { splitFrontmatter } from "./markdown-blocks";
+import {
+  parseMarkdownTranslationBlocks,
+  splitFrontmatter,
+} from "./markdown-blocks";
 import {
   createTranslatedReaderUrl,
   resolveTranslatedMemoryContentPath,
@@ -51,6 +54,11 @@ export async function commitTranslatedContent(input: {
   const body = stitchCompletedChunks(input.chunks);
   const { frontmatter } = splitFrontmatter(source.sourceMarkdown);
   const output = `${frontmatter}${body}`;
+  validateFinalTranslatedContent({
+    body,
+    expectedFrontmatter: frontmatter,
+    output,
+  });
   const outputPath = await writeTranslatedContentAtomically({
     config: input.config,
     jobId: input.job.jobId,
@@ -98,6 +106,31 @@ export function stitchCompletedChunks(
       return chunk.translatedMarkdown;
     })
     .join("");
+}
+
+export function validateFinalTranslatedContent(input: {
+  body: string;
+  expectedFrontmatter: string;
+  output: string;
+}): void {
+  if (input.body.trim() === "") {
+    throw new TranslationStitchingError("Translated document body is empty.");
+  }
+  if (input.output.includes("\u0000")) {
+    throw new TranslationStitchingError("Translated document contains a null byte.");
+  }
+  if (!input.output.startsWith(input.expectedFrontmatter)) {
+    throw new TranslationStitchingError(
+      "Translated document frontmatter does not match the source frontmatter.",
+    );
+  }
+  const parsed = parseMarkdownTranslationBlocks(input.output);
+  if (parsed.bodyMarkdown.trim() === "") {
+    throw new TranslationStitchingError("Translated document body is empty.");
+  }
+  if (parsed.blocks.length === 0) {
+    throw new TranslationStitchingError("Translated document has no readable blocks.");
+  }
 }
 
 export async function writeTranslatedContentAtomically(input: {

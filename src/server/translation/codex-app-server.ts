@@ -22,6 +22,32 @@ export type CodexAppServerEvent =
   | { type: "item.started"; itemId: string | null }
   | { type: "item.completed"; itemId: string | null };
 
+export type CodexAuthStatus =
+  | { status: "enabled" }
+  | { status: "setup_required"; reason: string }
+  | { status: "disabled"; reason: string }
+  | { status: "unknown"; reason: string }
+  | { status: "error"; error: string };
+
+export interface CodexDeviceCodeLogin {
+  loginId: string;
+  userCode: string;
+  verificationUrl: string;
+}
+
+export type CodexAuthEvent =
+  | {
+      type: "auth.login.completed";
+      loginId: string | null;
+      success: boolean;
+      error: string | null;
+    }
+  | { type: "auth.account.updated" };
+
+export type CodexLogoutResult =
+  | { status: "logged_out" }
+  | { status: "unsupported"; message: string };
+
 export interface TranslateChunkInput {
   chunk: TranslationChunk;
   onEvent?: (event: CodexAppServerEvent) => void;
@@ -45,7 +71,10 @@ interface WireMessage {
 interface PendingRequest {
   reject: (error: Error) => void;
   resolve: (value: unknown) => void;
+  timeout: ReturnType<typeof setTimeout>;
 }
+
+const DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 120_000;
 
 export function parseCodexAppServerEndpoint(
   raw = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT ?? "unix://",
@@ -109,6 +138,8 @@ export function parseCodexAppServerEndpoint(
 
 export class CodexAppServerClient implements TranslationClient {
   private initialized = false;
+  private connectionClosed = false;
+  private readonly closeListeners = new Set<(error: CodexAppServerError) => void>();
   private readonly notificationListeners = new Set<(message: WireMessage) => void>();
   private requestId = 1;
   private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -120,13 +151,103 @@ export class CodexAppServerClient implements TranslationClient {
   ) {}
 
   async probe(): Promise<void> {
-    await this.ensureInitialized();
-    const account = await this.request("account/read", { refreshToken: true });
-    if (isRecord(account) && account.requiresOpenaiAuth === true) {
+    const status = await this.checkAuth();
+    if (status.status !== "enabled") {
       throw new CodexAppServerError(
-        "auth_required",
+        status.status === "setup_required" || status.status === "disabled"
+          ? "auth_required"
+          : "app_server_unavailable",
         "Codex app-server requires OpenAI authentication.",
       );
+    }
+  }
+
+  async checkAuth(): Promise<CodexAuthStatus> {
+    await this.ensureInitialized();
+    const account = await this.request("account/read", { refreshToken: true });
+    if (!isRecord(account)) {
+      return { status: "unknown", reason: "invalid_account_response" };
+    }
+    if (account.requiresOpenaiAuth === true) {
+      return { status: "setup_required", reason: "auth_required" };
+    }
+    if (
+      account.requiresOpenaiAuth === false ||
+      account.authenticated === true ||
+      account.isAuthenticated === true ||
+      isRecord(account.account)
+    ) {
+      return { status: "enabled" };
+    }
+    return { status: "unknown", reason: "unrecognized_account_state" };
+  }
+
+  async startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin> {
+    await this.ensureInitialized();
+    const result = await this.request("account/login/start", {
+      type: "chatgptDeviceCode",
+    });
+    const login = readDeviceCodeLogin(result);
+    if (login === undefined) {
+      throw new CodexAppServerError(
+        "app_server_unavailable",
+        "Codex app-server did not return device-code login metadata.",
+      );
+    }
+    return login;
+  }
+
+  async *observeAuthEvents(): AsyncIterable<CodexAuthEvent> {
+    const queue: CodexAuthEvent[] = [];
+    let wake: (() => void) | undefined;
+    const unsubscribe = this.subscribeNotification((message) => {
+      const event = readCodexAuthEvent(message);
+      if (event === undefined) {
+        return;
+      }
+      queue.push(event);
+      wake?.();
+      wake = undefined;
+    });
+    try {
+      while (true) {
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+        }
+        const event = queue.shift();
+        if (event !== undefined) {
+          yield event;
+        }
+      }
+    } finally {
+      unsubscribe();
+    }
+  }
+
+  async cancelDeviceCodeLogin(input: { loginId: string }): Promise<void> {
+    await this.ensureInitialized();
+    await this.request("account/login/cancel", { loginId: input.loginId });
+  }
+
+  async logout(): Promise<CodexLogoutResult> {
+    await this.ensureInitialized();
+    try {
+      await this.request("account/logout", {});
+      return { status: "logged_out" };
+    } catch (error) {
+      if (
+        error instanceof CodexAppServerError &&
+        error.code === "app_server_unavailable" &&
+        error.message.toLowerCase().includes("method")
+      ) {
+        return {
+          status: "unsupported",
+          message: "Codex app-server does not support account/logout.",
+        };
+      }
+      throw error;
     }
   }
 
@@ -196,8 +317,10 @@ export class CodexAppServerClient implements TranslationClient {
     if (this.initialized) {
       return;
     }
-    this.connection = await openCodexWireConnection(this.endpoint, (message) =>
-      this.handleMessage(message),
+    this.connection = await openCodexWireConnection(
+      this.endpoint,
+      (message) => this.handleMessage(message),
+      (error) => this.handleConnectionClosed(error),
     );
     await this.request("initialize", {
       clientInfo: {
@@ -217,10 +340,25 @@ export class CodexAppServerClient implements TranslationClient {
         "Codex app-server is not connected.",
       );
     }
+    if (this.connectionClosed) {
+      throw new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server connection is closed.",
+      );
+    }
     const id = String(this.requestId);
     this.requestId += 1;
     const promise = new Promise<unknown>((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(
+          new CodexAppServerError(
+            "timeout",
+            `Codex app-server request ${method} timed out.`,
+          ),
+        );
+      }, readRequestTimeoutMs());
+      this.pendingRequests.set(id, { resolve, reject, timeout });
     });
     this.connection.send({ id, method, params });
     return promise;
@@ -239,13 +377,9 @@ export class CodexAppServerClient implements TranslationClient {
         return;
       }
       this.pendingRequests.delete(message.id);
+      clearTimeout(pending.timeout);
       if (message.error !== undefined) {
-        pending.reject(
-          new CodexAppServerError(
-            "app_server_unavailable",
-            formatWireError(message.error),
-          ),
-        );
+        pending.reject(createCodexWireError(message.error));
         return;
       }
       pending.resolve(message.result);
@@ -261,13 +395,71 @@ export class CodexAppServerClient implements TranslationClient {
     };
   }
 
+  private subscribeClose(
+    listener: (error: CodexAppServerError) => void,
+  ): () => void {
+    this.closeListeners.add(listener);
+    return () => {
+      this.closeListeners.delete(listener);
+    };
+  }
+
+  private handleConnectionClosed(error: CodexAppServerError): void {
+    if (this.connectionClosed) {
+      return;
+    }
+    this.connectionClosed = true;
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.pendingRequests.clear();
+    for (const listener of this.closeListeners) {
+      listener(error);
+    }
+  }
+
   private waitForTurnCompletion(input: {
     onEvent?: (event: CodexAppServerEvent) => void;
     threadId: string;
     turnId: () => string | undefined;
   }): { output: Promise<CodexChunkOutput>; unsubscribe: () => void } {
     let unsubscribe: () => void = () => undefined;
+    let unsubscribeClose: () => void = () => undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const output = new Promise<CodexChunkOutput>((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (value: CodexChunkOutput) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        resolve(value);
+      };
+      const settleReject = (error: CodexAppServerError) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        reject(error);
+      };
+      timeout = setTimeout(() => {
+        settleReject(
+          new CodexAppServerError(
+            "timeout",
+            "Codex app-server turn timed out.",
+          ),
+        );
+      }, readRequestTimeoutMs());
+      unsubscribeClose = this.subscribeClose((error) => {
+        settleReject(error);
+      });
       unsubscribe = this.subscribeNotification((message) => {
         if (message.method === "turn/started") {
           const startedTurnId = readNotificationTurnId(message.params);
@@ -309,7 +501,7 @@ export class CodexAppServerClient implements TranslationClient {
           });
           const itemOutput = readFinalOutput(message.params);
           if (itemOutput !== undefined) {
-            resolve(itemOutput);
+            settleResolve(itemOutput);
           }
           return;
         }
@@ -319,7 +511,7 @@ export class CodexAppServerClient implements TranslationClient {
           }
           const finalOutput = readFinalOutput(message.params);
           if (finalOutput === undefined) {
-            reject(
+            settleReject(
               new CodexAppServerError(
                 "invalid_final_output",
                 "Codex app-server did not return a final translation payload.",
@@ -327,11 +519,20 @@ export class CodexAppServerClient implements TranslationClient {
             );
             return;
           }
-          resolve(finalOutput);
+          settleResolve(finalOutput);
         }
       });
     });
-    return { output, unsubscribe };
+    return {
+      output,
+      unsubscribe: () => {
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        unsubscribe();
+        unsubscribeClose();
+      },
+    };
   }
 }
 
@@ -342,16 +543,18 @@ interface CodexWireConnection {
 async function openCodexWireConnection(
   endpoint: CodexAppServerEndpoint,
   onMessage: (message: WireMessage) => void,
+  onClose: (error: CodexAppServerError) => void,
 ): Promise<CodexWireConnection> {
   if (endpoint.kind === "websocket") {
-    return openWebSocketConnection(endpoint, onMessage);
+    return openWebSocketConnection(endpoint, onMessage, onClose);
   }
-  return openUnixWebSocketConnection(endpoint, onMessage);
+  return openUnixWebSocketConnection(endpoint, onMessage, onClose);
 }
 
 async function openWebSocketConnection(
   endpoint: CodexAppServerEndpoint,
   onMessage: (message: WireMessage) => void,
+  onClose: (error: CodexAppServerError) => void,
 ): Promise<CodexWireConnection> {
   if (endpoint.url === undefined) {
     throw new CodexAppServerError("setup_required", "Missing WebSocket URL.");
@@ -373,6 +576,14 @@ async function openWebSocketConnection(
       onMessage(parseWireMessage(event.data));
     }
   });
+  socket.addEventListener("close", () => {
+    onClose(
+      new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server WebSocket connection closed.",
+      ),
+    );
+  });
   return {
     send: (message) => socket.send(JSON.stringify(message)),
   };
@@ -381,6 +592,7 @@ async function openWebSocketConnection(
 async function openUnixWebSocketConnection(
   endpoint: CodexAppServerEndpoint,
   onMessage: (message: WireMessage) => void,
+  onClose: (error: CodexAppServerError) => void,
 ): Promise<CodexWireConnection> {
   if (endpoint.socketPath === undefined) {
     throw new CodexAppServerError("setup_required", "Missing Unix socket path.");
@@ -417,7 +629,22 @@ async function openUnixWebSocketConnection(
   socket.on("data", (chunk) =>
     decoder.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk),
   );
-  socket.on("error", () => undefined);
+  socket.on("error", () => {
+    onClose(
+      new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server Unix socket stream failed.",
+      ),
+    );
+  });
+  socket.on("close", () => {
+    onClose(
+      new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server Unix socket stream closed.",
+      ),
+    );
+  });
 
   return {
     send: (message) => socket.write(encodeClientWebSocketTextFrame(JSON.stringify(message))),
@@ -623,6 +850,49 @@ function readTurnStartResponseTurnId(value: unknown): string | undefined {
   return undefined;
 }
 
+function readDeviceCodeLogin(value: unknown): CodexDeviceCodeLogin | undefined {
+  const candidate = isRecord(value) && isRecord(value.deviceCode)
+    ? value.deviceCode
+    : value;
+  if (!isRecord(candidate)) {
+    return undefined;
+  }
+  const loginId = readStringField(candidate, "loginId") ??
+    readStringField(candidate, "id");
+  const userCode = readStringField(candidate, "userCode") ??
+    readStringField(candidate, "user_code");
+  const verificationUrl = readStringField(candidate, "verificationUrl") ??
+    readStringField(candidate, "verification_url") ??
+    readStringField(candidate, "verificationUri") ??
+    readStringField(candidate, "verification_uri");
+  if (loginId === undefined || userCode === undefined || verificationUrl === undefined) {
+    return undefined;
+  }
+  return { loginId, userCode, verificationUrl };
+}
+
+function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
+  if (message.method === "auth.account.updated") {
+    return { type: "auth.account.updated" };
+  }
+  if (message.method !== "auth.login.completed" || !isRecord(message.params)) {
+    return undefined;
+  }
+  const loginId = readStringField(message.params, "loginId") ??
+    readStringField(message.params, "login_id") ??
+    null;
+  const success = message.params.success === true;
+  const error = typeof message.params.error === "string"
+    ? message.params.error
+    : null;
+  return {
+    type: "auth.login.completed",
+    loginId,
+    success,
+    error,
+  };
+}
+
 function parseCodexJsonOutput(text: string): CodexChunkOutput | undefined {
   const trimmed = stripJsonFence(text.trim());
   try {
@@ -697,12 +967,46 @@ function formatWireError(error: unknown): string {
   return JSON.stringify(error);
 }
 
+function createCodexWireError(error: unknown): CodexAppServerError {
+  const message = formatWireError(error);
+  const normalized = message.toLowerCase();
+  if (normalized.includes("auth")) {
+    return new CodexAppServerError("auth_required", message);
+  }
+  if (normalized.includes("usage") || normalized.includes("limit")) {
+    return new CodexAppServerError("usage_limit", message);
+  }
+  if (normalized.includes("context")) {
+    return new CodexAppServerError("context_overflow", message);
+  }
+  if (normalized.includes("timeout") || normalized.includes("timed out")) {
+    return new CodexAppServerError("timeout", message);
+  }
+  return new CodexAppServerError("app_server_unavailable", message);
+}
+
+function readRequestTimeoutMs(): number {
+  const raw = process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === "") {
+    return DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0
+    ? value
+    : DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
+}
+
 export class CodexAppServerError extends Error {
   constructor(
     public readonly code:
       | "auth_required"
       | "setup_required"
       | "app_server_unavailable"
+      | "usage_limit"
+      | "context_overflow"
+      | "stream_disconnected"
+      | "timeout"
+      | "unknown"
       | "invalid_final_output",
     message: string,
   ) {

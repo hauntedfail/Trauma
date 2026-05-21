@@ -17,11 +17,13 @@ import {
 } from "./markdown-renderer";
 import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
 import {
-  repairUnavailableTranslation,
   resolveCurrentTranslationReadOnly,
 } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
-import type { SupportedLanguageCode } from "../translation/languages";
+import {
+  SUPPORTED_TRANSLATION_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../translation/languages";
 
 type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
 
@@ -33,6 +35,7 @@ export type ReaderMemoryResult =
         langCode?: SupportedLanguageCode;
         relativePath: string;
         sourceReaderUrl?: string;
+        variants: ReaderContentVariant[];
       };
       rendered: RenderedMemoryMarkdown;
     }
@@ -86,6 +89,15 @@ export interface ReaderFlashbackItem {
   createdAt: string;
 }
 
+export interface ReaderContentVariant {
+  active: boolean;
+  kind: "source" | "translation";
+  label: string;
+  langCode?: SupportedLanguageCode;
+  readerUrl: string;
+  relativePath: string;
+}
+
 export interface LoadReaderMemoryOptions {
   config?: ResolvedTraumaConfig;
   langCode?: SupportedLanguageCode;
@@ -122,6 +134,13 @@ export async function loadReaderMemory(
       options.langCode === undefined ? memory.flashbacks : [],
       memory.url,
     );
+    const variants = await loadReaderContentVariants({
+      activeLangCode: options.langCode,
+      config,
+      memoryId,
+      repository: connection.repositories.translations,
+      sourceContentPath: memory.contentPath,
+    });
     return {
       status: "ready",
       memory: toReaderMemory(memory, rendered),
@@ -133,6 +152,7 @@ export async function loadReaderMemory(
             sourceReaderUrl: `/memories/${memoryId}`,
           }),
         relativePath: content.relativePath,
+        variants,
       },
       rendered,
     };
@@ -182,11 +202,6 @@ async function readTranslatedReaderContent(input: {
     );
   }
   if (current.status === "unavailable") {
-    await repairUnavailableTranslation({
-      jobId: current.job.jobId,
-      reason: current.reason,
-      repository: input.connection.repositories.translations,
-    });
     throw new MemoryContentStoreError(
       `translated CONTENT.md is unavailable for ${input.langCode}`,
       "missing_content",
@@ -200,6 +215,47 @@ async function readTranslatedReaderContent(input: {
       memoryId: input.memoryId,
     }),
   );
+}
+
+async function loadReaderContentVariants(input: {
+  activeLangCode?: SupportedLanguageCode;
+  config: ResolvedTraumaConfig;
+  memoryId: string;
+  repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
+  sourceContentPath: string;
+}): Promise<ReaderContentVariant[]> {
+  const variants: ReaderContentVariant[] = [
+    {
+      active: input.activeLangCode === undefined,
+      kind: "source",
+      label: "Original",
+      readerUrl: `/memories/${input.memoryId}`,
+      relativePath: input.sourceContentPath,
+    },
+  ];
+
+  for (const language of SUPPORTED_TRANSLATION_LANGUAGES) {
+    const current = await resolveCurrentTranslationReadOnly({
+      config: input.config,
+      langCode: language.code,
+      memoryId: input.memoryId,
+      repository: input.repository,
+    });
+    if (current.status !== "current") {
+      continue;
+    }
+
+    variants.push({
+      active: input.activeLangCode === language.code,
+      kind: "translation",
+      label: language.displayName,
+      langCode: language.code,
+      readerUrl: current.readerUrl,
+      relativePath: current.outputPath,
+    });
+  }
+
+  return variants;
 }
 
 function renderMemoryMarkdownSafely(

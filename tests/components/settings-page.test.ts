@@ -18,7 +18,11 @@ describe("settings page", () => {
       createComponent(SettingsPage, {
         initialSettings: {
           translationTargetLanguage: "ja-JP",
-          openaiAuth: { status: "disabled" },
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
         },
       }),
     );
@@ -52,22 +56,26 @@ describe("settings page", () => {
     ]) {
       expect(html).toContain(code);
     }
-    expect(html).toContain("Enable");
+    expect(html).toContain("Start setup");
     expect(html).not.toContain("Delete auth");
   });
 
-  it("renders enabled OpenAI auth state with a danger delete action", () => {
+  it("renders enabled Codex auth state with a danger delete action", () => {
     const html = renderToString(() =>
       createComponent(SettingsPage, {
         initialSettings: {
           translationTargetLanguage: "en-US",
-          openaiAuth: { status: "enabled" },
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
         },
       }),
     );
 
     expect(html).toContain("Enabled");
-    expect(html).toContain("OpenAI auth is enabled.");
+    expect(html).toContain("Codex ChatGPT sign-in is enabled.");
     expect(html).toContain("Delete auth");
   });
 
@@ -84,46 +92,65 @@ describe("settings page", () => {
       if (String(input).includes("translation-language")) {
         return jsonResponse({
           translationTargetLanguage: "en-US",
-          openaiAuth: { status: "disabled" },
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
         });
       }
 
-      if (String(input).includes("enable")) {
-        return jsonResponse({ status: "enabled", alreadyEnabled: true });
+      if (String(input).includes("device-code")) {
+        return jsonResponse({
+          status: "login_started",
+          provider: "codex",
+          loginId: "login-1",
+          verificationUrl: "https://example.com/device",
+          userCode: "ABCD-EFGH",
+        });
       }
 
-      return jsonResponse({ status: "disabled", alreadyDisabled: false });
+      return jsonResponse({
+        status: "disabled",
+        provider: "codex",
+        logoutStatus: "logged_out",
+      });
     };
 
     await expect(
       submitTranslationTargetLanguage({ language: "en-US", fetch }),
     ).resolves.toMatchObject({ translationTargetLanguage: "en-US" });
     await expect(submitEnableOpenAiAuth({ fetch })).resolves.toEqual({
-      status: "enabled",
-      alreadyEnabled: true,
+      status: "login_started",
+      provider: "codex",
+      loginId: "login-1",
+      verificationUrl: "https://example.com/device",
+      userCode: "ABCD-EFGH",
     });
     await expect(
       submitDeleteOpenAiAuth({ confirm: () => true, fetch }),
     ).resolves.toEqual({
       status: "disabled",
-      alreadyDisabled: false,
+      provider: "codex",
+      logoutStatus: "logged_out",
     });
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/settings/translation-language", "PATCH"],
-      ["http://localhost/api/settings/openai-auth/enable", "POST"],
-      ["http://localhost/api/settings/openai-auth", "DELETE"],
+      ["http://localhost/api/settings/codex-auth/device-code", "POST"],
+      ["http://localhost/api/settings/codex-auth", "DELETE"],
     ]);
   });
 
-  it("surfaces provider-missing OpenAI auth enable responses", async () => {
+  it("surfaces Codex auth device-code failures", async () => {
     await expect(
       submitEnableOpenAiAuth({
         fetch: async () =>
           new Response(
             JSON.stringify({
-              status: "not_configured",
-              message: "OpenAI auth provider is not configured.",
+              status: "failed",
+              provider: "codex",
+              error: "Codex app-server is unavailable.",
             }),
             {
               status: 409,
@@ -131,7 +158,7 @@ describe("settings page", () => {
             },
           ),
       }),
-    ).rejects.toThrow("OpenAI auth provider is not configured.");
+    ).rejects.toThrow("Codex app-server is unavailable.");
   });
 
   it("does not delete OpenAI auth when confirmation is rejected", async () => {
@@ -142,7 +169,11 @@ describe("settings page", () => {
         confirm: () => false,
         fetch: async (input, init) => {
           requests.push(new Request(new URL(String(input), "http://localhost"), init));
-          return jsonResponse({ status: "disabled", alreadyDisabled: false });
+          return jsonResponse({
+            status: "disabled",
+            provider: "codex",
+            logoutStatus: "logged_out",
+          });
         },
       }),
     ).resolves.toBeUndefined();

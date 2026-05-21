@@ -10,15 +10,17 @@ import type { SettingsRepository } from "../db/repositories";
 import {
   enableOpenAiAuthWithRepository,
   deleteOpenAiAuthWithRepository,
-  readOpenAiAuthStatus,
   type DeleteOpenAiAuthResult,
   type EnableOpenAiAuthResponse,
-  type OpenAiAuthStatusView,
 } from "./openai-auth";
+import {
+  readCodexAuthStatus,
+  type CodexAuthStatusResponse,
+} from "./codex-auth";
 
 export interface SettingsState {
   translationTargetLanguage: SupportedLanguageCode;
-  openaiAuth: OpenAiAuthStatusView;
+  openaiAuth: CodexAuthStatusResponse;
 }
 
 interface SettingsOptions {
@@ -40,9 +42,7 @@ export async function getSettings(
     const settings = await repository.getSettings(now);
     return {
       translationTargetLanguage: settings.translationTargetLanguage,
-      openaiAuth: {
-        status: await readOpenAiAuthStatus(repository),
-      },
+      openaiAuth: await readCodexAuthStatus(),
     };
   });
 }
@@ -62,9 +62,7 @@ export async function updateTranslationTargetLanguage(
     });
     return {
       translationTargetLanguage: language,
-      openaiAuth: {
-        status: await readOpenAiAuthStatus(repository),
-      },
+      openaiAuth: await readCodexAuthStatus(),
     };
   });
 }

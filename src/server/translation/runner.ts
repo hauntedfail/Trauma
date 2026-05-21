@@ -37,7 +37,7 @@ import {
   TranslationOutputValidationError,
 } from "./prompt";
 import { loadTranslationSourceSnapshot } from "./source-loader";
-import { commitTranslatedContent } from "./stitching";
+import { commitTranslatedContent, TranslationStitchingError } from "./stitching";
 import {
   BRILLIANT_MAX_RETRIES,
   type PersistableTranslationErrorCode,
@@ -439,6 +439,8 @@ export async function readTranslationJobSnapshot(input: {
     );
     let readerUrl: string | null = null;
     let outputPath: string | null = job.outputPath;
+    let status = job.status;
+    let error = job.error;
     if (job.status === "complete" && isSupportedLanguageCode(job.langCode)) {
       const current = await resolveCurrentTranslationReadOnly({
         config,
@@ -455,6 +457,12 @@ export async function readTranslationJobSnapshot(input: {
           reason: current.reason,
           repository: connection.repositories.translations,
         });
+        status = "unavailable";
+        error = {
+          action: "start_fresh_translation",
+          code: "translation_unavailable",
+          message: "Translated CONTENT.md is unavailable.",
+        };
         outputPath = null;
       }
     }
@@ -462,7 +470,7 @@ export async function readTranslationJobSnapshot(input: {
     return {
       chunk_count: job.chunkCount,
       completed_chunks: counts.complete + counts.purged,
-      error: job.error,
+      error,
       failed_chunks: counts.failed,
       job_id: job.jobId,
       lang_code: job.langCode,
@@ -471,7 +479,7 @@ export async function readTranslationJobSnapshot(input: {
       reader_url: readerUrl,
       retrying_chunks: counts.retrying,
       source_hash: job.sourceHash,
-      status: job.status,
+      status,
     };
   } finally {
     connection.close();
@@ -712,6 +720,13 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     };
   }
   if (error instanceof TranslationOutputValidationError) {
+    return {
+      code: "validation_failed",
+      message: error.message,
+      action: "retry",
+    };
+  }
+  if (error instanceof TranslationStitchingError) {
     return {
       code: "validation_failed",
       message: error.message,

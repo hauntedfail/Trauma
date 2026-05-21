@@ -9,7 +9,10 @@ import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { createMemoryContentFixture } from "../../../src/server/store";
 import { loadTranslationSourceSnapshot } from "../../../src/server/translation/source-loader";
-import { commitTranslatedContent } from "../../../src/server/translation/stitching";
+import {
+  commitTranslatedContent,
+  validateFinalTranslatedContent,
+} from "../../../src/server/translation/stitching";
 
 const tempRoots: string[] = [];
 const now = new Date("2026-05-21T00:00:00.000Z");
@@ -137,6 +140,16 @@ describe("translation stitching and atomic commit", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("rejects an empty stitched document before writing translated CONTENT.md", () => {
+    expect(() =>
+      validateFinalTranslatedContent({
+        body: "\n\n",
+        expectedFrontmatter: "---\nid: test\n---\n",
+        output: "---\nid: test\n---\n\n\n",
+      }),
+    ).toThrow("Translated document body is empty.");
   });
 });
 

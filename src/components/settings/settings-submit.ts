@@ -1,8 +1,8 @@
 import type { SettingsState } from "../../server/settings/settings";
 import type {
-  DeleteOpenAiAuthResult,
-  EnableOpenAiAuthResponse,
-} from "../../server/settings/openai-auth";
+  CodexAuthDeleteResponse,
+  CodexDeviceCodeStartResponse,
+} from "../../server/settings/codex-auth";
 
 type FetchFunction = (
   input: string | URL | Request,
@@ -30,35 +30,35 @@ export async function submitTranslationTargetLanguage(input: {
 
 export async function submitEnableOpenAiAuth(input: {
   fetch?: FetchFunction;
-} = {}): Promise<EnableOpenAiAuthResponse> {
+} = {}): Promise<CodexDeviceCodeStartResponse> {
   const requestFetch = input.fetch ?? fetch;
-  const response = await requestFetch("/api/settings/openai-auth/enable", {
+  const response = await requestFetch("/api/settings/codex-auth/device-code", {
     method: "POST",
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "failed to enable OpenAI auth"));
+    throw new Error(await readErrorMessage(response, "failed to start Codex auth"));
   }
 
-  return response.json() as Promise<EnableOpenAiAuthResponse>;
+  return response.json() as Promise<CodexDeviceCodeStartResponse>;
 }
 
 export async function submitDeleteOpenAiAuth(input: {
   confirm: (message: string) => boolean;
   fetch?: FetchFunction;
-}): Promise<DeleteOpenAiAuthResult | undefined> {
-  if (!input.confirm("Delete OpenAI auth?")) {
+}): Promise<CodexAuthDeleteResponse | undefined> {
+  if (!input.confirm("Delete Codex auth?")) {
     return undefined;
   }
 
   const requestFetch = input.fetch ?? fetch;
-  const response = await requestFetch("/api/settings/openai-auth", {
+  const response = await requestFetch("/api/settings/codex-auth", {
     method: "DELETE",
   });
   if (!response.ok) {
-    throw new Error("failed to delete OpenAI auth");
+    throw new Error("failed to delete Codex auth");
   }
 
-  return response.json() as Promise<DeleteOpenAiAuthResult>;
+  return response.json() as Promise<CodexAuthDeleteResponse>;
 }
 
 async function readErrorMessage(

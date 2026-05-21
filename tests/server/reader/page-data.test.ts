@@ -60,9 +60,18 @@ describe("loadReaderMemory", () => {
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ]);
-    expect(result.content).toEqual({
+    expect(result.content).toMatchObject({
       relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
     });
+    expect(result.content.variants).toEqual([
+      {
+        active: true,
+        kind: "source",
+        label: "Original",
+        readerUrl: `/memories/${MEMORY_ID}`,
+        relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
+      },
+    ]);
     expect("markdown" in result.content).toBe(false);
     expect(result.rendered.toc).toEqual([
       { id: "fixture-reader", level: 1, path: "1", text: "Fixture Reader" },
