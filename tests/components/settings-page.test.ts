@@ -5,12 +5,18 @@ import { describe, expect, it } from "vitest";
 
 import { SettingsPage } from "../../src/components/settings/SettingsPage";
 import {
+  pollCodexAuthSetup,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
+  submitReadCodexAuth,
   submitTranslationTargetLanguage,
 } from "../../src/components/settings/settings-submit";
 
 const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
+const settingsPageSource = readFileSync(
+  "src/components/settings/SettingsPage.tsx",
+  "utf8",
+);
 
 describe("settings page", () => {
   it("renders translation language options and disabled OpenAI auth controls", () => {
@@ -159,6 +165,75 @@ describe("settings page", () => {
           ),
       }),
     ).rejects.toThrow("Codex app-server is unavailable.");
+  });
+
+  it("reads Codex auth status through the settings API", async () => {
+    const requests: Request[] = [];
+
+    await expect(
+      submitReadCodexAuth({
+        fetch: async (input, init) => {
+          requests.push(new Request(new URL(String(input), "http://localhost"), init));
+          return jsonResponse({
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          });
+        },
+      }),
+    ).resolves.toEqual({
+      status: "enabled",
+      provider: "codex",
+      message: "Codex ChatGPT sign-in is enabled.",
+    });
+
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/settings/codex-auth", "GET"],
+    ]);
+  });
+
+  it("polls Codex auth setup until device-code login is enabled", async () => {
+    const requests: Request[] = [];
+    let reads = 0;
+
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async (input, init) => {
+          requests.push(new Request(new URL(String(input), "http://localhost"), init));
+          reads += 1;
+          if (reads === 1) {
+            return jsonResponse({
+              status: "login_started",
+              provider: "codex",
+              loginId: "login-1",
+              verificationUrl: "https://example.com/device",
+              userCode: "ABCD-EFGH",
+            });
+          }
+          return jsonResponse({
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          });
+        },
+        intervalMs: 0,
+        maxAttempts: 3,
+      }),
+    ).resolves.toEqual({
+      status: "enabled",
+      provider: "codex",
+      message: "Codex ChatGPT sign-in is enabled.",
+    });
+
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/settings/codex-auth", "GET"],
+      ["http://localhost/api/settings/codex-auth", "GET"],
+    ]);
+  });
+
+  it("wires pending Codex auth setup to the polling helper", () => {
+    expect(settingsPageSource).toContain("pollCodexAuthSetup");
+    expect(settingsPageSource).toContain("refreshCodexAuthAfterLogin");
   });
 
   it("does not delete OpenAI auth when confirmation is rejected", async () => {

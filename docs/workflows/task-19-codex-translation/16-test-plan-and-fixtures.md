@@ -151,7 +151,12 @@ mise exec -- bun run typecheck
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
 - Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`
+- `account/read` with a non-null `account` is authenticated even when
+  `requiresOpenaiAuth` is true
+- `account/read` with no account and `requiresOpenaiAuth: true` is auth-required
 - device-code login safe fields and success/failure/cancellation notification handling
+- device-code notifications use raw app-server names `account/login/completed`
+  and `account/updated`
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata

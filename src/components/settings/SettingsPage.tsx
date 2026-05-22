@@ -1,4 +1,4 @@
-import { Show, createSignal, type JSX } from "solid-js";
+import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 
 import {
   SUPPORTED_TRANSLATION_LANGUAGES,
@@ -6,6 +6,7 @@ import {
 } from "../../settings/languages";
 import type { SettingsState } from "../../server/settings/settings";
 import {
+  pollCodexAuthSetup,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
   submitTranslationTargetLanguage,
@@ -50,6 +51,14 @@ export function SettingsPage(props: SettingsPageProps) {
   const [pending, setPending] = createSignal("");
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
+  const authPollControllers = new Set<AbortController>();
+
+  onCleanup(() => {
+    for (const controller of authPollControllers) {
+      controller.abort();
+    }
+    authPollControllers.clear();
+  });
 
   const saveLanguage: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
     event,
@@ -89,6 +98,7 @@ export function SettingsPage(props: SettingsPageProps) {
       } else if (response.status === "login_started") {
         setCodexAuth(response);
         setMessage("Codex device-code setup started.");
+        void refreshCodexAuthAfterLogin();
       } else if (response.status === "failed") {
         setError(response.error);
       } else {
@@ -100,6 +110,35 @@ export function SettingsPage(props: SettingsPageProps) {
       setError(error instanceof Error ? error.message : "Failed to enable OpenAI auth.");
     } finally {
       setPending("");
+    }
+  };
+
+  const refreshCodexAuthAfterLogin = async (): Promise<void> => {
+    const controller = new AbortController();
+    authPollControllers.add(controller);
+    try {
+      const response = await pollCodexAuthSetup({
+        signal: controller.signal,
+      });
+      if (response === undefined || controller.signal.aborted) {
+        return;
+      }
+      setCodexAuth(response);
+      if (response.status === "enabled") {
+        setMessage(response.message);
+        void revalidateSettingsState();
+      } else if (response.status === "error") {
+        setError(response.error);
+      } else {
+        setMessage("Codex auth setup state refreshed.");
+        void revalidateSettingsState();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setError(error instanceof Error ? error.message : "Failed to refresh Codex auth.");
+      }
+    } finally {
+      authPollControllers.delete(controller);
     }
   };
 

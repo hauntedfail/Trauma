@@ -1,6 +1,7 @@
 import type { SettingsState } from "../../server/settings/settings";
 import type {
   CodexAuthDeleteResponse,
+  CodexAuthStatusResponse,
   CodexDeviceCodeStartResponse,
 } from "../../server/settings/codex-auth";
 
@@ -42,6 +43,42 @@ export async function submitEnableOpenAiAuth(input: {
   return response.json() as Promise<CodexDeviceCodeStartResponse>;
 }
 
+export async function submitReadCodexAuth(input: {
+  fetch?: FetchFunction;
+} = {}): Promise<CodexAuthStatusResponse> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/codex-auth", {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "failed to read Codex auth"));
+  }
+
+  return response.json() as Promise<CodexAuthStatusResponse>;
+}
+
+export async function pollCodexAuthSetup(input: {
+  fetch?: FetchFunction;
+  intervalMs?: number;
+  maxAttempts?: number;
+  signal?: AbortSignal;
+} = {}): Promise<CodexAuthStatusResponse | undefined> {
+  const intervalMs = input.intervalMs ?? 1_500;
+  const maxAttempts = input.maxAttempts ?? 120;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const ready = await waitForPollDelay(intervalMs, input.signal);
+    if (!ready) {
+      return undefined;
+    }
+    const status = await submitReadCodexAuth({ fetch: input.fetch });
+    if (status.status !== "login_started") {
+      return status;
+    }
+  }
+
+  return undefined;
+}
+
 export async function submitDeleteOpenAiAuth(input: {
   confirm: (message: string) => boolean;
   fetch?: FetchFunction;
@@ -59,6 +96,31 @@ export async function submitDeleteOpenAiAuth(input: {
   }
 
   return response.json() as Promise<CodexAuthDeleteResponse>;
+}
+
+function waitForPollDelay(
+  intervalMs: number,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal?.aborted === true) {
+    return Promise.resolve(false);
+  }
+  if (intervalMs <= 0) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+    timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, intervalMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function readErrorMessage(

@@ -37,12 +37,16 @@ export interface CodexDeviceCodeLogin {
 
 export type CodexAuthEvent =
   | {
-      type: "auth.login.completed";
+      type: "account.login.completed";
       loginId: string | null;
       success: boolean;
       error: string | null;
     }
-  | { type: "auth.account.updated" };
+  | { type: "account.updated" };
+
+export interface CodexAuthCheckOptions {
+  refreshToken?: boolean;
+}
 
 export type CodexLogoutResult =
   | { status: "logged_out" }
@@ -153,7 +157,7 @@ export class CodexAppServerClient implements TranslationClient {
   ) {}
 
   async probe(): Promise<void> {
-    const status = await this.checkAuth();
+    const status = await this.checkAuth({ refreshToken: true });
     if (status.status !== "enabled") {
       throw new CodexAppServerError(
         status.status === "setup_required" || status.status === "disabled"
@@ -164,21 +168,25 @@ export class CodexAppServerClient implements TranslationClient {
     }
   }
 
-  async checkAuth(): Promise<CodexAuthStatus> {
+  async checkAuth(input: CodexAuthCheckOptions = {}): Promise<CodexAuthStatus> {
     await this.ensureInitialized();
-    const account = await this.request("account/read", { refreshToken: true });
+    const account = await this.request("account/read", {
+      refreshToken: input.refreshToken === true,
+    });
     if (!isRecord(account)) {
       return { status: "unknown", reason: "invalid_account_response" };
+    }
+    if (
+      isRecord(account.account) ||
+      account.authenticated === true ||
+      account.isAuthenticated === true
+    ) {
+      return { status: "enabled" };
     }
     if (account.requiresOpenaiAuth === true) {
       return { status: "setup_required", reason: "auth_required" };
     }
-    if (
-      account.requiresOpenaiAuth === false ||
-      account.authenticated === true ||
-      account.isAuthenticated === true ||
-      isRecord(account.account)
-    ) {
+    if (account.requiresOpenaiAuth === false) {
       return { status: "enabled" };
     }
     return { status: "unknown", reason: "unrecognized_account_state" };
@@ -909,10 +917,10 @@ function readDeviceCodeLogin(value: unknown): CodexDeviceCodeLogin | undefined {
 }
 
 function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
-  if (message.method === "auth.account.updated") {
-    return { type: "auth.account.updated" };
+  if (message.method === "account/updated") {
+    return { type: "account.updated" };
   }
-  if (message.method !== "auth.login.completed" || !isRecord(message.params)) {
+  if (message.method !== "account/login/completed" || !isRecord(message.params)) {
     return undefined;
   }
   const loginId = readStringField(message.params, "loginId") ??
@@ -923,7 +931,7 @@ function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
     ? message.params.error
     : null;
   return {
-    type: "auth.login.completed",
+    type: "account.login.completed",
     loginId,
     success,
     error,

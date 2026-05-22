@@ -46,8 +46,8 @@ export type CodexDeviceCodeLoginState =
   | { status: "canceled"; loginId: string };
 
 export type CodexAuthEvent =
-  | { type: "auth.login.completed"; loginId: string | null; success: boolean; error: string | null }
-  | { type: "auth.account.updated" };
+  | { type: "account.login.completed"; loginId: string | null; success: boolean; error: string | null }
+  | { type: "account.updated" };
 
 export type CodexLogoutResult =
   | { status: "logged_out" }
@@ -111,7 +111,10 @@ Rules:
 - Reject `stdio` process ownership because TRAUMA does not auto-start or supervise the app-server process in Brilliant MVP.
 - Reject non-loopback WebSocket endpoints in the MVP. Remote app-server exposure and WebSocket bearer/capability-token management require a separate security subtask.
 - If `endpoint` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
-- Run `account/read` before scheduling translation work. If `requiresOpenaiAuth` is true and no ChatGPT/API account is available, surface `auth_required` or `setup_required`.
+- Run `account/read` before scheduling translation work. A non-null `account`
+  confirms usable auth even when `requiresOpenaiAuth` is `true`. Treat
+  `requiresOpenaiAuth: true` as `auth_required` or `setup_required` only when
+  no ChatGPT/API account is available.
 - Do not fall back to `codex exec` from this app-server client.
 - Use one ephemeral `thread/start` per chunk attempt, then app-server `turn/start`.
 - Prefer `outputSchema` on `turn/start`. If the configured app-server rejects or does not advertise `outputSchema`, fall back to prompt-only JSON output and require the same `CodexChunkOutput` validation before persistence. If the app-server rejects both structured output and prompt-only JSON output, fail the chunk with `invalid_final_output`.
@@ -185,11 +188,20 @@ Runtime cleanup warnings:
 
 - Auth status uses `account/read` with `{ "refreshToken": false }` by default.
 - Forced refresh is allowed only in server-side auth status checks and must not expose tokens.
+- `account/read.requiresOpenaiAuth` is not an authenticated/unauthenticated
+  boolean. It means the current provider requires OpenAI auth. Auth is enabled
+  when `account/read` returns a non-null `account`; auth is required when
+  `requiresOpenaiAuth` is `true` and `account` is absent.
 - Device-code login uses `account/login/start` with `{ "type": "chatgptDeviceCode" }`.
 - Safe device-code response fields are `loginId`, `verificationUrl`, and `userCode`.
 - Device-code cancellation uses `account/login/cancel` through `cancelDeviceCodeLogin({ loginId })`.
 - Completion is detected from `account/login/completed` and `account/updated` notifications, followed by `account/read` confirmation.
-- `account/login/completed` is adapted to `CodexAuthEvent` with `loginId`, `success`, and safe `error` text. If `success` is false, the settings/auth service must clean up the pending observer and return a safe failed or canceled state instead of treating the login as enabled.
+- `account/login/completed` is adapted to the typed
+  `account.login.completed` `CodexAuthEvent` with `loginId`, `success`, and
+  safe `error` text. `account/updated` is adapted to `account.updated`. If
+  `success` is false, the settings/auth service must clean up the pending
+  observer and return a safe failed or canceled state instead of treating the
+  login as enabled.
 - Auth notification consumption uses `observeAuthEvents()`. Settings/auth services must not subscribe to raw JSON-RPC notifications directly.
 - `observeAuthEvents()` is consumed only while a device-code login is pending. The settings/auth service owns the listener lifecycle and must cancel/close the listener when login completes, is canceled, fails, or the server request scope is disposed.
 - Losing the auth event listener is not fatal. Auth status refresh must always call `account/read` through `checkAuth()` and may return safe pending metadata when known.

@@ -140,10 +140,15 @@ Use a fake app-server client. Cover:
 - app-server `initialize` and `initialized` happen before `account/read`, `thread/start`, or `turn/start`
 - generated schema or focused protocol fixtures cover the app-server methods and notifications used by the fake app-server
 - fake app-server fixtures omit top-level `jsonrpc` unless generated schema proves it is accepted
+- `account/read` auth checks treat a non-null `account` as enabled even when
+  `requiresOpenaiAuth` is true; `requiresOpenaiAuth: true` is auth-required only
+  when no account is available
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
 - logout wraps `account/logout` when supported and reports unsupported logout explicitly
-- auth notifications map to typed `CodexAuthEvent` values including login success, failure, and cancellation
+- raw `account/login/completed` and `account/updated` notifications map to
+  typed `CodexAuthEvent` values including login success, failure, and
+  cancellation
 - auth check uses `account/read`
 - chunk translation starts an ephemeral thread before starting a turn
 - retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread

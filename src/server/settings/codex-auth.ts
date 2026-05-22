@@ -2,6 +2,7 @@ import {
   CodexAppServerClient,
   CodexAppServerError,
   type CodexAuthEvent,
+  type CodexAuthCheckOptions,
   type CodexAuthStatus,
   type CodexDeviceCodeLogin,
   type CodexLogoutResult,
@@ -60,7 +61,7 @@ export interface CodexAuthDeleteResponse {
 
 export interface CodexAuthClient {
   cancelDeviceCodeLogin: (input: { loginId: string }) => Promise<void>;
-  checkAuth: () => Promise<CodexAuthStatus>;
+  checkAuth: (input?: CodexAuthCheckOptions) => Promise<CodexAuthStatus>;
   logout: () => Promise<CodexLogoutResult>;
   observeAuthEvents: () => AsyncIterable<CodexAuthEvent>;
   startDeviceCodeLogin: () => Promise<CodexDeviceCodeLogin>;
@@ -168,7 +169,7 @@ function observePendingLogin(client: CodexAuthClient, loginId: string): void {
         if (pendingLogin?.loginId !== loginId) {
           break;
         }
-        if (event.type === "auth.account.updated") {
+        if (event.type === "account.updated") {
           const status = await client.checkAuth();
           if (status.status === "enabled") {
             clearPendingLogin();

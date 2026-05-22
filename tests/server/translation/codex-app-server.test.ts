@@ -116,6 +116,8 @@ describe("Codex app-server endpoint parsing", () => {
         "initialized",
         "account/read",
         "account/login/start",
+        "account/login/completed",
+        "account/updated",
         "account/login/cancel",
         "account/logout",
         "thread/start",
@@ -196,6 +198,99 @@ describe("Codex app-server endpoint parsing", () => {
         "account/login/cancel",
         "account/logout",
       ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("treats a returned account as authenticated even when OpenAI auth is required", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-account-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      accountReadResponse: {
+        account: {
+          email: "user@example.com",
+          planType: "prolite",
+          type: "chatgpt",
+        },
+        requiresOpenaiAuth: true,
+      },
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).resolves.toEqual({ status: "enabled" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("requires auth when OpenAI auth is required and no account is returned", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-no-account-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      accountReadResponse: {
+        account: null,
+        requiresOpenaiAuth: true,
+      },
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).resolves.toEqual({
+        status: "setup_required",
+        reason: "auth_required",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("observes official account auth notifications as typed auth events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-auth-events-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      authNotificationsAfterLogin: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const iterator = client.observeAuthEvents()[Symbol.asyncIterator]();
+      const firstEvent = iterator.next();
+      const secondEvent = iterator.next();
+
+      await client.startDeviceCodeLogin();
+
+      await expect(firstEvent).resolves.toEqual({
+        done: false,
+        value: {
+          type: "account.login.completed",
+          loginId: "login-1",
+          success: true,
+          error: null,
+        },
+      });
+      await expect(secondEvent).resolves.toEqual({
+        done: false,
+        value: { type: "account.updated" },
+      });
     } finally {
       await server.close();
     }
@@ -389,7 +484,10 @@ function handleClientMessage(
       sendJson(socket, { id, result: {} });
       break;
     case "account/read":
-      sendJson(socket, { id, result: { requiresOpenaiAuth: false } });
+      sendJson(socket, {
+        id,
+        result: options.accountReadResponse ?? { requiresOpenaiAuth: false },
+      });
       break;
     case "account/login/start":
       sendJson(socket, {
@@ -400,6 +498,23 @@ function handleClientMessage(
           verificationUrl: "https://example.com/device",
         },
       });
+      if (options.authNotificationsAfterLogin === true) {
+        sendJson(socket, {
+          method: "account/login/completed",
+          params: {
+            error: null,
+            loginId: "login-1",
+            success: true,
+          },
+        });
+        sendJson(socket, {
+          method: "account/updated",
+          params: {
+            authMode: "chatgpt",
+            planType: "prolite",
+          },
+        });
+      }
       break;
     case "account/login/cancel":
     case "account/logout":
@@ -458,6 +573,8 @@ function handleClientMessage(
 }
 
 interface FakeAppServerOptions {
+  accountReadResponse?: unknown;
+  authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
   rejectOutputSchemaOnce?: boolean;
 }

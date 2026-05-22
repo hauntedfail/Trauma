@@ -23,6 +23,7 @@ architecture, reference, quality, or operations docs.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
+| 19R | [Codex app-server auth repair](task-19-codex-translation-auth-repair.md) | Repair Task 19 device-code completion, app-server auth interpretation, Settings refresh, and translation auth preflight | Draft |
 
 ## Archived Workflows
 

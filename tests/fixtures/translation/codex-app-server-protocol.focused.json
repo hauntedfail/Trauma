@@ -88,6 +88,27 @@
       }
     },
     {
+      "kind": "notification",
+      "message": {
+        "method": "account/login/completed",
+        "params": {
+          "loginId": "login-1",
+          "success": true,
+          "error": null
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "message": {
+        "method": "account/updated",
+        "params": {
+          "authMode": "chatgpt",
+          "planType": "prolite"
+        }
+      }
+    },
+    {
       "kind": "request",
       "message": {
         "id": "7",
