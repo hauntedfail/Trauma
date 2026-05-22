@@ -1,10 +1,23 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import type { APIEvent } from "@solidjs/start/server";
 
-import { createStartTranslationHandler } from "../../../src/routes/api/memories/[memoryId]/translations";
+import { createStartTranslationHandler } from "../../../src/server/translation/start-translation-route";
 import { TranslationApiError } from "../../../src/server/translation/runner";
 
+const startTranslationRouteSource = readFileSync(
+  "src/routes/api/memories/[memoryId]/translations.ts",
+  "utf8",
+);
+
 describe("translation API routes", () => {
+  it("keeps the picked POST route as a thin framework entrypoint", () => {
+    expect(startTranslationRouteSource).not.toContain(
+      "function createStartTranslationHandler",
+    );
+  });
+
   it("starts translation from the memory route and returns the SSE event URL", async () => {
     const handler = createStartTranslationHandler({
       startTranslationJob: async (input) => {
