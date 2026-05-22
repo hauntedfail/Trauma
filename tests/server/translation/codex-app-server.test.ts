@@ -105,7 +105,15 @@ describe("Codex app-server endpoint parsing", () => {
     const fixture = JSON.parse(fixtureText) as FocusedProtocolFixture;
 
     expect(fixtureText).not.toContain("\"jsonrpc\"");
+    expect(fixture.schemaFacts.threadStart.stableOmittedFields).toEqual([
+      "environments",
+      "experimentalRawEvents",
+      "persistExtendedHistory",
+    ]);
     expect(fixture.schemaFacts.turnStart.supportsOutputSchema).toBe(true);
+    expect(fixture.schemaFacts.turnStart.stableOmittedFields).toEqual([
+      "environments",
+    ]);
     expect(fixture.schemaFacts.turnStart.readOnlySandboxPolicy).toEqual({
       type: "readOnly",
       networkAccessType: "boolean",
@@ -164,6 +172,86 @@ describe("Codex app-server endpoint parsing", () => {
         .toHaveLength(2);
       expect(receivedMethods.filter((method) => method === "turn/start"))
         .toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("sends only stable app-server fields when experimentalApi is not negotiated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-stable-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await client.translateChunk({
+        chunk: createChunk(),
+        outputSchema: { type: "object" },
+        prompt: "translate chunk",
+      });
+
+      const initialize = findCapturedRequest(receivedMessages, "initialize");
+      expect(initialize.params).toMatchObject({ capabilities: null });
+
+      const threadStart = findCapturedRequest(receivedMessages, "thread/start");
+      expect(threadStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        ephemeral: true,
+        sandbox: "read-only",
+        threadSource: "user",
+      });
+      expect(threadStart.params).not.toHaveProperty("environments");
+      expect(threadStart.params).not.toHaveProperty("experimentalRawEvents");
+      expect(threadStart.params).not.toHaveProperty("persistExtendedHistory");
+
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        outputSchema: { type: "object" },
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        threadId: "thread-1",
+      });
+      expect(turnStart.params).not.toHaveProperty("environments");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("classifies reachable app-server gated-field rejections as protocol errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-protocol-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      rejectThreadStartWithExperimentalCapabilityError: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.translateChunk({
+          chunk: createChunk(),
+          prompt: "translate chunk",
+        }),
+      ).rejects.toMatchObject({
+        code: "app_server_protocol_error",
+        message: "thread/start.environments requires experimentalApi capability",
+      });
     } finally {
       await server.close();
     }
@@ -479,6 +567,11 @@ function handleClientMessage(
   }
   receivedMethods.push(value.method);
   const id = typeof value.id === "string" ? value.id : undefined;
+  options.receivedMessages?.push({
+    id,
+    method: value.method,
+    params: value.params,
+  });
   switch (value.method) {
     case "initialize":
       sendJson(socket, { id, result: {} });
@@ -521,6 +614,18 @@ function handleClientMessage(
       sendJson(socket, { id, result: {} });
       break;
     case "thread/start":
+      if (
+        options.rejectThreadStartWithExperimentalCapabilityError === true
+      ) {
+        sendJson(socket, {
+          id,
+          error: {
+            code: -32602,
+            message: "thread/start.environments requires experimentalApi capability",
+          },
+        });
+        break;
+      }
       sendJson(socket, { id, result: { threadId: "thread-1" } });
       break;
     case "turn/start":
@@ -576,12 +681,35 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  receivedMessages?: CapturedClientMessage[];
+  rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
+}
+
+interface CapturedClientMessage {
+  id?: string;
+  method: string;
+  params?: unknown;
+}
+
+function findCapturedRequest(
+  messages: CapturedClientMessage[],
+  method: string,
+): { params: Record<string, unknown> } {
+  const message = messages.find((candidate) => candidate.method === method);
+  if (message === undefined || !isRecord(message.params)) {
+    throw new Error(`Missing captured ${method} request.`);
+  }
+  return { params: message.params };
 }
 
 interface FocusedProtocolFixture {
   schemaFacts: {
+    threadStart: {
+      stableOmittedFields: string[];
+    };
     turnStart: {
+      stableOmittedFields: string[];
       supportsOutputSchema: boolean;
       readOnlySandboxPolicy: {
         type: string;

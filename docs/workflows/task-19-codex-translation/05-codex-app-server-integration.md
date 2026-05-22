@@ -62,6 +62,9 @@ Rules:
 - Speak the Codex app-server wire protocol over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - Use the Codex app-server wire envelope exactly: requests are `{ method, params, id }`, responses are `{ id, result }` or `{ id, error }`, and notifications are `{ method, params }`. Do not add a top-level `jsonrpc` field unless the generated schema or focused fixtures for the installed Codex version explicitly accept it.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
+- Brilliant defaults to the stable app-server schema and does not request
+  `experimentalApi`. Do not send request fields that appear only in the
+  generated `--experimental` schema.
 - Reject or retry connection setup if any request is attempted before initialization.
 - Missing endpoint returns `setup_required`.
 - Configured but unreachable app-server returns `app_server_unavailable`.
@@ -90,6 +93,15 @@ Rules:
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk attempt, then `turn/start` for chunk translation.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
+- Stable `thread/start` sends only the fields supported by the stable generated
+  schema for Brilliant: `cwd`, `ephemeral`, `approvalPolicy`,
+  `approvalsReviewer`, `sandbox`, and `threadSource`. It must omit
+  `environments`, `experimentalRawEvents`, and `persistExtendedHistory` unless
+  a later task deliberately opts into `experimentalApi`.
+- Stable `turn/start` sends `threadId`, `input`, `approvalPolicy`,
+  `approvalsReviewer`, `sandboxPolicy`, and `outputSchema` when structured
+  output is attempted. It must omit `environments` unless a later task
+  deliberately opts into `experimentalApi`.
 - Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
 - `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
@@ -116,6 +128,7 @@ Map app-server failures to typed backend errors:
 - `auth_required`
 - `setup_required`
 - `app_server_unavailable`
+- `app_server_protocol_error`
 - `usage_limit`
 - `context_overflow`
 - `stream_disconnected`
@@ -168,6 +181,9 @@ Use a fake app-server client. Cover:
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
 - usage limit, context overflow, timeout, and disconnect are typed
+- reachable app-server request-contract rejections, including
+  `requires experimentalApi capability`, are typed as
+  `app_server_protocol_error` instead of `app_server_unavailable`
 - raw app-server notifications are converted to typed internal events inside the app-server client module
 - no token, credential file content, or app-server secret is returned
 

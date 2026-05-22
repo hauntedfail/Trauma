@@ -77,6 +77,7 @@ export interface CodexAppServerError {
     | "auth_required"
     | "setup_required"
     | "app_server_unavailable"
+    | "app_server_protocol_error"
     | "usage_limit"
     | "context_overflow"
     | "stream_disconnected"
@@ -103,6 +104,10 @@ Rules:
 - Response envelope shape is `{ "id": 1, "result": {...} }` or `{ "id": 1, "error": { "code": 123, "message": "..." } }`.
 - Notification envelope shape is `{ "method": "...", "params": {...} }`.
 - Immediately after opening a connection, send one `initialize` request with TRAUMA client metadata and then send the `initialized` notification. No app-server method may run before that handshake.
+- Brilliant initializes against the stable schema and does not request
+  `experimentalApi`. Any request field present only in the generated
+  `--experimental` schema is out of scope unless a later task explicitly opts
+  into that capability.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
 - If `endpoint` is missing, return `setup_required`.
 - Brilliant MVP supports the app-server wire protocol only over a Unix socket or a loopback WebSocket endpoint such as `ws://127.0.0.1:<port>`.
@@ -117,6 +122,12 @@ Rules:
   no ChatGPT/API account is available.
 - Do not fall back to `codex exec` from this app-server client.
 - Use one ephemeral `thread/start` per chunk attempt, then app-server `turn/start`.
+- Stable `thread/start` uses only `cwd`, `ephemeral`, `approvalPolicy`,
+  `approvalsReviewer`, `sandbox`, and `threadSource` for Brilliant. It omits
+  `environments`, `experimentalRawEvents`, and `persistExtendedHistory`.
+- Stable `turn/start` uses `threadId`, `input`, `approvalPolicy`,
+  `approvalsReviewer`, `sandboxPolicy`, and `outputSchema` when structured
+  output is attempted. It omits `environments`.
 - Prefer `outputSchema` on `turn/start`. If the configured app-server rejects or does not advertise `outputSchema`, fall back to prompt-only JSON output and require the same `CodexChunkOutput` validation before persistence. If the app-server rejects both structured output and prompt-only JSON output, fail the chunk with `invalid_final_output`.
 - The concrete output schema builder is owned by 19.8. The app-server client accepts a schema object from caller code rather than defining Brilliant translation schema internally.
 - Do not send the full document unless the chunker produced one chunk.
@@ -176,6 +187,8 @@ Runtime cleanup warnings:
 - Generate protocol fixtures or schemas with `codex app-server generate-ts --out tests/fixtures/translation/codex-app-server-schema` or `codex app-server generate-json-schema --out tests/fixtures/translation/codex-app-server-schema` when the local Codex CLI supports it.
 - If generated artifacts are too large for the repo, commit a focused fixture set covering `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `thread/start`, `turn/start`, `turn/started`, `item/agentMessage/delta`, `item/completed`, `turn/completed`, and `turn/interrupt`.
 - Focused fixtures must use the Codex app-server wire envelope without top-level `jsonrpc`.
+- Focused fixtures must record which consumed `thread/start` and `turn/start`
+  fields are stable and which experimental fields Brilliant deliberately omits.
 - Fake app-server tests must be based on the recorded schema/fixture version, not only on hand-written assumptions.
 - Before implementing `translateChunk()`, confirm the exact `turn/start`
   payload shape for `approvalPolicy`, `sandboxPolicy`, `cwd`, and
@@ -228,6 +241,7 @@ The transport layer receives raw JSON-RPC notifications such as:
 auth_required
 setup_required
 app_server_unavailable
+app_server_protocol_error
 usage_limit
 context_overflow
 stream_disconnected

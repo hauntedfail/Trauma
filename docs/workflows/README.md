@@ -24,6 +24,7 @@ architecture, reference, quality, or operations docs.
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
 | 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
 | 19R | [Codex app-server auth repair](task-19-codex-translation-auth-repair.md) | Repair Task 19 device-code completion, app-server auth interpretation, Settings refresh, and translation auth preflight | Draft |
+| 19S | [Codex app-server protocol repair](task-19-codex-translation-protocol-repair.md) | Repair Task 19 stable app-server request schema, protocol error taxonomy, API mapping, and reader error copy | Draft |
 
 ## Archived Workflows
 

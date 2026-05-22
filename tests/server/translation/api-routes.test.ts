@@ -115,6 +115,7 @@ describe("translation API routes", () => {
     ["context_overflow", 409],
     ["timeout", 504],
     ["stream_disconnected", 503],
+    ["app_server_protocol_error", 502],
     ["invalid_final_output", 502],
     ["validation_failed", 409],
     ["filesystem_failure", 500],

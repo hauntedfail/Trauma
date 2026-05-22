@@ -8,11 +8,17 @@
   "schemaFacts": {
     "threadStart": {
       "method": "thread/start",
-      "sandboxEnum": ["read-only", "workspace-write", "danger-full-access"]
+      "sandboxEnum": ["read-only", "workspace-write", "danger-full-access"],
+      "stableOmittedFields": [
+        "environments",
+        "experimentalRawEvents",
+        "persistExtendedHistory"
+      ]
     },
     "turnStart": {
       "method": "turn/start",
       "required": ["input", "threadId"],
+      "stableOmittedFields": ["environments"],
       "supportsOutputSchema": true,
       "readOnlySandboxPolicy": {
         "type": "readOnly",

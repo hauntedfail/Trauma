@@ -756,7 +756,7 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     return {
       code: error.code,
       message: error.message,
-      action: error.code === "auth_required" ? "setup_codex_auth" : "retry",
+      action: codexErrorAction(error.code),
     };
   }
   if (error instanceof TranslationOutputSchemaError) {
@@ -814,7 +814,7 @@ function mapStartError(error: unknown): Error {
     return new TranslationApiError(
       error.code,
       error.message,
-      error.code === "auth_required" ? "setup_codex_auth" : "retry",
+      codexErrorAction(error.code),
     );
   }
   if (
@@ -846,4 +846,16 @@ export class TranslationApiError extends Error {
     super(message);
     this.name = "TranslationApiError";
   }
+}
+
+function codexErrorAction(
+  code: CodexAppServerError["code"],
+): TranslationErrorAction {
+  if (code === "auth_required") {
+    return "setup_codex_auth";
+  }
+  if (code === "app_server_protocol_error") {
+    return "none";
+  }
+  return "retry";
 }

@@ -102,6 +102,7 @@ Required error codes:
 - `auth_required`
 - `setup_required`
 - `app_server_unavailable`
+- `app_server_protocol_error`
 - `translation_unavailable`
 - `stale_source`
 - `cancellation_conflict`
@@ -124,6 +125,7 @@ HTTP mapping:
 - `auth_required`: `409`
 - `setup_required`: `409`
 - `app_server_unavailable`: `503`
+- `app_server_protocol_error`: `502`
 - `translation_unavailable`: `409`
 - `stale_source`: `409`
 - `cancellation_conflict`: `409`

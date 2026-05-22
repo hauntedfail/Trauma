@@ -1216,6 +1216,8 @@ function messageForTranslationError(
       return "Codex ChatGPT sign-in is required before translation can run.";
     case "app_server_unavailable":
       return "Codex app-server is unavailable. Start it and try again.";
+    case "app_server_protocol_error":
+      return "Codex app-server rejected the translation request. Update the integration and retry.";
     case "translation_unavailable":
       return "Translated CONTENT.md is unavailable. Start a fresh translation.";
     case "timeout":

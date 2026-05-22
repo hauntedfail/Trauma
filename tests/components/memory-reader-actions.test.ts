@@ -293,6 +293,28 @@ describe("memory reader actions", () => {
           ),
       }),
     ).rejects.toThrow("Codex ChatGPT sign-in is required before translation can run.");
+
+    await expect(
+      startReaderTranslation({
+        langCode: "ja-JP",
+        memoryId: "memory-reader",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              status: "error",
+              code: "app_server_protocol_error",
+              message: "thread/start.environments requires experimentalApi capability",
+              action: "none",
+            }),
+            {
+              status: 502,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow(
+      "Codex app-server rejected the translation request. Update the integration and retry.",
+    );
   });
 
   it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {

@@ -66,12 +66,13 @@ Reader UI shows:
 12. If `code = "translation_language_mismatch"`, refresh settings state and ask the user to retry.
 13. If `code = "setup_required"` or `code = "auth_required"`, show Codex auth setup guidance.
 14. If `code = "app_server_unavailable"`, tell the user Codex app-server is unavailable and offer retry after setup is fixed.
-15. If `code = "translation_unavailable"` or `action = "start_fresh_translation"`, tell the user the translated output is no longer available, navigate to the source reader route `/memories/:id` if necessary, and start a fresh translation through `POST /api/memories/:memory_id/translations`.
-16. If `code = "timeout"`, tell the user the Codex turn timed out and offer retry.
-17. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
-18. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
-19. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
-20. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
+15. If `code = "app_server_protocol_error"`, tell the user Codex app-server rejected the translation request and do not show app-server startup guidance.
+16. If `code = "translation_unavailable"` or `action = "start_fresh_translation"`, tell the user the translated output is no longer available, navigate to the source reader route `/memories/:id` if necessary, and start a fresh translation through `POST /api/memories/:memory_id/translations`.
+17. If `code = "timeout"`, tell the user the Codex turn timed out and offer retry.
+18. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
+19. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
+20. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
+21. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
 
 Progress and reconnect behaviour:
 

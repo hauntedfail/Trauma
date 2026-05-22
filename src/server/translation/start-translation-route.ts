@@ -125,6 +125,7 @@ function statusForTranslationError(error: TranslationApiError): number {
       return 503;
     case "timeout":
       return 504;
+    case "app_server_protocol_error":
     case "invalid_final_output":
       return 502;
     case "filesystem_failure":

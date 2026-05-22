@@ -42,6 +42,7 @@ Use typed errors for:
 - auth required
 - setup required
 - app-server unavailable
+- app-server protocol or request-contract error
 - usage limit
 - context overflow
 - timeout
@@ -77,8 +78,13 @@ Codex transport failures map to stable API/job error codes:
 
 - `timeout` remains `timeout` and maps to HTTP `504` when returned from an API request.
 - `stream_disconnected` remains `stream_disconnected` and maps to HTTP `503` when returned from an API request.
+- `app_server_protocol_error` means the app-server was reachable but rejected
+  TRAUMA's request contract, for example an invalid param or a field requiring
+  `experimentalApi`; it maps to HTTP `502` when returned from an API request.
 - `invalid_final_output` remains `invalid_final_output` and maps to HTTP `502` when returned from an API request.
-- Do not collapse `timeout`, `stream_disconnected`, or `invalid_final_output` into `unknown`, `app_server_unavailable`, or `validation_failed`.
+- Do not collapse `timeout`, `stream_disconnected`,
+  `app_server_protocol_error`, or `invalid_final_output` into `unknown`,
+  `app_server_unavailable`, or `validation_failed`.
 
 Validation error boundary:
 
@@ -138,6 +144,8 @@ Cover:
 - in-flight auth/setup loss after job creation is persisted as a safe job error
 - reused active job with auth/setup loss transitions to failed instead of remaining indefinitely running
 - timeout and stream-disconnected errors preserve their stable codes
+- app-server protocol/request-contract errors preserve
+  `app_server_protocol_error` and do not display app-server startup guidance
 - invalid-final-output errors preserve their stable code
 - validation-failed errors are reserved for schema-valid semantic validation failures
 - job and chunk errors persist as structured JSON, not raw strings

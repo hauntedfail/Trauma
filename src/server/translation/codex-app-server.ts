@@ -249,7 +249,7 @@ export class CodexAppServerClient implements TranslationClient {
     } catch (error) {
       if (
         error instanceof CodexAppServerError &&
-        error.code === "app_server_unavailable" &&
+        error.code === "app_server_protocol_error" &&
         error.message.toLowerCase().includes("method")
       ) {
         return {
@@ -295,9 +295,6 @@ export class CodexAppServerClient implements TranslationClient {
       approvalPolicy: "never",
       approvalsReviewer: "auto_review",
       sandbox: "read-only",
-      environments: [],
-      experimentalRawEvents: false,
-      persistExtendedHistory: false,
       threadSource: "user",
     });
     const threadId = readThreadStartResponseThreadId(thread);
@@ -321,7 +318,6 @@ export class CodexAppServerClient implements TranslationClient {
       input: [{ type: "text", text: input.prompt, text_elements: [] }],
       approvalPolicy: "never",
       approvalsReviewer: "auto_review",
-      environments: [],
       sandboxPolicy: { type: "readOnly", networkAccess: false },
       ...(options.includeOutputSchema && input.outputSchema !== undefined
         ? { outputSchema: input.outputSchema }
@@ -1027,7 +1023,24 @@ function createCodexWireError(error: unknown): CodexAppServerError {
   if (normalized.includes("timeout") || normalized.includes("timed out")) {
     return new CodexAppServerError("timeout", message);
   }
-  return new CodexAppServerError("app_server_unavailable", message);
+  if (isProtocolWireError(normalized)) {
+    return new CodexAppServerError("app_server_protocol_error", message);
+  }
+  return new CodexAppServerError("unknown", message);
+}
+
+function isProtocolWireError(normalizedMessage: string): boolean {
+  return (
+    normalizedMessage.includes("requires experimentalapi capability") ||
+    normalizedMessage.includes("invalid params") ||
+    normalizedMessage.includes("invalid request") ||
+    normalizedMessage.includes("unknown method") ||
+    normalizedMessage.includes("method not found") ||
+    normalizedMessage.includes("unsupported method") ||
+    normalizedMessage.includes("unexpected field") ||
+    normalizedMessage.includes("unknown field") ||
+    normalizedMessage.includes("unrecognized field")
+  );
 }
 
 function isOutputSchemaUnsupportedError(error: unknown): boolean {
@@ -1060,6 +1073,7 @@ export class CodexAppServerError extends Error {
       | "auth_required"
       | "setup_required"
       | "app_server_unavailable"
+      | "app_server_protocol_error"
       | "usage_limit"
       | "context_overflow"
       | "stream_disconnected"

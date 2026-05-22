@@ -134,6 +134,10 @@ mise exec -- bun run typecheck
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
+- Codex app-server fixtures record that Brilliant uses stable schema mode
+  without `experimentalApi`; stable `thread/start` omits `environments`,
+  `experimentalRawEvents`, and `persistExtendedHistory`, and stable
+  `turn/start` omits `environments`
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - `maxRetries: 3` means one initial attempt plus three retry attempts
@@ -148,6 +152,9 @@ mise exec -- bun run typecheck
 - translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `app_server_unavailable` maps to HTTP `503`
+- reachable app-server request-contract errors such as
+  `requires experimentalApi capability` map to
+  `app_server_protocol_error` and HTTP `502`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
 - Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`

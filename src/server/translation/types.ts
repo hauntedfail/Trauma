@@ -62,6 +62,7 @@ export type TranslationErrorCode =
   | "auth_required"
   | "setup_required"
   | "app_server_unavailable"
+  | "app_server_protocol_error"
   | "stale_source"
   | "cancellation_conflict"
   | "usage_limit"
