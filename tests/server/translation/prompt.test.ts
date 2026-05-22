@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
 import {
   buildTranslationPrompt,
+  stringifyCodexChunkOutput,
   validateCodexChunkOutput,
 } from "../../../src/server/translation/prompt";
 import type {
@@ -73,6 +74,43 @@ describe("Brilliant translation prompt and validation", () => {
         },
       })
     ).toThrow(/omission marker|length ratio/);
+  });
+
+  it("rehydrates translated text into the source Markdown block shape", () => {
+    const chunk = createPromptChunk([
+      "*Intro source.*",
+      "",
+      "---",
+      "",
+      "## Source Heading",
+      "",
+      "Paragraph after heading.",
+    ].join("\n"));
+
+    const output = validateCodexChunkOutput({
+      chunk,
+      output: {
+        chunk_index: 0,
+        blocks: [
+          { id: "b000001", translated_markdown: "翻訳された導入。" },
+          { id: "b000002", translated_markdown: "ignored" },
+          { id: "b000003", translated_markdown: "翻訳見出し" },
+          { id: "b000004", translated_markdown: "翻訳段落。" },
+        ],
+        warnings: [],
+      },
+    });
+
+    expect(stringifyCodexChunkOutput(output)).toBe([
+      "*翻訳された導入。*",
+      "",
+      "---",
+      "",
+      "## 翻訳見出し",
+      "",
+      "翻訳段落。",
+      "",
+    ].join("\n"));
   });
 });
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -90,6 +90,45 @@ describe("translation runner", () => {
     });
   });
 
+  it("commits translated chunks with the source Markdown block shape", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, [
+      "*Brilliant Source*",
+      "",
+      "---",
+      "",
+      "## Brilliant Source",
+      "",
+      "Body.",
+    ].join("\n"));
+    await createMemoryRow(config);
+    const client = new FlatTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000003",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    await expect(readFile(
+      join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+      "utf8",
+    )).resolves.toContain([
+      "*華麗なソース*",
+      "",
+      "---",
+      "",
+      "## 華麗なソース",
+      "",
+      "本文。",
+    ].join("\n"));
+  });
+
   it("tracks active Codex turns so cancellation can interrupt app-server work", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -136,6 +175,27 @@ class FakeTranslationClient implements TranslationClient {
           "Brilliant Source",
           "華麗なソース",
         ).replaceAll("Body.", "本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class FlatTranslationClient implements TranslationClient {
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: {
+    chunk: TranslationChunk;
+  }): Promise<CodexChunkOutput> {
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      blocks: input.chunk.sourceBlocks.map((block) => ({
+        id: block.id,
+        translated_markdown: block.id === "b000002"
+          ? "ignored"
+          : block.id === "b000004"
+            ? "本文。"
+            : "華麗なソース",
       })),
       warnings: [],
     };
@@ -214,7 +274,10 @@ async function createMemoryRow(config: ResolvedTraumaConfig): Promise<void> {
   }
 }
 
-async function writeSourceContent(config: ResolvedTraumaConfig): Promise<void> {
+async function writeSourceContent(
+  config: ResolvedTraumaConfig,
+  markdown = "# Brilliant Source\n\nBody.",
+): Promise<void> {
   const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(
@@ -227,7 +290,7 @@ async function writeSourceContent(config: ResolvedTraumaConfig): Promise<void> {
         title: "Brilliant Source",
         url: "https://example.com/brilliant",
       },
-      markdown: "# Brilliant Source\n\nBody.",
+      markdown,
     }),
     "utf8",
   );

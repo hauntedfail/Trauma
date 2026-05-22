@@ -7,6 +7,10 @@ import type {
 } from "../db/repositories";
 import { createSha256ContentHash } from "./hash";
 import { resolveTranslatedMemoryContentPath, createTranslatedReaderUrl } from "./paths";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "./prompt";
 import { loadTranslationSourceSnapshot } from "./source-loader";
 import type {
   TranslationUnavailableReason,
@@ -48,6 +52,17 @@ export async function resolveCurrentTranslationReadOnly(input: {
   if (job === null) {
     return {
       status: "missing",
+      sourceHash: source.sourceHash,
+    };
+  }
+  if (
+    job.promptPolicyVersion !== BRILLIANT_PROMPT_POLICY_VERSION ||
+    job.chunkerVersion !== BRILLIANT_CHUNKER_VERSION
+  ) {
+    return {
+      status: "unavailable",
+      job,
+      reason: "policy_version_mismatch",
       sourceHash: source.sourceHash,
     };
   }

@@ -11,6 +11,8 @@ id: memory
 
 Paragraph with \`inlineCode\` and [a link](https://example.com).
 
+---
+
 $$
 E = mc^2
 $$
@@ -30,10 +32,11 @@ const value = "do not translate";
     expect(manifest.blocks.map((block) => `${block.id} ${block.type}`)).toEqual([
       "b000001 heading",
       "b000002 inline_code_paragraph",
-      "b000003 math_block",
-      "b000004 code_fence",
-      "b000005 table",
-      "b000006 footnote",
+      "b000003 thematic_break",
+      "b000004 math_block",
+      "b000005 code_fence",
+      "b000006 table",
+      "b000007 footnote",
     ]);
     expect(manifest.blocks[1]?.protectedSpans).toEqual(
       expect.arrayContaining([
@@ -44,7 +47,7 @@ const value = "do not translate";
         }),
       ]),
     );
-    expect(manifest.blocks[3]?.protectedSpans).toEqual(
+    expect(manifest.blocks[4]?.protectedSpans).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "code_fence" }),
         expect.objectContaining({ kind: "identifier", value: "ts" }),

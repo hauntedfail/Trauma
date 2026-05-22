@@ -108,6 +108,9 @@ function classifyStartLine(
   if (/^\s*<!--/.test(line) || BLOCK_LEVEL_HTML_PATTERN.test(line)) {
     return "html_block";
   }
+  if (isThematicBreakLine(line)) {
+    return "thematic_break";
+  }
   if (/^\s{0,3}#{1,6}\s+\S/.test(line)) {
     return "heading";
   }
@@ -166,6 +169,8 @@ function consumeBlock(
       );
     case "image_figure":
       return consumeImageWithCaption(lines, start);
+    case "thematic_break":
+      return start + 1;
     case "paragraph":
     case "inline_code_paragraph":
     case "bibliography_entry":
@@ -265,6 +270,10 @@ function isTableLine(line: string): boolean {
   return line.includes("|") && line.trim().length > 0;
 }
 
+function isThematicBreakLine(line: string): boolean {
+  return /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line);
+}
+
 function isImageOrFigureLine(line: string): boolean {
   return /^\s{0,3}(?:!\[[^\]]*\]\([^)]+\)|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\))/.test(line) ||
     /^\s*<figure\b/i.test(line);
@@ -280,7 +289,8 @@ function isBibliographyLine(
 }
 
 function looksLikeBlockStart(line: string): boolean {
-  return /^\s{0,3}(?:#{1,6}\s+|[-+*]\s+|\d+[.)]\s+|>|```|~~~|\$\$|\|)/.test(line) ||
+  return isThematicBreakLine(line) ||
+    /^\s{0,3}(?:#{1,6}\s+|[-+*]\s+|\d+[.)]\s+|>|```|~~~|\$\$|\|)/.test(line) ||
     isImageOrFigureLine(line) ||
     BLOCK_LEVEL_HTML_PATTERN.test(line);
 }

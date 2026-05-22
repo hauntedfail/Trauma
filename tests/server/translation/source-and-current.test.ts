@@ -13,6 +13,10 @@ import {
   repairUnavailableTranslation,
   resolveCurrentTranslationReadOnly,
 } from "../../../src/server/translation/current-translation";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "../../../src/server/translation/prompt";
 import { loadTranslationSourceSnapshot } from "../../../src/server/translation/source-loader";
 import { writeTranslatedContentAtomically } from "../../../src/server/translation/stitching";
 
@@ -67,13 +71,13 @@ describe("translation source and current output", () => {
       });
       await connection.repositories.translations.createTranslationJob({
         chunkCount: 1,
-        chunkerVersion: "chunker-v1",
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
         jobId: "job-current",
         langCode: "ja-JP",
         memoryId,
         model: "codex-test",
         now,
-        promptPolicyVersion: "brilliant-v1",
+        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
         sourceHash: source.sourceHash,
       });
       const outputPath = await writeTranslatedContentAtomically({
@@ -167,6 +171,96 @@ describe("translation source and current output", () => {
       }
       expect(
         await connection.repositories.translations.getTranslationJob("job-current"),
+      ).toMatchObject({ status: "unavailable" });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("does not treat completed output from an old translation policy as current", async () => {
+    const config = await createConfig();
+    const sourceContent = createMemoryContentFixture({
+      frontmatter: {
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+        id: memoryId,
+        title: "Brilliant Source",
+        url: "https://example.com/brilliant",
+      },
+      markdown: "# Brilliant Source\n\nBody text.",
+    });
+    await writeSourceContent(config, sourceContent);
+    const source = await loadTranslationSourceSnapshot({ config, memoryId });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/brilliant",
+        title: "Brilliant Source",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${memoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.translations.createTranslationJob({
+        chunkCount: 1,
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+        jobId: "job-old-policy",
+        langCode: "ja-JP",
+        memoryId,
+        model: "codex-test",
+        now,
+        promptPolicyVersion: "brilliant-v1",
+        sourceHash: source.sourceHash,
+      });
+      const outputPath = await writeTranslatedContentAtomically({
+        config,
+        jobId: "job-old-policy",
+        langCode: "ja-JP",
+        markdown: sourceContent.replace("Body text.", "本文。"),
+        memoryId,
+      });
+      const output = await import("node:fs/promises").then(({ readFile }) =>
+        readFile(outputPath.absolutePath),
+      );
+      await connection.repositories.translations.updateTranslationJobStatus(
+        "job-old-policy",
+        "complete",
+        {
+          completedAt: now,
+          outputHash: `sha256:${createHash("sha256").update(output).digest("hex")}`,
+          outputPath: outputPath.relativePath,
+          updatedAt: now,
+        },
+      );
+
+      const current = await resolveCurrentTranslationReadOnly({
+        config,
+        langCode: "ja-JP",
+        memoryId,
+        repository: connection.repositories.translations,
+      });
+
+      expect(current).toMatchObject({
+        reason: "policy_version_mismatch",
+        status: "unavailable",
+      });
+      if (current.status === "unavailable") {
+        await repairUnavailableTranslation({
+          jobId: current.job.jobId,
+          reason: current.reason,
+          repository: connection.repositories.translations,
+          now,
+        });
+      }
+      expect(
+        await connection.repositories.translations.getTranslationJob("job-old-policy"),
       ).toMatchObject({ status: "unavailable" });
     } finally {
       connection.close();

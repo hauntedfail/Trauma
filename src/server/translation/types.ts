@@ -30,6 +30,7 @@ export type TranslationChunkStatus =
 
 export type TranslationBlockType =
   | "heading"
+  | "thematic_break"
   | "paragraph"
   | "list"
   | "blockquote"
@@ -92,7 +93,8 @@ export interface TranslationJobSnapshotError {
 
 export type TranslationUnavailableReason =
   | "output_missing"
-  | "output_hash_mismatch";
+  | "output_hash_mismatch"
+  | "policy_version_mismatch";
 
 export interface TranslationPersistedError {
   code: PersistableTranslationErrorCode;
