@@ -19,11 +19,11 @@ Stitch validated translated chunks and atomically commit the final translated `C
 
 ## Instruction alignment
 
-Scope: validated chunk stitching and atomic final translated `CONTENT.md` commit.
+Scope: validated chunk stitching, durable projection sidecar emission, and atomic final translated `CONTENT.md` commit.
 
 Inputs: complete validated chunks, original manifest order, current source hash, and output path contract.
 
-Outputs: stitched Markdown, same-directory temp file, atomic rename, output hash, and final output metadata.
+Outputs: stitched Markdown, same-directory temp file, atomic rename, output hash, projection rows, `TRANSLATION_MAP.json`, and final output metadata.
 
 Dependencies: 19.9 completes chunk validation; 19.2 provides repository methods; 19.11 purges completed chunk bodies.
 
@@ -33,12 +33,13 @@ Implementation risks: writing outside the language directory, skipping source re
 
 ## Stitching contract
 
-- Stitch translated blocks in original manifest order.
+- Stitch completed translated chunk Markdown in original chunk order.
+- Rebase validated chunk projection spans to final translated document offsets.
 - Do not include internal chunk metadata in final Markdown.
 - If the source file had frontmatter, prepend the exact original frontmatter unchanged before the stitched translated body.
 - If the source file had no frontmatter, do not invent frontmatter.
 - Preserve source-level document structure after translation.
-- Final validation checks chunk count, block count, missing block ids, duplicate block ids, duplicate sections caused by retries, and Markdown sanity.
+- Final validation checks chunk count, incomplete chunks, duplicate sections caused by retries, frontmatter preservation, and Markdown sanity. Segment ids are validated before chunk Markdown is persisted.
 
 ## Atomic write contract
 
@@ -46,6 +47,7 @@ Final path:
 
 ```text
 memories/<memory_id>/<lang_code>/CONTENT.md
+memories/<memory_id>/<lang_code>/TRANSLATION_MAP.json
 ```
 
 Temporary path:
@@ -70,9 +72,10 @@ Cover:
 
 - stitched output follows manifest order
 - source frontmatter is preserved unchanged at the top of translated output
+- projection rows and `TRANSLATION_MAP.json` are written for the committed output hash
 - translated output without source frontmatter does not invent frontmatter
-- missing block fails final validation
-- duplicate block fails final validation
+- incomplete chunk fails final validation
+- duplicate or missing chunk index fails final validation
 - source hash mismatch marks job stale before write
 - temp file is same-directory
 - failure before rename leaves existing translation intact

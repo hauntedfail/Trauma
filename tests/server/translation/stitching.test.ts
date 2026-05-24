@@ -84,6 +84,18 @@ describe("translation stitching and atomic commit", () => {
         "job-stitch",
         0,
         {
+          projectionSpansJson: JSON.stringify([{
+            blockId: "b000001",
+            segmentId: "s000001",
+            sourceMarkdownEnd: 18,
+            sourceMarkdownStart: 2,
+            sourceReaderEnd: 16,
+            sourceReaderStart: 0,
+            translatedMarkdownEnd: 4,
+            translatedMarkdownStart: 2,
+            translatedReaderEnd: 2,
+            translatedReaderStart: 0,
+          }]),
           status: "complete",
           translatedHash: "sha256:translated-0",
           translatedMarkdown: "# 翻訳\n\n",
@@ -94,6 +106,18 @@ describe("translation stitching and atomic commit", () => {
         "job-stitch",
         1,
         {
+          projectionSpansJson: JSON.stringify([{
+            blockId: "b000002",
+            segmentId: "s000002",
+            sourceMarkdownEnd: 25,
+            sourceMarkdownStart: 20,
+            sourceReaderEnd: 21,
+            sourceReaderStart: 16,
+            translatedMarkdownEnd: 3,
+            translatedMarkdownStart: 0,
+            translatedReaderEnd: 3,
+            translatedReaderStart: 0,
+          }]),
           status: "complete",
           translatedHash: "sha256:translated-1",
           translatedMarkdown: "本文。\n",
@@ -118,7 +142,10 @@ describe("translation stitching and atomic commit", () => {
       });
       expect(enqueued).toEqual([
         {
-          contentPath: `memories/${memoryId}/ja-JP/CONTENT.md`,
+          contentPaths: [
+            `memories/${memoryId}/ja-JP/CONTENT.md`,
+            `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+          ],
           memoryId,
           reason: "translation_update",
         },
@@ -129,10 +156,12 @@ describe("translation stitching and atomic commit", () => {
         ),
       ).toEqual([
         expect.objectContaining({
+          projectionSpansJson: null,
           status: "purged",
           translatedMarkdown: null,
         }),
         expect.objectContaining({
+          projectionSpansJson: null,
           status: "purged",
           translatedMarkdown: null,
         }),

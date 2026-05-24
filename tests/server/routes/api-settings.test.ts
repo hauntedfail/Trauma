@@ -9,6 +9,10 @@ import { PATCH as updateLanguage } from "../../../src/routes/api/settings/transl
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
 import {
+  createReadCodexModelsHandler,
+  createUpdateCodexTranslationDefaultsHandler,
+} from "../../../src/server/settings/codex-model-routes";
+import {
   createApiEvent,
   loadRouteConfig,
   writeRouteConfig,
@@ -33,6 +37,8 @@ describe("settings API routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       translationTargetLanguage: "ja-JP",
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
       openaiAuth: {
         status: "setup_required",
         provider: "codex",
@@ -72,6 +78,132 @@ describe("settings API routes", () => {
     expect(unsupported.status).toBe(400);
     expect(await unsupported.json()).toEqual({
       error: "unsupported translation target language",
+    });
+  });
+
+  it("reads the Codex model catalog through a settings-scoped route", async () => {
+    const handler = createReadCodexModelsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+
+    const response = await handler(apiEvent("/api/settings/codex-models", "GET"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      models: [
+        {
+          id: "gpt-5.5",
+          model: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Frontier model",
+          isDefault: true,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: ["low", "medium", "high"],
+        },
+      ],
+    });
+  });
+
+  it("updates Codex translation defaults after validating the catalog", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "model-id",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: input.model,
+          codexTranslationReasoningEffort: input.reasoningEffort,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "model-id",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ model: "gpt-5.5", reasoningEffort: "high" }]);
+    await expect(response.json()).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("rejects unavailable Codex translation defaults with stable error codes", async () => {
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium"],
+          },
+        ],
+      }),
+      updateDefaults: async () => {
+        throw new Error("should not update unavailable defaults");
+      },
+    });
+
+    const missingModel = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "missing",
+        reasoning_effort: "medium",
+      }),
+    );
+    const missingEffort = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "gpt-5.5",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(missingModel.status).toBe(409);
+    await expect(missingModel.json()).resolves.toMatchObject({
+      code: "translation_model_unavailable",
+      status: "error",
+    });
+    expect(missingEffort.status).toBe(409);
+    await expect(missingEffort.json()).resolves.toMatchObject({
+      code: "translation_reasoning_effort_unavailable",
+      status: "error",
     });
   });
 

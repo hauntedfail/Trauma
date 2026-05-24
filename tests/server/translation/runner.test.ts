@@ -13,8 +13,9 @@ import {
   runTranslationJob,
   startTranslationJob,
 } from "../../../src/server/translation/runner";
+import { resolveTranslatedMemoryProjectionPath } from "../../../src/server/translation/paths";
 import type {
-  CodexChunkOutput,
+  RawCodexChunkOutput,
   TranslationChunk,
 } from "../../../src/server/translation/types";
 import type {
@@ -52,7 +53,9 @@ describe("translation runner", () => {
       config,
       generateJobId: () => "019e3906-0000-7000-8000-000000000001",
       memoryId,
+      model: "gpt-5.5",
       now,
+      reasoningEffort: "high",
       schedule: () => undefined,
     });
     expect(started).toMatchObject({
@@ -67,13 +70,60 @@ describe("translation runner", () => {
       config,
     });
 
+    expect(client.inputs).toHaveLength(1);
+    expect(client.inputs[0]).toMatchObject({
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+    });
+    expect(client.inputs[0]?.prompt).toContain("\"segments\"");
+    expect(client.inputs[0]?.prompt).not.toContain("\"translated_markdown\"");
+    const connection = initializeDatabase(config);
+    try {
+      const job = await connection.repositories.translations.getTranslationJob(
+        started.job_id,
+      );
+      expect(job).toMatchObject({
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      });
+      expect(job?.outputHash).toMatch(/^sha256:/);
+      await expect(
+        connection.repositories.translations.listCurrentProjectionSpans({
+          langCode: "ja-JP",
+          memoryId,
+          outputHash: job?.outputHash ?? "",
+          sourceHash: job?.sourceHash ?? "",
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          segmentId: "s000001",
+          translatedMarkdownStart: 2,
+        }),
+        expect.objectContaining({
+          segmentId: "s000002",
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+
     expect(enqueued).toEqual([
       {
-        contentPath: `memories/${memoryId}/ja-JP/CONTENT.md`,
+        contentPaths: [
+          `memories/${memoryId}/ja-JP/CONTENT.md`,
+          `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+        ],
         memoryId,
         reason: "translation_update",
       },
     ]);
+    const projectionPath = resolveTranslatedMemoryProjectionPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(projectionPath.absolutePath, "utf8"))
+      .resolves.toContain("\"version\": 1");
 
     await expect(
       startTranslationJob({
@@ -159,19 +209,58 @@ describe("translation runner", () => {
     client.completeTranslation();
     await runPromise;
   });
+
+  it("preserves academic Markdown syntax while committing segment translations", async () => {
+    const config = await createConfig();
+    const fixture = await readFile(
+      new URL("../../fixtures/translation/academic-paper-segments.md", import.meta.url),
+      "utf8",
+    );
+    const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, fixture, "utf8");
+    await createMemoryRow(config);
+    const client = new MarkerTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000004",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const output = await readFile(
+      join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+      "utf8",
+    );
+    expect(output).toContain("url: \"https://example.com/brilliant\"");
+    expect(output).toContain("[JA:s");
+    expect(output).toContain("](https://example.com/reference \"Reference title\")");
+    expect(output).toContain("`inlineCode`");
+    expect(output).toContain("const preserved = \"code\";");
+    expect(output).toContain("$p(y|x)$");
+    expect(output).toContain("\\operatorname*{argmax}_y p(y|x)");
+    expect(output).toContain("| --- | --- |");
+    expect(output).toContain("[^1]:");
+  });
 });
 
 class FakeTranslationClient implements TranslationClient {
+  readonly inputs: TranslateChunkInput[] = [];
+
   async probe(): Promise<void> {}
 
-  async translateChunk(input: {
-    chunk: TranslationChunk;
-  }): Promise<CodexChunkOutput> {
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.inputs.push(input);
     return {
       chunk_index: input.chunk.chunkIndex,
-      blocks: input.chunk.sourceBlocks.map((block) => ({
-        id: block.id,
-        translated_markdown: block.markdown.replaceAll(
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
           "Brilliant Source",
           "華麗なソース",
         ).replaceAll("Body.", "本文。"),
@@ -186,16 +275,14 @@ class FlatTranslationClient implements TranslationClient {
 
   async translateChunk(input: {
     chunk: TranslationChunk;
-  }): Promise<CodexChunkOutput> {
+  }): Promise<RawCodexChunkOutput> {
     return {
       chunk_index: input.chunk.chunkIndex,
-      blocks: input.chunk.sourceBlocks.map((block) => ({
-        id: block.id,
-        translated_markdown: block.id === "b000002"
-          ? "ignored"
-          : block.id === "b000004"
-            ? "本文。"
-            : "華麗なソース",
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text === "Body."
+          ? "本文。"
+          : "華麗なソース",
       })),
       warnings: [],
     };
@@ -224,16 +311,16 @@ class InterruptibleTranslationClient implements TranslationClient {
     this.cancelCalls.push(input);
   }
 
-  async translateChunk(input: TranslateChunkInput): Promise<CodexChunkOutput> {
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
     input.onEvent?.({ type: "thread.started", threadId: "thread-active" });
     input.onEvent?.({ type: "turn.started", turnId: "turn-active" });
     this.resolveTurnStarted();
     await this.translationCanFinish;
     return {
       chunk_index: input.chunk.chunkIndex,
-      blocks: input.chunk.sourceBlocks.map((block) => ({
-        id: block.id,
-        translated_markdown: block.markdown.replaceAll(
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
           "Brilliant Source",
           "割り込み可能な翻訳見出し",
         ).replaceAll("Body.", "割り込み可能な翻訳本文。"),
@@ -248,6 +335,21 @@ class InterruptibleTranslationClient implements TranslationClient {
 
   waitUntilTurnStarted(): Promise<void> {
     return this.turnStarted;
+  }
+}
+
+class MarkerTranslationClient implements TranslationClient {
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: `JA:${segment.id}`,
+      })),
+      warnings: [],
+    };
   }
 }
 

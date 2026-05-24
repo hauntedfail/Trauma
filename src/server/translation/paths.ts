@@ -69,6 +69,26 @@ export function resolveTranslatedMemoryTempPath(input: {
   return tempPath;
 }
 
+export function resolveTranslatedMemoryProjectionPath(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  langCode: string;
+  memoryId: string;
+}) {
+  const contentPath = resolveTranslatedMemoryContentPath(input);
+  const absolutePath = join(dirname(contentPath.absolutePath), "TRANSLATION_MAP.json");
+  assertInsideStore(input.config.storePath, absolutePath);
+
+  return {
+    absolutePath,
+    relativePath: posix.join(
+      "memories",
+      input.memoryId,
+      input.langCode,
+      "TRANSLATION_MAP.json",
+    ),
+  };
+}
+
 export function createTranslatedReaderUrl(input: {
   langCode: string;
   memoryId: string;

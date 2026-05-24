@@ -10,8 +10,10 @@ import { validateTagName } from "../../taxonomy/name-policy";
 import {
   TRANSLATION_CHUNK_STATUSES,
   type TranslationChunkStatus,
+  type CodexReasoningEffort,
   type TranslationJobStatus,
   type TranslationPersistedError,
+  type TranslationProjectionSpan,
   type TranslationUnavailableReason,
 } from "../translation/types";
 import * as schema from "./schema";
@@ -28,6 +30,8 @@ type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 type TranslationJob = typeof schema.translationJobs.$inferSelect;
 type TranslationChunk = typeof schema.translationChunks.$inferSelect;
+type TranslationProjectionSpanRow =
+  typeof schema.translationProjectionSpans.$inferSelect;
 export type BackupEnvironmentStamp =
   typeof schema.backupEnvironmentStamps.$inferSelect;
 export type BackupFailsafeAlert =
@@ -197,6 +201,7 @@ export interface CreateTranslationJobInput {
   langCode: string;
   sourceHash: string;
   model: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
   promptPolicyVersion: string;
   chunkerVersion: string;
   chunkCount: number;
@@ -214,6 +219,7 @@ export interface InsertTranslationChunkInput {
 export interface TranslationChunkPatch {
   status?: TranslationChunkStatus;
   retryCount?: number;
+  projectionSpansJson?: string | null;
   translatedMarkdown?: string | null;
   translatedHash?: string | null;
   error?: TranslationPersistedError | null;
@@ -284,6 +290,17 @@ export interface TranslationRepository {
   countTranslationChunksByStatus: (
     jobId: string,
   ) => Promise<Record<TranslationChunkStatus, number>>;
+  deleteProjectionSpansForJob: (jobId: string) => Promise<void>;
+  listCurrentProjectionSpans: (input: {
+    langCode: SupportedLanguageCode;
+    memoryId: string;
+    outputHash: string;
+    sourceHash: string;
+  }) => Promise<TranslationProjectionSpan[]>;
+  replaceProjectionSpansForJob: (
+    jobId: string,
+    spans: TranslationProjectionSpan[],
+  ) => Promise<void>;
   getTranslationTargetLanguage: () => Promise<SupportedLanguageCode | null>;
   setTranslationTargetLanguage: (
     langCode: SupportedLanguageCode,
@@ -305,6 +322,11 @@ export interface BackupEnvironmentRepository {
 
 export interface SettingsRepository {
   getSettings: (now: Date) => Promise<AppSettings>;
+  updateCodexTranslationDefaults: (input: {
+    model: string | null;
+    reasoningEffort: CodexReasoningEffort | null;
+    updatedAt: Date;
+  }) => Promise<AppSettings>;
   updateTranslationTargetLanguage: (input: {
     language: SupportedLanguageCode;
     updatedAt: Date;
@@ -1069,6 +1091,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             langCode: input.langCode,
             sourceHash: input.sourceHash,
             model: input.model,
+            reasoningEffort: input.reasoningEffort ?? null,
             promptPolicyVersion: input.promptPolicyVersion,
             chunkerVersion: input.chunkerVersion,
             status: "pending",
@@ -1240,6 +1263,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .set({
             status: patch.status,
             retryCount: patch.retryCount,
+            projectionSpansJson: patch.projectionSpansJson,
             translatedMarkdown: patch.translatedMarkdown,
             translatedHash: patch.translatedHash,
             error: serializeTranslationError(patch.error),
@@ -1258,6 +1282,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .update(schema.translationChunks)
           .set({
             status: "purged",
+            projectionSpansJson: null,
             translatedMarkdown: null,
             updatedAt,
           })
@@ -1283,6 +1308,42 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           counts[row.status] = Number(row.count);
         }
         return counts;
+      },
+      deleteProjectionSpansForJob: async (jobId) => {
+        await db
+          .delete(schema.translationProjectionSpans)
+          .where(eq(schema.translationProjectionSpans.jobId, jobId))
+          .run();
+      },
+      listCurrentProjectionSpans: async (input) => {
+        const rows = await db.query.translationProjectionSpans.findMany({
+          where: and(
+            eq(schema.translationProjectionSpans.memoryId, input.memoryId),
+            eq(schema.translationProjectionSpans.langCode, input.langCode),
+            eq(schema.translationProjectionSpans.sourceHash, input.sourceHash),
+            eq(schema.translationProjectionSpans.outputHash, input.outputHash),
+          ),
+          orderBy: [asc(schema.translationProjectionSpans.spanIndex)],
+        });
+        return rows.map(toTranslationProjectionSpanRecord);
+      },
+      replaceProjectionSpansForJob: async (jobId, spans) => {
+        const mismatched = spans.find((span) => span.jobId !== jobId);
+        if (mismatched !== undefined) {
+          throw new MemoryRepositoryError(
+            "Cannot replace projection spans for a different translation job.",
+          );
+        }
+
+        db.transaction((tx) => {
+          tx
+            .delete(schema.translationProjectionSpans)
+            .where(eq(schema.translationProjectionSpans.jobId, jobId))
+            .run();
+          if (spans.length > 0) {
+            tx.insert(schema.translationProjectionSpans).values(spans).run();
+          }
+        });
       },
       getTranslationTargetLanguage: async () => {
         const settings = await db.query.appSettings.findFirst({
@@ -1310,6 +1371,23 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .update(schema.appSettings)
           .set({
             translationTargetLanguage: input.language,
+            updatedAt: input.updatedAt,
+          })
+          .where(eq(schema.appSettings.id, "default"))
+          .returning()
+          .get();
+        if (updated === undefined) {
+          throw new MemoryRepositoryError("Cannot update app settings.");
+        }
+        return updated;
+      },
+      updateCodexTranslationDefaults: async (input) => {
+        await getOrCreateSettings(db, input.updatedAt);
+        const updated = await db
+          .update(schema.appSettings)
+          .set({
+            codexTranslationModel: input.model,
+            codexTranslationReasoningEffort: input.reasoningEffort,
             updatedAt: input.updatedAt,
           })
           .where(eq(schema.appSettings.id, "default"))
@@ -1370,6 +1448,8 @@ async function getOrCreateSettings(
   const settings = {
     id: "default",
     translationTargetLanguage: DEFAULT_TRANSLATION_TARGET_LANGUAGE,
+    codexTranslationModel: null,
+    codexTranslationReasoningEffort: null,
     createdAt: now,
     updatedAt: now,
   } satisfies typeof schema.appSettings.$inferInsert;
@@ -1405,6 +1485,12 @@ function toTranslationChunkRecord(
     blockIds: parseBlockIds(blockIdsJson),
     error: parseTranslationError(error),
   };
+}
+
+function toTranslationProjectionSpanRecord(
+  row: TranslationProjectionSpanRow,
+): TranslationProjectionSpan {
+  return row;
 }
 
 function serializeBlockIds(blockIds: string[]): string {

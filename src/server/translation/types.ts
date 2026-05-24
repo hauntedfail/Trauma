@@ -1,3 +1,5 @@
+import type { SupportedLanguageCode } from "./languages";
+
 export const TRANSLATION_JOB_STATUSES = [
   "pending",
   "running",
@@ -23,10 +25,25 @@ export const TRANSLATION_CHUNK_STATUSES = [
 
 export const BRILLIANT_MAX_RETRIES = 3;
 export const BRILLIANT_CANCEL_GRACE_MS = 30_000;
+export const CODEX_REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
 
 export type TranslationJobStatus = (typeof TRANSLATION_JOB_STATUSES)[number];
 export type TranslationChunkStatus =
   (typeof TRANSLATION_CHUNK_STATUSES)[number];
+export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+
+export function isCodexReasoningEffort(
+  value: string,
+): value is CodexReasoningEffort {
+  return (CODEX_REASONING_EFFORTS as readonly string[]).includes(value);
+}
 
 export type TranslationBlockType =
   | "heading"
@@ -57,6 +74,8 @@ export type TranslationErrorCode =
   | "translation_unavailable"
   | "translation_language_required"
   | "translation_language_mismatch"
+  | "translation_model_unavailable"
+  | "translation_reasoning_effort_unavailable"
   | "invalid_language"
   | "missing_memory"
   | "missing_source_content"
@@ -79,6 +98,8 @@ export type PersistableTranslationErrorCode = Exclude<
   TranslationErrorCode,
   | "translation_language_required"
   | "translation_language_mismatch"
+  | "translation_model_unavailable"
+  | "translation_reasoning_effort_unavailable"
   | "invalid_language"
   | "missing_memory"
   | "missing_source_content"
@@ -138,6 +159,8 @@ export interface TranslationBlock {
   type: TranslationBlockType;
   markdown: string;
   sectionPath: string[];
+  sourceEnd: number;
+  sourceStart: number;
   protectedSpans: ProtectedSpan[];
   metadata: Record<string, string | number | boolean | null>;
 }
@@ -159,15 +182,91 @@ export interface TranslationChunk {
   sourceBlocks: TranslationBlock[];
   sourceMarkdown: string;
   sourceChunkHash: string;
+  segments: TranslationTextSegment[];
 }
 
-export interface CodexChunkOutput {
+export interface TranslationProjectionSpan {
+  blockId: string;
+  createdAt: Date;
+  jobId: string;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+  outputHash: string;
+  segmentId: string;
+  sourceHash: string;
+  sourceMarkdownEnd: number;
+  sourceMarkdownStart: number;
+  sourceReaderEnd: number;
+  sourceReaderStart: number;
+  spanIndex: number;
+  translatedMarkdownEnd: number;
+  translatedMarkdownStart: number;
+  translatedReaderEnd: number;
+  translatedReaderStart: number;
+  updatedAt: Date;
+}
+
+export interface TranslationChunkProjectionSpan {
+  blockId: string;
+  segmentId: string;
+  sourceMarkdownEnd: number;
+  sourceMarkdownStart: number;
+  sourceReaderEnd: number;
+  sourceReaderStart: number;
+  translatedMarkdownEnd: number;
+  translatedMarkdownStart: number;
+  translatedReaderEnd: number;
+  translatedReaderStart: number;
+}
+
+export interface RawCodexChunkOutput {
   chunk_index: number;
-  blocks: Array<{
+  segments: Array<{
     id: string;
-    translated_markdown: string;
+    translated_text: string;
   }>;
   warnings: string[];
+}
+
+export interface CodexChunkOutput extends RawCodexChunkOutput {
+  projectionSpans: TranslationChunkProjectionSpan[];
+  translated_markdown: string;
+}
+
+export interface TranslationTextSegment {
+  blockId: string;
+  id: string;
+  sourceDocumentEnd: number;
+  sourceDocumentStart: number;
+  sourceEnd: number;
+  sourceReaderEnd: number;
+  sourceReaderStart: number;
+  sourceStart: number;
+  text: string;
+}
+
+export interface TranslationProtectedRange {
+  kind:
+    | "code"
+    | "inline_code"
+    | "math"
+    | "inline_math"
+    | "html"
+    | "link_destination"
+    | "link_title"
+    | "image_destination"
+    | "image_title"
+    | "footnote_label"
+    | "table_delimiter"
+    | "frontmatter";
+  sourceEnd: number;
+  sourceStart: number;
+  value: string;
+}
+
+export interface TranslationSegmentReplacement {
+  segmentId: string;
+  translatedText: string;
 }
 
 export type TranslationEventType =

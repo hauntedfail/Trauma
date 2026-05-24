@@ -36,5 +36,11 @@ describe("translation chunker", () => {
       chunkIndex: 0,
       sourceChunkHash: expect.stringMatching(/^sha256:/),
     });
+    expect(chunks[0]?.segments.map((segment) => segment.id)).toEqual([
+      "s000001",
+      "s000002",
+      "s000003",
+      "s000004",
+    ]);
   });
 });

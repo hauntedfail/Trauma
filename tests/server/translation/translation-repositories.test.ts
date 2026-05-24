@@ -45,6 +45,7 @@ describe("translation repositories", () => {
         langCode: "ja-JP",
         sourceHash: "sha256:source",
         model: "codex-test",
+        reasoningEffort: "high",
         promptPolicyVersion: "brilliant-v1",
         chunkerVersion: "chunker-v1",
         chunkCount: 2,
@@ -68,6 +69,8 @@ describe("translation repositories", () => {
       ]);
 
       expect(job.status).toBe("pending");
+      expect(job.model).toBe("codex-test");
+      expect(job.reasoningEffort).toBe("high");
       expect(
         await connection.repositories.translations.claimTranslationJob(
           "job-brilliant",
@@ -139,6 +142,39 @@ describe("translation repositories", () => {
           updatedAt: later,
         },
       );
+      await connection.repositories.translations.replaceProjectionSpansForJob(
+        "job-brilliant",
+        [
+          createProjectionSpan({
+            blockId: "b000001",
+            segmentId: "s000001",
+            spanIndex: 1,
+          }),
+          createProjectionSpan({
+            blockId: "b000002",
+            segmentId: "s000002",
+            spanIndex: 0,
+          }),
+        ],
+      );
+
+      expect(
+        await connection.repositories.translations.listCurrentProjectionSpans({
+          langCode: "ja-JP",
+          memoryId,
+          outputHash: "sha256:output",
+          sourceHash: "sha256:source",
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          segmentId: "s000002",
+          spanIndex: 0,
+        }),
+        expect.objectContaining({
+          segmentId: "s000001",
+          spanIndex: 1,
+        }),
+      ]);
       await connection.repositories.translations.purgeCompletedTranslationChunks(
         "job-brilliant",
         later,
@@ -190,11 +226,51 @@ describe("translation repositories", () => {
           reason: "output_missing",
         },
       });
+
+      await connection.repositories.translations.deleteProjectionSpansForJob(
+        "job-brilliant",
+      );
+      expect(
+        await connection.repositories.translations.listCurrentProjectionSpans({
+          langCode: "ja-JP",
+          memoryId,
+          outputHash: "sha256:output",
+          sourceHash: "sha256:source",
+        }),
+      ).toEqual([]);
     } finally {
       connection.close();
     }
   });
 });
+
+function createProjectionSpan(input: {
+  blockId: string;
+  segmentId: string;
+  spanIndex: number;
+}) {
+  const offset = input.spanIndex * 10;
+  return {
+    blockId: input.blockId,
+    createdAt: now,
+    jobId: "job-brilliant",
+    langCode: "ja-JP" as const,
+    memoryId,
+    outputHash: "sha256:output",
+    segmentId: input.segmentId,
+    sourceHash: "sha256:source",
+    sourceMarkdownEnd: offset + 5,
+    sourceMarkdownStart: offset,
+    sourceReaderEnd: offset + 5,
+    sourceReaderStart: offset,
+    spanIndex: input.spanIndex,
+    translatedMarkdownEnd: offset + 8,
+    translatedMarkdownStart: offset,
+    translatedReaderEnd: offset + 8,
+    translatedReaderStart: offset,
+    updatedAt: now,
+  };
+}
 
 async function createConfig(): Promise<ResolvedTraumaConfig> {
   const root = await mkdtemp(join(tmpdir(), "trauma-translation-repo-"));

@@ -41,6 +41,8 @@ import { loadTranslationSourceSnapshot } from "./source-loader";
 import { commitTranslatedContent, TranslationStitchingError } from "./stitching";
 import {
   BRILLIANT_MAX_RETRIES,
+  isCodexReasoningEffort,
+  type CodexReasoningEffort,
   type PersistableTranslationErrorCode,
   type TranslationErrorAction,
   type TranslationErrorCode,
@@ -100,8 +102,10 @@ interface StartTranslationJobInput {
   generateJobId?: () => string;
   langCode?: string;
   memoryId: string;
+  model?: string | null;
   now?: Date;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+  reasoningEffort?: string | null;
   schedule?: (jobId: string, options: TranslationRunOptions) => void;
 }
 
@@ -158,14 +162,8 @@ export async function startTranslationJob(
       );
     }
     const settings = await connection.repositories.settings.getSettings(now);
-    const langCode = settings.translationTargetLanguage;
-    if (input.langCode !== undefined && input.langCode !== langCode) {
-      throw new TranslationApiError(
-        "translation_language_mismatch",
-        "Requested language does not match the configured translation target language.",
-        "open_settings",
-      );
-    }
+    const langCode = normalizeOptionalString(input.langCode) ??
+      settings.translationTargetLanguage;
     if (!isSupportedLanguageCode(langCode)) {
       throw new TranslationApiError(
         "invalid_language",
@@ -230,6 +228,33 @@ export async function startTranslationJob(
 
     const client = input.client ?? new CodexAppServerClient();
     await client.probe();
+    const requestedModel = input.model === undefined
+      ? settings.codexTranslationModel
+      : normalizeOptionalString(input.model);
+    const requestedReasoningEffort = input.reasoningEffort === undefined
+      ? settings.codexTranslationReasoningEffort
+      : normalizeCodexReasoningEffort(input.reasoningEffort);
+    const selection = await resolveCodexTranslationSelection({
+      client,
+      model: requestedModel,
+      reasoningEffort: requestedReasoningEffort,
+    });
+    if (
+      input.langCode !== undefined &&
+      langCode !== settings.translationTargetLanguage
+    ) {
+      await connection.repositories.settings.updateTranslationTargetLanguage({
+        language: langCode,
+        updatedAt: now,
+      });
+    }
+    if (input.model !== undefined || input.reasoningEffort !== undefined) {
+      await connection.repositories.settings.updateCodexTranslationDefaults({
+        model: selection.model,
+        reasoningEffort: selection.reasoningEffort,
+        updatedAt: now,
+      });
+    }
 
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const jobId = input.generateJobId === undefined
@@ -248,9 +273,10 @@ export async function startTranslationJob(
       jobId,
       langCode,
       memoryId: input.memoryId,
-      model: null,
+      model: selection.model,
       now,
       promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+      reasoningEffort: selection.reasoningEffort,
       sourceHash: source.sourceHash,
     });
     await connection.repositories.translations.insertTranslationChunks(
@@ -393,6 +419,8 @@ export async function runTranslationJob(
         connection,
         jobLangCode: job.langCode,
         jobMemoryId: job.memoryId,
+        model: job.model,
+        reasoningEffort: job.reasoningEffort,
       });
     }
 
@@ -520,6 +548,8 @@ async function translateAndPersistChunk(input: {
   connection: TraumaDatabaseConnection;
   jobLangCode: string;
   jobMemoryId: string;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
 }): Promise<void> {
   let attempt = 0;
   while (attempt <= BRILLIANT_MAX_RETRIES) {
@@ -555,8 +585,10 @@ async function translateAndPersistChunk(input: {
       inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
       const rawOutput = await input.client.translateChunk({
         chunk: input.chunk,
+        model: input.model,
         outputSchema: createCodexChunkOutputSchema(input.chunk),
         prompt,
+        reasoningEffort: input.reasoningEffort,
         onEvent: (event) => {
           if (event.type === "thread.started") {
             inFlightTurn.threadId = event.threadId;
@@ -621,6 +653,7 @@ async function translateAndPersistChunk(input: {
         input.chunk.chunkIndex,
         {
           error: null,
+          projectionSpansJson: JSON.stringify(output.projectionSpans),
           status: "complete",
           translatedHash: createSha256ContentHash(translatedMarkdown),
           translatedMarkdown,
@@ -744,6 +777,82 @@ async function cancelJob(
   });
 }
 
+async function resolveCodexTranslationSelection(input: {
+  client: TranslationClient;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<{
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}> {
+  if (input.client.listModels === undefined) {
+    return {
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+    };
+  }
+
+  const catalog = await input.client.listModels();
+  const selectedModel = input.model === null
+    ? null
+    : catalog.models.find((model) =>
+      model.model === input.model || model.id === input.model
+    );
+  if (input.model !== null && selectedModel === undefined) {
+    throw new TranslationApiError(
+      "translation_model_unavailable",
+      `Codex model "${input.model}" is unavailable.`,
+      "open_settings",
+    );
+  }
+
+  const modelForEffort = selectedModel ??
+    catalog.models.find((model) => model.isDefault) ??
+    null;
+  if (input.reasoningEffort !== null) {
+    if (
+      modelForEffort === null ||
+      !modelForEffort.supportedReasoningEfforts.includes(input.reasoningEffort)
+    ) {
+      throw new TranslationApiError(
+        "translation_reasoning_effort_unavailable",
+        `Codex reasoning effort "${input.reasoningEffort}" is unavailable for the selected model.`,
+        "open_settings",
+      );
+    }
+  }
+
+  return {
+    model: selectedModel?.model ?? input.model,
+    reasoningEffort: input.reasoningEffort,
+  };
+}
+
+function normalizeCodexReasoningEffort(
+  value: string | null,
+): CodexReasoningEffort | null {
+  const normalized = normalizeOptionalString(value);
+  if (normalized === null) {
+    return null;
+  }
+  if (!isCodexReasoningEffort(normalized)) {
+    throw new TranslationApiError(
+      "translation_reasoning_effort_unavailable",
+      `Codex reasoning effort "${normalized}" is unavailable.`,
+      "open_settings",
+    );
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 function toPersistedError(error: unknown): TranslationJobSnapshotError {
   if (error instanceof TranslationApiError) {
     return {
@@ -802,6 +911,8 @@ function isPersistableErrorCode(
   return ![
     "translation_language_required",
     "translation_language_mismatch",
+    "translation_model_unavailable",
+    "translation_reasoning_effort_unavailable",
     "invalid_language",
     "missing_memory",
     "missing_source_content",

@@ -1,5 +1,6 @@
 import type { ReaderMomentItem } from "~/server/reader/page-data";
 import type { ReaderTocEntry } from "~/server/reader/markdown-renderer";
+import type { SupportedLanguageCode } from "~/settings/languages";
 import type { FetchFunction } from "../memories/memory-action-requests";
 
 export type ReaderMomentSection = Pick<
@@ -9,6 +10,7 @@ export type ReaderMomentSection = Pick<
 
 export async function createMomentForSection(input: {
   fetch?: FetchFunction;
+  langCode?: SupportedLanguageCode;
   memoryId: string;
   section: ReaderMomentSection;
 }): Promise<{ alreadyExists: boolean; moment: ReaderMomentItem }> {
@@ -20,6 +22,7 @@ export async function createMomentForSection(input: {
     },
     body: JSON.stringify({
       memoryId: input.memoryId,
+      ...(input.langCode === undefined ? {} : { langCode: input.langCode }),
       sectionAnchor: input.section.id,
       sectionTitle: input.section.text,
       sectionLevel: input.section.level,

@@ -81,10 +81,17 @@ Codex transport failures map to stable API/job error codes:
 - `app_server_protocol_error` means the app-server was reachable but rejected
   TRAUMA's request contract, for example an invalid param or a field requiring
   `experimentalApi`; it maps to HTTP `502` when returned from an API request.
+- `translation_model_unavailable` means a submitted or persisted Codex
+  translation model is not present in the current app-server `model/list`
+  catalog; it maps to HTTP `409` and should send the user to settings.
+- `translation_reasoning_effort_unavailable` means a submitted or persisted
+  reasoning effort is not supported by the selected/default model in
+  `model/list`; it maps to HTTP `409` and should send the user to settings.
 - `invalid_final_output` remains `invalid_final_output` and maps to HTTP `502` when returned from an API request.
 - Do not collapse `timeout`, `stream_disconnected`,
-  `app_server_protocol_error`, or `invalid_final_output` into `unknown`,
-  `app_server_unavailable`, or `validation_failed`.
+  `app_server_protocol_error`, `translation_model_unavailable`,
+  `translation_reasoning_effort_unavailable`, or `invalid_final_output` into
+  `unknown`, `app_server_unavailable`, or `validation_failed`.
 
 Validation error boundary:
 

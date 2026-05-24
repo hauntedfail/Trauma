@@ -14,6 +14,7 @@ import {
   titleForReaderResult,
 } from "../../components/reader/route-state";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
+import type { CodexReasoningEffort } from "../../server/translation/types";
 import type { SupportedLanguageCode } from "../../settings/languages";
 
 export default function MemoryReaderRoute() {
@@ -31,6 +32,8 @@ export default function MemoryReaderRoute() {
         categoryOptions={taxonomy()?.categories ?? []}
         result={readerResult()}
         tagOptions={taxonomy()?.tags ?? []}
+        translationModel={settings()?.codexTranslationModel}
+        translationReasoningEffort={settings()?.codexTranslationReasoningEffort}
         translationTargetLanguage={settings()?.translationTargetLanguage}
       />
     </>
@@ -41,6 +44,8 @@ function ReaderBody(props: {
   categoryOptions: readonly BrowseTaxonomySummaryItem[];
   result: ReaderMemoryResult | undefined;
   tagOptions: readonly BrowseTaxonomySummaryItem[];
+  translationModel?: string | null;
+  translationReasoningEffort?: CodexReasoningEffort | null;
   translationTargetLanguage?: SupportedLanguageCode;
 }) {
   return (
@@ -59,6 +64,8 @@ function ReaderBody(props: {
           categoryOptions={props.categoryOptions}
           result={result()}
           tagOptions={props.tagOptions}
+          translationModel={props.translationModel}
+          translationReasoningEffort={props.translationReasoningEffort}
           translationTargetLanguage={props.translationTargetLanguage}
         />
       )}

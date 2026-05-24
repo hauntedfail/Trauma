@@ -10,12 +10,28 @@ import {
   type FlashbackToggleOperation,
   type ToggleMemoryFlashbackResult,
 } from "~/server/flashbacks/toggle";
-import { MemoryContentStoreError } from "~/server/store";
+import {
+  MemoryContentStoreError,
+  readMemoryContent,
+  readResolvedMemoryContent,
+} from "~/server/store";
 import type { FlashbackSelectionInput } from "~/server/store/flashback-markers";
+import { createReaderContentHash } from "~/server/store/flashback-markers";
+import {
+  projectFlashbacksToTranslatedReader,
+  projectTranslatedSelectionToSourceReader,
+} from "~/server/reader/translation-projections";
+import { resolveCurrentTranslationReadOnly } from "~/server/translation/current-translation";
+import {
+  isSupportedLanguageCode,
+  type SupportedLanguageCode,
+} from "~/server/translation/languages";
+import { resolveTranslatedMemoryContentPath } from "~/server/translation/paths";
 
 type FlashbackTogglePayloadResult =
   | {
     ok: true;
+    langCode?: SupportedLanguageCode;
     memoryId: string;
     operation: FlashbackToggleOperation;
     selection: FlashbackSelectionInput;
@@ -45,21 +61,121 @@ export async function POST(event: APIEvent): Promise<Response> {
 
   const connection = initializeDatabase(config);
   try {
+    const translatedProjection = payload.langCode === undefined
+      ? undefined
+      : await resolveTranslatedFlashbackProjection({
+        config,
+        connection,
+        langCode: payload.langCode,
+        memoryId: payload.memoryId,
+        selection: payload.selection,
+      });
     const result = await toggleMemoryFlashback({
       memoryId: payload.memoryId,
       operation: payload.operation,
-      selection: payload.selection,
+      selection: translatedProjection?.sourceSelection ?? payload.selection,
       config,
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
     });
 
-    return json({ result }, { status: 200 });
+    return json({
+      result: translatedProjection === undefined
+        ? result
+        : projectToggleResultToTranslatedFlashbacks(result, translatedProjection),
+    }, { status: 200 });
   } catch (error) {
     return formatToggleError(error);
   } finally {
     connection.close();
   }
+}
+
+async function resolveTranslatedFlashbackProjection(input: {
+  config: ReturnType<typeof loadRuntimeTraumaConfig>;
+  connection: ReturnType<typeof initializeDatabase>;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+  selection: FlashbackSelectionInput;
+}) {
+  const current = await resolveCurrentTranslationReadOnly({
+    config: input.config,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    repository: input.connection.repositories.translations,
+  });
+  if (current.status !== "current") {
+    throw new FlashbackToggleError(
+      "Translated flashback selection is unavailable.",
+      "invalid_selection",
+    );
+  }
+
+  const sourceContent = await readMemoryContent({
+    config: input.config,
+    memoryId: input.memoryId,
+  });
+  const translatedContent = await readResolvedMemoryContent(
+    resolveTranslatedMemoryContentPath({
+      config: input.config,
+      langCode: input.langCode,
+      memoryId: input.memoryId,
+    }),
+  );
+  const projectionSpans =
+    await input.connection.repositories.translations.listCurrentProjectionSpans({
+      langCode: input.langCode,
+      memoryId: input.memoryId,
+      outputHash: current.outputHash,
+      sourceHash: current.sourceHash,
+    });
+  const sourceSelection = projectTranslatedSelectionToSourceReader({
+    projectionSpans,
+    selection: input.selection,
+    sourceMarkdown: sourceContent.markdown,
+    translatedMarkdown: translatedContent.markdown,
+  });
+  if (sourceSelection === undefined) {
+    throw new FlashbackToggleError(
+      "Translated flashback selection could not be projected to source.",
+      "invalid_selection",
+    );
+  }
+
+  return {
+    projectionSpans,
+    sourceContentHash: createReaderContentHash(sourceContent.markdown),
+    sourceSelection,
+    translatedMarkdown: translatedContent.markdown,
+  };
+}
+
+function projectToggleResultToTranslatedFlashbacks(
+  result: ToggleMemoryFlashbackResult,
+  projection: Awaited<ReturnType<typeof resolveTranslatedFlashbackProjection>>,
+): ToggleMemoryFlashbackResult {
+  const projected = projectFlashbacksToTranslatedReader({
+    flashbacks: result.flashbacks.map((flashback) => ({
+      ...flashback,
+      createdAt: new Date(flashback.createdAt),
+    })),
+    projectionSpans: projection.projectionSpans,
+    sourceContentHash: projection.sourceContentHash,
+    translatedMarkdown: projection.translatedMarkdown,
+  });
+  return {
+    ...result,
+    flashbacks: projected.items.map((flashback) => ({
+      contentHash: flashback.contentHash ?? "",
+      createdAt: flashback.createdAt,
+      endOffset: flashback.endOffset,
+      id: flashback.id,
+      prefix: flashback.prefix,
+      startOffset: flashback.startOffset,
+      suffix: flashback.suffix,
+      text: flashback.text,
+    })),
+  };
 }
 
 export const parseFlashbackTogglePayload = parseFlashbackTogglePayloadInternal;
@@ -78,15 +194,25 @@ async function parseFlashbackTogglePayloadInternal(
     return { ok: false, error: "request body must be an object" };
   }
 
-  if (!hasOnlyKeys(payload, ["memoryId", "operation", "selection"])) {
+  if (!hasOnlyKeys(payload, ["memoryId", "langCode", "operation", "selection"])) {
     return {
       ok: false,
-      error: "request body must contain only memoryId, operation, and selection",
+      error: "request body must contain only memoryId, langCode, operation, and selection",
     };
   }
 
   if (typeof payload.memoryId !== "string" || payload.memoryId.trim() === "") {
     return { ok: false, error: "memoryId must be a non-empty string" };
+  }
+
+  if (
+    payload.langCode !== undefined &&
+    (
+      typeof payload.langCode !== "string" ||
+      !isSupportedLanguageCode(payload.langCode)
+    )
+  ) {
+    return { ok: false, error: "langCode must be a supported translation language" };
   }
 
   if (!isFlashbackToggleOperation(payload.operation)) {
@@ -103,6 +229,7 @@ async function parseFlashbackTogglePayloadInternal(
 
   return {
     ok: true,
+    ...(payload.langCode === undefined ? {} : { langCode: payload.langCode }),
     memoryId: payload.memoryId.trim(),
     operation: payload.operation,
     selection: selection.selection,
@@ -216,11 +343,9 @@ function hasOnlyKeys(
   value: Record<string, unknown>,
   expectedKeys: readonly string[],
 ): boolean {
+  const expected = new Set(expectedKeys);
   const keys = Object.keys(value);
-  return (
-    keys.length === expectedKeys.length &&
-    expectedKeys.every((key) => Object.hasOwn(value, key))
-  );
+  return keys.every((key) => expected.has(key));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

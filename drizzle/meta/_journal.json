@@ -78,6 +78,20 @@
       "when": 1779412761000,
       "tag": "0010_brilliant_translation_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1779441939597,
+      "tag": "0011_numerous_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1779445000000,
+      "tag": "0012_translation_projection_spans",
+      "breakpoints": true
     }
   ]
 }

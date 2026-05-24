@@ -20,6 +20,10 @@ const memoryReaderRouteSource = readFileSync(
   "src/routes/memories/[id].tsx",
   "utf8",
 );
+const memoryReaderSource = readFileSync(
+  "src/components/reader/MemoryReader.tsx",
+  "utf8",
+);
 
 const readyResult = {
   status: "ready",
@@ -244,6 +248,8 @@ describe("memory reader actions", () => {
     const result = await startReaderTranslation({
       langCode: "ja-JP",
       memoryId: "memory-reader",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
       fetch: async (input, init) => {
         requests.push(new Request(new URL(String(input), "http://localhost"), init));
         return new Response(
@@ -270,7 +276,11 @@ describe("memory reader actions", () => {
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/memories/memory-reader/translations", "POST"],
     ]);
-    expect(await requests[0]?.json()).toEqual({ lang_code: "ja-JP" });
+    expect(await requests[0]?.json()).toEqual({
+      lang_code: "ja-JP",
+      model: "gpt-5.5",
+      reasoning_effort: "high",
+    });
   });
 
   it("branches reader translation API errors by stable code", async () => {
@@ -312,9 +322,24 @@ describe("memory reader actions", () => {
             },
           ),
       }),
-    ).rejects.toThrow(
+  ).rejects.toThrow(
       "Codex app-server rejected the translation request. Update the integration and retry.",
     );
+  });
+
+  it("renders the reader translation trigger as a popup opener", () => {
+    const html = renderReader(readyResult, {
+      translationTargetLanguage: "ja-JP",
+      translationModel: "gpt-5.5",
+      translationReasoningEffort: "high",
+    });
+
+    expect(html).toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain(">Translate<");
+    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
+    expect(memoryReaderSource).toContain("translationFormModel");
+    expect(memoryReaderSource).toContain("reasoning_effort");
   });
 
   it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
@@ -397,6 +422,8 @@ function renderReader(
   result: ReaderMemoryResult,
   options: {
     tagOptions?: readonly BrowseTaxonomySummaryItem[];
+    translationModel?: string | null;
+    translationReasoningEffort?: "high" | null;
     translationTargetLanguage?: "ja-JP";
   } = {},
 ): string {
@@ -415,6 +442,8 @@ function renderReader(
           navigate: () => {},
           result,
           tagOptions: options.tagOptions ?? [],
+          translationModel: options.translationModel,
+          translationReasoningEffort: options.translationReasoningEffort,
           translationTargetLanguage: options.translationTargetLanguage,
         });
       },

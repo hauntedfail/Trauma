@@ -25,6 +25,9 @@ architecture, reference, quality, or operations docs.
 | 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
 | 19R | [Codex app-server auth repair](task-19-codex-translation-auth-repair.md) | Repair Task 19 device-code completion, app-server auth interpretation, Settings refresh, and translation auth preflight | Draft |
 | 19S | [Codex app-server protocol repair](task-19-codex-translation-protocol-repair.md) | Repair Task 19 stable app-server request schema, protocol error taxonomy, API mapping, and reader error copy | Draft |
+| 19T | [Codex translation model controls](task-19-codex-translation-model-controls.md) | Add Settings defaults and reader confirmation popup for Codex translation model, reasoning effort, and language | Draft |
+| 19U | [Codex translation segment reassembly](task-19-codex-translation-segment-reassembly.md) | Split parser-backed segment extraction, deterministic Markdown reassembly, validation, runtime integration, docs, and E2E verification into domain subtasks | Draft |
+| 19V | [Translated reader annotation projection](task-19-codex-translation-reader-projections.md) | Project canonical Flashbacks and Moments between source and translated reader variants with durable translation alignment maps | Draft |
 
 ## Archived Workflows
 

@@ -175,15 +175,25 @@ export interface TranslationChunk {
   blockIds: string[];
   sourceMarkdown: string;
   sourceChunkHash: string;
+  segments: TranslationTextSegment[];
 }
 
 export interface CodexChunkOutput {
   chunk_index: number;
-  blocks: Array<{
+  segments: Array<{
     id: string;
-    translated_markdown: string;
+    translated_text: string;
   }>;
+  translated_markdown: string;
   warnings: string[];
+}
+
+export interface TranslationTextSegment {
+  blockId: string;
+  id: string;
+  sourceEnd: number;
+  sourceStart: number;
+  text: string;
 }
 ```
 

@@ -1,12 +1,24 @@
-import { Show, createSignal, onCleanup, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js";
 
 import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../../settings/languages";
 import type { SettingsState } from "../../server/settings/settings";
+import type { CodexModelCatalog } from "../../server/translation/codex-app-server";
+import type { CodexReasoningEffort } from "../../server/translation/types";
 import {
+  submitCodexTranslationDefaults,
   pollCodexAuthSetup,
+  submitReadCodexModels,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
   submitTranslationTargetLanguage,
@@ -15,6 +27,7 @@ import { revalidateSettingsState } from "./settings-loader";
 import { RouteHeader } from "../layout/RouteHeader";
 
 export interface SettingsPageProps {
+  initialCodexModelCatalog?: CodexModelCatalog | null;
   initialSettings: SettingsState;
 }
 
@@ -43,6 +56,16 @@ export function SettingsPage(props: SettingsPageProps) {
   const [language, setLanguage] = createSignal<SupportedLanguageCode>(
     props.initialSettings.translationTargetLanguage,
   );
+  const [codexModel, setCodexModel] = createSignal(
+    props.initialSettings.codexTranslationModel ?? "",
+  );
+  const [codexEffort, setCodexEffort] = createSignal<
+    CodexReasoningEffort | ""
+  >(props.initialSettings.codexTranslationReasoningEffort ?? "");
+  const [codexModels, setCodexModels] = createSignal(
+    props.initialCodexModelCatalog?.models ?? [],
+  );
+  const [codexCatalogError, setCodexCatalogError] = createSignal("");
   const [codexAuth, setCodexAuth] = createSignal(props.initialSettings.openaiAuth);
   const pendingCodexAuth = () =>
     codexAuth().status === "login_started"
@@ -58,6 +81,27 @@ export function SettingsPage(props: SettingsPageProps) {
       controller.abort();
     }
     authPollControllers.clear();
+  });
+
+  onMount(() => {
+    if (props.initialCodexModelCatalog === undefined) {
+      void refreshCodexModels();
+    }
+  });
+
+  const selectedCodexModel = createMemo(() => {
+    const current = codexModel();
+    return codexModels().find((model) =>
+      model.model === current || model.id === current
+    );
+  });
+  const reasoningEfforts = createMemo(() => {
+    const selected = selectedCodexModel();
+    if (selected !== undefined) {
+      return selected.supportedReasoningEfforts;
+    }
+    return codexModels().find((model) => model.isDefault)
+      ?.supportedReasoningEfforts ?? [];
   });
 
   const saveLanguage: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
@@ -80,6 +124,52 @@ export function SettingsPage(props: SettingsPageProps) {
       void revalidateSettingsState();
     } catch {
       setError("Failed to update translation target language.");
+    } finally {
+      setPending("");
+    }
+  };
+
+  const refreshCodexModels = async (): Promise<void> => {
+    setCodexCatalogError("");
+    try {
+      const catalog = await submitReadCodexModels();
+      setCodexModels(catalog.models);
+    } catch (error) {
+      setCodexCatalogError(
+        error instanceof Error
+          ? error.message
+          : "Failed to read Codex model catalog.",
+      );
+    }
+  };
+
+  const saveCodexDefaults: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
+    event,
+  ) => {
+    event.preventDefault();
+    void updateCodexDefaults();
+  };
+
+  const updateCodexDefaults = async (): Promise<void> => {
+    setPending("codex-defaults");
+    setError("");
+    setMessage("");
+    try {
+      const selectedEffort = codexEffort();
+      const settings = await submitCodexTranslationDefaults({
+        model: codexModel() === "" ? null : codexModel(),
+        reasoningEffort: selectedEffort === "" ? null : selectedEffort,
+      });
+      setCodexModel(settings.codexTranslationModel ?? "");
+      setCodexEffort(settings.codexTranslationReasoningEffort ?? "");
+      setMessage("Codex translation defaults saved.");
+      void revalidateSettingsState();
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update Codex translation defaults.",
+      );
     } finally {
       setPending("");
     }
@@ -203,6 +293,78 @@ export function SettingsPage(props: SettingsPageProps) {
               Save language
             </button>
           </div>
+        </form>
+
+        <form class={fieldClass} onSubmit={saveCodexDefaults}>
+          <div class="grid gap-2">
+            <h2 class={labelClass}>Codex Translation</h2>
+          </div>
+          <label class="grid gap-2">
+            <span class={labelClass}>Model</span>
+            <select
+              class={selectClass}
+              disabled={pending() === "codex-defaults"}
+              value={codexModel()}
+              onChange={(event) => setCodexModel(event.currentTarget.value)}
+            >
+              <option value="">Codex app-server default</option>
+              <Show
+                when={
+                  codexModel() !== "" &&
+                  !codexModels().some((model) =>
+                    model.id === codexModel() || model.model === codexModel()
+                  )
+                }
+              >
+                <option value={codexModel()}>{codexModel()}</option>
+              </Show>
+              <For each={codexModels()}>
+                {(model) => (
+                  <option value={model.model}>
+                    {model.displayName} ({model.model})
+                  </option>
+                )}
+              </For>
+            </select>
+          </label>
+          <label class="grid gap-2">
+            <span class={labelClass}>Reasoning effort</span>
+            <select
+              class={selectClass}
+              disabled={pending() === "codex-defaults"}
+              value={codexEffort()}
+              onChange={(event) =>
+                setCodexEffort(
+                  event.currentTarget.value as CodexReasoningEffort | "",
+                )
+              }
+            >
+              <option value="">Selected model default</option>
+              <Show
+                when={
+                  codexEffort() !== "" &&
+                  !reasoningEfforts().includes(codexEffort() as CodexReasoningEffort)
+                }
+              >
+                <option value={codexEffort()}>{codexEffort()}</option>
+              </Show>
+              <For each={reasoningEfforts()}>
+                {(effort) => <option value={effort}>{effort}</option>}
+              </For>
+            </select>
+          </label>
+          <div>
+            <button
+              class={primaryButtonClass}
+              disabled={pending() === "codex-defaults"}
+              type="submit"
+            >
+              Save Codex defaults
+            </button>
+          </div>
+          <Show when={codexCatalogError()}>
+            {(value) => <p class={hintClass}>{value()}</p>}
+          </Show>
         </form>
 
         <section class={fieldClass} aria-labelledby="codex-auth-title">

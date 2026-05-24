@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { SettingsPage } from "../../src/components/settings/SettingsPage";
 import {
+  submitCodexTranslationDefaults,
+  submitReadCodexModels,
   pollCodexAuthSetup,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
@@ -24,6 +26,8 @@ describe("settings page", () => {
       createComponent(SettingsPage, {
         initialSettings: {
           translationTargetLanguage: "ja-JP",
+          codexTranslationModel: null,
+          codexTranslationReasoningEffort: null,
           openaiAuth: {
             status: "setup_required",
             provider: "codex",
@@ -36,6 +40,9 @@ describe("settings page", () => {
     expect(html).toContain('aria-labelledby="settings-title"');
     expect(html).toContain('id="settings-title"');
     expect(html).toContain("Translation target language");
+    expect(html).toContain("Codex Translation");
+    expect(html).toContain("Codex app-server default");
+    expect(html).toContain("Selected model default");
     for (const label of [
       "Japanese",
       "English",
@@ -71,6 +78,8 @@ describe("settings page", () => {
       createComponent(SettingsPage, {
         initialSettings: {
           translationTargetLanguage: "en-US",
+          codexTranslationModel: "gpt-5.5",
+          codexTranslationReasoningEffort: "high",
           openaiAuth: {
             status: "enabled",
             provider: "codex",
@@ -82,6 +91,8 @@ describe("settings page", () => {
 
     expect(html).toContain("Enabled");
     expect(html).toContain("Codex ChatGPT sign-in is enabled.");
+    expect(html).toContain("gpt-5.5");
+    expect(html).toContain("high");
     expect(html).toContain("Delete auth");
   });
 
@@ -98,6 +109,8 @@ describe("settings page", () => {
       if (String(input).includes("translation-language")) {
         return jsonResponse({
           translationTargetLanguage: "en-US",
+          codexTranslationModel: null,
+          codexTranslationReasoningEffort: null,
           openaiAuth: {
             status: "setup_required",
             provider: "codex",
@@ -116,6 +129,35 @@ describe("settings page", () => {
         });
       }
 
+      if (String(input).includes("codex-models")) {
+        return jsonResponse({
+          models: [
+            {
+              id: "gpt-5.5",
+              model: "gpt-5.5",
+              displayName: "GPT-5.5",
+              description: "Frontier model",
+              isDefault: true,
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: ["low", "medium", "high"],
+            },
+          ],
+        });
+      }
+
+      if (String(input).includes("translation-codex-defaults")) {
+        return jsonResponse({
+          translationTargetLanguage: "en-US",
+          codexTranslationModel: "gpt-5.5",
+          codexTranslationReasoningEffort: "high",
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
+        });
+      }
+
       return jsonResponse({
         status: "disabled",
         provider: "codex",
@@ -126,6 +168,19 @@ describe("settings page", () => {
     await expect(
       submitTranslationTargetLanguage({ language: "en-US", fetch }),
     ).resolves.toMatchObject({ translationTargetLanguage: "en-US" });
+    await expect(submitReadCodexModels({ fetch })).resolves.toMatchObject({
+      models: [{ model: "gpt-5.5" }],
+    });
+    await expect(
+      submitCodexTranslationDefaults({
+        fetch,
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
     await expect(submitEnableOpenAiAuth({ fetch })).resolves.toEqual({
       status: "login_started",
       provider: "codex",
@@ -143,6 +198,8 @@ describe("settings page", () => {
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/settings/translation-language", "PATCH"],
+      ["http://localhost/api/settings/codex-models", "GET"],
+      ["http://localhost/api/settings/translation-codex-defaults", "PATCH"],
       ["http://localhost/api/settings/codex-auth/device-code", "POST"],
       ["http://localhost/api/settings/codex-auth", "DELETE"],
     ]);

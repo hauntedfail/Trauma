@@ -98,6 +98,19 @@ The server stores offsets in canonical reader text and guards them with
 `content_hash` in `sha256:<hex>` format. Hash-mismatched flashbacks are treated
 as stale and are not rendered at a guessed location.
 
+Translated reader variants include `langCode` in Flashback toggle requests.
+The server validates the current translation, reads
+`translation_projection_spans` for the current source and output hashes, and
+maps translated reader offsets back to source reader offsets before using the
+normal canonical Flashback merge/split logic. Partial-span selections, missing
+projection rows, and stale source/output hashes fail closed instead of expanding
+or guessing translated text.
+
+Moment creation on translated reader variants also includes `langCode`. The
+server validates the posted section against translated ToC data, then stores
+the source ToC section with the same `sectionPath` and level. Moment rows remain
+source canonical.
+
 If persistence fails, the optimistic UI state is rolled back or surfaced as
 failed.
 

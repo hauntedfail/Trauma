@@ -9,6 +9,7 @@ import {
   deleteSettingsOpenAiAuth,
   enableSettingsOpenAiAuth,
   getSettings,
+  updateCodexTranslationDefaults,
   updateTranslationTargetLanguage,
   UnsupportedTranslationLanguageError,
 } from "../../../src/server/settings/settings";
@@ -33,6 +34,8 @@ describe("settings service", () => {
 
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "ja-JP",
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
       openaiAuth: {
         status: "setup_required",
         provider: "codex",
@@ -61,6 +64,8 @@ describe("settings service", () => {
     ).resolves.toEqual([
       {
         translationTargetLanguage: "ja-JP",
+        codexTranslationModel: null,
+        codexTranslationReasoningEffort: null,
         openaiAuth: {
           status: "setup_required",
           provider: "codex",
@@ -69,6 +74,8 @@ describe("settings service", () => {
       },
       {
         translationTargetLanguage: "ja-JP",
+        codexTranslationModel: null,
+        codexTranslationReasoningEffort: null,
         openaiAuth: {
           status: "setup_required",
           provider: "codex",
@@ -99,6 +106,36 @@ describe("settings service", () => {
     });
     await expect(getSettings({ config })).resolves.toMatchObject({
       translationTargetLanguage: "en-US",
+    });
+  });
+
+  it("persists Codex translation model and reasoning effort defaults", async () => {
+    const config = await makeConfig();
+
+    await expect(
+      updateCodexTranslationDefaults({
+        config,
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+
+    await expect(
+      updateCodexTranslationDefaults({
+        config,
+        model: null,
+        reasoningEffort: null,
+      }),
+    ).resolves.toMatchObject({
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
     });
   });
 
@@ -211,6 +248,8 @@ describe("settings service", () => {
     });
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "fr-FR",
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
       openaiAuth: {
         status: "setup_required",
         provider: "codex",

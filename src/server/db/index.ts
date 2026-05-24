@@ -12,6 +12,7 @@ import {
   tags,
   translationChunks,
   translationJobs,
+  translationProjectionSpans,
 } from "./schema";
 
 export { initializeDatabase } from "./connection";
@@ -46,4 +47,5 @@ export const schema = {
   tags,
   translationChunks,
   translationJobs,
+  translationProjectionSpans,
 };

@@ -1,4 +1,6 @@
 import type { SettingsState } from "../../server/settings/settings";
+import type { CodexModelCatalog } from "../../server/translation/codex-app-server";
+import type { CodexReasoningEffort } from "../../server/translation/types";
 import type {
   CodexAuthDeleteResponse,
   CodexAuthStatusResponse,
@@ -24,6 +26,45 @@ export async function submitTranslationTargetLanguage(input: {
   });
   if (!response.ok) {
     throw new Error("failed to update translation target language");
+  }
+
+  return response.json() as Promise<SettingsState>;
+}
+
+export async function submitReadCodexModels(input: {
+  fetch?: FetchFunction;
+} = {}): Promise<CodexModelCatalog> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/codex-models", {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "failed to read Codex models"));
+  }
+
+  return response.json() as Promise<CodexModelCatalog>;
+}
+
+export async function submitCodexTranslationDefaults(input: {
+  fetch?: FetchFunction;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<SettingsState> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/translation-codex-defaults", {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: input.model,
+      reasoning_effort: input.reasoningEffort,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "failed to update Codex translation defaults"),
+    );
   }
 
   return response.json() as Promise<SettingsState>;

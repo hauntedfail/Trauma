@@ -39,6 +39,7 @@ startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin>
 observeAuthEvents(): AsyncIterable<CodexAuthEvent>
 cancelDeviceCodeLogin(input: { loginId: string }): Promise<void>
 logout(): Promise<CodexLogoutResult>
+listModels(): Promise<CodexModelCatalog>
 translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEvent>
 cancelTurn(input: { threadId: string; turnId: string }): Promise<void>
 ```
@@ -91,6 +92,10 @@ Protocol schema rules:
 Rules:
 
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk attempt, then `turn/start` for chunk translation.
+- Use Codex app-server `model/list` as the backend-only source of truth for
+  available translation models and supported reasoning efforts. Browser code
+  must receive only TRAUMA-normalized catalog data through settings-scoped API
+  routes.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
 - Stable `thread/start` sends only the fields supported by the stable generated
@@ -100,8 +105,10 @@ Rules:
   a later task deliberately opts into `experimentalApi`.
 - Stable `turn/start` sends `threadId`, `input`, `approvalPolicy`,
   `approvalsReviewer`, `sandboxPolicy`, and `outputSchema` when structured
-  output is attempted. It must omit `environments` unless a later task
-  deliberately opts into `experimentalApi`.
+  output is attempted. It sends the selected model as `model` and selected
+  reasoning effort as `effort` only when the job metadata is non-null. It must
+  omit `environments` unless a later task deliberately opts into
+  `experimentalApi`.
 - Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
 - `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
@@ -166,6 +173,10 @@ Use a fake app-server client. Cover:
 - chunk translation starts an ephemeral thread before starting a turn
 - retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread
 - `turn/start` request passes through the caller-provided output schema
+- `model/list` response parsing normalizes visible models and supported
+  reasoning effort objects into the frontend-safe catalog shape
+- `turn/start` request passes through selected model and reasoning effort using
+  the generated stable schema field names `model` and `effort`
 - output-schema rejection falls back to prompt-only JSON mode without incrementing `retry_count`
 - output-schema fallback after thread creation discards the rejected thread and starts a fresh thread without consuming retry budget
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings

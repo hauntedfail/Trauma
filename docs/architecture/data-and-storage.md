@@ -46,6 +46,9 @@ Runtime tables:
 - `memory_tags`
 - `memory_categories`
 - `flashbacks`
+- `translation_jobs`
+- `translation_chunks`
+- `translation_projection_spans`
 - `backup_environment_stamps`
 - `backup_failsafe_alerts`
 
@@ -127,3 +130,29 @@ changes write a deterministic metadata export at:
 ```
 
 That file is a backup/export artifact, not the runtime source of truth.
+
+## Translation Projection Storage
+
+Translated content is stored beside the source memory:
+
+```text
+{storePath}/memories/{memoryId}/{langCode}/CONTENT.md
+{storePath}/memories/{memoryId}/{langCode}/TRANSLATION_MAP.json
+```
+
+`translation_jobs` is the current/history table for translation attempts.
+`translation_chunks` may temporarily hold translated chunk Markdown while a job
+is running, but completed chunk bodies and temporary projection JSON are purged
+after final commit.
+
+`translation_projection_spans` stores durable runtime alignment from source
+reader offsets to translated reader offsets. Rows are keyed by `memory_id`,
+`lang_code`, `source_hash`, and `output_hash`, so translated annotations are
+used only when both the source file and translated file still match the
+completed translation. `TRANSLATION_MAP.json` is the git-backup/export artifact
+for the same projection data; SQLite remains the runtime source of truth.
+
+`flashbacks` and `moments` remain source canonical. TRAUMA does not create
+language-specific annotation rows. Translated reader routes project canonical
+annotations at read time, and translated writes reverse-project back to source
+metadata only when the projection spans align exactly.

@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { MemoryBackupQueue } from "../backup";
@@ -16,9 +16,15 @@ import {
 import {
   createTranslatedReaderUrl,
   resolveTranslatedMemoryContentPath,
+  resolveTranslatedMemoryProjectionPath,
   resolveTranslatedMemoryTempPath,
 } from "./paths";
+import type { SupportedLanguageCode } from "./languages";
 import { loadTranslationSourceSnapshot } from "./source-loader";
+import {
+  buildTranslationProjectionSpans,
+  serializeTranslationProjectionSidecar,
+} from "./projection-map";
 
 export interface TranslationCommitResult {
   outputHash: string;
@@ -68,6 +74,38 @@ export async function commitTranslatedContent(input: {
   });
   const outputBytes = await readFile(outputPath.absolutePath);
   const outputHash = createSha256ContentHash(outputBytes);
+  const projectionSpans = buildTranslationProjectionSpans({
+    body,
+    chunks: input.chunks,
+    jobId: input.job.jobId,
+    langCode: input.job.langCode as SupportedLanguageCode,
+    memoryId: input.job.memoryId,
+    now,
+    outputHash,
+    sourceHash: input.job.sourceHash,
+  });
+  const projectionPath = resolveTranslatedMemoryProjectionPath({
+    config: input.config,
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  await writeFile(
+    projectionPath.absolutePath,
+    serializeTranslationProjectionSidecar({
+      jobId: input.job.jobId,
+      langCode: input.job.langCode as SupportedLanguageCode,
+      memoryId: input.job.memoryId,
+      outputHash,
+      sourceHash: input.job.sourceHash,
+      spans: projectionSpans,
+      version: 1,
+    }),
+    "utf8",
+  );
+  await input.repository.replaceProjectionSpansForJob(
+    input.job.jobId,
+    projectionSpans,
+  );
 
   await input.repository.updateTranslationJobStatus(input.job.jobId, "complete", {
     completedAt: now,
@@ -77,7 +115,7 @@ export async function commitTranslatedContent(input: {
   });
   await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
   await input.backupQueue.enqueue({
-    contentPath: outputPath.relativePath,
+    contentPaths: [outputPath.relativePath, projectionPath.relativePath],
     memoryId: input.job.memoryId,
     reason: "translation_update",
   });

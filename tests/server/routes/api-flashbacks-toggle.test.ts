@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { APIEvent } from "@solidjs/start/server";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,8 +10,18 @@ import {
   POST,
 } from "../../../src/routes/api/flashbacks";
 import { loadTraumaConfig } from "../../../src/server/config";
-import { initializeDatabase } from "../../../src/server/db";
-import { writeMemoryContent } from "../../../src/server/store";
+import { initializeDatabase, schema } from "../../../src/server/db";
+import {
+  createMemoryContentFixture,
+  writeMemoryContent,
+} from "../../../src/server/store";
+import { createReaderContentHash } from "../../../src/server/store/flashback-markers";
+import { createSha256ContentHash } from "../../../src/server/translation/hash";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "../../../src/server/translation/prompt";
+import { resolveTranslatedMemoryContentPath } from "../../../src/server/translation/paths";
 
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
@@ -56,6 +66,58 @@ describe("flashbacks API route", () => {
         endOffset: 59,
       },
     });
+  });
+
+  it("accepts an optional translated reader language for flashback projection", async () => {
+    const result = await parseFlashbackTogglePayload(
+      new Request("http://localhost/api/flashbacks", {
+        method: "POST",
+        body: JSON.stringify({
+          memoryId,
+          langCode: "ja-JP",
+          operation: "flashback",
+          selection: {
+            text: "翻訳文",
+            prefix: "",
+            suffix: "",
+            startOffset: 0,
+            endOffset: 3,
+          },
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      langCode: "ja-JP",
+      memoryId,
+      operation: "flashback",
+      selection: {
+        text: "翻訳文",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: 3,
+      },
+    });
+  });
+
+  it("rejects invalid translated reader language codes", async () => {
+    await expectPayloadError(
+      {
+        memoryId,
+        langCode: "xx",
+        operation: "flashback",
+        selection: {
+          text: "target",
+          prefix: "",
+          suffix: "",
+          startOffset: 0,
+          endOffset: 6,
+        },
+      },
+      "langCode must be a supported translation language",
+    );
   });
 
   it("rejects malformed or over-posted selection payloads", async () => {
@@ -128,6 +190,66 @@ describe("flashbacks API route", () => {
     expect(await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md"), "utf8"))
       .not.toContain("<mark data-flashback-id");
   });
+
+  it("projects translated reader flashback selections back to source before saving", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root, { backupEnabled: false });
+    process.env.TRAUMA_CONFIG_PATH = configPath;
+    const config = loadTraumaConfig({ configPath });
+    const sourceMarkdown = "Source sentence.";
+    const translatedMarkdown = "翻訳文。";
+    await seedTranslatedFlashbackFixture({
+      config,
+      sourceMarkdown,
+      translatedMarkdown,
+    });
+
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/flashbacks", {
+          method: "POST",
+          body: JSON.stringify({
+            memoryId,
+            langCode: "ja-JP",
+            operation: "flashback",
+            selection: {
+              text: translatedMarkdown,
+              prefix: "",
+              suffix: "",
+              startOffset: 0,
+              endOffset: translatedMarkdown.length,
+            },
+          }),
+        }),
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.result.flashbacks).toEqual([
+      expect.objectContaining({
+        text: translatedMarkdown,
+        startOffset: 0,
+        endOffset: translatedMarkdown.length,
+      }),
+    ]);
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.flashbacks.listForMemory(memoryId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          text: sourceMarkdown,
+          startOffset: 0,
+          endOffset: sourceMarkdown.length,
+          contentHash: createReaderContentHash(sourceMarkdown),
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
 });
 
 async function expectPayloadError(payload: unknown, error: string): Promise<void> {
@@ -157,7 +279,10 @@ async function makeRoot() {
   return root;
 }
 
-async function writeConfig(root: string) {
+async function writeConfig(
+  root: string,
+  options: { backupEnabled?: boolean } = {},
+) {
   const configPath = join(root, "trauma.config.json");
   await writeFile(
     configPath,
@@ -168,7 +293,7 @@ async function writeConfig(root: string) {
         databasePath: "./.trauma/trauma.sqlite",
         backup: {
           git: {
-            enabled: true,
+            enabled: options.backupEnabled ?? true,
             remote: "origin",
             branch: "main",
             push: false,
@@ -182,6 +307,117 @@ async function writeConfig(root: string) {
     "utf8",
   );
   return configPath;
+}
+
+async function seedTranslatedFlashbackFixture(input: {
+  config: ReturnType<typeof loadTraumaConfig>;
+  sourceMarkdown: string;
+  translatedMarkdown: string;
+}) {
+  const connection = initializeDatabase(input.config);
+  try {
+    await connection.repositories.memories.create({
+      id: memoryId,
+      url: "https://example.com/flashback",
+      title: "Flashback",
+      description: null,
+      faviconUrl: null,
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "disabled",
+      lastBackupAt: null,
+      lastBackupError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    connection.close();
+  }
+
+  await writeMemoryContent({
+    config: input.config,
+    memoryId,
+    frontmatter: {
+      id: memoryId,
+      url: "https://example.com/flashback",
+      title: "Flashback",
+      capturedAt: now.toISOString(),
+      extractionStatus: "success",
+    },
+    markdown: input.sourceMarkdown,
+  });
+
+  const translatedPath = resolveTranslatedMemoryContentPath({
+    config: input.config,
+    langCode: "ja-JP",
+    memoryId,
+  });
+  await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+  await writeFile(
+    translatedPath.absolutePath,
+    createMemoryContentFixture({
+      frontmatter: {
+        id: memoryId,
+        url: "https://example.com/flashback",
+        title: "Flashback",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: input.translatedMarkdown,
+    }),
+    "utf8",
+  );
+
+  const sourceHash = createSha256ContentHash(
+    await readFile(join(input.config.storePath, "memories", memoryId, "CONTENT.md")),
+  );
+  const outputHash = createSha256ContentHash(
+    await readFile(translatedPath.absolutePath),
+  );
+  const dbConnection = initializeDatabase(input.config);
+  try {
+    await dbConnection.db.insert(schema.translationJobs).values({
+      jobId: "019e3906-0000-7000-8000-000000000902",
+      memoryId,
+      langCode: "ja-JP",
+      sourceHash,
+      model: null,
+      reasoningEffort: null,
+      promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+      chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+      status: "complete",
+      chunkCount: 1,
+      outputPath: translatedPath.relativePath,
+      outputHash,
+      error: null,
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await dbConnection.db.insert(schema.translationProjectionSpans).values({
+      jobId: "019e3906-0000-7000-8000-000000000902",
+      spanIndex: 0,
+      memoryId,
+      langCode: "ja-JP",
+      sourceHash,
+      outputHash,
+      blockId: "b000001",
+      segmentId: "s000001",
+      sourceMarkdownStart: 0,
+      sourceMarkdownEnd: input.sourceMarkdown.length,
+      sourceReaderStart: 0,
+      sourceReaderEnd: input.sourceMarkdown.length,
+      translatedMarkdownStart: 0,
+      translatedMarkdownEnd: input.translatedMarkdown.length,
+      translatedReaderStart: 0,
+      translatedReaderEnd: input.translatedMarkdown.length,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    dbConnection.close();
+  }
 }
 
 async function seedPathDrift(configPath: string, root: string) {

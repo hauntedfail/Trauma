@@ -4,7 +4,12 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
 
-import type { TranslationChunk, CodexChunkOutput } from "./types";
+import {
+  isCodexReasoningEffort,
+  type TranslationChunk,
+  type RawCodexChunkOutput,
+  type CodexReasoningEffort,
+} from "./types";
 
 export type CodexAppServerTransportKind = "unix_socket" | "websocket";
 
@@ -48,21 +53,38 @@ export interface CodexAuthCheckOptions {
   refreshToken?: boolean;
 }
 
+export interface CodexModelInfo {
+  id: string;
+  model: string;
+  displayName: string;
+  description: string;
+  isDefault: boolean;
+  defaultReasoningEffort: CodexReasoningEffort;
+  supportedReasoningEfforts: CodexReasoningEffort[];
+}
+
+export interface CodexModelCatalog {
+  models: CodexModelInfo[];
+}
+
 export type CodexLogoutResult =
   | { status: "logged_out" }
   | { status: "unsupported"; message: string };
 
 export interface TranslateChunkInput {
   chunk: TranslationChunk;
+  model?: string | null;
   onEvent?: (event: CodexAppServerEvent) => void;
   outputSchema?: unknown;
   prompt: string;
+  reasoningEffort?: CodexReasoningEffort | null;
 }
 
 export interface TranslationClient {
   cancelTurn?: (input: { threadId: string; turnId: string }) => Promise<void>;
+  listModels?: () => Promise<CodexModelCatalog>;
   probe: () => Promise<void>;
-  translateChunk: (input: TranslateChunkInput) => Promise<CodexChunkOutput>;
+  translateChunk: (input: TranslateChunkInput) => Promise<RawCodexChunkOutput>;
 }
 
 interface WireMessage {
@@ -207,6 +229,14 @@ export class CodexAppServerClient implements TranslationClient {
     return login;
   }
 
+  async listModels(): Promise<CodexModelCatalog> {
+    await this.ensureInitialized();
+    const response = await this.request("model/list", {
+      includeHidden: false,
+    });
+    return readCodexModelCatalog(response);
+  }
+
   async *observeAuthEvents(): AsyncIterable<CodexAuthEvent> {
     const queue: CodexAuthEvent[] = [];
     let wake: (() => void) | undefined;
@@ -263,7 +293,7 @@ export class CodexAppServerClient implements TranslationClient {
 
   async translateChunk(
     input: TranslateChunkInput,
-  ): Promise<CodexChunkOutput> {
+  ): Promise<RawCodexChunkOutput> {
     await this.probe();
     const shouldTryStructured =
       input.outputSchema !== undefined && this.outputSchemaMode !== "prompt_only";
@@ -288,7 +318,7 @@ export class CodexAppServerClient implements TranslationClient {
   private async translateChunkAttempt(
     input: TranslateChunkInput,
     options: { includeOutputSchema: boolean },
-  ): Promise<CodexChunkOutput> {
+  ): Promise<RawCodexChunkOutput> {
     const thread = await this.request("thread/start", {
       cwd: await createRuntimeCwd(input.chunk.jobId),
       ephemeral: true,
@@ -319,6 +349,12 @@ export class CodexAppServerClient implements TranslationClient {
       approvalPolicy: "never",
       approvalsReviewer: "auto_review",
       sandboxPolicy: { type: "readOnly", networkAccess: false },
+      ...(input.model === undefined || input.model === null
+        ? {}
+        : { model: input.model }),
+      ...(input.reasoningEffort === undefined || input.reasoningEffort === null
+        ? {}
+        : { effort: input.reasoningEffort }),
       ...(options.includeOutputSchema && input.outputSchema !== undefined
         ? { outputSchema: input.outputSchema }
         : {}),
@@ -464,13 +500,13 @@ export class CodexAppServerClient implements TranslationClient {
     onEvent?: (event: CodexAppServerEvent) => void;
     threadId: string;
     turnId: () => string | undefined;
-  }): { output: Promise<CodexChunkOutput>; unsubscribe: () => void } {
+  }): { output: Promise<RawCodexChunkOutput>; unsubscribe: () => void } {
     let unsubscribe: () => void = () => undefined;
     let unsubscribeClose: () => void = () => undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const output = new Promise<CodexChunkOutput>((resolve, reject) => {
+    const output = new Promise<RawCodexChunkOutput>((resolve, reject) => {
       let settled = false;
-      const settleResolve = (value: CodexChunkOutput) => {
+      const settleResolve = (value: RawCodexChunkOutput) => {
         if (settled) {
           return;
         }
@@ -825,13 +861,13 @@ function parseWireMessage(value: string): WireMessage {
   return parsed;
 }
 
-function readFinalOutput(value: unknown): CodexChunkOutput | undefined {
+function readFinalOutput(value: unknown): RawCodexChunkOutput | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
   const output = value.output ?? value.finalOutput ?? value.structuredOutput;
-  if (isRecord(output) && Array.isArray(output.blocks)) {
-    return output as unknown as CodexChunkOutput;
+  if (isRecord(output) && Array.isArray(output.segments)) {
+    return output as unknown as RawCodexChunkOutput;
   }
   if (isRecord(value.turn)) {
     const turnOutput = readFinalOutput(value.turn);
@@ -934,12 +970,92 @@ function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
   };
 }
 
-function parseCodexJsonOutput(text: string): CodexChunkOutput | undefined {
+function readCodexModelCatalog(value: unknown): CodexModelCatalog {
+  if (!isRecord(value) || !Array.isArray(value.data)) {
+    throw new CodexAppServerError(
+      "app_server_protocol_error",
+      "Codex app-server returned an invalid model catalog.",
+    );
+  }
+
+  const models: CodexModelInfo[] = [];
+  for (const row of value.data) {
+    const model = readCodexModelInfo(row);
+    if (model !== undefined) {
+      models.push(model);
+    }
+  }
+  return { models };
+}
+
+function readCodexModelInfo(value: unknown): CodexModelInfo | undefined {
+  if (!isRecord(value)) {
+    throw invalidModelCatalogError();
+  }
+  if (value.hidden === true) {
+    return undefined;
+  }
+  const id = readStringField(value, "id");
+  const model = readStringField(value, "model");
+  const displayName = readStringField(value, "displayName");
+  const description = readStringField(value, "description");
+  const defaultReasoningEffort = readReasoningEffort(value.defaultReasoningEffort);
+  if (
+    id === undefined ||
+    model === undefined ||
+    displayName === undefined ||
+    description === undefined ||
+    defaultReasoningEffort === undefined ||
+    typeof value.isDefault !== "boolean" ||
+    !Array.isArray(value.supportedReasoningEfforts)
+  ) {
+    throw invalidModelCatalogError();
+  }
+  const supportedReasoningEfforts = value.supportedReasoningEfforts.map(
+    readReasoningEffortOption,
+  );
+  if (supportedReasoningEfforts.some((effort) => effort === undefined)) {
+    throw invalidModelCatalogError();
+  }
+
+  return {
+    id,
+    model,
+    displayName,
+    description,
+    isDefault: value.isDefault,
+    defaultReasoningEffort,
+    supportedReasoningEfforts:
+      supportedReasoningEfforts as CodexReasoningEffort[],
+  };
+}
+
+function readReasoningEffortOption(value: unknown): CodexReasoningEffort | undefined {
+  if (typeof value === "string") {
+    return readReasoningEffort(value);
+  }
+  return isRecord(value) ? readReasoningEffort(value.reasoningEffort) : undefined;
+}
+
+function readReasoningEffort(value: unknown): CodexReasoningEffort | undefined {
+  return typeof value === "string" && isCodexReasoningEffort(value)
+    ? value
+    : undefined;
+}
+
+function invalidModelCatalogError(): CodexAppServerError {
+  return new CodexAppServerError(
+    "app_server_protocol_error",
+    "Codex app-server returned an invalid model catalog.",
+  );
+}
+
+function parseCodexJsonOutput(text: string): RawCodexChunkOutput | undefined {
   const trimmed = stripJsonFence(text.trim());
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    return isRecord(parsed) && Array.isArray(parsed.blocks)
-      ? parsed as unknown as CodexChunkOutput
+    return isRecord(parsed) && Array.isArray(parsed.segments)
+      ? parsed as unknown as RawCodexChunkOutput
       : undefined;
   } catch {
     return undefined;

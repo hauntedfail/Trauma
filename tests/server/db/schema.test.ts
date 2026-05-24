@@ -27,6 +27,7 @@ describe("db foundation", () => {
       "tags",
       "translationChunks",
       "translationJobs",
+      "translationProjectionSpans",
     ]);
   });
 

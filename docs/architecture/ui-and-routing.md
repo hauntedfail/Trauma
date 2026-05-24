@@ -102,7 +102,10 @@ design changes the route model.
 
 ## Reader
 
-`/memories/:id` renders `CONTENT.md` in read mode.
+`/memories/:id` renders source `CONTENT.md` in read mode.
+`/memories/:lang_code/:id` renders a current translated variant from
+`memories/<memory_id>/<lang_code>/CONTENT.md` when the translation row and file
+hash are current.
 
 The initial markdown reader supports:
 
@@ -119,6 +122,13 @@ Text selection inside reader content is a flashback toggle. Selecting
 unflashbacked text creates a flashback. Selecting text that is already
 flashbacked removes flashback styling from the selected text only, preserving
 any unselected flashbacked text around it.
+
+Translated reader routes show canonical Flashbacks and Moments through the
+current translation projection map. The right rail lists projected snippets for
+the active translated variant, but the saved annotation ids remain the source
+canonical ids. Creating Flashbacks or Moments from a translated route sends the
+active language to the backend so the write can be reverse-projected to source
+metadata.
 
 External embeds auto-load in the initial design. This has privacy and network
 side effects; future configuration may allow lazy or disabled embeds.

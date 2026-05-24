@@ -12,6 +12,7 @@ import {
   parseCodexAppServerEndpoint,
 } from "../../../src/server/translation/codex-app-server";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
+import { createTranslationSegmentManifest } from "../../../src/server/translation/translation-segments";
 import type { TranslationChunk } from "../../../src/server/translation/types";
 
 const originalSocketPath = process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
@@ -75,7 +76,8 @@ describe("Codex app-server endpoint parsing", () => {
 
       expect(output).toEqual({
         chunk_index: 0,
-        blocks: [{ id: "b000001", translated_markdown: "翻訳本文" }],
+        segments: [{ id: "s000001", translated_text: "翻訳本文" }],
+        translated_markdown: "翻訳本文",
         warnings: [],
       });
       expect(receivedMethods).toEqual([
@@ -157,21 +159,123 @@ describe("Codex app-server endpoint parsing", () => {
         chunk: createChunk(),
         outputSchema: {
           type: "object",
-          required: ["blocks"],
+          required: ["segments"],
           properties: {
-            blocks: { type: "array" },
+            segments: { type: "array" },
           },
         },
         prompt: "translate chunk",
       });
 
-      expect(output.blocks).toEqual([
-        { id: "b000001", translated_markdown: "翻訳本文" },
+      expect(output.segments).toEqual([
+        { id: "s000001", translated_text: "翻訳本文" },
       ]);
       expect(receivedMethods.filter((method) => method === "thread/start"))
         .toHaveLength(2);
       expect(receivedMethods.filter((method) => method === "turn/start"))
         .toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("lists visible Codex models from the app-server catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-models-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      modelListResponse: {
+        data: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            hidden: false,
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "low", description: "Fast" },
+              { reasoningEffort: "medium", description: "Balanced" },
+              { reasoningEffort: "high", description: "Deeper" },
+            ],
+          },
+          {
+            id: "legacy-hidden",
+            model: "legacy-hidden",
+            displayName: "Legacy hidden",
+            description: "Hidden model",
+            hidden: true,
+            isDefault: false,
+            defaultReasoningEffort: "low",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "low", description: "Fast" },
+            ],
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.listModels()).resolves.toEqual({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      });
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "model/list",
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects malformed Codex model catalog responses as protocol errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-bad-models-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      modelListResponse: {
+        data: [
+          {
+            id: "gpt-bad",
+            displayName: "Bad model",
+            hidden: false,
+            isDefault: false,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: [],
+          },
+        ],
+      },
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.listModels()).rejects.toMatchObject({
+        code: "app_server_protocol_error",
+      });
     } finally {
       await server.close();
     }
@@ -223,6 +327,42 @@ describe("Codex app-server endpoint parsing", () => {
         threadId: "thread-1",
       });
       expect(turnStart.params).not.toHaveProperty("environments");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("passes selected model and reasoning effort through turn/start", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-model-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await client.translateChunk({
+        chunk: createChunk(),
+        model: "gpt-5.5",
+        outputSchema: { type: "object" },
+        prompt: "translate chunk",
+        reasoningEffort: "high",
+      });
+
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        model: "gpt-5.5",
+        effort: "high",
+      });
+      expect(turnStart.params).not.toHaveProperty("reasoningEffort");
+      expect(turnStart.params).not.toHaveProperty("reasoning_effort");
     } finally {
       await server.close();
     }
@@ -441,6 +581,7 @@ describe("Codex app-server endpoint parsing", () => {
 function createChunk(): TranslationChunk {
   const sourceMarkdown = "Source body";
   const manifest = parseMarkdownTranslationBlocks(sourceMarkdown);
+  const segmentManifest = createTranslationSegmentManifest(sourceMarkdown);
   return {
     blockIds: ["b000001"],
     chunkCount: 1,
@@ -457,6 +598,7 @@ function createChunk(): TranslationChunk {
     sourceHash: "sha256:source",
     sourceMarkdown,
     sourceUrl: "https://example.com",
+    segments: segmentManifest.segments,
     styleProfile: null,
   };
 }
@@ -613,6 +755,12 @@ function handleClientMessage(
     case "account/logout":
       sendJson(socket, { id, result: {} });
       break;
+    case "model/list":
+      sendJson(socket, {
+        id,
+        result: options.modelListResponse ?? { data: [] },
+      });
+      break;
     case "thread/start":
       if (
         options.rejectThreadStartWithExperimentalCapabilityError === true
@@ -663,7 +811,8 @@ function handleClientMessage(
             id: "item-1",
             text: JSON.stringify({
               chunk_index: 0,
-              blocks: [{ id: "b000001", translated_markdown: "翻訳本文" }],
+              segments: [{ id: "s000001", translated_text: "翻訳本文" }],
+              translated_markdown: "翻訳本文",
               warnings: [],
             }),
             type: "agentMessage",
@@ -681,6 +830,7 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  modelListResponse?: unknown;
   receivedMessages?: CapturedClientMessage[];
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;

@@ -23,6 +23,8 @@ describe("translation API routes", () => {
       startTranslationJob: async (input) => {
         expect(input.memoryId).toBe("019e3906-0000-7000-8000-000000000001");
         expect(input.langCode).toBe("ja-JP");
+        expect(input.model).toBe("gpt-5.5");
+        expect(input.reasoningEffort).toBe("high");
         return {
           status: "started",
           event_url: "/api/translation-jobs/job-1/events",
@@ -36,7 +38,11 @@ describe("translation API routes", () => {
 
     const response = await handler(
       createApiEvent({
-        body: { lang_code: "ja-JP" },
+        body: {
+          lang_code: "ja-JP",
+          model: "gpt-5.5",
+          reasoning_effort: "high",
+        },
         memoryId: "019e3906-0000-7000-8000-000000000001",
       }),
     );
@@ -138,6 +144,35 @@ describe("translation API routes", () => {
       expect(response.status).toBe(expectedStatus);
       await expect(response.json()).resolves.toMatchObject({
         action: "retry",
+        code,
+        message: `${code} message`,
+        status: "error",
+      });
+    },
+  );
+
+  it.each([
+    ["translation_model_unavailable", 409],
+    ["translation_reasoning_effort_unavailable", 409],
+  ] as const)(
+    "maps %s to a settings-correctable conflict",
+    async (code, expectedStatus) => {
+      const handler = createStartTranslationHandler({
+        startTranslationJob: async () => {
+          throw new TranslationApiError(code, `${code} message`, "open_settings");
+        },
+      });
+
+      const response = await handler(
+        createApiEvent({
+          body: { lang_code: "ja-JP", model: "missing-model" },
+          memoryId: "019e3906-0000-7000-8000-000000000001",
+        }),
+      );
+
+      expect(response.status).toBe(expectedStatus);
+      await expect(response.json()).resolves.toMatchObject({
+        action: "open_settings",
         code,
         message: `${code} message`,
         status: "error",

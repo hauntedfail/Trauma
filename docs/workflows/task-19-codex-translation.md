@@ -35,6 +35,7 @@ Research reference captured by the instruction:
 - Resolve source and translated content under configured `storePath`.
 - Store source memory content at store-relative `memories/<memory_id>/CONTENT.md`.
 - Store translated content at store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`, for example `memories/abc123/ja-JP/CONTENT.md`.
+- Store translated projection backup data at store-relative `memories/<memory_id>/<lang_code>/TRANSLATION_MAP.json`.
 - Instruction note: `TASK_19_INSTRUCTION.md` uses conceptual `memory/<memory_id>/...` paths. Implementation must use TRAUMA's existing plural store layout under configured `storePath`: `memories/<memory_id>/...`.
 - Expose translated content through a dedicated reader route shaped as `/memories/:lang_code/:id`, mapping to store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - On the source memory reader page, show a Codex icon at the right edge of the title only when the configured target-language translation does not exist yet.
@@ -45,6 +46,7 @@ Research reference captured by the instruction:
 - Do not introduce persistent `.work/<job_id>` artifacts.
 - Allow temporary SQLite chunk content during translation only.
 - Immediately purge completed translated chunk bodies from SQLite after final `CONTENT.md` has been atomically committed.
+- Immediately purge temporary chunk projection JSON after final commit while retaining durable `translation_projection_spans` rows keyed by source and output hashes.
 - Persist only metadata needed for status, stale detection, audit, retry diagnostics, and cache validation.
 
 ## End-to-end pipeline
@@ -57,8 +59,8 @@ Research reference captured by the instruction:
 6. Validation checks every completed chunk before it can become authoritative.
 7. Retry handles chunk-level validation, auth, usage, timeout, context, and stream failures without retrying the whole document unnecessarily.
 8. Stitching reassembles translated blocks in manifest order and performs final full-document validation.
-9. Atomic commit writes a same-directory temp file, flushes it, renames it to `CONTENT.md`, flushes the parent directory when supported, marks the job complete, and purges completed chunk bodies.
-10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds, then exposes it through the translated reader route and variant tabs.
+9. Atomic commit writes a same-directory temp file, flushes it, renames it to `CONTENT.md`, writes `TRANSLATION_MAP.json`, stores projection rows, flushes the parent directory when supported, marks the job complete, and purges completed chunk bodies plus temporary chunk projection JSON.
+10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds, then exposes it through the translated reader route and variant tabs. Canonical Flashbacks and Moments are projected into translated reader variants only when current projection rows match the source and output hashes.
 
 ## Minimal SQLite schema direction
 
@@ -67,9 +69,13 @@ Brilliant should add these tables or equivalent Drizzle schema objects:
 ```sql
 translation_jobs
 translation_chunks
+translation_projection_spans
 ```
 
-`translation_jobs` tracks job metadata, status, hashes, output path, model, chunker version, prompt policy version, errors, and timestamps.
+`translation_jobs` tracks job metadata, status, hashes, output path, selected
+Codex model, selected Codex reasoning effort, chunker version, prompt policy
+version, errors, and timestamps. Model and effort are execution metadata; they
+do not change completed-translation identity.
 
 `translation_chunks` tracks per-chunk source hash, ordered block ids, status, retry count, temporary translated Markdown, translated hash, error state, and timestamps.
 
@@ -141,9 +147,19 @@ GET  /api/memories/:memory_id/translations/:lang_code
 GET  /api/translation-jobs/:job_id
 GET  /api/translation-jobs/:job_id/events
 POST /api/translation-jobs/:job_id/cancel
+GET  /api/settings/codex-models
+PATCH /api/settings/translation-codex-defaults
 ```
 
-`POST /api/memories/:memory_id/translations` starts or reuses a translation job for the SQLite-persisted settings `lang_code`. A request body `lang_code`, if present, is only a consistency assertion and must match the stored setting. The route schedules work on the local in-process Brilliant runner and returns without waiting for full translation.
+`POST /api/memories/:memory_id/translations` starts or reuses a translation job.
+The body may include `lang_code`, `model`, and `reasoning_effort`; omitted
+`model` or `reasoning_effort` values use the persisted Codex translation
+defaults. Submitted model and effort are validated against Codex app-server
+`model/list`, saved as new defaults when accepted, written to
+`translation_jobs`, and forwarded to app-server `turn/start`. An existing active
+job is reused without rewriting its model or effort. The route schedules work on
+the local in-process Brilliant runner and returns without waiting for full
+translation.
 
 `GET /api/memories/:memory_id/translations/:lang_code` returns committed translation metadata and renderability state.
 
@@ -200,6 +216,7 @@ Subagents may work only on non-overlapping files and must report changed files, 
 - Does not introduce `.work/<job_id>`.
 - Allows temporary SQLite chunk storage during translation.
 - Requires immediate purge of translated chunk bodies after final commit.
+- Keeps Flashbacks and Moments source canonical while projecting them into translated reader variants.
 - Uses atomic final file write.
 - Supports long documents and academic papers through deterministic chunking.
 - Includes frontend streaming progress through SSE.

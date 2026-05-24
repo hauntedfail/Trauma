@@ -18,15 +18,15 @@ Validate final chunk output and retry only failed chunks. This subtask does not 
 
 Scope: final chunk output validation and chunk-level retry decisions.
 
-Inputs: expected chunk manifest, protected spans, Codex final item output, retry count, and chunk config thresholds.
+Inputs: expected chunk manifest, segment ids, Codex final item output, retry count, and chunk config thresholds.
 
 Outputs: structured validation errors, retry prompt context, chunk status updates, and retry exhaustion behaviour.
 
-Dependencies: 19.4 provides expected blocks; 19.8 defines output schema; 19.3 owns job/chunk state transitions.
+Dependencies: 19.4 provides expected segments; 19.8 defines output schema; 19.3 owns job/chunk state transitions.
 
 Parallelization notes: can run beside prompt work after schema names are frozen; do not stitch full documents here.
 
-Implementation risks: retrying the whole document or accepting missing block ids violates completeness guarantees.
+Implementation risks: retrying the whole document or accepting missing segment ids violates completeness guarantees.
 
 ## Validation contract
 
@@ -34,17 +34,13 @@ Validate in this order:
 
 1. JSON parses and matches output schema.
 2. `chunk_index` equals requested chunk index.
-3. Output block ids exactly equal input block ids in the same order.
-4. No duplicate block ids.
-5. `translated_markdown` is non-empty unless the source block is non-translatable media-only content.
-6. Protected spans are preserved per block.
-7. Code fence delimiter count is unchanged.
-8. Math delimiters are unchanged.
-9. HTML tag names and balance are unchanged for HTML blocks.
-10. Citation markers and footnote markers are preserved.
-11. URLs and Markdown link destinations are preserved.
-12. Omission markers are rejected when used as omission markers.
-13. Prose length ratio stays within configured thresholds.
+3. Output segment ids exactly equal input segment ids in the same order.
+4. No duplicate segment ids.
+5. Each `translated_text` is non-empty.
+6. Reassemble translated text into the original source Markdown ranges.
+7. Parser-backed structural fingerprint comparison preserves Markdown structure.
+8. Code, inline code, math, HTML, URLs, link/image destinations, reference definitions, footnote identifiers, and table shape are unchanged.
+9. Prose segment length ratio stays within configured thresholds.
 
 Error code boundary:
 
@@ -64,7 +60,7 @@ Error code boundary:
 - Increment `retry_count` exactly once before starting each retry attempt.
 - Runner recovery must not increment `retry_count` when it only normalizes orphaned `running` or `validating` chunks to `retrying`; the next normal retry attempt owns the increment.
 - Include structured validation failures in the retry prompt.
-- Retry prompts include only Reader-generated structured validation failure summaries and original block ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
+- Retry prompts include only Reader-generated structured validation failure summaries and original segment ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
 - Use `BRILLIANT_MAX_RETRIES = 3` from the shared types/settings contract for Brilliant MVP.
 - `BRILLIANT_MAX_RETRIES` is the number of retry attempts after the initial attempt, so total attempts are `1 + BRILLIANT_MAX_RETRIES`.
 - The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts, and never from recovery-only normalization.
@@ -76,16 +72,18 @@ Error code boundary:
 
 ## Failure examples to test
 
-- missing block id
-- duplicate block id
-- reordered block ids
+- missing segment id
+- duplicate segment id
+- reordered segment ids
 - lost URL
 - lost citation marker
 - lost footnote marker
 - corrupted code fence
 - corrupted math delimiter
 - corrupted HTML tag
-- omission marker such as `summary`, `omitted`, or `省略`
+- changed table row/cell shape
+- changed reference definition
+- changed footnote identifier
 - prose length ratio outside threshold
 
 ## Tests
@@ -97,8 +95,8 @@ Cover:
 - JSON parse/schema failures use `invalid_final_output`
 - semantic validation failures use `validation_failed`
 - chunk error persistence uses structured `TranslationPersistedError` JSON
-- media-only block may remain empty when explicitly allowed
-- retry prompt includes validation errors and original block ids
+- chunks with no text segments reassemble unchanged
+- retry prompt includes validation errors and original segment ids
 - retry starts a fresh ephemeral Codex thread for each attempt
 - retry prompt does not depend on prior failed thread history
 - output-mode fallback does not increment retry count

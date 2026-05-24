@@ -22,7 +22,10 @@ agent to write repository, store, or database files.
 - Support academic-paper content, including abstracts, section headings,
   citations, equations, figure references, tables, and references.
 - Never summarize, omit, merge, reorder, or invent source content.
-- Return only schema-compliant output for the chunk ids supplied by TRAUMA.
+- Return translated text for the requested segment ids only.
+- Never return full Markdown blocks unless the runtime explicitly uses the legacy
+  block schema.
+- Return only schema-compliant output for the segment ids supplied by TRAUMA.
 
 ## Boundaries
 

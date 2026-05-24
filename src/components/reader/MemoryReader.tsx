@@ -19,7 +19,12 @@ import type {
   ReaderContentVariant,
 } from "../../server/reader/page-data";
 import type { BrowseTaxonomySummaryItem } from "../memories/browse-data";
-import type { SupportedLanguageCode } from "../../settings/languages";
+import {
+  SUPPORTED_TRANSLATION_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../../settings/languages";
+import type { CodexModelCatalog } from "../../server/translation/codex-app-server";
+import type { CodexReasoningEffort } from "../../server/translation/types";
 import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
@@ -74,6 +79,7 @@ import {
   ScrollableUrlDisplay,
   ScrollableUrlLink,
 } from "../url/ScrollableUrlText";
+import { submitReadCodexModels } from "../settings/settings-submit";
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -81,6 +87,8 @@ interface MemoryReaderProps {
   navigate?: (path: string) => void;
   result: ReaderMemoryResult;
   tagOptions?: readonly BrowseTaxonomySummaryItem[];
+  translationModel?: string | null;
+  translationReasoningEffort?: CodexReasoningEffort | null;
   translationTargetLanguage?: SupportedLanguageCode;
 }
 
@@ -162,6 +170,8 @@ export function MemoryReader(props: MemoryReaderProps) {
           navigate={props.navigate}
           result={result}
           tagOptions={props.tagOptions ?? []}
+          translationModel={props.translationModel}
+          translationReasoningEffort={props.translationReasoningEffort}
           translationTargetLanguage={props.translationTargetLanguage}
         />
       )}
@@ -175,6 +185,8 @@ function ReadyMemoryReader(props: {
   navigate?: (path: string) => void;
   result: ReadyReaderMemoryResult;
   tagOptions: readonly BrowseTaxonomySummaryItem[];
+  translationModel?: string | null;
+  translationReasoningEffort?: CodexReasoningEffort | null;
   translationTargetLanguage?: SupportedLanguageCode;
 }) {
   let readerRootRef: HTMLElement | undefined;
@@ -219,6 +231,20 @@ function ReadyMemoryReader(props: {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [translationProgress, setTranslationProgress] =
     createSignal<TranslationProgressState>();
+  const [translationDialogOpen, setTranslationDialogOpen] = createSignal(false);
+  const [translationFormLanguage, setTranslationFormLanguage] = createSignal<
+    SupportedLanguageCode | ""
+  >(props.translationTargetLanguage ?? "");
+  const [translationFormModel, setTranslationFormModel] = createSignal(
+    props.translationModel ?? "",
+  );
+  const [translationFormEffort, setTranslationFormEffort] = createSignal<
+    CodexReasoningEffort | ""
+  >(props.translationReasoningEffort ?? "");
+  const [translationCatalogModels, setTranslationCatalogModels] = createSignal<
+    CodexModelCatalog["models"]
+  >([]);
+  const [translationCatalogError, setTranslationCatalogError] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
   let translationEventSource: EventSource | undefined;
 
@@ -228,6 +254,13 @@ function ReadyMemoryReader(props: {
     closeSelectionMenu();
     closeSectionMenu();
   };
+  createEffect(() => {
+    if (!translationDialogOpen()) {
+      setTranslationFormLanguage(props.translationTargetLanguage ?? "");
+      setTranslationFormModel(props.translationModel ?? "");
+      setTranslationFormEffort(props.translationReasoningEffort ?? "");
+    }
+  });
   createEffect(() => {
     props.result.memory.id;
     setCategories([...props.result.memory.categories]);
@@ -342,6 +375,7 @@ function ReadyMemoryReader(props: {
     closeSelectionMenu();
     void toggleReaderSelection({
       container: bodyContentRef,
+      langCode: props.result.content.langCode,
       memoryId: props.result.memory.id,
       pendingSelectionKey: pendingSelectionKey(),
       selection: menu.selection,
@@ -433,6 +467,45 @@ function ReadyMemoryReader(props: {
     !isTranslatedReader() &&
     props.translationTargetLanguage !== undefined &&
     !hasConfiguredTargetVariant();
+  const selectedTranslationModel = createMemo(() => {
+    const current = translationFormModel();
+    return translationCatalogModels().find((model) =>
+      model.model === current || model.id === current
+    );
+  });
+  const translationReasoningEfforts = createMemo(() => {
+    const selected = selectedTranslationModel();
+    if (selected !== undefined) {
+      return selected.supportedReasoningEfforts;
+    }
+    return translationCatalogModels().find((model) => model.isDefault)
+      ?.supportedReasoningEfforts ?? [];
+  });
+  const refreshTranslationCatalog = async (): Promise<void> => {
+    setTranslationCatalogError("");
+    try {
+      const catalog = await submitReadCodexModels();
+      setTranslationCatalogModels(catalog.models);
+    } catch (error) {
+      setTranslationCatalogError(
+        error instanceof Error
+          ? error.message
+          : "Codex model catalog is unavailable.",
+      );
+    }
+  };
+  const openTranslationDialog = (): void => {
+    if (!canStartTranslation()) {
+      return;
+    }
+    setTranslationFormLanguage(props.translationTargetLanguage ?? "");
+    setTranslationFormModel(props.translationModel ?? "");
+    setTranslationFormEffort(props.translationReasoningEffort ?? "");
+    setTranslationDialogOpen(true);
+    if (translationCatalogModels().length === 0) {
+      void refreshTranslationCatalog();
+    }
+  };
   const connectTranslationProgress = (eventUrl: string, jobId: string) => {
     translationEventSource?.close();
     const eventSource = new EventSource(eventUrl);
@@ -484,8 +557,29 @@ function ReadyMemoryReader(props: {
       translationEventSource = undefined;
     };
   };
-  const startTranslation = async (): Promise<void> => {
-    const langCode = props.translationTargetLanguage;
+  const submitTranslationDialog: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
+    event,
+  ) => {
+    event.preventDefault();
+    const langCode = translationFormLanguage();
+    if (langCode === "") {
+      return;
+    }
+    const selectedEffort = translationFormEffort();
+    void startTranslation({
+      langCode,
+      model: translationFormModel() === "" ? null : translationFormModel(),
+      reasoningEffort: selectedEffort === ""
+        ? null
+        : selectedEffort,
+    });
+  };
+  const startTranslation = async (input: {
+    langCode: SupportedLanguageCode;
+    model: string | null;
+    reasoningEffort: CodexReasoningEffort | null;
+  }): Promise<void> => {
+    const langCode = input.langCode;
     if (langCode === undefined || !canStartTranslation()) {
       return;
     }
@@ -502,8 +596,11 @@ function ReadyMemoryReader(props: {
       const result = await startReaderTranslation({
         langCode,
         memoryId: props.result.memory.id,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
       });
       if (result.status === "current") {
+        setTranslationDialogOpen(false);
         navigate(result.reader_url);
         return;
       }
@@ -517,6 +614,7 @@ function ReadyMemoryReader(props: {
         preview: "",
         status: "running",
       });
+      setTranslationDialogOpen(false);
       connectTranslationProgress(result.event_url, result.job_id);
     } catch (error) {
       setTranslationProgress({
@@ -569,6 +667,7 @@ function ReadyMemoryReader(props: {
       }
 
       const result = await createMomentForSection({
+        langCode: props.result.content.langCode,
         memoryId: props.result.memory.id,
         section,
       });
@@ -693,7 +792,7 @@ function ReadyMemoryReader(props: {
             {(progress) => (
               <section
                 aria-live="polite"
-                class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev px-4 py-3 text-sm font-bold text-trauma-text-secondary"
+                class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev/50 px-4 py-3 text-sm font-bold text-trauma-text-secondary backdrop-blur"
                 role="status"
               >
                 <div class="flex items-center gap-2 text-trauma-text-primary">
@@ -748,17 +847,133 @@ function ReadyMemoryReader(props: {
                 )}
               </Show>
               <Show when={canStartTranslation()}>
-                <button
-                  aria-label={`Translate memory to ${props.translationTargetLanguage}`}
-                  class="grid size-10 shrink-0 place-items-center rounded-full text-trauma-text-muted transition hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
-                  data-reader-noncontent
-                  disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
-                  title={`Translate to ${props.translationTargetLanguage}`}
-                  type="button"
-                  onClick={() => void startTranslation()}
-                >
-                  <CodexIcon size={18} />
-                </button>
+                <div class="relative flex shrink-0 justify-end" data-reader-noncontent>
+                  <button
+                    aria-expanded={translationDialogOpen() ? "true" : "false"}
+                    aria-haspopup="dialog"
+                    aria-label={`Translate memory to ${props.translationTargetLanguage}`}
+                    class="group grid h-10 w-10 grid-cols-[2.5rem_minmax(0,1fr)] items-center overflow-hidden rounded-full text-trauma-text-muted transition-[width,background-color,color] duration-200 hover:w-32 hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
+                    disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
+                    title={`Translate to ${props.translationTargetLanguage}`}
+                    type="button"
+                    onClick={openTranslationDialog}
+                  >
+                    <span class="grid size-10 place-items-center">
+                      <CodexIcon size={18} />
+                    </span>
+                    <span class="whitespace-nowrap pr-4 text-sm font-extrabold opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                      Translate
+                    </span>
+                  </button>
+                  <Show when={translationDialogOpen()}>
+                    <form
+                      class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"
+                      role="dialog"
+                      aria-label="Translation settings"
+                      onSubmit={submitTranslationDialog}
+                    >
+                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                        Language
+                        <select
+                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                          value={translationFormLanguage()}
+                          onChange={(event) =>
+                            setTranslationFormLanguage(
+                              event.currentTarget.value as SupportedLanguageCode,
+                            )
+                          }
+                        >
+                          {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
+                            <option value={option.code}>
+                              {option.label} ({option.code})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                        Model
+                        <select
+                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                          value={translationFormModel()}
+                          onChange={(event) =>
+                            setTranslationFormModel(event.currentTarget.value)
+                          }
+                        >
+                          <option value="">Codex app-server default</option>
+                          <Show
+                            when={
+                              translationFormModel() !== "" &&
+                              !translationCatalogModels().some((model) =>
+                                model.id === translationFormModel() ||
+                                model.model === translationFormModel()
+                              )
+                            }
+                          >
+                            <option value={translationFormModel()}>
+                              {translationFormModel()}
+                            </option>
+                          </Show>
+                          {translationCatalogModels().map((model) => (
+                            <option value={model.model}>
+                              {model.displayName} ({model.model})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                        Reasoning effort
+                        <select
+                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                          value={translationFormEffort()}
+                          onChange={(event) =>
+                            setTranslationFormEffort(
+                              event.currentTarget.value as CodexReasoningEffort | "",
+                            )
+                          }
+                        >
+                          <option value="">Selected model default</option>
+                          <Show
+                            when={
+                              translationFormEffort() !== "" &&
+                              !translationReasoningEfforts().includes(
+                                translationFormEffort() as CodexReasoningEffort,
+                              )
+                            }
+                          >
+                            <option value={translationFormEffort()}>
+                              {translationFormEffort()}
+                            </option>
+                          </Show>
+                          {translationReasoningEfforts().map((effort) => (
+                            <option value={effort}>{effort}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <Show when={translationCatalogError()}>
+                        {(value) => (
+                          <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                            {value()}
+                          </p>
+                        )}
+                      </Show>
+                      <div class="flex justify-end gap-2">
+                        <button
+                          class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                          type="button"
+                          onClick={() => setTranslationDialogOpen(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent/50 px-3 text-sm font-extrabold text-trauma-accent-ink"
+                          type="submit"
+                        >
+                          Translate
+                        </button>
+                      </div>
+                    </form>
+                  </Show>
+                </div>
               </Show>
             </div>
             <div data-reader-noncontent>
@@ -969,12 +1184,20 @@ export async function startReaderTranslation(input: {
   fetch?: FetchFunction;
   langCode: SupportedLanguageCode;
   memoryId: string;
+  model?: string | null;
+  reasoningEffort?: string | null;
 }): Promise<ReaderTranslationStartResult> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch(
     `/api/memories/${input.memoryId}/translations`,
     {
-      body: JSON.stringify({ lang_code: input.langCode }),
+      body: JSON.stringify({
+        lang_code: input.langCode,
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.reasoningEffort === undefined
+          ? {}
+          : { reasoning_effort: input.reasoningEffort }),
+      }),
       headers: {
         "content-type": "application/json",
       },
@@ -1211,6 +1434,10 @@ function messageForTranslationError(
       return "Set a translation target language in Settings before translating.";
     case "translation_language_mismatch":
       return "Translation target language changed. Refresh settings and try again.";
+    case "translation_model_unavailable":
+      return "Selected Codex model is unavailable. Update Settings and try again.";
+    case "translation_reasoning_effort_unavailable":
+      return "Selected Codex reasoning effort is unavailable for that model. Update Settings and try again.";
     case "auth_required":
     case "setup_required":
       return "Codex ChatGPT sign-in is required before translation can run.";
@@ -1938,6 +2165,7 @@ function ReaderTocEntryRow(props: {
 
 async function toggleReaderSelection(input: {
   container: HTMLDivElement;
+  langCode?: SupportedLanguageCode;
   memoryId: string;
   onFlashbacksChanged: (flashbacks: ReaderFlashbackItem[]) => void;
   onSuccess: () => Promise<void> | void;
@@ -1974,7 +2202,8 @@ async function toggleReaderSelection(input: {
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({
+      body: buildFlashbackToggleRequestBody({
+        langCode: input.langCode,
         memoryId: input.memoryId,
         operation,
         selection: toPayload(selection),
@@ -2008,6 +2237,20 @@ async function toggleReaderSelection(input: {
   } finally {
     input.setPendingSelectionKey("");
   }
+}
+
+export function buildFlashbackToggleRequestBody(input: {
+  langCode?: SupportedLanguageCode;
+  memoryId: string;
+  operation: ReaderFlashbackOperation;
+  selection: ReaderSelectionPayload;
+}): string {
+  return JSON.stringify({
+    memoryId: input.memoryId,
+    operation: input.operation,
+    selection: input.selection,
+    ...(input.langCode === undefined ? {} : { langCode: input.langCode }),
+  });
 }
 
 interface ReaderFlashbackToggleSuccess {

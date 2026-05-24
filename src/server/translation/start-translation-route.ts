@@ -9,7 +9,12 @@ import {
 type StartTranslationJob = typeof startTranslationJob;
 
 type StartTranslationPayload =
-  | { ok: true; langCode?: string }
+  | {
+      ok: true;
+      langCode?: string;
+      model?: string | null;
+      reasoningEffort?: string | null;
+    }
   | { ok: false; error: string };
 
 export function createStartTranslationHandler(input: {
@@ -41,6 +46,8 @@ export async function handleStartTranslationRequest(
     const result = await input.startTranslationJob({
       langCode: payload.langCode,
       memoryId,
+      model: payload.model,
+      reasoningEffort: payload.reasoningEffort,
     });
     return jsonResponse(result, {
       status: result.status === "started" ? 202 : 200,
@@ -72,17 +79,56 @@ export async function parseStartTranslationPayload(
   if (keys.length === 0) {
     return { ok: true };
   }
-  if (!hasOnlyKeys(payload, ["lang_code"])) {
-    return { ok: false, error: "request body must contain only lang_code" };
+  if (!hasOnlyAllowedKeys(payload, ["lang_code", "model", "reasoning_effort"])) {
+    return {
+      ok: false,
+      error: "request body must contain only lang_code, model, and reasoning_effort",
+    };
   }
-  if (
-    typeof payload.lang_code !== "string" ||
-    payload.lang_code.trim() === ""
-  ) {
-    return { ok: false, error: "lang_code must be a non-empty string" };
+  let langCode: string | undefined;
+  if (Object.hasOwn(payload, "lang_code")) {
+    if (
+      typeof payload.lang_code !== "string" ||
+      payload.lang_code.trim() === ""
+    ) {
+      return { ok: false, error: "lang_code must be a non-empty string" };
+    }
+    langCode = payload.lang_code.trim();
+  }
+  let model: string | null | undefined;
+  if (Object.hasOwn(payload, "model")) {
+    if (payload.model === null) {
+      model = null;
+    } else if (typeof payload.model === "string") {
+      model = payload.model.trim();
+    } else {
+      return { ok: false, error: "model must be a string or null" };
+    }
+  }
+  let reasoningEffort: string | null | undefined;
+  if (Object.hasOwn(payload, "reasoning_effort")) {
+    if (payload.reasoning_effort === null) {
+      reasoningEffort = null;
+    } else if (typeof payload.reasoning_effort === "string") {
+      reasoningEffort = payload.reasoning_effort.trim();
+    } else {
+      return {
+        ok: false,
+        error: "reasoning_effort must be a string or null",
+      };
+    }
+  }
+  if (model === "") {
+    return { ok: false, error: "model must be a non-empty string or null" };
+  }
+  if (reasoningEffort === "") {
+    return {
+      ok: false,
+      error: "reasoning_effort must be a non-empty string or null",
+    };
   }
 
-  return { ok: true, langCode: payload.lang_code.trim() };
+  return { ok: true, langCode, model, reasoningEffort };
 }
 
 function formatStartTranslationError(error: unknown): Response {
@@ -110,6 +156,8 @@ function statusForTranslationError(error: TranslationApiError): number {
       return 400;
     case "translation_language_required":
     case "translation_language_mismatch":
+    case "translation_model_unavailable":
+    case "translation_reasoning_effort_unavailable":
     case "cancellation_conflict":
       return 409;
     case "auth_required":
@@ -136,15 +184,11 @@ function statusForTranslationError(error: TranslationApiError): number {
   }
 }
 
-function hasOnlyKeys(
+function hasOnlyAllowedKeys(
   value: Record<string, unknown>,
-  expectedKeys: readonly string[],
+  allowedKeys: readonly string[],
 ): boolean {
-  const keys = Object.keys(value);
-  return (
-    keys.length === expectedKeys.length &&
-    expectedKeys.every((key) => Object.hasOwn(value, key))
-  );
+  return Object.keys(value).every((key) => allowedKeys.includes(key));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

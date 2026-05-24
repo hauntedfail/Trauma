@@ -120,6 +120,39 @@ describe("loadReaderMemory", () => {
     expect(result.memory.flashbacks).toEqual([]);
   });
 
+  it("renders source flashbacks on translated reader content through projection spans", () => {
+    const sourceText =
+      "Top 5 repos defining it, the academic case for why, and who says it's wrong.";
+    const translatedText =
+      "それを定義するトップ5リポジトリ、なぜそうなるかの学術的根拠、そしてそれが誤りだとする立場。";
+    const result = runTranslatedReaderFixture({
+      sourceMarkdown: sourceText,
+      translatedMarkdown: translatedText,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.content).toMatchObject({
+      langCode: "ja-JP",
+      relativePath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+      sourceReaderUrl: `/memories/${MEMORY_ID}`,
+    });
+    expect(result.rendered.html).toContain(
+      `<mark data-flashback-id="hl-translated" id="hl-translated">${translatedText}</mark>`,
+    );
+    expect(result.memory.flashbacks).toEqual([
+      {
+        id: "hl-translated",
+        text: translatedText,
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: translatedText.length,
+        contentHash: expect.stringMatching(/^sha256:/),
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
+  });
+
   it("returns a user-readable unavailable state when the default config cannot load", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-reader-"));
     tempDirs.push(root);
@@ -294,6 +327,189 @@ function runReaderFixture(input: {
       TRAUMA_TEST_INSERT_OVERLAPPING_FLASHBACK:
         input.insertOverlappingFlashback === true ? "true" : "false",
       TRAUMA_TEST_WRITE_CONTENT: input.writeContent === false ? "false" : "true",
+    },
+  );
+
+  return JSON.parse(output);
+}
+
+function runTranslatedReaderFixture(input: {
+  sourceMarkdown: string;
+  translatedMarkdown: string;
+}) {
+  const root = mkdtempSync(join(tmpdir(), "trauma-reader-translated-"));
+  tempDirs.push(root);
+  const output = runBunScript(
+    `
+      import { mkdir, readFile, writeFile } from "node:fs/promises";
+      import { dirname, join } from "node:path";
+      import { schema } from "./src/server/db/index.ts";
+      import { initializeDatabase } from "./src/server/db/connection.ts";
+      import { loadReaderMemory } from "./src/server/reader/page-data.ts";
+      import {
+        createMemoryContentFixture,
+        writeMemoryContent,
+      } from "./src/server/store/index.ts";
+      import { createReaderContentHash } from "./src/server/store/flashback-markers.ts";
+      import { createSha256ContentHash } from "./src/server/translation/hash.ts";
+      import {
+        BRILLIANT_CHUNKER_VERSION,
+        BRILLIANT_PROMPT_POLICY_VERSION,
+      } from "./src/server/translation/prompt.ts";
+      import { resolveTranslatedMemoryContentPath } from "./src/server/translation/paths.ts";
+
+      const root = process.env.TRAUMA_TEST_ROOT;
+      const sourceMarkdown = process.env.TRAUMA_TEST_SOURCE_MARKDOWN;
+      const translatedMarkdown = process.env.TRAUMA_TEST_TRANSLATED_MARKDOWN;
+      if (!root || sourceMarkdown === undefined || translatedMarkdown === undefined) {
+        throw new Error("translated reader fixture env is required");
+      }
+
+      const config = {
+        configFilePath: join(root, "trauma.config.json"),
+        projectPath: join(root, "data"),
+        storePath: join(root, "data/store"),
+        databasePath: join(root, ".trauma/trauma.sqlite"),
+        backup: {
+          git: {
+            enabled: true,
+            remote: "origin",
+            branch: "main",
+            push: false,
+            commitMessageTemplate: "backup memory {memoryId}",
+          },
+        },
+      };
+      const now = new Date("2026-05-09T00:00:00.000Z");
+      const memoryId = "${MEMORY_ID}";
+      const jobId = "019e3906-0000-7000-8000-000000000901";
+      const connection = initializeDatabase(config);
+      try {
+        await connection.db.insert(schema.memories).values({
+          id: memoryId,
+          url: "https://example.com/reader",
+          title: "Fixture Reader",
+          description: "Reader fixture",
+          faviconUrl: null,
+          contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+          extractionStatus: "success",
+          extractionError: null,
+          backupStatus: "disabled",
+          lastBackupAt: null,
+          lastBackupError: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } finally {
+        connection.close();
+      }
+
+      await writeMemoryContent({
+        config,
+        memoryId,
+        frontmatter: {
+          id: memoryId,
+          url: "https://example.com/reader",
+          title: "Fixture Reader",
+          capturedAt: now.toISOString(),
+          extractionStatus: "success",
+        },
+        markdown: sourceMarkdown,
+      });
+
+      const translatedPath = resolveTranslatedMemoryContentPath({
+        config,
+        langCode: "ja-JP",
+        memoryId,
+      });
+      await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+      await writeFile(
+        translatedPath.absolutePath,
+        createMemoryContentFixture({
+          frontmatter: {
+            id: memoryId,
+            url: "https://example.com/reader",
+            title: "Fixture Reader",
+            capturedAt: now.toISOString(),
+            extractionStatus: "success",
+          },
+          markdown: translatedMarkdown,
+        }),
+        "utf8",
+      );
+
+      const sourceHash = createSha256ContentHash(
+        await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md")),
+      );
+      const outputHash = createSha256ContentHash(
+        await readFile(translatedPath.absolutePath),
+      );
+      const dbConnection = initializeDatabase(config);
+      try {
+        await dbConnection.db.insert(schema.flashbacks).values({
+          id: "hl-translated",
+          memoryId,
+          text: sourceMarkdown,
+          prefix: "",
+          suffix: "",
+          startOffset: 0,
+          endOffset: sourceMarkdown.length,
+          contentHash: createReaderContentHash(sourceMarkdown),
+          createdAt: now,
+          updatedAt: now,
+        });
+        await dbConnection.db.insert(schema.translationJobs).values({
+          jobId,
+          memoryId,
+          langCode: "ja-JP",
+          sourceHash,
+          model: null,
+          reasoningEffort: null,
+          promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+          chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+          status: "complete",
+          chunkCount: 1,
+          outputPath: translatedPath.relativePath,
+          outputHash,
+          error: null,
+          completedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await dbConnection.db.insert(schema.translationProjectionSpans).values({
+          jobId,
+          spanIndex: 0,
+          memoryId,
+          langCode: "ja-JP",
+          sourceHash,
+          outputHash,
+          blockId: "b000001",
+          segmentId: "s000001",
+          sourceMarkdownStart: 0,
+          sourceMarkdownEnd: sourceMarkdown.length,
+          sourceReaderStart: 0,
+          sourceReaderEnd: sourceMarkdown.length,
+          translatedMarkdownStart: 0,
+          translatedMarkdownEnd: translatedMarkdown.length,
+          translatedReaderStart: 0,
+          translatedReaderEnd: translatedMarkdown.length,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } finally {
+        dbConnection.close();
+      }
+
+      const result = await loadReaderMemory(memoryId, {
+        config,
+        langCode: "ja-JP",
+      });
+      process.stdout.write(JSON.stringify(result));
+    `,
+    {
+      TRAUMA_TEST_ROOT: root,
+      TRAUMA_TEST_SOURCE_MARKDOWN: input.sourceMarkdown,
+      TRAUMA_TEST_TRANSLATED_MARKDOWN: input.translatedMarkdown,
     },
   );
 

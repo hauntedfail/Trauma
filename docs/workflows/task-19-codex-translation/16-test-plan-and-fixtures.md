@@ -139,6 +139,15 @@ mise exec -- bun run typecheck
   `experimentalRawEvents`, and `persistExtendedHistory`, and stable
   `turn/start` omits `environments`
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
+- `model/list` coverage normalizes visible models, filters hidden models, and
+  preserves supported reasoning efforts
+- translation `turn/start` includes selected model as `model` and selected
+  reasoning effort as `effort` when job metadata is non-null
+- settings API coverage reads `/api/settings/codex-models` and validates
+  `/api/settings/translation-codex-defaults` against the current app-server
+  catalog
+- reader translation submit coverage sends `lang_code`, `model`, and
+  `reasoning_effort` only from the confirmation popup submit flow
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - `maxRetries: 3` means one initial attempt plus three retry attempts
 - output-mode fallback does not increment `retry_count` or consume `maxRetries`
@@ -158,6 +167,8 @@ mise exec -- bun run typecheck
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
 - Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`
+- unavailable model and unsupported reasoning effort map to stable
+  settings-correctable `409` errors
 - `account/read` with a non-null `account` is authenticated even when
   `requiresOpenaiAuth` is true
 - `account/read` with no account and `requiresOpenaiAuth: true` is auth-required
@@ -197,7 +208,7 @@ mise exec -- bun run typecheck
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - runtime translation prompt builder does not require `$reader-translate` skill invocation or project-root read access
 - `prompt_policy_version` records deterministic prompt policy provenance without implying runtime skill invocation
-- `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-prompt-v1"` is stored on new jobs and changes only by explicit prompt policy bump
+- `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-segments-v1"` is stored on new jobs and changes only by explicit prompt policy bump
 - job start and metadata API use explicit unavailable repair before retry/recovery
 - job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots
 - unavailable repair persists structured JSON error with reason `output_missing` or `output_hash_mismatch`

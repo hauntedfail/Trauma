@@ -1,4 +1,6 @@
 import { createSha256ContentHash, estimateRoughTokens } from "./hash";
+import { projectMarkdownToReaderText } from "../store/flashback-markers";
+import { createTranslationSegmentManifest } from "./translation-segments";
 import type {
   TranslationBlock,
   TranslationChunk,
@@ -28,8 +30,15 @@ export function createTranslationChunks(
   input: CreateTranslationChunksInput,
 ): TranslationChunk[] {
   const groups = groupBlocks(input.blocks);
+  const sourceReaderProjection = projectMarkdownToReaderText(
+    input.blocks.map((block) => block.markdown).join(""),
+  );
   return groups.map((blocks, index) => {
     const sourceMarkdown = blocks.map((block) => block.markdown).join("");
+    const segmentManifest = createTranslationSegmentManifest(sourceMarkdown, {
+      sourceDocumentOffset: blocks[0]?.sourceStart ?? 0,
+      sourceReaderProjection,
+    });
     return {
       blockIds: blocks.map((block) => block.id),
       chunkCount: groups.length,
@@ -46,6 +55,7 @@ export function createTranslationChunks(
       sourceHash: input.source.sourceHash,
       sourceMarkdown,
       sourceUrl: input.source.sourceUrl,
+      segments: segmentManifest.segments,
       styleProfile: input.styleProfile ?? null,
     };
   });
