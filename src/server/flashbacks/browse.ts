@@ -50,7 +50,7 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
     const rows = await connection.repositories.flashbacks.listForBrowse();
-    return filterRenderableFlashbackRows({
+    return await filterRenderableFlashbackRows({
       config,
       rows,
       translationRepository: connection.repositories.translations,
