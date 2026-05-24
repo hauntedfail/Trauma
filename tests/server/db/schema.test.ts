@@ -11,6 +11,7 @@ import { readBundledMigrations } from "../../../src/server/db/bundled-migrations
 
 const PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS = 1778934734173;
 const VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS = 1779449000000;
+const STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS = 1779449500000;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -507,6 +508,75 @@ describe("db foundation", () => {
         translationOutputHash: null,
       },
       migrationCount: readBundledMigrations().length,
+    });
+  });
+
+  it("continues from databases that already applied the original variant-local Flashbacks migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const throughOriginal0013 = migrations.filter(
+              (migration) => migration.folderMillis < ${STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS},
+            );
+            applyRuntimeMigrations(sqlite, throughOriginal0013, "previous");
+
+            const original0013 = sqlite
+              .prepare("select hash from __drizzle_migrations where created_at = ?")
+              .get(${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS});
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            let rejectedInvalidTranslatedRow = false;
+            try {
+              sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, read, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f031", "https://example.com", "Example", "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f031/CONTENT.md", "success", "pending", 0, 1779449500000, 1779449500000);
+              sqlite.prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .run("invalid-translated", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f031", "translation", null, "sha256:" + "a".repeat(64), "marked text", "", "", 0, 11, null, 1779449500000, 1779449500000);
+            } catch {
+              rejectedInvalidTranslatedRow = true;
+            }
+
+            process.stdout.write(JSON.stringify({
+              original0013Hash: original0013.hash,
+              current0013Hash: migrations.find((migration) => migration.folderMillis === ${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS}).hash,
+              strict0014Recorded: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?").get(${STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS}).count,
+              migrationCount: sqlite.prepare("select count(*) as count from __drizzle_migrations").get().count,
+              rejectedInvalidTranslatedRow,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      original0013Hash: "aeb1230d75bbed7f4059cfd81762897d856c0bd997ae9f40a04770002dfadd90",
+      current0013Hash: "aeb1230d75bbed7f4059cfd81762897d856c0bd997ae9f40a04770002dfadd90",
+      strict0014Recorded: 1,
+      migrationCount: readBundledMigrations().length,
+      rejectedInvalidTranslatedRow: true,
     });
   });
 

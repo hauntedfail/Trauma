@@ -14,6 +14,7 @@ import migration0010Sql from "../../../drizzle/0010_brilliant_translation_jobs.s
 import migration0011Sql from "../../../drizzle/0011_numerous_arclight.sql?raw";
 import migration0012Sql from "../../../drizzle/0012_translation_projection_spans.sql?raw";
 import migration0013Sql from "../../../drizzle/0013_variant_local_flashbacks.sql?raw";
+import migration0014Sql from "../../../drizzle/0014_strict_flashback_variant_scope.sql?raw";
 import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
@@ -85,6 +86,11 @@ const BUNDLED_MIGRATIONS = [
   {
     sql: migration0013Sql,
     folderMillis: 1779449000000,
+    bps: true,
+  },
+  {
+    sql: migration0014Sql,
+    folderMillis: 1779449500000,
     bps: true,
   },
 ] as const;

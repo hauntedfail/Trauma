@@ -99,6 +99,13 @@
       "when": 1779449000000,
       "tag": "0013_variant_local_flashbacks",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1779449500000,
+      "tag": "0014_strict_flashback_variant_scope",
+      "breakpoints": true
     }
   ]
 }

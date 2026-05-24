@@ -16,7 +16,7 @@ CREATE TABLE `__new_flashbacks` (
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`memory_id`) REFERENCES `memories`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "flashbacks_variant_kind_check" CHECK(`variant_kind` in ('source', 'translation')),
-	CONSTRAINT "flashbacks_variant_scope_check" CHECK((`variant_kind` = 'source' and `lang_code` is null and `translation_output_hash` is null) or (`variant_kind` = 'translation' and `lang_code` in ('ja-JP', 'en-US', 'en-GB', 'ko-KR', 'zh-CN', 'zh-TW', 'fr-FR', 'de-DE', 'es-ES', 'pt-BR') and `translation_output_hash` glob 'sha256:*')),
+	CONSTRAINT "flashbacks_variant_scope_check" CHECK((`variant_kind` = 'source' and `lang_code` is null and `translation_output_hash` is null) or (`variant_kind` = 'translation' and `lang_code` is not null and `lang_code` in ('ja-JP', 'en-US', 'en-GB', 'ko-KR', 'zh-CN', 'zh-TW', 'fr-FR', 'de-DE', 'es-ES', 'pt-BR') and `translation_output_hash` is not null and `translation_output_hash` glob 'sha256:*')),
 	CONSTRAINT "flashbacks_start_offset_check" CHECK(`start_offset` >= 0),
 	CONSTRAINT "flashbacks_end_offset_check" CHECK(`end_offset` > `start_offset`)
 );
@@ -39,9 +39,9 @@ INSERT INTO `__new_flashbacks` (
 SELECT
 	`id`,
 	`memory_id`,
-	'source',
-	NULL,
-	NULL,
+	`variant_kind`,
+	`lang_code`,
+	`translation_output_hash`,
 	`text`,
 	`prefix`,
 	`suffix`,
