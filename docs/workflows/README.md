@@ -27,7 +27,8 @@ architecture, reference, quality, or operations docs.
 | 19S | [Codex app-server protocol repair](task-19-codex-translation-protocol-repair.md) | Repair Task 19 stable app-server request schema, protocol error taxonomy, API mapping, and reader error copy | Draft |
 | 19T | [Codex translation model controls](task-19-codex-translation-model-controls.md) | Add Settings defaults and reader confirmation popup for Codex translation model, reasoning effort, and language | Draft |
 | 19U | [Codex translation segment reassembly](task-19-codex-translation-segment-reassembly.md) | Split parser-backed segment extraction, deterministic Markdown reassembly, validation, runtime integration, docs, and E2E verification into domain subtasks | Draft |
-| 19V | [Translated reader annotation projection](task-19-codex-translation-reader-projections.md) | Project canonical Flashbacks and Moments between source and translated reader variants with durable translation alignment maps | Draft |
+| 19V | [Translated reader annotation projection](task-19-codex-translation-reader-projections.md) | Superseded for Flashbacks by Task 19W; retain only as historical projection planning context until a new Moment/alignment workflow is approved | Superseded for Flashbacks |
+| 19W | [Variant-local translated Flashbacks](task-19-codex-translation-variant-local-flashbacks.md) | Store source and translated Flashbacks independently while keeping global Flashback browse/search surfaces unified | Draft |
 
 ## Archived Workflows
 
