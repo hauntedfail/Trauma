@@ -1,5 +1,8 @@
 # Task 19V.06: Integration Docs And Verification Implementation Plan
 
+> Superseded for Flashbacks by Task 19W. Do not execute this subtask for
+> translated Flashback behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Verify cross-variant annotations end to end and update durable docs so future work does not reintroduce source-only annotation behavior.

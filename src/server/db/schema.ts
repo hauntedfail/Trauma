@@ -166,6 +166,12 @@ export const flashbacks = sqliteTable(
     memoryId: text("memory_id")
       .notNull()
       .references(() => memories.id, { onDelete: "cascade" }),
+    variantKind: text("variant_kind")
+      .$type<"source" | "translation">()
+      .notNull()
+      .default("source"),
+    langCode: text("lang_code").$type<SupportedLanguageCode>(),
+    translationOutputHash: text("translation_output_hash"),
     text: text("text").notNull(),
     prefix: text("prefix").notNull(),
     suffix: text("suffix").notNull(),
@@ -177,6 +183,21 @@ export const flashbacks = sqliteTable(
   (table) => [
     index("flashbacks_memory_id_idx").on(table.memoryId),
     index("flashbacks_created_at_idx").on(table.createdAt),
+    index("flashbacks_memory_variant_idx").on(
+      table.memoryId,
+      table.variantKind,
+      table.langCode,
+      table.translationOutputHash,
+      table.startOffset,
+    ),
+    check(
+      "flashbacks_variant_kind_check",
+      sql`${table.variantKind} in ('source', 'translation')`,
+    ),
+    check(
+      "flashbacks_variant_scope_check",
+      sql`(${table.variantKind} = 'source' and ${table.langCode} is null and ${table.translationOutputHash} is null) or (${table.variantKind} = 'translation' and ${table.langCode} is not null and ${table.langCode} in (${supportedLanguageSqlList}) and ${table.translationOutputHash} is not null and ${table.translationOutputHash} glob 'sha256:*')`,
+    ),
     check("flashbacks_start_offset_check", sql`${table.startOffset} >= 0`),
     check("flashbacks_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
   ],

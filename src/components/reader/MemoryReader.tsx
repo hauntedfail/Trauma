@@ -36,7 +36,7 @@ import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
 import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
 import {
-  buildMemoryAnchorHref,
+  buildMemoryVariantAnchorHref,
   buildSameMemoryAnchorHref,
 } from "../memories/memory-anchor-hrefs";
 import {
@@ -1788,8 +1788,9 @@ export function ReaderFlashbackTabs(props: {
             emptyLabel="No flashbacks yet"
             flashbacks={allRows().map((flashback) => ({
               id: flashback.id,
-              href: buildMemoryAnchorHref({
+              href: buildMemoryVariantAnchorHref({
                 anchorId: flashback.id,
+                langCode: flashback.langCode,
                 memoryId: flashback.memoryId,
               }),
               prefix: flashback.prefix,

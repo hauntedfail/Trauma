@@ -28,6 +28,9 @@ describe("flashbacks route state", () => {
       id: "flashback-1",
       memoryId: "memory-1",
       memoryTitle: "Memory One",
+      variantKind: "source",
+      langCode: null,
+      translationOutputHash: null,
       text: "selected",
       prefix: "before ",
       suffix: " after",
@@ -48,6 +51,9 @@ describe("flashbacks route state", () => {
         id: "flashback-1",
         memoryId: "memory-1",
         memoryTitle: "Memory One",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "selected",
         prefix: "before ",
         suffix: " after",
@@ -59,6 +65,9 @@ describe("flashbacks route state", () => {
         id: "flashback-2",
         memoryId: "memory-2",
         memoryTitle: "Memory Two",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "another selection",
         prefix: "start ",
         suffix: " end",
@@ -75,7 +84,7 @@ describe("flashbacks route state", () => {
   });
 
   it("keeps route rows on shared inline context, source title metadata, and shared delete menu", () => {
-    expect(flashbacksRouteSource).toContain("buildMemoryAnchorHref");
+    expect(flashbacksRouteSource).toContain("buildMemoryVariantAnchorHref");
     expect(flashbacksRouteSource).toContain("FlashbackInlineText");
     expect(flashbacksRouteSource).not.toContain("FlashbackExcerpt");
     expect(flashbacksRouteSource).toContain("prefix={flashback.prefix}");

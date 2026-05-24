@@ -5,6 +5,162 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("toggleMemoryFlashback", () => {
+  it("persists translated variant flashbacks without mutating source rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
+    const output = runBunScript(
+      `
+        import { readFile } from "node:fs/promises";
+        import { join } from "node:path";
+        import { initializeDatabase, schema } from "./src/server/db/index.ts";
+        import { toggleMemoryFlashback } from "./src/server/flashbacks/toggle.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f399";
+        const translatedMarkdown = "翻訳された本文です。";
+        const startOffset = translatedMarkdown.indexOf("本文");
+        const outputHash = "sha256:" + "a".repeat(64);
+        const now = new Date("2026-05-10T01:00:00.000Z");
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const connection = initializeDatabase(config);
+
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/flashback-toggle",
+            title: "Flashback Toggle",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await connection.db.insert(schema.flashbacks).values({
+            id: "source-existing",
+            memoryId,
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
+            text: "source",
+            prefix: "",
+            suffix: "",
+            startOffset: 0,
+            endOffset: 6,
+            contentHash: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const created = await toggleMemoryFlashback({
+            memoryId,
+            operation: "flashback",
+            selection: {
+              text: "本文",
+              prefix: translatedMarkdown.slice(0, startOffset),
+              suffix: translatedMarkdown.slice(startOffset + "本文".length),
+              startOffset,
+              endOffset: startOffset + "本文".length,
+            },
+            variant: {
+              kind: "translation",
+              langCode: "ja-JP",
+              outputHash,
+            },
+            content: {
+              markdown: translatedMarkdown,
+              relativePath: "memories/" + memoryId + "/ja-JP/CONTENT.md",
+            },
+            config,
+            db: connection.db,
+            backupQueue: { enqueue: async () => ({ backupStatus: "disabled" }) },
+            generateId: () => "translated-created",
+            now: () => now,
+          });
+
+          const rows = connection.sqlite
+            .prepare("select id, text, variant_kind as variantKind, lang_code as langCode, translation_output_hash as translationOutputHash from flashbacks order by id")
+            .all();
+          const exported = JSON.parse(
+            await readFile(join(config.storePath, "memories", memoryId, "ja-JP", "FLASHBACKS.json"), "utf8"),
+          );
+          process.stdout.write(JSON.stringify({ created, exported, rows }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      created: expect.objectContaining({
+        operation: "flashbacked",
+        flashbacks: [
+          expect.objectContaining({
+            id: "translated-created",
+            text: "本文",
+            variantKind: "translation",
+            langCode: "ja-JP",
+            translationOutputHash: "sha256:" + "a".repeat(64),
+          }),
+        ],
+      }),
+      exported: {
+        version: 2,
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f399",
+        variant: {
+          kind: "translation",
+          langCode: "ja-JP",
+          translationOutputHash: "sha256:" + "a".repeat(64),
+        },
+        flashbacks: [
+          expect.objectContaining({
+            id: "translated-created",
+            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f399",
+            text: "本文",
+          }),
+        ],
+      },
+      rows: [
+        {
+          id: "source-existing",
+          text: "source",
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
+        },
+        {
+          id: "translated-created",
+          text: "本文",
+          variantKind: "translation",
+          langCode: "ja-JP",
+          translationOutputHash: "sha256:" + "a".repeat(64),
+        },
+      ],
+    });
+  });
+
   it("persists flashback toggles to SQLite without mutating CONTENT.md", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
     const output = runBunScript(

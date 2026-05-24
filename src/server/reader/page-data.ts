@@ -11,7 +11,6 @@ import {
   readResolvedMemoryContent,
 } from "../store";
 import {
-  createReaderContentHash,
   FlashbackMarkerError,
   type FlashbackMarkerRange,
 } from "../store/flashback-markers";
@@ -21,6 +20,10 @@ import {
 } from "./markdown-renderer";
 import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
 import {
+  sourceFlashbackVariant,
+  type FlashbackVariant,
+} from "../flashbacks/variant";
+import {
   resolveCurrentTranslationReadOnly,
 } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
@@ -28,7 +31,6 @@ import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../translation/languages";
-import { projectFlashbacksToTranslatedReader } from "./translation-projections";
 
 type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
 
@@ -99,6 +101,9 @@ export interface ReaderFlashbackItem {
   startOffset: number;
   endOffset: number;
   contentHash?: string | null;
+  variantKind: "source" | "translation";
+  langCode?: SupportedLanguageCode | null;
+  translationOutputHash?: string | null;
   createdAt: string;
 }
 
@@ -142,31 +147,12 @@ export async function loadReaderMemory(
         langCode: options.langCode,
         memoryId,
       });
-    let flashbackMarkers: Parameters<typeof renderMemoryMarkdownSafely>[1] =
-      memory.flashbacks;
-    let projectedFlashbacks: ReaderFlashbackItem[] | undefined;
-    if (
-      content.langCode !== undefined &&
-      content.outputHash !== undefined &&
-      content.sourceHash !== undefined
-    ) {
-      const sourceContent = await readMemoryContent({ config, memoryId });
-      const projectionSpans =
-        await connection.repositories.translations.listCurrentProjectionSpans({
-          langCode: content.langCode,
-          memoryId,
-          outputHash: content.outputHash,
-          sourceHash: content.sourceHash,
-        });
-      const projected = projectFlashbacksToTranslatedReader({
-        flashbacks: memory.flashbacks,
-        projectionSpans,
-        sourceContentHash: createReaderContentHash(sourceContent.markdown),
-        translatedMarkdown: content.markdown,
+    const activeFlashbackVariant = resolveActiveFlashbackVariant(content);
+    const flashbackMarkers =
+      await connection.repositories.flashbacks.listForMemoryVariant({
+        memoryId,
+        variant: activeFlashbackVariant,
       });
-      flashbackMarkers = projected.markers;
-      projectedFlashbacks = projected.items;
-    }
     const rendered = renderMemoryMarkdownSafely(
       content.markdown,
       flashbackMarkers,
@@ -181,7 +167,7 @@ export async function loadReaderMemory(
     });
     return {
       status: "ready",
-      memory: toReaderMemory(memory, rendered, projectedFlashbacks),
+      memory: toReaderMemory(memory, rendered, flashbackMarkers),
       content: {
         ...(options.langCode === undefined
           ? {}
@@ -219,6 +205,27 @@ export async function loadReaderMemory(
   } finally {
     connection?.close();
   }
+}
+
+function resolveActiveFlashbackVariant(
+  content: LoadedReaderContent,
+): FlashbackVariant {
+  if (content.langCode === undefined) {
+    return sourceFlashbackVariant;
+  }
+
+  if (content.outputHash === undefined) {
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md has no output hash for ${content.langCode}`,
+      "missing_content",
+    );
+  }
+
+  return {
+    kind: "translation",
+    langCode: content.langCode,
+    outputHash: content.outputHash,
+  };
 }
 
 async function readTranslatedReaderContent(input: {
@@ -324,10 +331,10 @@ function renderMemoryMarkdownSafely(
 function toReaderMemory(
   memory: ReaderMemoryAggregateRow,
   rendered: RenderedMemoryMarkdown,
-  projectedFlashbacks?: ReaderFlashbackItem[],
+  activeFlashbacks: FlashbackRow[],
 ): ReaderMemory {
   const renderedFlashbackIds = collectRenderedFlashbackIds(rendered.html);
-  const flashbacks = projectedFlashbacks ?? memory.flashbacks.map((flashback) => ({
+  const flashbacks = activeFlashbacks.map((flashback) => ({
     id: flashback.id,
     text: flashback.text,
     prefix: flashback.prefix,
@@ -335,6 +342,9 @@ function toReaderMemory(
     startOffset: flashback.startOffset,
     endOffset: flashback.endOffset,
     contentHash: flashback.contentHash,
+    variantKind: flashback.variantKind,
+    langCode: flashback.langCode,
+    translationOutputHash: flashback.translationOutputHash,
     createdAt: flashback.createdAt.toISOString(),
   }));
   return {

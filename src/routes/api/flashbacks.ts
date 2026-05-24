@@ -12,15 +12,9 @@ import {
 } from "~/server/flashbacks/toggle";
 import {
   MemoryContentStoreError,
-  readMemoryContent,
   readResolvedMemoryContent,
 } from "~/server/store";
 import type { FlashbackSelectionInput } from "~/server/store/flashback-markers";
-import { createReaderContentHash } from "~/server/store/flashback-markers";
-import {
-  projectFlashbacksToTranslatedReader,
-  projectTranslatedSelectionToSourceReader,
-} from "~/server/reader/translation-projections";
 import { resolveCurrentTranslationReadOnly } from "~/server/translation/current-translation";
 import {
   isSupportedLanguageCode,
@@ -61,29 +55,30 @@ export async function POST(event: APIEvent): Promise<Response> {
 
   const connection = initializeDatabase(config);
   try {
-    const translatedProjection = payload.langCode === undefined
+    const translatedVariant = payload.langCode === undefined
       ? undefined
-      : await resolveTranslatedFlashbackProjection({
+      : await resolveTranslatedFlashbackVariant({
         config,
         connection,
         langCode: payload.langCode,
         memoryId: payload.memoryId,
-        selection: payload.selection,
       });
     const result = await toggleMemoryFlashback({
       memoryId: payload.memoryId,
       operation: payload.operation,
-      selection: translatedProjection?.sourceSelection ?? payload.selection,
+      selection: payload.selection,
+      ...(translatedVariant === undefined
+        ? {}
+        : {
+          content: translatedVariant.content,
+          variant: translatedVariant.variant,
+        }),
       config,
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
     });
 
-    return json({
-      result: translatedProjection === undefined
-        ? result
-        : projectToggleResultToTranslatedFlashbacks(result, translatedProjection),
-    }, { status: 200 });
+    return json({ result }, { status: 200 });
   } catch (error) {
     return formatToggleError(error);
   } finally {
@@ -91,12 +86,11 @@ export async function POST(event: APIEvent): Promise<Response> {
   }
 }
 
-async function resolveTranslatedFlashbackProjection(input: {
+async function resolveTranslatedFlashbackVariant(input: {
   config: ReturnType<typeof loadRuntimeTraumaConfig>;
   connection: ReturnType<typeof initializeDatabase>;
   langCode: SupportedLanguageCode;
   memoryId: string;
-  selection: FlashbackSelectionInput;
 }) {
   const current = await resolveCurrentTranslationReadOnly({
     config: input.config,
@@ -107,74 +101,25 @@ async function resolveTranslatedFlashbackProjection(input: {
   if (current.status !== "current") {
     throw new FlashbackToggleError(
       "Translated flashback selection is unavailable.",
-      "invalid_selection",
+      "translation_unavailable",
     );
   }
 
-  const sourceContent = await readMemoryContent({
-    config: input.config,
-    memoryId: input.memoryId,
-  });
-  const translatedContent = await readResolvedMemoryContent(
+  const content = await readResolvedMemoryContent(
     resolveTranslatedMemoryContentPath({
       config: input.config,
       langCode: input.langCode,
       memoryId: input.memoryId,
     }),
   );
-  const projectionSpans =
-    await input.connection.repositories.translations.listCurrentProjectionSpans({
+
+  return {
+    content,
+    variant: {
+      kind: "translation" as const,
       langCode: input.langCode,
-      memoryId: input.memoryId,
       outputHash: current.outputHash,
-      sourceHash: current.sourceHash,
-    });
-  const sourceSelection = projectTranslatedSelectionToSourceReader({
-    projectionSpans,
-    selection: input.selection,
-    sourceMarkdown: sourceContent.markdown,
-    translatedMarkdown: translatedContent.markdown,
-  });
-  if (sourceSelection === undefined) {
-    throw new FlashbackToggleError(
-      "Translated flashback selection could not be projected to source.",
-      "invalid_selection",
-    );
-  }
-
-  return {
-    projectionSpans,
-    sourceContentHash: createReaderContentHash(sourceContent.markdown),
-    sourceSelection,
-    translatedMarkdown: translatedContent.markdown,
-  };
-}
-
-function projectToggleResultToTranslatedFlashbacks(
-  result: ToggleMemoryFlashbackResult,
-  projection: Awaited<ReturnType<typeof resolveTranslatedFlashbackProjection>>,
-): ToggleMemoryFlashbackResult {
-  const projected = projectFlashbacksToTranslatedReader({
-    flashbacks: result.flashbacks.map((flashback) => ({
-      ...flashback,
-      createdAt: new Date(flashback.createdAt),
-    })),
-    projectionSpans: projection.projectionSpans,
-    sourceContentHash: projection.sourceContentHash,
-    translatedMarkdown: projection.translatedMarkdown,
-  });
-  return {
-    ...result,
-    flashbacks: projected.items.map((flashback) => ({
-      contentHash: flashback.contentHash ?? "",
-      createdAt: flashback.createdAt,
-      endOffset: flashback.endOffset,
-      id: flashback.id,
-      prefix: flashback.prefix,
-      startOffset: flashback.startOffset,
-      suffix: flashback.suffix,
-      text: flashback.text,
-    })),
+    },
   };
 }
 
@@ -292,11 +237,12 @@ function parseSelection(
 function formatToggleError(error: unknown): Response {
   if (error instanceof FlashbackToggleError) {
     return json(
-      { error: error.message },
+      { error: error.message, code: error.code },
       {
         status: error.code === "missing_memory"
           ? 404
-          : error.code === "stale_selection"
+          : error.code === "stale_selection" ||
+              error.code === "translation_unavailable"
             ? 409
             : 400,
       },
@@ -326,6 +272,7 @@ function formatToggleError(error: unknown): Response {
 function json(
   body:
     | { error: string }
+    | { error: string; code: string }
     | { error: string; backupFailsafe: unknown }
     | { result: ToggleMemoryFlashbackResult },
   init: ResponseInit,

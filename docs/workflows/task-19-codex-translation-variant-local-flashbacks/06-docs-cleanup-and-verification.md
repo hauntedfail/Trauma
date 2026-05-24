@@ -42,12 +42,10 @@ Flashback browse and memory search surfaces include renderable Flashbacks from
 both source and translated variants.
 ```
 
-Remove or rewrite claims that say:
-
-- Flashbacks remain source canonical across translated readers.
-- Translated Flashback writes reverse-project to source.
-- Translated reader routes show source Flashbacks through the projection map.
-- Partial projection is the reason translated Flashback creation can fail.
+Remove or rewrite old projection-era claims that say translated Flashbacks are
+derived from source rows, translated writes mutate source rows, translated
+readers show source Flashbacks through alignment data, or translated Flashback
+creation fails because an alignment span is only partially covered.
 
 Keep translation projection documentation only for translation maps and future non-Flashback uses.
 
@@ -89,7 +87,7 @@ Expected: PASS if implementation subtasks are complete.
 Update:
 
 - `docs/architecture/data-and-storage.md`: variant-aware `flashbacks` columns, translated export path, stale output hash behavior.
-- `docs/architecture/flows.md`: translated Flashback toggle resolves active translated content and never reverse-projects.
+- `docs/architecture/flows.md`: translated Flashback toggle resolves active translated content and never writes back into source rows.
 - `docs/architecture/ui-and-routing.md`: translated reader shows translated Flashbacks only; `/flashbacks` shows all renderable variants.
 
 - [ ] **Step 4: Update Task 19 docs**
@@ -112,7 +110,7 @@ At the top of `docs/workflows/task-19-codex-translation-reader-projections.md`, 
 Run:
 
 ```sh
-rg -n "Flashbacks.*source canonical|reverse-project|project canonical Flashbacks|projected snippets|partial projection|projection map" docs src tests
+rg -n "Flashbacks.*source.canonical|reverse.?project|project.canonical.Flashbacks|projected.snippets|partial.projection|projection.map" docs src tests
 ```
 
 Expected: remaining matches are either non-Flashback projection docs, archived history, or the Task 19V supersession note. Update active docs until the result is unambiguous.

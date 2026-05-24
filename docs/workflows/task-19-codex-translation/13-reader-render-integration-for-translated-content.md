@@ -28,7 +28,7 @@ Scope: source and translated reader route loading, current-variant detection, no
 
 Inputs: memory metadata, source `CONTENT.md`, translated output file, current source hash, complete translation jobs, and settings language.
 
-Outputs: source page data, translated page data, projected annotation state, current variant list, derived `reader_url`, and Codex trigger visibility state.
+Outputs: source page data, translated page data, active-variant Flashback state, current variant list, derived `reader_url`, and Codex trigger visibility state.
 
 Dependencies: 19.2 provides translation repository methods; 19.10/19.11 define committed output and purge rules; 19.12 consumes page data.
 
@@ -56,8 +56,8 @@ Ownership boundary: do not edit `src/server/translation/current-translation.ts` 
 7. If output path exists and its hash matches `translation_jobs.output_hash` on the completed translation row, render translated file from store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`.
 8. If the complete row exists but the output file is missing or hash-mismatched, return the project-standard not-found response for the translated route without mutating SQLite. Backend API/job-start recovery owns `repairUnavailableTranslation()`.
 9. If missing or stale, return the project-standard not-found response for the translated route; do not silently fall back to source content.
-10. Load projection rows by current `source_hash` and `output_hash`.
-11. Render canonical Flashbacks and Moment active state through projection/path matching. Drop unprojectable Flashbacks.
+10. Resolve the active Flashback variant after content resolution. Source routes use source Flashback rows; translated routes use rows scoped to `(memory_id, lang_code, output_hash)`.
+11. Render active-variant Flashbacks only. Do not project source Flashbacks into translated reader content.
 12. Load available variants from actual `CONTENT.md` files plus current translation metadata for tab rendering.
 13. Load configured translation target language from SQLite-backed settings data for the source-route trigger.
 
@@ -72,7 +72,8 @@ Ownership boundary: do not edit `src/server/translation/current-translation.ts` 
 - Missing or stale translated routes return the project-standard not-found response and include a link back to `/memories/:id` when the route renderer supports contextual links.
 - Non-canonical language casing is not accepted as a distinct route. `ja-JP` is valid; `ja-jp` or `JA-JP` must redirect to the canonical route only if the project already has a canonical redirect helper, otherwise return the project-standard not-found response.
 - Translated routes do not render the Codex translation icon.
-- Translated routes may render source-canonical Flashbacks and Moments only through current projection rows. Missing or stale projections fail closed.
+- Translated routes render translated Flashbacks for the active translated variant only. Source Flashbacks do not automatically appear in translated content.
+- Translated Flashback rows are scoped to the completed translation output hash. Missing or stale translated output fails closed instead of reusing source rows.
 - The source route renders a Codex icon at the right edge of the memory title only when the configured target-language variant is missing.
 - The icon tooltip is `<lang_code>に翻訳する` in the Japanese UI, or `Translate to <lang_code>` if the current UI copy remains English.
 - Clicking the icon starts translation through `POST /api/memories/:memory_id/translations`.

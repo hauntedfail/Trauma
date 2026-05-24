@@ -15,7 +15,6 @@ import {
   createMemoryContentFixture,
   writeMemoryContent,
 } from "../../../src/server/store";
-import { createReaderContentHash } from "../../../src/server/store/flashback-markers";
 import { createSha256ContentHash } from "../../../src/server/translation/hash";
 import {
   BRILLIANT_CHUNKER_VERSION,
@@ -191,19 +190,21 @@ describe("flashbacks API route", () => {
       .not.toContain("<mark data-flashback-id");
   });
 
-  it("projects translated reader flashback selections back to source before saving", async () => {
+  it("stores translated reader flashback selections as translated variant rows", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root, { backupEnabled: false });
     process.env.TRAUMA_CONFIG_PATH = configPath;
     const config = loadTraumaConfig({ configPath });
-    const sourceMarkdown = "Source sentence.";
-    const translatedMarkdown = "翻訳文。";
+    const sourceMarkdown = "Or as Jean Baudrillard has said:";
+    const translatedMarkdown = "あるいは、ジャン・ボードリヤールが言ったように：";
     await seedTranslatedFlashbackFixture({
       config,
       sourceMarkdown,
       translatedMarkdown,
     });
 
+    const selected = "ジャン・ボードリヤール";
+    const startOffset = translatedMarkdown.indexOf(selected);
     const response = await POST(
       createApiEvent(
         new Request("http://localhost/api/flashbacks", {
@@ -213,11 +214,11 @@ describe("flashbacks API route", () => {
             langCode: "ja-JP",
             operation: "flashback",
             selection: {
-              text: translatedMarkdown,
-              prefix: "",
-              suffix: "",
-              startOffset: 0,
-              endOffset: translatedMarkdown.length,
+              text: selected,
+              prefix: translatedMarkdown.slice(0, startOffset),
+              suffix: translatedMarkdown.slice(startOffset + selected.length),
+              startOffset,
+              endOffset: startOffset + selected.length,
             },
           }),
         }),
@@ -228,9 +229,9 @@ describe("flashbacks API route", () => {
     expect(response.status).toBe(200);
     expect(body.result.flashbacks).toEqual([
       expect.objectContaining({
-        text: translatedMarkdown,
-        startOffset: 0,
-        endOffset: translatedMarkdown.length,
+        text: selected,
+        startOffset,
+        endOffset: startOffset + selected.length,
       }),
     ]);
 
@@ -238,12 +239,18 @@ describe("flashbacks API route", () => {
     try {
       await expect(
         connection.repositories.flashbacks.listForMemory(memoryId),
-      ).resolves.toEqual([
+      ).resolves.toEqual([]);
+      const rows = connection.sqlite
+        .prepare(
+          "select text, variant_kind as variantKind, lang_code as langCode, translation_output_hash as translationOutputHash from flashbacks where memory_id = ? order by start_offset",
+        )
+        .all(memoryId);
+      expect(rows).toEqual([
         expect.objectContaining({
-          text: sourceMarkdown,
-          startOffset: 0,
-          endOffset: sourceMarkdown.length,
-          contentHash: createReaderContentHash(sourceMarkdown),
+          text: selected,
+          variantKind: "translation",
+          langCode: "ja-JP",
+          translationOutputHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         }),
       ]);
     } finally {

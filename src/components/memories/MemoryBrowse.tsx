@@ -15,7 +15,7 @@ import {
   type BrowseTaxonomyItem,
   type BrowseTaxonomySummaryItem,
 } from "./browse-data";
-import { buildMemoryAnchorHref } from "./memory-anchor-hrefs";
+import { buildMemoryVariantAnchorHref } from "./memory-anchor-hrefs";
 import {
   getBrowseMemories,
   getBrowseTaxonomy,
@@ -226,11 +226,16 @@ export function MemoryItem(props: {
   );
   const [actionError, setActionError] = createSignal("");
   const href = createMemo(() =>
-    buildMemoryAnchorHref({
+    buildMemoryVariantAnchorHref({
       anchorId:
         props.selectedFlashbackId.length > 0 &&
         displayFlashback()?.id === props.selectedFlashbackId
           ? props.selectedFlashbackId
+          : null,
+      langCode:
+        props.selectedFlashbackId.length > 0 &&
+        displayFlashback()?.id === props.selectedFlashbackId
+          ? displayFlashback()?.langCode
           : null,
       memoryId: props.memory.id,
     }),

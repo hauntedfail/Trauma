@@ -1,6 +1,12 @@
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
+import {
+  sourceFlashbackVariant,
+  toFlashbackVariantColumns,
+  type FlashbackVariant,
+  type FlashbackVariantColumns,
+} from "../flashbacks/variant";
 import type { ExtractionStatus } from "../memory-status";
 import {
   DEFAULT_TRANSLATION_TARGET_LANGUAGE,
@@ -68,6 +74,9 @@ export interface FlashbackBrowseRow {
   id: string;
   memoryId: string;
   memoryTitle: string;
+  variantKind: "source" | "translation";
+  langCode: SupportedLanguageCode | null;
+  translationOutputHash: string | null;
   text: string;
   prefix: string;
   suffix: string;
@@ -171,6 +180,15 @@ export interface TaxonomyRepository {
 export interface FlashbackRepository {
   listForMemory: (memoryId: string) => Promise<Flashback[]>;
   replaceForMemory: (memoryId: string, flashbacks: Flashback[]) => Promise<Flashback[]>;
+  listForMemoryVariant: (input: {
+    memoryId: string;
+    variant: FlashbackVariant;
+  }) => Promise<Flashback[]>;
+  replaceForMemoryVariant: (input: {
+    memoryId: string;
+    variant: FlashbackVariant;
+    flashbacks: Flashback[];
+  }) => Promise<Flashback[]>;
   listForBrowse: () => Promise<FlashbackBrowseRow[]>;
 }
 
@@ -570,39 +588,29 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     },
     flashbacks: {
       listForMemory: async (memoryId) =>
-        db.query.flashbacks.findMany({
-          where: eq(schema.flashbacks.memoryId, memoryId),
-          orderBy: [asc(schema.flashbacks.startOffset)],
+        listFlashbacksForMemoryVariant(db, {
+          memoryId,
+          variant: sourceFlashbackVariant,
         }),
-      replaceForMemory: async (memoryId, flashbackRows) => {
-        const mismatchedRow = flashbackRows.find(
-          (flashback) => flashback.memoryId !== memoryId,
-        );
-        if (mismatchedRow !== undefined) {
-          throw new MemoryRepositoryError(
-            "Cannot replace flashbacks for one memory with rows from another memory.",
-          );
-        }
-
-        db.transaction((tx) => {
-          tx
-            .delete(schema.flashbacks)
-            .where(eq(schema.flashbacks.memoryId, memoryId))
-            .run();
-
-          if (flashbackRows.length > 0) {
-            tx.insert(schema.flashbacks).values(flashbackRows).run();
-          }
-        });
-
-        return flashbackRows;
-      },
+      replaceForMemory: async (memoryId, flashbackRows) =>
+        replaceFlashbacksForMemoryVariant(db, {
+          memoryId,
+          variant: sourceFlashbackVariant,
+          flashbacks: flashbackRows,
+        }),
+      listForMemoryVariant: async (input) =>
+        listFlashbacksForMemoryVariant(db, input),
+      replaceForMemoryVariant: async (input) =>
+        replaceFlashbacksForMemoryVariant(db, input),
       listForBrowse: async () => {
         const rows = await db
           .select({
             id: schema.flashbacks.id,
             memoryId: schema.flashbacks.memoryId,
             memoryTitle: schema.memories.title,
+            variantKind: schema.flashbacks.variantKind,
+            langCode: schema.flashbacks.langCode,
+            translationOutputHash: schema.flashbacks.translationOutputHash,
             text: schema.flashbacks.text,
             prefix: schema.flashbacks.prefix,
             suffix: schema.flashbacks.suffix,
@@ -779,6 +787,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             id: flashback.id,
             memoryId: memory.id,
             memoryTitle: memory.title,
+            variantKind: flashback.variantKind,
+            langCode: flashback.langCode,
+            translationOutputHash: flashback.translationOutputHash,
             text: flashback.text,
             prefix: flashback.prefix,
             suffix: flashback.suffix,
@@ -1432,6 +1443,69 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
   };
+}
+
+function listFlashbacksForMemoryVariant(
+  db: TraumaDatabase,
+  input: {
+    memoryId: string;
+    variant: FlashbackVariant;
+  },
+): Promise<Flashback[]> {
+  return db.query.flashbacks.findMany({
+    where: flashbackVariantWhere(input.memoryId, input.variant),
+    orderBy: [asc(schema.flashbacks.startOffset)],
+  });
+}
+
+async function replaceFlashbacksForMemoryVariant(
+  db: TraumaDatabase,
+  input: {
+    memoryId: string;
+    variant: FlashbackVariant;
+    flashbacks: Flashback[];
+  },
+): Promise<Flashback[]> {
+  const columns = toFlashbackVariantColumns(input.variant);
+  const mismatchedRow = input.flashbacks.find(
+    (flashback) =>
+      flashback.memoryId !== input.memoryId ||
+      flashback.variantKind !== columns.variantKind ||
+      flashback.langCode !== columns.langCode ||
+      flashback.translationOutputHash !== columns.translationOutputHash,
+  );
+  if (mismatchedRow !== undefined) {
+    throw new MemoryRepositoryError(
+      "Cannot replace flashbacks for one memory variant with rows from another memory variant.",
+    );
+  }
+
+  db.transaction((tx) => {
+    tx
+      .delete(schema.flashbacks)
+      .where(flashbackVariantWhere(input.memoryId, input.variant))
+      .run();
+
+    if (input.flashbacks.length > 0) {
+      tx.insert(schema.flashbacks).values(input.flashbacks).run();
+    }
+  });
+
+  return input.flashbacks;
+}
+
+function flashbackVariantWhere(memoryId: string, variant: FlashbackVariant) {
+  const columns = toFlashbackVariantColumns(variant);
+  return and(
+    eq(schema.flashbacks.memoryId, memoryId),
+    eq(schema.flashbacks.variantKind, columns.variantKind),
+    columns.langCode === null
+      ? isNull(schema.flashbacks.langCode)
+      : eq(schema.flashbacks.langCode, columns.langCode),
+    columns.translationOutputHash === null
+      ? isNull(schema.flashbacks.translationOutputHash)
+      : eq(schema.flashbacks.translationOutputHash, columns.translationOutputHash),
+  );
 }
 
 async function getOrCreateSettings(

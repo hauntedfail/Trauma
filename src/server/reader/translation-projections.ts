@@ -76,6 +76,9 @@ export function projectFlashbacksToTranslatedReader(input: {
       startOffset: translatedRange.startOffset,
       suffix: context.suffix,
       text: context.text,
+      variantKind: "translation",
+      langCode: null,
+      translationOutputHash: null,
     });
   }
 

@@ -60,7 +60,7 @@ Research reference captured by the instruction:
 7. Retry handles chunk-level validation, auth, usage, timeout, context, and stream failures without retrying the whole document unnecessarily.
 8. Stitching reassembles translated blocks in manifest order and performs final full-document validation.
 9. Atomic commit writes a same-directory temp file, flushes it, renames it to `CONTENT.md`, writes `TRANSLATION_MAP.json`, stores projection rows, flushes the parent directory when supported, marks the job complete, and purges completed chunk bodies plus temporary chunk projection JSON.
-10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds, then exposes it through the translated reader route and variant tabs. Canonical Flashbacks and Moments are projected into translated reader variants only when current projection rows match the source and output hashes.
+10. Reader rendering reloads `memories/<memory_id>/<lang_code>/CONTENT.md` only after commit succeeds, then exposes it through the translated reader route and variant tabs. Flashbacks are local to the reader content variant where they are created. Source Flashbacks use source reader offsets. Translated Flashbacks use translated reader offsets and are scoped to the completed translation output hash. Global Flashback browse and memory search surfaces include renderable Flashbacks from both source and translated variants. Moment projection remains outside the Brilliant MVP unless a later workflow explicitly approves it.
 
 ## Minimal SQLite schema direction
 
@@ -216,7 +216,7 @@ Subagents may work only on non-overlapping files and must report changed files, 
 - Does not introduce `.work/<job_id>`.
 - Allows temporary SQLite chunk storage during translation.
 - Requires immediate purge of translated chunk bodies after final commit.
-- Keeps Flashbacks and Moments source canonical while projecting them into translated reader variants.
+- Keeps source and translated Flashbacks variant-local while preserving unified global Flashback browse/search surfaces.
 - Uses atomic final file write.
 - Supports long documents and academic papers through deterministic chunking.
 - Includes frontend streaming progress through SSE.

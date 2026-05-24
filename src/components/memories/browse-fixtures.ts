@@ -18,6 +18,9 @@ export const browseFixtureMemories: BrowseMemory[] = [
       {
         id: "h-foundation",
         memoryId: "memory-foundation",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
@@ -42,6 +45,9 @@ export const browseFixtureMemories: BrowseMemory[] = [
       {
         id: "h-ops",
         memoryId: "memory-ops",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "persistent disk assumptions",
         prefix: "The app keeps deployment simple with",
         suffix: "and a markdown store.",
@@ -66,6 +72,9 @@ export const browseFixtureMemories: BrowseMemory[] = [
       {
         id: "h-shell",
         memoryId: "memory-design",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "right filter panel updates URL state",
         prefix: "The canonical browse workflow requires that the",
         suffix: "without page-local navigation.",

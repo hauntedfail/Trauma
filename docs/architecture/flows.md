@@ -61,7 +61,7 @@ same selection gesture also toggles off existing flashbacks.
 
 Flow:
 
-1. User selects text in `/memories/:id`.
+1. User selects text in `/memories/:id` or `/memories/:lang_code/:id`.
 2. Frontend determines whether the selected range is already fully flashbacked.
 3. If the range is not already flashbacked, the frontend renders an optimistic
    flashback immediately.
@@ -69,12 +69,12 @@ Flow:
    flashback styling only from the selected range.
 5. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
    `end_offset` to the server with the intended toggle operation.
-6. Server resolves the selection against canonical reader text, stores
+6. Server resolves the selection against the active reader variant text, stores
    `start_offset`, `end_offset`, and `content_hash`, then creates, deletes,
    shrinks, or splits `flashbacks` rows so SQLite represents exactly the
    flashbacked ranges that remain.
-7. Server writes `{storePath}/memories/{memoryId}/FLASHBACKS.json` as a
-   deterministic metadata export for git backup.
+7. Server writes the active variant's `FLASHBACKS.json` as a deterministic
+   metadata export for git backup.
 8. Server enqueues backup work for the metadata export.
 
 Flashback toggle rules:
@@ -94,17 +94,17 @@ Selection payload:
 4. `start_offset`
 5. `end_offset`
 
-The server stores offsets in canonical reader text and guards them with
+The server stores offsets in active-variant reader text and guards them with
 `content_hash` in `sha256:<hex>` format. Hash-mismatched flashbacks are treated
 as stale and are not rendered at a guessed location.
 
 Translated reader variants include `langCode` in Flashback toggle requests.
-The server validates the current translation, reads
-`translation_projection_spans` for the current source and output hashes, and
-maps translated reader offsets back to source reader offsets before using the
-normal canonical Flashback merge/split logic. Partial-span selections, missing
-projection rows, and stale source/output hashes fail closed instead of expanding
-or guessing translated text.
+The server validates the current translation, reads translated `CONTENT.md`,
+and uses translated reader offsets with a variant scope of `(memory_id,
+lang_code, translation_output_hash)`. It does not write translated Flashback
+changes into source rows. If the translated output is missing, stale, or
+hash-mismatched, the Flashback toggle fails closed instead of guessing
+translated text.
 
 Moment creation on translated reader variants also includes `langCode`. The
 server validates the posted section against translated ToC data, then stores

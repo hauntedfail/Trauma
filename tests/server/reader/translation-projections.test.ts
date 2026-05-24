@@ -51,6 +51,9 @@ describe("reader translation projections", () => {
         createdAt: now.toISOString(),
         endOffset: translatedText.length,
         id: "hl-1",
+        variantKind: "translation",
+        langCode: null,
+        translationOutputHash: null,
         prefix: "",
         startOffset: 0,
         suffix: "",
@@ -87,7 +90,7 @@ describe("reader translation projections", () => {
     expect(result.items).toEqual([]);
   });
 
-  it("reverse-projects exact translated selections to source reader selections", () => {
+  it("maps exact translated selections to source reader selections", () => {
     const sourceText = "Source sentence.";
     const translatedText = "翻訳文。";
 

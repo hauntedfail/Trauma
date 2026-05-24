@@ -41,7 +41,7 @@ The parent worker reviews each subtask handoff before starting dependent subtask
 - `/flashbacks`, memory browse, search, and right-rail "All" views include renderable Flashbacks from both source and translated variants.
 - Source reader routes render source Flashbacks only.
 - Translated reader routes render translated Flashbacks for the current `langCode + outputHash` only.
-- Translated Flashback writes must not reverse-project into source Flashbacks.
+- Translated Flashback writes must not mutate source Flashback rows.
 - Flashback validation remains structural: resolve the selected text against the active variant's Markdown, preserve range merge/split behavior, reject stale content hashes, and do not guess a placement.
 
 ## Data Model Decision

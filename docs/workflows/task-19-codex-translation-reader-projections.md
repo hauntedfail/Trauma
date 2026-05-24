@@ -1,5 +1,10 @@
 # Task 19V: Translated Reader Annotation Projection Implementation Plan
 
+> Superseded for Flashbacks by Task 19W. Do not execute Task 19V Flashback
+> subtasks for translated Flashback behavior. Task 19V remains a historical
+> projection design record and may inform future Moment or alignment work only
+> after a new plan approves that scope.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let Flashbacks and Moments work from both source and translated reader variants while keeping source `CONTENT.md` metadata as the canonical state.

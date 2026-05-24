@@ -57,6 +57,9 @@ describe("loadReaderMemory", () => {
         startOffset: 26,
         endOffset: 35,
         contentHash: null,
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ]);
@@ -120,7 +123,7 @@ describe("loadReaderMemory", () => {
     expect(result.memory.flashbacks).toEqual([]);
   });
 
-  it("renders source flashbacks on translated reader content through projection spans", () => {
+  it("renders only the active content variant's flashbacks", () => {
     const sourceText =
       "Top 5 repos defining it, the academic case for why, and who says it's wrong.";
     const translatedText =
@@ -130,24 +133,54 @@ describe("loadReaderMemory", () => {
       translatedMarkdown: translatedText,
     });
 
-    expect(result.status).toBe("ready");
-    expect(result.content).toMatchObject({
+    expect(result.source.status).toBe("ready");
+    expect(
+      result.source.memory.flashbacks.map(
+        (row: { variantKind: string }) => row.variantKind,
+      ),
+    ).toEqual(["source"]);
+    expect(result.source.rendered.html).toContain(
+      `<mark data-flashback-id="source-flashback" id="source-flashback">${sourceText}</mark>`,
+    );
+    expect(result.source.rendered.html).not.toContain("translated-flashback");
+    expect(result.source.memory.flashbacks).toEqual([
+      expect.objectContaining({
+        id: "source-flashback",
+        text: sourceText,
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+      }),
+    ]);
+
+    expect(result.translated.status).toBe("ready");
+    expect(
+      result.translated.memory.flashbacks.map(
+        (row: { variantKind: string }) => row.variantKind,
+      ),
+    ).toEqual(["translation"]);
+    expect(result.translated.content).toMatchObject({
       langCode: "ja-JP",
       relativePath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
       sourceReaderUrl: `/memories/${MEMORY_ID}`,
     });
-    expect(result.rendered.html).toContain(
-      `<mark data-flashback-id="hl-translated" id="hl-translated">${translatedText}</mark>`,
+    expect(result.translated.rendered.html).toContain(
+      `<mark data-flashback-id="translated-flashback" id="translated-flashback">${translatedText}</mark>`,
     );
-    expect(result.memory.flashbacks).toEqual([
+    expect(result.translated.rendered.html).not.toContain("source-flashback");
+    expect(result.translated.rendered.html).not.toContain("stale-translated-flashback");
+    expect(result.translated.memory.flashbacks).toEqual([
       {
-        id: "hl-translated",
+        id: "translated-flashback",
         text: translatedText,
         prefix: "",
         suffix: "",
         startOffset: 0,
         endOffset: translatedText.length,
         contentHash: expect.stringMatching(/^sha256:/),
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: expect.stringMatching(/^sha256:/),
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ]);
@@ -447,14 +480,44 @@ function runTranslatedReaderFixture(input: {
       const dbConnection = initializeDatabase(config);
       try {
         await dbConnection.db.insert(schema.flashbacks).values({
-          id: "hl-translated",
+          id: "source-flashback",
           memoryId,
           text: sourceMarkdown,
           prefix: "",
           suffix: "",
           startOffset: 0,
           endOffset: sourceMarkdown.length,
-          contentHash: createReaderContentHash(sourceMarkdown),
+          contentHash: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await dbConnection.db.insert(schema.flashbacks).values({
+          id: "translated-flashback",
+          memoryId,
+          variantKind: "translation",
+          langCode: "ja-JP",
+          translationOutputHash: outputHash,
+          text: translatedMarkdown,
+          prefix: "",
+          suffix: "",
+          startOffset: 0,
+          endOffset: translatedMarkdown.length,
+          contentHash: createReaderContentHash(translatedMarkdown),
+          createdAt: now,
+          updatedAt: now,
+        });
+        await dbConnection.db.insert(schema.flashbacks).values({
+          id: "stale-translated-flashback",
+          memoryId,
+          variantKind: "translation",
+          langCode: "ja-JP",
+          translationOutputHash: "sha256:" + "b".repeat(64),
+          text: translatedMarkdown,
+          prefix: "",
+          suffix: "",
+          startOffset: 0,
+          endOffset: translatedMarkdown.length,
+          contentHash: null,
           createdAt: now,
           updatedAt: now,
         });
@@ -500,11 +563,12 @@ function runTranslatedReaderFixture(input: {
         dbConnection.close();
       }
 
-      const result = await loadReaderMemory(memoryId, {
+      const source = await loadReaderMemory(memoryId, { config });
+      const translated = await loadReaderMemory(memoryId, {
         config,
         langCode: "ja-JP",
       });
-      process.stdout.write(JSON.stringify(result));
+      process.stdout.write(JSON.stringify({ source, translated }));
     `,
     {
       TRAUMA_TEST_ROOT: root,

@@ -1,5 +1,8 @@
 # Task 19V.04: Cross-Variant Flashback Toggle Implementation Plan
 
+> Superseded for Flashbacks by Task 19W. Do not execute this subtask for
+> translated Flashback behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Allow translated reader text selections to create or remove canonical source Flashbacks through exact reverse projection.

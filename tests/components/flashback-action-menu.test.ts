@@ -63,6 +63,40 @@ describe("Flashback action menu", () => {
     });
   });
 
+  it("sends langCode when deleting a translated flashback", async () => {
+    const requests: Request[] = [];
+    const translatedFlashback: FlashbackActionMenuItem = {
+      ...flashback,
+      variantKind: "translation",
+      langCode: "ja-JP",
+      translationOutputHash: "sha256:" + "a".repeat(64),
+    };
+
+    await deleteFlashbackBySelection({
+      flashback: translatedFlashback,
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(JSON.stringify({ result: { flashbacks: [] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    expect(await requests[0]?.json()).toEqual({
+      memoryId: "memory-1",
+      langCode: "ja-JP",
+      operation: "unflashback",
+      selection: {
+        text: "selected text",
+        prefix: "before ",
+        suffix: " after",
+        startOffset: 7,
+        endOffset: 20,
+      },
+    });
+  });
+
   it("keeps backup failsafe revalidation wired for failed deletes", async () => {
     const source = await import("node:fs").then(({ readFileSync }) =>
       readFileSync("src/components/flashbacks/FlashbackActionMenu.tsx", "utf8"),
