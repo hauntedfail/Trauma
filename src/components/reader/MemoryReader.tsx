@@ -556,6 +556,18 @@ function ReadyMemoryReader(props: {
       eventSource.addEventListener(eventName, onProgress);
     }
     eventSource.onerror = () => {
+      if (eventSource.readyState === EventSource.CLOSED) {
+        eventSource.close();
+        translationEventSource = undefined;
+        setTranslationProgress({
+          eventUrl,
+          jobId,
+          message: "Translation stream failed. Retry translation.",
+          preview: translationProgress()?.preview ?? "",
+          status: "failed",
+        });
+        return;
+      }
       setTranslationProgress({
         eventUrl,
         jobId,

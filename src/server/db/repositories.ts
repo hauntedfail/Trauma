@@ -263,6 +263,9 @@ export interface TranslationRepository {
     langCode: string,
     sourceHash: string,
   ) => Promise<TranslationJobRecord | null>;
+  listCompleteTranslationRecordsForMemory: (
+    memoryId: string,
+  ) => Promise<TranslationJobRecord[]>;
   findActiveTranslationJob: (
     memoryId: string,
     langCode: string,
@@ -273,6 +276,12 @@ export interface TranslationRepository {
     status: TranslationJobStatus,
     patch: TranslationJobPatch,
   ) => Promise<void>;
+  transitionTranslationJobStatus: (
+    jobId: string,
+    expectedStatus: TranslationJobStatus,
+    status: TranslationJobStatus,
+    patch: TranslationJobPatch,
+  ) => Promise<boolean>;
   claimTranslationJob: (
     jobId: string,
     expectedStatus: "pending",
@@ -1135,6 +1144,19 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         });
         return row === undefined ? null : toTranslationJobRecord(row);
       },
+      listCompleteTranslationRecordsForMemory: async (memoryId) => {
+        const rows = await db.query.translationJobs.findMany({
+          where: and(
+            eq(schema.translationJobs.memoryId, memoryId),
+            eq(schema.translationJobs.status, "complete"),
+          ),
+          orderBy: [
+            asc(schema.translationJobs.langCode),
+            desc(schema.translationJobs.updatedAt),
+          ],
+        });
+        return rows.map(toTranslationJobRecord);
+      },
       findActiveTranslationJob: async (memoryId, langCode, sourceHash) => {
         const row = await db.query.translationJobs.findFirst({
           where: and(
@@ -1166,6 +1188,28 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           })
           .where(eq(schema.translationJobs.jobId, jobId))
           .run();
+      },
+      transitionTranslationJobStatus: async (jobId, expectedStatus, status, patch) => {
+        const updated = await db
+          .update(schema.translationJobs)
+          .set({
+            status,
+            chunkCount: patch.chunkCount,
+            outputPath: patch.outputPath,
+            outputHash: patch.outputHash,
+            error: serializeTranslationError(patch.error),
+            completedAt: patch.completedAt,
+            updatedAt: patch.updatedAt,
+          })
+          .where(
+            and(
+              eq(schema.translationJobs.jobId, jobId),
+              eq(schema.translationJobs.status, expectedStatus),
+            ),
+          )
+          .returning({ jobId: schema.translationJobs.jobId })
+          .get();
+        return updated !== undefined;
       },
       claimTranslationJob: async (jobId, expectedStatus, updatedAt) => {
         const updated = await db

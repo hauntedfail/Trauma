@@ -242,6 +242,66 @@ describe("translation repositories", () => {
       connection.close();
     }
   });
+
+  it("uses compare-and-set transitions for translation finalization", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/brilliant",
+        title: "Brilliant Source",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${memoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.translations.createTranslationJob({
+        jobId: "job-cas",
+        memoryId,
+        langCode: "ja-JP",
+        sourceHash: "sha256:source-cas",
+        model: null,
+        reasoningEffort: null,
+        promptPolicyVersion: "brilliant-v1",
+        chunkerVersion: "chunker-v1",
+        chunkCount: 1,
+        now,
+      });
+      await expect(
+        connection.repositories.translations.claimTranslationJob(
+          "job-cas",
+          "pending",
+          later,
+        ),
+      ).resolves.toBe(true);
+      await expect(
+        connection.repositories.translations.requestRunningTranslationJobCancellation(
+          "job-cas",
+          later,
+        ),
+      ).resolves.toBe(true);
+      await expect(
+        connection.repositories.translations.transitionTranslationJobStatus(
+          "job-cas",
+          "running",
+          "stitching",
+          { updatedAt: later },
+        ),
+      ).resolves.toBe(false);
+      await expect(
+        connection.repositories.translations.getTranslationJob("job-cas"),
+      ).resolves.toMatchObject({ status: "cancel_requested" });
+    } finally {
+      connection.close();
+    }
+  });
 });
 
 function createProjectionSpan(input: {

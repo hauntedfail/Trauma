@@ -398,15 +398,22 @@ export async function runTranslationJob(
       await cancelJob(connection.repositories, job);
       return;
     }
-    const claimed = job.status === "running" ||
+    let activeStatus: "running" | "stitching" | "committing";
+    if (
+      job.status === "running" ||
       job.status === "stitching" ||
-      job.status === "committing" ||
+      job.status === "committing"
+    ) {
+      activeStatus = job.status;
+    } else if (
       await connection.repositories.translations.claimTranslationJob(
         jobId,
         "pending",
         new Date(),
-      );
-    if (!claimed) {
+      )
+    ) {
+      activeStatus = "running";
+    } else {
       return;
     }
 
@@ -479,30 +486,48 @@ export async function runTranslationJob(
       return;
     }
 
-    await connection.repositories.translations.updateTranslationJobStatus(
-      jobId,
-      "stitching",
-      { updatedAt: new Date() },
-    );
-    translationEventBus.emit({
-      data: {},
-      jobId,
-      langCode: job.langCode,
-      memoryId: job.memoryId,
-      type: "translation.job.stitching",
-    });
-    await connection.repositories.translations.updateTranslationJobStatus(
-      jobId,
-      "committing",
-      { updatedAt: new Date() },
-    );
-    translationEventBus.emit({
-      data: {},
-      jobId,
-      langCode: job.langCode,
-      memoryId: job.memoryId,
-      type: "translation.job.committing",
-    });
+    if (activeStatus === "running") {
+      const startedStitching =
+        await connection.repositories.translations.transitionTranslationJobStatus(
+          jobId,
+          "running",
+          "stitching",
+          { updatedAt: new Date() },
+        );
+      if (!startedStitching) {
+        await cancelIfRequestedAfterFinalizationRace(connection.repositories, job);
+        return;
+      }
+      activeStatus = "stitching";
+      translationEventBus.emit({
+        data: {},
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.stitching",
+      });
+    }
+    if (activeStatus === "stitching") {
+      const startedCommitting =
+        await connection.repositories.translations.transitionTranslationJobStatus(
+          jobId,
+          "stitching",
+          "committing",
+          { updatedAt: new Date() },
+        );
+      if (!startedCommitting) {
+        await cancelIfRequestedAfterFinalizationRace(connection.repositories, job);
+        return;
+      }
+      activeStatus = "committing";
+      translationEventBus.emit({
+        data: {},
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.committing",
+      });
+    }
     const result = await commitTranslatedContent({
       backupQueue,
       chunks: await connection.repositories.translations.getTranslationChunks(jobId),
@@ -924,6 +949,15 @@ async function cancelJob(
     memoryId: job.memoryId,
     type: "translation.job.canceled",
   });
+}
+
+async function cancelIfRequestedAfterFinalizationRace(
+  repositories: TraumaRepositories,
+  job: { jobId: string; langCode: string; memoryId: string },
+): Promise<void> {
+  if (await isCancellationRequested(repositories, job.jobId)) {
+    await cancelJob(repositories, job);
+  }
 }
 
 async function resolveCodexTranslationSelection(input: {

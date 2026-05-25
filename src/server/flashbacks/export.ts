@@ -49,6 +49,13 @@ export function getSourceFlashbackMetadataExportPath(memoryId: string): string {
   });
 }
 
+export function getTranslatedFlashbackMetadataExportPath(input: {
+  langCode: string;
+  memoryId: string;
+}): string {
+  return `memories/${input.memoryId}/${input.langCode}/${FLASHBACK_METADATA_EXPORT_FILENAME}`;
+}
+
 export async function writeFlashbackMetadataExport(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   memoryId: string;

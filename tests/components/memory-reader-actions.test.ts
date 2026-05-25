@@ -180,8 +180,21 @@ describe("memory reader actions", () => {
       memoryReaderSource.indexOf("  };", onErrorIndex),
     );
     expect(onErrorBody).toContain("Translation stream disconnected. Reconnecting...");
-    expect(onErrorBody).not.toContain("eventSource.close()");
-    expect(onErrorBody).not.toContain("translationEventSource = undefined");
+    expect(onErrorBody).toContain('status: "running"');
+  });
+
+  it("fails closed translation streams instead of leaving progress reconnecting", () => {
+    const onErrorIndex = memoryReaderSource.indexOf("eventSource.onerror = () => {");
+    expect(onErrorIndex).toBeGreaterThan(-1);
+    const onErrorBody = memoryReaderSource.slice(
+      onErrorIndex,
+      memoryReaderSource.indexOf("  };", onErrorIndex),
+    );
+    expect(onErrorBody).toContain("eventSource.readyState === EventSource.CLOSED");
+    expect(onErrorBody).toContain("Translation stream failed. Retry translation.");
+    expect(onErrorBody).toContain('status: "failed"');
+    expect(onErrorBody).toContain("eventSource.close()");
+    expect(onErrorBody).toContain("translationEventSource = undefined");
   });
 
   it("treats terminal translation snapshots as terminal SSE progress", () => {

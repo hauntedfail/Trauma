@@ -594,6 +594,21 @@ describe("git memory backup queue", () => {
             JSON.stringify({ version: 1, memoryId: id, flashbacks: [] }, null, 2) + "\\n",
           );
         }
+        mkdirSync(join(config.storePath, "memories", ids.failed, "ja-JP"), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(config.storePath, "memories", ids.failed, "ja-JP", "CONTENT.md"),
+          "# 翻訳済みバックアップ候補\\n",
+        );
+        writeFileSync(
+          join(config.storePath, "memories", ids.failed, "ja-JP", "TRANSLATION_MAP.json"),
+          JSON.stringify({ version: 1, memoryId: ids.failed, spans: [] }, null, 2) + "\\n",
+        );
+        writeFileSync(
+          join(config.storePath, "memories", ids.failed, "ja-JP", "FLASHBACKS.json"),
+          JSON.stringify({ version: 2, memoryId: ids.failed, flashbacks: [] }, null, 2) + "\\n",
+        );
         unlinkSync(join(config.storePath, "memories", ids.failed, "FLASHBACKS.json"));
         execFileSync(
           "git",
@@ -637,6 +652,28 @@ describe("git memory backup queue", () => {
               updatedAt: now,
             });
           }
+          await connection.repositories.translations.createTranslationJob({
+            jobId: "retry-translation-ja",
+            memoryId: ids.failed,
+            langCode: "ja-JP",
+            sourceHash: "sha256:retry-source",
+            model: "codex-test",
+            reasoningEffort: null,
+            promptPolicyVersion: "brilliant-v1",
+            chunkerVersion: "chunker-v1",
+            chunkCount: 1,
+            now,
+          });
+          await connection.repositories.translations.updateTranslationJobStatus(
+            "retry-translation-ja",
+            "complete",
+            {
+              completedAt: now,
+              outputHash: "sha256:retry-output",
+              outputPath: \`memories/\${ids.failed}/ja-JP/CONTENT.md\`,
+              updatedAt: now,
+            },
+          );
         } finally {
           connection.close();
         }
@@ -714,6 +751,9 @@ describe("git memory backup queue", () => {
         contentPaths: [
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/CONTENT.md",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/FLASHBACKS.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/CONTENT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/TRANSLATION_MAP.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/FLASHBACKS.json",
         ],
       },
       {

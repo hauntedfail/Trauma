@@ -13,7 +13,10 @@ import {
   runTranslationJob,
   startTranslationJob,
 } from "../../../src/server/translation/runner";
-import { resolveTranslatedMemoryProjectionPath } from "../../../src/server/translation/paths";
+import {
+  resolveTranslatedMemoryContentPath,
+  resolveTranslatedMemoryProjectionPath,
+} from "../../../src/server/translation/paths";
 import { translationEventBus } from "../../../src/server/translation/events";
 import type {
   RawCodexChunkOutput,
@@ -369,6 +372,94 @@ describe("translation runner", () => {
     } finally {
       connection.close();
     }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.stitching");
+    expect(events).not.toContain("translation.job.completed");
+  });
+
+  it("does not overwrite cancellation accepted before stitching transition", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000011";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    let cancelRaceInjected = false;
+    const client = new FakeTranslationClient();
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  if (!cancelRaceInjected && args[1] === "stitching") {
+                    cancelRaceInjected = true;
+                    await translations.requestRunningTranslationJobCancellation(
+                      jobId,
+                      new Date(),
+                    );
+                  }
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  if (
+                    !cancelRaceInjected &&
+                    args[1] === "running" &&
+                    args[2] === "stitching"
+                  ) {
+                    cancelRaceInjected = true;
+                    await translations.requestRunningTranslationJobCancellation(
+                      jobId,
+                      new Date(),
+                    );
+                  }
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        status: "canceled",
+      });
+    } finally {
+      connection.close();
+    }
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(outputPath.absolutePath, "utf8")).rejects.toThrow();
     expect(events).toContain("translation.job.canceled");
     expect(events).not.toContain("translation.job.stitching");
     expect(events).not.toContain("translation.job.completed");
