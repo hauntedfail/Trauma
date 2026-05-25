@@ -492,19 +492,17 @@ export class CodexAppServerClient implements TranslationClient {
       }
       return;
     }
-    if (message.id !== undefined) {
-      const pending = this.pendingRequests.get(message.id);
-      if (pending === undefined) {
-        return;
-      }
-      this.pendingRequests.delete(message.id);
-      clearTimeout(pending.timeout);
-      if (message.error !== undefined) {
-        pending.reject(createCodexWireError(message.error));
-        return;
-      }
-      pending.resolve(message.result);
+    const pending = this.pendingRequests.get(message.id);
+    if (pending === undefined) {
+      return;
     }
+    this.pendingRequests.delete(message.id);
+    clearTimeout(pending.timeout);
+    if (message.error !== undefined) {
+      pending.reject(createCodexWireError(message.error));
+      return;
+    }
+    pending.resolve(message.result);
   }
 
   private subscribeNotification(

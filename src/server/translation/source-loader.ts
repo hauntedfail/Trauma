@@ -4,7 +4,7 @@ import { TextDecoder } from "node:util";
 import type { ResolvedTraumaConfig } from "../config";
 import {
   MemoryContentStoreError,
-  readMemoryContent,
+  parseMemoryContentFixture,
   resolveMemoryContentPath,
 } from "../store";
 import { createSha256ContentHash, estimateRoughTokens } from "./hash";
@@ -30,7 +30,11 @@ export async function loadTranslationSourceSnapshot(input: {
     throw error;
   }
   const rawContent = utf8Decoder.decode(bytes);
-  const content = await readMemoryContent(input);
+  const content = parseMemoryContentFixture(
+    rawContent,
+    resolvedPath.relativePath,
+    input.memoryId,
+  );
 
   return {
     byteSize: bytes.byteLength,

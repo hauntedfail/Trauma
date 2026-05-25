@@ -208,7 +208,7 @@ export async function deleteMemoryContent(
   return resolvedPath;
 }
 
-function parseMemoryContentFixture(
+export function parseMemoryContentFixture(
   content: string,
   relativePath: string,
   expectedMemoryId: string,
