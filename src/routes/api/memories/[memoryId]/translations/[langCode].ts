@@ -105,6 +105,24 @@ export async function GET(event: APIEvent): Promise<Response> {
         { status: 404 },
       );
     }
+    if (
+      error instanceof MemoryContentStoreError &&
+      error.code === "invalid_memory_id"
+    ) {
+      return jsonResponse(
+        {
+          status: "invalid_memory_id",
+          error: {
+            action: "open_source_reader",
+            code: "invalid_memory_id",
+            message: "memoryId must be a valid memory identifier.",
+          },
+          lang_code: langCode,
+          memory_id: memoryId,
+        },
+        { status: 400 },
+      );
+    }
     return jsonResponse({ error: formatConfigError(error) }, { status: 500 });
   }
 }

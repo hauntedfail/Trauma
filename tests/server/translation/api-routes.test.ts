@@ -1,17 +1,34 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { APIEvent } from "@solidjs/start/server";
 
+import { GET as readTranslation } from "../../../src/routes/api/memories/[memoryId]/translations/[langCode]";
 import { createCancelTranslationHandler } from "../../../src/server/translation/cancel-translation-route";
 import { createStartTranslationHandler } from "../../../src/server/translation/start-translation-route";
 import { TranslationApiError } from "../../../src/server/translation/runner";
 import type { TranslationJobStatus } from "../../../src/server/translation/types";
+import {
+  createApiEvent as createRouteApiEvent,
+  writeRouteConfig,
+} from "../routes/api-test-helpers";
 
 const startTranslationRouteSource = readFileSync(
   "src/routes/api/memories/[memoryId]/translations.ts",
   "utf8",
 );
+const originalEnv = { ...process.env };
+const tempRoots: string[] = [];
+
+afterEach(async () => {
+  process.env = { ...originalEnv };
+  await Promise.all(
+    tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
 describe("translation API routes", () => {
   it("keeps the picked POST route as a thin framework entrypoint", () => {
@@ -88,6 +105,31 @@ describe("translation API routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       status: "current",
       lang_code: "ja-JP",
+    });
+  });
+
+  it("maps malformed translated memory ids to client errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-translation-api-"));
+    tempRoots.push(root);
+    process.env.TRAUMA_CONFIG_PATH = await writeRouteConfig(root);
+
+    const response = await readTranslation(
+      createRouteApiEvent(
+        new Request("http://localhost/api/memories/not-a-uuid/translations/ja-JP"),
+        { memoryId: "not-a-uuid", langCode: "ja-JP" },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      status: "invalid_memory_id",
+      error: {
+        action: "open_source_reader",
+        code: "invalid_memory_id",
+        message: "memoryId must be a valid memory identifier.",
+      },
+      lang_code: "ja-JP",
+      memory_id: "not-a-uuid",
     });
   });
 
