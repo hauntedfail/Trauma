@@ -9,6 +9,7 @@ import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { loadReaderMemory } from "../../../src/server/reader/page-data";
 import { createMemoryContentFixture } from "../../../src/server/store";
+import { MemoryContentStoreError } from "../../../src/server/store";
 import {
   repairUnavailableTranslation,
   resolveCurrentTranslationReadOnly,
@@ -31,6 +32,17 @@ afterEach(async () => {
 });
 
 describe("translation source and current output", () => {
+  it("maps missing source CONTENT.md to a typed missing-content error", async () => {
+    const config = await createConfig();
+
+    await expect(loadTranslationSourceSnapshot({ config, memoryId }))
+      .rejects.toMatchObject({
+        code: "missing_content",
+      });
+    await expect(loadTranslationSourceSnapshot({ config, memoryId }))
+      .rejects.toBeInstanceOf(MemoryContentStoreError);
+  });
+
   it("hashes the exact source CONTENT.md bytes and validates current translations", async () => {
     const config = await createConfig();
     const sourceContent = createMemoryContentFixture({
@@ -172,6 +184,118 @@ describe("translation source and current output", () => {
       expect(
         await connection.repositories.translations.getTranslationJob("job-current"),
       ).toMatchObject({ status: "unavailable" });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("propagates non-missing translated output read failures", async () => {
+    const config = await createConfig();
+    const sourceContent = createMemoryContentFixture({
+      frontmatter: {
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+        id: memoryId,
+        title: "Brilliant Source",
+        url: "https://example.com/brilliant",
+      },
+      markdown: "# Brilliant Source\n\nBody text.",
+    });
+    await writeSourceContent(config, sourceContent);
+    const source = await loadTranslationSourceSnapshot({ config, memoryId });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/brilliant",
+        title: "Brilliant Source",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${memoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.translations.createTranslationJob({
+        chunkCount: 1,
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+        jobId: "job-output-read-failure",
+        langCode: "ja-JP",
+        memoryId,
+        model: "codex-test",
+        now,
+        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+        sourceHash: source.sourceHash,
+      });
+      const outputPath = await writeTranslatedContentAtomically({
+        config,
+        jobId: "job-output-read-failure",
+        langCode: "ja-JP",
+        markdown: sourceContent.replace("Body text.", "本文。"),
+        memoryId,
+      });
+      const output = await import("node:fs/promises").then(({ readFile }) =>
+        readFile(outputPath.absolutePath),
+      );
+      await connection.repositories.translations.updateTranslationJobStatus(
+        "job-output-read-failure",
+        "complete",
+        {
+          completedAt: now,
+          outputHash: `sha256:${createHash("sha256").update(output).digest("hex")}`,
+          outputPath: outputPath.relativePath,
+          updatedAt: now,
+        },
+      );
+      await rm(outputPath.absolutePath);
+      await mkdir(outputPath.absolutePath, { recursive: true });
+
+      await expect(
+        resolveCurrentTranslationReadOnly({
+          config,
+          langCode: "ja-JP",
+          memoryId,
+          repository: connection.repositories.translations,
+        }),
+      ).rejects.toMatchObject({ code: "EISDIR" });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("can resolve current translation state from an already loaded source snapshot", async () => {
+    const config = await createConfig();
+    const sourceContent = createMemoryContentFixture({
+      frontmatter: {
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+        id: memoryId,
+        title: "Brilliant Source",
+        url: "https://example.com/brilliant",
+      },
+      markdown: "# Brilliant Source\n\nBody text.",
+    });
+    await writeSourceContent(config, sourceContent);
+    const sourceSnapshot = await loadTranslationSourceSnapshot({ config, memoryId });
+    await rm(join(config.storePath, "memories", memoryId, "CONTENT.md"));
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        resolveCurrentTranslationReadOnly({
+          config,
+          langCode: "ja-JP",
+          memoryId,
+          repository: connection.repositories.translations,
+          sourceSnapshot,
+        }),
+      ).resolves.toMatchObject({
+        status: "missing",
+        sourceHash: sourceSnapshot.sourceHash,
+      });
     } finally {
       connection.close();
     }

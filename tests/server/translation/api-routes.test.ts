@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { APIEvent } from "@solidjs/start/server";
 
+import { createCancelTranslationHandler } from "../../../src/server/translation/cancel-translation-route";
 import { createStartTranslationHandler } from "../../../src/server/translation/start-translation-route";
 import { TranslationApiError } from "../../../src/server/translation/runner";
+import type { TranslationJobStatus } from "../../../src/server/translation/types";
 
 const startTranslationRouteSource = readFileSync(
   "src/routes/api/memories/[memoryId]/translations.ts",
@@ -179,6 +181,76 @@ describe("translation API routes", () => {
       });
     },
   );
+
+  it("rechecks job state when pending cancellation loses its CAS race", async () => {
+    const events: string[] = [];
+    const interrupted: string[] = [];
+    const repo = createCancelRepo({
+      job: {
+        jobId: "job-race",
+        langCode: "ja-JP",
+        memoryId: "memory-race",
+        status: "pending",
+      },
+      cancelPending: async (state) => {
+        state.job = { ...state.job, status: "running" };
+        return false;
+      },
+      requestRunning: async (state) => {
+        state.job = { ...state.job, status: "cancel_requested" };
+        return true;
+      },
+    });
+    const handler = createCancelTranslationHandler({
+      emitTranslationEvent: (event) => {
+        events.push(event.type);
+      },
+      interruptRunningTranslationJobTurn: async (jobId) => {
+        interrupted.push(jobId);
+        return true;
+      },
+      openConnection: () => repo.connection,
+    });
+
+    const response = await handler(createCancelApiEvent("job-race"));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      status: "cancel_requested",
+      job_id: "job-race",
+    });
+    expect(repo.calls).toEqual([
+      "get:job-race",
+      "cancel-pending:job-race",
+      "get:job-race",
+      "request-running:job-race",
+    ]);
+    expect(events).toEqual([]);
+    expect(interrupted).toEqual(["job-race"]);
+  });
+
+  it("treats already canceled translation jobs as idempotent cancel success", async () => {
+    const repo = createCancelRepo({
+      job: {
+        jobId: "job-canceled",
+        langCode: "ja-JP",
+        memoryId: "memory-canceled",
+        status: "canceled",
+      },
+    });
+    const handler = createCancelTranslationHandler({
+      openConnection: () => repo.connection,
+    });
+
+    const response = await handler(createCancelApiEvent("job-canceled"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "canceled",
+      job_id: "job-canceled",
+    });
+    expect(repo.calls).toEqual(["get:job-canceled"]);
+  });
 });
 
 function createApiEvent(input: {
@@ -197,4 +269,52 @@ function createApiEvent(input: {
       method: "POST",
     }),
   } as unknown as APIEvent;
+}
+
+function createCancelApiEvent(jobId: string): APIEvent {
+  return {
+    params: { jobId },
+    request: new Request(`http://localhost/api/translation-jobs/${jobId}/cancel`, {
+      method: "POST",
+    }),
+  } as unknown as APIEvent;
+}
+
+type CancelRepoJob = {
+  jobId: string;
+  langCode: string;
+  memoryId: string;
+  status: TranslationJobStatus;
+};
+
+function createCancelRepo(input: {
+  cancelPending?: (state: { job: CancelRepoJob }) => Promise<boolean>;
+  job: CancelRepoJob;
+  requestRunning?: (state: { job: CancelRepoJob }) => Promise<boolean>;
+}) {
+  const state = { job: input.job };
+  const calls: string[] = [];
+  const repository = {
+    getTranslationJob: async (jobId: string) => {
+      calls.push(`get:${jobId}`);
+      return state.job.jobId === jobId ? state.job : null;
+    },
+    cancelPendingTranslationJob: async (jobId: string) => {
+      calls.push(`cancel-pending:${jobId}`);
+      return input.cancelPending?.(state) ?? false;
+    },
+    requestRunningTranslationJobCancellation: async (jobId: string) => {
+      calls.push(`request-running:${jobId}`);
+      return input.requestRunning?.(state) ?? false;
+    },
+  };
+  return {
+    calls,
+    connection: {
+      close: () => undefined,
+      repositories: {
+        translations: repository,
+      },
+    },
+  };
 }

@@ -311,6 +311,12 @@ describe("settings page", () => {
     ).resolves.toBeUndefined();
     expect(requests).toEqual([]);
   });
+
+  it("keeps Codex auth enabled and surfaces the server message when logout is unsupported", () => {
+    expect(settingsPageSource).toContain('response.status === "unsupported"');
+    expect(settingsPageSource).toContain("response.message");
+    expect(settingsPageSource).toContain("Codex auth logout is unsupported.");
+  });
 });
 
 function jsonResponse(body: unknown) {

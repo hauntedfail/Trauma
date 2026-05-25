@@ -140,6 +140,6 @@ TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
 For `unix://`, TRAUMA connects to Codex's default app-server control socket at
 `~/.codex/app-server-control/app-server-control.sock`. Set
 `TRAUMA_CODEX_APP_SERVER_SOCKET_PATH` only when a local operator workflow uses a
-different socket path. Loopback `ws://127.0.0.1:<port>` is supported only as a
-development fallback. `http://`, `https://`, and `stdio://` are rejected because
-they are not Brilliant wire-protocol transports.
+different socket path. Loopback WebSocket endpoints are not supported. `http://`,
+`https://`, `ws://`, and `stdio://` are rejected because they are not Brilliant
+wire-protocol transports.

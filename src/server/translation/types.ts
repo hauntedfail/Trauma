@@ -88,6 +88,7 @@ export type TranslationErrorCode =
   | "usage_limit"
   | "context_overflow"
   | "timeout"
+  | "turn_interrupted"
   | "stream_disconnected"
   | "invalid_final_output"
   | "validation_failed"

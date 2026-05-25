@@ -52,16 +52,24 @@ export type CodexDeviceCodeCancelResponse =
       provider: "codex";
     };
 
-export interface CodexAuthDeleteResponse {
-  status: "disabled";
-  provider: "codex";
-  logoutStatus: CodexLogoutResult["status"];
-  message?: string;
-}
+export type CodexAuthDeleteResponse =
+  | {
+      status: "disabled";
+      provider: "codex";
+      logoutStatus: "logged_out";
+      message?: string;
+    }
+  | {
+      status: "unsupported";
+      provider: "codex";
+      logoutStatus: "unsupported";
+      message: string;
+    };
 
 export interface CodexAuthClient {
   cancelDeviceCodeLogin: (input: { loginId: string }) => Promise<void>;
   checkAuth: (input?: CodexAuthCheckOptions) => Promise<CodexAuthStatus>;
+  close?: () => Promise<void> | void;
   logout: () => Promise<CodexLogoutResult>;
   observeAuthEvents: () => AsyncIterable<CodexAuthEvent>;
   startDeviceCodeLogin: () => Promise<CodexDeviceCodeLogin>;
@@ -75,11 +83,14 @@ interface PendingLogin {
 
 let pendingLogin: PendingLogin | undefined;
 let observingLoginId: string | undefined;
+let stopPendingLoginObserver: (() => void) | undefined;
 
 export async function readCodexAuthStatus(input: {
+  createClient?: () => CodexAuthClient;
   client?: CodexAuthClient;
 } = {}): Promise<CodexAuthStatusResponse> {
-  const client = input.client ?? new CodexAppServerClient();
+  const ownsClient = input.client === undefined;
+  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
   try {
     const status = await client.checkAuth();
     if (status.status === "enabled") {
@@ -91,29 +102,45 @@ export async function readCodexAuthStatus(input: {
       };
     }
     if (pendingLogin !== undefined) {
+      if (status.status !== "setup_required") {
+        clearPendingLogin();
+        return mapAuthStatus(status);
+      }
       return createPendingResponse(pendingLogin);
     }
     return mapAuthStatus(status);
   } catch (error) {
     return mapAuthError(error);
+  } finally {
+    if (ownsClient) {
+      await closeCodexAuthClient(client);
+    }
   }
 }
 
 export async function startCodexDeviceCodeLogin(input: {
+  createClient?: () => CodexAuthClient;
   client?: CodexAuthClient;
 } = {}): Promise<CodexDeviceCodeStartResponse> {
-  const client = input.client ?? new CodexAppServerClient();
+  const ownsClient = input.client === undefined;
+  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
   const current = await readCodexAuthStatus({ client });
   if (current.status === "enabled" || current.status === "login_started") {
+    if (ownsClient) {
+      await closeCodexAuthClient(client);
+    }
     return current;
   }
 
   try {
     const login = await client.startDeviceCodeLogin();
     pendingLogin = login;
-    observePendingLogin(client, login.loginId);
+    observePendingLogin(client, login.loginId, { closeWhenDone: ownsClient });
     return createPendingResponse(login);
   } catch (error) {
+    if (ownsClient) {
+      await closeCodexAuthClient(client);
+    }
     return {
       status: "failed",
       provider: "codex",
@@ -124,48 +151,84 @@ export async function startCodexDeviceCodeLogin(input: {
 }
 
 export async function cancelCodexDeviceCodeLogin(input: {
+  createClient?: () => CodexAuthClient;
   client?: CodexAuthClient;
 } = {}): Promise<CodexDeviceCodeCancelResponse> {
   const current = pendingLogin;
   if (current === undefined) {
     return { status: "not_pending", provider: "codex" };
   }
-  const client = input.client ?? new CodexAppServerClient();
-  await client.cancelDeviceCodeLogin({ loginId: current.loginId });
-  clearPendingLogin();
-  return {
-    status: "canceled",
-    provider: "codex",
-    loginId: current.loginId,
-  };
+  const ownsClient = input.client === undefined;
+  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  try {
+    await client.cancelDeviceCodeLogin({ loginId: current.loginId });
+    clearPendingLogin();
+    return {
+      status: "canceled",
+      provider: "codex",
+      loginId: current.loginId,
+    };
+  } finally {
+    if (ownsClient) {
+      await closeCodexAuthClient(client);
+    }
+  }
 }
 
 export async function deleteCodexAuth(input: {
+  createClient?: () => CodexAuthClient;
   client?: CodexAuthClient;
 } = {}): Promise<CodexAuthDeleteResponse> {
-  const client = input.client ?? new CodexAppServerClient();
-  clearPendingLogin();
-  const result = await client.logout();
-  return {
-    status: "disabled",
-    provider: "codex",
-    logoutStatus: result.status,
-    ...(result.status === "unsupported" ? { message: result.message } : {}),
-  };
+  const ownsClient = input.client === undefined;
+  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  try {
+    clearPendingLogin();
+    const result = await client.logout();
+    if (result.status === "unsupported") {
+      return {
+        status: "unsupported",
+        provider: "codex",
+        logoutStatus: "unsupported",
+        message: result.message,
+      };
+    }
+    return {
+      status: "disabled",
+      provider: "codex",
+      logoutStatus: "logged_out",
+    };
+  } finally {
+    if (ownsClient) {
+      await closeCodexAuthClient(client);
+    }
+  }
 }
 
 export function resetCodexAuthForTests(): void {
   clearPendingLogin();
 }
 
-function observePendingLogin(client: CodexAuthClient, loginId: string): void {
+function observePendingLogin(
+  client: CodexAuthClient,
+  loginId: string,
+  options: { closeWhenDone: boolean },
+): void {
   if (observingLoginId === loginId) {
     return;
   }
   observingLoginId = loginId;
   void (async () => {
+    const iterator = client.observeAuthEvents()[Symbol.asyncIterator]();
+    stopPendingLoginObserver = () => {
+      void iterator.return?.();
+    };
     try {
-      for await (const event of client.observeAuthEvents()) {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done === true) {
+          break;
+        }
+        const event = next.value;
         if (pendingLogin?.loginId !== loginId) {
           break;
         }
@@ -194,8 +257,22 @@ function observePendingLogin(client: CodexAuthClient, loginId: string): void {
       if (observingLoginId === loginId) {
         observingLoginId = undefined;
       }
+      if (stopPendingLoginObserver !== undefined) {
+        stopPendingLoginObserver = undefined;
+      }
+      if (options.closeWhenDone) {
+        await closeCodexAuthClient(client);
+      }
     }
   })();
+}
+
+async function closeCodexAuthClient(client: CodexAuthClient): Promise<void> {
+  try {
+    await client.close?.();
+  } catch {
+    // Closing a transient settings client must not hide the auth result.
+  }
 }
 
 function mapAuthStatus(status: CodexAuthStatus): CodexAuthStatusResponse {
@@ -262,6 +339,8 @@ function createPendingResponse(login: PendingLogin): Extract<
 
 function clearPendingLogin(): void {
   pendingLogin = undefined;
+  stopPendingLoginObserver?.();
+  stopPendingLoginObserver = undefined;
 }
 
 function safeErrorMessage(error: unknown): string {

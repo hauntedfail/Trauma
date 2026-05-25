@@ -16,6 +16,7 @@ import { createTranslationSegmentManifest } from "../../../src/server/translatio
 import type { TranslationChunk } from "../../../src/server/translation/types";
 
 const originalSocketPath = process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
+const originalRuntimeDir = process.env.TRAUMA_CODEX_RUNTIME_DIR;
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -23,6 +24,11 @@ afterEach(async () => {
     delete process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
   } else {
     process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH = originalSocketPath;
+  }
+  if (originalRuntimeDir === undefined) {
+    delete process.env.TRAUMA_CODEX_RUNTIME_DIR;
+  } else {
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = originalRuntimeDir;
   }
   await Promise.all(
     tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
@@ -177,6 +183,39 @@ describe("Codex app-server endpoint parsing", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("maps interrupted turns without final output to a cancellation-shaped error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-interrupted-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      sendInterruptedTurnCompletion: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.translateChunk({
+          chunk: createChunk(),
+          prompt: "translate chunk",
+        }),
+      ).rejects.toMatchObject({
+        code: "turn_interrupted",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects loopback WebSocket endpoints because TRAUMA only supports Unix sockets", () => {
+    expect(() => parseCodexAppServerEndpoint("ws://127.0.0.1:4500"))
+      .toThrow("Unsupported Codex app-server endpoint.");
   });
 
   it("lists visible Codex models from the app-server catalog", async () => {
@@ -576,6 +615,131 @@ describe("Codex app-server endpoint parsing", () => {
       await server.close();
     }
   });
+
+  it("rejects malformed app-server frames as protocol errors without leaving pending requests open", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-bad-frame-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      sendMalformedJsonAfterInitialize: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "app_server_protocol_error",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("closes Unix-socket app-server connections explicitly", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-explicit-close-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await client.checkAuth();
+      expect(server.activeSocketCount()).toBe(1);
+
+      await client.close();
+      await server.waitForSocketClose();
+
+      expect(server.activeSocketCount()).toBe(0);
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "stream_disconnected",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reassembles fragmented Unix-socket WebSocket text messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-fragment-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      fragmentAccountReadResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).resolves.toEqual({ status: "enabled" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("answers Unix-socket WebSocket ping frames with pong", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-ping-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const controlFrames: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      controlFrames,
+      sendPingBeforeAccountReadResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).resolves.toEqual({ status: "enabled" });
+      await waitFor(() => controlFrames.includes("pong:keepalive"));
+      expect(controlFrames).toContain("pong:keepalive");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("removes per-job runtime directories after translation attempts finish", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-runtime-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await client.translateChunk({
+        chunk: createChunk(),
+        prompt: "translate chunk",
+      });
+
+      await expect(
+        readFile(join(runtimeRoot, "019e3906-0000-7000-8000-000000000123")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 function createChunk(): TranslationChunk {
@@ -607,12 +771,21 @@ async function startFakeAppServer(
   socketPath: string,
   receivedMethods: string[],
   options: FakeAppServerOptions = {},
-): Promise<{ close: () => Promise<void> }> {
+): Promise<{
+  activeSocketCount: () => number;
+  close: () => Promise<void>;
+  waitForSocketClose: () => Promise<void>;
+}> {
   const sockets = new Set<net.Socket>();
+  let resolveSocketClose: (() => void) | undefined;
+  const socketClose = new Promise<void>((resolve) => {
+    resolveSocketClose = resolve;
+  });
   const server = net.createServer((socket) => {
     sockets.add(socket);
     socket.once("close", () => {
       sockets.delete(socket);
+      resolveSocketClose?.();
     });
     let upgraded = false;
     let buffer = Buffer.alloc(0);
@@ -645,7 +818,9 @@ async function startFakeAppServer(
     function drainClientMessages(): unknown[] {
       const messages: unknown[] = [];
       while (buffer.length >= 2) {
+        const first = buffer[0] ?? 0;
         const second = buffer[1] ?? 0;
+        const opcode = first & 0x0f;
         let offset = 2;
         let length = second & 0x7f;
         if (length === 126) {
@@ -675,6 +850,13 @@ async function startFakeAppServer(
             payload[index] = (payload[index] ?? 0) ^ (mask[index % 4] ?? 0);
           }
         }
+        if (opcode === 0x0a) {
+          options.controlFrames?.push(`pong:${payload.toString("utf8")}`);
+          continue;
+        }
+        if (opcode !== 0x1) {
+          continue;
+        }
         messages.push(JSON.parse(payload.toString("utf8")));
       }
       return messages;
@@ -689,12 +871,14 @@ async function startFakeAppServer(
     });
   });
   return {
+    activeSocketCount: () => sockets.size,
     close: async () => {
       for (const socket of sockets) {
         socket.destroy();
       }
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
+    waitForSocketClose: () => socketClose,
   };
 }
 
@@ -716,13 +900,27 @@ function handleClientMessage(
   });
   switch (value.method) {
     case "initialize":
+      if (options.sendMalformedJsonAfterInitialize === true) {
+        socket.write(encodeServerWebSocketTextFrame("not json"));
+        break;
+      }
       sendJson(socket, { id, result: {} });
       break;
     case "account/read":
-      sendJson(socket, {
-        id,
-        result: options.accountReadResponse ?? { requiresOpenaiAuth: false },
-      });
+      if (options.sendPingBeforeAccountReadResponse === true) {
+        socket.write(encodeServerWebSocketControlFrame(0x09, "keepalive"));
+      }
+      if (options.fragmentAccountReadResponse === true) {
+        sendJsonFragmented(socket, {
+          id,
+          result: options.accountReadResponse ?? { requiresOpenaiAuth: false },
+        });
+      } else {
+        sendJson(socket, {
+          id,
+          result: options.accountReadResponse ?? { requiresOpenaiAuth: false },
+        });
+      }
       break;
     case "account/login/start":
       sendJson(socket, {
@@ -794,6 +992,18 @@ function handleClientMessage(
         socket.end();
         break;
       }
+      if (options.sendInterruptedTurnCompletion === true) {
+        sendJson(socket, {
+          method: "turn/completed",
+          params: {
+            reason: "interrupted",
+            status: "interrupted",
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
+        });
+        break;
+      }
       sendJson(socket, {
         method: "turn/started",
         params: { threadId: "thread-1", turnId: "turn-1" },
@@ -830,10 +1040,15 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  controlFrames?: string[];
+  fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
   receivedMessages?: CapturedClientMessage[];
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
+  sendInterruptedTurnCompletion?: boolean;
+  sendPingBeforeAccountReadResponse?: boolean;
+  sendMalformedJsonAfterInitialize?: boolean;
 }
 
 interface CapturedClientMessage {
@@ -851,6 +1066,19 @@ function findCapturedRequest(
     throw new Error(`Missing captured ${method} request.`);
   }
   return { params: message.params };
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 250,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("condition was not met before timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 interface FocusedProtocolFixture {
@@ -892,13 +1120,41 @@ function sendJson(socket: net.Socket, value: unknown): void {
   socket.write(encodeServerWebSocketTextFrame(JSON.stringify(value)));
 }
 
+function sendJsonFragmented(socket: net.Socket, value: unknown): void {
+  const text = JSON.stringify(value);
+  const midpoint = Math.max(1, Math.floor(text.length / 2));
+  socket.write(encodeServerWebSocketFrame({
+    fin: false,
+    opcode: 0x1,
+    text: text.slice(0, midpoint),
+  }));
+  socket.write(encodeServerWebSocketFrame({
+    fin: true,
+    opcode: 0x0,
+    text: text.slice(midpoint),
+  }));
+}
+
+function encodeServerWebSocketControlFrame(opcode: number, text: string): Buffer {
+  return encodeServerWebSocketFrame({ fin: true, opcode, text });
+}
+
 function encodeServerWebSocketTextFrame(text: string): Buffer {
-  const payload = Buffer.from(text, "utf8");
+  return encodeServerWebSocketFrame({ fin: true, opcode: 0x1, text });
+}
+
+function encodeServerWebSocketFrame(input: {
+  fin: boolean;
+  opcode: number;
+  text: string;
+}): Buffer {
+  const payload = Buffer.from(input.text, "utf8");
+  const first = (input.fin ? 0x80 : 0) | input.opcode;
   if (payload.length < 126) {
-    return Buffer.concat([Buffer.from([0x81, payload.length]), payload]);
+    return Buffer.concat([Buffer.from([first, payload.length]), payload]);
   }
   return Buffer.concat([
-    Buffer.from([0x81, 126, (payload.length >> 8) & 0xff, payload.length & 0xff]),
+    Buffer.from([first, 126, (payload.length >> 8) & 0xff, payload.length & 0xff]),
     payload,
   ]);
 }

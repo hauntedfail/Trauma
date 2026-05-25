@@ -13,6 +13,7 @@ import {
 } from "./prompt";
 import { loadTranslationSourceSnapshot } from "./source-loader";
 import type {
+  TranslationSourceSnapshot,
   TranslationUnavailableReason,
 } from "./types";
 import type { SupportedLanguageCode } from "./languages";
@@ -42,8 +43,9 @@ export async function resolveCurrentTranslationReadOnly(input: {
   langCode: SupportedLanguageCode;
   memoryId: string;
   repository: TranslationRepository;
+  sourceSnapshot?: TranslationSourceSnapshot;
 }): Promise<CurrentTranslationResult> {
-  const source = await loadTranslationSourceSnapshot(input);
+  const source = input.sourceSnapshot ?? await loadTranslationSourceSnapshot(input);
   const job = await input.repository.findCompleteTranslationRecord(
     input.memoryId,
     input.langCode,
@@ -80,7 +82,10 @@ export async function resolveCurrentTranslationReadOnly(input: {
   let bytes: Buffer;
   try {
     bytes = await readFile(expectedPath.absolutePath);
-  } catch {
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
     return {
       status: "unavailable",
       job,
@@ -107,6 +112,10 @@ export async function resolveCurrentTranslationReadOnly(input: {
     readerUrl: createTranslatedReaderUrl(input),
     sourceHash: source.sourceHash,
   };
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 export async function repairUnavailableTranslation(input: {

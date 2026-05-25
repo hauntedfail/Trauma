@@ -32,6 +32,60 @@ describe("Codex auth settings service", () => {
     });
   });
 
+  it("closes owned Codex auth clients after status checks", async () => {
+    let closeCalls = 0;
+
+    await expect(
+      readCodexAuthStatus({
+        createClient: () =>
+          createCodexAuthClient({
+            authStatus: { status: "enabled" },
+            close: async () => {
+              closeCalls += 1;
+            },
+          }),
+      }),
+    ).resolves.toMatchObject({
+      status: "enabled",
+    });
+
+    expect(closeCalls).toBe(1);
+  });
+
+  it("stops and closes the pending auth observer after local cancel", async () => {
+    resetCodexAuthForTests();
+    let closeCalls = 0;
+    let observerReturned = false;
+    const client = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+      close: async () => {
+        closeCalls += 1;
+      },
+      events: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<CodexAuthEvent>>(() => undefined),
+          return: async () => {
+            observerReturned = true;
+            return { done: true, value: undefined };
+          },
+        }),
+      }),
+      login: {
+        loginId: "login-cancel-observer",
+        verificationUrl: "https://example.com/device",
+        userCode: "CANCEL-1",
+      },
+    });
+
+    await startCodexDeviceCodeLogin({ client });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await cancelCodexDeviceCodeLogin({ client });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(observerReturned).toBe(true);
+    expect(closeCalls).toBe(0);
+  });
+
   it("starts a safe device-code login and reuses pending metadata", async () => {
     resetCodexAuthForTests();
     const client = createCodexAuthClient({
@@ -56,6 +110,29 @@ describe("Codex auth settings service", () => {
       loginId: "login-1",
       verificationUrl: "https://example.com/device",
       userCode: "ABCD-EFGH",
+    });
+  });
+
+  it("drops stale pending device-code metadata when app-server auth is no longer setup-required", async () => {
+    resetCodexAuthForTests();
+    const client = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+      login: {
+        loginId: "login-stale",
+        verificationUrl: "https://example.com/device",
+        userCode: "STALE-1",
+      },
+    });
+
+    await startCodexDeviceCodeLogin({ client });
+
+    const disabledClient = createCodexAuthClient({
+      authStatus: { status: "disabled", reason: "signed_out" },
+    });
+    await expect(readCodexAuthStatus({ client: disabledClient })).resolves.toEqual({
+      status: "disabled",
+      provider: "codex",
+      reason: "signed_out",
     });
   });
 
@@ -167,12 +244,30 @@ describe("Codex auth settings service", () => {
       logoutStatus: "logged_out",
     });
   });
+
+  it("does not report disabled when Codex logout is unsupported", async () => {
+    const client = createCodexAuthClient({
+      authStatus: { status: "enabled" },
+      logout: async () => ({
+        status: "unsupported",
+        message: "Codex app-server does not support logout.",
+      }),
+    });
+
+    await expect(deleteCodexAuth({ client })).resolves.toEqual({
+      status: "unsupported",
+      provider: "codex",
+      logoutStatus: "unsupported",
+      message: "Codex app-server does not support logout.",
+    });
+  });
 });
 
 function createCodexAuthClient(input: {
   authStatus: CodexAuthStatus | (() => CodexAuthStatus);
   cancel?: (input: { loginId: string }) => Promise<void>;
-  events?: CodexAuthEvent[];
+  close?: () => Promise<void>;
+  events?: CodexAuthEvent[] | (() => AsyncIterable<CodexAuthEvent>);
   login?: CodexDeviceCodeLogin;
   logout?: () => Promise<CodexLogoutResult>;
 }): CodexAuthClient {
@@ -182,11 +277,18 @@ function createCodexAuthClient(input: {
       typeof input.authStatus === "function"
         ? input.authStatus()
         : input.authStatus,
+    close: input.close,
     logout: input.logout ?? (async () => ({ status: "logged_out" })),
-    observeAuthEvents: async function* (): AsyncIterable<CodexAuthEvent> {
-      for (const event of input.events ?? []) {
-        yield event;
+    observeAuthEvents: (): AsyncIterable<CodexAuthEvent> => {
+      const events = input.events;
+      if (typeof events === "function") {
+        return events();
       }
+      return (async function* () {
+        for (const event of events ?? []) {
+          yield event;
+        }
+      })();
     },
     startDeviceCodeLogin: async () => {
       if (input.login === undefined) {

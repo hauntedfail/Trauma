@@ -19,7 +19,7 @@ Supporting types:
 ```ts
 export interface CodexAppServerConfig {
   endpoint: string;
-  transport: "unix_socket" | "websocket";
+  transport: "unix_socket";
   healthProbeUrl?: string;
   healthTimeoutMs: number;
   requestTimeoutMs: number;
@@ -96,8 +96,8 @@ Rules:
 - Default startup command: `codex app-server --listen unix://`.
 - Default endpoint example: `TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix://`.
 - `codex app-server` without `--listen unix://` uses `stdio`; do not treat that process as a Brilliant endpoint.
-- Loopback WebSocket remains supported only as a local development fallback, for example `codex app-server --listen ws://127.0.0.1:4500` with `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
-- If the Unix socket implementation is blocked by platform/runtime support, the implementation may use loopback WebSocket temporarily but must document that it is using the experimental upstream transport and keep the fallback local-only.
+- Loopback WebSocket is not supported by TRAUMA.
+- If Unix socket support is blocked by platform/runtime support, treat that as a blocked integration task rather than silently falling back to WebSocket.
 - The app-server client speaks the Codex app-server wire protocol over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.
 - Codex app-server wire messages use the app-server's documented JSON-RPC-like envelope and omit a top-level `jsonrpc: "2.0"` field. Do not use a generic JSON-RPC client that injects `jsonrpc` unless generated schema/fixtures prove it is accepted by the installed Codex app-server.
 - Request envelope shape is `{ "method": "...", "params": {...}, "id": 1 }`.
@@ -110,11 +110,11 @@ Rules:
   into that capability.
 - Do not auto-start Codex app-server in the MVP. If app-server process management is added later, define it as a separate subtask.
 - If `endpoint` is missing, return `setup_required`.
-- Brilliant MVP supports the app-server wire protocol only over a Unix socket or a loopback WebSocket endpoint such as `ws://127.0.0.1:<port>`.
+- Brilliant MVP supports the app-server wire protocol only over a Unix socket.
 - HTTP is not an app-server wire-protocol transport for Brilliant. It may be used only for app-server health probes such as `/readyz` or `/healthz` when the selected endpoint exposes them.
 - Reject `http://` and `https://` endpoints for app-server wire-protocol calls with `setup_required`.
 - Reject `stdio` process ownership because TRAUMA does not auto-start or supervise the app-server process in Brilliant MVP.
-- Reject non-loopback WebSocket endpoints in the MVP. Remote app-server exposure and WebSocket bearer/capability-token management require a separate security subtask.
+- Reject WebSocket endpoints in the MVP. Remote app-server exposure and WebSocket bearer/capability-token management require a separate security subtask.
 - If `endpoint` is configured but health/auth probing fails due connection failure or timeout, return `app_server_unavailable`.
 - Run `account/read` before scheduling translation work. A non-null `account`
   confirms usable auth even when `requiresOpenaiAuth` is `true`. Treat

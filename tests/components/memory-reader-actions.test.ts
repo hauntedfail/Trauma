@@ -145,6 +145,45 @@ describe("memory reader actions", () => {
     expect(html).toContain("Add tag");
   });
 
+  it("revalidates the active translated reader cache after reader-local actions", () => {
+    expect(memoryReaderSource).toContain(
+      [
+        "        revalidateAfterFlashbackToggle(",
+        "          props.result.memory.id,",
+        "          props.result.content.langCode,",
+        "        ),",
+      ].join("\n"),
+    );
+    expect(memoryReaderSource).toContain(
+      [
+        "                    revalidateAfterReadStatusChange(",
+        "                      props.result.memory.id,",
+        "                      props.result.content.langCode,",
+        "                    )",
+      ].join("\n"),
+    );
+    expect(memoryReaderSource).toContain(
+      [
+        "      void revalidateAfterReaderTaxonomyChange(",
+        "        props.result.memory.id,",
+        "        props.result.content.langCode,",
+        "      );",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps browser EventSource retries alive for transient translation stream errors", () => {
+    const onErrorIndex = memoryReaderSource.indexOf("eventSource.onerror = () => {");
+    expect(onErrorIndex).toBeGreaterThan(-1);
+    const onErrorBody = memoryReaderSource.slice(
+      onErrorIndex,
+      memoryReaderSource.indexOf("  };", onErrorIndex),
+    );
+    expect(onErrorBody).toContain("Translation stream disconnected. Reconnecting...");
+    expect(onErrorBody).not.toContain("eventSource.close()");
+    expect(onErrorBody).not.toContain("translationEventSource = undefined");
+  });
+
   it("deletes the active memory and navigates back to memories", async () => {
     const requests: Request[] = [];
     const navigations: string[] = [];

@@ -15,6 +15,18 @@ export interface EmitTranslationEventInput<TData = unknown> {
 type Listener = (event: TranslationEventEnvelope) => void;
 
 const MAX_REPLAY_EVENTS_PER_JOB = 500;
+const TERMINAL_TRANSLATION_EVENT_TYPES = new Set<TranslationEventType>([
+  "translation.job.canceled",
+  "translation.job.completed",
+  "translation.job.failed",
+  "translation.job.stale",
+]);
+
+export function isTerminalTranslationEventType(
+  type: TranslationEventType,
+): boolean {
+  return TERMINAL_TRANSLATION_EVENT_TYPES.has(type);
+}
 
 export class TranslationEventBus {
   private nextEventId = 1;
@@ -44,12 +56,24 @@ export class TranslationEventBus {
     for (const listener of this.listeners.get(input.jobId) ?? []) {
       listener(event);
     }
+    if (isTerminalTranslationEventType(input.type)) {
+      this.replay.delete(input.jobId);
+    }
 
     return event;
   }
 
   getReplay(jobId: string): TranslationEventEnvelope[] {
     return [...(this.replay.get(jobId) ?? [])];
+  }
+
+  subscribeWithReplay(
+    jobId: string,
+    listener: Listener,
+  ): { replay: TranslationEventEnvelope[]; unsubscribe: () => void } {
+    const replay = this.getReplay(jobId);
+    const unsubscribe = this.subscribe(jobId, listener);
+    return { replay, unsubscribe };
   }
 
   subscribe(jobId: string, listener: Listener): () => void {

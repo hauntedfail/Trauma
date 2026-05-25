@@ -32,6 +32,12 @@ export interface TranslationCommitResult {
   readerUrl: string;
 }
 
+export interface StaleTranslationCommitResult {
+  currentSourceHash: string;
+  jobSourceHash: string;
+  status: "stale";
+}
+
 export async function commitTranslatedContent(input: {
   backupQueue: MemoryBackupQueue;
   config: ResolvedTraumaConfig;
@@ -39,7 +45,7 @@ export async function commitTranslatedContent(input: {
   job: TranslationJobRecord;
   now?: Date;
   repository: TranslationRepository;
-}): Promise<TranslationCommitResult | { status: "stale" }> {
+}): Promise<TranslationCommitResult | StaleTranslationCommitResult> {
   const source = await loadTranslationSourceSnapshot({
     config: input.config,
     memoryId: input.job.memoryId,
@@ -54,7 +60,11 @@ export async function commitTranslatedContent(input: {
       },
       updatedAt: now,
     });
-    return { status: "stale" };
+    return {
+      currentSourceHash: source.sourceHash,
+      jobSourceHash: input.job.sourceHash,
+      status: "stale",
+    };
   }
 
   const body = stitchCompletedChunks(input.chunks);
@@ -114,11 +124,15 @@ export async function commitTranslatedContent(input: {
     updatedAt: now,
   });
   await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
-  await input.backupQueue.enqueue({
-    contentPaths: [outputPath.relativePath, projectionPath.relativePath],
-    memoryId: input.job.memoryId,
-    reason: "translation_update",
-  });
+  try {
+    await input.backupQueue.enqueue({
+      contentPaths: [outputPath.relativePath, projectionPath.relativePath],
+      memoryId: input.job.memoryId,
+      reason: "translation_update",
+    });
+  } catch (error) {
+    console.warn("failed to enqueue translation backup", error);
+  }
 
   return {
     outputHash,

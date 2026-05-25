@@ -242,6 +242,16 @@ export function SettingsPage(props: SettingsPageProps) {
           typeof window === "undefined" ? false : window.confirm(text),
       });
       if (response !== undefined) {
+        if (response.status === "unsupported") {
+          setCodexAuth({
+            status: "enabled",
+            provider: "codex",
+            message: response.message,
+          });
+          setMessage(response.message ?? "Codex auth logout is unsupported.");
+          void revalidateSettingsState();
+          return;
+        }
         setCodexAuth({
           status: "disabled",
           provider: "codex",

@@ -383,7 +383,10 @@ function ReadyMemoryReader(props: {
       setPendingSelectionKey,
       onFlashbacksChanged: setCurrentFlashbacks,
       onSuccess: () =>
-        revalidateAfterFlashbackToggle(props.result.memory.id),
+        revalidateAfterFlashbackToggle(
+          props.result.memory.id,
+          props.result.content.langCode,
+        ),
     });
   };
   const commitSelectionMomentMenu = () => {
@@ -414,6 +417,7 @@ function ReadyMemoryReader(props: {
   };
   const deleteMemory = async (memoryId: string): Promise<void> => {
     await deleteReaderMemory({
+      langCode: props.result.content.langCode,
       memoryId,
       navigate,
     });
@@ -426,7 +430,7 @@ function ReadyMemoryReader(props: {
     setCategories((current) => mergeReaderTaxonomyItem(current, category));
     void Promise.all([
       revalidateBrowseMemoryWorkspace(),
-      revalidateReaderMemory(input.memoryId),
+      revalidateReaderMemory(input.memoryId, props.result.content.langCode),
     ]);
   };
   const attachTag = async (name: string): Promise<void> => {
@@ -437,7 +441,10 @@ function ReadyMemoryReader(props: {
         name,
       });
       setTags((current) => mergeReaderTaxonomyItem(current, tag));
-      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+      void revalidateAfterReaderTaxonomyChange(
+        props.result.memory.id,
+        props.result.content.langCode,
+      );
     } catch (error) {
       setErrorMessage("Failed to add tag.");
       throw error;
@@ -451,7 +458,10 @@ function ReadyMemoryReader(props: {
         name,
       });
       setTags((current) => current.filter((item) => item.id !== tag.id));
-      void revalidateAfterReaderTaxonomyChange(props.result.memory.id);
+      void revalidateAfterReaderTaxonomyChange(
+        props.result.memory.id,
+        props.result.content.langCode,
+      );
     } catch (error) {
       setErrorMessage("Failed to remove tag.");
       throw error;
@@ -549,12 +559,10 @@ function ReadyMemoryReader(props: {
       setTranslationProgress({
         eventUrl,
         jobId,
-        message: "Translation stream disconnected.",
+        message: "Translation stream disconnected. Reconnecting...",
         preview: translationProgress()?.preview ?? "",
-        status: "failed",
+        status: "running",
       });
-      eventSource.close();
-      translationEventSource = undefined;
     };
   };
   const submitTranslationDialog: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
@@ -661,7 +669,10 @@ function ReadyMemoryReader(props: {
         );
         await Promise.all([
           revalidateMomentBrowseRows(),
-          revalidateReaderMemory(props.result.memory.id),
+          revalidateReaderMemory(
+            props.result.memory.id,
+            props.result.content.langCode,
+          ),
         ]);
         return;
       }
@@ -676,7 +687,10 @@ function ReadyMemoryReader(props: {
       );
       await Promise.all([
         revalidateMomentBrowseRows(),
-        revalidateReaderMemory(props.result.memory.id),
+        revalidateReaderMemory(
+          props.result.memory.id,
+          props.result.content.langCode,
+        ),
       ]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Moment failed");
@@ -774,7 +788,12 @@ function ReadyMemoryReader(props: {
                   initialRead={props.result.memory.read}
                   memoryId={props.result.memory.id}
                   variant="icon"
-                  onSaved={() => revalidateAfterReadStatusChange(props.result.memory.id)}
+                  onSaved={() =>
+                    revalidateAfterReadStatusChange(
+                      props.result.memory.id,
+                      props.result.content.langCode,
+                    )
+                  }
                 />
                 <MemoryActionMenu
                   memoryId={props.result.memory.id}
@@ -1449,6 +1468,8 @@ function messageForTranslationError(
       return "Translated CONTENT.md is unavailable. Start a fresh translation.";
     case "timeout":
       return "Codex translation timed out. Retry the translation.";
+    case "turn_interrupted":
+      return "Codex translation was canceled.";
     case "stream_disconnected":
       return "Codex translation stream disconnected. Retry the translation.";
     case "invalid_final_output":
@@ -1470,9 +1491,13 @@ function messageForTranslationError(
 
 export async function deleteReaderMemory(input: {
   fetch?: FetchFunction;
+  langCode?: SupportedLanguageCode;
   memoryId: string;
   navigate: (path: string) => void;
-  revalidate?: (memoryId: string) => Promise<void>;
+  revalidate?: (
+    memoryId: string,
+    langCode?: SupportedLanguageCode,
+  ) => Promise<void>;
 }): Promise<void> {
   try {
     await deleteMemoryById({
@@ -1485,7 +1510,10 @@ export async function deleteReaderMemory(input: {
     }
     throw error;
   }
-  await (input.revalidate ?? revalidateAfterMemoryDeletion)(input.memoryId);
+  await (input.revalidate ?? revalidateAfterMemoryDeletion)(
+    input.memoryId,
+    input.langCode,
+  );
   input.navigate("/memories");
 }
 
@@ -1667,33 +1695,45 @@ function scheduleReaderHashTargetScroll(root: HTMLElement | undefined): void {
   });
 }
 
-async function revalidateAfterReadStatusChange(memoryId: string): Promise<void> {
+async function revalidateAfterReadStatusChange(
+  memoryId: string,
+  langCode?: SupportedLanguageCode,
+): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
-    revalidateReaderMemory(memoryId),
+    revalidateReaderMemory(memoryId, langCode),
   ]);
 }
 
-async function revalidateAfterReaderTaxonomyChange(memoryId: string): Promise<void> {
+async function revalidateAfterReaderTaxonomyChange(
+  memoryId: string,
+  langCode?: SupportedLanguageCode,
+): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
-    revalidateReaderMemory(memoryId),
+    revalidateReaderMemory(memoryId, langCode),
   ]);
 }
 
-async function revalidateAfterMemoryDeletion(memoryId: string): Promise<void> {
+async function revalidateAfterMemoryDeletion(
+  memoryId: string,
+  langCode?: SupportedLanguageCode,
+): Promise<void> {
   await Promise.all([
     revalidateBrowseMemoryWorkspace(),
     revalidateFlashbackBrowseRows(),
     revalidateMomentBrowseRows(),
-    revalidateReaderMemory(memoryId),
+    revalidateReaderMemory(memoryId, langCode),
   ]);
 }
 
-async function revalidateAfterFlashbackToggle(memoryId: string): Promise<void> {
+async function revalidateAfterFlashbackToggle(
+  memoryId: string,
+  langCode?: SupportedLanguageCode,
+): Promise<void> {
   await Promise.all([
     revalidateFlashbackBrowseRows(),
-    revalidateReaderMemory(memoryId),
+    revalidateReaderMemory(memoryId, langCode),
     revalidateBrowseMemoryWorkspace(),
   ]);
 }

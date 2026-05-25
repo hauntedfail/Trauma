@@ -17,16 +17,20 @@ import {
 } from "./settings";
 
 type ListCodexModels = () => Promise<CodexModelCatalog>;
+type CodexModelsClient = {
+  close?: () => Promise<void> | void;
+  listModels: () => Promise<CodexModelCatalog>;
+};
 type UpdateDefaults = (input: {
-  model: string | null;
-  reasoningEffort: CodexReasoningEffort | null;
+  model?: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
 }) => Promise<SettingsState>;
 
 type DefaultsPayload =
   | {
       ok: true;
-      model: string | null;
-      reasoningEffort: CodexReasoningEffort | null;
+      model?: string | null;
+      reasoningEffort?: CodexReasoningEffort | null;
     }
   | { ok: false; error: string };
 
@@ -44,9 +48,11 @@ class CodexModelSelectionError extends Error {
 }
 
 export function createReadCodexModelsHandler(input: {
+  createClient?: () => CodexModelsClient;
   listModels?: ListCodexModels;
 } = {}) {
-  const listModels = input.listModels ?? (() => new CodexAppServerClient().listModels());
+  const listModels = input.listModels ??
+    (() => listModelsWithOwnedClient(input.createClient?.() ?? new CodexAppServerClient()));
   return async function readCodexModels(_event: APIEvent): Promise<Response> {
     try {
       return jsonResponse(await listModels(), { status: 200 });
@@ -57,10 +63,12 @@ export function createReadCodexModelsHandler(input: {
 }
 
 export function createUpdateCodexTranslationDefaultsHandler(input: {
+  createClient?: () => CodexModelsClient;
   listModels?: ListCodexModels;
   updateDefaults?: UpdateDefaults;
 } = {}) {
-  const listModels = input.listModels ?? (() => new CodexAppServerClient().listModels());
+  const listModels = input.listModels ??
+    (() => listModelsWithOwnedClient(input.createClient?.() ?? new CodexAppServerClient()));
   const updateDefaults = input.updateDefaults ??
     ((defaults) => updateCodexTranslationDefaults(defaults));
 
@@ -83,6 +91,16 @@ export function createUpdateCodexTranslationDefaultsHandler(input: {
   };
 }
 
+async function listModelsWithOwnedClient(
+  client: CodexModelsClient,
+): Promise<CodexModelCatalog> {
+  try {
+    return await client.listModels();
+  } finally {
+    await client.close?.();
+  }
+}
+
 async function parseDefaultsPayload(request: Request): Promise<DefaultsPayload> {
   let payload: unknown;
   try {
@@ -100,15 +118,23 @@ async function parseDefaultsPayload(request: Request): Promise<DefaultsPayload> 
     };
   }
 
-  const model = readOptionalString(payload.model);
-  if (model === undefined) {
+  const model = Object.hasOwn(payload, "model")
+    ? readOptionalString(payload.model)
+    : undefined;
+  if (model === INVALID_OPTIONAL_STRING) {
     return { ok: false, error: "model must be a string or null" };
   }
-  const effortValue = readOptionalString(payload.reasoning_effort);
-  if (effortValue === undefined) {
+  const effortValue = Object.hasOwn(payload, "reasoning_effort")
+    ? readOptionalString(payload.reasoning_effort)
+    : undefined;
+  if (effortValue === INVALID_OPTIONAL_STRING) {
     return { ok: false, error: "reasoning_effort must be a string or null" };
   }
-  if (effortValue !== null && !isCodexReasoningEffort(effortValue)) {
+  if (
+    effortValue !== undefined &&
+    effortValue !== null &&
+    !isCodexReasoningEffort(effortValue)
+  ) {
     return {
       ok: false,
       error: "reasoning_effort must be a supported Codex reasoning effort",
@@ -120,15 +146,19 @@ async function parseDefaultsPayload(request: Request): Promise<DefaultsPayload> 
 
 function validateCodexSelection(
   catalog: CodexModelCatalog,
-  requestedModel: string | null,
-  reasoningEffort: CodexReasoningEffort | null,
+  requestedModel: string | null | undefined,
+  reasoningEffort: CodexReasoningEffort | null | undefined,
 ) {
-  const selectedModel = requestedModel === null
+  const selectedModel = requestedModel === undefined || requestedModel === null
     ? null
     : catalog.models.find((model) =>
       model.id === requestedModel || model.model === requestedModel
     );
-  if (requestedModel !== null && selectedModel === undefined) {
+  if (
+    requestedModel !== undefined &&
+    requestedModel !== null &&
+    selectedModel === undefined
+  ) {
     throw new CodexModelSelectionError(
       "translation_model_unavailable",
       `Codex model "${requestedModel}" is unavailable.`,
@@ -139,6 +169,7 @@ function validateCodexSelection(
     catalog.models.find((model) => model.isDefault) ??
     null;
   if (
+    reasoningEffort !== undefined &&
     reasoningEffort !== null &&
     (
       modelForEffort === null ||
@@ -152,7 +183,7 @@ function validateCodexSelection(
   }
 
   return {
-    model: selectedModel?.model ?? requestedModel,
+    model: requestedModel === undefined ? undefined : selectedModel?.model ?? requestedModel,
     reasoningEffort,
   };
 }
@@ -195,12 +226,16 @@ function statusForCodexAppServerError(code: CodexAppServerError["code"]): number
   }
 }
 
-function readOptionalString(value: unknown): string | null | undefined {
+const INVALID_OPTIONAL_STRING = Symbol("invalid_optional_string");
+
+function readOptionalString(
+  value: unknown,
+): string | null | typeof INVALID_OPTIONAL_STRING {
   if (value === undefined || value === null) {
     return null;
   }
   if (typeof value !== "string") {
-    return undefined;
+    return INVALID_OPTIONAL_STRING;
   }
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;

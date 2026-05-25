@@ -164,6 +164,7 @@ function statusForTranslationError(error: TranslationApiError): number {
     case "setup_required":
     case "translation_unavailable":
     case "stale_source":
+    case "turn_interrupted":
     case "usage_limit":
     case "context_overflow":
     case "validation_failed":

@@ -23,7 +23,7 @@ Research reference captured by the instruction:
 
 - Use Codex app-server as the production integration path.
 - Treat Codex app-server as a Codex app-server wire-protocol integration, not a REST endpoint. The backend client must connect over a configured app-server transport, run `initialize` plus `initialized`, create an ephemeral thread with `thread/start`, then start translation work with `turn/start`.
-- Brilliant MVP uses the Codex app-server wire protocol over an explicitly configured Unix socket listener (`codex app-server --listen unix://`) as TRAUMA's required local transport. This is not the Codex CLI's no-flag default; `codex app-server` without `--listen unix://` uses `stdio` and is not a valid Brilliant backend endpoint. Loopback WebSocket is allowed only as a local development fallback because the upstream transport is experimental and unsupported. HTTP is allowed only for health probes such as `/readyz` or `/healthz`, not for app-server wire-protocol calls. `stdio` process ownership is out of scope because TRAUMA does not start or supervise the Codex app-server process.
+- Brilliant MVP uses the Codex app-server wire protocol over an explicitly configured Unix socket listener (`codex app-server --listen unix://`) as TRAUMA's required local transport. This is not the Codex CLI's no-flag default; `codex app-server` without `--listen unix://` uses `stdio` and is not a valid Brilliant backend endpoint. Loopback WebSocket is not a supported TRAUMA transport. HTTP is allowed only for health probes such as `/readyz` or `/healthz`, not for app-server wire-protocol calls. `stdio` process ownership is out of scope because TRAUMA does not start or supervise the Codex app-server process.
 - Use Codex managed ChatGPT sign-in; surface app-server `chatgptDeviceCode` login when auth is missing.
 - Keep OpenAI/ChatGPT tokens out of TRAUMA SQLite, logs, frontend responses, and browser storage.
 - Do not expose Codex app-server directly to the browser; only the Reader backend talks to Codex.
@@ -222,7 +222,7 @@ Subagents may work only on non-overlapping files and must report changed files, 
 - Includes frontend streaming progress through SSE.
 - Uses Codex app-server as the preferred integration path.
 - Defines Codex app-server wire-protocol transport, initialization, thread, turn, auth, and cancellation boundaries.
-- Defines explicitly configured Unix socket as TRAUMA's required local app-server transport, loopback WebSocket as a local dev fallback, and HTTP wire-protocol calls plus `stdio` process ownership as out of scope for Brilliant MVP.
+- Defines explicitly configured Unix socket as TRAUMA's required local app-server transport, rejects WebSocket, and keeps HTTP wire-protocol calls plus `stdio` process ownership out of scope for Brilliant MVP.
 - Keeps Codex tokens out of the frontend and TRAUMA SQLite.
 - Treats external article content as untrusted data.
 - Defines validation and retry at chunk level.

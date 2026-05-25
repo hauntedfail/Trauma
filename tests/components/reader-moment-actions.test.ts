@@ -215,12 +215,15 @@ describe("reader Moment actions", () => {
     });
   });
 
-  it("revalidates both Moment browse and reader memory caches after creating a Moment", () => {
+  it("revalidates both Moment browse and active reader memory caches after creating a Moment", () => {
     expect(readerSource).toContain(
       [
         "await Promise.all([",
         "        revalidateMomentBrowseRows(),",
-        "        revalidateReaderMemory(props.result.memory.id),",
+        "        revalidateReaderMemory(",
+        "          props.result.memory.id,",
+        "          props.result.content.langCode,",
+        "        ),",
         "      ]);",
       ].join("\n"),
     );

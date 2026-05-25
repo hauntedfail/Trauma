@@ -3,6 +3,7 @@ import type { APIEvent } from "@solidjs/start/server";
 import { loadRuntimeTraumaConfig } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { formatConfigError, jsonResponse } from "~/server/http/json";
+import { MemoryContentStoreError } from "~/server/store";
 import {
   repairUnavailableTranslation,
   resolveCurrentTranslationReadOnly,
@@ -86,6 +87,24 @@ export async function GET(event: APIEvent): Promise<Response> {
       connection.close();
     }
   } catch (error) {
+    if (
+      error instanceof MemoryContentStoreError &&
+      error.code === "missing_content"
+    ) {
+      return jsonResponse(
+        {
+          status: "missing_source_content",
+          error: {
+            action: "open_source_reader",
+            code: "missing_source_content",
+            message: "Source CONTENT.md was not found.",
+          },
+          lang_code: langCode,
+          memory_id: memoryId,
+        },
+        { status: 404 },
+      );
+    }
     return jsonResponse({ error: formatConfigError(error) }, { status: 500 });
   }
 }

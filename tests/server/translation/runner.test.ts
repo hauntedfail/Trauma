@@ -14,6 +14,7 @@ import {
   startTranslationJob,
 } from "../../../src/server/translation/runner";
 import { resolveTranslatedMemoryProjectionPath } from "../../../src/server/translation/paths";
+import { translationEventBus } from "../../../src/server/translation/events";
 import type {
   RawCodexChunkOutput,
   TranslationChunk,
@@ -179,6 +180,37 @@ describe("translation runner", () => {
     ].join("\n"));
   });
 
+  it("rejects source documents with no translatable blocks before creating a job", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, "");
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000009",
+        memoryId,
+        now,
+        schedule: () => undefined,
+      }),
+    ).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(
+          "019e3906-0000-7000-8000-000000000009",
+        ),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
   it("tracks active Codex turns so cancellation can interrupt app-server work", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -246,6 +278,355 @@ describe("translation runner", () => {
     expect(output).toContain("\\operatorname*{argmax}_y p(y|x)");
     expect(output).toContain("| --- | --- |");
     expect(output).toContain("[^1]:");
+  });
+
+  it("emits stale when the source changes after chunks complete but before commit", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000005";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new SourceMutatingTranslationClient(async () => {
+      await writeSourceContent(config, "# Brilliant Source\n\nChanged.");
+    });
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+
+      await runTranslationJob(started.job_id, { client, config });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        status: "stale",
+        error: expect.objectContaining({
+          code: "stale_source",
+        }),
+      });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.stale");
+    expect(events).not.toContain("translation.job.completed");
+  });
+
+  it("honors cancellation requested after a chunk completes before stitching", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000006";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new CancelAfterOutputTranslationClient(async () => {
+      const connection = initializeDatabase(config);
+      try {
+        await connection.repositories.translations
+          .requestRunningTranslationJobCancellation(jobId, new Date());
+      } finally {
+        connection.close();
+      }
+    });
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+
+      await runTranslationJob(started.job_id, { client, config });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        status: "canceled",
+      });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.stitching");
+    expect(events).not.toContain("translation.job.completed");
+  });
+
+  it("does not retry a failed chunk after cancellation is requested", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000007";
+    const client = new FailThenCancelTranslationClient(async () => {
+      const connection = initializeDatabase(config);
+      try {
+        await connection.repositories.translations
+          .requestRunningTranslationJobCancellation(jobId, new Date());
+      } finally {
+        connection.close();
+      }
+    });
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        status: "canceled",
+      });
+    } finally {
+      connection.close();
+    }
+    expect(client.callCount).toBe(1);
+  });
+
+  it("closes a translation client when the scheduled run owns it", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new CloseTrackingTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000008",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      closeClientAfterRun: true,
+      config,
+    });
+
+    expect(client.closeCalls).toBe(1);
+  });
+
+  it("keeps a committed translation complete when backup enqueue fails", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const backupQueue: MemoryBackupQueue = {
+      enqueue: async () => {
+        throw new Error("backup queue is unavailable");
+      },
+    };
+
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000010",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        status: "complete",
+        error: null,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("requeues persisted pending jobs when translation start sees them active", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000011",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const scheduled: string[] = [];
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        memoryId,
+        now,
+        schedule: (jobId) => scheduled.push(jobId),
+      }),
+    ).resolves.toMatchObject({
+      status: "active",
+      job_id: started.job_id,
+      job_status: "pending",
+    });
+    expect(scheduled).toEqual([started.job_id]);
+  });
+
+  it("returns the active job when creation loses the active-job uniqueness race", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new CloseTrackingTranslationClient();
+    const active = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000014",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let findActiveCalls = 0;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000015",
+        memoryId,
+        now,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...connection.repositories.translations,
+                findActiveTranslationJob: async (...args) => {
+                  findActiveCalls += 1;
+                  return findActiveCalls === 1
+                    ? null
+                    : connection.repositories.translations.findActiveTranslationJob(
+                      ...args,
+                    );
+                },
+                createTranslationJob: async () => {
+                  throw new Error("UNIQUE constraint failed: translation_jobs");
+                },
+              },
+            },
+          };
+        },
+        schedule: () => undefined,
+      }),
+    ).resolves.toMatchObject({
+      status: "active",
+      job_id: active.job_id,
+    });
+  });
+
+  it("recovers cancel-requested jobs by marking them canceled", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000012",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "cancel_requested",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      verifyConnection.close();
+    }
+  });
+
+  it("recovers finalizing jobs instead of leaving them active forever", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000013",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "stitching",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      verifyConnection.close();
+    }
   });
 });
 
@@ -350,6 +731,93 @@ class MarkerTranslationClient implements TranslationClient {
       })),
       warnings: [],
     };
+  }
+}
+
+class SourceMutatingTranslationClient implements TranslationClient {
+  private hasMutated = false;
+
+  constructor(private readonly mutateSource: () => Promise<void>) {}
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    if (!this.hasMutated) {
+      this.hasMutated = true;
+      await this.mutateSource();
+    }
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
+          "Brilliant Source",
+          "変更前の翻訳見出し",
+        ).replaceAll("Body.", "変更前の翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class CancelAfterOutputTranslationClient implements TranslationClient {
+  private hasCanceled = false;
+
+  constructor(private readonly requestCancel: () => Promise<void>) {}
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    if (!this.hasCanceled) {
+      this.hasCanceled = true;
+      await this.requestCancel();
+    }
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
+          "Brilliant Source",
+          "キャンセル前の翻訳見出し",
+        ).replaceAll("Body.", "キャンセル前の翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class FailThenCancelTranslationClient implements TranslationClient {
+  callCount = 0;
+
+  constructor(private readonly requestCancel: () => Promise<void>) {}
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    if (this.callCount === 1) {
+      await this.requestCancel();
+      throw new Error("transient failure after cancellation");
+    }
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
+          "Brilliant Source",
+          "再試行された翻訳見出し",
+        ).replaceAll("Body.", "再試行された翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class CloseTrackingTranslationClient extends FakeTranslationClient {
+  closeCalls = 0;
+
+  async close(): Promise<void> {
+    this.closeCalls += 1;
   }
 }
 

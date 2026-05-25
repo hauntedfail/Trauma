@@ -130,7 +130,7 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - app-server initialization before requests
-- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP wire-protocol rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, HTTP wire-protocol rejection, WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
@@ -179,7 +179,7 @@ mise exec -- bun run typecheck
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
 - default app-server endpoint uses Unix socket `unix://`
-- loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
+- loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested as rejected
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`
 - pending cancellation races runner claim through compare-and-set; if `pending -> canceled` loses to `pending -> running`, cancel API reloads and requests `running -> cancel_requested`

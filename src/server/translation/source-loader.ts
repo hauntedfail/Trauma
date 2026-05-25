@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { TextDecoder } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { readMemoryContent, resolveMemoryContentPath } from "../store";
+import {
+  MemoryContentStoreError,
+  readMemoryContent,
+  resolveMemoryContentPath,
+} from "../store";
 import { createSha256ContentHash, estimateRoughTokens } from "./hash";
 import type { TranslationSourceSnapshot } from "./types";
 
@@ -13,7 +17,18 @@ export async function loadTranslationSourceSnapshot(input: {
   memoryId: string;
 }): Promise<TranslationSourceSnapshot> {
   const resolvedPath = resolveMemoryContentPath(input.config, input.memoryId);
-  const bytes = await readFile(resolvedPath.absolutePath);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(resolvedPath.absolutePath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      throw new MemoryContentStoreError(
+        `CONTENT.md is missing at ${resolvedPath.relativePath}`,
+        "missing_content",
+      );
+    }
+    throw error;
+  }
   const rawContent = utf8Decoder.decode(bytes);
   const content = await readMemoryContent(input);
 
@@ -51,4 +66,8 @@ function inferDocumentType(input: {
   }
 
   return markdown.trim().length > 0 ? "article" : "unknown";
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

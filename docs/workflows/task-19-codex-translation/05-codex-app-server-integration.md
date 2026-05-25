@@ -54,12 +54,12 @@ Rules:
 - Default Brilliant MVP endpoint is `unix://`, but only when the operator started Codex with `codex app-server --listen unix://`.
 - Default local app-server startup command is `codex app-server --listen unix://`.
 - `codex app-server` without `--listen unix://` uses the Codex CLI `stdio` default and is not a Brilliant endpoint.
-- Support Unix socket as the default app-server wire-protocol transport and loopback WebSocket only as a local development fallback.
-- Loopback WebSocket fallback example: `codex app-server --listen ws://127.0.0.1:4500` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
+- Support Unix socket as the only app-server wire-protocol transport.
+- Reject loopback WebSocket endpoints; TRAUMA does not support `ws://` app-server transports.
 - HTTP is health-probe-only and must not be used for app-server wire-protocol requests.
 - Reject `http://` and `https://` endpoints for app-server wire-protocol calls.
 - Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
-- Reject non-loopback WebSocket endpoints until a separate security subtask defines remote listener authentication and secret storage.
+- Reject all WebSocket endpoints until a separate transport design explicitly adds authenticated remote listener support.
 - Speak the Codex app-server wire protocol over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - Use the Codex app-server wire envelope exactly: requests are `{ method, params, id }`, responses are `{ id, result }` or `{ id, error }`, and notifications are `{ method, params }`. Do not add a top-level `jsonrpc` field unless the generated schema or focused fixtures for the installed Codex version explicitly accept it.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
@@ -84,10 +84,8 @@ Protocol schema rules:
   spike. Confirm how Bun/Node connects to Codex app-server's `unix://` endpoint,
   which uses a Unix domain socket plus HTTP Upgrade/WebSocket framing, and define
   how `unix://` resolves the default Codex app-server control socket path.
-- If Bun/Node cannot support the Unix socket WebSocket upgrade without adding a
-  fragile custom frame implementation, document the blocker in the subtask
-  handoff and use loopback WebSocket only as the local development fallback while
-  keeping `unix://` as the intended default contract.
+- If Bun/Node cannot support the Unix socket WebSocket upgrade, document the
+  blocker in the subtask handoff. Do not fall back to a `ws://` endpoint.
 
 Rules:
 
@@ -150,11 +148,11 @@ Use a fake app-server client. Cover:
 - auth check success and auth-required failure
 - missing app-server endpoint returns setup-required
 - default Unix socket endpoint config is accepted only when paired with the explicit `codex app-server --listen unix://` startup requirement
-- loopback WebSocket fallback config is accepted and documented as local-dev-only
+- loopback WebSocket config is rejected
 - Unix socket app-server wire transport is accepted
-- loopback WebSocket app-server wire transport is accepted
+- WebSocket app-server wire transport is rejected
 - HTTP endpoints are rejected for app-server wire-protocol calls
-- non-loopback WebSocket endpoints are rejected for Brilliant MVP
+- all WebSocket endpoints are rejected for Brilliant MVP
 - `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
 - app-server `initialize` and `initialized` happen before `account/read`, `thread/start`, or `turn/start`

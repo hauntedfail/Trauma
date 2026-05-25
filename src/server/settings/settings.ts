@@ -86,14 +86,18 @@ export async function updateTranslationTargetLanguage(
 
 export async function updateCodexTranslationDefaults(input: {
   config?: ResolvedTraumaConfig;
-  model: string | null;
+  model?: string | null;
   now?: Date;
-  reasoningEffort: string | null;
+  reasoningEffort?: string | null;
 }): Promise<SettingsState> {
-  const model = normalizeOptionalString(input.model);
-  const reasoningEffort = normalizeCodexReasoningEffort(input.reasoningEffort);
-
   return withSettingsRepository(input, async (repository, now) => {
+    const current = await repository.getSettings(now);
+    const model = input.model === undefined
+      ? current.codexTranslationModel
+      : normalizeOptionalString(input.model);
+    const reasoningEffort = input.reasoningEffort === undefined
+      ? current.codexTranslationReasoningEffort
+      : normalizeCodexReasoningEffort(input.reasoningEffort);
     const settings = await repository.updateCodexTranslationDefaults({
       model,
       reasoningEffort,
