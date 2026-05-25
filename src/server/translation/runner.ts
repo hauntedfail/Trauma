@@ -40,6 +40,7 @@ import {
 import { loadTranslationSourceSnapshot } from "./source-loader";
 import { commitTranslatedContent, TranslationStitchingError } from "./stitching";
 import {
+  BRILLIANT_CANCEL_GRACE_MS,
   BRILLIANT_MAX_RETRIES,
   isCodexReasoningEffort,
   type CodexReasoningEffort,
@@ -113,6 +114,7 @@ interface StartTranslationJobInput {
 
 interface TranslationRunOptions {
   backupQueue?: MemoryBackupQueue;
+  cancelGraceMs?: number;
   closeClientAfterRun?: boolean;
   client?: TranslationClient;
   config?: ResolvedTraumaConfig;
@@ -215,6 +217,7 @@ export async function startTranslationJob(
       source.sourceHash,
     );
     if (active !== null) {
+      assertReusableActiveJob(active);
       scheduleRecoverableActiveJob(input, config, openConnection, active.jobId);
       return createActiveTranslationResult(active, input.memoryId, langCode);
     }
@@ -298,6 +301,7 @@ export async function startTranslationJob(
       if (input.client === undefined) {
         await closeTranslationClient(client);
       }
+      assertReusableActiveJob(racedActive);
       return createActiveTranslationResult(racedActive, input.memoryId, langCode);
     }
     await connection.repositories.translations.insertTranslationChunks(
@@ -465,6 +469,7 @@ export async function runTranslationJob(
         continue;
       }
       const chunkResult = await translateAndPersistChunk({
+        cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
         chunk,
         client,
         connection,
@@ -586,6 +591,17 @@ function scheduleRecoverableActiveJob(
   });
 }
 
+function assertReusableActiveJob(job: { status: string }): void {
+  if (job.status !== "cancel_requested") {
+    return;
+  }
+  throw new TranslationApiError(
+    "cancellation_conflict",
+    "Translation cancellation is still finalizing. Retry after cancellation completes.",
+    "none",
+  );
+}
+
 function createActiveTranslationResult(
   job: { jobId: string; sourceHash: string; status: string },
   memoryId: string,
@@ -684,6 +700,7 @@ export async function readTranslationJobSnapshot(input: {
 }
 
 async function translateAndPersistChunk(input: {
+  cancelGraceMs: number;
   chunk: ReturnType<typeof createTranslationChunks>[number];
   client: TranslationClient;
   connection: TraumaDatabaseConnection;
@@ -732,7 +749,8 @@ async function translateAndPersistChunk(input: {
         client: input.client,
       };
       inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
-      const rawOutput = await input.client.translateChunk({
+      const cancelWatcher = new AbortController();
+      const rawOutputPromise = input.client.translateChunk({
         chunk: input.chunk,
         model: input.model,
         outputSchema: createCodexChunkOutputSchema(input.chunk),
@@ -773,9 +791,30 @@ async function translateAndPersistChunk(input: {
           }
         },
       });
+      const rawOutputResult = rawOutputPromise.then(
+        (output) => ({ output, status: "completed" as const }),
+        (error: unknown) => ({ error, status: "failed" as const }),
+      );
+      const turnResult = await Promise.race([
+        rawOutputResult,
+        waitForCancellationGrace({
+          cancelGraceMs: input.cancelGraceMs,
+          repositories: input.connection.repositories,
+          jobId: input.chunk.jobId,
+          signal: cancelWatcher.signal,
+        }),
+      ]);
+      cancelWatcher.abort();
       if (inFlightTranslationTurns.get(input.chunk.jobId) === inFlightTurn) {
         inFlightTranslationTurns.delete(input.chunk.jobId);
       }
+      if (turnResult.status === "canceled") {
+        return { status: "canceled" };
+      }
+      if (turnResult.status === "failed") {
+        throw turnResult.error;
+      }
+      const rawOutput = turnResult.output;
       if (
         await isCancellationRequested(
           input.connection.repositories,
@@ -927,6 +966,59 @@ async function isCancellationRequested(
 ): Promise<boolean> {
   const job = await repositories.translations.getTranslationJob(jobId);
   return job?.status === "cancel_requested";
+}
+
+async function waitForCancellationGrace(input: {
+  cancelGraceMs: number;
+  jobId: string;
+  repositories: TraumaRepositories;
+  signal: AbortSignal;
+}): Promise<{ status: "canceled" }> {
+  const cancelGraceMs = Math.max(0, input.cancelGraceMs);
+  const pollIntervalMs = Math.max(1, Math.min(250, cancelGraceMs || 1));
+  while (!input.signal.aborted) {
+    if (await waitForTimer(pollIntervalMs, input.signal) === "aborted") {
+      break;
+    }
+    if (!await isCancellationRequested(input.repositories, input.jobId)) {
+      continue;
+    }
+    if (await waitForTimer(cancelGraceMs, input.signal) === "aborted") {
+      break;
+    }
+    if (await isCancellationRequested(input.repositories, input.jobId)) {
+      return { status: "canceled" };
+    }
+  }
+
+  return await new Promise<never>(() => undefined);
+}
+
+function waitForTimer(
+  ms: number,
+  signal: AbortSignal,
+): Promise<"elapsed" | "aborted"> {
+  if (signal.aborted) {
+    return Promise.resolve("aborted");
+  }
+  return new Promise((resolve) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve("aborted");
+    };
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve("elapsed");
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function cancelJob(

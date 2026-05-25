@@ -57,8 +57,10 @@ export async function handleTranslationJobEventsRequest(
   const encoder = new TextEncoder();
   const eventBus = input.eventBus ?? translationEventBus;
   const heartbeatIntervalMs = input.heartbeatIntervalMs ?? 20_000;
+  const readSnapshot = input.readTranslationJobSnapshot ??
+    readTranslationJobSnapshot;
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       let closed = false;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let unsubscribe: (() => void) | undefined;
@@ -99,6 +101,16 @@ export async function handleTranslationJobEventsRequest(
         }
       }
       if (TERMINAL_TRANSLATION_JOB_STATUSES.has(snapshot.status)) {
+        close();
+        return;
+      }
+
+      const refreshedSnapshot = await readSnapshot({ jobId });
+      if (
+        refreshedSnapshot !== null &&
+        TERMINAL_TRANSLATION_JOB_STATUSES.has(refreshedSnapshot.status)
+      ) {
+        send(encodeSnapshotServerSentEvent(refreshedSnapshot));
         close();
         return;
       }

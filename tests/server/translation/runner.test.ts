@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -377,6 +378,43 @@ describe("translation runner", () => {
     expect(events).not.toContain("translation.job.completed");
   });
 
+  it("finalizes a stalled in-flight chunk after the cancellation grace expires", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000016";
+    const client = new GraceTimeoutTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const runPromise = runTranslationJob(started.job_id, {
+      cancelGraceMs: 5,
+      client,
+      config,
+    });
+
+    try {
+      await client.waitUntilTurnStarted();
+      const connection = initializeDatabase(config);
+      try {
+        await connection.repositories.translations
+          .requestRunningTranslationJobCancellation(jobId, new Date());
+      } finally {
+        connection.close();
+      }
+
+      await waitForJobStatus(config, jobId, "canceled");
+    } finally {
+      client.completeTranslation();
+      await runPromise;
+    }
+  });
+
   it("does not overwrite cancellation accepted before stitching transition", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -617,6 +655,43 @@ describe("translation runner", () => {
     expect(scheduled).toEqual([started.job_id]);
   });
 
+  it("returns a cancellation conflict while an active job cancellation is finalizing", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000017",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "cancel_requested",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      }),
+    ).rejects.toMatchObject({
+      code: "cancellation_conflict",
+    });
+  });
+
   it("returns the active job when creation loses the active-job uniqueness race", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -667,6 +742,68 @@ describe("translation runner", () => {
     ).resolves.toMatchObject({
       status: "active",
       job_id: active.job_id,
+    });
+  });
+
+  it("returns a cancellation conflict when uniqueness fallback finds a cancel-requested job", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new CloseTrackingTranslationClient();
+    const active = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000018",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        active.job_id,
+        "cancel_requested",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+    let findActiveCalls = 0;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000019",
+        memoryId,
+        now,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...connection.repositories.translations,
+                findActiveTranslationJob: async (...args) => {
+                  findActiveCalls += 1;
+                  return findActiveCalls === 1
+                    ? null
+                    : connection.repositories.translations.findActiveTranslationJob(
+                      ...args,
+                    );
+                },
+                createTranslationJob: async () => {
+                  throw new Error("UNIQUE constraint failed: translation_jobs");
+                },
+              },
+            },
+          };
+        },
+        schedule: () => undefined,
+      }),
+    ).rejects.toMatchObject({
+      code: "cancellation_conflict",
     });
   });
 
@@ -818,6 +955,50 @@ class InterruptibleTranslationClient implements TranslationClient {
           "Brilliant Source",
           "割り込み可能な翻訳見出し",
         ).replaceAll("Body.", "割り込み可能な翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+
+  completeTranslation(): void {
+    this.resolveTranslation();
+  }
+
+  waitUntilTurnStarted(): Promise<void> {
+    return this.turnStarted;
+  }
+}
+
+class GraceTimeoutTranslationClient implements TranslationClient {
+  private readonly translationCanFinish: Promise<void>;
+  private readonly turnStarted: Promise<void>;
+  private resolveTranslation: () => void = () => undefined;
+  private resolveTurnStarted: () => void = () => undefined;
+
+  constructor() {
+    this.turnStarted = new Promise((resolve) => {
+      this.resolveTurnStarted = resolve;
+    });
+    this.translationCanFinish = new Promise((resolve) => {
+      this.resolveTranslation = resolve;
+    });
+  }
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    input.onEvent?.({ type: "thread.started", threadId: "thread-grace" });
+    input.onEvent?.({ type: "turn.started", turnId: "turn-grace" });
+    this.resolveTurnStarted();
+    await this.translationCanFinish;
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text.replaceAll(
+          "Brilliant Source",
+          "猶予後の翻訳見出し",
+        ).replaceAll("Body.", "猶予後の翻訳本文。"),
       })),
       warnings: [],
     };
@@ -1004,4 +1185,32 @@ async function createConfig(): Promise<ResolvedTraumaConfig> {
       },
     },
   };
+}
+
+async function waitForJobStatus(
+  config: ResolvedTraumaConfig,
+  jobId: string,
+  status: string,
+): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    const connection = initializeDatabase(config);
+    try {
+      const job = await connection.repositories.translations.getTranslationJob(jobId);
+      if (job?.status === status) {
+        return;
+      }
+    } finally {
+      connection.close();
+    }
+    await delay(10);
+  }
+
+  const connection = initializeDatabase(config);
+  try {
+    const job = await connection.repositories.translations.getTranslationJob(jobId);
+    throw new Error(`expected job ${jobId} to reach ${status}, got ${job?.status}`);
+  } finally {
+    connection.close();
+  }
 }

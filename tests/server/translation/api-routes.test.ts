@@ -224,6 +224,33 @@ describe("translation API routes", () => {
     },
   );
 
+  it("maps cancellation conflicts to a retry-later conflict response", async () => {
+    const handler = createStartTranslationHandler({
+      startTranslationJob: async () => {
+        throw new TranslationApiError(
+          "cancellation_conflict",
+          "Translation cancellation is still finalizing. Retry after cancellation completes.",
+          "none",
+        );
+      },
+    });
+
+    const response = await handler(
+      createApiEvent({
+        body: { lang_code: "ja-JP" },
+        memoryId: "019e3906-0000-7000-8000-000000000001",
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      action: "none",
+      code: "cancellation_conflict",
+      message: "Translation cancellation is still finalizing. Retry after cancellation completes.",
+      status: "error",
+    });
+  });
+
   it("rechecks job state when pending cancellation loses its CAS race", async () => {
     const events: string[] = [];
     const interrupted: string[] = [];

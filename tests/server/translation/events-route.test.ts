@@ -37,6 +37,30 @@ describe("translation job events route", () => {
     expect(decode(terminal.value)).toContain("translation.job.completed");
     await expect(reader!.read()).resolves.toMatchObject({ done: true });
   });
+
+  it("rechecks terminal job state after subscribing to avoid late SSE races", async () => {
+    let snapshotReads = 0;
+    const handler = createTranslationJobEventsHandler({
+      heartbeatIntervalMs: 1,
+      readTranslationJobSnapshot: async () => {
+        snapshotReads += 1;
+        return createSnapshot(snapshotReads === 1 ? "running" : "complete");
+      },
+    });
+
+    const response = await handler(createEventsApiEvent("job-terminal"));
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const first = await reader!.read();
+    expect(decode(first.value)).toContain("\"status\":\"running\"");
+
+    const terminal = await reader!.read();
+    expect(decode(terminal.value)).toContain("\"status\":\"complete\"");
+    await expect(reader!.read()).resolves.toMatchObject({ done: true });
+    expect(snapshotReads).toBe(2);
+  });
 });
 
 function createEventsApiEvent(jobId: string): APIEvent {
