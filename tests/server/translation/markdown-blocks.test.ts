@@ -66,6 +66,18 @@ const value = "do not translate";
     );
   });
 
+  it("strips a leading UTF-8 BOM before splitting frontmatter", () => {
+    const manifest = parseMarkdownTranslationBlocks(
+      "\uFEFF---\nid: memory\n---\n# Heading\n",
+    );
+
+    expect(manifest.frontmatter).toBe("---\nid: memory\n---\n");
+    expect(manifest.bodyMarkdown).toBe("# Heading\n");
+    expect(manifest.blocks.map((block) => `${block.id} ${block.type}`)).toEqual([
+      "b000001 heading",
+    ]);
+  });
+
   it("does not classify prose slashes or URL internals as file paths", () => {
     const manifest = parseMarkdownTranslationBlocks(
       [

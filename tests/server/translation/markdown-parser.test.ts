@@ -14,6 +14,14 @@ describe("translation Markdown parser adapter", () => {
     expect(parsed.bodyOffset).toBe("---\nid: memory\n---\n".length);
   });
 
+  it("strips a leading UTF-8 BOM before splitting frontmatter", () => {
+    const parsed = splitMarkdownFrontmatter("\uFEFF---\nid: memory\n---\n# Title\n");
+
+    expect(parsed.frontmatter).toBe("---\nid: memory\n---\n");
+    expect(parsed.bodyMarkdown).toBe("# Title\n");
+    expect(parsed.bodyOffset).toBe("---\nid: memory\n---\n".length);
+  });
+
   it("parses GFM tables, footnotes, math, and indented code with positions", () => {
     const parsed = parseTranslationMarkdownAst([
       "# Title",

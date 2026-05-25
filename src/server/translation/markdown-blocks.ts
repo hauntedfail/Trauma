@@ -76,28 +76,33 @@ export function splitFrontmatter(sourceMarkdown: string): {
   bodyMarkdown: string;
   frontmatter: string;
 } {
-  const opening = /^---(?:\r?\n)/.exec(sourceMarkdown);
+  const readableMarkdown = stripLeadingBom(sourceMarkdown);
+  const opening = /^---(?:\r?\n)/.exec(readableMarkdown);
   if (opening === null) {
     return {
-      bodyMarkdown: sourceMarkdown,
+      bodyMarkdown: readableMarkdown,
       frontmatter: "",
     };
   }
 
-  const afterOpening = sourceMarkdown.slice(opening[0].length);
+  const afterOpening = readableMarkdown.slice(opening[0].length);
   const closing = /\r?\n---(?:\r?\n|$)/.exec(afterOpening);
   if (closing === null || closing.index === undefined) {
     return {
-      bodyMarkdown: sourceMarkdown,
+      bodyMarkdown: readableMarkdown,
       frontmatter: "",
     };
   }
 
   const end = opening[0].length + closing.index + closing[0].length;
   return {
-    bodyMarkdown: sourceMarkdown.slice(end),
-    frontmatter: sourceMarkdown.slice(0, end),
+    bodyMarkdown: readableMarkdown.slice(end),
+    frontmatter: readableMarkdown.slice(0, end),
   };
+}
+
+function stripLeadingBom(markdown: string): string {
+  return markdown.startsWith("\uFEFF") ? markdown.slice(1) : markdown;
 }
 
 function splitMarkdownLines(markdown: string): string[] {

@@ -17,23 +17,28 @@ export function splitMarkdownFrontmatter(sourceMarkdown: string): {
   bodyOffset: number;
   frontmatter: string;
 } {
-  const opening = /^---(?:\r?\n)/.exec(sourceMarkdown);
+  const readableMarkdown = stripLeadingBom(sourceMarkdown);
+  const opening = /^---(?:\r?\n)/.exec(readableMarkdown);
   if (opening === null) {
-    return { bodyMarkdown: sourceMarkdown, bodyOffset: 0, frontmatter: "" };
+    return { bodyMarkdown: readableMarkdown, bodyOffset: 0, frontmatter: "" };
   }
 
-  const afterOpening = sourceMarkdown.slice(opening[0].length);
+  const afterOpening = readableMarkdown.slice(opening[0].length);
   const closing = /\r?\n---(?:\r?\n|$)/.exec(afterOpening);
   if (closing === null || closing.index === undefined) {
-    return { bodyMarkdown: sourceMarkdown, bodyOffset: 0, frontmatter: "" };
+    return { bodyMarkdown: readableMarkdown, bodyOffset: 0, frontmatter: "" };
   }
 
   const end = opening[0].length + closing.index + closing[0].length;
   return {
-    bodyMarkdown: sourceMarkdown.slice(end),
+    bodyMarkdown: readableMarkdown.slice(end),
     bodyOffset: end,
-    frontmatter: sourceMarkdown.slice(0, end),
+    frontmatter: readableMarkdown.slice(0, end),
   };
+}
+
+function stripLeadingBom(markdown: string): string {
+  return markdown.startsWith("\uFEFF") ? markdown.slice(1) : markdown;
 }
 
 export function parseTranslationMarkdownAst(
