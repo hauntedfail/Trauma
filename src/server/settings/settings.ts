@@ -112,6 +112,21 @@ export async function updateCodexTranslationDefaults(input: {
   });
 }
 
+export async function getCodexTranslationDefaults(
+  options: SettingsOptions = {},
+): Promise<{
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}> {
+  return withSettingsRepository(options, async (repository, now) => {
+    const settings = await repository.getSettings(now);
+    return {
+      model: settings.codexTranslationModel,
+      reasoningEffort: settings.codexTranslationReasoningEffort,
+    };
+  });
+}
+
 export async function enableSettingsOpenAiAuth(
   options: SettingsOptions = {},
 ): Promise<EnableOpenAiAuthResponse> {

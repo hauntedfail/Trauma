@@ -137,6 +137,10 @@ describe("settings API routes", () => {
   it("updates Codex translation defaults after validating the catalog", async () => {
     const updates: unknown[] = [];
     const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: null,
+        reasoningEffort: null,
+      }),
       listModels: async () => ({
         models: [
           {
@@ -183,6 +187,10 @@ describe("settings API routes", () => {
   it("preserves omitted Codex translation default fields in PATCH payloads", async () => {
     const updates: unknown[] = [];
     const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: null,
+        reasoningEffort: null,
+      }),
       listModels: async () => ({
         models: [
           {
@@ -221,6 +229,59 @@ describe("settings API routes", () => {
     expect(updates).toEqual([{ model: undefined, reasoningEffort: "high" }]);
   });
 
+  it("validates omitted model PATCH payloads against the preserved Codex model", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: "gpt-5.3",
+        reasoningEffort: "medium",
+      }),
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Default model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium"],
+          },
+          {
+            id: "gpt-5.3",
+            model: "gpt-5.3",
+            displayName: "GPT-5.3",
+            description: "Saved model",
+            isDefault: false,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: "gpt-5.3",
+          codexTranslationReasoningEffort: input.reasoningEffort ?? null,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ model: undefined, reasoningEffort: "high" }]);
+  });
 
   it("rejects unavailable Codex translation defaults with stable error codes", async () => {
     const handler = createUpdateCodexTranslationDefaultsHandler({

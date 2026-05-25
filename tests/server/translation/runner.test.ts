@@ -437,6 +437,28 @@ describe("translation runner", () => {
     expect(client.closeCalls).toBe(1);
   });
 
+  it("closes an internally created translation client when start fails before scheduling", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new ProbeFailingCloseTrackingTranslationClient();
+
+    await expect(
+      startTranslationJob({
+        config,
+        createClient: () => client,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000009",
+        memoryId,
+        now,
+        schedule: () => {
+          throw new Error("should not schedule after probe failure");
+        },
+      }),
+    ).rejects.toThrow("probe failed");
+
+    expect(client.closeCalls).toBe(1);
+  });
+
   it("keeps a committed translation complete when backup enqueue fails", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -818,6 +840,13 @@ class CloseTrackingTranslationClient extends FakeTranslationClient {
 
   async close(): Promise<void> {
     this.closeCalls += 1;
+  }
+}
+
+class ProbeFailingCloseTrackingTranslationClient
+  extends CloseTrackingTranslationClient {
+  override async probe(): Promise<void> {
+    throw new Error("probe failed");
   }
 }
 

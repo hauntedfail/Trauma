@@ -100,6 +100,7 @@ interface StartTranslationJobInput {
   backupQueue?: MemoryBackupQueue;
   client?: TranslationClient;
   config?: ResolvedTraumaConfig;
+  createClient?: () => TranslationClient;
   generateJobId?: () => string;
   langCode?: string;
   memoryId: string;
@@ -155,6 +156,8 @@ export async function startTranslationJob(
   const openConnection = input.openConnection ?? initializeDatabase;
   const now = input.now ?? new Date();
   const connection = openConnection(config);
+  let ownedClient: TranslationClient | undefined;
+  let ownedClientScheduled = false;
   try {
     const memory = await connection.repositories.memories.findById(input.memoryId);
     if (memory === undefined) {
@@ -235,7 +238,10 @@ export async function startTranslationJob(
       );
     }
 
-    const client = input.client ?? new CodexAppServerClient();
+    const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+    if (input.client === undefined) {
+      ownedClient = client;
+    }
     await client.probe();
     const requestedModel = input.model === undefined
       ? settings.codexTranslationModel
@@ -330,6 +336,7 @@ export async function startTranslationJob(
       config,
       openConnection,
     });
+    ownedClientScheduled = input.client === undefined;
 
     return {
       status: "started",
@@ -340,6 +347,9 @@ export async function startTranslationJob(
       event_url: createTranslationEventUrl(jobId),
     };
   } catch (error) {
+    if (ownedClient !== undefined && !ownedClientScheduled) {
+      await closeTranslationClient(ownedClient);
+    }
     throw mapStartError(error);
   } finally {
     connection.close();
