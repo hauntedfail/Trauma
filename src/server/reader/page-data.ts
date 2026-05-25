@@ -31,6 +31,8 @@ import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../translation/languages";
+import { loadTranslationSourceSnapshot } from "../translation/source-loader";
+import type { TranslationSourceSnapshot } from "../translation/types";
 
 type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
 
@@ -138,6 +140,8 @@ export async function loadReaderMemory(
         message: "Memory was not found.",
       };
     }
+    const sourceSnapshot =
+      await loadTranslationSourceSnapshot({ config, memoryId });
 
     const content: LoadedReaderContent = options.langCode === undefined
       ? await readMemoryContent({ config, memoryId })
@@ -146,6 +150,7 @@ export async function loadReaderMemory(
         connection,
         langCode: options.langCode,
         memoryId,
+        sourceSnapshot,
       });
     const activeFlashbackVariant = resolveActiveFlashbackVariant(content);
     const flashbackMarkers =
@@ -163,6 +168,7 @@ export async function loadReaderMemory(
       config,
       memoryId,
       repository: connection.repositories.translations,
+      sourceSnapshot,
       sourceContentPath: memory.contentPath,
     });
     return {
@@ -233,12 +239,14 @@ async function readTranslatedReaderContent(input: {
   connection: ReturnType<typeof initializeDatabase>;
   langCode: SupportedLanguageCode;
   memoryId: string;
+  sourceSnapshot: TranslationSourceSnapshot;
 }): Promise<LoadedReaderContent> {
   const current = await resolveCurrentTranslationReadOnly({
     config: input.config,
     langCode: input.langCode,
     memoryId: input.memoryId,
     repository: input.connection.repositories.translations,
+    sourceSnapshot: input.sourceSnapshot,
   });
   if (current.status === "missing") {
     throw new MemoryContentStoreError(
@@ -273,6 +281,7 @@ async function loadReaderContentVariants(input: {
   config: ResolvedTraumaConfig;
   memoryId: string;
   repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
+  sourceSnapshot: TranslationSourceSnapshot;
   sourceContentPath: string;
 }): Promise<ReaderContentVariant[]> {
   const variants: ReaderContentVariant[] = [
@@ -291,6 +300,7 @@ async function loadReaderContentVariants(input: {
       langCode: language.code,
       memoryId: input.memoryId,
       repository: input.repository,
+      sourceSnapshot: input.sourceSnapshot,
     });
     if (current.status !== "current") {
       continue;

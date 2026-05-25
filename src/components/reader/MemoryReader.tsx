@@ -539,14 +539,14 @@ function ReadyMemoryReader(props: {
         status: progressStatus,
       });
 
-      if (envelope.type === "translation.job.completed") {
+      if (isCompletedTranslationEnvelope(envelope)) {
         const readerUrl = readTranslationReaderUrl(envelope);
         eventSource.close();
         translationEventSource = undefined;
         if (readerUrl !== undefined) {
           navigate(readerUrl);
         }
-      } else if (isTerminalTranslationEvent(envelope.type)) {
+      } else if (isTerminalTranslationEnvelope(envelope)) {
         eventSource.close();
         translationEventSource = undefined;
       }
@@ -1199,6 +1199,14 @@ const TRANSLATION_EVENT_NAMES = [
   "translation.job.canceled",
 ] as const;
 
+const TERMINAL_TRANSLATION_SNAPSHOT_STATUSES = new Set([
+  "canceled",
+  "complete",
+  "failed",
+  "stale",
+  "unavailable",
+]);
+
 export async function startReaderTranslation(input: {
   fetch?: FetchFunction;
   langCode: SupportedLanguageCode;
@@ -1397,14 +1405,47 @@ function isTerminalTranslationEvent(type: string): boolean {
   );
 }
 
+function isTerminalTranslationEnvelope(
+  envelope: ReaderTranslationEventEnvelope,
+): boolean {
+  return (
+    isTerminalTranslationEvent(envelope.type) ||
+    isTerminalTranslationSnapshot(envelope.data)
+  );
+}
+
+function isCompletedTranslationEnvelope(
+  envelope: ReaderTranslationEventEnvelope,
+): boolean {
+  return (
+    envelope.type === "translation.job.completed" ||
+    readTranslationSnapshotStatus(envelope.data) === "complete"
+  );
+}
+
+function isTerminalTranslationSnapshot(data: unknown): boolean {
+  const status = readTranslationSnapshotStatus(data);
+  return (
+    status !== undefined &&
+    TERMINAL_TRANSLATION_SNAPSHOT_STATUSES.has(status)
+  );
+}
+
+function readTranslationSnapshotStatus(data: unknown): string | undefined {
+  if (!isRecord(data) || typeof data.status !== "string") {
+    return undefined;
+  }
+  return data.status;
+}
+
 function translationProgressStatusForEvent(
   envelope: ReaderTranslationEventEnvelope,
 ): TranslationProgressState["status"] {
-  if (envelope.type === "translation.job.completed") {
+  if (isCompletedTranslationEnvelope(envelope)) {
     return "completed";
   }
   if (
-    isTerminalTranslationEvent(envelope.type) ||
+    isTerminalTranslationEnvelope(envelope) ||
     isUnavailableTranslationSnapshot(envelope.data)
   ) {
     return "failed";
@@ -1415,6 +1456,17 @@ function translationProgressStatusForEvent(
 function messageForTranslationSnapshot(data: unknown): string {
   if (!isRecord(data)) {
     return "Translation stream connected.";
+  }
+  switch (readTranslationSnapshotStatus(data)) {
+    case "complete":
+      return "Translation completed.";
+    case "canceled":
+      return "Translation canceled.";
+    case "stale":
+      return "Source changed while translating.";
+    case "failed":
+    case "unavailable":
+      return readTranslationEventErrorMessage(data);
   }
   if (isUnavailableTranslationSnapshot(data)) {
     return messageForTranslationError(

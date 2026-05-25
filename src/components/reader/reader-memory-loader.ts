@@ -16,9 +16,11 @@ export function revalidateReaderMemory(
   memoryId?: string,
   langCode?: SupportedLanguageCode,
 ) {
-  return revalidate(
-    memoryId === undefined
-      ? getReaderMemory.key
-      : getReaderMemory.keyFor(memoryId, langCode),
-  );
+  if (memoryId === undefined) {
+    return revalidate(getReaderMemory.key);
+  }
+  if (langCode === undefined) {
+    return revalidate(getReaderMemory.keyFor(memoryId));
+  }
+  return revalidate(getReaderMemory.keyFor(memoryId, langCode));
 }

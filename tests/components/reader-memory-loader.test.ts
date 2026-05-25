@@ -4,7 +4,7 @@ const routerMocks = vi.hoisted(() => ({
   query: vi.fn((fn: () => unknown, name: string) =>
     Object.assign(fn, {
       key: name,
-      keyFor: (memoryId: string) => `${name}:${memoryId}`,
+      keyFor: (...args: string[]) => `${name}:${args.length}:${args.join(":")}`,
     }),
   ),
   revalidate: vi.fn(),
@@ -31,6 +31,16 @@ describe("reader memory loader", () => {
 
     expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
       getReaderMemory.keyFor("memory-1"),
+    );
+  });
+
+  it("revalidates translated reader cache entries with the language key", async () => {
+    routerMocks.revalidate.mockResolvedValue(undefined);
+
+    await revalidateReaderMemory("memory-1", "ja-JP");
+
+    expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
+      getReaderMemory.keyFor("memory-1", "ja-JP"),
     );
   });
 

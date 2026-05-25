@@ -23,6 +23,15 @@ describe("loadReaderMemory", () => {
     expect(source).not.toContain("drizzle-orm");
   });
 
+  it("reuses one source snapshot for translated reader variant lookups", () => {
+    const source = readFileSync("src/server/reader/page-data.ts", "utf8");
+
+    expect(source).toContain("const sourceSnapshot =");
+    expect(source).toContain("await loadTranslationSourceSnapshot");
+    expect(source).toContain("sourceSnapshot,");
+    expect(source).toContain("sourceSnapshot: input.sourceSnapshot");
+  });
+
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,

@@ -184,6 +184,15 @@ describe("memory reader actions", () => {
     expect(onErrorBody).not.toContain("translationEventSource = undefined");
   });
 
+  it("treats terminal translation snapshots as terminal SSE progress", () => {
+    expect(memoryReaderSource).toContain("TERMINAL_TRANSLATION_SNAPSHOT_STATUSES");
+    expect(memoryReaderSource).toContain("isCompletedTranslationEnvelope(envelope)");
+    expect(memoryReaderSource).toContain("isTerminalTranslationEnvelope(envelope)");
+    expect(memoryReaderSource).toContain(
+      "readTranslationSnapshotStatus(envelope.data) === \"complete\"",
+    );
+  });
+
   it("deletes the active memory and navigates back to memories", async () => {
     const requests: Request[] = [];
     const navigations: string[] = [];
