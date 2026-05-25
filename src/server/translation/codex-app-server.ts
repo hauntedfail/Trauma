@@ -225,6 +225,8 @@ export class CodexAppServerClient implements TranslationClient {
   observeAuthEvents(): AsyncIterable<CodexAuthEvent> {
     const queue: CodexAuthEvent[] = [];
     let closed = false;
+    let unsubscribeClose: () => void = () => undefined;
+    let unsubscribeNotifications: () => void = () => undefined;
     const pendingResolvers: Array<
       (result: IteratorResult<CodexAuthEvent>) => void
     > = [];
@@ -246,7 +248,8 @@ export class CodexAppServerClient implements TranslationClient {
         resolve({ done: false, value: event });
       }
     };
-    const unsubscribe = this.subscribeNotification((message) => {
+    unsubscribeClose = this.subscribeClose(() => close());
+    unsubscribeNotifications = this.subscribeNotification((message) => {
       const event = readCodexAuthEvent(message);
       if (closed || event === undefined) {
         return;
@@ -259,7 +262,8 @@ export class CodexAppServerClient implements TranslationClient {
         return;
       }
       closed = true;
-      unsubscribe();
+      unsubscribeClose();
+      unsubscribeNotifications();
       flushPending();
     };
     return {
@@ -795,6 +799,7 @@ function waitForWebSocketUpgrade(
       }
       settled = true;
       cleanup(false);
+      socket.destroy();
       reject(error);
     };
     const onError = () => {

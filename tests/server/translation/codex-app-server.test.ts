@@ -146,6 +146,27 @@ describe("Codex app-server endpoint parsing", () => {
       ]));
   });
 
+  it("destroys the Unix socket when WebSocket upgrade is rejected", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-upgrade-reject-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startRejectingUpgradeServer(socketPath);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "app_server_unavailable",
+      });
+      await waitFor(() => server.activeSocketCount() === 0);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("falls back to prompt-only turn starts when output schemas are unsupported", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-schema-"));
     tempRoots.push(root);
@@ -563,6 +584,37 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("completes auth event iterators when the app-server connection closes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-auth-close-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods);
+    let serverClosed = false;
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const iterator = client.observeAuthEvents()[Symbol.asyncIterator]();
+
+      await client.startDeviceCodeLogin();
+      const pendingEvent = iterator.next();
+      await server.close();
+      serverClosed = true;
+
+      await expect(pendingEvent).resolves.toEqual({
+        done: true,
+        value: undefined,
+      });
+    } finally {
+      if (!serverClosed) {
+        await server.close();
+      }
+    }
+  });
+
   it("sends turn interrupts through the app-server wire protocol", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-cancel-"));
     tempRoots.push(root);
@@ -879,6 +931,45 @@ async function startFakeAppServer(
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
     waitForSocketClose: () => socketClose,
+  };
+}
+
+async function startRejectingUpgradeServer(socketPath: string): Promise<{
+  activeSocketCount: () => number;
+  close: () => Promise<void>;
+}> {
+  const sockets = new Set<net.Socket>();
+  let closed = false;
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+    socket.once("data", () => {
+      socket.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return {
+    activeSocketCount: () => sockets.size,
+    close: async () => {
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
   };
 }
 
