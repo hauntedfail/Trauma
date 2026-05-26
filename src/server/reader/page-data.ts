@@ -5,22 +5,54 @@ import {
   TraumaConfigError,
   type ResolvedTraumaConfig,
 } from "../config";
-import { MemoryContentStoreError, readMemoryContent } from "../store";
-import { FlashbackMarkerError } from "../store/flashback-markers";
+import {
+  MemoryContentStoreError,
+  readMemoryContent,
+  readResolvedMemoryContent,
+} from "../store";
+import {
+  FlashbackMarkerError,
+  type FlashbackMarkerRange,
+} from "../store/flashback-markers";
 import {
   renderMemoryMarkdown,
   type RenderedMemoryMarkdown,
 } from "./markdown-renderer";
 import { renderMarkdownWithFlashbackRecords } from "../flashbacks/toggle";
+import {
+  sourceFlashbackVariant,
+  type FlashbackVariant,
+} from "../flashbacks/variant";
+import {
+  resolveCurrentTranslationReadOnly,
+} from "../translation/current-translation";
+import { resolveTranslatedMemoryContentPath } from "../translation/paths";
+import {
+  SUPPORTED_TRANSLATION_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../translation/languages";
+import { loadTranslationSourceSnapshot } from "../translation/source-loader";
+import type { TranslationSourceSnapshot } from "../translation/types";
 
 type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
+
+interface LoadedReaderContent {
+  langCode?: SupportedLanguageCode;
+  markdown: string;
+  outputHash?: string;
+  relativePath: string;
+  sourceHash?: string;
+}
 
 export type ReaderMemoryResult =
   | {
       status: "ready";
       memory: ReaderMemory;
       content: {
+        langCode?: SupportedLanguageCode;
         relativePath: string;
+        sourceReaderUrl?: string;
+        variants: ReaderContentVariant[];
       };
       rendered: RenderedMemoryMarkdown;
     }
@@ -71,11 +103,24 @@ export interface ReaderFlashbackItem {
   startOffset: number;
   endOffset: number;
   contentHash?: string | null;
+  variantKind: "source" | "translation";
+  langCode?: SupportedLanguageCode | null;
+  translationOutputHash?: string | null;
   createdAt: string;
+}
+
+export interface ReaderContentVariant {
+  active: boolean;
+  kind: "source" | "translation";
+  label: string;
+  langCode?: SupportedLanguageCode;
+  readerUrl: string;
+  relativePath: string;
 }
 
 export interface LoadReaderMemoryOptions {
   config?: ResolvedTraumaConfig;
+  langCode?: SupportedLanguageCode;
 }
 
 export async function loadReaderMemory(
@@ -95,18 +140,49 @@ export async function loadReaderMemory(
         message: "Memory was not found.",
       };
     }
+    const sourceSnapshot =
+      await loadTranslationSourceSnapshot({ config, memoryId });
 
-    const content = await readMemoryContent({ config, memoryId });
+    const content: LoadedReaderContent = options.langCode === undefined
+      ? await readMemoryContent({ config, memoryId })
+      : await readTranslatedReaderContent({
+        config,
+        connection,
+        langCode: options.langCode,
+        memoryId,
+        sourceSnapshot,
+      });
+    const activeFlashbackVariant = resolveActiveFlashbackVariant(content);
+    const flashbackMarkers =
+      await connection.repositories.flashbacks.listForMemoryVariant({
+        memoryId,
+        variant: activeFlashbackVariant,
+      });
     const rendered = renderMemoryMarkdownSafely(
       content.markdown,
-      memory.flashbacks,
+      flashbackMarkers,
       memory.url,
     );
+    const variants = await loadReaderContentVariants({
+      activeLangCode: options.langCode,
+      config,
+      memoryId,
+      repository: connection.repositories.translations,
+      sourceSnapshot,
+      sourceContentPath: memory.contentPath,
+    });
     return {
       status: "ready",
-      memory: toReaderMemory(memory, rendered),
+      memory: toReaderMemory(memory, rendered, flashbackMarkers),
       content: {
+        ...(options.langCode === undefined
+          ? {}
+          : {
+            langCode: options.langCode,
+            sourceReaderUrl: `/memories/${memoryId}`,
+          }),
         relativePath: content.relativePath,
+        variants,
       },
       rendered,
     };
@@ -137,9 +213,115 @@ export async function loadReaderMemory(
   }
 }
 
+function resolveActiveFlashbackVariant(
+  content: LoadedReaderContent,
+): FlashbackVariant {
+  if (content.langCode === undefined) {
+    return sourceFlashbackVariant;
+  }
+
+  if (content.outputHash === undefined) {
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md has no output hash for ${content.langCode}`,
+      "missing_content",
+    );
+  }
+
+  return {
+    kind: "translation",
+    langCode: content.langCode,
+    outputHash: content.outputHash,
+  };
+}
+
+async function readTranslatedReaderContent(input: {
+  config: ResolvedTraumaConfig;
+  connection: ReturnType<typeof initializeDatabase>;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+  sourceSnapshot: TranslationSourceSnapshot;
+}): Promise<LoadedReaderContent> {
+  const current = await resolveCurrentTranslationReadOnly({
+    config: input.config,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    repository: input.connection.repositories.translations,
+    sourceSnapshot: input.sourceSnapshot,
+  });
+  if (current.status === "missing") {
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md is missing for ${input.langCode}`,
+      "missing_content",
+    );
+  }
+  if (current.status === "unavailable") {
+    throw new MemoryContentStoreError(
+      `translated CONTENT.md is unavailable for ${input.langCode}`,
+      "missing_content",
+    );
+  }
+
+  const content = await readResolvedMemoryContent(
+    resolveTranslatedMemoryContentPath({
+      config: input.config,
+      langCode: input.langCode,
+      memoryId: input.memoryId,
+    }),
+  );
+  return {
+    ...content,
+    langCode: input.langCode,
+    outputHash: current.outputHash,
+    sourceHash: current.sourceHash,
+  };
+}
+
+async function loadReaderContentVariants(input: {
+  activeLangCode?: SupportedLanguageCode;
+  config: ResolvedTraumaConfig;
+  memoryId: string;
+  repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
+  sourceSnapshot: TranslationSourceSnapshot;
+  sourceContentPath: string;
+}): Promise<ReaderContentVariant[]> {
+  const variants: ReaderContentVariant[] = [
+    {
+      active: input.activeLangCode === undefined,
+      kind: "source",
+      label: "Original",
+      readerUrl: `/memories/${input.memoryId}`,
+      relativePath: input.sourceContentPath,
+    },
+  ];
+
+  for (const language of SUPPORTED_TRANSLATION_LANGUAGES) {
+    const current = await resolveCurrentTranslationReadOnly({
+      config: input.config,
+      langCode: language.code,
+      memoryId: input.memoryId,
+      repository: input.repository,
+      sourceSnapshot: input.sourceSnapshot,
+    });
+    if (current.status !== "current") {
+      continue;
+    }
+
+    variants.push({
+      active: input.activeLangCode === language.code,
+      kind: "translation",
+      label: language.displayName,
+      langCode: language.code,
+      readerUrl: current.readerUrl,
+      relativePath: current.outputPath,
+    });
+  }
+
+  return variants;
+}
+
 function renderMemoryMarkdownSafely(
   markdown: string,
-  flashbacks: FlashbackRow[],
+  flashbacks: FlashbackMarkerRange[],
   sourceUrl: string,
 ): RenderedMemoryMarkdown {
   try {
@@ -159,8 +341,22 @@ function renderMemoryMarkdownSafely(
 function toReaderMemory(
   memory: ReaderMemoryAggregateRow,
   rendered: RenderedMemoryMarkdown,
+  activeFlashbacks: FlashbackRow[],
 ): ReaderMemory {
   const renderedFlashbackIds = collectRenderedFlashbackIds(rendered.html);
+  const flashbacks = activeFlashbacks.map((flashback) => ({
+    id: flashback.id,
+    text: flashback.text,
+    prefix: flashback.prefix,
+    suffix: flashback.suffix,
+    startOffset: flashback.startOffset,
+    endOffset: flashback.endOffset,
+    contentHash: flashback.contentHash,
+    variantKind: flashback.variantKind,
+    langCode: flashback.langCode,
+    translationOutputHash: flashback.translationOutputHash,
+    createdAt: flashback.createdAt.toISOString(),
+  }));
   return {
     id: memory.id,
     url: memory.url,
@@ -189,18 +385,9 @@ function toReaderMemory(
       id: tag.id,
       name: tag.name,
     })),
-    flashbacks: memory.flashbacks
+    flashbacks: flashbacks
       .filter((flashback) => renderedFlashbackIds.has(flashback.id))
-      .map((flashback) => ({
-        id: flashback.id,
-        text: flashback.text,
-        prefix: flashback.prefix,
-        suffix: flashback.suffix,
-        startOffset: flashback.startOffset,
-        endOffset: flashback.endOffset,
-        contentHash: flashback.contentHash,
-        createdAt: flashback.createdAt.toISOString(),
-      })),
+      .map((flashback) => ({ ...flashback })),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,
   };

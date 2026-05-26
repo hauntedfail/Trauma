@@ -1,13 +1,22 @@
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
-import type { FlashbackBrowseRow } from "../db/repositories";
+import type {
+  FlashbackBrowseRow,
+  TranslationRepository,
+} from "../db/repositories";
 import { loadRuntimeTraumaConfig, type ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
-import { MemoryContentStoreError, readMemoryContent } from "../store";
+import {
+  MemoryContentStoreError,
+  readMemoryContent,
+  readResolvedMemoryContent,
+} from "../store";
 import {
   applyFlashbackMarkers,
   FlashbackMarkerError,
   type FlashbackMarkerRange,
 } from "../store/flashback-markers";
+import { resolveCurrentTranslationReadOnly } from "../translation/current-translation";
+import { resolveTranslatedMemoryContentPath } from "../translation/paths";
 
 export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   "use server";
@@ -19,6 +28,9 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
           id: flashback.id,
           memoryId: memory.id,
           memoryTitle: memory.title,
+          variantKind: "source" as const,
+          langCode: null,
+          translationOutputHash: null,
           text: flashback.text,
           prefix: flashback.prefix,
           suffix: flashback.suffix,
@@ -38,7 +50,11 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
     const rows = await connection.repositories.flashbacks.listForBrowse();
-    return filterRenderableFlashbackRows({ config, rows });
+    return await filterRenderableFlashbackRows({
+      config,
+      rows,
+      translationRepository: connection.repositories.translations,
+    });
   } finally {
     connection?.close();
   }
@@ -47,24 +63,25 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
 export async function filterRenderableFlashbackRows(input: {
   config: ResolvedTraumaConfig;
   rows: FlashbackBrowseRow[];
+  translationRepository?: TranslationRepository;
 }): Promise<FlashbackBrowseRow[]> {
-  const rowsByMemoryId = new Map<string, FlashbackBrowseRow[]>();
+  const rowsByVariant = new Map<string, FlashbackBrowseRow[]>();
   for (const row of input.rows) {
-    const memoryRows = rowsByMemoryId.get(row.memoryId);
-    if (memoryRows === undefined) {
-      rowsByMemoryId.set(row.memoryId, [row]);
+    const variantRows = rowsByVariant.get(getFlashbackVariantKey(row));
+    if (variantRows === undefined) {
+      rowsByVariant.set(getFlashbackVariantKey(row), [row]);
     } else {
-      memoryRows.push(row);
+      variantRows.push(row);
     }
   }
 
   const renderableIds = new Set<string>();
   await Promise.all(
-    [...rowsByMemoryId].map(async ([memoryId, rows]) => {
+    [...rowsByVariant].map(async ([, rows]) => {
       for (const id of await resolveRenderableFlashbackIds({
         config: input.config,
-        memoryId,
         rows,
+        translationRepository: input.translationRepository,
       })) {
         renderableIds.add(id);
       }
@@ -76,16 +93,22 @@ export async function filterRenderableFlashbackRows(input: {
 
 async function resolveRenderableFlashbackIds(input: {
   config: ResolvedTraumaConfig;
-  memoryId: string;
   rows: FlashbackBrowseRow[];
+  translationRepository?: TranslationRepository;
 }): Promise<Set<string>> {
+  const firstRow = input.rows[0];
+  if (firstRow === undefined) {
+    return new Set();
+  }
+
   try {
-    const content = await readMemoryContent({
+    const markdown = await readFlashbackVariantMarkdown({
       config: input.config,
-      memoryId: input.memoryId,
+      row: firstRow,
+      translationRepository: input.translationRepository,
     });
     return collectRenderedFlashbackIds(
-      applyFlashbackMarkers(content.markdown, input.rows.map(toMarkerRange)),
+      applyFlashbackMarkers(markdown, input.rows.map(toMarkerRange)),
     );
   } catch (error) {
     if (
@@ -97,6 +120,65 @@ async function resolveRenderableFlashbackIds(input: {
 
     throw error;
   }
+}
+
+async function readFlashbackVariantMarkdown(input: {
+  config: ResolvedTraumaConfig;
+  row: FlashbackBrowseRow;
+  translationRepository?: TranslationRepository;
+}): Promise<string> {
+  if (input.row.variantKind === "source") {
+    const content = await readMemoryContent({
+      config: input.config,
+      memoryId: input.row.memoryId,
+    });
+    return content.markdown;
+  }
+
+  if (
+    input.row.langCode === null ||
+    input.row.translationOutputHash === null ||
+    input.translationRepository === undefined
+  ) {
+    throw new MemoryContentStoreError(
+      "translated flashback row is missing variant context",
+      "missing_content",
+    );
+  }
+
+  const current = await resolveCurrentTranslationReadOnly({
+    config: input.config,
+    langCode: input.row.langCode,
+    memoryId: input.row.memoryId,
+    repository: input.translationRepository,
+  });
+  if (
+    current.status !== "current" ||
+    current.outputHash !== input.row.translationOutputHash
+  ) {
+    throw new MemoryContentStoreError(
+      "translated flashback row is stale",
+      "missing_content",
+    );
+  }
+
+  const content = await readResolvedMemoryContent(
+    resolveTranslatedMemoryContentPath({
+      config: input.config,
+      langCode: input.row.langCode,
+      memoryId: input.row.memoryId,
+    }),
+  );
+  return content.markdown;
+}
+
+function getFlashbackVariantKey(row: FlashbackBrowseRow): string {
+  return [
+    row.memoryId,
+    row.variantKind,
+    row.langCode ?? "",
+    row.translationOutputHash ?? "",
+  ].join(":");
 }
 
 function toMarkerRange(row: FlashbackBrowseRow): FlashbackMarkerRange {

@@ -46,6 +46,9 @@ Runtime tables:
 - `memory_tags`
 - `memory_categories`
 - `flashbacks`
+- `translation_jobs`
+- `translation_chunks`
+- `translation_projection_spans`
 - `backup_environment_stamps`
 - `backup_failsafe_alerts`
 
@@ -78,6 +81,9 @@ Flashbacks are SQLite metadata rendered into reader HTML at read time.
 
 - `id`
 - `memory_id`
+- `variant_kind`
+- `lang_code`
+- `translation_output_hash`
 - `text`
 - `prefix`
 - `suffix`
@@ -86,15 +92,27 @@ Flashbacks are SQLite metadata rendered into reader HTML at read time.
 - `content_hash`
 - timestamps
 
-`flashbacks.memory_id` is the canonical relation. API responses may shape this
-as `memory.flashbacks: Flashback[]`, but memories should not store a separate
+`flashbacks.memory_id` is the canonical memory relation. `variant_kind`,
+`lang_code`, and `translation_output_hash` scope a row to the reader content
+variant where it was created. Source Flashbacks use `variant_kind = 'source'`
+with null language and output hash. Translated Flashbacks use
+`variant_kind = 'translation'`, a supported BCP 47 `lang_code`, and the
+completed translation `output_hash`. API responses may shape this as
+`memory.flashbacks: Flashback[]`, but memories should not store a separate
 flashback ID array as source-of-truth state.
 
-New flashback rows use canonical reader-text offsets. `content_hash` uses the
-`sha256:<hex>` format and hashes the same canonical reader text used for offset
-calculation after line endings are normalized to `\n`. If the current reader
-text hash does not match the row, the reader must not render that flashback at a
-guessed location.
+Flashbacks are local to the reader content variant where they are created.
+Source Flashbacks use source reader offsets. Translated Flashbacks use
+translated reader offsets and are scoped to the completed translation output
+hash. Global Flashback browse and memory search surfaces include renderable
+Flashbacks from both source and translated variants.
+
+New flashback rows use active-variant reader-text offsets. `content_hash` uses
+the `sha256:<hex>` format and hashes the same canonical reader text used for
+offset calculation after line endings are normalized to `\n`. If the current
+reader text hash does not match the row, the reader must not render that
+flashback at a guessed location. For translated rows, a mismatched
+`translation_output_hash` also makes the Flashback stale and non-renderable.
 
 Flashback browse and search views use `text`, `prefix`, `suffix`, and the
 related memory title. The flashback table remains the canonical source for
@@ -124,6 +142,36 @@ changes write a deterministic metadata export at:
 
 ```text
 {storePath}/memories/{memoryId}/FLASHBACKS.json
+{storePath}/memories/{memoryId}/{langCode}/FLASHBACKS.json
 ```
 
-That file is a backup/export artifact, not the runtime source of truth.
+The source path stores source Flashbacks. The language-scoped path stores
+translated Flashbacks for that completed translation output. Those files are
+backup/export artifacts, not the runtime source of truth.
+
+## Translation Projection Storage
+
+Translated content is stored beside the source memory:
+
+```text
+{storePath}/memories/{memoryId}/{langCode}/CONTENT.md
+{storePath}/memories/{memoryId}/{langCode}/TRANSLATION_MAP.json
+```
+
+`translation_jobs` is the current/history table for translation attempts.
+`translation_chunks` may temporarily hold translated chunk Markdown while a job
+is running, but completed chunk bodies and temporary projection JSON are purged
+after final commit.
+
+`translation_projection_spans` stores durable runtime alignment from source
+reader offsets to translated reader offsets. Rows are keyed by `memory_id`,
+`lang_code`, `source_hash`, and `output_hash`, so translated annotations are
+used only when both the source file and translated file still match the
+completed translation. `TRANSLATION_MAP.json` is the git-backup/export artifact
+for the same projection data; SQLite remains the runtime source of truth.
+
+`translation_projection_spans` remain alignment metadata for translation output
+inspection and future projection features. Flashbacks no longer depend on these
+rows for translated reader behavior: source and translated Flashbacks are stored
+as variant-local rows. Moment rows remain source canonical unless a later
+workflow explicitly changes that contract.

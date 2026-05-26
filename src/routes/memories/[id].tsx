@@ -6,6 +6,9 @@ import { Show } from "solid-js";
 import { MemoryReader } from "../../components/reader/MemoryReader";
 import { getReaderMemory } from "../../components/reader/reader-memory-loader";
 import { getBrowseTaxonomy } from "../../components/memories/browse-loader";
+import {
+  getReaderTranslationSettingsState,
+} from "../../components/settings/settings-loader";
 import type { BrowseTaxonomySummaryItem } from "../../components/memories/browse-data";
 import { readerFrame, readerStatePanel } from "../../components/reader/reader-styles";
 import {
@@ -13,11 +16,14 @@ import {
   titleForReaderResult,
 } from "../../components/reader/route-state";
 import type { ReaderMemoryResult } from "../../server/reader/page-data";
+import type { CodexReasoningEffort } from "../../server/translation/types";
+import type { SupportedLanguageCode } from "../../settings/languages";
 
 export default function MemoryReaderRoute() {
   const params = useParams();
   const result = createAsync(() => getReaderMemory(params.id ?? ""));
   const taxonomy = createAsync(() => getBrowseTaxonomy());
+  const settings = createAsync(() => getReaderTranslationSettingsState());
   const readerResult = () => result();
 
   return (
@@ -28,6 +34,9 @@ export default function MemoryReaderRoute() {
         categoryOptions={taxonomy()?.categories ?? []}
         result={readerResult()}
         tagOptions={taxonomy()?.tags ?? []}
+        translationModel={settings()?.codexTranslationModel}
+        translationReasoningEffort={settings()?.codexTranslationReasoningEffort}
+        translationTargetLanguage={settings()?.translationTargetLanguage}
       />
     </>
   );
@@ -37,6 +46,9 @@ function ReaderBody(props: {
   categoryOptions: readonly BrowseTaxonomySummaryItem[];
   result: ReaderMemoryResult | undefined;
   tagOptions: readonly BrowseTaxonomySummaryItem[];
+  translationModel?: string | null;
+  translationReasoningEffort?: CodexReasoningEffort | null;
+  translationTargetLanguage?: SupportedLanguageCode;
 }) {
   return (
     <Show
@@ -54,6 +66,9 @@ function ReaderBody(props: {
           categoryOptions={props.categoryOptions}
           result={result()}
           tagOptions={props.tagOptions}
+          translationModel={props.translationModel}
+          translationReasoningEffort={props.translationReasoningEffort}
+          translationTargetLanguage={props.translationTargetLanguage}
         />
       )}
     </Show>

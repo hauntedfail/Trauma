@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -9,8 +9,18 @@ import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
 import { loadBrowseMemories } from "../../src/server/memories/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
-import { createReaderContentHash, writeMemoryContent } from "../../src/server/store";
+import {
+  createMemoryContentFixture,
+  createReaderContentHash,
+  writeMemoryContent,
+} from "../../src/server/store";
 import { readCanonicalReaderText } from "../../src/server/store/flashback-markers";
+import { createSha256ContentHash } from "../../src/server/translation/hash";
+import { resolveTranslatedMemoryContentPath } from "../../src/server/translation/paths";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "../../src/server/translation/prompt";
 
 const originalEnv = { ...process.env };
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901";
@@ -118,12 +128,120 @@ describe("server browse loaders", () => {
         id: "flashback-loader",
         memoryId,
         memoryTitle: "Loader Memory",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "selected text",
         prefix: "before",
         suffix: "after",
         startOffset: flashbackStartOffset,
         endOffset: flashbackStartOffset + "selected text".length,
         contentHash: createReaderContentHash(markdown),
+        createdAt: "2026-05-16T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("keeps the flashback browse database open while resolving translated rows", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const sourceMarkdown = "# Loader Memory\n\nSource text.";
+    const translatedMarkdown = "翻訳された selected text.";
+    const translatedReaderText = readCanonicalReaderText(translatedMarkdown);
+    const flashbackStartOffset = translatedReaderText.indexOf("selected text");
+
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: sourceMarkdown,
+    });
+    const translatedPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+    await writeFile(
+      translatedPath.absolutePath,
+      createMemoryContentFixture({
+        frontmatter: {
+          id: memoryId,
+          url: `https://example.com/${memoryId}`,
+          title: "Loader Memory",
+          capturedAt: now.toISOString(),
+          extractionStatus: "success",
+        },
+        markdown: translatedMarkdown,
+      }),
+      "utf8",
+    );
+
+    const sourceHash = createSha256ContentHash(
+      await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md")),
+    );
+    const outputHash = createSha256ContentHash(
+      await readFile(translatedPath.absolutePath),
+    );
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.translationJobs).values({
+        jobId: "019e3906-0000-7000-8000-000000000916",
+        memoryId,
+        langCode: "ja-JP",
+        sourceHash,
+        model: null,
+        reasoningEffort: null,
+        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+        status: "complete",
+        chunkCount: 1,
+        outputPath: translatedPath.relativePath,
+        outputHash,
+        error: null,
+        completedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.db.insert(schema.flashbacks).values({
+        id: "translated-flashback-loader",
+        memoryId,
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: outputHash,
+        text: "selected text",
+        prefix: "翻訳された ",
+        suffix: ".",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(translatedMarkdown),
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadFlashbackBrowseRows()).resolves.toEqual([
+      {
+        id: "translated-flashback-loader",
+        memoryId,
+        memoryTitle: "Loader Memory",
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: outputHash,
+        text: "selected text",
+        prefix: "翻訳された ",
+        suffix: ".",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(translatedMarkdown),
         createdAt: "2026-05-16T00:00:00.000Z",
       },
     ]);

@@ -103,6 +103,9 @@ describe("flashback repository", () => {
         startOffset: 8,
         endOffset: 21,
         contentHash: null,
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         createdAt: "2026-05-10T01:00:00.000Z",
       },
       {
@@ -115,7 +118,325 @@ describe("flashback repository", () => {
         startOffset: 4,
         endOffset: 14,
         contentHash: null,
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         createdAt: "2026-05-09T01:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("lists source and translated flashbacks for global browse with variant identity", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f205";
+        const now = Date.parse("2026-05-10T01:00:00.000Z");
+        const older = Date.parse("2026-05-09T01:00:00.000Z");
+        const outputHash = "sha256:" + "a".repeat(64);
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          connection.sqlite
+            .prepare(\`
+              insert into memories (
+                id,
+                url,
+                title,
+                description,
+                content_path,
+                extraction_status,
+                backup_status,
+                created_at,
+                updated_at
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            \`)
+            .run(
+              memoryId,
+              "https://example.com/" + memoryId,
+              "Variant Browse",
+              null,
+              "memories/" + memoryId + "/CONTENT.md",
+              "success",
+              "disabled",
+              older,
+              older,
+            );
+
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("source-old", memoryId, "source text", "", "", 0, 11, older, older);
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("translated-new", memoryId, "translation", "ja-JP", outputHash, "translated text", "", "", 0, 15, now, now);
+
+          const rows = await connection.repositories.flashbacks.listForBrowse();
+          process.stdout.write(JSON.stringify(rows));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      expect.objectContaining({
+        id: "translated-new",
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f205",
+        memoryTitle: "Variant Browse",
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: "sha256:" + "a".repeat(64),
+      }),
+      expect.objectContaining({
+        id: "source-old",
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f205",
+        memoryTitle: "Variant Browse",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+      }),
+    ]);
+  });
+
+  it("replaces source flashbacks without deleting translated variants", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f203";
+        const now = new Date("2026-05-10T01:00:00.000Z");
+        const outputHash = "sha256:" + "a".repeat(64);
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          connection.sqlite
+            .prepare(\`
+              insert into memories (
+                id,
+                url,
+                title,
+                description,
+                content_path,
+                extraction_status,
+                backup_status,
+                created_at,
+                updated_at
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            \`)
+            .run(
+              memoryId,
+              "https://example.com/" + memoryId,
+              "Variant Source",
+              null,
+              "memories/" + memoryId + "/CONTENT.md",
+              "success",
+              "disabled",
+              now.getTime(),
+              now.getTime(),
+            );
+
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("source-existing", memoryId, "source old", "", "", 0, 10, now.getTime(), now.getTime());
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("translated-existing", memoryId, "translation", "ja-JP", outputHash, "translated old", "", "", 0, 14, now.getTime(), now.getTime());
+
+          await connection.repositories.flashbacks.replaceForMemoryVariant({
+            memoryId,
+            variant: { kind: "source" },
+            flashbacks: [{
+              id: "source-new",
+              memoryId,
+              variantKind: "source",
+              langCode: null,
+              translationOutputHash: null,
+              text: "source new",
+              prefix: "",
+              suffix: "",
+              startOffset: 0,
+              endOffset: 10,
+              contentHash: null,
+              createdAt: now,
+              updatedAt: now,
+            }],
+          });
+
+          const rows = connection.sqlite
+            .prepare("select id, variant_kind as variantKind, lang_code as langCode, translation_output_hash as translationOutputHash from flashbacks order by id")
+            .all();
+          process.stdout.write(JSON.stringify(rows));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      {
+        id: "source-new",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+      },
+      {
+        id: "translated-existing",
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: "sha256:" + "a".repeat(64),
+      },
+    ]);
+  });
+
+  it("replaces only the requested translated output hash variant", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f204";
+        const now = new Date("2026-05-10T01:00:00.000Z");
+        const hashA = "sha256:" + "a".repeat(64);
+        const hashB = "sha256:" + "b".repeat(64);
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          connection.sqlite
+            .prepare(\`
+              insert into memories (
+                id,
+                url,
+                title,
+                description,
+                content_path,
+                extraction_status,
+                backup_status,
+                created_at,
+                updated_at
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            \`)
+            .run(
+              memoryId,
+              "https://example.com/" + memoryId,
+              "Variant Translation",
+              null,
+              "memories/" + memoryId + "/CONTENT.md",
+              "success",
+              "disabled",
+              now.getTime(),
+              now.getTime(),
+            );
+
+          for (const [id, hash] of [["translated-existing-a", hashA], ["translated-existing-b", hashB]]) {
+            connection.sqlite
+              .prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(id, memoryId, "translation", "ja-JP", hash, id, "", "", 0, id.length, now.getTime(), now.getTime());
+          }
+
+          await connection.repositories.flashbacks.replaceForMemoryVariant({
+            memoryId,
+            variant: { kind: "translation", langCode: "ja-JP", outputHash: hashA },
+            flashbacks: [{
+              id: "translated-new-a",
+              memoryId,
+              variantKind: "translation",
+              langCode: "ja-JP",
+              translationOutputHash: hashA,
+              text: "translated new a",
+              prefix: "",
+              suffix: "",
+              startOffset: 0,
+              endOffset: 16,
+              contentHash: null,
+              createdAt: now,
+              updatedAt: now,
+            }],
+          });
+
+          const rows = connection.sqlite
+            .prepare("select id, translation_output_hash as translationOutputHash from flashbacks order by id")
+            .all();
+          process.stdout.write(JSON.stringify(rows));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      {
+        id: "translated-existing-b",
+        translationOutputHash: "sha256:" + "b".repeat(64),
+      },
+      {
+        id: "translated-new-a",
+        translationOutputHash: "sha256:" + "a".repeat(64),
       },
     ]);
   });
@@ -218,7 +539,7 @@ describe("flashback repository", () => {
       error: {
         name: "MemoryRepositoryError",
         message:
-          "Cannot replace flashbacks for one memory with rows from another memory.",
+          "Cannot replace flashbacks for one memory variant with rows from another memory variant.",
       },
       rows: [],
     });

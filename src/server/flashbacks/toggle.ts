@@ -8,6 +8,11 @@ import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
 import { createRepositories } from "../db/repositories";
 import {
+  sourceFlashbackVariant,
+  toFlashbackVariantColumns,
+  type FlashbackVariant,
+} from "./variant";
+import {
   applyFlashbackMarkers,
   createReaderContentHash,
   FlashbackMarkerError,
@@ -40,6 +45,11 @@ export interface ToggleMemoryFlashbackInput {
   memoryId: string;
   operation?: FlashbackToggleOperation;
   selection: FlashbackSelectionInput;
+  variant?: FlashbackVariant;
+  content?: {
+    markdown: string;
+    relativePath: string;
+  };
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
   backupQueue: MemoryBackupQueue;
@@ -57,6 +67,9 @@ export interface ToggleMemoryFlashbackResult {
     startOffset: number;
     endOffset: number;
     contentHash: string;
+    variantKind: "source" | "translation";
+    langCode: string | null;
+    translationOutputHash: string | null;
     createdAt: string;
   }>;
 }
@@ -76,6 +89,7 @@ export class FlashbackToggleError extends Error {
     public readonly code:
       | "missing_memory"
       | "invalid_selection"
+      | "translation_unavailable"
       | "stale_selection",
   ) {
     super(message);
@@ -104,21 +118,25 @@ async function toggleMemoryFlashbackUnlocked(
     throw new FlashbackToggleError("Memory was not found.", "missing_memory");
   }
 
-  const content = await readMemoryContent({
+  const variant = input.variant ?? sourceFlashbackVariant;
+  const content = input.content ?? await readMemoryContent({
     config: { storePath: input.config.storePath },
     memoryId: input.memoryId,
   });
   const selection = resolveSelection(content.markdown, input.selection);
   const contentHash = createReaderContentHash(content.markdown);
-  const existingFlashbacks = await repositories.flashbacks.listForMemory(
-    input.memoryId,
-  );
+  const existingFlashbacks =
+    await repositories.flashbacks.listForMemoryVariant({
+      memoryId: input.memoryId,
+      variant,
+    });
   const previousFlashbacks = existingFlashbacks.map((flashback) => ({
     ...flashback,
   }));
   const previousExport = await readFlashbackExportSnapshot({
     config: input.config,
     memoryId: input.memoryId,
+    variant,
   });
   const existingRanges = normalizeFlashbackMarkerRanges(
     content.markdown,
@@ -157,20 +175,27 @@ async function toggleMemoryFlashbackUnlocked(
     memoryId: input.memoryId,
     now,
     ranges: nextRanges,
+    variant,
   });
-  await repositories.flashbacks.replaceForMemory(input.memoryId, nextFlashbacks);
+  await repositories.flashbacks.replaceForMemoryVariant({
+    memoryId: input.memoryId,
+    variant,
+    flashbacks: nextFlashbacks,
+  });
   let flashbackExportPath: string;
   try {
     flashbackExportPath = await writeFlashbackMetadataExport({
       config: input.config,
       memoryId: input.memoryId,
+      variant,
       flashbacks: nextFlashbacks,
     });
   } catch (error) {
-    await repositories.flashbacks.replaceForMemory(
-      input.memoryId,
-      previousFlashbacks,
-    );
+    await repositories.flashbacks.replaceForMemoryVariant({
+      memoryId: input.memoryId,
+      variant,
+      flashbacks: previousFlashbacks,
+    });
     throw error;
   }
 
@@ -190,10 +215,11 @@ async function toggleMemoryFlashbackUnlocked(
         });
       }
     } catch (error) {
-      await repositories.flashbacks.replaceForMemory(
-        input.memoryId,
-        previousFlashbacks,
-      );
+      await repositories.flashbacks.replaceForMemoryVariant({
+        memoryId: input.memoryId,
+        variant,
+        flashbacks: previousFlashbacks,
+      });
       await restoreFlashbackExportSnapshot({
         config: input.config,
         snapshot: previousExport,
@@ -212,6 +238,9 @@ async function toggleMemoryFlashbackUnlocked(
       startOffset: flashback.startOffset,
       endOffset: flashback.endOffset,
       contentHash: flashback.contentHash ?? contentHash,
+      variantKind: flashback.variantKind,
+      langCode: flashback.langCode,
+      translationOutputHash: flashback.translationOutputHash,
       createdAt: flashback.createdAt.toISOString(),
     })),
   };
@@ -220,8 +249,12 @@ async function toggleMemoryFlashbackUnlocked(
 async function readFlashbackExportSnapshot(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   memoryId: string;
+  variant: FlashbackVariant;
 }): Promise<FlashbackExportSnapshot> {
-  const relativePath = getFlashbackMetadataExportPath(input.memoryId);
+  const relativePath = getFlashbackMetadataExportPath({
+    memoryId: input.memoryId,
+    variant: input.variant,
+  });
   const absolutePath = join(input.config.storePath, relativePath);
   try {
     return {
@@ -316,10 +349,12 @@ function buildFlashbackRows(input: {
   memoryId: string;
   now: Date;
   ranges: FlashbackRange[];
+  variant: FlashbackVariant;
 }): FlashbackRow[] {
   const existingById = new Map(
     input.existingFlashbacks.map((flashback) => [flashback.id, flashback]),
   );
+  const variantColumns = toFlashbackVariantColumns(input.variant);
 
   return input.ranges.map((range) => {
     const existing = existingById.get(range.id);
@@ -332,6 +367,7 @@ function buildFlashbackRows(input: {
     return {
       id: range.id,
       memoryId: input.memoryId,
+      ...variantColumns,
       text: rendered.text,
       prefix: rendered.prefix,
       suffix: rendered.suffix,

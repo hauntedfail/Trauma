@@ -1,0 +1,1265 @@
+import { MemoryContentStoreError } from "../store";
+import {
+  getMemoryBackupQueue,
+  type MemoryBackupQueue,
+} from "../backup";
+import {
+  loadRuntimeTraumaConfig,
+  TraumaConfigError,
+  type ResolvedTraumaConfig,
+} from "../config";
+import {
+  initializeDatabase,
+  type TraumaDatabaseConnection,
+  type TraumaRepositories,
+} from "../db";
+import { generateMemoryId } from "../memories/id";
+import { createTranslationChunks } from "./chunker";
+import {
+  CodexAppServerClient,
+  CodexAppServerError,
+  type TranslationClient,
+} from "./codex-app-server";
+import {
+  repairUnavailableTranslation,
+  resolveCurrentTranslationReadOnly,
+} from "./current-translation";
+import { translationEventBus } from "./events";
+import { createSha256ContentHash } from "./hash";
+import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+  buildTranslationPrompt,
+  createCodexChunkOutputSchema,
+  stringifyCodexChunkOutput,
+  validateCodexChunkOutput,
+  TranslationOutputSchemaError,
+  TranslationOutputValidationError,
+} from "./prompt";
+import { loadTranslationSourceSnapshot } from "./source-loader";
+import { commitTranslatedContent, TranslationStitchingError } from "./stitching";
+import {
+  BRILLIANT_CANCEL_GRACE_MS,
+  BRILLIANT_MAX_RETRIES,
+  isCodexReasoningEffort,
+  type CodexReasoningEffort,
+  type PersistableTranslationErrorCode,
+  type TranslationErrorAction,
+  type TranslationErrorCode,
+  type TranslationJobCompletedData,
+  type TranslationJobFailedData,
+  type TranslationJobSnapshotError,
+  type TranslationJobStaleData,
+} from "./types";
+import { isSupportedLanguageCode, type SupportedLanguageCode } from "./languages";
+
+export type StartTranslationJobResult =
+  | {
+      status: "current";
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      output_path: string;
+      reader_url: string;
+    }
+  | {
+      status: "active";
+      job_status: string;
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      event_url: string;
+    }
+  | {
+      status: "started";
+      job_id: string;
+      memory_id: string;
+      lang_code: SupportedLanguageCode;
+      source_hash: string;
+      event_url: string;
+    };
+
+export interface TranslationJobSnapshot {
+  chunk_count: number;
+  completed_chunks: number;
+  error: TranslationJobSnapshotError | null;
+  failed_chunks: number;
+  job_id: string;
+  lang_code: string;
+  memory_id: string;
+  output_path: string | null;
+  reader_url: string | null;
+  retrying_chunks: number;
+  source_hash: string;
+  status: string;
+}
+
+interface StartTranslationJobInput {
+  backupQueue?: MemoryBackupQueue;
+  client?: TranslationClient;
+  config?: ResolvedTraumaConfig;
+  createClient?: () => TranslationClient;
+  generateJobId?: () => string;
+  langCode?: string;
+  memoryId: string;
+  model?: string | null;
+  now?: Date;
+  openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+  reasoningEffort?: string | null;
+  schedule?: (jobId: string, options: TranslationRunOptions) => void;
+}
+
+interface TranslationRunOptions {
+  backupQueue?: MemoryBackupQueue;
+  cancelGraceMs?: number;
+  closeClientAfterRun?: boolean;
+  client?: TranslationClient;
+  config?: ResolvedTraumaConfig;
+  openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+}
+
+let queue: Promise<void> = Promise.resolve();
+const scheduledTranslationJobIds = new Set<string>();
+
+interface InFlightTranslationTurn {
+  client: TranslationClient;
+  threadId?: string;
+  turnId?: string;
+}
+
+const inFlightTranslationTurns = new Map<string, InFlightTranslationTurn>();
+
+export async function interruptRunningTranslationJobTurn(
+  jobId: string,
+): Promise<boolean> {
+  const inFlight = inFlightTranslationTurns.get(jobId);
+  if (
+    inFlight === undefined ||
+    inFlight.client.cancelTurn === undefined ||
+    inFlight.threadId === undefined ||
+    inFlight.turnId === undefined
+  ) {
+    return false;
+  }
+  await inFlight.client.cancelTurn({
+    threadId: inFlight.threadId,
+    turnId: inFlight.turnId,
+  });
+  return true;
+}
+
+export async function startTranslationJob(
+  input: StartTranslationJobInput,
+): Promise<StartTranslationJobResult> {
+  const config = input.config ?? loadRuntimeTraumaConfig();
+  const openConnection = input.openConnection ?? initializeDatabase;
+  const now = input.now ?? new Date();
+  const connection = openConnection(config);
+  let ownedClient: TranslationClient | undefined;
+  let ownedClientScheduled = false;
+  try {
+    const memory = await connection.repositories.memories.findById(input.memoryId);
+    if (memory === undefined) {
+      throw new TranslationApiError(
+        "missing_memory",
+        "Memory was not found.",
+        "open_source_reader",
+      );
+    }
+    const settings = await connection.repositories.settings.getSettings(now);
+    const requestedLangCode = normalizeOptionalString(input.langCode);
+    const langCode = requestedLangCode ?? settings.translationTargetLanguage;
+    if (!isSupportedLanguageCode(langCode)) {
+      throw new TranslationApiError(
+        "invalid_language",
+        "Unsupported translation target language.",
+        "open_settings",
+      );
+    }
+    if (
+      requestedLangCode !== null &&
+      requestedLangCode !== settings.translationTargetLanguage
+    ) {
+      throw new TranslationApiError(
+        "translation_language_mismatch",
+        "Requested language does not match the configured translation target language.",
+        "open_settings",
+      );
+    }
+
+    const source = await loadTranslationSourceSnapshot({
+      config,
+      memoryId: input.memoryId,
+    });
+    const current = await resolveCurrentTranslationReadOnly({
+      config,
+      langCode,
+      memoryId: input.memoryId,
+      repository: connection.repositories.translations,
+      sourceSnapshot: source,
+    });
+    if (current.status === "current") {
+      return {
+        status: "current",
+        job_id: current.job.jobId,
+        memory_id: input.memoryId,
+        lang_code: langCode,
+        source_hash: current.sourceHash,
+        output_path: current.outputPath,
+        reader_url: current.readerUrl,
+      };
+    }
+    if (current.status === "unavailable") {
+      await repairUnavailableTranslation({
+        jobId: current.job.jobId,
+        reason: current.reason,
+        repository: connection.repositories.translations,
+        now,
+      });
+    }
+
+    const active = await connection.repositories.translations.findActiveTranslationJob(
+      input.memoryId,
+      langCode,
+      source.sourceHash,
+    );
+    if (active !== null) {
+      assertReusableActiveJob(active);
+      scheduleRecoverableActiveJob(input, config, openConnection, active.jobId);
+      return createActiveTranslationResult(active, input.memoryId, langCode);
+    }
+
+    const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
+    const jobId = input.generateJobId === undefined
+      ? generateMemoryId(now)
+      : input.generateJobId();
+    const chunks = createTranslationChunks({
+      blocks: manifest.blocks,
+      jobId,
+      langCode,
+      memoryId: input.memoryId,
+      source,
+    });
+    if (chunks.length === 0) {
+      throw new TranslationApiError(
+        "validation_failed",
+        "Source CONTENT.md has no translatable content.",
+        "open_source_reader",
+      );
+    }
+
+    const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+    if (input.client === undefined) {
+      ownedClient = client;
+    }
+    await client.probe();
+    const requestedModel = input.model === undefined
+      ? settings.codexTranslationModel
+      : normalizeOptionalString(input.model);
+    const requestedReasoningEffort = input.reasoningEffort === undefined
+      ? settings.codexTranslationReasoningEffort
+      : normalizeCodexReasoningEffort(input.reasoningEffort);
+    const selection = await resolveCodexTranslationSelection({
+      client,
+      model: requestedModel,
+      reasoningEffort: requestedReasoningEffort,
+    });
+    if (input.model !== undefined || input.reasoningEffort !== undefined) {
+      await connection.repositories.settings.updateCodexTranslationDefaults({
+        model: selection.model,
+        reasoningEffort: selection.reasoningEffort,
+        updatedAt: now,
+      });
+    }
+    let job;
+    try {
+      job = await connection.repositories.translations.createTranslationJob({
+        chunkCount: chunks.length,
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+        jobId,
+        langCode,
+        memoryId: input.memoryId,
+        model: selection.model,
+        now,
+        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+        reasoningEffort: selection.reasoningEffort,
+        sourceHash: source.sourceHash,
+      });
+    } catch (error) {
+      const racedActive = isTranslationActiveUniquenessError(error)
+        ? await connection.repositories.translations.findActiveTranslationJob(
+          input.memoryId,
+          langCode,
+          source.sourceHash,
+        )
+        : null;
+      if (racedActive === null) {
+        throw error;
+      }
+      if (input.client === undefined) {
+        await closeTranslationClient(client);
+      }
+      assertReusableActiveJob(racedActive);
+      return createActiveTranslationResult(racedActive, input.memoryId, langCode);
+    }
+    await connection.repositories.translations.insertTranslationChunks(
+      jobId,
+      chunks.map((chunk) => ({
+        blockIds: chunk.blockIds,
+        chunkIndex: chunk.chunkIndex,
+        now,
+        sourceChunkHash: chunk.sourceChunkHash,
+        status: "pending",
+      })),
+    );
+    translationEventBus.emit({
+      data: { chunk_count: chunks.length },
+      jobId,
+      langCode,
+      memoryId: input.memoryId,
+      type: "translation.job.started",
+    });
+    for (const chunk of chunks) {
+      translationEventBus.emit({
+        chunkIndex: chunk.chunkIndex,
+        data: { source_chunk_hash: chunk.sourceChunkHash },
+        jobId,
+        langCode,
+        memoryId: input.memoryId,
+        type: "translation.chunk.queued",
+      });
+    }
+
+    const schedule = input.schedule ?? enqueueTranslationJobRun;
+    schedule(job.jobId, {
+      backupQueue: input.backupQueue,
+      closeClientAfterRun: input.client === undefined,
+      client,
+      config,
+      openConnection,
+    });
+    ownedClientScheduled = input.client === undefined;
+
+    return {
+      status: "started",
+      job_id: jobId,
+      memory_id: input.memoryId,
+      lang_code: langCode,
+      source_hash: source.sourceHash,
+      event_url: createTranslationEventUrl(jobId),
+    };
+  } catch (error) {
+    if (ownedClient !== undefined && !ownedClientScheduled) {
+      await closeTranslationClient(ownedClient);
+    }
+    throw mapStartError(error);
+  } finally {
+    connection.close();
+  }
+}
+
+export function enqueueTranslationJobRun(
+  jobId: string,
+  options: TranslationRunOptions = {},
+): void {
+  if (scheduledTranslationJobIds.has(jobId)) {
+    return;
+  }
+  scheduledTranslationJobIds.add(jobId);
+  queue = queue
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await runTranslationJob(jobId, options);
+      } finally {
+        scheduledTranslationJobIds.delete(jobId);
+      }
+    })
+    .catch((error) => {
+      console.error(`translation job ${jobId} failed`, error);
+    });
+}
+
+export async function runTranslationJob(
+  jobId: string,
+  options: TranslationRunOptions = {},
+): Promise<void> {
+  const config = options.config ?? loadRuntimeTraumaConfig();
+  const openConnection = options.openConnection ?? initializeDatabase;
+  const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
+  const client = options.client ?? new CodexAppServerClient();
+  const closeClientAfterRun = options.client === undefined ||
+    options.closeClientAfterRun === true;
+  const connection = openConnection(config);
+  try {
+    const job = await connection.repositories.translations.getTranslationJob(jobId);
+    if (job === null) {
+      return;
+    }
+    if (job.status === "cancel_requested") {
+      await cancelJob(connection.repositories, job);
+      return;
+    }
+    let activeStatus: "running" | "stitching" | "committing";
+    if (
+      job.status === "running" ||
+      job.status === "stitching" ||
+      job.status === "committing"
+    ) {
+      activeStatus = job.status;
+    } else if (
+      await connection.repositories.translations.claimTranslationJob(
+        jobId,
+        "pending",
+        new Date(),
+      )
+    ) {
+      activeStatus = "running";
+    } else {
+      return;
+    }
+
+    const source = await loadTranslationSourceSnapshot({
+      config,
+      memoryId: job.memoryId,
+    });
+    if (source.sourceHash !== job.sourceHash) {
+      await markJobFailed({
+        connection,
+        error: {
+          code: "stale_source",
+          message: "Source CONTENT.md changed while translation was running.",
+          action: "open_source_reader",
+        },
+        jobId,
+        status: "stale",
+      });
+      translationEventBus.emit({
+        data: {
+          reason: "source_changed",
+          job_source_hash: job.sourceHash,
+          current_source_hash: source.sourceHash,
+        },
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.stale",
+      });
+      return;
+    }
+
+    const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
+    const runtimeChunks = createTranslationChunks({
+      blocks: manifest.blocks,
+      jobId,
+      langCode: job.langCode,
+      memoryId: job.memoryId,
+      source,
+    });
+    for (const chunk of runtimeChunks) {
+      if (await isCancellationRequested(connection.repositories, jobId)) {
+        await cancelJob(connection.repositories, job);
+        return;
+      }
+      const record = (await connection.repositories.translations.getTranslationChunks(jobId))
+        .find((candidate) => candidate.chunkIndex === chunk.chunkIndex);
+      if (record?.status === "complete" || record?.status === "purged") {
+        continue;
+      }
+      const chunkResult = await translateAndPersistChunk({
+        cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
+        chunk,
+        client,
+        connection,
+        jobLangCode: job.langCode,
+        jobMemoryId: job.memoryId,
+        model: job.model,
+        reasoningEffort: job.reasoningEffort,
+      });
+      if (
+        chunkResult.status === "canceled" ||
+        await isCancellationRequested(connection.repositories, jobId)
+      ) {
+        await cancelJob(connection.repositories, job);
+        return;
+      }
+    }
+    if (await isCancellationRequested(connection.repositories, jobId)) {
+      await cancelJob(connection.repositories, job);
+      return;
+    }
+
+    if (activeStatus === "running") {
+      const startedStitching =
+        await connection.repositories.translations.transitionTranslationJobStatus(
+          jobId,
+          "running",
+          "stitching",
+          { updatedAt: new Date() },
+        );
+      if (!startedStitching) {
+        await cancelIfRequestedAfterFinalizationRace(connection.repositories, job);
+        return;
+      }
+      activeStatus = "stitching";
+      translationEventBus.emit({
+        data: {},
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.stitching",
+      });
+    }
+    if (activeStatus === "stitching") {
+      const startedCommitting =
+        await connection.repositories.translations.transitionTranslationJobStatus(
+          jobId,
+          "stitching",
+          "committing",
+          { updatedAt: new Date() },
+        );
+      if (!startedCommitting) {
+        await cancelIfRequestedAfterFinalizationRace(connection.repositories, job);
+        return;
+      }
+      activeStatus = "committing";
+      translationEventBus.emit({
+        data: {},
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.committing",
+      });
+    }
+    const result = await commitTranslatedContent({
+      backupQueue,
+      chunks: await connection.repositories.translations.getTranslationChunks(jobId),
+      config,
+      job,
+      repository: connection.repositories.translations,
+    });
+    if ((result as { status?: string }).status === "stale") {
+      const stale = result as Extract<typeof result, { status: "stale" }>;
+      translationEventBus.emit<TranslationJobStaleData>({
+        data: {
+          reason: "source_changed",
+          job_source_hash: stale.jobSourceHash,
+          current_source_hash: stale.currentSourceHash,
+        },
+        jobId,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        type: "translation.job.stale",
+      });
+      return;
+    }
+    const committed = result as Exclude<typeof result, { status: "stale" }>;
+    translationEventBus.emit<TranslationJobCompletedData>({
+      data: {
+        output_hash: committed.outputHash,
+        output_path: committed.outputPath,
+        reader_url: committed.readerUrl,
+      },
+      jobId,
+      langCode: job.langCode,
+      memoryId: job.memoryId,
+      type: "translation.job.completed",
+    });
+  } catch (error) {
+    await failRunningJob(connection, jobId, error);
+  } finally {
+    connection.close();
+    if (closeClientAfterRun) {
+      await closeTranslationClient(client);
+    }
+  }
+}
+
+function scheduleRecoverableActiveJob(
+  input: StartTranslationJobInput,
+  config: ResolvedTraumaConfig,
+  openConnection: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection,
+  jobId: string,
+): void {
+  const schedule = input.schedule ?? enqueueTranslationJobRun;
+  schedule(jobId, {
+    backupQueue: input.backupQueue,
+    config,
+    openConnection,
+  });
+}
+
+function assertReusableActiveJob(job: { status: string }): void {
+  if (job.status !== "cancel_requested") {
+    return;
+  }
+  throw new TranslationApiError(
+    "cancellation_conflict",
+    "Translation cancellation is still finalizing. Retry after cancellation completes.",
+    "none",
+  );
+}
+
+function createActiveTranslationResult(
+  job: { jobId: string; sourceHash: string; status: string },
+  memoryId: string,
+  langCode: SupportedLanguageCode,
+): Extract<StartTranslationJobResult, { status: "active" }> {
+  return {
+    status: "active",
+    job_status: job.status,
+    job_id: job.jobId,
+    memory_id: memoryId,
+    lang_code: langCode,
+    source_hash: job.sourceHash,
+    event_url: createTranslationEventUrl(job.jobId),
+  };
+}
+
+function isTranslationActiveUniquenessError(error: unknown): boolean {
+  return error instanceof Error &&
+    /unique constraint failed|constraint failed/i.test(error.message);
+}
+
+async function closeTranslationClient(client: TranslationClient): Promise<void> {
+  if (client.close === undefined) {
+    return;
+  }
+  try {
+    await client.close();
+  } catch (error) {
+    console.warn("failed to close translation client", error);
+  }
+}
+
+export async function readTranslationJobSnapshot(input: {
+  config?: ResolvedTraumaConfig;
+  jobId: string;
+  openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+}): Promise<TranslationJobSnapshot | null> {
+  const config = input.config ?? loadRuntimeTraumaConfig();
+  const openConnection = input.openConnection ?? initializeDatabase;
+  const connection = openConnection(config);
+  try {
+    const job = await connection.repositories.translations.getTranslationJob(input.jobId);
+    if (job === null) {
+      return null;
+    }
+    const counts = await connection.repositories.translations.countTranslationChunksByStatus(
+      job.jobId,
+    );
+    let readerUrl: string | null = null;
+    let outputPath: string | null = job.outputPath;
+    let status = job.status;
+    let error = job.error;
+    if (job.status === "complete" && isSupportedLanguageCode(job.langCode)) {
+      const current = await resolveCurrentTranslationReadOnly({
+        config,
+        langCode: job.langCode,
+        memoryId: job.memoryId,
+        repository: connection.repositories.translations,
+      });
+      if (current.status === "current") {
+        readerUrl = current.readerUrl;
+        outputPath = current.outputPath;
+      } else if (current.status === "unavailable") {
+        await repairUnavailableTranslation({
+          jobId: current.job.jobId,
+          reason: current.reason,
+          repository: connection.repositories.translations,
+        });
+        status = "unavailable";
+        error = {
+          action: "start_fresh_translation",
+          code: "translation_unavailable",
+          message: "Translated CONTENT.md is unavailable.",
+        };
+        outputPath = null;
+      }
+    }
+
+    return {
+      chunk_count: job.chunkCount,
+      completed_chunks: counts.complete + counts.purged,
+      error,
+      failed_chunks: counts.failed,
+      job_id: job.jobId,
+      lang_code: job.langCode,
+      memory_id: job.memoryId,
+      output_path: outputPath,
+      reader_url: readerUrl,
+      retrying_chunks: counts.retrying,
+      source_hash: job.sourceHash,
+      status,
+    };
+  } finally {
+    connection.close();
+  }
+}
+
+async function translateAndPersistChunk(input: {
+  cancelGraceMs: number;
+  chunk: ReturnType<typeof createTranslationChunks>[number];
+  client: TranslationClient;
+  connection: TraumaDatabaseConnection;
+  jobLangCode: string;
+  jobMemoryId: string;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<{ status: "completed" } | { status: "canceled" }> {
+  let attempt = 0;
+  let latestPersistedError: TranslationJobSnapshotError | undefined;
+  while (attempt <= BRILLIANT_MAX_RETRIES) {
+    if (
+      await isCancellationRequested(
+        input.connection.repositories,
+        input.chunk.jobId,
+      )
+    ) {
+      return { status: "canceled" };
+    }
+    const now = new Date();
+    await input.connection.repositories.translations.updateTranslationChunk(
+      input.chunk.jobId,
+      input.chunk.chunkIndex,
+      {
+        status: attempt === 0 ? "running" : "retrying",
+        retryCount: attempt,
+        updatedAt: now,
+      },
+    );
+    translationEventBus.emit({
+      chunkIndex: input.chunk.chunkIndex,
+      data: { retry_count: attempt },
+      jobId: input.chunk.jobId,
+      langCode: input.jobLangCode,
+      memoryId: input.jobMemoryId,
+      type: attempt === 0
+        ? "translation.chunk.started"
+        : "translation.chunk.retrying",
+    });
+
+    try {
+      const prompt = buildTranslationPrompt({
+        chunk: input.chunk,
+        ...(attempt > 0 && latestPersistedError !== undefined
+          ? {
+            retryContext: {
+              attempt,
+              previousError: latestPersistedError,
+            },
+          }
+          : {}),
+        targetLanguage: input.jobLangCode as SupportedLanguageCode,
+      });
+      const inFlightTurn: InFlightTranslationTurn = {
+        client: input.client,
+      };
+      inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
+      const cancelWatcher = new AbortController();
+      const rawOutputPromise = input.client.translateChunk({
+        chunk: input.chunk,
+        model: input.model,
+        outputSchema: createCodexChunkOutputSchema(input.chunk),
+        prompt,
+        reasoningEffort: input.reasoningEffort,
+        onEvent: (event) => {
+          if (event.type === "thread.started") {
+            inFlightTurn.threadId = event.threadId;
+          } else if (event.type === "turn.started") {
+            inFlightTurn.turnId = event.turnId;
+          } else if (event.type === "delta") {
+            translationEventBus.emit({
+              chunkIndex: input.chunk.chunkIndex,
+              data: { text: event.text },
+              jobId: input.chunk.jobId,
+              langCode: input.jobLangCode,
+              memoryId: input.jobMemoryId,
+              type: "translation.codex.delta",
+            });
+          } else if (event.type === "item.started") {
+            translationEventBus.emit({
+              chunkIndex: input.chunk.chunkIndex,
+              data: { item_id: event.itemId },
+              jobId: input.chunk.jobId,
+              langCode: input.jobLangCode,
+              memoryId: input.jobMemoryId,
+              type: "translation.codex.item.started",
+            });
+          } else if (event.type === "item.completed") {
+            translationEventBus.emit({
+              chunkIndex: input.chunk.chunkIndex,
+              data: { item_id: event.itemId },
+              jobId: input.chunk.jobId,
+              langCode: input.jobLangCode,
+              memoryId: input.jobMemoryId,
+              type: "translation.codex.item.completed",
+            });
+          }
+        },
+      });
+      const rawOutputResult = rawOutputPromise.then(
+        (output) => ({ output, status: "completed" as const }),
+        (error: unknown) => ({ error, status: "failed" as const }),
+      );
+      const turnResult = await Promise.race([
+        rawOutputResult,
+        waitForCancellationGrace({
+          cancelGraceMs: input.cancelGraceMs,
+          repositories: input.connection.repositories,
+          jobId: input.chunk.jobId,
+          signal: cancelWatcher.signal,
+        }),
+      ]);
+      cancelWatcher.abort();
+      if (inFlightTranslationTurns.get(input.chunk.jobId) === inFlightTurn) {
+        inFlightTranslationTurns.delete(input.chunk.jobId);
+      }
+      if (turnResult.status === "canceled") {
+        return { status: "canceled" };
+      }
+      if (turnResult.status === "aborted") {
+        throw new Error(
+          "Cancellation watcher aborted before the translation turn settled.",
+        );
+      }
+      if (turnResult.status === "failed") {
+        throw turnResult.error;
+      }
+      const rawOutput = turnResult.output;
+      if (
+        await isCancellationRequested(
+          input.connection.repositories,
+          input.chunk.jobId,
+        )
+      ) {
+        return { status: "canceled" };
+      }
+      await input.connection.repositories.translations.updateTranslationChunk(
+        input.chunk.jobId,
+        input.chunk.chunkIndex,
+        {
+          status: "validating",
+          updatedAt: new Date(),
+        },
+      );
+      translationEventBus.emit({
+        chunkIndex: input.chunk.chunkIndex,
+        data: {},
+        jobId: input.chunk.jobId,
+        langCode: input.jobLangCode,
+        memoryId: input.jobMemoryId,
+        type: "translation.chunk.validating",
+      });
+      const output = validateCodexChunkOutput({
+        chunk: input.chunk,
+        output: rawOutput,
+      });
+      const translatedMarkdown = stringifyCodexChunkOutput(output);
+      await input.connection.repositories.translations.updateTranslationChunk(
+        input.chunk.jobId,
+        input.chunk.chunkIndex,
+        {
+          error: null,
+          projectionSpansJson: JSON.stringify(output.projectionSpans),
+          status: "complete",
+          translatedHash: createSha256ContentHash(translatedMarkdown),
+          translatedMarkdown,
+          updatedAt: new Date(),
+        },
+      );
+      translationEventBus.emit({
+        chunkIndex: input.chunk.chunkIndex,
+        data: { translated_hash: createSha256ContentHash(translatedMarkdown) },
+        jobId: input.chunk.jobId,
+        langCode: input.jobLangCode,
+        memoryId: input.jobMemoryId,
+        type: "translation.chunk.completed",
+      });
+      return { status: "completed" };
+    } catch (error) {
+      inFlightTranslationTurns.delete(input.chunk.jobId);
+      if (
+        await isCancellationRequested(
+          input.connection.repositories,
+          input.chunk.jobId,
+        )
+      ) {
+        return { status: "canceled" };
+      }
+      const willRetry = attempt < BRILLIANT_MAX_RETRIES;
+      const persistedError = toPersistedError(error);
+      latestPersistedError = persistedError;
+      await input.connection.repositories.translations.updateTranslationChunk(
+        input.chunk.jobId,
+        input.chunk.chunkIndex,
+        {
+          error: toPersistableError(persistedError),
+          status: willRetry ? "retrying" : "failed",
+          retryCount: attempt,
+          updatedAt: new Date(),
+        },
+      );
+      translationEventBus.emit({
+        chunkIndex: input.chunk.chunkIndex,
+        data: {
+          error: persistedError,
+          retry_count: attempt,
+          will_retry: willRetry,
+        },
+        jobId: input.chunk.jobId,
+        langCode: input.jobLangCode,
+        memoryId: input.jobMemoryId,
+        type: willRetry
+          ? "translation.chunk.retrying"
+          : "translation.chunk.failed",
+      });
+      if (!willRetry) {
+        throw error;
+      }
+      if (
+        await isCancellationRequested(
+          input.connection.repositories,
+          input.chunk.jobId,
+        )
+      ) {
+        return { status: "canceled" };
+      }
+    }
+    attempt += 1;
+  }
+  return { status: "completed" };
+}
+
+async function failRunningJob(
+  connection: TraumaDatabaseConnection,
+  jobId: string,
+  error: unknown,
+): Promise<void> {
+  const job = await connection.repositories.translations.getTranslationJob(jobId);
+  if (job === null) {
+    return;
+  }
+  const persistedError = toPersistedError(error);
+  await markJobFailed({
+    connection,
+    error: persistedError,
+    jobId,
+    status: "failed",
+  });
+  translationEventBus.emit<TranslationJobFailedData>({
+    data: { error: persistedError },
+    jobId,
+    langCode: job.langCode,
+    memoryId: job.memoryId,
+    type: "translation.job.failed",
+  });
+}
+
+async function markJobFailed(input: {
+  connection: TraumaDatabaseConnection;
+  error: TranslationJobSnapshotError;
+  jobId: string;
+  status: "failed" | "stale";
+}): Promise<void> {
+  await input.connection.repositories.translations.updateTranslationJobStatus(
+    input.jobId,
+    input.status,
+    {
+      completedAt: new Date(),
+      error: toPersistableError(input.error),
+      updatedAt: new Date(),
+    },
+  );
+}
+
+async function isCancellationRequested(
+  repositories: TraumaRepositories,
+  jobId: string,
+): Promise<boolean> {
+  const job = await repositories.translations.getTranslationJob(jobId);
+  return job?.status === "cancel_requested";
+}
+
+async function waitForCancellationGrace(input: {
+  cancelGraceMs: number;
+  jobId: string;
+  repositories: TraumaRepositories;
+  signal: AbortSignal;
+}): Promise<{ status: "aborted" } | { status: "canceled" }> {
+  const cancelGraceMs = Math.max(0, input.cancelGraceMs);
+  const pollIntervalMs = Math.max(1, Math.min(250, cancelGraceMs || 1));
+  while (!input.signal.aborted) {
+    if (await waitForTimer(pollIntervalMs, input.signal) === "aborted") {
+      break;
+    }
+    if (!await isCancellationRequested(input.repositories, input.jobId)) {
+      continue;
+    }
+    if (await waitForTimer(cancelGraceMs, input.signal) === "aborted") {
+      break;
+    }
+    if (await isCancellationRequested(input.repositories, input.jobId)) {
+      return { status: "canceled" };
+    }
+  }
+
+  return { status: "aborted" };
+}
+
+function waitForTimer(
+  ms: number,
+  signal: AbortSignal,
+): Promise<"elapsed" | "aborted"> {
+  if (signal.aborted) {
+    return Promise.resolve("aborted");
+  }
+  return new Promise((resolve) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve("aborted");
+    };
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve("elapsed");
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function cancelJob(
+  repositories: TraumaRepositories,
+  job: { jobId: string; langCode: string; memoryId: string },
+): Promise<void> {
+  await repositories.translations.updateTranslationJobStatus(
+    job.jobId,
+    "canceled",
+    {
+      completedAt: new Date(),
+      error: null,
+      updatedAt: new Date(),
+    },
+  );
+  translationEventBus.emit({
+    data: {},
+    jobId: job.jobId,
+    langCode: job.langCode,
+    memoryId: job.memoryId,
+    type: "translation.job.canceled",
+  });
+}
+
+async function cancelIfRequestedAfterFinalizationRace(
+  repositories: TraumaRepositories,
+  job: { jobId: string; langCode: string; memoryId: string },
+): Promise<void> {
+  if (await isCancellationRequested(repositories, job.jobId)) {
+    await cancelJob(repositories, job);
+  }
+}
+
+async function resolveCodexTranslationSelection(input: {
+  client: TranslationClient;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<{
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}> {
+  if (input.client.listModels === undefined) {
+    return {
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+    };
+  }
+
+  const catalog = await input.client.listModels();
+  const selectedModel = input.model === null
+    ? null
+    : catalog.models.find((model) =>
+      model.model === input.model || model.id === input.model
+    );
+  if (input.model !== null && selectedModel === undefined) {
+    throw new TranslationApiError(
+      "translation_model_unavailable",
+      `Codex model "${input.model}" is unavailable.`,
+      "open_settings",
+    );
+  }
+
+  const modelForEffort = selectedModel ??
+    catalog.models.find((model) => model.isDefault) ??
+    null;
+  if (input.reasoningEffort !== null) {
+    if (
+      modelForEffort === null ||
+      !modelForEffort.supportedReasoningEfforts.includes(input.reasoningEffort)
+    ) {
+      throw new TranslationApiError(
+        "translation_reasoning_effort_unavailable",
+        `Codex reasoning effort "${input.reasoningEffort}" is unavailable for the selected model.`,
+        "open_settings",
+      );
+    }
+  }
+
+  return {
+    model: selectedModel?.model ?? input.model,
+    reasoningEffort: input.reasoningEffort,
+  };
+}
+
+function normalizeCodexReasoningEffort(
+  value: string | null,
+): CodexReasoningEffort | null {
+  const normalized = normalizeOptionalString(value);
+  if (normalized === null) {
+    return null;
+  }
+  if (!isCodexReasoningEffort(normalized)) {
+    throw new TranslationApiError(
+      "translation_reasoning_effort_unavailable",
+      `Codex reasoning effort "${normalized}" is unavailable.`,
+      "open_settings",
+    );
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function toPersistedError(error: unknown): TranslationJobSnapshotError {
+  if (error instanceof TranslationApiError) {
+    return {
+      code: error.code,
+      message: error.message,
+      action: error.action,
+    };
+  }
+  if (error instanceof CodexAppServerError) {
+    return {
+      code: error.code,
+      message: error.message,
+      action: codexErrorAction(error.code),
+    };
+  }
+  if (error instanceof TranslationOutputSchemaError) {
+    return {
+      code: "invalid_final_output",
+      message: error.message,
+      action: "retry",
+    };
+  }
+  if (error instanceof TranslationOutputValidationError) {
+    return {
+      code: "validation_failed",
+      message: error.message,
+      action: "retry",
+      diagnostics: error.diagnostics,
+    };
+  }
+  if (error instanceof TranslationStitchingError) {
+    return {
+      code: "validation_failed",
+      message: error.message,
+      action: "retry",
+    };
+  }
+  return {
+    code: "unknown",
+    message: error instanceof Error ? error.message : "Translation failed.",
+    action: "retry",
+  };
+}
+
+function toPersistableError(error: TranslationJobSnapshotError) {
+  const code = isPersistableErrorCode(error.code) ? error.code : "unknown";
+  return {
+    code,
+    message: error.message,
+    action: error.action,
+    diagnostics: error.diagnostics,
+  };
+}
+
+function isPersistableErrorCode(
+  code: TranslationErrorCode,
+): code is PersistableTranslationErrorCode {
+  return ![
+    "translation_language_required",
+    "translation_language_mismatch",
+    "translation_model_unavailable",
+    "translation_reasoning_effort_unavailable",
+    "invalid_language",
+    "missing_memory",
+    "missing_source_content",
+    "cancellation_conflict",
+  ].includes(code);
+}
+
+function mapStartError(error: unknown): Error {
+  if (error instanceof CodexAppServerError) {
+    return new TranslationApiError(
+      error.code,
+      error.message,
+      codexErrorAction(error.code),
+    );
+  }
+  if (
+    error instanceof MemoryContentStoreError &&
+    error.code === "missing_content"
+  ) {
+    return new TranslationApiError(
+      "missing_source_content",
+      "Source CONTENT.md was not found.",
+      "open_source_reader",
+    );
+  }
+  if (error instanceof TraumaConfigError || error instanceof TranslationApiError) {
+    return error;
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+export function createTranslationEventUrl(jobId: string): string {
+  return `/api/translation-jobs/${jobId}/events`;
+}
+
+export class TranslationApiError extends Error {
+  constructor(
+    public readonly code: TranslationErrorCode,
+    message: string,
+    public readonly action: TranslationErrorAction = "none",
+  ) {
+    super(message);
+    this.name = "TranslationApiError";
+  }
+}
+
+function codexErrorAction(
+  code: CodexAppServerError["code"],
+): TranslationErrorAction {
+  if (code === "auth_required") {
+    return "setup_codex_auth";
+  }
+  if (code === "app_server_protocol_error") {
+    return "none";
+  }
+  return "retry";
+}

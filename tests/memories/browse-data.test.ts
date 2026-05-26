@@ -15,6 +15,7 @@ import {
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
 import { browseFixtureMemories } from "../../src/components/memories/browse-fixtures";
+import { buildMemoryVariantAnchorHref } from "../../src/components/memories/memory-anchor-hrefs";
 
 const fixtures: BrowseMemory[] = [
   {
@@ -34,6 +35,9 @@ const fixtures: BrowseMemory[] = [
       {
         id: "h-foundation",
         memoryId: "memory-foundation",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         text: "flashback-aware results",
         prefix: "Search query can be wired to",
         suffix: "through repository fixtures.",
@@ -104,6 +108,16 @@ describe("browse query state", () => {
 
   it("builds canonical flashback shortcut hrefs without incompatible taxonomy filters", () => {
     expect(buildFlashbackBrowseHref("h-foundation")).toBe("/memories?flashback=h-foundation");
+  });
+
+  it("builds translated memory anchor hrefs for variant-local flashbacks", () => {
+    expect(
+      buildMemoryVariantAnchorHref({
+        memoryId: "memory-1",
+        langCode: "ja-JP",
+        anchorId: "flashback-1",
+      }),
+    ).toBe("/memories/ja-JP/memory-1#flashback-1");
   });
 
   it("filters memory metadata and flashback context without full body search", () => {
@@ -224,6 +238,9 @@ describe("browse query state", () => {
         {
           id: "h-first",
           memoryId: "memory-foundation",
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
           text: "first flashback",
           prefix: "first",
           suffix: "context",
@@ -232,6 +249,9 @@ describe("browse query state", () => {
         {
           id: "h-selected",
           memoryId: "memory-foundation",
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
           text: "selected flashback",
           prefix: "selected",
           suffix: "context",
@@ -253,6 +273,9 @@ describe("browse query state", () => {
           {
             id: "h-newer-memory-old-flashback",
             memoryId: "memory-foundation",
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
             text: "older flashback on newer memory",
             prefix: "new memory",
             suffix: "old flashback",
@@ -267,6 +290,9 @@ describe("browse query state", () => {
           {
             id: "h-older-memory-new-flashback",
             memoryId: "memory-ops",
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
             text: "newer flashback on older memory",
             prefix: "old memory",
             suffix: "new flashback",

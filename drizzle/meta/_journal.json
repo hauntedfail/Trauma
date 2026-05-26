@@ -71,6 +71,41 @@
       "when": 1778934734173,
       "tag": "0009_product_language_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1779412761000,
+      "tag": "0010_brilliant_translation_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1779441939597,
+      "tag": "0011_numerous_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1779445000000,
+      "tag": "0012_translation_projection_spans",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1779449000000,
+      "tag": "0013_variant_local_flashbacks",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1779449500000,
+      "tag": "0014_strict_flashback_variant_scope",
+      "breakpoints": true
     }
   ]
 }

@@ -12,11 +12,19 @@ import {
   createReaderContentHash,
   MemoryContentStoreError,
   readMemoryContent,
+  readResolvedMemoryContent,
 } from "~/server/store";
+import { resolveCurrentTranslationReadOnly } from "~/server/translation/current-translation";
+import {
+  isSupportedLanguageCode,
+  type SupportedLanguageCode,
+} from "~/server/translation/languages";
+import { resolveTranslatedMemoryContentPath } from "~/server/translation/paths";
 
 export type MomentPayloadResult =
   | {
       ok: true;
+      langCode?: SupportedLanguageCode;
       memoryId: string;
       sectionAnchor: string;
       sectionTitle: string;
@@ -30,6 +38,7 @@ export type MomentPayloadResult =
 
 const MOMENT_KEYS = [
   "memoryId",
+  "langCode",
   "sectionAnchor",
   "sectionTitle",
   "sectionLevel",
@@ -84,6 +93,7 @@ export async function POST(event: APIEvent): Promise<Response> {
     const section = await resolveMomentSection({
       config,
       payload,
+      repository: connection.repositories.translations,
     });
     if (!section.ok) {
       return json({ error: section.error }, { status: 400 });
@@ -120,6 +130,7 @@ export async function POST(event: APIEvent): Promise<Response> {
 async function resolveMomentSection(input: {
   config: ReturnType<typeof loadRuntimeTraumaConfig>;
   payload: Extract<MomentPayloadResult, { ok: true }>;
+  repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
 }): Promise<
   | { ok: true; section: ReaderTocEntry; contentHash: string }
   | { ok: false; error: string }
@@ -133,6 +144,15 @@ async function resolveMomentSection(input: {
     });
     contentHash = createReaderContentHash(content.markdown);
     rendered = renderMemoryMarkdown(content.markdown);
+    if (input.payload.langCode !== undefined) {
+      return await resolveTranslatedMomentSection({
+        config: input.config,
+        contentHash,
+        payload: input.payload,
+        repository: input.repository,
+        sourceToc: rendered.toc,
+      });
+    }
   } catch (error) {
     if (
       error instanceof MemoryContentStoreError &&
@@ -185,6 +205,70 @@ async function resolveMomentSection(input: {
   return { ok: true, section, contentHash };
 }
 
+async function resolveTranslatedMomentSection(input: {
+  config: ReturnType<typeof loadRuntimeTraumaConfig>;
+  contentHash: string;
+  payload: Extract<MomentPayloadResult, { ok: true }>;
+  repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
+  sourceToc: ReaderTocEntry[];
+}): Promise<
+  | { ok: true; section: ReaderTocEntry; contentHash: string }
+  | { ok: false; error: string }
+> {
+  if (input.payload.langCode === undefined) {
+    return { ok: false, error: "moment section was not found" };
+  }
+
+  const current = await resolveCurrentTranslationReadOnly({
+    config: input.config,
+    langCode: input.payload.langCode,
+    memoryId: input.payload.memoryId,
+    repository: input.repository,
+  });
+  if (current.status !== "current") {
+    return { ok: false, error: "moment section was not found" };
+  }
+
+  const translatedContent = await readResolvedMemoryContent(
+    resolveTranslatedMemoryContentPath({
+      config: input.config,
+      langCode: input.payload.langCode,
+      memoryId: input.payload.memoryId,
+    }),
+  );
+  const translatedToc = renderMemoryMarkdown(translatedContent.markdown).toc;
+  const translatedCandidates = translatedToc.filter((section) =>
+    matchesMomentSectionIdentity(section, input.payload)
+  );
+  if (translatedCandidates.length === 0) {
+    return {
+      ok: false,
+      error: "moment section identity does not match reader content",
+    };
+  }
+  if (translatedCandidates.length > 1) {
+    return { ok: false, error: "moment section identity is ambiguous" };
+  }
+
+  const translatedSection = translatedCandidates[0]!;
+  const sourceCandidates = input.sourceToc.filter((section) =>
+    section.path === translatedSection.path &&
+    section.level === translatedSection.level
+  );
+  if (sourceCandidates.length === 0) {
+    return { ok: false, error: "moment section was not found" };
+  }
+  if (sourceCandidates.length > 1) {
+    return { ok: false, error: "moment section identity is ambiguous" };
+  }
+
+  return {
+    ok: true,
+    section: sourceCandidates[0]!,
+    contentHash: input.contentHash,
+  };
+}
+
 function matchesMomentSectionIdentity(
   section: ReaderTocEntry,
   payload: Extract<MomentPayloadResult, { ok: true }>,
@@ -225,7 +309,7 @@ async function parseMomentPayloadInternal(
     return {
       ok: false,
       error:
-        "request body must contain only memoryId, sectionAnchor, sectionTitle, sectionLevel, sectionPath, sectionStartOffset, sectionEndOffset, and contentHash",
+        "request body must contain only memoryId, langCode, sectionAnchor, sectionTitle, sectionLevel, sectionPath, sectionStartOffset, sectionEndOffset, and contentHash",
     };
   }
 
@@ -240,6 +324,19 @@ async function parseMomentPayloadInternal(
   const memoryId = parseNonEmptyString(payload.memoryId, "memoryId");
   if (!memoryId.ok) {
     return memoryId;
+  }
+
+  if (
+    payload.langCode !== undefined &&
+    (
+      typeof payload.langCode !== "string" ||
+      !isSupportedLanguageCode(payload.langCode)
+    )
+  ) {
+    return {
+      ok: false,
+      error: "langCode must be a supported translation language",
+    };
   }
 
   const sectionAnchor = parseNonEmptyString(
@@ -287,6 +384,7 @@ async function parseMomentPayloadInternal(
 
   return {
     ok: true,
+    ...(payload.langCode === undefined ? {} : { langCode: payload.langCode }),
     memoryId: memoryId.value,
     sectionAnchor: sectionAnchor.value,
     sectionTitle: sectionTitle.value,

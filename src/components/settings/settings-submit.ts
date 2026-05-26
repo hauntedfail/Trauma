@@ -1,8 +1,11 @@
 import type { SettingsState } from "../../server/settings/settings";
+import type { CodexModelCatalog } from "../../server/translation/codex-app-server";
+import type { CodexReasoningEffort } from "../../server/translation/types";
 import type {
-  DeleteOpenAiAuthResult,
-  EnableOpenAiAuthResponse,
-} from "../../server/settings/openai-auth";
+  CodexAuthDeleteResponse,
+  CodexAuthStatusResponse,
+  CodexDeviceCodeStartResponse,
+} from "../../server/settings/codex-auth";
 
 type FetchFunction = (
   input: string | URL | Request,
@@ -28,37 +31,137 @@ export async function submitTranslationTargetLanguage(input: {
   return response.json() as Promise<SettingsState>;
 }
 
+export async function submitReadCodexModels(input: {
+  fetch?: FetchFunction;
+} = {}): Promise<CodexModelCatalog> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/codex-models", {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "failed to read Codex models"));
+  }
+
+  return response.json() as Promise<CodexModelCatalog>;
+}
+
+export async function submitCodexTranslationDefaults(input: {
+  fetch?: FetchFunction;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<SettingsState> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/translation-codex-defaults", {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: input.model,
+      reasoning_effort: input.reasoningEffort,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "failed to update Codex translation defaults"),
+    );
+  }
+
+  return response.json() as Promise<SettingsState>;
+}
+
 export async function submitEnableOpenAiAuth(input: {
   fetch?: FetchFunction;
-} = {}): Promise<EnableOpenAiAuthResponse> {
+} = {}): Promise<CodexDeviceCodeStartResponse> {
   const requestFetch = input.fetch ?? fetch;
-  const response = await requestFetch("/api/settings/openai-auth/enable", {
+  const response = await requestFetch("/api/settings/codex-auth/device-code", {
     method: "POST",
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "failed to enable OpenAI auth"));
+    throw new Error(await readErrorMessage(response, "failed to start Codex auth"));
   }
 
-  return response.json() as Promise<EnableOpenAiAuthResponse>;
+  return response.json() as Promise<CodexDeviceCodeStartResponse>;
+}
+
+export async function submitReadCodexAuth(input: {
+  fetch?: FetchFunction;
+} = {}): Promise<CodexAuthStatusResponse> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/codex-auth", {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "failed to read Codex auth"));
+  }
+
+  return response.json() as Promise<CodexAuthStatusResponse>;
+}
+
+export async function pollCodexAuthSetup(input: {
+  fetch?: FetchFunction;
+  intervalMs?: number;
+  maxAttempts?: number;
+  signal?: AbortSignal;
+} = {}): Promise<CodexAuthStatusResponse | undefined> {
+  const intervalMs = input.intervalMs ?? 1_500;
+  const maxAttempts = input.maxAttempts ?? 120;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const ready = await waitForPollDelay(intervalMs, input.signal);
+    if (!ready) {
+      return undefined;
+    }
+    const status = await submitReadCodexAuth({ fetch: input.fetch });
+    if (status.status !== "login_started") {
+      return status;
+    }
+  }
+
+  return undefined;
 }
 
 export async function submitDeleteOpenAiAuth(input: {
   confirm: (message: string) => boolean;
   fetch?: FetchFunction;
-}): Promise<DeleteOpenAiAuthResult | undefined> {
-  if (!input.confirm("Delete OpenAI auth?")) {
+}): Promise<CodexAuthDeleteResponse | undefined> {
+  if (!input.confirm("Delete Codex auth?")) {
     return undefined;
   }
 
   const requestFetch = input.fetch ?? fetch;
-  const response = await requestFetch("/api/settings/openai-auth", {
+  const response = await requestFetch("/api/settings/codex-auth", {
     method: "DELETE",
   });
   if (!response.ok) {
-    throw new Error("failed to delete OpenAI auth");
+    throw new Error("failed to delete Codex auth");
   }
 
-  return response.json() as Promise<DeleteOpenAiAuthResult>;
+  return response.json() as Promise<CodexAuthDeleteResponse>;
+}
+
+function waitForPollDelay(
+  intervalMs: number,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal?.aborted === true) {
+    return Promise.resolve(false);
+  }
+  if (intervalMs <= 0) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+    timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, intervalMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function readErrorMessage(

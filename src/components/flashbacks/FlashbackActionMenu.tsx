@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 
+import type { SupportedLanguageCode } from "../../settings/languages";
 import { TrashIcon } from "../icons";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import {
@@ -15,12 +16,15 @@ import {
 export interface FlashbackActionMenuItem {
   endOffset: number;
   id: string;
+  langCode?: SupportedLanguageCode | null;
   memoryId: string;
   memoryTitle?: string;
   prefix: string;
   startOffset: number;
   suffix: string;
   text: string;
+  translationOutputHash?: string | null;
+  variantKind?: "source" | "translation";
 }
 
 export interface FlashbackActionMenuProps {
@@ -108,6 +112,10 @@ export async function deleteFlashbackBySelection(
     },
     body: JSON.stringify({
       memoryId: input.flashback.memoryId,
+      ...(input.flashback.langCode === undefined ||
+      input.flashback.langCode === null
+        ? {}
+        : { langCode: input.flashback.langCode }),
       operation: "unflashback",
       selection: {
         text: input.flashback.text,

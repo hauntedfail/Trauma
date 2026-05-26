@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMemoryAnchorHref,
   buildMemoryHref,
+  buildMemoryVariantAnchorHref,
   buildSameMemoryAnchorHref,
 } from "../../src/components/memories/memory-anchor-hrefs";
 
@@ -29,5 +30,21 @@ describe("memory anchor hrefs", () => {
     expect(buildSameMemoryAnchorHref("flashback with spaces")).toBe(
       "#flashback%20with%20spaces",
     );
+  });
+
+  it("builds translated memory routes with optional anchors", () => {
+    expect(
+      buildMemoryVariantAnchorHref({
+        anchorId: "translated flashback",
+        langCode: "ja-JP",
+        memoryId: "memory with spaces",
+      }),
+    ).toBe("/memories/ja-JP/memory%20with%20spaces#translated%20flashback");
+    expect(
+      buildMemoryVariantAnchorHref({
+        langCode: null,
+        memoryId: "memory with spaces",
+      }),
+    ).toBe("/memories/memory%20with%20spaces");
   });
 });

@@ -21,8 +21,8 @@ filters and view options:
 /memories?q=...&category=...&tag=...&flashback=...&view=list|grid
 ```
 
-`/flashbacks` is the canonical route for browsing flashbacked excerpts across
-memories.
+`/flashbacks` is the canonical route for browsing renderable flashbacked
+excerpts across memories and reader content variants.
 
 `/category`, `/tags`, and `/memories/new` are not initial routes. Category/tag
 management pages are future work.
@@ -40,9 +40,10 @@ not be implemented as a page-specific component.
 
 The right panel lists categories, tags, and Flashback shortcuts. Category and tag
 items update the `/memories` query filter. Flashback shortcuts apply
-`/memories?flashback=<flashback id>`. Source-memory navigation is handled by
-the `/flashbacks` row title/link or reader anchors, not the primary right-panel
-shortcut.
+`/memories?flashback=<flashback id>`. Memory navigation is handled by the
+`/flashbacks` row title/link or reader anchors, not the primary right-panel
+shortcut. Translated Flashback links route to `/memories/:lang_code/:id` when
+the Flashback belongs to a translated variant.
 
 ## Search And Filters
 
@@ -58,14 +59,14 @@ used by right-panel flashback shortcuts.
 
 `/flashbacks` is a flashback-first browse view.
 
-Each flashback row shows the source memory title, muted prefix context,
-flashbacked text, and muted suffix context. The visual treatment should feel
+Each flashback row shows the memory title, muted prefix context, flashbacked
+text, and muted suffix context. The visual treatment should feel
 close to a GitHub pull request file-review view: dense rows, selected text as
 the focal content, muted surrounding context, subordinate source metadata, and
 no full article rendering.
 
-Clicking the row content or source title opens `/memories/:id` at the corresponding
-flashback anchor.
+Clicking the row content or memory title opens the source or translated reader
+route at the corresponding flashback anchor.
 
 ## Responsive Behavior
 
@@ -102,7 +103,10 @@ design changes the route model.
 
 ## Reader
 
-`/memories/:id` renders `CONTENT.md` in read mode.
+`/memories/:id` renders source `CONTENT.md` in read mode.
+`/memories/:lang_code/:id` renders a current translated variant from
+`memories/<memory_id>/<lang_code>/CONTENT.md` when the translation row and file
+hash are current.
 
 The initial markdown reader supports:
 
@@ -119,6 +123,18 @@ Text selection inside reader content is a flashback toggle. Selecting
 unflashbacked text creates a flashback. Selecting text that is already
 flashbacked removes flashback styling from the selected text only, preserving
 any unselected flashbacked text around it.
+
+Flashbacks are local to the reader content variant where they are created.
+Source Flashbacks use source reader offsets. Translated Flashbacks use
+translated reader offsets and are scoped to the completed translation output
+hash. Global Flashback browse and memory search surfaces include renderable
+Flashbacks from both source and translated variants.
+
+Translated reader routes show translated Flashbacks for the active translated
+variant only. Source Flashbacks do not automatically appear in translated
+content. Creating a Flashback from a translated route sends the active language
+to the backend so the write is stored against the translated `CONTENT.md` and
+current translation output hash.
 
 External embeds auto-load in the initial design. This has privacy and network
 side effects; future configuration may allow lazy or disabled embeds.

@@ -124,3 +124,22 @@ Advanced operator and CI overrides, such as runtime config path, Drizzle CLI
 database path, dev smoke tuning, fixture mode, or browser import origin/size
 limits, should be set explicitly in the shell or CI job that needs them. They
 are intentionally not part of `.env.example`.
+
+## Codex App-Server Translation Environment
+
+Brilliant translation is optional and uses a separately running Codex
+app-server. TRAUMA does not start or supervise that process.
+
+Use the Codex app-server Unix listener when enabling translation:
+
+```bash
+codex app-server --listen unix://
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
+```
+
+For `unix://`, TRAUMA connects to Codex's default app-server control socket at
+`~/.codex/app-server-control/app-server-control.sock`. Set
+`TRAUMA_CODEX_APP_SERVER_SOCKET_PATH` only when a local operator workflow uses a
+different socket path. Loopback WebSocket endpoints are not supported. `http://`,
+`https://`, `ws://`, and `stdio://` are rejected because they are not Brilliant
+wire-protocol transports.

@@ -16,6 +16,14 @@ import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../../settings/languages";
+import {
+  CODEX_REASONING_EFFORTS,
+  TRANSLATION_CHUNK_STATUSES,
+  TRANSLATION_JOB_STATUSES,
+  type CodexReasoningEffort,
+  type TranslationChunkStatus,
+  type TranslationJobStatus,
+} from "../translation/types";
 
 export type { BackupStatus } from "../backup/status";
 
@@ -40,6 +48,15 @@ const supportedLanguageSqlList = sql.raw(
   SUPPORTED_TRANSLATION_LANGUAGES.map((language) =>
     toSqlStringLiteral(language.code),
   ).join(", "),
+);
+const translationJobStatusSqlList = sql.raw(
+  TRANSLATION_JOB_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+const translationChunkStatusSqlList = sql.raw(
+  TRANSLATION_CHUNK_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+const codexReasoningEffortSqlList = sql.raw(
+  CODEX_REASONING_EFFORTS.map(toSqlStringLiteral).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -149,6 +166,12 @@ export const flashbacks = sqliteTable(
     memoryId: text("memory_id")
       .notNull()
       .references(() => memories.id, { onDelete: "cascade" }),
+    variantKind: text("variant_kind")
+      .$type<"source" | "translation">()
+      .notNull()
+      .default("source"),
+    langCode: text("lang_code").$type<SupportedLanguageCode>(),
+    translationOutputHash: text("translation_output_hash"),
     text: text("text").notNull(),
     prefix: text("prefix").notNull(),
     suffix: text("suffix").notNull(),
@@ -160,6 +183,21 @@ export const flashbacks = sqliteTable(
   (table) => [
     index("flashbacks_memory_id_idx").on(table.memoryId),
     index("flashbacks_created_at_idx").on(table.createdAt),
+    index("flashbacks_memory_variant_idx").on(
+      table.memoryId,
+      table.variantKind,
+      table.langCode,
+      table.translationOutputHash,
+      table.startOffset,
+    ),
+    check(
+      "flashbacks_variant_kind_check",
+      sql`${table.variantKind} in ('source', 'translation')`,
+    ),
+    check(
+      "flashbacks_variant_scope_check",
+      sql`(${table.variantKind} = 'source' and ${table.langCode} is null and ${table.translationOutputHash} is null) or (${table.variantKind} = 'translation' and ${table.langCode} is not null and ${table.langCode} in (${supportedLanguageSqlList}) and ${table.translationOutputHash} is not null and ${table.translationOutputHash} glob 'sha256:*')`,
+    ),
     check("flashbacks_start_offset_check", sql`${table.startOffset} >= 0`),
     check("flashbacks_end_offset_check", sql`${table.endOffset} > ${table.startOffset}`),
   ],
@@ -268,6 +306,9 @@ export const appSettings = sqliteTable(
       .$type<SupportedLanguageCode>()
       .notNull()
       .default(DEFAULT_TRANSLATION_TARGET_LANGUAGE),
+    codexTranslationModel: text("codex_translation_model"),
+    codexTranslationReasoningEffort: text("codex_translation_reasoning_effort")
+      .$type<CodexReasoningEffort>(),
     ...timestamps(),
   },
   (table) => [
@@ -275,6 +316,10 @@ export const appSettings = sqliteTable(
     check(
       "app_settings_translation_target_language_check",
       sql`${table.translationTargetLanguage} in (${supportedLanguageSqlList})`,
+    ),
+    check(
+      "app_settings_codex_translation_reasoning_effort_check",
+      sql`${table.codexTranslationReasoningEffort} is null or ${table.codexTranslationReasoningEffort} in (${codexReasoningEffortSqlList})`,
     ),
   ],
 );
@@ -292,11 +337,171 @@ export const openaiAuthCredentials = sqliteTable(
   ],
 );
 
+export const translationJobs = sqliteTable(
+  "translation_jobs",
+  {
+    jobId: text("job_id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    langCode: text("lang_code").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    model: text("model"),
+    reasoningEffort: text("reasoning_effort").$type<CodexReasoningEffort>(),
+    promptPolicyVersion: text("prompt_policy_version").notNull(),
+    chunkerVersion: text("chunker_version").notNull(),
+    status: text("status").$type<TranslationJobStatus>().notNull(),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    outputPath: text("output_path"),
+    outputHash: text("output_hash"),
+    error: text("error"),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("translation_jobs_current_complete_idx")
+      .on(table.memoryId, table.langCode, table.sourceHash)
+      .where(sql`${table.status} = 'complete'`),
+    uniqueIndex("translation_jobs_active_idx")
+      .on(table.memoryId, table.langCode, table.sourceHash)
+      .where(
+        sql`${table.status} in ('pending', 'running', 'cancel_requested', 'stitching', 'committing')`,
+      ),
+    index("translation_jobs_memory_lang_idx").on(
+      table.memoryId,
+      table.langCode,
+      table.updatedAt,
+    ),
+    check(
+      "translation_jobs_status_check",
+      sql`${table.status} in (${translationJobStatusSqlList})`,
+    ),
+    check(
+      "translation_jobs_source_hash_check",
+      sql`${table.sourceHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_jobs_output_hash_check",
+      sql`${table.outputHash} is null or ${table.outputHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_jobs_reasoning_effort_check",
+      sql`${table.reasoningEffort} is null or ${table.reasoningEffort} in (${codexReasoningEffortSqlList})`,
+    ),
+    check("translation_jobs_chunk_count_check", sql`${table.chunkCount} >= 0`),
+  ],
+);
+
+export const translationChunks = sqliteTable(
+  "translation_chunks",
+  {
+    jobId: text("job_id")
+      .notNull()
+      .references(() => translationJobs.jobId, { onDelete: "cascade" }),
+    chunkIndex: integer("chunk_index").notNull(),
+    sourceChunkHash: text("source_chunk_hash").notNull(),
+    blockIdsJson: text("block_ids_json").notNull(),
+    status: text("status").$type<TranslationChunkStatus>().notNull(),
+    retryCount: integer("retry_count").notNull().default(0),
+    translatedMarkdown: text("translated_markdown"),
+    translatedHash: text("translated_hash"),
+    projectionSpansJson: text("projection_spans_json"),
+    error: text("error"),
+    ...timestamps(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.jobId, table.chunkIndex] }),
+    index("translation_chunks_status_idx").on(
+      table.jobId,
+      table.status,
+      table.chunkIndex,
+    ),
+    check(
+      "translation_chunks_status_check",
+      sql`${table.status} in (${translationChunkStatusSqlList})`,
+    ),
+    check(
+      "translation_chunks_source_hash_check",
+      sql`${table.sourceChunkHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_chunks_translated_hash_check",
+      sql`${table.translatedHash} is null or ${table.translatedHash} glob 'sha256:*'`,
+    ),
+    check("translation_chunks_retry_count_check", sql`${table.retryCount} >= 0`),
+    check("translation_chunks_index_check", sql`${table.chunkIndex} >= 0`),
+  ],
+);
+
+export const translationProjectionSpans = sqliteTable(
+  "translation_projection_spans",
+  {
+    jobId: text("job_id")
+      .notNull()
+      .references(() => translationJobs.jobId, { onDelete: "cascade" }),
+    spanIndex: integer("span_index").notNull(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    langCode: text("lang_code")
+      .$type<SupportedLanguageCode>()
+      .notNull(),
+    sourceHash: text("source_hash").notNull(),
+    outputHash: text("output_hash").notNull(),
+    segmentId: text("segment_id").notNull(),
+    blockId: text("block_id").notNull(),
+    sourceMarkdownStart: integer("source_markdown_start").notNull(),
+    sourceMarkdownEnd: integer("source_markdown_end").notNull(),
+    translatedMarkdownStart: integer("translated_markdown_start").notNull(),
+    translatedMarkdownEnd: integer("translated_markdown_end").notNull(),
+    sourceReaderStart: integer("source_reader_start").notNull(),
+    sourceReaderEnd: integer("source_reader_end").notNull(),
+    translatedReaderStart: integer("translated_reader_start").notNull(),
+    translatedReaderEnd: integer("translated_reader_end").notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.jobId, table.spanIndex] }),
+    index("translation_projection_current_idx").on(
+      table.memoryId,
+      table.langCode,
+      table.sourceHash,
+      table.outputHash,
+      table.spanIndex,
+    ),
+    check(
+      "translation_projection_source_hash_check",
+      sql`${table.sourceHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_projection_output_hash_check",
+      sql`${table.outputHash} glob 'sha256:*'`,
+    ),
+    check(
+      "translation_projection_source_markdown_range_check",
+      sql`${table.sourceMarkdownEnd} > ${table.sourceMarkdownStart}`,
+    ),
+    check(
+      "translation_projection_translated_markdown_range_check",
+      sql`${table.translatedMarkdownEnd} > ${table.translatedMarkdownStart}`,
+    ),
+    check(
+      "translation_projection_source_reader_range_check",
+      sql`${table.sourceReaderEnd} > ${table.sourceReaderStart}`,
+    ),
+    check(
+      "translation_projection_translated_reader_range_check",
+      sql`${table.translatedReaderEnd} > ${table.translatedReaderStart}`,
+    ),
+  ],
+);
+
 export const memoriesRelations = relations(memories, ({ many }) => ({
   flashbacks: many(flashbacks),
   memoryCategories: many(memoryCategories),
   memoryTags: many(memoryTags),
   moments: many(moments),
+  translationJobs: many(translationJobs),
 }));
 
 export const tagsRelations = relations(tags, ({ many }) => ({
@@ -345,3 +550,24 @@ export const momentsRelations = relations(moments, ({ one }) => ({
     references: [memories.id],
   }),
 }));
+
+export const translationJobsRelations = relations(
+  translationJobs,
+  ({ many, one }) => ({
+    chunks: many(translationChunks),
+    memory: one(memories, {
+      fields: [translationJobs.memoryId],
+      references: [memories.id],
+    }),
+  }),
+);
+
+export const translationChunksRelations = relations(
+  translationChunks,
+  ({ one }) => ({
+    job: one(translationJobs, {
+      fields: [translationChunks.jobId],
+      references: [translationJobs.jobId],
+    }),
+  }),
+);
