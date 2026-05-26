@@ -26,7 +26,7 @@ Implement these subtasks sequentially on `feat/brilliant`.
 ## Rules for agents
 
 - Own only the domain named by the subtask.
-- Start from `docs/INDEX.md`, this README, `00-execution-contracts.md`, the focused contract files listed for the subtask, and the assigned subtask file.
+- Start from this README, `00-execution-contracts.md`, the focused contract files listed for the subtask, and the assigned subtask file.
 - Do not load every Brilliant contract file unless the subtask explicitly says to do so.
 - Do not pull unrelated Task 18 memory-action work into `feat/brilliant`.
 - Treat archived Task 18 docs as history only; use current settings code and contracts as implementation inputs.

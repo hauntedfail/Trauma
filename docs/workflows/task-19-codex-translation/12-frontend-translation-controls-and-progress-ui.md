@@ -79,6 +79,8 @@ Reader UI shows:
 22. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
 23. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
 24. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
+25. If `code = "usage_limit"` or `code = "context_overflow"`, present the stable backend message and offer retry after the limit resets or after the translation plan is adjusted.
+26. If `code = "validation_failed"`, `code = "filesystem_failure"`, `code = "unknown_failure"`, or any unrecognized stable code is returned, present a generic safe failure message and offer manual retry or fresh translation according to the job status. Do not expose raw source, prompts, app-server payloads, credential paths, or local filesystem details.
 
 Progress and reconnect behaviour:
 
