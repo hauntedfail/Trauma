@@ -29,6 +29,8 @@ export interface SettingsState {
   openaiAuth: CodexAuthStatusResponse;
 }
 
+export type TranslationSettingsState = Omit<SettingsState, "openaiAuth">;
+
 interface SettingsOptions {
   config?: ResolvedTraumaConfig;
   now?: Date;
@@ -54,12 +56,18 @@ export async function getSettings(
   return withSettingsRepository(options, async (repository, now) => {
     const settings = await repository.getSettings(now);
     return {
-      codexTranslationModel: settings.codexTranslationModel,
-      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
-      translationTargetLanguage: settings.translationTargetLanguage,
+      ...toTranslationSettingsState(settings),
       openaiAuth: await readCodexAuthStatus(),
     };
   });
+}
+
+export async function getTranslationSettings(
+  options: SettingsOptions = {},
+): Promise<TranslationSettingsState> {
+  return withSettingsRepository(options, async (repository, now) =>
+    toTranslationSettingsState(await repository.getSettings(now))
+  );
 }
 
 export async function updateTranslationTargetLanguage(
@@ -76,9 +84,7 @@ export async function updateTranslationTargetLanguage(
       updatedAt: now,
     });
     return {
-      codexTranslationModel: settings.codexTranslationModel,
-      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
-      translationTargetLanguage: settings.translationTargetLanguage,
+      ...toTranslationSettingsState(settings),
       openaiAuth: await readCodexAuthStatus(),
     };
   });
@@ -104,9 +110,7 @@ export async function updateCodexTranslationDefaults(input: {
       updatedAt: now,
     });
     return {
-      codexTranslationModel: settings.codexTranslationModel,
-      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
-      translationTargetLanguage: settings.translationTargetLanguage,
+      ...toTranslationSettingsState(settings),
       openaiAuth: await readCodexAuthStatus(),
     };
   });
@@ -168,6 +172,16 @@ function normalizeOptionalString(value: string | null): string | null {
   }
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+function toTranslationSettingsState(settings: Awaited<
+  ReturnType<SettingsRepository["getSettings"]>
+>): TranslationSettingsState {
+  return {
+    codexTranslationModel: settings.codexTranslationModel,
+    codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
+    translationTargetLanguage: settings.translationTargetLanguage,
+  };
 }
 
 async function withSettingsRepository<T>(

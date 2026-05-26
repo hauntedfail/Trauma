@@ -6,7 +6,9 @@ import { Show } from "solid-js";
 import { MemoryReader } from "../../components/reader/MemoryReader";
 import { getReaderMemory } from "../../components/reader/reader-memory-loader";
 import { getBrowseTaxonomy } from "../../components/memories/browse-loader";
-import { getSettingsState } from "../../components/settings/settings-loader";
+import {
+  getReaderTranslationSettingsState,
+} from "../../components/settings/settings-loader";
 import type { BrowseTaxonomySummaryItem } from "../../components/memories/browse-data";
 import { readerFrame, readerStatePanel } from "../../components/reader/reader-styles";
 import {
@@ -21,7 +23,7 @@ export default function MemoryReaderRoute() {
   const params = useParams();
   const result = createAsync(() => getReaderMemory(params.id ?? ""));
   const taxonomy = createAsync(() => getBrowseTaxonomy());
-  const settings = createAsync(() => getSettingsState());
+  const settings = createAsync(() => getReaderTranslationSettingsState());
   const readerResult = () => result();
 
   return (

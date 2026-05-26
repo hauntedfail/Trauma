@@ -9,6 +9,7 @@ import {
   deleteSettingsOpenAiAuth,
   enableSettingsOpenAiAuth,
   getSettings,
+  getTranslationSettings,
   updateCodexTranslationDefaults,
   updateTranslationTargetLanguage,
   UnsupportedTranslationLanguageError,
@@ -51,6 +52,16 @@ describe("settings service", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("reads translation settings without Codex auth state", async () => {
+    const config = await makeConfig();
+
+    await expect(getTranslationSettings({ config })).resolves.toEqual({
+      translationTargetLanguage: "ja-JP",
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
+    });
   });
 
   it("initializes the settings singleton idempotently under concurrent first reads", async () => {
