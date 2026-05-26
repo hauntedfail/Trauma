@@ -93,9 +93,10 @@ Rules:
 - MVP connects to an already-running Codex app-server through server-side config.
 - Use `TRAUMA_CODEX_APP_SERVER_ENDPOINT` or the equivalent typed TRAUMA config value as `endpoint`.
 - Default Brilliant MVP configuration is an explicitly configured Codex app-server Unix socket listener. This is TRAUMA's default, not the Codex CLI's no-flag default.
-- Default startup command: `codex app-server --listen unix://`.
-- Default endpoint example: `TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix://`.
-- `codex app-server` without `--listen unix://` uses `stdio`; do not treat that process as a Brilliant endpoint.
+- Default startup command: `codex app-server --listen unix:///tmp/trauma-codex.sock`.
+- Default endpoint example: `TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock`.
+- Unix socket endpoint URIs use three slashes and an absolute filesystem path, for example `unix:///tmp/trauma-codex.sock`.
+- `codex app-server` without `--listen unix:///tmp/trauma-codex.sock` uses `stdio`; do not treat that process as a Brilliant endpoint.
 - Loopback WebSocket is not supported by TRAUMA.
 - If Unix socket support is blocked by platform/runtime support, treat that as a blocked integration task rather than silently falling back to WebSocket.
 - The app-server client speaks the Codex app-server wire protocol over the configured transport. Do not treat `account/read`, `thread/start`, `turn/start`, or `turn/interrupt` as REST endpoints.

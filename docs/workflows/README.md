@@ -103,4 +103,4 @@ Use concise branch names that match the workflow:
 - `chore/reader-library-decision`
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
-- `feat/codex-translation`
+- `feat/brilliant`

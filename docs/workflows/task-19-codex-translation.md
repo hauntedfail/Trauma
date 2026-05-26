@@ -23,8 +23,8 @@ Research reference captured by the instruction:
 
 - Use Codex app-server as the production integration path.
 - Treat Codex app-server as a Codex app-server wire-protocol integration, not a REST endpoint. The backend client must connect over a configured app-server transport, run `initialize` plus `initialized`, create an ephemeral thread with `thread/start`, then start translation work with `turn/start`.
-- Brilliant MVP uses the Codex app-server wire protocol over an explicitly configured Unix socket listener (`codex app-server --listen unix://`) as TRAUMA's required local transport. This is not the Codex CLI's no-flag default; `codex app-server` without `--listen unix://` uses `stdio` and is not a valid Brilliant backend endpoint. Loopback WebSocket is not a supported TRAUMA transport. HTTP is allowed only for health probes such as `/readyz` or `/healthz`, not for app-server wire-protocol calls. `stdio` process ownership is out of scope because TRAUMA does not start or supervise the Codex app-server process.
-- Use Codex managed ChatGPT sign-in; surface app-server `chatgptDeviceCode` login when auth is missing.
+- Brilliant MVP uses the Codex app-server wire protocol over an explicitly configured Unix socket listener (`codex app-server --listen unix:///tmp/trauma-codex.sock`) as TRAUMA's required local transport. This is not the Codex CLI's no-flag default; `codex app-server` without `--listen unix:///tmp/trauma-codex.sock` uses `stdio` and is not a valid Brilliant backend endpoint. Loopback WebSocket is not a supported TRAUMA transport. HTTP is allowed only for health probes such as `/readyz` or `/healthz`, not for app-server wire-protocol calls. `stdio` process ownership is out of scope because TRAUMA does not start or supervise the Codex app-server process.
+- Use Codex-managed ChatGPT sign-in; surface app-server `chatgptDeviceCode` login when auth is missing.
 - Keep OpenAI/ChatGPT tokens out of TRAUMA SQLite, logs, frontend responses, and browser storage.
 - Do not expose Codex app-server directly to the browser; only the Reader backend talks to Codex.
 - Use one ephemeral Codex thread per chunk attempt by default so long documents do not depend on one long model context and retry attempts do not inherit invalid prior model output.
@@ -36,7 +36,7 @@ Research reference captured by the instruction:
 - Store source memory content at store-relative `memories/<memory_id>/CONTENT.md`.
 - Store translated content at store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`, for example `memories/abc123/ja-JP/CONTENT.md`.
 - Store translated projection backup data at store-relative `memories/<memory_id>/<lang_code>/TRANSLATION_MAP.json`.
-- Instruction note: `TASK_19_INSTRUCTION.md` uses conceptual `memory/<memory_id>/...` paths. Implementation must use TRAUMA's existing plural store layout under configured `storePath`: `memories/<memory_id>/...`.
+- Store layout note: implementation must use TRAUMA's existing plural store layout under configured `storePath`: `memories/<memory_id>/...`. Do not depend on root-level scratch instruction files for the current source of truth.
 - Expose translated content through a dedicated reader route shaped as `/memories/:lang_code/:id`, mapping to store-relative `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - On the source memory reader page, show a Codex icon at the right edge of the title only when the configured target-language translation does not exist yet.
 - Do not show the Codex translation icon on translated reader routes.

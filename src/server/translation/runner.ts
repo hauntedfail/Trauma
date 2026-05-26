@@ -170,12 +170,22 @@ export async function startTranslationJob(
       );
     }
     const settings = await connection.repositories.settings.getSettings(now);
-    const langCode = normalizeOptionalString(input.langCode) ??
-      settings.translationTargetLanguage;
+    const requestedLangCode = normalizeOptionalString(input.langCode);
+    const langCode = requestedLangCode ?? settings.translationTargetLanguage;
     if (!isSupportedLanguageCode(langCode)) {
       throw new TranslationApiError(
         "invalid_language",
         "Unsupported translation target language.",
+        "open_settings",
+      );
+    }
+    if (
+      requestedLangCode !== null &&
+      requestedLangCode !== settings.translationTargetLanguage
+    ) {
+      throw new TranslationApiError(
+        "translation_language_mismatch",
+        "Requested language does not match the configured translation target language.",
         "open_settings",
       );
     }
@@ -257,15 +267,6 @@ export async function startTranslationJob(
       model: requestedModel,
       reasoningEffort: requestedReasoningEffort,
     });
-    if (
-      input.langCode !== undefined &&
-      langCode !== settings.translationTargetLanguage
-    ) {
-      await connection.repositories.settings.updateTranslationTargetLanguage({
-        language: langCode,
-        updatedAt: now,
-      });
-    }
     if (input.model !== undefined || input.reasoningEffort !== undefined) {
       await connection.repositories.settings.updateCodexTranslationDefaults({
         model: selection.model,
@@ -820,6 +821,11 @@ async function translateAndPersistChunk(input: {
       if (turnResult.status === "canceled") {
         return { status: "canceled" };
       }
+      if (turnResult.status === "aborted") {
+        throw new Error(
+          "Cancellation watcher aborted before the translation turn settled.",
+        );
+      }
       if (turnResult.status === "failed") {
         throw turnResult.error;
       }
@@ -983,7 +989,7 @@ async function waitForCancellationGrace(input: {
   jobId: string;
   repositories: TraumaRepositories;
   signal: AbortSignal;
-}): Promise<{ status: "canceled" }> {
+}): Promise<{ status: "aborted" } | { status: "canceled" }> {
   const cancelGraceMs = Math.max(0, input.cancelGraceMs);
   const pollIntervalMs = Math.max(1, Math.min(250, cancelGraceMs || 1));
   while (!input.signal.aborted) {
@@ -1001,7 +1007,7 @@ async function waitForCancellationGrace(input: {
     }
   }
 
-  return await new Promise<never>(() => undefined);
+  return { status: "aborted" };
 }
 
 function waitForTimer(

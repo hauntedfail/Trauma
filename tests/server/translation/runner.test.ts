@@ -145,6 +145,43 @@ describe("translation runner", () => {
     });
   });
 
+  it("rejects request languages that differ from the configured target", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000020",
+        langCode: "en-US",
+        memoryId,
+        now,
+        schedule: () => undefined,
+      }),
+    ).rejects.toMatchObject({
+      action: "open_settings",
+      code: "translation_language_mismatch",
+    });
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.settings.getSettings(now))
+        .resolves.toMatchObject({
+          translationTargetLanguage: "ja-JP",
+        });
+      await expect(
+        connection.repositories.translations.getTranslationJob(
+          "019e3906-0000-7000-8000-000000000020",
+        ),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
   it("commits translated chunks with the source Markdown block shape", async () => {
     const config = await createConfig();
     await writeSourceContent(config, [

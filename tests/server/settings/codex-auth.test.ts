@@ -136,6 +136,79 @@ describe("Codex auth settings service", () => {
     });
   });
 
+  it("clears pending device-code metadata when observer auth checks fail", async () => {
+    resetCodexAuthForTests();
+    let checkCount = 0;
+    let resolveObserverCheck: (() => void) | undefined;
+    const observerCheck = new Promise<void>((resolve) => {
+      resolveObserverCheck = resolve;
+    });
+    const client = createCodexAuthClient({
+      authStatus: () => {
+        checkCount += 1;
+        if (checkCount === 1) {
+          return { status: "setup_required", reason: "auth_required" };
+        }
+        resolveObserverCheck?.();
+        throw new Error("auth check failed");
+      },
+      events: [{ type: "account.updated" }],
+      login: {
+        loginId: "login-observer-error",
+        verificationUrl: "https://example.com/device",
+        userCode: "ERROR-1",
+      },
+    });
+
+    await startCodexDeviceCodeLogin({ client });
+    await observerCheck;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const statusClient = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+    });
+    await expect(readCodexAuthStatus({ client: statusClient })).resolves.toEqual({
+      status: "setup_required",
+      provider: "codex",
+      reason: "auth_required",
+    });
+  });
+
+  it("keeps newer observer teardown when an older observer exits", async () => {
+    resetCodexAuthForTests();
+    const oldEvents = createControlledAuthEvents();
+    const newEvents = createControlledAuthEvents();
+    const oldClient = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+      events: oldEvents.events,
+      login: {
+        loginId: "login-old",
+        verificationUrl: "https://example.com/device",
+        userCode: "OLD-1",
+      },
+    });
+    const newClient = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+      events: newEvents.events,
+      login: {
+        loginId: "login-new",
+        verificationUrl: "https://example.com/device",
+        userCode: "NEW-1",
+      },
+    });
+
+    await startCodexDeviceCodeLogin({ client: oldClient });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await cancelCodexDeviceCodeLogin({ client: oldClient });
+    await startCodexDeviceCodeLogin({ client: newClient });
+
+    oldEvents.resolveNext({ done: true, value: undefined });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await cancelCodexDeviceCodeLogin({ client: newClient });
+
+    expect(newEvents.returned()).toBe(true);
+  });
+
   it("clears pending device-code metadata after confirmed login completion", async () => {
     resetCodexAuthForTests();
     let resolveConfirmedCheck: (() => void) | undefined;
@@ -296,5 +369,31 @@ function createCodexAuthClient(input: {
       }
       return input.login;
     },
+  };
+}
+
+function createControlledAuthEvents(): {
+  events: () => AsyncIterable<CodexAuthEvent>;
+  resolveNext: (value: IteratorResult<CodexAuthEvent>) => void;
+  returned: () => boolean;
+} {
+  let returned = false;
+  let resolveNext: (value: IteratorResult<CodexAuthEvent>) => void =
+    () => undefined;
+  const next = new Promise<IteratorResult<CodexAuthEvent>>((resolve) => {
+    resolveNext = resolve;
+  });
+  return {
+    events: () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => next,
+        return: async () => {
+          returned = true;
+          return { done: true, value: undefined };
+        },
+      }),
+    }),
+    resolveNext,
+    returned: () => returned,
   };
 }

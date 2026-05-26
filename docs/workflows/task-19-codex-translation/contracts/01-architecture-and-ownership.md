@@ -62,9 +62,9 @@
 - Modify: `src/routes/memories/[id].tsx`
 - Create or modify: `src/routes/memories/[langCode]/[id].tsx`
 - Modify: `src/components/reader/MemoryReader.tsx`
-- Create: `src/components/reader/MemoryVariantTabs.tsx`
-- Create: `src/components/reader/TranslationControls.tsx`
-- Create: `src/components/reader/TranslationProgress.tsx`
+- Implement or modify variant tabs, translation controls, and translation
+  progress inside `src/components/reader/MemoryReader.tsx` unless a later
+  refactor deliberately extracts focused child components.
 
 ### Skill and fixtures
 

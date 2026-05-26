@@ -2,7 +2,7 @@
 
 **Reviewed:** 2026-05-21  
 **Reviewer:** Claude (pre-implementation gate review)  
-**Scope:** All files under `docs/workflows/task-19-codex-translation/` plus parent README, against `TASK_19_INSTRUCTION.md` acceptance criteria (lines 706–725) and security requirements (lines 1–705).  
+**Scope:** Historical review of files under `docs/workflows/task-19-codex-translation/` plus parent README, against an archived scratch instruction note formerly named `TASK_19_INSTRUCTION.md`. That scratch note is not part of the current implementation source of truth.
 **Verdict:** **HISTORICAL REVIEW SNAPSHOT — DO NOT USE FOR IMPLEMENTATION DECISIONS.** The canonical implementation plan is `docs/workflows/task-19-codex-translation/README.md` plus `00-execution-contracts.md` and the focused contracts under `docs/workflows/task-19-codex-translation/contracts/`. Findings below may be superseded by later plan edits and are retained only as review history.
 
 ---
@@ -11,7 +11,7 @@
 
 | File | Role |
 |------|------|
-| `TASK_19_INSTRUCTION.md` | Root INSTRUCT, authoritative acceptance criteria |
+| Archived scratch instruction note formerly named `TASK_19_INSTRUCTION.md` | Historical review input, not current source of truth |
 | `docs/workflows/task-19-codex-translation.md` | Parent README / Brilliant overview |
 | `…/00-execution-contracts.md` | Contract routing index |
 | `contracts/README.md` | Contract directory index |

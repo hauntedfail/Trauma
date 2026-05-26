@@ -322,7 +322,7 @@ retry the old source hash.
 ```text
 pending -> running
 pending -> stale
-pending -> cancel_requested
+pending -> canceled
 running -> stale
 running -> stitching
 running -> failed
@@ -333,7 +333,7 @@ stitching -> committing
 stitching -> failed
 committing -> complete
 committing -> failed
-failed -> pending only when a user explicitly retries by creating a new job
+failed remains immutable history; user retry creates a new `pending` job row
 ```
 
 Completed jobs are immutable history while their committed output file remains available. Do not mutate `complete -> stale` when source content changes; Reader/API freshness is derived by comparing the job `source_hash` with the current source `CONTENT.md` hash. If the committed output file is missing or its hash no longer matches `output_hash`, mark the row `unavailable` so the same `(memory_id, lang_code, source_hash)` can be translated again.

@@ -24,7 +24,7 @@ Read all focused contract files for this subtask.
 
 Scope: planning contracts only; no application code.
 
-Inputs: `TASK_19_INSTRUCTION.md`, current TRAUMA docs, current settings/storage implementation, and official Codex app-server protocol.
+Inputs: the archived scratch instruction note formerly named `TASK_19_INSTRUCTION.md`, current TRAUMA docs, current settings/storage implementation, and official Codex app-server protocol.
 
 Outputs: frozen Brilliant contract files, storage path mapping, route shape, app-server wire-protocol boundary, auth boundary, and subtask dependency map.
 
@@ -68,7 +68,7 @@ Before later subtasks start, confirm these names and contracts are stable:
 - Final output path `memories/<memory_id>/<lang_code>/CONTENT.md`.
 - Translated reader route `/memories/:lang_code/:id`.
 - Codex app-server wire-protocol lifecycle: connect, `initialize`, `initialized`, `account/read`, `thread/start`, `turn/start`, notifications, and optional `turn/interrupt`.
-- Codex app-server transport boundary: `codex app-server --listen unix://` is TRAUMA's required default wire-protocol transport; loopback WebSocket is not supported; HTTP is health-probe-only; `stdio` process ownership and the Codex CLI no-flag `stdio` default are outside Brilliant MVP.
+- Codex app-server transport boundary: `codex app-server --listen unix:///tmp/trauma-codex.sock` is TRAUMA's required default wire-protocol transport; Unix socket endpoint URIs use three slashes and an absolute filesystem path; loopback WebSocket is not supported; HTTP is health-probe-only; `stdio` process ownership and the Codex CLI no-flag `stdio` default are outside Brilliant MVP.
 - Codex translation thread/turn security policy: `approvalPolicy: "never"`, read-only sandbox, no direct filesystem reads from the TRAUMA project or store, and no network access when the installed app-server schema supports that field for the selected sandbox. If schema support differs, update the Brilliant contract with the equivalent minimum-privilege payload before implementation.
 - Temp final-write path `.CONTENT.<job_id>.tmp` in the language directory.
 

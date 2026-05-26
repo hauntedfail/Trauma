@@ -419,13 +419,13 @@ Live verification when Codex app-server and ChatGPT auth are available:
 1. Start Codex app-server:
 
 ```bash
-codex app-server --listen unix://
+codex app-server --listen unix:///tmp/trauma-codex.sock
 ```
 
 2. Start TRAUMA with the app-server endpoint:
 
 ```bash
-TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock bun run dev
 ```
 
 3. Retry `Amp Owner's Manual` translation or a synthetic imported memory with

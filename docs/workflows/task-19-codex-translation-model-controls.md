@@ -437,13 +437,13 @@ Server validation rules:
     - Start app-server:
 
       ```bash
-      codex app-server --listen unix://
+      codex app-server --listen unix:///tmp/trauma-codex.sock
       ```
 
     - Start TRAUMA:
 
       ```bash
-      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// mise exec -- bun run dev
+      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock mise exec -- bun run dev
       ```
 
     - Open Settings and confirm model/effort controls load from app-server.

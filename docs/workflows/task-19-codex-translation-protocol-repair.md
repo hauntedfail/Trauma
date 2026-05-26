@@ -37,8 +37,8 @@ Precondition: start Codex app-server with the Unix listener and run TRAUMA with
 that endpoint.
 
 ```bash
-codex app-server --listen unix://
-TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
+codex app-server --listen unix:///tmp/trauma-codex.sock
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock bun run dev
 ```
 
 Observed failure after auth succeeds and translation starts:
@@ -312,13 +312,13 @@ or another non-misleading action over `retry`.
     - Start app-server:
 
       ```bash
-      codex app-server --listen unix://
+      codex app-server --listen unix:///tmp/trauma-codex.sock
       ```
 
     - Start TRAUMA:
 
       ```bash
-      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// mise exec -- bun run dev
+      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock mise exec -- bun run dev
       ```
 
     - With an already authenticated account, start translation for a known

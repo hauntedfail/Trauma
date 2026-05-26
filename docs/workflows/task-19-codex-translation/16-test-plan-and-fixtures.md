@@ -89,9 +89,9 @@ mise exec -- bun run test tests/server/translation/orchestrator.test.ts
 mise exec -- bun run test tests/server/routes/api-memory-translations.test.ts
 mise exec -- bun run test tests/server/routes/api-translation-jobs.test.ts
 mise exec -- bun run test tests/server/routes/api-translation-events.test.ts
-mise exec -- bun run test tests/server/reader/translated-page-data.test.ts
-mise exec -- bun run test tests/components/reader-translation-controls.test.tsx
-mise exec -- bun run test tests/components/reader-translation-progress.test.tsx
+mise exec -- bun run test tests/server/reader/page-data.test.ts
+mise exec -- bun run test tests/components/reader-flashback-tabs.test.ts
+mise exec -- bun run test tests/components/memory-reader-actions.test.ts
 mise exec -- bun run typecheck
 ```
 
@@ -103,7 +103,8 @@ mise exec -- bun run typecheck
 - translation start using SQLite settings language
 - current committed translation reuse returns `200 current` without checking Codex auth
 - active job reuse returns `status = "active"`, the actual `job_status`, and the existing `event_url` without creating another row
-- compatible `cancel_requested` job returns `409 cancellation_conflict` until cancellation reaches `canceled`
+- translation start/reuse returns `409 cancellation_conflict` while a compatible `cancel_requested` job is finalizing
+- canceling `cancel_requested` and `canceled` jobs remains idempotent
 - runner claim uses atomic compare-and-set `pending -> running` semantics
 - active job reuse triggers or depends on focused recovery so stale old-source jobs are marked `stale` before new job creation
 - reused pending/running job whose Codex auth/setup is now missing becomes failed with `auth_required` or `setup_required`
@@ -130,8 +131,8 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - app-server initialization before requests
-- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, HTTP wire-protocol rejection, WebSocket rejection, and `stdio` rejection for Brilliant MVP
-- Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
+- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix:///tmp/trauma-codex.sock`, HTTP wire-protocol rejection, WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the configured `unix:///tmp/trauma-codex.sock` socket path
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
 - Codex app-server fixtures record that Brilliant uses stable schema mode
@@ -178,7 +179,7 @@ mise exec -- bun run typecheck
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
-- default app-server endpoint uses Unix socket `unix://`
+- default app-server endpoint uses Unix socket `unix:///tmp/trauma-codex.sock`
 - loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested as rejected
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`

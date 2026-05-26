@@ -219,9 +219,10 @@ function observePendingLogin(
   observingLoginId = loginId;
   void (async () => {
     const iterator = client.observeAuthEvents()[Symbol.asyncIterator]();
-    stopPendingLoginObserver = () => {
+    const stopObserver = () => {
       void iterator.return?.();
     };
+    stopPendingLoginObserver = stopObserver;
     try {
       while (true) {
         const next = await iterator.next();
@@ -233,7 +234,10 @@ function observePendingLogin(
           break;
         }
         if (event.type === "account.updated") {
-          const status = await client.checkAuth();
+          const status = await checkAuthForPendingLogin(client, loginId);
+          if (status === undefined) {
+            break;
+          }
           if (status.status === "enabled") {
             clearPendingLogin();
             break;
@@ -247,7 +251,10 @@ function observePendingLogin(
           clearPendingLogin();
           break;
         }
-        const status = await client.checkAuth();
+        const status = await checkAuthForPendingLogin(client, loginId);
+        if (status === undefined) {
+          break;
+        }
         if (status.status === "enabled") {
           clearPendingLogin();
           break;
@@ -257,7 +264,7 @@ function observePendingLogin(
       if (observingLoginId === loginId) {
         observingLoginId = undefined;
       }
-      if (stopPendingLoginObserver !== undefined) {
+      if (stopPendingLoginObserver === stopObserver) {
         stopPendingLoginObserver = undefined;
       }
       if (options.closeWhenDone) {
@@ -265,6 +272,20 @@ function observePendingLogin(
       }
     }
   })();
+}
+
+async function checkAuthForPendingLogin(
+  client: CodexAuthClient,
+  loginId: string,
+): Promise<CodexAuthStatus | undefined> {
+  try {
+    return await client.checkAuth();
+  } catch {
+    if (pendingLogin?.loginId === loginId) {
+      clearPendingLogin();
+    }
+    return undefined;
+  }
 }
 
 async function closeCodexAuthClient(client: CodexAuthClient): Promise<void> {

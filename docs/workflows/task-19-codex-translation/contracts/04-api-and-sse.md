@@ -90,6 +90,7 @@ Active reuse rules:
 - `POST /api/memories/:memory_id/translations` returns `200` with `status = "active"` and the actual `job_status` for reused jobs in `pending`, `running`, `stitching`, or `committing`.
 - The response must not collapse reused `pending`, `stitching`, or `committing` jobs into `status = "running"`.
 - A reused active response always includes `event_url`; the frontend then reads `GET /api/translation-jobs/:job_id` or the first SSE `translation.job.snapshot` for exact progress state.
+- If creating a new job loses the `translation_jobs_active_idx` uniqueness race, reload the active job for the same `(memory_id, lang_code, source_hash)` and apply these same active reuse or cancellation-conflict rules instead of surfacing the raw SQLite uniqueness error.
 - A `cancel_requested` job remains covered by the active unique index until cancellation reaches `canceled`, but start/reuse does not return it as an active translation. Return `409` with `code = "cancellation_conflict"` and `action = "none"` so the user can retry after cancellation completes.
 
 Required error codes:

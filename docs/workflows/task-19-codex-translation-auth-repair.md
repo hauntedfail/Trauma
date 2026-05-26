@@ -32,8 +32,8 @@ the translation runner before scheduling Codex-backed translation work.
 Precondition: start Codex app-server with the Unix listener.
 
 ```bash
-codex app-server --listen unix://
-TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
+codex app-server --listen unix:///tmp/trauma-codex.sock
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock bun run dev
 ```
 
 Observed failure:
@@ -250,8 +250,8 @@ preflight needs it.
     - Live smoke with app-server:
 
       ```bash
-      codex app-server --listen unix://
-      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// mise exec -- bun run dev
+      codex app-server --listen unix:///tmp/trauma-codex.sock
+      TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:///tmp/trauma-codex.sock mise exec -- bun run dev
       ```
 
       Complete device-code login, confirm Settings reaches `enabled`, then

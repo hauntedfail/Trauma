@@ -7,10 +7,7 @@ Add reader controls for starting Brilliant translation and showing streaming pro
 ## Files likely owned
 
 - `src/components/reader/MemoryReader.tsx`
-- `src/components/reader/TranslationControls.tsx`
-- `src/components/reader/TranslationProgress.tsx`
-- `tests/components/reader-translation-controls.test.tsx`
-- `tests/components/reader-translation-progress.test.tsx`
+- `tests/components/memory-reader-actions.test.ts`
 
 ## Contract references
 
@@ -145,8 +142,7 @@ Cover:
 ## Verification
 
 ```sh
-mise exec -- bun run test tests/components/reader-translation-controls.test.tsx
-mise exec -- bun run test tests/components/reader-translation-progress.test.tsx
+mise exec -- bun run test tests/components/memory-reader-actions.test.ts
 mise exec -- bun run typecheck
 ```
 

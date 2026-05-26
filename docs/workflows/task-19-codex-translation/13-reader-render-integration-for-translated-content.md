@@ -7,10 +7,12 @@ Render committed translated content variants without overwriting source reader c
 ## Files likely owned
 
 - `src/server/reader/page-data.ts`
-- `src/components/reader/MemoryVariantTabs.tsx`
+- `src/components/reader/MemoryReader.tsx` variant tab rendering
 - `src/routes/memories/[id].tsx`
 - `src/routes/memories/[langCode]/[id].tsx` or project-equivalent translated reader route
-- `tests/server/reader/translated-page-data.test.ts`
+- `tests/server/reader/page-data.test.ts`
+- `tests/components/reader-flashback-tabs.test.ts`
+- `tests/components/memory-reader-actions.test.ts`
 
 Consumed but not owned:
 
@@ -125,7 +127,9 @@ Cover:
 ## Verification
 
 ```sh
-mise exec -- bun run test tests/server/reader/translated-page-data.test.ts
+mise exec -- bun run test tests/server/reader/page-data.test.ts
+mise exec -- bun run test tests/components/reader-flashback-tabs.test.ts
+mise exec -- bun run test tests/components/memory-reader-actions.test.ts
 mise exec -- bun run typecheck
 ```
 
