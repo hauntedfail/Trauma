@@ -130,11 +130,24 @@ mise exec -- bun run typecheck
 - source rendering and translated variant rendering
 - auth-required and setup-required UI states
 - app-server initialization before requests
-- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, loopback WebSocket local-dev fallback support, HTTP wire-protocol rejection, non-loopback WebSocket rejection, and `stdio` rejection for Brilliant MVP
+- Unix socket default app-server wire transport support only when Codex is started with `codex app-server --listen unix://`, HTTP wire-protocol rejection, WebSocket rejection, and `stdio` rejection for Brilliant MVP
 - Unix socket adapter spike documents Bun/Node support for Unix domain socket plus HTTP Upgrade/WebSocket framing and the default `unix://` socket path resolution
 - Codex app-server protocol schema or focused fixture version is recorded and used by fake app-server tests
 - Codex app-server fixtures use `{ method, params, id }` requests, `{ id, result/error }` responses, and `{ method, params }` notifications without top-level `jsonrpc`
+- Codex app-server fixtures record that Brilliant uses stable schema mode
+  without `experimentalApi`; stable `thread/start` omits `environments`,
+  `experimentalRawEvents`, and `persistExtendedHistory`, and stable
+  `turn/start` omits `environments`
 - `thread/start`, `turn/start`, and `turn/interrupt` coverage
+- `model/list` coverage normalizes visible models, filters hidden models, and
+  preserves supported reasoning efforts
+- translation `turn/start` includes selected model as `model` and selected
+  reasoning effort as `effort` when job metadata is non-null
+- settings API coverage reads `/api/settings/codex-models` and validates
+  `/api/settings/translation-codex-defaults` against the current app-server
+  catalog
+- reader translation submit coverage sends `lang_code`, `model`, and
+  `reasoning_effort` only from the confirmation popup submit flow
 - retry attempts create fresh ephemeral Codex threads and do not reuse failed attempt thread history
 - `maxRetries: 3` means one initial attempt plus three retry attempts
 - output-mode fallback does not increment `retry_count` or consume `maxRetries`
@@ -148,15 +161,25 @@ mise exec -- bun run typecheck
 - translation `thread/start` also uses locked-down policy where supported, or tests document that `turn/start` overrides broader thread defaults
 - `outputSchema` rejection falls back to prompt-only JSON output and still validates `CodexChunkOutput`
 - `app_server_unavailable` maps to HTTP `503`
+- reachable app-server request-contract errors such as
+  `requires experimentalApi capability` map to
+  `app_server_protocol_error` and HTTP `502`
 - Codex `timeout` maps to stable `timeout` code and HTTP `504`
 - Codex `stream_disconnected` maps to stable `stream_disconnected` code and HTTP `503`
 - Codex `invalid_final_output` maps to stable `invalid_final_output` code and HTTP `502`
+- unavailable model and unsupported reasoning effort map to stable
+  settings-correctable `409` errors
+- `account/read` with a non-null `account` is authenticated even when
+  `requiresOpenaiAuth` is true
+- `account/read` with no account and `requiresOpenaiAuth: true` is auth-required
 - device-code login safe fields and success/failure/cancellation notification handling
+- device-code notifications use raw app-server names `account/login/completed`
+  and `account/updated`
 - pending device-code refresh returns only safe metadata or latest confirmed `account/read` state
 - device-code auth observer is created only while login is pending and is cleaned up on completion/cancel/failure/timeout
 - auth listener loss or server restart falls back to `checkAuth()` and safe pending metadata
 - default app-server endpoint uses Unix socket `unix://`
-- loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested only as local development fallback
+- loopback WebSocket endpoint `ws://127.0.0.1:4500` is tested as rejected
 - cancellation accepts pending/running jobs, is idempotent for already canceling/canceled jobs, and rejects non-cancelable terminal/final-write states with `cancellation_conflict`
 - pending cancellation transitions directly to `canceled` and returns `status = "canceled"`; running cancellation uses `cancel_requested` and returns `status = "cancel_requested"`
 - pending cancellation races runner claim through compare-and-set; if `pending -> canceled` loses to `pending -> running`, cancel API reloads and requests `running -> cancel_requested`
@@ -185,7 +208,7 @@ mise exec -- bun run typecheck
 - reader route and variant tab rendering use read-only current-translation resolution and do not mark rows unavailable
 - runtime translation prompt builder does not require `$reader-translate` skill invocation or project-root read access
 - `prompt_policy_version` records deterministic prompt policy provenance without implying runtime skill invocation
-- `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-prompt-v1"` is stored on new jobs and changes only by explicit prompt policy bump
+- `BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-segments-v1"` is stored on new jobs and changes only by explicit prompt policy bump
 - job start and metadata API use explicit unavailable repair before retry/recovery
 - job status/snapshot API uses explicit unavailable repair before returning unavailable snapshots
 - unavailable repair persists structured JSON error with reason `output_missing` or `output_hash_mismatch`

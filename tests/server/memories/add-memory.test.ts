@@ -294,9 +294,18 @@ describe("add memory orchestration", () => {
       title: "Defuddle Import",
       contentPath: `memories/${memoryId}/CONTENT.md`,
     });
-    expect(reader.content).toEqual({
+    expect(reader.content).toMatchObject({
       relativePath: `memories/${memoryId}/CONTENT.md`,
     });
+    expect(reader.content.variants).toEqual([
+      {
+        active: true,
+        kind: "source",
+        label: "Original",
+        readerUrl: `/memories/${memoryId}`,
+        relativePath: `memories/${memoryId}/CONTENT.md`,
+      },
+    ]);
     expect(reader.rendered.html).toContain("reader safe link");
     expect(reader.rendered.html).toContain("configured store path");
   });

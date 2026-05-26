@@ -23,7 +23,9 @@ Scope: source reader translation trigger, progress UI, Codex setup state, and va
 
 Inputs: page settings data, current variant metadata, translation API responses, SSE events, and completed `reader_url`.
 
-Outputs: title-edge Codex icon, setup/failure/progress states, SSE subscription, and tab navigation for current variants.
+Outputs: title-edge Codex translation trigger, confirmation popup,
+setup/failure/progress states, SSE subscription, and tab navigation for current
+variants.
 
 Dependencies: 19.7 freezes event payloads; 19.13 provides reader variant metadata; current settings UI/API provides target language.
 
@@ -36,12 +38,16 @@ Implementation risks: rendering the icon on translated routes, hiding the icon f
 Reader UI shows:
 
 - selected target language from persisted settings/page data
-- Codex icon at the right edge of the source reader title when the configured target-language `CONTENT.md` variant is missing
+- Codex trigger at the right edge of the source reader title when the configured target-language `CONTENT.md` variant is missing
+- hover expands only the trigger width, keeps the Codex icon left-aligned, and reveals `Translate`
+- click opens a confirmation popup instead of starting translation directly
+- popup shows and can submit target language, Codex model, and reasoning effort
+- popup submit button uses the 50% transparent visual treatment shared with translation progress
 - tooltip text `Translate to <lang_code>` or the Japanese UI equivalent `<lang_code>に翻訳する`
 - no Codex translation icon on translated reader routes
 - settings-required state when no target language exists
 - auth/setup-required state when Codex cannot run
-- translate action when ready, triggered by clicking the title-edge Codex icon
+- translate action when ready, triggered by submitting the popup
 - current chunk index and total chunk count while running
 - live Codex delta transcript labelled as progress, not saved content
 - validation and retry events
@@ -56,22 +62,26 @@ Reader UI shows:
 2. Read reader variant metadata from page data. Variant metadata must be current, meaning the translated file exists, its completed `translation_jobs.source_hash` matches the current source hash, and the file hash matches `translation_jobs.output_hash`.
 3. If the current reader route is translated, do not render the Codex icon.
 4. If a current translated variant for `memories/<memory_id>/<lang_code>/CONTENT.md` already exists, do not render the Codex icon for that language.
-5. If the configured target-language variant is missing on the source reader route, render the Codex icon at the title right edge.
-6. On icon click, POST `/api/memories/:memory_id/translations` with `{}` or with `lang_code` as a consistency assertion.
-7. If `202`, open the returned `event_url`.
-8. If `200 active`, open the returned `event_url` for the reused active job and use `job_status` plus the first snapshot to render the exact progress state.
-9. If `200 current`, navigate to the response `reader_url`.
-10. For non-2xx responses, branch on the stable response `code` field, not free-form `message`.
-11. If `code = "translation_language_required"`, link to `/settings`.
-12. If `code = "translation_language_mismatch"`, refresh settings state and ask the user to retry.
-13. If `code = "setup_required"` or `code = "auth_required"`, show Codex auth setup guidance.
-14. If `code = "app_server_unavailable"`, tell the user Codex app-server is unavailable and offer retry after setup is fixed.
-15. If `code = "translation_unavailable"` or `action = "start_fresh_translation"`, tell the user the translated output is no longer available, navigate to the source reader route `/memories/:id` if necessary, and start a fresh translation through `POST /api/memories/:memory_id/translations`.
-16. If `code = "timeout"`, tell the user the Codex turn timed out and offer retry.
-17. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
-18. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
-19. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
-20. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
+5. If the configured target-language variant is missing on the source reader route, render the Codex trigger at the title right edge.
+6. On trigger click, open the confirmation popup. Do not start translation on this click.
+7. The popup reads the current settings defaults for `lang_code`, `model`, and `reasoning_effort`; model options are loaded through `/api/settings/codex-models`, never by calling app-server from browser code.
+8. On popup submit, POST `/api/memories/:memory_id/translations` with `lang_code`, `model`, and `reasoning_effort`. `model` and `reasoning_effort` may be `null` to use app-server/model defaults.
+9. If `202`, open the returned `event_url`.
+10. If `200 active`, open the returned `event_url` for the reused active job and use `job_status` plus the first snapshot to render the exact progress state.
+11. If `200 current`, navigate to the response `reader_url`.
+12. For non-2xx responses, branch on the stable response `code` field, not free-form `message`.
+13. If `code = "translation_language_required"`, link to `/settings`.
+14. If `code = "translation_language_mismatch"`, refresh settings state and ask the user to retry.
+15. If `code = "translation_model_unavailable"` or `code = "translation_reasoning_effort_unavailable"`, tell the user to update Codex translation defaults in settings.
+16. If `code = "setup_required"` or `code = "auth_required"`, show Codex auth setup guidance.
+17. If `code = "app_server_unavailable"`, tell the user Codex app-server is unavailable and offer retry after setup is fixed.
+18. If `code = "app_server_protocol_error"`, tell the user Codex app-server rejected the translation request and do not show app-server startup guidance.
+19. If `code = "translation_unavailable"` or `action = "start_fresh_translation"`, tell the user the translated output is no longer available, navigate to the source reader route `/memories/:id` if necessary, and start a fresh translation through `POST /api/memories/:memory_id/translations`.
+20. If `code = "timeout"`, tell the user the Codex turn timed out and offer retry.
+21. If `code = "stream_disconnected"`, tell the user the Codex stream disconnected and offer retry or fresh translation depending on job status.
+22. If `code = "invalid_final_output"`, tell the user Codex returned invalid final output and offer retry.
+23. If `code = "stale_source"`, tell the user the source changed and offer to start a fresh translation.
+24. If `code = "cancellation_conflict"`, tell the user cancellation is already in progress and offer retry after cancellation completes.
 
 Progress and reconnect behaviour:
 
@@ -105,7 +115,9 @@ Cover:
 - stale configured target-language file does not hide the Codex icon
 - translated reader route hides the Codex icon
 - Codex icon tooltip contains the target language code
-- icon click starts translation API request
+- trigger click opens the confirmation popup and does not start translation
+- popup submit starts translation API request with `lang_code`, `model`, and `reasoning_effort`
+- popup submit and progress UI use the transparent visual treatment
 - `202` opens SSE progress
 - `200 active` opens SSE progress for the reused active job
 - reused active response renders from `job_status` and snapshot instead of assuming `running`
@@ -140,7 +152,7 @@ mise exec -- bun run typecheck
 
 ## Acceptance criteria
 
-- Reader can start translation from UI.
+- Reader can open a confirmation popup and start translation from its submit action.
 - UI uses SQLite-backed settings state through backend/page data.
 - UI never talks to Codex app-server directly.
 - UI does not present partial deltas as saved translation.

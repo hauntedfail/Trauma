@@ -74,6 +74,197 @@ describe("browse memory loader error policy", () => {
 
     expect(JSON.parse(output)).toEqual([join(configRoot, "data")]);
   });
+
+  it("includes current translated flashbacks in browse rows and hides stale translated output hashes", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-browse-translated-"));
+    const configPath = writeConfig(root);
+    const output = runBunScript(
+      `
+        import { mkdir, readFile, writeFile } from "node:fs/promises";
+        import { dirname, join } from "node:path";
+        import { schema } from "./src/server/db/index.ts";
+        import { initializeDatabase } from "./src/server/db/connection.ts";
+        import { loadBrowseMemories } from "./src/server/memories/browse.ts";
+        import {
+          createMemoryContentFixture,
+          writeMemoryContent,
+        } from "./src/server/store/index.ts";
+        import { createReaderContentHash } from "./src/server/store/flashback-markers.ts";
+        import { createSha256ContentHash } from "./src/server/translation/hash.ts";
+        import {
+          BRILLIANT_CHUNKER_VERSION,
+          BRILLIANT_PROMPT_POLICY_VERSION,
+        } from "./src/server/translation/prompt.ts";
+        import { resolveTranslatedMemoryContentPath } from "./src/server/translation/paths.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        const configPath = process.env.TRAUMA_TEST_CONFIG_PATH;
+        if (!root || !configPath) {
+          throw new Error("TRAUMA_TEST_ROOT and TRAUMA_TEST_CONFIG_PATH are required");
+        }
+
+        process.env.TRAUMA_CONFIG_PATH = configPath;
+        const config = {
+          configFilePath: configPath,
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const now = new Date("2026-05-09T00:00:00.000Z");
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f206";
+        const jobId = "019e3906-0000-7000-8000-000000000906";
+        const sourceMarkdown = "Source text only.";
+        const translatedMarkdown = "翻訳されたflashback対象。";
+
+        const connection = initializeDatabase(config);
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/translated",
+            title: "Translated Browse",
+            description: "Translated browse fixture",
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } finally {
+          connection.close();
+        }
+
+        await writeMemoryContent({
+          config,
+          memoryId,
+          frontmatter: {
+            id: memoryId,
+            url: "https://example.com/translated",
+            title: "Translated Browse",
+            capturedAt: now.toISOString(),
+            extractionStatus: "success",
+          },
+          markdown: sourceMarkdown,
+        });
+
+        const translatedPath = resolveTranslatedMemoryContentPath({
+          config,
+          langCode: "ja-JP",
+          memoryId,
+        });
+        await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+        await writeFile(
+          translatedPath.absolutePath,
+          createMemoryContentFixture({
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/translated",
+              title: "Translated Browse",
+              capturedAt: now.toISOString(),
+              extractionStatus: "success",
+            },
+            markdown: translatedMarkdown,
+          }),
+          "utf8",
+        );
+
+        const sourceHash = createSha256ContentHash(
+          await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md")),
+        );
+        const outputHash = createSha256ContentHash(
+          await readFile(translatedPath.absolutePath),
+        );
+        const staleHash = "sha256:" + "b".repeat(64);
+        const dbConnection = initializeDatabase(config);
+        try {
+          await dbConnection.db.insert(schema.translationJobs).values({
+            jobId,
+            memoryId,
+            langCode: "ja-JP",
+            sourceHash,
+            model: null,
+            reasoningEffort: null,
+            promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+            chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+            status: "complete",
+            chunkCount: 1,
+            outputPath: translatedPath.relativePath,
+            outputHash,
+            error: null,
+            completedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await dbConnection.db.insert(schema.flashbacks).values({
+            id: "translated-current",
+            memoryId,
+            variantKind: "translation",
+            langCode: "ja-JP",
+            translationOutputHash: outputHash,
+            text: translatedMarkdown,
+            prefix: "",
+            suffix: "",
+            startOffset: 0,
+            endOffset: translatedMarkdown.length,
+            contentHash: createReaderContentHash(translatedMarkdown),
+            createdAt: now,
+            updatedAt: now,
+          });
+          await dbConnection.db.insert(schema.flashbacks).values({
+            id: "translated-stale",
+            memoryId,
+            variantKind: "translation",
+            langCode: "ja-JP",
+            translationOutputHash: staleHash,
+            text: translatedMarkdown,
+            prefix: "",
+            suffix: "",
+            startOffset: 0,
+            endOffset: translatedMarkdown.length,
+            contentHash: createReaderContentHash(translatedMarkdown),
+            createdAt: now,
+            updatedAt: now,
+          });
+        } finally {
+          dbConnection.close();
+        }
+
+        const result = await loadBrowseMemories();
+        process.stdout.write(JSON.stringify(result));
+      `,
+      {
+        TRAUMA_TEST_CONFIG_PATH: configPath,
+        TRAUMA_TEST_ROOT: root,
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      expect.objectContaining({
+        id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f206",
+        flashbacks: [
+          expect.objectContaining({
+            id: "translated-current",
+            variantKind: "translation",
+            langCode: "ja-JP",
+            translationOutputHash: expect.stringMatching(/^sha256:/),
+            text: "翻訳されたflashback対象。",
+          }),
+        ],
+      }),
+    ]);
+  });
 });
 
 async function withCwd<T>(cwd: string, callback: () => Promise<T>): Promise<T> {

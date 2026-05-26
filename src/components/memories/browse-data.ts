@@ -1,4 +1,5 @@
 import type { ExtractionStatus } from "../../server/memory-status";
+import type { SupportedLanguageCode } from "../../settings/languages";
 
 export type BrowseView = "list" | "grid";
 export type BrowseReadStateFilter = "all" | "read" | "unread";
@@ -21,6 +22,9 @@ export interface BrowseTaxonomySummary {
 export interface BrowseFlashback {
   id: string;
   memoryId: string;
+  variantKind: "source" | "translation";
+  langCode: SupportedLanguageCode | null;
+  translationOutputHash: string | null;
   text: string;
   prefix: string;
   suffix: string;

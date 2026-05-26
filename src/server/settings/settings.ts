@@ -10,15 +10,23 @@ import type { SettingsRepository } from "../db/repositories";
 import {
   enableOpenAiAuthWithRepository,
   deleteOpenAiAuthWithRepository,
-  readOpenAiAuthStatus,
   type DeleteOpenAiAuthResult,
   type EnableOpenAiAuthResponse,
-  type OpenAiAuthStatusView,
 } from "./openai-auth";
+import {
+  readCodexAuthStatus,
+  type CodexAuthStatusResponse,
+} from "./codex-auth";
+import {
+  isCodexReasoningEffort,
+  type CodexReasoningEffort,
+} from "../translation/types";
 
 export interface SettingsState {
+  codexTranslationModel: string | null;
+  codexTranslationReasoningEffort: CodexReasoningEffort | null;
   translationTargetLanguage: SupportedLanguageCode;
-  openaiAuth: OpenAiAuthStatusView;
+  openaiAuth: CodexAuthStatusResponse;
 }
 
 interface SettingsOptions {
@@ -33,16 +41,23 @@ export class UnsupportedTranslationLanguageError extends Error {
   }
 }
 
+export class UnsupportedCodexReasoningEffortError extends Error {
+  constructor(effort: string) {
+    super(`Unsupported Codex reasoning effort: ${effort}`);
+    this.name = "UnsupportedCodexReasoningEffortError";
+  }
+}
+
 export async function getSettings(
   options: SettingsOptions = {},
 ): Promise<SettingsState> {
   return withSettingsRepository(options, async (repository, now) => {
     const settings = await repository.getSettings(now);
     return {
+      codexTranslationModel: settings.codexTranslationModel,
+      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
       translationTargetLanguage: settings.translationTargetLanguage,
-      openaiAuth: {
-        status: await readOpenAiAuthStatus(repository),
-      },
+      openaiAuth: await readCodexAuthStatus(),
     };
   });
 }
@@ -56,15 +71,58 @@ export async function updateTranslationTargetLanguage(
   }
 
   return withSettingsRepository(options, async (repository, now) => {
-    await repository.updateTranslationTargetLanguage({
+    const settings = await repository.updateTranslationTargetLanguage({
       language,
       updatedAt: now,
     });
     return {
-      translationTargetLanguage: language,
-      openaiAuth: {
-        status: await readOpenAiAuthStatus(repository),
-      },
+      codexTranslationModel: settings.codexTranslationModel,
+      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
+      translationTargetLanguage: settings.translationTargetLanguage,
+      openaiAuth: await readCodexAuthStatus(),
+    };
+  });
+}
+
+export async function updateCodexTranslationDefaults(input: {
+  config?: ResolvedTraumaConfig;
+  model?: string | null;
+  now?: Date;
+  reasoningEffort?: string | null;
+}): Promise<SettingsState> {
+  return withSettingsRepository(input, async (repository, now) => {
+    const current = await repository.getSettings(now);
+    const model = input.model === undefined
+      ? current.codexTranslationModel
+      : normalizeOptionalString(input.model);
+    const reasoningEffort = input.reasoningEffort === undefined
+      ? current.codexTranslationReasoningEffort
+      : normalizeCodexReasoningEffort(input.reasoningEffort);
+    const settings = await repository.updateCodexTranslationDefaults({
+      model,
+      reasoningEffort,
+      updatedAt: now,
+    });
+    return {
+      codexTranslationModel: settings.codexTranslationModel,
+      codexTranslationReasoningEffort: settings.codexTranslationReasoningEffort,
+      translationTargetLanguage: settings.translationTargetLanguage,
+      openaiAuth: await readCodexAuthStatus(),
+    };
+  });
+}
+
+export async function getCodexTranslationDefaults(
+  options: SettingsOptions = {},
+): Promise<{
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}> {
+  return withSettingsRepository(options, async (repository, now) => {
+    const settings = await repository.getSettings(now);
+    return {
+      model: settings.codexTranslationModel,
+      reasoningEffort: settings.codexTranslationReasoningEffort,
     };
   });
 }
@@ -90,6 +148,27 @@ export function getSupportedTranslationLanguages() {
 }
 
 export { DEFAULT_TRANSLATION_TARGET_LANGUAGE };
+
+function normalizeCodexReasoningEffort(
+  effort: string | null,
+): CodexReasoningEffort | null {
+  const normalized = normalizeOptionalString(effort);
+  if (normalized === null) {
+    return null;
+  }
+  if (!isCodexReasoningEffort(normalized)) {
+    throw new UnsupportedCodexReasoningEffortError(normalized);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
 
 async function withSettingsRepository<T>(
   options: SettingsOptions,

@@ -10,6 +10,9 @@ const allFlashbacks = [
     id: "flashback-current",
     memoryId: "memory-1",
     memoryTitle: "Current Memory",
+    variantKind: "source" as const,
+    langCode: null,
+    translationOutputHash: null,
     text: "current flashback",
     prefix: "current ",
     suffix: " text",
@@ -21,6 +24,9 @@ const allFlashbacks = [
     id: "flashback-other",
     memoryId: "memory-2",
     memoryTitle: "Other Memory",
+    variantKind: "translation" as const,
+    langCode: "ja-JP" as const,
+    translationOutputHash: "sha256:" + "a".repeat(64),
     text: "other flashback",
     prefix: "other ",
     suffix: " text",
@@ -38,6 +44,9 @@ const currentFlashbacks = [
     suffix: " text",
     startOffset: 0,
     endOffset: 17,
+    variantKind: "source" as const,
+    langCode: null,
+    translationOutputHash: null,
     createdAt: "2026-05-15T00:00:00.000Z",
   },
 ];
@@ -97,13 +106,13 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("current flashback");
     expect(html).toContain("other flashback");
     expect(html).toContain('href="/memories/memory-1#flashback-current"');
-    expect(html).toContain('href="/memories/memory-2#flashback-other"');
+    expect(html).toContain('href="/memories/ja-JP/memory-2#flashback-other"');
   });
 
   it("uses shared memory anchor href builders for Flashback shortcuts", () => {
     const source = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
 
-    expect(source).toContain("buildMemoryAnchorHref");
+    expect(source).toContain("buildMemoryVariantAnchorHref");
     expect(source).toContain("buildSameMemoryAnchorHref");
   });
 

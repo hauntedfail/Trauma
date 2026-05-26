@@ -1,5 +1,5 @@
 import { access, mkdir, rename, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   runSerializedGitBackupJob,
@@ -327,12 +327,24 @@ function resolveBackupDeletionPaths(input: {
   memoryId: string;
   storePath: string;
 }): string[] {
+  const storeRoot = resolve(input.storePath);
+  const contentFile = resolve(storeRoot, input.contentPath);
+  assertPathInsideStore(storeRoot, contentFile);
+  const memoryDirectory = dirname(contentFile);
+  assertPathInsideStore(storeRoot, memoryDirectory);
+  if (memoryDirectory === storeRoot) {
+    throw new Error("memory content path must resolve to a memory directory");
+  }
+  const memoryDirectoryPath = relative(storeRoot, memoryDirectory)
+    .split(sep)
+    .join("/");
   const paths = [input.contentPath];
   const flashbackExportPath = getFlashbackMetadataExportPath(input.memoryId);
-  const absoluteFlashbackExportPath = resolve(input.storePath, flashbackExportPath);
-  assertPathInsideStore(resolve(input.storePath), absoluteFlashbackExportPath);
+  const absoluteFlashbackExportPath = resolve(storeRoot, flashbackExportPath);
+  assertPathInsideStore(storeRoot, absoluteFlashbackExportPath);
   paths.push(flashbackExportPath);
-  return paths;
+  paths.push(memoryDirectoryPath);
+  return [...new Set(paths)];
 }
 
 function assertPathInsideStore(storeRoot: string, candidate: string): void {

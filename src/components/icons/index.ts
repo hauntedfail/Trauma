@@ -1,6 +1,7 @@
 export {
   CheckIcon,
   ChevronLeftIcon,
+  CodexIcon,
   EyeClosedIcon,
   EyeOpenIcon,
   KebabIcon,

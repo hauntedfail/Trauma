@@ -39,6 +39,7 @@ startDeviceCodeLogin(): Promise<CodexDeviceCodeLogin>
 observeAuthEvents(): AsyncIterable<CodexAuthEvent>
 cancelDeviceCodeLogin(input: { loginId: string }): Promise<void>
 logout(): Promise<CodexLogoutResult>
+listModels(): Promise<CodexModelCatalog>
 translateChunk(input: CodexTranslateChunkInput): AsyncIterable<CodexAppServerEvent>
 cancelTurn(input: { threadId: string; turnId: string }): Promise<void>
 ```
@@ -53,15 +54,18 @@ Rules:
 - Default Brilliant MVP endpoint is `unix://`, but only when the operator started Codex with `codex app-server --listen unix://`.
 - Default local app-server startup command is `codex app-server --listen unix://`.
 - `codex app-server` without `--listen unix://` uses the Codex CLI `stdio` default and is not a Brilliant endpoint.
-- Support Unix socket as the default app-server wire-protocol transport and loopback WebSocket only as a local development fallback.
-- Loopback WebSocket fallback example: `codex app-server --listen ws://127.0.0.1:4500` and `TRAUMA_CODEX_APP_SERVER_ENDPOINT=ws://127.0.0.1:4500`.
+- Support Unix socket as the only app-server wire-protocol transport.
+- Reject loopback WebSocket endpoints; TRAUMA does not support `ws://` app-server transports.
 - HTTP is health-probe-only and must not be used for app-server wire-protocol requests.
 - Reject `http://` and `https://` endpoints for app-server wire-protocol calls.
 - Reject `stdio` configuration because TRAUMA does not own app-server process startup or supervision in Brilliant.
-- Reject non-loopback WebSocket endpoints until a separate security subtask defines remote listener authentication and secret storage.
+- Reject all WebSocket endpoints until a separate transport design explicitly adds authenticated remote listener support.
 - Speak the Codex app-server wire protocol over the configured app-server transport; do not implement app-server calls as REST fetches to `turn/start`-style URLs.
 - Use the Codex app-server wire envelope exactly: requests are `{ method, params, id }`, responses are `{ id, result }` or `{ id, error }`, and notifications are `{ method, params }`. Do not add a top-level `jsonrpc` field unless the generated schema or focused fixtures for the installed Codex version explicitly accept it.
 - After transport connection opens, send `initialize` with TRAUMA client metadata and then send `initialized`.
+- Brilliant defaults to the stable app-server schema and does not request
+  `experimentalApi`. Do not send request fields that appear only in the
+  generated `--experimental` schema.
 - Reject or retry connection setup if any request is attempted before initialization.
 - Missing endpoint returns `setup_required`.
 - Configured but unreachable app-server returns `app_server_unavailable`.
@@ -80,16 +84,29 @@ Protocol schema rules:
   spike. Confirm how Bun/Node connects to Codex app-server's `unix://` endpoint,
   which uses a Unix domain socket plus HTTP Upgrade/WebSocket framing, and define
   how `unix://` resolves the default Codex app-server control socket path.
-- If Bun/Node cannot support the Unix socket WebSocket upgrade without adding a
-  fragile custom frame implementation, document the blocker in the subtask
-  handoff and use loopback WebSocket only as the local development fallback while
-  keeping `unix://` as the intended default contract.
+- If Bun/Node cannot support the Unix socket WebSocket upgrade, document the
+  blocker in the subtask handoff. Do not fall back to a `ws://` endpoint.
 
 Rules:
 
 - Use Codex app-server `thread/start` to create one ephemeral thread per chunk attempt, then `turn/start` for chunk translation.
+- Use Codex app-server `model/list` as the backend-only source of truth for
+  available translation models and supported reasoning efforts. Browser code
+  must receive only TRAUMA-normalized catalog data through settings-scoped API
+  routes.
 - `turn/start` must include the locked-down Brilliant translation turn policy from `contracts/06-codex-prompt-and-validation.md`.
 - `thread/start` must also receive the locked-down Brilliant policy when supported by the generated schema. If `turn/start` is the only method that accepts the exact sandbox fields, document that the turn payload overrides broader thread defaults before implementation.
+- Stable `thread/start` sends only the fields supported by the stable generated
+  schema for Brilliant: `cwd`, `ephemeral`, `approvalPolicy`,
+  `approvalsReviewer`, `sandbox`, and `threadSource`. It must omit
+  `environments`, `experimentalRawEvents`, and `persistExtendedHistory` unless
+  a later task deliberately opts into `experimentalApi`.
+- Stable `turn/start` sends `threadId`, `input`, `approvalPolicy`,
+  `approvalsReviewer`, `sandboxPolicy`, and `outputSchema` when structured
+  output is attempted. It sends the selected model as `model` and selected
+  reasoning effort as `effort` only when the job metadata is non-null. It must
+  omit `environments` unless a later task deliberately opts into
+  `experimentalApi`.
 - Runtime `cwd` comes from a job-scoped empty directory under `TRAUMA_CODEX_RUNTIME_DIR` or OS temp `trauma-codex-runtime/`; never use the TRAUMA project root or memory store path as `cwd`.
 - `networkAccess = false` applies to sandboxed agent/tool execution only. It must not block the backend from connecting to app-server or app-server from contacting Codex/OpenAI services required for translation.
 - Accept an `outputSchema` from caller code and pass it to app-server when supported.
@@ -116,6 +133,7 @@ Map app-server failures to typed backend errors:
 - `auth_required`
 - `setup_required`
 - `app_server_unavailable`
+- `app_server_protocol_error`
 - `usage_limit`
 - `context_overflow`
 - `stream_disconnected`
@@ -130,24 +148,33 @@ Use a fake app-server client. Cover:
 - auth check success and auth-required failure
 - missing app-server endpoint returns setup-required
 - default Unix socket endpoint config is accepted only when paired with the explicit `codex app-server --listen unix://` startup requirement
-- loopback WebSocket fallback config is accepted and documented as local-dev-only
+- loopback WebSocket config is rejected
 - Unix socket app-server wire transport is accepted
-- loopback WebSocket app-server wire transport is accepted
+- WebSocket app-server wire transport is rejected
 - HTTP endpoints are rejected for app-server wire-protocol calls
-- non-loopback WebSocket endpoints are rejected for Brilliant MVP
+- all WebSocket endpoints are rejected for Brilliant MVP
 - `stdio` transport configuration is rejected as unsupported for Brilliant MVP
 - unreachable app-server returns app-server-unavailable
 - app-server `initialize` and `initialized` happen before `account/read`, `thread/start`, or `turn/start`
 - generated schema or focused protocol fixtures cover the app-server methods and notifications used by the fake app-server
 - fake app-server fixtures omit top-level `jsonrpc` unless generated schema proves it is accepted
+- `account/read` auth checks treat a non-null `account` as enabled even when
+  `requiresOpenaiAuth` is true; `requiresOpenaiAuth: true` is auth-required only
+  when no account is available
 - device-code login response is safe to return to settings UI
 - device-code cancel wraps `account/login/cancel` and requires a known `loginId`
 - logout wraps `account/logout` when supported and reports unsupported logout explicitly
-- auth notifications map to typed `CodexAuthEvent` values including login success, failure, and cancellation
+- raw `account/login/completed` and `account/updated` notifications map to
+  typed `CodexAuthEvent` values including login success, failure, and
+  cancellation
 - auth check uses `account/read`
 - chunk translation starts an ephemeral thread before starting a turn
 - retry attempts start a fresh ephemeral thread and do not reuse the prior failed attempt's thread
 - `turn/start` request passes through the caller-provided output schema
+- `model/list` response parsing normalizes visible models and supported
+  reasoning effort objects into the frontend-safe catalog shape
+- `turn/start` request passes through selected model and reasoning effort using
+  the generated stable schema field names `model` and `effort`
 - output-schema rejection falls back to prompt-only JSON mode without incrementing `retry_count`
 - output-schema fallback after thread creation discards the rejected thread and starts a fresh thread without consuming retry budget
 - `turn/start` request includes locked-down approval, sandbox, network, and cwd settings
@@ -163,6 +190,9 @@ Use a fake app-server client. Cover:
 - delta event is yielded as non-final progress
 - completed item content is yielded separately from deltas
 - usage limit, context overflow, timeout, and disconnect are typed
+- reachable app-server request-contract rejections, including
+  `requires experimentalApi capability`, are typed as
+  `app_server_protocol_error` instead of `app_server_unavailable`
 - raw app-server notifications are converted to typed internal events inside the app-server client module
 - no token, credential file content, or app-server secret is returned
 

@@ -26,9 +26,13 @@ export async function loadBrowseMemories(
     (options.startBackupQueue ?? startBackupQueue)(config);
     connection = initializeDatabase(config);
     const rows = await connection.repositories.memories.listForBrowse();
-    return (await filterBrowseMemoryFlashbacks({ config, rows })).map(
-      toBrowseMemory,
-    );
+    return (
+      await filterBrowseMemoryFlashbacks({
+        config,
+        rows,
+        translationRepository: connection.repositories.translations,
+      })
+    ).map(toBrowseMemory);
   } finally {
     connection?.close();
   }
@@ -37,12 +41,14 @@ export async function loadBrowseMemories(
 async function filterBrowseMemoryFlashbacks(input: {
   config: ResolvedTraumaConfig;
   rows: MemoryBrowseRow[];
+  translationRepository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
 }): Promise<MemoryBrowseRow[]> {
   const renderableFlashbackIds = new Set(
     (
       await filterRenderableFlashbackRows({
         config: input.config,
         rows: input.rows.flatMap((row) => row.flashbacks),
+        translationRepository: input.translationRepository,
       })
     ).map((flashback) => flashback.id),
   );
@@ -61,6 +67,9 @@ function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
     flashbacks: row.flashbacks.map((flashback) => ({
       id: flashback.id,
       memoryId: flashback.memoryId,
+      variantKind: flashback.variantKind,
+      langCode: flashback.langCode,
+      translationOutputHash: flashback.translationOutputHash,
       text: flashback.text,
       prefix: flashback.prefix,
       suffix: flashback.suffix,

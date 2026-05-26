@@ -29,6 +29,7 @@ describe("reader route state", () => {
         },
         content: {
           relativePath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f001/CONTENT.md",
+          variants: [],
         },
         rendered: {
           html: "<h1>Reader Title</h1>",
@@ -61,6 +62,7 @@ describe("reader route state", () => {
         },
         content: {
           relativePath: "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f001/CONTENT.md",
+          variants: [],
         },
         rendered: {
           html: "<h1>Reader Title</h1>",

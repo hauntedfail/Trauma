@@ -4,7 +4,11 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
+import {
+  initializeDatabase,
+  type TranslationRepository,
+  type TraumaDatabaseConnection,
+} from "../db";
 import {
   assertBackupEnvironmentReady,
   assertBackupRepositoryRoot,
@@ -13,7 +17,12 @@ import {
   recordBackupPushFailureAlert,
 } from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
-import { getFlashbackMetadataExportPath } from "../flashbacks/export";
+import {
+  getSourceFlashbackMetadataExportPath,
+  getTranslatedFlashbackMetadataExportPath,
+} from "../flashbacks/export";
+import { isSupportedLanguageCode } from "../translation/languages";
+import { resolveTranslatedMemoryProjectionPath } from "../translation/paths";
 
 export { BACKUP_STATUSES };
 export type { BackupStatus };
@@ -21,7 +30,8 @@ export type { BackupStatus };
 export type BackupTriggerReason =
   | "memory_creation"
   | "flashback_update"
-  | "memory_deletion";
+  | "memory_deletion"
+  | "translation_update";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -245,7 +255,11 @@ export function createGitMemoryBackupQueue(
           }
           await enqueue({
             memoryId: backup.id,
-            contentPaths: await getRetryContentPaths(input.config, backup),
+            contentPaths: await getRetryContentPaths(
+              input.config,
+              backup,
+              connection.repositories.translations,
+            ),
             reason: "memory_creation",
           });
           enqueued += 1;
@@ -261,17 +275,49 @@ export function createGitMemoryBackupQueue(
 async function getRetryContentPaths(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   backup: { id: string; contentPath: string },
+  translations: TranslationRepository,
 ): Promise<string[]> {
-  const paths = [backup.contentPath];
-  const flashbackExportPath = getFlashbackMetadataExportPath(backup.id);
-  const absoluteFlashbackExportPath = resolve(config.storePath, flashbackExportPath);
-  if (!isInside(config.storePath, absoluteFlashbackExportPath)) {
-    throw new GitBackupError(
-      `git backup content path must stay under storePath: ${flashbackExportPath}`,
+  const paths = [
+    backup.contentPath,
+    getSourceFlashbackMetadataExportPath(backup.id),
+  ];
+  const completeTranslations =
+    await translations.listCompleteTranslationRecordsForMemory(backup.id);
+  for (const translation of completeTranslations) {
+    if (translation.outputPath !== null) {
+      paths.push(translation.outputPath);
+    }
+    if (!isSupportedLanguageCode(translation.langCode)) {
+      continue;
+    }
+    paths.push(
+      resolveTranslatedMemoryProjectionPath({
+        config,
+        langCode: translation.langCode,
+        memoryId: backup.id,
+      }).relativePath,
+      getTranslatedFlashbackMetadataExportPath({
+        langCode: translation.langCode,
+        memoryId: backup.id,
+      }),
     );
   }
-  paths.push(flashbackExportPath);
-  return paths;
+  return [...new Set(paths.map((contentPath) =>
+    validateRetryContentPath(config, contentPath)
+  ))];
+}
+
+function validateRetryContentPath(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  contentPath: string,
+): string {
+  const absoluteContentPath = resolve(config.storePath, contentPath);
+  if (isAbsolute(contentPath) || !isInside(config.storePath, absoluteContentPath)) {
+    throw new GitBackupError(
+      `git backup content path must stay under storePath: ${contentPath}`,
+    );
+  }
+  return contentPath;
 }
 
 export async function runGitBackupJob(
@@ -546,6 +592,8 @@ function formatBackupAction(reason: BackupTriggerReason): string {
       return "updated flashbacks";
     case "memory_deletion":
       return "deleted memory";
+    case "translation_update":
+      return "updated translation";
   }
 }
 

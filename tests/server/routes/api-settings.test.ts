@@ -8,7 +8,10 @@ import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
-import { initializeDatabase } from "../../../src/server/db";
+import {
+  createReadCodexModelsHandler,
+  createUpdateCodexTranslationDefaultsHandler,
+} from "../../../src/server/settings/codex-model-routes";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -27,24 +30,20 @@ afterEach(async () => {
 
 describe("settings API routes", () => {
   it("reads settings without exposing credential material", async () => {
-    const config = await useTempRouteConfig();
-    const connection = initializeDatabase(config);
-    try {
-      await connection.repositories.settings.createOpenAiAuthCredential({
-        provider: "codex",
-        credentialReference: "external-openai-auth",
-        now: new Date("2026-05-15T00:00:00.000Z"),
-      });
-    } finally {
-      connection.close();
-    }
+    await useTempRouteConfig();
 
     const response = await readSettings(apiEvent("/api/settings", "GET"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       translationTargetLanguage: "ja-JP",
-      openaiAuth: { status: "enabled" },
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
+      openaiAuth: {
+        status: "setup_required",
+        provider: "codex",
+        reason: "codex_app_server_unavailable",
+      },
     });
   });
 
@@ -82,8 +81,255 @@ describe("settings API routes", () => {
     });
   });
 
-  it("returns not configured when OpenAI auth provider is missing", async () => {
-    const config = await useTempRouteConfig();
+  it("reads the Codex model catalog through a settings-scoped route", async () => {
+    const handler = createReadCodexModelsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+
+    const response = await handler(apiEvent("/api/settings/codex-models", "GET"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      models: [
+        {
+          id: "gpt-5.5",
+          model: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Frontier model",
+          isDefault: true,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: ["low", "medium", "high"],
+        },
+      ],
+    });
+  });
+
+  it("closes internally created Codex model clients after reading the catalog", async () => {
+    let closeCalls = 0;
+    const handler = createReadCodexModelsHandler({
+      createClient: () => ({
+        close: async () => {
+          closeCalls += 1;
+        },
+        listModels: async () => ({ models: [] }),
+      }),
+    });
+
+    const response = await handler(apiEvent("/api/settings/codex-models", "GET"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ models: [] });
+    expect(closeCalls).toBe(1);
+  });
+
+  it("updates Codex translation defaults after validating the catalog", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: null,
+        reasoningEffort: null,
+      }),
+      listModels: async () => ({
+        models: [
+          {
+            id: "model-id",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: input.model ?? null,
+          codexTranslationReasoningEffort: input.reasoningEffort ?? null,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "model-id",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ model: "gpt-5.5", reasoningEffort: "high" }]);
+    await expect(response.json()).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("preserves omitted Codex translation default fields in PATCH payloads", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: null,
+        reasoningEffort: null,
+      }),
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: "gpt-5.5",
+          codexTranslationReasoningEffort: input.reasoningEffort ?? null,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ model: undefined, reasoningEffort: "high" }]);
+  });
+
+  it("validates omitted model PATCH payloads against the preserved Codex model", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      readDefaults: async () => ({
+        model: "gpt-5.3",
+        reasoningEffort: "medium",
+      }),
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Default model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium"],
+          },
+          {
+            id: "gpt-5.3",
+            model: "gpt-5.3",
+            displayName: "GPT-5.3",
+            description: "Saved model",
+            isDefault: false,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: "gpt-5.3",
+          codexTranslationReasoningEffort: input.reasoningEffort ?? null,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ model: undefined, reasoningEffort: "high" }]);
+  });
+
+  it("rejects unavailable Codex translation defaults with stable error codes", async () => {
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "gpt-5.5",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium"],
+          },
+        ],
+      }),
+      updateDefaults: async () => {
+        throw new Error("should not update unavailable defaults");
+      },
+    });
+
+    const missingModel = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "missing",
+        reasoning_effort: "medium",
+      }),
+    );
+    const missingEffort = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "gpt-5.5",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(missingModel.status).toBe(409);
+    await expect(missingModel.json()).resolves.toMatchObject({
+      code: "translation_model_unavailable",
+      status: "error",
+    });
+    expect(missingEffort.status).toBe(409);
+    await expect(missingEffort.json()).resolves.toMatchObject({
+      code: "translation_reasoning_effort_unavailable",
+      status: "error",
+    });
+  });
+
+  it("returns a safe Codex setup failure when app-server auth is unavailable", async () => {
+    await useTempRouteConfig();
 
     const response = await enableOpenAiAuth(
       apiEvent("/api/settings/openai-auth/enable", "POST"),
@@ -91,60 +337,22 @@ describe("settings API routes", () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
-      status: "not_configured",
-      message: "OpenAI auth provider is not configured.",
+      status: "failed",
+      provider: "codex",
+      loginId: null,
+      error: "Cannot connect to Codex app-server Unix socket.",
     });
-
-    const connection = initializeDatabase(config);
-    try {
-      expect(
-        connection.sqlite
-          .prepare("select count(*) as count from openai_auth_credentials")
-          .get(),
-      ).toEqual({ count: 0 });
-    } finally {
-      connection.close();
-    }
   });
 
-  it("keeps existing OpenAI auth idempotent and deletes it", async () => {
-    const config = await useTempRouteConfig();
-    const connection = initializeDatabase(config);
-    try {
-      await connection.repositories.settings.createOpenAiAuthCredential({
-        provider: "codex",
-        credentialReference: "external-openai-auth",
-        now: new Date("2026-05-15T00:00:00.000Z"),
-      });
-    } finally {
-      connection.close();
-    }
-
-    const alreadyEnabled = await enableOpenAiAuth(
-      apiEvent("/api/settings/openai-auth/enable", "POST"),
-    );
+  it("returns a safe error when deleting Codex auth without app-server access", async () => {
+    await useTempRouteConfig();
     const deleted = await deleteOpenAiAuth(
       apiEvent("/api/settings/openai-auth", "DELETE"),
     );
-    const alreadyDisabled = await deleteOpenAiAuth(
-      apiEvent("/api/settings/openai-auth", "DELETE"),
-    );
 
-    expect(alreadyEnabled.status).toBe(200);
-    expect(await alreadyEnabled.json()).toEqual({
-      status: "enabled",
-      alreadyEnabled: true,
-      message: "OpenAI auth is already enabled.",
-    });
-    expect(deleted.status).toBe(200);
+    expect(deleted.status).toBe(500);
     expect(await deleted.json()).toEqual({
-      status: "disabled",
-      alreadyDisabled: false,
-    });
-    expect(alreadyDisabled.status).toBe(200);
-    expect(await alreadyDisabled.json()).toEqual({
-      status: "disabled",
-      alreadyDisabled: true,
+      error: "Cannot connect to Codex app-server Unix socket.",
     });
   });
 });
@@ -152,6 +360,11 @@ describe("settings API routes", () => {
 async function useTempRouteConfig() {
   const root = await mkdtemp(join(tmpdir(), "trauma-api-settings-"));
   tempDirs.push(root);
+  process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "unix://";
+  process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH = join(
+    root,
+    "missing-codex-app-server.sock",
+  );
   return loadRouteConfig(await writeRouteConfig(root));
 }
 

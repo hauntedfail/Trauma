@@ -39,6 +39,7 @@ CREATE TABLE translation_chunks (
   block_ids_json TEXT NOT NULL,
   status TEXT NOT NULL,
   retry_count INTEGER NOT NULL DEFAULT 0,
+  projection_spans_json TEXT,
   translated_markdown TEXT,
   translated_hash TEXT,
   error TEXT,
@@ -49,6 +50,31 @@ CREATE TABLE translation_chunks (
 
 CREATE INDEX translation_chunks_status_idx
   ON translation_chunks(job_id, status, chunk_index);
+
+CREATE TABLE translation_projection_spans (
+  job_id TEXT NOT NULL REFERENCES translation_jobs(job_id) ON DELETE CASCADE,
+  span_index INTEGER NOT NULL,
+  memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  lang_code TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  output_hash TEXT NOT NULL,
+  segment_id TEXT NOT NULL,
+  block_id TEXT NOT NULL,
+  source_markdown_start INTEGER NOT NULL,
+  source_markdown_end INTEGER NOT NULL,
+  translated_markdown_start INTEGER NOT NULL,
+  translated_markdown_end INTEGER NOT NULL,
+  source_reader_start INTEGER NOT NULL,
+  source_reader_end INTEGER NOT NULL,
+  translated_reader_start INTEGER NOT NULL,
+  translated_reader_end INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (job_id, span_index)
+);
+
+CREATE INDEX translation_projection_current_idx
+  ON translation_projection_spans(memory_id, lang_code, source_hash, output_hash, span_index);
 ```
 
 ## Rules
@@ -62,6 +88,8 @@ CREATE INDEX translation_chunks_status_idx
 - `auth_required` and `setup_required` are not persisted when they happen before job creation. They may be persisted only for an already-created job when Codex auth/setup is lost during app-server execution.
 - `markTranslationUnavailable(jobId, reason)` stores `error` as JSON with `code = "translation_unavailable"`, `action = "start_fresh_translation"`, and `reason = "output_missing"` or `"output_hash_mismatch"`.
 - `translated_markdown` is temporary and must be `NULL` after final commit and purge.
+- `projection_spans_json` is temporary chunk-local alignment data and must be `NULL` after final commit and purge.
+- `translation_projection_spans` is durable runtime alignment data for translated reader annotations. Query it only with the current `(memory_id, lang_code, source_hash, output_hash)`.
 - Do not add token, refresh token, credential, or raw Codex auth columns.
 - The user-selected target language is persisted in SQLite settings state, not frontend-only state.
 - Translation jobs copy the currently configured settings language into `translation_jobs.lang_code` at job creation.

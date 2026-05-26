@@ -9,6 +9,7 @@ import {
   deleteSettingsOpenAiAuth,
   enableSettingsOpenAiAuth,
   getSettings,
+  updateCodexTranslationDefaults,
   updateTranslationTargetLanguage,
   UnsupportedTranslationLanguageError,
 } from "../../../src/server/settings/settings";
@@ -33,7 +34,13 @@ describe("settings service", () => {
 
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "ja-JP",
-      openaiAuth: { status: "disabled" },
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
+      openaiAuth: {
+        status: "setup_required",
+        provider: "codex",
+        reason: "codex_app_server_unavailable",
+      },
     });
 
     const connection = initializeDatabase(config);
@@ -57,11 +64,23 @@ describe("settings service", () => {
     ).resolves.toEqual([
       {
         translationTargetLanguage: "ja-JP",
-        openaiAuth: { status: "disabled" },
+        codexTranslationModel: null,
+        codexTranslationReasoningEffort: null,
+        openaiAuth: {
+          status: "setup_required",
+          provider: "codex",
+          reason: "codex_app_server_unavailable",
+        },
       },
       {
         translationTargetLanguage: "ja-JP",
-        openaiAuth: { status: "disabled" },
+        codexTranslationModel: null,
+        codexTranslationReasoningEffort: null,
+        openaiAuth: {
+          status: "setup_required",
+          provider: "codex",
+          reason: "codex_app_server_unavailable",
+        },
       },
     ]);
 
@@ -87,6 +106,36 @@ describe("settings service", () => {
     });
     await expect(getSettings({ config })).resolves.toMatchObject({
       translationTargetLanguage: "en-US",
+    });
+  });
+
+  it("persists Codex translation model and reasoning effort defaults", async () => {
+    const config = await makeConfig();
+
+    await expect(
+      updateCodexTranslationDefaults({
+        config,
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+
+    await expect(
+      updateCodexTranslationDefaults({
+        config,
+        model: null,
+        reasoningEffort: null,
+      }),
+    ).resolves.toMatchObject({
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
     });
   });
 
@@ -199,7 +248,13 @@ describe("settings service", () => {
     });
     await expect(getSettings({ config })).resolves.toEqual({
       translationTargetLanguage: "fr-FR",
-      openaiAuth: { status: "disabled" },
+      codexTranslationModel: null,
+      codexTranslationReasoningEffort: null,
+      openaiAuth: {
+        status: "setup_required",
+        provider: "codex",
+        reason: "codex_app_server_unavailable",
+      },
     });
   });
 });
@@ -207,5 +262,10 @@ describe("settings service", () => {
 async function makeConfig() {
   const root = await mkdtemp(join(tmpdir(), "trauma-settings-"));
   tempDirs.push(root);
+  process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "unix://";
+  process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH = join(
+    root,
+    "missing-codex-app-server.sock",
+  );
   return loadRouteConfig(await writeRouteConfig(root));
 }

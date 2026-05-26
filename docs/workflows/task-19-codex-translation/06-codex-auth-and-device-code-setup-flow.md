@@ -50,11 +50,24 @@ Do not invent a direct ChatGPT OAuth URL flow outside Codex app-server.
 
 App-server methods:
 
-- Read status through `CodexAppServerClient.checkAuth()`, backed by `account/read`.
+- Read status through `CodexAppServerClient.checkAuth()`, backed by
+  `account/read`.
+- Treat a non-null `account` in the `account/read` response as confirmed
+  authentication. `requiresOpenaiAuth` describes whether the selected provider
+  requires OpenAI auth; it is not a standalone unauthenticated flag. Only
+  `requiresOpenaiAuth: true` with no account is auth-required.
 - Start device-code login through `CodexAppServerClient.startDeviceCodeLogin()`, backed by `account/login/start` and `{ "type": "chatgptDeviceCode" }`.
 - Return only `loginId`, `verificationUrl`, and `userCode` to the frontend.
-- Treat typed `auth.login.completed` and `auth.account.updated` events from `CodexAppServerClient.observeAuthEvents()` as setup progress, then confirm enabled state with `checkAuth()`.
-- `auth.login.completed` includes `loginId`, `success`, and safe `error` text. `success: false` ends the pending login flow and returns a safe failed or canceled state; it must not mark auth enabled.
+- Treat typed `account.login.completed` and `account.updated` events from
+  `CodexAppServerClient.observeAuthEvents()` as setup progress, then confirm
+  enabled state with `checkAuth()`.
+- Raw app-server notification names are `account/login/completed` and
+  `account/updated`; the client adapter may expose them as dot-named typed
+  internal events, but docs and tests must not refer to stale `auth/*` raw
+  methods.
+- `account.login.completed` includes `loginId`, `success`, and safe `error`
+  text. `success: false` ends the pending login flow and returns a safe failed
+  or canceled state; it must not mark auth enabled.
 - Cancel a pending login through `CodexAppServerClient.cancelDeviceCodeLogin({ loginId })` when the user abandons setup and `loginId` is known.
 - Delete auth through `CodexAppServerClient.logout()`, which wraps app-server `account/logout` when supported.
 
@@ -110,10 +123,15 @@ Rules:
 - While login is pending, refreshes call `account/read` and return confirmed enabled state if available.
 - If login is still pending and the server has known pending metadata, refresh returns non-secret pending state with `status: "login_started"`, `loginId`, `verificationUrl`, and `userCode`.
 - If login is still pending but pending metadata was lost, refresh returns latest confirmed `account/read` state instead of inventing a pending login.
-- `auth.login.completed` and `auth.account.updated` events are progress signals only; enabled state is set only after a successful `checkAuth()`.
-- `auth.login.completed` with `success: false` clears the pending observer and returns a safe failure/cancellation status without exposing raw app-server payloads.
+- `account.login.completed` and `account.updated` typed events are progress
+  signals only; enabled state is set only after a successful `checkAuth()`.
+- `account.login.completed` with `success: false` clears the pending observer
+  and returns a safe failure/cancellation status without exposing raw app-server
+  payloads.
 - Start `CodexAppServerClient.observeAuthEvents()` only while a device-code login is pending.
-- Correlate completion with pending `loginId` when the event includes one; otherwise treat `auth.account.updated` as a prompt to call `checkAuth()` and confirm state.
+- Correlate completion with pending `loginId` when the event includes one;
+  otherwise treat `account.updated` as a prompt to call `checkAuth()` and
+  confirm state.
 - Stop the observer when login completes, is canceled, fails, times out, or the process/request scope is disposed.
 - Server restart or listener loss does not expose secrets and does not fake failure. `GET /api/settings/codex-auth` calls `checkAuth()` and returns confirmed enabled state, safe pending metadata if still known, or setup-required/unknown state.
 - Multiple concurrent login starts for the same user/session reuse the existing pending login metadata instead of creating duplicate observers.
@@ -136,7 +154,9 @@ Cover:
 - device-code response contains only safe fields
 - device-code response includes `loginId`, `verificationUrl`, and `userCode`
 - device-code login completion waits for app-server notifications and confirms with `account/read`
-- device-code login failure or cancellation from `auth.login.completed.success = false` clears pending state and does not mark auth enabled
+- device-code login failure or cancellation from
+  `account.login.completed.success = false` clears pending state and does not
+  mark auth enabled
 - auth service consumes typed `CodexAuthEvent` values, not raw JSON-RPC notification names
 - auth observer is active only during pending login and is cleaned up on completion, cancel, failure, timeout, or scope disposal
 - listener loss/restart falls back to `checkAuth()` plus safe pending metadata

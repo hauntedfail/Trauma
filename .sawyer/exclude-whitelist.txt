@@ -1,0 +1,9 @@
+# Repo-relative paths that agents must not commit unless the user explicitly
+# removes them from this whitelist or authorizes committing them in the current
+# task.
+
+.tmp/
+TASK_19_INSTRUCTION.md
+TEMP_MAIN_CONTENT_EXTRACTION_VALIDATION_REPORT.md
+app.config.timestamp_1778391094301.js
+refined_sample/

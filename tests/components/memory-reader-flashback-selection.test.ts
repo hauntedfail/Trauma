@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { positionReaderSelectionMenu } from "../../src/components/reader/MemoryReader";
+import {
+  buildFlashbackToggleRequestBody,
+  positionReaderSelectionMenu,
+} from "../../src/components/reader/MemoryReader";
 
 const readerSource = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
 
@@ -39,6 +42,32 @@ describe("memory reader flashback selection menu", () => {
       left: 8,
       top: 44,
       placement: "below",
+    });
+  });
+
+  it("includes the active translated language in flashback toggle requests", () => {
+    expect(JSON.parse(buildFlashbackToggleRequestBody({
+      langCode: "ja-JP",
+      memoryId: "memory-reader",
+      operation: "flashback",
+      selection: {
+        text: "翻訳文",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: 3,
+      },
+    }))).toEqual({
+      langCode: "ja-JP",
+      memoryId: "memory-reader",
+      operation: "flashback",
+      selection: {
+        text: "翻訳文",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: 3,
+      },
     });
   });
 });

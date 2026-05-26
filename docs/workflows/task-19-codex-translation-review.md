@@ -121,14 +121,14 @@ INSTRUCT does not specify this boundary. The plan introduces a read-only resolve
 
 These notes are historical review context, not current implementation instructions. Before acting on any item in this section, check the canonical focused contracts and subtask files; later edits may have resolved or superseded the risk.
 
-### 5.1 Omission-marker detection is brittle
+### 5.1 Historical omission-marker detection was brittle
 
-contracts/06 validation step 12 checks for strings `omitted`, `summary`, `summarized`, `省略`, `要約`, `...`. These are heuristic string matches that can produce:
+Earlier contract drafts checked for strings such as `omitted`, `summary`, `summarized`, `省略`, `要約`, and `...`. These heuristic string matches could produce:
 
 - **False positives**: legitimate translated text containing "要約" as a section title.
 - **False negatives**: novel omission patterns not in the list (e.g., Chinese/Korean equivalents, `[...]`, `[cut]`).
 
-**Recommendation:** Implement as a configurable list with a strict mode (warn only vs. fail). Log the matched string and block id so implementors can tune the list from real failures.
+**Current direction:** Prompting forbids summarization and placeholder substitution, while validation relies on schema, segment identity, non-empty output, parser-backed structure checks, protected-span preservation, and length-ratio checks. Legitimate translated labels such as `Abstract` -> `要約` must not be rejected by lexical matching alone.
 
 ### 5.2 Concurrent POST race for the same `(memory_id, lang_code)` not fully specified
 

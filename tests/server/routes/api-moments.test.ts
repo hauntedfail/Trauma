@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -10,8 +10,17 @@ import {
   parseMomentPayload,
 } from "../../../src/routes/api/moments";
 import { DELETE } from "../../../src/routes/api/moments/[momentId]";
-import { initializeDatabase } from "../../../src/server/db";
-import { createReaderContentHash } from "../../../src/server/store";
+import { initializeDatabase, schema } from "../../../src/server/db";
+import {
+  createMemoryContentFixture,
+  createReaderContentHash,
+} from "../../../src/server/store";
+import { createSha256ContentHash } from "../../../src/server/translation/hash";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "../../../src/server/translation/prompt";
+import { resolveTranslatedMemoryContentPath } from "../../../src/server/translation/paths";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -75,6 +84,29 @@ describe("moments API routes", () => {
     });
   });
 
+  it("accepts an optional translated reader language for Moment section resolution", async () => {
+    await expect(
+      parseMomentPayload(
+        new Request("http://localhost/api/moments", {
+          method: "POST",
+          body: JSON.stringify({
+            memoryId: routeMemoryId,
+            langCode: "ja-JP",
+            sectionAnchor: "translated-chapter",
+            sectionTitle: "第一章",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+          }),
+        }),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      langCode: "ja-JP",
+      sectionAnchor: "translated-chapter",
+      sectionTitle: "第一章",
+    });
+  });
+
   it("rejects malformed or over-posted Moment payloads", async () => {
     await expect(
       parseMomentPayload(
@@ -95,7 +127,7 @@ describe("moments API routes", () => {
     ).resolves.toEqual({
       ok: false,
       error:
-        "request body must contain only memoryId, sectionAnchor, sectionTitle, sectionLevel, sectionPath, sectionStartOffset, sectionEndOffset, and contentHash",
+        "request body must contain only memoryId, langCode, sectionAnchor, sectionTitle, sectionLevel, sectionPath, sectionStartOffset, sectionEndOffset, and contentHash",
     });
   });
 
@@ -379,6 +411,52 @@ describe("moments API routes", () => {
     });
   });
 
+  it("normalizes translated reader Moment sections to the source TOC section", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config, { title: "Moment Route Memory" });
+    const sourceMarkdown = "# Route Memory\n\n## Chapter One\n\nSection body.";
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Moment Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: sourceMarkdown,
+    });
+    await writeTranslatedMomentContent({
+      config,
+      sourceMarkdown,
+      translatedMarkdown: "# ルートメモリ\n\n## 第一章\n\n本文。",
+    });
+
+    const response = await POST(jsonRequest("POST", "/api/moments", {
+      memoryId: routeMemoryId,
+      langCode: "ja-JP",
+      sectionAnchor: "第一章",
+      sectionTitle: "第一章",
+      sectionLevel: 2,
+      sectionPath: "1/1",
+      sectionStartOffset: null,
+      sectionEndOffset: null,
+      contentHash: null,
+    }));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      moment: {
+        memoryId: routeMemoryId,
+        sectionAnchor: "chapter-one",
+        sectionTitle: "Chapter One",
+        sectionPath: "1/1",
+      },
+    });
+  });
+
   it("rejects Moments for missing or mismatched reader sections", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
@@ -469,4 +547,60 @@ async function writeMomentContent(
     },
     markdown: momentRouteMarkdown,
   });
+}
+
+async function writeTranslatedMomentContent(input: {
+  config: ReturnType<typeof loadRouteConfig>;
+  sourceMarkdown: string;
+  translatedMarkdown: string;
+}): Promise<void> {
+  const translatedPath = resolveTranslatedMemoryContentPath({
+    config: input.config,
+    langCode: "ja-JP",
+    memoryId: routeMemoryId,
+  });
+  await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+  await writeFile(
+    translatedPath.absolutePath,
+    createMemoryContentFixture({
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Moment Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: input.translatedMarkdown,
+    }),
+    "utf8",
+  );
+  const sourceHash = createSha256ContentHash(
+    await readFile(join(input.config.storePath, "memories", routeMemoryId, "CONTENT.md")),
+  );
+  const outputHash = createSha256ContentHash(
+    await readFile(translatedPath.absolutePath),
+  );
+  const connection = initializeDatabase(input.config);
+  try {
+    await connection.db.insert(schema.translationJobs).values({
+      jobId: "019e3906-0000-7000-8000-000000000903",
+      memoryId: routeMemoryId,
+      langCode: "ja-JP",
+      sourceHash,
+      model: null,
+      reasoningEffort: null,
+      promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+      chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+      status: "complete",
+      chunkCount: 1,
+      outputPath: translatedPath.relativePath,
+      outputHash,
+      error: null,
+      completedAt: routeNow,
+      createdAt: routeNow,
+      updatedAt: routeNow,
+    });
+  } finally {
+    connection.close();
+  }
 }

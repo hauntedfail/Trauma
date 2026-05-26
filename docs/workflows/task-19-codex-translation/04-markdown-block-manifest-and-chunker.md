@@ -2,15 +2,20 @@
 
 ## Goal
 
-Parse source Markdown into deterministic blocks and chunk contiguous block groups so long articles and academic papers can be translated completely.
+Parse source Markdown into deterministic chunks with parser-backed text segments so long articles and academic papers can be translated completely without asking Codex to rewrite Markdown syntax.
 
 ## Files likely owned
 
 - `src/server/translation/markdown-blocks.ts`
+- `src/server/translation/markdown-parser.ts`
+- `src/server/translation/translation-segments.ts`
 - `src/server/translation/chunker.ts`
 - `tests/server/translation/markdown-blocks.test.ts`
+- `tests/server/translation/markdown-parser.test.ts`
+- `tests/server/translation/translation-segments.test.ts`
 - `tests/server/translation/chunker.test.ts`
 - `tests/fixtures/translation/markdown-protected-spans.md`
+- `tests/fixtures/translation/markdown-segment-matrix.md`
 - `tests/fixtures/translation/academic-paper.md`
 
 ## Contract references
@@ -20,17 +25,17 @@ Parse source Markdown into deterministic blocks and chunk contiguous block group
 
 ## Instruction alignment
 
-Scope: deterministic block manifest, protected spans, and chunk construction only.
+Scope: deterministic chunk construction, parser-backed segment manifest creation, and legacy block compatibility only.
 
 Inputs: source Markdown body, frontmatter parser behaviour, required block types, and chunk config defaults.
 
-Outputs: ordered block ids, block metadata, protected spans, section paths, and contiguous block-group chunks.
+Outputs: ordered block ids for chunk grouping, ordered segment ids and source text for Codex prompts, protected structure ranges, section paths, and contiguous chunk Markdown.
 
 Dependencies: 19.1 freezes block id format and 19.3 supplies source snapshots.
 
 Parallelization notes: can run in parallel with Codex client work after shared translation types are frozen.
 
-Implementation risks: slicing raw characters or splitting inside protected structures can corrupt Markdown and make validation unreliable.
+Implementation risks: growing an ad hoc regex parser to cover the full Markdown dialect will remain fragile. Markdown parsing is parser-backed. The implementation must not attempt to cover the Markdown dialect through ad hoc regex scanning. Line-oriented fallback logic may exist only for controlled diagnostics or migration compatibility.
 
 ## Block manifest contract
 
@@ -67,7 +72,7 @@ Rules:
 
 ## Protected span contract
 
-Extract protected spans for:
+The legacy block parser may still extract protected spans as guardrails, but segment extraction and structural validation are parser-backed. Extract protected ranges for:
 
 - code fences
 - inline code
@@ -82,7 +87,7 @@ Extract protected spans for:
 - commands
 - placeholders
 
-These spans are used by validation and retry prompts.
+These spans are legacy diagnostics and additional guardrails. They are not the primary correctness mechanism for Task 19U; parser-backed segment reassembly and structural fingerprints are.
 
 ## Chunking contract
 
@@ -118,12 +123,18 @@ Cover:
 - math block remains one block
 - chunking groups small sections
 - chunking splits oversized sections by block groups
+- chunks include ordered text segment ids and source text
+- autolinks are excluded from translatable segments
+- inline HTML tags are protected while surrounding prose remains translatable
+- table and footnote prose produce segments without exposing identifiers as translatable text
 - oversized single block is preserved and flagged
 
 ## Verification
 
 ```sh
 mise exec -- bun run test tests/server/translation/markdown-blocks.test.ts
+mise exec -- bun run test tests/server/translation/markdown-parser.test.ts
+mise exec -- bun run test tests/server/translation/translation-segments.test.ts
 mise exec -- bun run test tests/server/translation/chunker.test.ts
 mise exec -- bun run typecheck
 ```
@@ -135,5 +146,6 @@ maximum of four total attempts per chunk.
 
 - Chunking is deterministic.
 - Chunks preserve document order.
+- Chunks expose deterministic segment ids in source order.
 - Long papers can be split without relying on one Codex context window.
-- Later prompt, validation, retry, and stitching subtasks can rely on stable block ids.
+- Later prompt, validation, retry, and stitching subtasks can rely on stable segment ids and reassembled chunk Markdown.

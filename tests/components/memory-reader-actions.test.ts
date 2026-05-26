@@ -10,6 +10,7 @@ import {
   deleteReaderMemory,
   detachReaderTagByName,
   MemoryReader,
+  startReaderTranslation,
 } from "../../src/components/reader/MemoryReader";
 import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
 import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
@@ -17,6 +18,10 @@ import type { ReaderMemoryResult } from "../../src/server/reader/page-data";
 
 const memoryReaderRouteSource = readFileSync(
   "src/routes/memories/[id].tsx",
+  "utf8",
+);
+const memoryReaderSource = readFileSync(
+  "src/components/reader/MemoryReader.tsx",
   "utf8",
 );
 
@@ -42,6 +47,9 @@ const readyResult = {
         suffix: ".",
         startOffset: 2,
         endOffset: 11,
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
         createdAt: "2026-05-09T00:00:00.000Z",
       },
     ],
@@ -50,6 +58,15 @@ const readyResult = {
   },
   content: {
     relativePath: "memories/memory-reader/CONTENT.md",
+    variants: [
+      {
+        active: true,
+        kind: "source",
+        label: "Original",
+        readerUrl: "/memories/memory-reader",
+        relativePath: "memories/memory-reader/CONTENT.md",
+      },
+    ],
   },
   rendered: {
     html: '<h1 id="reader-memory">Reader Memory</h1><p>A <mark data-flashback-id="flashback-1" id="flashback-1">flashback</mark>.</p>',
@@ -126,6 +143,67 @@ describe("memory reader actions", () => {
     expect(html).not.toContain("No categories");
     expect(html).not.toContain("No tags");
     expect(html).toContain("Add tag");
+  });
+
+  it("revalidates the active translated reader cache after reader-local actions", () => {
+    expect(memoryReaderSource).toContain(
+      [
+        "        revalidateAfterFlashbackToggle(",
+        "          props.result.memory.id,",
+        "          props.result.content.langCode,",
+        "        ),",
+      ].join("\n"),
+    );
+    expect(memoryReaderSource).toContain(
+      [
+        "                    revalidateAfterReadStatusChange(",
+        "                      props.result.memory.id,",
+        "                      props.result.content.langCode,",
+        "                    )",
+      ].join("\n"),
+    );
+    expect(memoryReaderSource).toContain(
+      [
+        "      void revalidateAfterReaderTaxonomyChange(",
+        "        props.result.memory.id,",
+        "        props.result.content.langCode,",
+        "      );",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps browser EventSource retries alive for transient translation stream errors", () => {
+    const onErrorIndex = memoryReaderSource.indexOf("eventSource.onerror = () => {");
+    expect(onErrorIndex).toBeGreaterThan(-1);
+    const onErrorBody = memoryReaderSource.slice(
+      onErrorIndex,
+      memoryReaderSource.indexOf("  };", onErrorIndex),
+    );
+    expect(onErrorBody).toContain("Translation stream disconnected. Reconnecting...");
+    expect(onErrorBody).toContain('status: "running"');
+  });
+
+  it("fails closed translation streams instead of leaving progress reconnecting", () => {
+    const onErrorIndex = memoryReaderSource.indexOf("eventSource.onerror = () => {");
+    expect(onErrorIndex).toBeGreaterThan(-1);
+    const onErrorBody = memoryReaderSource.slice(
+      onErrorIndex,
+      memoryReaderSource.indexOf("  };", onErrorIndex),
+    );
+    expect(onErrorBody).toContain("eventSource.readyState === EventSource.CLOSED");
+    expect(onErrorBody).toContain("Translation stream failed. Retry translation.");
+    expect(onErrorBody).toContain('status: "failed"');
+    expect(onErrorBody).toContain("eventSource.close()");
+    expect(onErrorBody).toContain("translationEventSource = undefined");
+  });
+
+  it("treats terminal translation snapshots as terminal SSE progress", () => {
+    expect(memoryReaderSource).toContain("TERMINAL_TRANSLATION_SNAPSHOT_STATUSES");
+    expect(memoryReaderSource).toContain("isCompletedTranslationEnvelope(envelope)");
+    expect(memoryReaderSource).toContain("isTerminalTranslationEnvelope(envelope)");
+    expect(memoryReaderSource).toContain(
+      "readTranslationSnapshotStatus(envelope.data) === \"complete\"",
+    );
   });
 
   it("deletes the active memory and navigates back to memories", async () => {
@@ -228,6 +306,140 @@ describe("memory reader actions", () => {
     });
   });
 
+  it("starts reader translation through the memory translation API", async () => {
+    const requests: Request[] = [];
+
+    const result = await startReaderTranslation({
+      langCode: "ja-JP",
+      memoryId: "memory-reader",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(
+          JSON.stringify({
+            status: "started",
+            event_url: "/api/translation-jobs/job-reader/events",
+            job_id: "job-reader",
+            lang_code: "ja-JP",
+            memory_id: "memory-reader",
+            source_hash: "sha256:source",
+          }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+
+    expect(result).toMatchObject({
+      event_url: "/api/translation-jobs/job-reader/events",
+      status: "started",
+    });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/memories/memory-reader/translations", "POST"],
+    ]);
+    expect(await requests[0]?.json()).toEqual({
+      lang_code: "ja-JP",
+      model: "gpt-5.5",
+      reasoning_effort: "high",
+    });
+  });
+
+  it("branches reader translation API errors by stable code", async () => {
+    await expect(
+      startReaderTranslation({
+        langCode: "ja-JP",
+        memoryId: "memory-reader",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              status: "error",
+              code: "auth_required",
+              message: "raw auth message",
+              action: "setup_codex_auth",
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+    ).rejects.toThrow("Codex ChatGPT sign-in is required before translation can run.");
+
+    await expect(
+      startReaderTranslation({
+        langCode: "ja-JP",
+        memoryId: "memory-reader",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              status: "error",
+              code: "app_server_protocol_error",
+              message: "thread/start.environments requires experimentalApi capability",
+              action: "none",
+            }),
+            {
+              status: 502,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      }),
+  ).rejects.toThrow(
+      "Codex app-server rejected the translation request. Update the integration and retry.",
+    );
+  });
+
+  it("renders the reader translation trigger as a popup opener", () => {
+    const html = renderReader(readyResult, {
+      translationTargetLanguage: "ja-JP",
+      translationModel: "gpt-5.5",
+      translationReasoningEffort: "high",
+    });
+
+    expect(html).toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain(">Translate<");
+    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
+    expect(memoryReaderSource).toContain("translationFormModel");
+    expect(memoryReaderSource).toContain("reasoning_effort");
+  });
+
+  it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
+    const html = renderReader({
+      ...readyResult,
+      content: {
+        ...readyResult.content,
+        variants: [
+          {
+            active: true,
+            kind: "source",
+            label: "Original",
+            readerUrl: "/memories/memory-reader",
+            relativePath: "memories/memory-reader/CONTENT.md",
+          },
+          {
+            active: false,
+            kind: "translation",
+            label: "Japanese",
+            langCode: "ja-JP",
+            readerUrl: "/memories/ja-JP/memory-reader",
+            relativePath: "memories/memory-reader/ja-JP/CONTENT.md",
+          },
+        ],
+      },
+    }, {
+      translationTargetLanguage: "ja-JP",
+    });
+
+    expect(html).toContain('aria-label="Memory content variants"');
+    expect(html).toContain(">Original<");
+    expect(html).toContain(">Japanese<");
+    expect(html).toContain('href="/memories/ja-JP/memory-reader"');
+    expect(html).not.toContain("Translate memory to ja-JP");
+  });
+
   it("detaches a tag by name through the memory tag API", async () => {
     const requests: Request[] = [];
 
@@ -274,6 +486,9 @@ function renderReader(
   result: ReaderMemoryResult,
   options: {
     tagOptions?: readonly BrowseTaxonomySummaryItem[];
+    translationModel?: string | null;
+    translationReasoningEffort?: "high" | null;
+    translationTargetLanguage?: "ja-JP";
   } = {},
 ): string {
   return renderToString(() => {
@@ -291,6 +506,9 @@ function renderReader(
           navigate: () => {},
           result,
           tagOptions: options.tagOptions ?? [],
+          translationModel: options.translationModel,
+          translationReasoningEffort: options.translationReasoningEffort,
+          translationTargetLanguage: options.translationTargetLanguage,
         });
       },
     });

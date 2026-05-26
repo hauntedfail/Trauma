@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,7 +14,11 @@ import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
 import { deleteMemory } from "../../../src/server/memories/delete-memory";
-import { writeMemoryContent } from "../../../src/server/store";
+import { createMemoryContentFixture, writeMemoryContent } from "../../../src/server/store";
+import {
+  resolveTranslatedMemoryContentPath,
+  resolveTranslatedMemoryProjectionPath,
+} from "../../../src/server/translation/paths";
 import {
   loadRouteConfig,
   routeMemoryId,
@@ -77,6 +81,7 @@ describe("delete memory service", () => {
         contentPaths: [
           `memories/${routeMemoryId}/CONTENT.md`,
           `memories/${routeMemoryId}/FLASHBACKS.json`,
+          `memories/${routeMemoryId}`,
         ],
         reason: "memory_deletion",
       },
@@ -127,6 +132,7 @@ describe("delete memory service", () => {
         contentPaths: [
           `memories/${routeMemoryId}/CONTENT.md`,
           `memories/${routeMemoryId}/FLASHBACKS.json`,
+          `memories/${routeMemoryId}`,
         ],
         reason: "memory_deletion",
       },
@@ -162,6 +168,7 @@ describe("delete memory service", () => {
       markdown: "# Route Memory\n\nContent.",
     });
     await writeFlashbackExport(config.storePath, routeMemoryId);
+    const translatedArtifactPaths = await writeTranslatedArtifacts(config);
     await runGitBackupJob({
       config,
       job: {
@@ -169,6 +176,7 @@ describe("delete memory service", () => {
         contentPaths: [
           `memories/${routeMemoryId}/CONTENT.md`,
           `memories/${routeMemoryId}/FLASHBACKS.json`,
+          ...translatedArtifactPaths,
         ],
         reason: "memory_creation",
       },
@@ -203,7 +211,11 @@ describe("delete memory service", () => {
     ).toEqual([
       `D\tstorage/memories/${routeMemoryId}/CONTENT.md`,
       `D\tstorage/memories/${routeMemoryId}/FLASHBACKS.json`,
+      `D\tstorage/memories/${routeMemoryId}/ja-JP/CONTENT.md`,
+      `D\tstorage/memories/${routeMemoryId}/ja-JP/FLASHBACKS.json`,
+      `D\tstorage/memories/${routeMemoryId}/ja-JP/TRANSLATION_MAP.json`,
     ]);
+    expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
   });
 
   it("backs up untracked memory content before staging git deletion", async () => {
@@ -672,4 +684,59 @@ async function writeFlashbackExport(
     memoryId,
     flashbacks: [],
   });
+}
+
+async function writeTranslatedArtifacts(
+  config: ResolvedTraumaConfig,
+): Promise<string[]> {
+  const contentPath = resolveTranslatedMemoryContentPath({
+    config,
+    langCode: "ja-JP",
+    memoryId: routeMemoryId,
+  });
+  await mkdir(join(config.storePath, "memories", routeMemoryId, "ja-JP"), {
+    recursive: true,
+  });
+  await writeFile(
+    contentPath.absolutePath,
+    createMemoryContentFixture({
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# 翻訳\n\n本文。",
+    }),
+    "utf8",
+  );
+
+  const projectionPath = resolveTranslatedMemoryProjectionPath({
+    config,
+    langCode: "ja-JP",
+    memoryId: routeMemoryId,
+  });
+  await writeFile(
+    projectionPath.absolutePath,
+    `${JSON.stringify({ version: 1, spans: [] }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const translatedFlashbackPath = await writeFlashbackMetadataExport({
+    config: { storePath: config.storePath },
+    memoryId: routeMemoryId,
+    variant: {
+      kind: "translation",
+      langCode: "ja-JP",
+      outputHash: "sha256:translated",
+    },
+    flashbacks: [],
+  });
+
+  return [
+    contentPath.relativePath,
+    translatedFlashbackPath,
+    projectionPath.relativePath,
+  ];
 }

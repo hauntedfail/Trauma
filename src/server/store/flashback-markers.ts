@@ -29,12 +29,12 @@ export interface FlashbackMarkerRange {
   text?: string;
 }
 
-interface MarkdownRange {
+export interface MarkdownRange {
   startOffset: number;
   endOffset: number;
 }
 
-interface ProjectedMarkdownText {
+export interface ProjectedMarkdownText {
   text: string;
   sourceOffsets: number[];
   sourceEndOffsets: number[];
@@ -438,6 +438,24 @@ function readMarkdownProjection(markdown: string): MarkdownProjection {
     projectedMarkdown,
     protectedRanges,
   };
+}
+
+export function projectMarkdownToReaderText(markdown: string): ProjectedMarkdownText {
+  return readMarkdownProjection(markdown).projectedMarkdown;
+}
+
+export function mapMarkdownSourceRangeToReaderRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  range: MarkdownRange,
+): MarkdownRange | undefined {
+  return mapSourceRangeToReaderRange(projectedMarkdown, range);
+}
+
+export function mapReaderRangeToMarkdownSourceRange(
+  projectedMarkdown: ProjectedMarkdownText,
+  range: MarkdownRange,
+): MarkdownRange | undefined {
+  return mapReaderRangeToSourceRange(projectedMarkdown, range);
 }
 
 function normalizeMarkdownLineEndings(markdown: string): string {

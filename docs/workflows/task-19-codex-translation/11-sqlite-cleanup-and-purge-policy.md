@@ -40,6 +40,7 @@ After successful final file commit:
 ```sql
 UPDATE translation_chunks
 SET translated_markdown = NULL,
+    projection_spans_json = NULL,
     status = 'purged',
     updated_at = ?
 WHERE job_id = ?
@@ -49,6 +50,7 @@ WHERE job_id = ?
 Rules:
 
 - Preserve `translated_hash`.
+- Preserve durable `translation_projection_spans`; only purge temporary per-chunk `projection_spans_json`.
 - Preserve `block_ids_json`.
 - Preserve retry count and timestamps.
 - Do not emit `translation.job.completed` before purge succeeds.

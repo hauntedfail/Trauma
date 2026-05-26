@@ -14,15 +14,19 @@ Use this exact sequence:
 8. Rename temp file to `memories/<memory_id>/<lang_code>/CONTENT.md`.
 9. Flush parent directory if supported.
 10. Compute `output_hash` from committed `CONTENT.md`.
-11. In a SQLite transaction, set job `status = 'complete'`, `output_path`, `output_hash`, and `completed_at`.
-12. In the same transaction or immediately following transaction, set completed chunks to `status = 'purged'`, `translated_markdown = NULL`, preserving `translated_hash`.
-13. Derive `reader_url` as `/memories/<lang_code>/<memory_id>`.
-14. Emit `translation.job.completed` only after purge succeeds, including `output_path`, `output_hash`, and derived `reader_url`.
+11. Rebase validated chunk projection spans to full translated document offsets.
+12. Write `TRANSLATION_MAP.json` beside translated `CONTENT.md`.
+13. Replace durable `translation_projection_spans` rows for the job.
+14. In SQLite, set job `status = 'complete'`, `output_path`, `output_hash`, and `completed_at`.
+15. Set completed chunks to `status = 'purged'`, `translated_markdown = NULL`, and `projection_spans_json = NULL`, preserving `translated_hash`.
+16. Derive `reader_url` as `/memories/<lang_code>/<memory_id>`.
+17. Emit `translation.job.completed` only after purge succeeds, including `output_path`, `output_hash`, and derived `reader_url`.
 
 ## Final paths
 
 ```text
 memories/<memory_id>/<lang_code>/CONTENT.md
+memories/<memory_id>/<lang_code>/TRANSLATION_MAP.json
 memories/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
 ```
 
@@ -31,6 +35,7 @@ memories/<memory_id>/<lang_code>/.CONTENT.<job_id>.tmp
 ```sql
 UPDATE translation_chunks
 SET translated_markdown = NULL,
+    projection_spans_json = NULL,
     status = 'purged',
     updated_at = ?
 WHERE job_id = ?

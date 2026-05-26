@@ -172,12 +172,58 @@ describe("reader Moment actions", () => {
     });
   });
 
-  it("revalidates both Moment browse and reader memory caches after creating a Moment", () => {
+  it("posts the active translated language to the Moment API", async () => {
+    const requests: Request[] = [];
+    await createMomentForSection({
+      langCode: "ja-JP",
+      memoryId: "memory-1",
+      section: {
+        id: "chapter-one-translated",
+        level: 2,
+        path: "1/1",
+        text: "第一章",
+      },
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(
+          JSON.stringify({
+            alreadyExists: false,
+            moment: {
+              id: "moment-1",
+              sectionAnchor: "chapter-one",
+              sectionTitle: "Chapter One",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: null,
+              sectionEndOffset: null,
+              contentHash: null,
+              createdAt: "2026-05-14T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+
+    await expect(requests[0]?.json()).resolves.toMatchObject({
+      langCode: "ja-JP",
+      sectionAnchor: "chapter-one-translated",
+      sectionTitle: "第一章",
+    });
+  });
+
+  it("revalidates both Moment browse and active reader memory caches after creating a Moment", () => {
     expect(readerSource).toContain(
       [
         "await Promise.all([",
         "        revalidateMomentBrowseRows(),",
-        "        revalidateReaderMemory(props.result.memory.id),",
+        "        revalidateReaderMemory(",
+        "          props.result.memory.id,",
+        "          props.result.content.langCode,",
+        "        ),",
         "      ]);",
       ].join("\n"),
     );
@@ -230,6 +276,9 @@ describe("reader Moment actions", () => {
             startOffset: 8,
             endOffset: 23,
             contentHash: "sha256:test",
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
             createdAt: "2026-05-14T00:00:00.000Z",
           },
         ],
