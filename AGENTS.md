@@ -23,3 +23,6 @@ Key project decisions are split by purpose:
 
 The approved foundation design record is
 [docs/superpowers/specs/2026-05-09-trauma-foundation-design.md](docs/superpowers/specs/2026-05-09-trauma-foundation-design.md).
+
+Commit finalization exclusions for Sawyer live in
+[.sawyer/exclude-whitelist.txt](.sawyer/exclude-whitelist.txt).
