@@ -123,7 +123,11 @@ export async function commitTranslatedContent(input: {
     outputPath: outputPath.relativePath,
     updatedAt: now,
   });
-  await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
+  try {
+    await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
+  } catch (error) {
+    console.warn("failed to purge completed translation chunks", error);
+  }
   try {
     await input.backupQueue.enqueue({
       contentPaths: [outputPath.relativePath, projectionPath.relativePath],

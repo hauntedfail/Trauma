@@ -711,6 +711,19 @@ async function openUnixWebSocketConnection(
     (payload) => {
       socket.write(encodeClientWebSocketPongFrame(payload));
     },
+    (payload) => {
+      closeWith(
+        new CodexAppServerError(
+          "stream_disconnected",
+          "Codex app-server WebSocket stream closed.",
+        ),
+      );
+      if (!socket.destroyed) {
+        socket.write(encodeClientWebSocketCloseFrame(payload), () => {
+          socket.end();
+        });
+      }
+    },
   );
   const pushFrameData = (chunk: Buffer) => {
     try {
@@ -869,6 +882,10 @@ function encodeClientWebSocketPongFrame(payload: Buffer): Buffer {
   return encodeClientWebSocketFrame(0x0a, payload);
 }
 
+function encodeClientWebSocketCloseFrame(payload: Buffer): Buffer {
+  return encodeClientWebSocketFrame(0x08, payload);
+}
+
 function encodeClientWebSocketFrame(opcode: number, payload: Buffer): Buffer {
   const header: number[] = [0x80 | opcode];
   if (payload.length < 126) {
@@ -897,6 +914,7 @@ class WebSocketFrameDecoder {
   constructor(
     private readonly onText: (text: string) => void,
     private readonly onPing: (payload: Buffer) => void = () => undefined,
+    private readonly onClose: (payload: Buffer) => void = () => undefined,
   ) {}
 
   push(chunk: Buffer): void {
@@ -939,7 +957,9 @@ class WebSocketFrameDecoder {
         continue;
       }
       if (opcode === 0x8) {
-        continue;
+        this.fragmentedText = undefined;
+        this.onClose(Buffer.from(payload));
+        return;
       }
       if (opcode !== 0x1 && opcode !== 0x0) {
         continue;

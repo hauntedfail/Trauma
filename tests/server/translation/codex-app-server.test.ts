@@ -167,6 +167,33 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("rejects pending requests and replies when the app-server sends a WebSocket close frame", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-close-frame-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const controlFrames: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      controlFrames,
+      sendCloseBeforeAccountReadResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "stream_disconnected",
+      });
+      await server.waitForSocketClose();
+      expect(controlFrames).toContain("close:closing");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("falls back to prompt-only turn starts when output schemas are unsupported", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-schema-"));
     tempRoots.push(root);
@@ -906,6 +933,10 @@ async function startFakeAppServer(
           options.controlFrames?.push(`pong:${payload.toString("utf8")}`);
           continue;
         }
+        if (opcode === 0x08) {
+          options.controlFrames?.push(`close:${payload.toString("utf8")}`);
+          continue;
+        }
         if (opcode !== 0x1) {
           continue;
         }
@@ -998,6 +1029,10 @@ function handleClientMessage(
       sendJson(socket, { id, result: {} });
       break;
     case "account/read":
+      if (options.sendCloseBeforeAccountReadResponse === true) {
+        socket.write(encodeServerWebSocketControlFrame(0x08, "closing"));
+        break;
+      }
       if (options.sendPingBeforeAccountReadResponse === true) {
         socket.write(encodeServerWebSocketControlFrame(0x09, "keepalive"));
       }
@@ -1137,6 +1172,7 @@ interface FakeAppServerOptions {
   receivedMessages?: CapturedClientMessage[];
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
+  sendCloseBeforeAccountReadResponse?: boolean;
   sendInterruptedTurnCompletion?: boolean;
   sendPingBeforeAccountReadResponse?: boolean;
   sendMalformedJsonAfterInitialize?: boolean;

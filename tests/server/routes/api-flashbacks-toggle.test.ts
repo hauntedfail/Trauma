@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   parseFlashbackTogglePayload,
   POST,
+  readTranslatedFlashbackContentForOutput,
 } from "../../../src/routes/api/flashbacks";
 import { loadTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase, schema } from "../../../src/server/db";
@@ -256,6 +257,41 @@ describe("flashbacks API route", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("rejects translated flashback content when the file no longer matches the resolved output hash", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root, { backupEnabled: false });
+    const config = loadTraumaConfig({ configPath });
+    const translatedPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await mkdir(dirname(translatedPath.absolutePath), { recursive: true });
+    await writeFile(
+      translatedPath.absolutePath,
+      createMemoryContentFixture({
+        frontmatter: {
+          id: memoryId,
+          url: "https://example.com/flashback",
+          title: "Flashback",
+          capturedAt: now.toISOString(),
+          extractionStatus: "success",
+        },
+        markdown: "更新後の翻訳文",
+      }),
+      "utf8",
+    );
+
+    await expect(
+      readTranslatedFlashbackContentForOutput({
+        contentPath: translatedPath,
+        outputHash: `sha256:${"0".repeat(64)}`,
+      }),
+    ).rejects.toMatchObject({
+      code: "translation_unavailable",
+    });
   });
 });
 

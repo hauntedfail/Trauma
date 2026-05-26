@@ -106,8 +106,11 @@ export async function handleTranslationJobEventsRequest(
       }
 
       const refreshedSnapshot = await readSnapshot({ jobId });
+      if (refreshedSnapshot === null) {
+        close();
+        return;
+      }
       if (
-        refreshedSnapshot !== null &&
         TERMINAL_TRANSLATION_JOB_STATUSES.has(refreshedSnapshot.status)
       ) {
         send(encodeSnapshotServerSentEvent(refreshedSnapshot));

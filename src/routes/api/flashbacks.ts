@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue } from "~/server/backup";
@@ -12,15 +14,17 @@ import {
 } from "~/server/flashbacks/toggle";
 import {
   MemoryContentStoreError,
-  readResolvedMemoryContent,
+  parseMemoryContentFixture,
 } from "~/server/store";
 import type { FlashbackSelectionInput } from "~/server/store/flashback-markers";
 import { resolveCurrentTranslationReadOnly } from "~/server/translation/current-translation";
+import { createSha256ContentHash } from "~/server/translation/hash";
 import {
   isSupportedLanguageCode,
   type SupportedLanguageCode,
 } from "~/server/translation/languages";
 import { resolveTranslatedMemoryContentPath } from "~/server/translation/paths";
+import type { ResolvedTranslatedContentPath } from "~/server/translation/paths";
 
 type FlashbackTogglePayloadResult =
   | {
@@ -105,13 +109,15 @@ async function resolveTranslatedFlashbackVariant(input: {
     );
   }
 
-  const content = await readResolvedMemoryContent(
-    resolveTranslatedMemoryContentPath({
-      config: input.config,
-      langCode: input.langCode,
-      memoryId: input.memoryId,
-    }),
-  );
+  const contentPath = resolveTranslatedMemoryContentPath({
+    config: input.config,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+  });
+  const content = await readTranslatedFlashbackContentForOutputInternal({
+    contentPath,
+    outputHash: current.outputHash,
+  });
 
   return {
     content,
@@ -120,6 +126,42 @@ async function resolveTranslatedFlashbackVariant(input: {
       langCode: input.langCode,
       outputHash: current.outputHash,
     },
+  };
+}
+
+export const readTranslatedFlashbackContentForOutput =
+  readTranslatedFlashbackContentForOutputInternal;
+
+async function readTranslatedFlashbackContentForOutputInternal(input: {
+  contentPath: ResolvedTranslatedContentPath;
+  outputHash: string;
+}) {
+  let contentBytes: Buffer;
+  try {
+    contentBytes = await readFile(input.contentPath.absolutePath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      throw new FlashbackToggleError(
+        "Translated flashback selection is unavailable.",
+        "translation_unavailable",
+      );
+    }
+    throw error;
+  }
+  if (createSha256ContentHash(contentBytes) !== input.outputHash) {
+    throw new FlashbackToggleError(
+      "Translated flashback selection is unavailable.",
+      "translation_unavailable",
+    );
+  }
+  const parsedContent = parseMemoryContentFixture(
+    contentBytes.toString("utf8"),
+    input.contentPath.relativePath,
+    input.contentPath.memoryId,
+  );
+  return {
+    ...input.contentPath,
+    ...parsedContent,
   };
 }
 
@@ -297,6 +339,10 @@ function hasOnlyKeys(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function isFlashbackToggleOperation(

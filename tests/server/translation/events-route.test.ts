@@ -61,6 +61,28 @@ describe("translation job events route", () => {
     await expect(reader!.read()).resolves.toMatchObject({ done: true });
     expect(snapshotReads).toBe(2);
   });
+
+  it("closes the SSE stream when the job disappears after subscribing", async () => {
+    let snapshotReads = 0;
+    const handler = createTranslationJobEventsHandler({
+      heartbeatIntervalMs: 1,
+      readTranslationJobSnapshot: async () => {
+        snapshotReads += 1;
+        return snapshotReads === 1 ? createSnapshot("running") : null;
+      },
+    });
+
+    const response = await handler(createEventsApiEvent("job-deleted"));
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const first = await reader!.read();
+    expect(decode(first.value)).toContain("\"status\":\"running\"");
+
+    await expect(reader!.read()).resolves.toMatchObject({ done: true });
+    expect(snapshotReads).toBe(2);
+  });
 });
 
 function createEventsApiEvent(jobId: string): APIEvent {
