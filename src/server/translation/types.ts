@@ -107,10 +107,36 @@ export type PersistableTranslationErrorCode = Exclude<
   | "cancellation_conflict"
 >;
 
+export interface TranslationValidationDiagnostic {
+  kind:
+    | "markdown_structure"
+    | "protected_span"
+    | "segment_schema"
+    | "segment_length_ratio"
+    | "projection";
+  message: string;
+  chunkIndex?: number;
+  segmentId?: string;
+  blockId?: string;
+  sourceEntry?: {
+    kind: string;
+    valuePreview: string;
+  };
+  translatedEntry?: {
+    kind: string;
+    valuePreview: string;
+  };
+  protectedSpan?: {
+    kind: string;
+    valuePreview: string;
+  };
+}
+
 export interface TranslationJobSnapshotError {
   code: TranslationErrorCode;
   message: string;
   action?: TranslationErrorAction;
+  diagnostics?: TranslationValidationDiagnostic[];
 }
 
 export type TranslationUnavailableReason =
@@ -123,6 +149,7 @@ export interface TranslationPersistedError {
   message: string;
   action?: TranslationErrorAction;
   reason?: TranslationUnavailableReason | string;
+  diagnostics?: TranslationValidationDiagnostic[];
 }
 
 export interface TranslationSourceSnapshot {

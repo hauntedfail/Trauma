@@ -710,6 +710,7 @@ async function translateAndPersistChunk(input: {
   reasoningEffort: CodexReasoningEffort | null;
 }): Promise<{ status: "completed" } | { status: "canceled" }> {
   let attempt = 0;
+  let latestPersistedError: TranslationJobSnapshotError | undefined;
   while (attempt <= BRILLIANT_MAX_RETRIES) {
     if (
       await isCancellationRequested(
@@ -743,6 +744,14 @@ async function translateAndPersistChunk(input: {
     try {
       const prompt = buildTranslationPrompt({
         chunk: input.chunk,
+        ...(attempt > 0 && latestPersistedError !== undefined
+          ? {
+            retryContext: {
+              attempt,
+              previousError: latestPersistedError,
+            },
+          }
+          : {}),
         targetLanguage: input.jobLangCode as SupportedLanguageCode,
       });
       const inFlightTurn: InFlightTranslationTurn = {
@@ -877,6 +886,7 @@ async function translateAndPersistChunk(input: {
       }
       const willRetry = attempt < BRILLIANT_MAX_RETRIES;
       const persistedError = toPersistedError(error);
+      latestPersistedError = persistedError;
       await input.connection.repositories.translations.updateTranslationChunk(
         input.chunk.jobId,
         input.chunk.chunkIndex,
@@ -1155,6 +1165,7 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
       code: "validation_failed",
       message: error.message,
       action: "retry",
+      diagnostics: error.diagnostics,
     };
   }
   if (error instanceof TranslationStitchingError) {
@@ -1177,6 +1188,7 @@ function toPersistableError(error: TranslationJobSnapshotError) {
     code,
     message: error.message,
     action: error.action,
+    diagnostics: error.diagnostics,
   };
 }
 

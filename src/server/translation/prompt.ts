@@ -17,6 +17,8 @@ import type {
   ProtectedSpan,
   TranslationBlock,
   TranslationChunk,
+  TranslationJobSnapshotError,
+  TranslationValidationDiagnostic,
 } from "./types";
 
 export const BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-segments-v1";
@@ -24,6 +26,7 @@ export const BRILLIANT_CHUNKER_VERSION = "chunker-segments-v1";
 
 export function buildTranslationPrompt(input: {
   chunk: TranslationChunk;
+  retryContext?: TranslationRetryContext;
   targetLanguage: SupportedLanguageCode;
 }): string {
   const language = SUPPORTED_TRANSLATION_LANGUAGES.find(
@@ -61,6 +64,7 @@ export function buildTranslationPrompt(input: {
     "Expected segment ids in order:",
     JSON.stringify(input.chunk.segments.map((segment) => segment.id)),
     "",
+    ...buildRetryCorrectionSection(input),
     "Segments to translate. Translate only the text field and return the same ids:",
     JSON.stringify(input.chunk.segments.map((segment) => ({
       id: segment.id,
@@ -75,6 +79,112 @@ export function buildTranslationPrompt(input: {
     "Required JSON output schema:",
     JSON.stringify(createCodexChunkOutputSchema(input.chunk)),
   ].join("\n");
+}
+
+export interface TranslationRetryContext {
+  attempt: number;
+  previousError: TranslationJobSnapshotError;
+}
+
+function buildRetryCorrectionSection(input: {
+  chunk: TranslationChunk;
+  retryContext?: TranslationRetryContext;
+}): string[] {
+  if (input.retryContext === undefined) {
+    return [];
+  }
+
+  return [
+    "Retry correction:",
+    "The previous output was rejected by TRAUMA validation.",
+    "Do not add Markdown syntax inside translated_text unless it exists in the source segment.",
+    "Do not repeat protected code, command flags, identifiers, URLs, file paths, or escaped Markdown punctuation inside translated_text; TRAUMA reinserts protected Markdown around the translated segments.",
+    "When diagnostics include source_entry and translated_entry, preserve the source_entry value exactly in its original protected position and remove the translated_entry value from translated_text.",
+    "Preserve the expected segment ids and translate only prose.",
+    `Retry attempt: ${input.retryContext.attempt}.`,
+    `Previous error code: ${input.retryContext.previousError.code}.`,
+    "Expected segment ids for this retry:",
+    JSON.stringify(input.chunk.segments.map((segment) => segment.id)),
+    "Validation diagnostics:",
+    JSON.stringify(
+      (input.retryContext.previousError.diagnostics ?? []).map(
+        sanitizeValidationDiagnostic,
+      ),
+    ),
+    "",
+  ];
+}
+
+function sanitizeValidationDiagnostic(
+  diagnostic: TranslationValidationDiagnostic,
+) {
+  return {
+    kind: diagnostic.kind,
+    message: previewDiagnosticText(diagnostic.message),
+    ...(diagnostic.chunkIndex === undefined ? {} : { chunk_index: diagnostic.chunkIndex }),
+    ...(diagnostic.segmentId === undefined ? {} : { segment_id: diagnostic.segmentId }),
+    ...(diagnostic.blockId === undefined ? {} : { block_id: diagnostic.blockId }),
+    ...(diagnostic.sourceEntry === undefined
+      ? {}
+      : {
+        source_entry: {
+          kind: diagnostic.sourceEntry.kind,
+          value_preview: previewDiagnosticText(diagnostic.sourceEntry.valuePreview),
+        },
+      }),
+    ...(diagnostic.translatedEntry === undefined
+      ? {}
+      : {
+        translated_entry: {
+          kind: diagnostic.translatedEntry.kind,
+          value_preview: previewDiagnosticText(diagnostic.translatedEntry.valuePreview),
+        },
+      }),
+    ...(diagnostic.protectedSpan === undefined
+      ? {}
+      : {
+        protected_span: {
+          kind: diagnostic.protectedSpan.kind,
+          value_preview: previewDiagnosticText(diagnostic.protectedSpan.valuePreview),
+        },
+      }),
+  };
+}
+
+function previewDiagnosticText(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+function createSegmentSchemaDiagnostic(input: {
+  chunk: TranslationChunk;
+  message: string;
+  segmentId?: string;
+  sourceEntry?: { kind: string; valuePreview: string };
+  translatedEntry?: { kind: string; valuePreview: string };
+}): TranslationValidationDiagnostic {
+  return {
+    kind: "segment_schema",
+    message: previewDiagnosticText(input.message),
+    chunkIndex: input.chunk.chunkIndex,
+    ...(input.segmentId === undefined ? {} : { segmentId: input.segmentId }),
+    ...(input.sourceEntry === undefined
+      ? {}
+      : {
+        sourceEntry: {
+          kind: input.sourceEntry.kind,
+          valuePreview: previewDiagnosticText(input.sourceEntry.valuePreview),
+        },
+      }),
+    ...(input.translatedEntry === undefined
+      ? {}
+      : {
+        translatedEntry: {
+          kind: input.translatedEntry.kind,
+          valuePreview: previewDiagnosticText(input.translatedEntry.valuePreview),
+        },
+      }),
+  };
 }
 
 export function createCodexChunkOutputSchema(chunk: TranslationChunk) {
@@ -120,13 +230,37 @@ export function validateCodexChunkOutput(input: {
     throw new TranslationOutputSchemaError("Codex output chunk_index must be an integer.");
   }
   if (input.output.chunk_index !== input.chunk.chunkIndex) {
-    throw new TranslationOutputValidationError("Codex output chunk_index mismatch.");
+    const message = "Codex output chunk_index mismatch.";
+    throw new TranslationOutputValidationError(message, {
+      diagnostics: [
+        createSegmentSchemaDiagnostic({
+          chunk: input.chunk,
+          message,
+          translatedEntry: {
+            kind: "chunk_index",
+            valuePreview: String(input.output.chunk_index),
+          },
+        }),
+      ],
+    });
   }
   if (!Array.isArray(input.output.segments)) {
     throw new TranslationOutputSchemaError("Codex output segments must be an array.");
   }
   if (input.output.segments.length !== input.chunk.segments.length) {
-    throw new TranslationOutputValidationError("Codex output segment count mismatch.");
+    const message = "Codex output segment count mismatch.";
+    throw new TranslationOutputValidationError(message, {
+      diagnostics: [
+        createSegmentSchemaDiagnostic({
+          chunk: input.chunk,
+          message,
+          translatedEntry: {
+            kind: "segment_count",
+            valuePreview: String(input.output.segments.length),
+          },
+        }),
+      ],
+    });
   }
   if (
     !Array.isArray(input.output.warnings) ||
@@ -142,9 +276,15 @@ export function validateCodexChunkOutput(input: {
     }
     const expectedId = input.chunk.segments[index]?.id;
     if (expectedId === undefined) {
-      throw new TranslationOutputValidationError(
-        `Codex output segment id is missing at ${index}.`,
-      );
+      const message = `Codex output segment id is missing at ${index}.`;
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+          }),
+        ],
+      });
     }
     if (typeof segment.id !== "string") {
       throw new TranslationOutputSchemaError(
@@ -152,15 +292,41 @@ export function validateCodexChunkOutput(input: {
       );
     }
     if (seenSegmentIds.has(segment.id)) {
-      throw new TranslationOutputValidationError(
-        `Codex output segment id is duplicated: ${segment.id}.`,
-      );
+      const message = `Codex output segment id is duplicated: ${segment.id}.`;
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+            segmentId: segment.id,
+            translatedEntry: {
+              kind: "segment_id",
+              valuePreview: segment.id,
+            },
+          }),
+        ],
+      });
     }
     seenSegmentIds.add(segment.id);
     if (segment.id !== expectedId) {
-      throw new TranslationOutputValidationError(
-        `Codex output segment id mismatch at ${index}.`,
-      );
+      const message = `Codex output segment id mismatch at ${index}.`;
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+            segmentId: expectedId,
+            sourceEntry: {
+              kind: "segment_id",
+              valuePreview: expectedId,
+            },
+            translatedEntry: {
+              kind: "segment_id",
+              valuePreview: segment.id,
+            },
+          }),
+        ],
+      });
     }
     if (typeof segment.translated_text !== "string") {
       throw new TranslationOutputSchemaError(
@@ -168,9 +334,24 @@ export function validateCodexChunkOutput(input: {
       );
     }
     if (segment.translated_text.trim() === "") {
-      throw new TranslationOutputValidationError(
-        `Codex output segment ${expectedId} translated_text is empty.`,
-      );
+      const message = `Codex output segment ${expectedId} translated_text is empty.`;
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+            segmentId: expectedId,
+            sourceEntry: {
+              kind: "segment_text",
+              valuePreview: input.chunk.segments[index]?.text ?? "",
+            },
+            translatedEntry: {
+              kind: "translated_text",
+              valuePreview: "(empty)",
+            },
+          }),
+        ],
+      });
     }
     return {
       id: expectedId,
@@ -190,10 +371,12 @@ export function validateCodexChunkOutput(input: {
     })),
   });
   assertMarkdownStructurePreserved({
+    chunkIndex: input.chunk.chunkIndex,
     source: input.chunk.sourceMarkdown,
     translated: translated.translatedMarkdown,
   });
   validateSegmentLengthRatio({
+    chunkIndex: input.chunk.chunkIndex,
     outputSegments: segments,
     sourceSegments: input.chunk.segments,
   });
@@ -583,6 +766,7 @@ function validateChunkLengthRatio(input: {
 }
 
 function validateSegmentLengthRatio(input: {
+  chunkIndex: number;
   sourceSegments: readonly TranslationChunk["segments"][number][];
   outputSegments: readonly CodexChunkOutput["segments"][number][];
 }): void {
@@ -600,9 +784,25 @@ function validateSegmentLengthRatio(input: {
     ratio < DEFAULT_TRANSLATION_CHUNK_CONFIG.minLengthRatio ||
     ratio > DEFAULT_TRANSLATION_CHUNK_CONFIG.maxLengthRatio
   ) {
-    throw new TranslationOutputValidationError(
-      `Codex output length ratio ${ratio.toFixed(2)} is outside the configured range.`,
-    );
+    const message =
+      `Codex output length ratio ${ratio.toFixed(2)} is outside the configured range.`;
+    throw new TranslationOutputValidationError(message, {
+      diagnostics: [
+        {
+          kind: "segment_length_ratio",
+          message,
+          chunkIndex: input.chunkIndex,
+          sourceEntry: {
+            kind: "source_segment_total_length",
+            valuePreview: String(sourceLength),
+          },
+          translatedEntry: {
+            kind: "translated_segment_total_length",
+            valuePreview: String(translatedLength),
+          },
+        },
+      ],
+    });
   }
 }
 

@@ -156,6 +156,13 @@ Cover:
 - invalid-final-output errors preserve their stable code
 - validation-failed errors are reserved for schema-valid semantic validation failures
 - job and chunk errors persist as structured JSON, not raw strings
+- validation-failed job and chunk errors may include safe diagnostics for
+  server-side investigation and retry prompt construction; diagnostics do not
+  include raw prompts, raw Codex responses, source chunks, app-server endpoints,
+  auth state, tokens, or completed translated article bodies
+- validation diagnostics may identify Markdown structure mismatches, segment
+  schema mismatches, empty translated segments, and segment length-ratio
+  failures without exposing raw invalid model output
 - filesystem failure does not corrupt existing translation
 - unavailable completed output does not block a fresh translation
 - stream disconnect does not cancel job

@@ -4,6 +4,7 @@ import {
   assertMarkdownStructurePreserved,
   createMarkdownStructureFingerprint,
 } from "../../../src/server/translation/structure-fingerprint";
+import { TranslationOutputValidationError } from "../../../src/server/translation/errors";
 
 describe("translation structure fingerprint", () => {
   it("treats translated prose as equivalent when Markdown syntax is unchanged", () => {
@@ -42,6 +43,52 @@ describe("translation structure fingerprint", () => {
     expect(fingerprint.entries.some((entry) => entry.kind === "inline_math")).toBe(true);
   });
 
+  it("diagnoses inline code value mutations without exposing full documents", () => {
+    const diagnostics = readValidationDiagnostics({
+      source: "Use `AGENTS.md` before running `bun test`.\n",
+      translated: "使う `agents.md` before running `bun test`.\n",
+      chunkIndex: 3,
+    });
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        chunkIndex: 3,
+        kind: "markdown_structure",
+        message: expect.stringContaining("inline code"),
+        sourceEntry: {
+          kind: "inline_code",
+          valuePreview: "AGENTS.md",
+        },
+        translatedEntry: {
+          kind: "inline_code",
+          valuePreview: "agents.md",
+        },
+      }),
+    ]);
+  });
+
+  it("diagnoses introduced block structure with short entry previews", () => {
+    const diagnostics = readValidationDiagnostics({
+      source: "Read the manual before configuring hooks.\n",
+      translated: "マニュアルを読む。\n\n```sh\namp hooks\n```\n",
+      chunkIndex: 1,
+    });
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        chunkIndex: 1,
+        kind: "markdown_structure",
+        message: expect.stringContaining("Unexpected translated"),
+        translatedEntry: expect.objectContaining({
+          kind: expect.any(String),
+          valuePreview: expect.any(String),
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain("Read the manual");
+    expect(JSON.stringify(diagnostics)).not.toContain("マニュアルを読む");
+  });
+
   it("preserves reference definitions and footnote identifiers", () => {
     expect(() =>
       assertMarkdownStructurePreserved({
@@ -51,3 +98,17 @@ describe("translation structure fingerprint", () => {
     ).not.toThrow();
   });
 });
+
+function readValidationDiagnostics(input: {
+  chunkIndex: number;
+  source: string;
+  translated: string;
+}) {
+  try {
+    assertMarkdownStructurePreserved(input);
+  } catch (error) {
+    expect(error).toBeInstanceOf(TranslationOutputValidationError);
+    return (error as TranslationOutputValidationError).diagnostics;
+  }
+  throw new Error("expected structure validation to fail");
+}

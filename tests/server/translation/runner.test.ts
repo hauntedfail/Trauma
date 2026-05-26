@@ -542,6 +542,156 @@ describe("translation runner", () => {
     expect(client.callCount).toBe(1);
   });
 
+  it("feeds validation diagnostics into the next chunk retry prompt", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      "# Brilliant Source\n\nRead [docs](https://example.com/docs) and `AGENTS.md`.",
+    );
+    await createMemoryRow(config);
+    const client = new ValidationRetryTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000014",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.inputs).toHaveLength(2);
+    expect(client.inputs[0]?.prompt).not.toContain("Retry correction:");
+    expect(client.inputs[1]?.prompt).toContain("Retry correction:");
+    expect(client.inputs[1]?.prompt).toContain("markdown_structure");
+    expect(client.inputs[1]?.prompt).toContain("AGENTS.md");
+    expect(client.inputs[1]?.prompt).toContain("agents.md");
+    expect(client.inputs[1]?.prompt).not.toContain("RAW_FAILED_TRANSLATED_OUTPUT");
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("retries and commits a code-heavy chunk after structural validation feedback", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      [
+        "# Skill MCP Setup",
+        "",
+        "| Item | Command | Notes |",
+        "| --- | --- | --- |",
+        "| Agent file | `AGENTS.md` | Keep `$HOME/.codex` unchanged. |",
+        "| Server | `mcp-server` | Run `bun --bun x vitest run`. |",
+        "",
+        "- Keep inline atoms such as `tool_search`, `context7`, and `node_repl` exact.",
+        "- Do not translate shell variables like `$HOME` when they appear as code.",
+        "",
+        "```json",
+        "{",
+        "  \"server\": \"context7\",",
+        "  \"transport\": \"stdio\"",
+        "}",
+        "```",
+        "",
+        "```yaml",
+        "---",
+        "name: reader-translate",
+        "tools:",
+        "  - mcp",
+        "---",
+        "```",
+        "",
+        "Use `AGENTS.md` before editing prompt validation rules.",
+      ].join("\n"),
+    );
+    await createMemoryRow(config);
+    const client = new CodeHeavyValidationRetryTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000015",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.inputs).toHaveLength(2);
+    expect(client.inputs[0]?.prompt).not.toContain("Retry correction:");
+    expect(client.inputs[1]?.prompt).toContain("Retry correction:");
+    expect(client.inputs[1]?.prompt).toContain("markdown_structure");
+    expect(client.inputs[1]?.prompt).toContain("AGENTS.md");
+    expect(client.inputs[1]?.prompt).toContain("agents.md");
+    expect(client.inputs[1]?.prompt).not.toContain("RAW_FAILED_TRANSLATED_OUTPUT");
+
+    const output = await readFile(
+      join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+      "utf8",
+    );
+    expect(output).toContain("| 翻訳済み Item | 翻訳済み Command | 翻訳済み Notes |");
+    expect(output).toContain("| 翻訳済み Agent file | `AGENTS.md` |");
+    expect(output).toContain("`$HOME/.codex`");
+    expect(output).toContain("`bun --bun x vitest run`");
+    expect(output).toContain("```json\n{\n  \"server\": \"context7\"");
+    expect(output).toContain("```yaml\n---\nname: reader-translate");
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("feeds empty segment diagnostics into the next retry prompt", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      "# Brilliant Source\n\nTranslate this paragraph without dropping any prose.",
+    );
+    await createMemoryRow(config);
+    const client = new EmptySegmentRetryTranslationClient();
+
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000016",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.inputs).toHaveLength(2);
+    expect(client.inputs[1]?.prompt).toContain("Retry correction:");
+    expect(client.inputs[1]?.prompt).toContain("segment_schema");
+    expect(client.inputs[1]?.prompt).toContain("s000001");
+    expect(client.inputs[1]?.prompt).toContain("translated_text is empty");
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("closes a translation client when the scheduled run owns it", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -1101,6 +1251,86 @@ class FailThenCancelTranslationClient implements TranslationClient {
           "Brilliant Source",
           "再試行された翻訳見出し",
         ).replaceAll("Body.", "再試行された翻訳本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class ValidationRetryTranslationClient implements TranslationClient {
+  readonly inputs: TranslateChunkInput[] = [];
+  private callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    this.inputs.push(input);
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: this.translateSegment(segment.text),
+      })),
+      warnings: [],
+    };
+  }
+
+  private translateSegment(text: string): string {
+    if (this.callCount === 1 && text === "Read ") {
+      return "読む `agents.md`";
+    }
+    return text
+      .replaceAll("Brilliant Source", "華麗なソース")
+      .replaceAll("Read ", "読む ")
+      .replaceAll("docs", "資料")
+      .replaceAll(" and ", " と ");
+  }
+}
+
+class CodeHeavyValidationRetryTranslationClient implements TranslationClient {
+  readonly inputs: TranslateChunkInput[] = [];
+  private callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    this.inputs.push(input);
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment, index) => ({
+        id: segment.id,
+        translated_text: this.translateSegment(segment.text, index),
+      })),
+      warnings: [],
+    };
+  }
+
+  private translateSegment(text: string, index: number): string {
+    if (this.callCount === 1 && index === 0) {
+      return `${text} \`agents.md\``;
+    }
+    return `翻訳済み ${text}`;
+  }
+}
+
+class EmptySegmentRetryTranslationClient implements TranslationClient {
+  readonly inputs: TranslateChunkInput[] = [];
+  private callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    this.inputs.push(input);
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment, index) => ({
+        id: segment.id,
+        translated_text: this.callCount === 1 && index === 0
+          ? "   "
+          : `翻訳済み ${segment.text}`,
       })),
       warnings: [],
     };

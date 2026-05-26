@@ -3,6 +3,7 @@ import { visitParents } from "unist-util-visit-parents";
 
 import { parseTranslationMarkdownAst } from "./markdown-parser";
 import { TranslationOutputValidationError } from "./errors";
+import type { TranslationValidationDiagnostic } from "./types";
 
 export interface MarkdownStructureFingerprint {
   entries: MarkdownStructureFingerprintEntry[];
@@ -142,6 +143,7 @@ export function createMarkdownStructureFingerprint(
 }
 
 export function assertMarkdownStructurePreserved(input: {
+  chunkIndex?: number;
   source: string;
   translated: string;
 }): void {
@@ -155,19 +157,111 @@ export function assertMarkdownStructurePreserved(input: {
     if (sourceEntry === undefined || translatedEntry === undefined) {
       throw new TranslationOutputValidationError(
         "Codex output changed Markdown structure entry count.",
+        {
+          diagnostics: [
+            createMarkdownStructureDiagnostic({
+              chunkIndex: input.chunkIndex,
+              index,
+              message: "Codex output changed Markdown structure entry count.",
+              sourceEntry,
+              translatedEntry,
+            }),
+          ],
+        },
       );
     }
     if (sourceEntry.kind !== translatedEntry.kind) {
       throw new TranslationOutputValidationError(
         `Codex output changed ${formatFingerprintKind(sourceEntry.kind)} structure.`,
+        {
+          diagnostics: [
+            createMarkdownStructureDiagnostic({
+              chunkIndex: input.chunkIndex,
+              index,
+              message: `Codex output changed ${formatFingerprintKind(sourceEntry.kind)} structure.`,
+              sourceEntry,
+              translatedEntry,
+            }),
+          ],
+        },
       );
     }
     if (sourceEntry.value !== translatedEntry.value) {
       throw new TranslationOutputValidationError(
         `Codex output changed ${formatFingerprintKind(sourceEntry.kind)}.`,
+        {
+          diagnostics: [
+            createMarkdownStructureDiagnostic({
+              chunkIndex: input.chunkIndex,
+              index,
+              message: `Codex output changed ${formatFingerprintKind(sourceEntry.kind)}.`,
+              sourceEntry,
+              translatedEntry,
+            }),
+          ],
+        },
       );
     }
   }
+}
+
+function createMarkdownStructureDiagnostic(input: {
+  chunkIndex?: number;
+  index: number;
+  message: string;
+  sourceEntry: MarkdownStructureFingerprintEntry | undefined;
+  translatedEntry: MarkdownStructureFingerprintEntry | undefined;
+}): TranslationValidationDiagnostic {
+  const detail = formatDiagnosticEntryDetail(input.sourceEntry, input.translatedEntry);
+  return {
+    kind: "markdown_structure",
+    message: `${input.message} Fingerprint index ${input.index}.${detail}`,
+    ...(input.chunkIndex === undefined ? {} : { chunkIndex: input.chunkIndex }),
+    ...(input.sourceEntry === undefined
+      ? {}
+      : {
+        sourceEntry: {
+          kind: input.sourceEntry.kind,
+          valuePreview: previewFingerprintValue(input.sourceEntry.value),
+        },
+      }),
+    ...(input.translatedEntry === undefined
+      ? {}
+      : {
+        translatedEntry: {
+          kind: input.translatedEntry.kind,
+          valuePreview: previewFingerprintValue(input.translatedEntry.value),
+        },
+      }),
+  };
+}
+
+function formatDiagnosticEntryDetail(
+  sourceEntry: MarkdownStructureFingerprintEntry | undefined,
+  translatedEntry: MarkdownStructureFingerprintEntry | undefined,
+): string {
+  if (sourceEntry === undefined && translatedEntry === undefined) {
+    return "";
+  }
+  if (sourceEntry === undefined && translatedEntry !== undefined) {
+    return ` Unexpected translated ${formatFingerprintKind(translatedEntry.kind)} entry.`;
+  }
+  if (sourceEntry !== undefined && translatedEntry === undefined) {
+    return ` Missing translated ${formatFingerprintKind(sourceEntry.kind)} entry.`;
+  }
+  if (
+    sourceEntry !== undefined &&
+    translatedEntry !== undefined &&
+    sourceEntry.kind !== translatedEntry.kind
+  ) {
+    return ` Expected ${formatFingerprintKind(sourceEntry.kind)} but found ${formatFingerprintKind(translatedEntry.kind)}.`;
+  }
+  return "";
+}
+
+function previewFingerprintValue(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
 function readTableShape(node: FingerprintNode): string {

@@ -7,6 +7,7 @@ import {
   stringifyCodexChunkOutput,
   validateCodexChunkOutput,
 } from "../../../src/server/translation/prompt";
+import { TranslationOutputValidationError } from "../../../src/server/translation/errors";
 import type {
   TranslationChunk,
   TranslationSourceSnapshot,
@@ -26,10 +27,58 @@ describe("Brilliant translation prompt and validation", () => {
     expect(prompt).toContain("Return translated text segments only");
     expect(prompt).toContain("<source_chunk_untrusted>");
     expect(prompt).toContain("</source_chunk_untrusted>");
+    expect(prompt).not.toContain("Retry correction:");
     expect(prompt).toContain('"chunk_index":0');
     expect(prompt).toContain('"s000001"');
     expect(prompt).toContain("\"segments\"");
     expect(prompt).not.toContain("\"translated_markdown\"");
+  });
+
+  it("adds safe validation diagnostics to retry prompts without raw failed output", () => {
+    const chunk = createPromptChunk("Read [docs](https://example.com/docs) and `AGENTS.md`.\n");
+    const prompt = buildTranslationPrompt({
+      chunk,
+      targetLanguage: "ja-JP",
+      retryContext: {
+        attempt: 1,
+        previousError: {
+          code: "validation_failed",
+          message: "Codex output changed inline code. RAW_FAILED_TRANSLATED_OUTPUT",
+          action: "retry",
+          diagnostics: [
+            {
+              kind: "markdown_structure",
+              message: "Codex output changed inline code.",
+              chunkIndex: 0,
+              segmentId: "s000002",
+              blockId: "b000001",
+              sourceEntry: {
+                kind: "inline_code",
+                valuePreview: "AGENTS.md",
+              },
+              translatedEntry: {
+                kind: "inline_code",
+                valuePreview: "agents.md",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(prompt).toContain("Retry correction:");
+    expect(prompt).toContain("previous output was rejected");
+    expect(prompt).toContain("Expected segment ids for this retry:");
+    expect(prompt).toContain("Do not repeat protected code");
+    expect(prompt).toContain("remove the translated_entry value");
+    expect(prompt).toContain("\"s000001\"");
+    expect(prompt).toContain("\"s000002\"");
+    expect(prompt).toContain("markdown_structure");
+    expect(prompt).toContain("s000002");
+    expect(prompt).toContain("b000001");
+    expect(prompt).toContain("AGENTS.md");
+    expect(prompt).toContain("agents.md");
+    expect(prompt).not.toContain("RAW_FAILED_TRANSLATED_OUTPUT");
   });
 
   it("validates segment output and reassembles source Markdown syntax", () => {
@@ -108,6 +157,32 @@ describe("Brilliant translation prompt and validation", () => {
     ).toThrow(/empty/);
   });
 
+  it("includes diagnostics when validation rejects an empty segment translation", () => {
+    const chunk = createPromptChunk("One two three.\n");
+
+    try {
+      validateCodexChunkOutput({
+        chunk,
+        output: {
+          chunk_index: 0,
+          segments: [{ id: "s000001", translated_text: "   " }],
+          warnings: [],
+        },
+      });
+      throw new Error("Expected validation to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).diagnostics).toEqual([
+        expect.objectContaining({
+          chunkIndex: 0,
+          kind: "segment_schema",
+          message: expect.stringContaining("translated_text is empty"),
+          segmentId: "s000001",
+        }),
+      ]);
+    }
+  });
+
   it("allows legitimate translated labels that can look like summary words", () => {
     const chunk = createPromptChunk("###### Abstract\n");
 
@@ -145,6 +220,30 @@ describe("Brilliant translation prompt and validation", () => {
         },
       })
     ).toThrow(/length ratio/);
+
+    try {
+      validateCodexChunkOutput({
+        chunk,
+        output: {
+          chunk_index: 0,
+          segments: chunk.segments.map((segment) => ({
+            id: segment.id,
+            translated_text: "省略",
+          })),
+          warnings: [],
+        },
+      });
+      throw new Error("Expected validation to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).diagnostics).toEqual([
+        expect.objectContaining({
+          chunkIndex: 0,
+          kind: "segment_length_ratio",
+          message: expect.stringContaining("length ratio"),
+        }),
+      ]);
+    }
   });
 
   it("rejects translated segments that introduce Markdown structure", () => {
@@ -160,6 +259,31 @@ describe("Brilliant translation prompt and validation", () => {
         },
       })
     ).toThrow(/inline code|structure/);
+  });
+
+  it("includes diagnostics when validation rejects introduced Markdown structure", () => {
+    const chunk = createPromptChunk("Read docs and code.\n");
+
+    try {
+      validateCodexChunkOutput({
+        chunk,
+        output: {
+          chunk_index: 0,
+          segments: [{ id: "s000001", translated_text: "読む `code`" }],
+          warnings: [],
+        },
+      });
+      throw new Error("expected validation to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).diagnostics).toEqual([
+        expect.objectContaining({
+          chunkIndex: 0,
+          kind: "markdown_structure",
+          message: expect.stringContaining("inline code"),
+        }),
+      ]);
+    }
   });
 
   it("preserves autolinks and inline HTML while translating surrounding prose", () => {

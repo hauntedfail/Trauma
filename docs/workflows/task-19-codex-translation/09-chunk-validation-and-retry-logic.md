@@ -51,6 +51,16 @@ Error code boundary:
   but semantic validation fails.
 - Store chunk validation failures in `translation_chunks.error` as structured
   `TranslationPersistedError` JSON.
+- Validation failures may include a `diagnostics` array containing safe,
+  Reader-generated metadata such as diagnostic kind, chunk index, segment id,
+  block id, and short expected/actual fingerprint previews. Diagnostics must
+  not contain raw prompts, raw Codex responses, full source chunks, app-server
+  endpoints, auth state, tokens, or completed translated article bodies.
+- Initial diagnostic kinds are `markdown_structure`, `segment_schema`, and
+  `segment_length_ratio`. Future validators may use `protected_span` and
+  `projection` for the same safe metadata envelope.
+- The existing `translation_jobs.error` and `translation_chunks.error` JSON
+  fields carry diagnostics; no attempt-log table or migration is introduced.
 
 ## Retry contract
 
@@ -61,6 +71,15 @@ Error code boundary:
 - Runner recovery must not increment `retry_count` when it only normalizes orphaned `running` or `validating` chunks to `retrying`; the next normal retry attempt owns the increment.
 - Include structured validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original segment ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
+- Retry prompts must not reuse the previous raw model response. The prompt may
+  include the previous error code and sanitized diagnostics, then restates the
+  expected segment ids for the fresh attempt.
+- When diagnostics show a `source_entry` and `translated_entry`, the retry
+  prompt instructs Codex to preserve the source entry in the original protected
+  position and remove the translated entry value from `translated_text`.
+- Retry prompts explicitly tell Codex not to repeat protected code, command
+  flags, identifiers, URLs, file paths, or escaped Markdown punctuation inside
+  `translated_text`, because TRAUMA reinserts protected Markdown locally.
 - Use `BRILLIANT_MAX_RETRIES = 3` from the shared types/settings contract for Brilliant MVP.
 - `BRILLIANT_MAX_RETRIES` is the number of retry attempts after the initial attempt, so total attempts are `1 + BRILLIANT_MAX_RETRIES`.
 - The initial attempt starts with `retry_count = 0`; increment `retry_count` before each retry attempt starts, and never from recovery-only normalization.

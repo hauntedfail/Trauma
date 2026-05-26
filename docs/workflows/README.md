@@ -29,6 +29,7 @@ architecture, reference, quality, or operations docs.
 | 19U | [Codex translation segment reassembly](task-19-codex-translation-segment-reassembly.md) | Split parser-backed segment extraction, deterministic Markdown reassembly, validation, runtime integration, docs, and E2E verification into domain subtasks | Draft |
 | 19V | [Translated reader annotation projection](task-19-codex-translation-reader-projections.md) | Superseded for Flashbacks by Task 19W; retain only as historical projection planning context until a new Moment/alignment workflow is approved | Superseded for Flashbacks |
 | 19W | [Variant-local translated Flashbacks](task-19-codex-translation-variant-local-flashbacks.md) | Store source and translated Flashbacks independently while keeping global Flashback browse/search surfaces unified | Implemented |
+| 19X | [Translation validation feedback repair](task-19-codex-translation-validation-feedback-repair.md) | Add structured validation diagnostics and retry feedback for code-heavy translation failures without relaxing preservation guarantees | In progress |
 
 ## Archived Workflows
 

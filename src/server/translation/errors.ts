@@ -1,3 +1,5 @@
+import type { TranslationValidationDiagnostic } from "./types";
+
 export class TranslationOutputSchemaError extends Error {
   constructor(message: string) {
     super(message);
@@ -6,8 +8,14 @@ export class TranslationOutputSchemaError extends Error {
 }
 
 export class TranslationOutputValidationError extends Error {
-  constructor(message: string) {
+  readonly diagnostics: TranslationValidationDiagnostic[] | undefined;
+
+  constructor(
+    message: string,
+    options: { diagnostics?: TranslationValidationDiagnostic[] } = {},
+  ) {
     super(message);
     this.name = "TranslationOutputValidationError";
+    this.diagnostics = options.diagnostics;
   }
 }

@@ -261,9 +261,11 @@ The generated prompt must contain these sections in order:
 5. Completeness rules: never summarize, never omit, never collapse repeated content, and never replace a segment with placeholder text.
 6. Metadata JSON: chunk metadata from `TranslationChunk` excluding secrets.
 7. Expected segment ids in order.
-8. Segment source text list.
-9. Source chunk inside explicit delimiters.
-10. Required JSON output schema.
+8. Retry correction, only for retry attempts, containing the previous stable
+   error code, expected segment ids, and sanitized validation diagnostics.
+9. Segment source text list.
+10. Source chunk inside explicit delimiters.
+11. Required JSON output schema.
 
 ## Output schema
 
@@ -318,6 +320,14 @@ Error code boundary:
   corrupted Markdown/HTML/math structure, or length-ratio checks.
 - Persist chunk failures as structured `TranslationPersistedError` JSON in
   `translation_chunks.error`.
+- `TranslationPersistedError` may include optional `diagnostics` entries.
+  Diagnostics are safe validation metadata only: diagnostic kind, safe message,
+  chunk index, segment id, block id, and short expected/actual fingerprint or
+  protected-span previews. They are not raw failed model output or an attempt
+  log.
+- The initial diagnostic kinds are `markdown_structure`, `segment_schema`, and
+  `segment_length_ratio`. The shared envelope also permits `protected_span` and
+  `projection` for validators that are introduced later.
 
 ## Retry behavior
 
@@ -329,4 +339,14 @@ Error code boundary:
 - Increment `retry_count` before each retry attempt.
 - On validation retry, include validation failures in the retry prompt.
 - Retry prompts include only Reader-generated structured validation failure summaries and original segment ids, not raw invalid model output beyond the minimal safe excerpts needed for validation diagnostics.
+- The retry prompt starts a fresh thread and includes a compact retry-correction
+  section before the source chunk. That section must include the previous error
+  code, sanitized diagnostics when present, and the expected segment ids.
+- Retry correction must instruct Codex not to repeat protected code, command
+  flags, identifiers, URLs, file paths, or escaped Markdown punctuation inside
+  `translated_text`.
+- When diagnostics contain both `source_entry` and `translated_entry`, retry
+  correction must direct Codex to preserve the source entry exactly in its
+  original protected position and remove the translated entry value from
+  `translated_text`.
 - When retry exhaustion would require `retry_count > maxRetries`, mark chunk and job failed.
