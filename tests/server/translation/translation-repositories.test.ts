@@ -302,7 +302,219 @@ describe("translation repositories", () => {
       connection.close();
     }
   });
+
+  it("round-trips safe translation validation diagnostics in chunk errors", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+      await createTranslationJobWithChunk(connection, "job-diagnostics");
+
+      await connection.repositories.translations.updateTranslationChunk(
+        "job-diagnostics",
+        0,
+        {
+          status: "failed",
+          retryCount: 1,
+          error: {
+            code: "validation_failed",
+            message: "Codex output changed inline code.",
+            action: "retry",
+            diagnostics: [
+              {
+                kind: "markdown_structure",
+                message: "Codex output changed inline code.",
+                chunkIndex: 0,
+                segmentId: "s000001",
+                blockId: "b000001",
+                sourceEntry: {
+                  kind: "inline_code",
+                  valuePreview: "AGENTS.md",
+                },
+                translatedEntry: {
+                  kind: "inline_code",
+                  valuePreview: "agents.md",
+                },
+              },
+            ],
+          },
+          updatedAt: later,
+        },
+      );
+
+      await expect(
+        connection.repositories.translations.getTranslationChunks("job-diagnostics"),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          error: expect.objectContaining({
+            diagnostics: [
+              expect.objectContaining({
+                kind: "markdown_structure",
+                sourceEntry: {
+                  kind: "inline_code",
+                  valuePreview: "AGENTS.md",
+                },
+              }),
+            ],
+          }),
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rejects malformed persisted translation diagnostics", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+      await createTranslationJobWithChunk(connection, "job-bad-diagnostics");
+
+      await connection.repositories.translations.updateTranslationChunk(
+        "job-bad-diagnostics",
+        0,
+        {
+          status: "failed",
+          error: {
+            code: "validation_failed",
+            message: "bad diagnostics",
+            action: "retry",
+            diagnostics: "not-an-array",
+          } as never,
+          updatedAt: later,
+        },
+      );
+
+      await expect(
+        connection.repositories.translations.getTranslationChunks(
+          "job-bad-diagnostics",
+        ),
+      ).rejects.toThrow(/Invalid persisted translation error/);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rejects persisted translation diagnostics with unexpected keys", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+      await createTranslationJobWithChunk(connection, "job-extra-diagnostic");
+
+      await connection.repositories.translations.updateTranslationChunk(
+        "job-extra-diagnostic",
+        0,
+        {
+          status: "failed",
+          error: {
+            code: "validation_failed",
+            message: "diagnostic contains unsafe extra data",
+            action: "retry",
+            diagnostics: [
+              {
+                kind: "markdown_structure",
+                message: "Codex output changed inline code.",
+                chunkIndex: 0,
+                rawPrompt: "do not return this",
+              },
+            ],
+          } as never,
+          updatedAt: later,
+        },
+      );
+
+      await expect(
+        connection.repositories.translations.getTranslationChunks(
+          "job-extra-diagnostic",
+        ),
+      ).rejects.toThrow(/Invalid persisted translation error/);
+
+      await createTranslationJobWithChunk(connection, "job-extra-entry");
+      await connection.repositories.translations.updateTranslationChunk(
+        "job-extra-entry",
+        0,
+        {
+          status: "failed",
+          error: {
+            code: "validation_failed",
+            message: "diagnostic entry contains unsafe extra data",
+            action: "retry",
+            diagnostics: [
+              {
+                kind: "markdown_structure",
+                message: "Codex output changed inline code.",
+                chunkIndex: 0,
+                sourceEntry: {
+                  kind: "inline_code",
+                  valuePreview: "AGENTS.md",
+                  rawSource: "do not return this",
+                },
+              },
+            ],
+          } as never,
+          updatedAt: later,
+        },
+      );
+
+      await expect(
+        connection.repositories.translations.getTranslationChunks(
+          "job-extra-entry",
+        ),
+      ).rejects.toThrow(/Invalid persisted translation error/);
+    } finally {
+      connection.close();
+    }
+  });
 });
+
+async function createMemoryRow(
+  connection: ReturnType<typeof initializeDatabase>,
+): Promise<void> {
+  await connection.repositories.memories.create({
+    id: memoryId,
+    url: "https://example.com/brilliant",
+    title: "Brilliant Source",
+    description: null,
+    faviconUrl: null,
+    contentPath: `memories/${memoryId}/CONTENT.md`,
+    extractionStatus: "success",
+    extractionError: null,
+    backupStatus: "disabled",
+    lastBackupAt: null,
+    lastBackupError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function createTranslationJobWithChunk(
+  connection: ReturnType<typeof initializeDatabase>,
+  jobId: string,
+): Promise<void> {
+  await connection.repositories.translations.createTranslationJob({
+    jobId,
+    memoryId,
+    langCode: "ja-JP",
+    sourceHash: `sha256:${jobId}`,
+    model: null,
+    reasoningEffort: null,
+    promptPolicyVersion: "brilliant-v1",
+    chunkerVersion: "chunker-v1",
+    chunkCount: 1,
+    now,
+  });
+  await connection.repositories.translations.insertTranslationChunks(jobId, [
+    {
+      chunkIndex: 0,
+      sourceChunkHash: `sha256:${jobId}-chunk`,
+      blockIds: ["b000001"],
+      status: "pending",
+      now,
+    },
+  ]);
+}
 
 function createProjectionSpan(input: {
   blockId: string;

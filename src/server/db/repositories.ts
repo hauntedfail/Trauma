@@ -21,6 +21,7 @@ import {
   type TranslationPersistedError,
   type TranslationProjectionSpan,
   type TranslationUnavailableReason,
+  type TranslationValidationDiagnostic,
 } from "../translation/types";
 import * as schema from "./schema";
 
@@ -1663,8 +1664,88 @@ function isTranslationPersistedError(
     typeof record.code === "string" &&
     typeof record.message === "string" &&
     (record.action === undefined || typeof record.action === "string") &&
-    (record.reason === undefined || typeof record.reason === "string")
+    (record.reason === undefined || typeof record.reason === "string") &&
+    (
+      record.diagnostics === undefined ||
+      (
+        Array.isArray(record.diagnostics) &&
+        record.diagnostics.every(isTranslationValidationDiagnostic)
+      )
+    )
   );
+}
+
+function isTranslationValidationDiagnostic(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(record, TRANSLATION_VALIDATION_DIAGNOSTIC_KEYS) &&
+    isTranslationValidationDiagnosticKind(record.kind) &&
+    typeof record.message === "string" &&
+    isSafeDiagnosticText(record.message) &&
+    (record.chunkIndex === undefined || Number.isSafeInteger(record.chunkIndex)) &&
+    (record.segmentId === undefined || typeof record.segmentId === "string") &&
+    (record.blockId === undefined || typeof record.blockId === "string") &&
+    isOptionalDiagnosticEntry(record.sourceEntry) &&
+    isOptionalDiagnosticEntry(record.translatedEntry) &&
+    isOptionalDiagnosticEntry(record.protectedSpan)
+  );
+}
+
+function isOptionalDiagnosticEntry(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(record, TRANSLATION_DIAGNOSTIC_ENTRY_KEYS) &&
+    typeof record.kind === "string" &&
+    isSafeDiagnosticText(record.kind) &&
+    typeof record.valuePreview === "string" &&
+    isSafeDiagnosticText(record.valuePreview)
+  );
+}
+
+function isSafeDiagnosticText(value: string): boolean {
+  return value.length <= 512 && !/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(value);
+}
+
+const TRANSLATION_VALIDATION_DIAGNOSTIC_KEYS = new Set([
+  "kind",
+  "message",
+  "chunkIndex",
+  "segmentId",
+  "blockId",
+  "sourceEntry",
+  "translatedEntry",
+  "protectedSpan",
+]);
+
+const TRANSLATION_DIAGNOSTIC_ENTRY_KEYS = new Set([
+  "kind",
+  "valuePreview",
+]);
+
+function hasOnlyKeys(
+  record: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): boolean {
+  return Object.keys(record).every((key) => allowedKeys.has(key));
+}
+
+function isTranslationValidationDiagnosticKind(
+  value: unknown,
+): value is TranslationValidationDiagnostic["kind"] {
+  return value === "markdown_structure" ||
+    value === "protected_span" ||
+    value === "segment_schema" ||
+    value === "segment_length_ratio" ||
+    value === "projection";
 }
 
 function createEmptyTranslationChunkCounts(): Record<TranslationChunkStatus, number> {
