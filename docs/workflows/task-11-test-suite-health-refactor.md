@@ -10,11 +10,11 @@ collection of feature tests.
 - [Verification strategy](../quality/verification.md)
 - [Review feedback policy](../references/coding-standards/review-feedback-policy.md)
 - [Coding standards](../references/coding-standards/INDEX.md)
-- [Task 10](task-10-runtime-dev-server-stabilization.md)
+- [Task 10](archive/task-10-runtime-dev-server-stabilization.md)
 
-This task consumes the startup contract produced by Task 10. It must not modify
-Task 10 workflow text, Task 10 runtime code, or the startup smoke implementation
-unless the Task 10 PR has already merged and exposed a broken public command.
+This task consumes the startup contract produced by archived Task 10. It must
+not modify Task 10 workflow history, runtime command code, or the startup smoke
+implementation unless the current public command has demonstrably regressed.
 
 ## Ownership
 
@@ -65,8 +65,8 @@ files in this task. Treat them as external inputs.
 4. Add deterministic startup coverage.
    - Integrate the Task 10 smoke check into local verification or CI.
    - Ensure the test fails when the app exits before serving a route.
-   - If Task 10 has not merged, document the pending integration instead of
-     reimplementing startup smoke here.
+   - If the current Task 10 smoke command no longer reflects the public startup
+     contract, document the mismatch before touching runtime command code.
 
 5. Normalize scripts.
    - Keep `bun run verify` as the baseline code verification command.

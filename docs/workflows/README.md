@@ -16,28 +16,36 @@ architecture, reference, quality, or operations docs.
 | Order | Workflow | Domain | Status |
 | --- | --- | --- | --- |
 | 9 | [E2E integration hardening](task-09-e2e-integration-hardening.md) | Deterministic fixtures and full flow Playwright coverage | Available for further hardening |
-| 10 | [Runtime dev server stabilization](task-10-runtime-dev-server-stabilization.md) | `bun run dev` crash, deterministic host/port contract, startup smoke | Merged baseline |
-| 11 | [Test suite health refactor](task-11-test-suite-health-refactor.md) | Test boundaries, weak assertions, startup coverage, script normalization | Ready after Task 10 |
-| 12 | [GitHub Actions and docs health](task-12-github-actions-and-docs-health.md) | CI trigger split, docs health checks, scheduled docs maintenance workflow | Ready after Task 11 |
-| 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | Ready after Task 10 |
-| 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | Ready after Task 13 |
-| 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | Ready after Tasks 10-14 |
-| 19 | [Codex translation for memories](task-19-codex-translation.md) | ChatGPT sign-in through Codex, translation target settings, Codex-backed memory translation, and translated CONTENT.md variants | Ready |
-| 19R | [Codex app-server auth repair](task-19-codex-translation-auth-repair.md) | Repair Task 19 device-code completion, app-server auth interpretation, Settings refresh, and translation auth preflight | Draft |
-| 19S | [Codex app-server protocol repair](task-19-codex-translation-protocol-repair.md) | Repair Task 19 stable app-server request schema, protocol error taxonomy, API mapping, and reader error copy | Draft |
-| 19T | [Codex translation model controls](task-19-codex-translation-model-controls.md) | Add Settings defaults and reader confirmation popup for Codex translation model, reasoning effort, and language | Draft |
-| 19U | [Codex translation segment reassembly](task-19-codex-translation-segment-reassembly.md) | Split parser-backed segment extraction, deterministic Markdown reassembly, validation, runtime integration, docs, and E2E verification into domain subtasks | Draft |
-| 19V | [Translated reader annotation projection](task-19-codex-translation-reader-projections.md) | Superseded for Flashbacks by Task 19W; retain only as historical projection planning context until a new Moment/alignment workflow is approved | Superseded for Flashbacks |
-| 19W | [Variant-local translated Flashbacks](task-19-codex-translation-variant-local-flashbacks.md) | Store source and translated Flashbacks independently while keeping global Flashback browse/search surfaces unified | Implemented |
-| 19X | [Translation validation feedback repair](task-19-codex-translation-validation-feedback-repair.md) | Add structured validation diagnostics and retry feedback for code-heavy translation failures without relaxing preservation guarantees | In progress |
+| 11 | [Test suite health refactor](task-11-test-suite-health-refactor.md) | Test boundaries, weak assertions, startup coverage, script normalization | TODO after archived Task 10 baseline |
+| 12 | [GitHub Actions and docs health](task-12-github-actions-and-docs-health.md) | CI trigger split, docs health checks, scheduled docs maintenance workflow | TODO after Task 11 |
+| 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
+| 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
+| 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
+
+## Current Audit Notes
+
+- Task 10 was stale in the active task map because its startup contract is
+  already part of the merged baseline through `dev`, `start`, `preview`, and
+  `dev:smoke`; the execution plan is now archived.
+- Task 19 and its repair/follow-up plans are archived as historical Brilliant
+  execution records. Current translation behaviour is represented by the code,
+  architecture/reference docs, and tests, not active workflow plans.
+- Tasks 11-15 remain active TODO plans after checking the current tree. In
+  particular, `scripts/check-docs-health.ts`, `docs:check`,
+  `.github/workflows/docs-health.yml`, `docs/references/reader-pipeline-decision.md`,
+  and the Task 14 split reader modules are not present on `main`.
 
 ## Archived Workflows
 
-`docs/workflows/archive/` is intentionally retained only as a tracked
-placeholder. Completed workflow records, one-off review captures, branch
-history, and implementation diaries should not accumulate here. If a completed
-task reveals a durable rule, move that rule into the owning semantic document
-instead of preserving the old execution plan.
+`docs/workflows/archive/` contains historical execution plans that are no
+longer active work. Do not start implementation from archived files. If an
+archived task reveals a durable rule, move that rule into the owning semantic
+document instead of reviving the old execution plan.
+
+| Workflow | Archived Location | Reason |
+| --- | --- | --- |
+| Task 10: Runtime dev server stabilization | [archive/task-10-runtime-dev-server-stabilization.md](archive/task-10-runtime-dev-server-stabilization.md) | Startup contract is merged into the shared baseline. |
+| Task 19: Brilliant Codex translation family | [archive/task-19-codex-translation.md](archive/task-19-codex-translation.md) | Translation implementation and follow-up repair plans have landed or been superseded. |
 
 ## Worker Rules
 

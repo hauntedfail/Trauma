@@ -1,5 +1,9 @@
 # Brilliant: Codex app-server translation for memories
 
+> Archived execution plan. The Brilliant translation work has landed or been
+> superseded; use current code, architecture/reference docs, and tests for
+> active implementation decisions.
+
 ## Status
 
 - Implementation source of truth: this parent file is an overview only. Implementation workers must start from `docs/workflows/task-19-codex-translation/README.md`, then `00-execution-contracts.md`, then the focused contracts listed for their assigned subtask.

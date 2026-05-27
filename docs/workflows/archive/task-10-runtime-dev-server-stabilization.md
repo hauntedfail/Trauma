@@ -1,5 +1,9 @@
 # Task 10: Runtime Dev Server Stabilization Workflow
 
+> Archived execution plan. The startup contract described here has landed on
+> `main`; use current package scripts, operations docs, and tests for active
+> implementation decisions.
+
 ## Goal
 
 Make local development startup reliable. `bun run dev` must start the app
@@ -7,10 +11,10 @@ without exit code 1 on a clean checkout with the pinned toolchain.
 
 ## Required Context
 
-- [Technology stack](../references/technology-stack.md)
-- [Local/self-hosting operation](../operations/local-self-hosting.md)
-- [Verification strategy](../quality/verification.md)
-- [Coding standards](../references/coding-standards/INDEX.md)
+- [Technology stack](../../references/technology-stack.md)
+- [Local/self-hosting operation](../../operations/local-self-hosting.md)
+- [Verification strategy](../../quality/verification.md)
+- [Coding standards](../../references/coding-standards/INDEX.md)
 
 ## Current Failure To Reproduce
 

@@ -23,16 +23,16 @@ translation.
 
 ## Required Context
 
-- [Documentation index](../INDEX.md)
+- [Documentation index](../../INDEX.md)
 - [Task 19 overview](task-19-codex-translation.md)
 - [Task 19 app-server integration](task-19-codex-translation/05-codex-app-server-integration.md)
 - [Task 19 frontend translation controls and progress UI](task-19-codex-translation/12-frontend-translation-controls-and-progress-ui.md)
 - [Task 19 error handling and cancellation](task-19-codex-translation/15-error-handling-and-cancellation.md)
 - [Task 19 test plan and fixtures](task-19-codex-translation/16-test-plan-and-fixtures.md)
-- [Configuration reference](../references/configuration.md)
-- [Design system reference](../references/design-system/DESIGN.md)
-- [Verification strategy](../quality/verification.md)
-- [Coding standards](../references/coding-standards/INDEX.md)
+- [Configuration reference](../../references/configuration.md)
+- [Design system reference](../../references/design-system/DESIGN.md)
+- [Verification strategy](../../quality/verification.md)
+- [Coding standards](../../references/coding-standards/INDEX.md)
 
 ## Current Behavior To Replace
 
