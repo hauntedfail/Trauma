@@ -21,6 +21,7 @@ architecture, reference, quality, or operations docs.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
+| 21 | [Popover and translation UI fixes](task-21-popover-and-translation-ui-fixes/README.md) | Unified translucent popovers, reader translation cancellation, and translation UI integration checks | Ready on `fix/anything` from `fix/perform` |
 
 ## Current Audit Notes
 
@@ -34,6 +35,11 @@ architecture, reference, quality, or operations docs.
   particular, `scripts/check-docs-health.ts`, `docs:check`,
   `.github/workflows/docs-health.yml`, `docs/references/reader-pipeline-decision.md`,
   and the Task 14 split reader modules are not present on `main`.
+- Task 21 is a focused UI and integration repair workflow for the
+  `fix/anything` branch. It does not reopen archived Task 19 translation
+  architecture; it only changes reader translation popover behaviour, shared
+  popover chrome, and integration verification around the existing translation
+  APIs.
 
 ## Archived Workflows
 
@@ -112,3 +118,4 @@ Use concise branch names that match the workflow:
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
 - `feat/brilliant`
+- `fix/anything`
