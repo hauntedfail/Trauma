@@ -32,6 +32,14 @@ describe("loadReaderMemory", () => {
     expect(source).toContain("sourceSnapshot: input.sourceSnapshot");
   });
 
+  it("loads reader translation variants from one memory-scoped job query", () => {
+    const source = readFileSync("src/server/reader/page-data.ts", "utf8");
+
+    expect(source).toContain("listCompleteTranslationRecordsForMemory");
+    expect(source).toContain("resolveCompleteTranslationRecordReadOnly");
+    expect(source).toContain("translationsByLanguage");
+  });
+
   it("loads memory metadata, CONTENT.md, rendered HTML, and table of contents", () => {
     const result = runReaderFixture({
       targetMemoryId: MEMORY_ID,

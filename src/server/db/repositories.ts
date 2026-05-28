@@ -32,7 +32,7 @@ type Tag = typeof schema.tags.$inferSelect;
 type Category = typeof schema.categories.$inferSelect;
 type Moment = typeof schema.moments.$inferSelect;
 type NewMoment = typeof schema.moments.$inferInsert;
-type Flashback = typeof schema.flashbacks.$inferSelect;
+export type Flashback = typeof schema.flashbacks.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 type TranslationJob = typeof schema.translationJobs.$inferSelect;
@@ -51,11 +51,36 @@ type MemoryBackupRetryRow = Pick<
   Memory,
   "id" | "contentPath" | "backupStatus" | "updatedAt"
 >;
-export type ReaderMemoryAggregateRow = Memory & {
-  moments: Moment[];
-  flashbacks: Flashback[];
-  memoryCategories: { category: Category }[];
-  memoryTags: { tag: Tag }[];
+type ReaderMemoryRow = Pick<
+  Memory,
+  | "id"
+  | "url"
+  | "title"
+  | "description"
+  | "faviconUrl"
+  | "extractionStatus"
+  | "contentPath"
+  | "read"
+  | "createdAt"
+  | "updatedAt"
+>;
+type ReaderMomentRow = Pick<
+  Moment,
+  | "id"
+  | "sectionAnchor"
+  | "sectionTitle"
+  | "sectionLevel"
+  | "sectionPath"
+  | "sectionStartOffset"
+  | "sectionEndOffset"
+  | "contentHash"
+  | "createdAt"
+>;
+type TaxonomyLabelRow = Pick<Tag | Category, "id" | "name">;
+export type ReaderMemoryAggregateRow = ReaderMemoryRow & {
+  moments: ReaderMomentRow[];
+  memoryCategories: { category: TaxonomyLabelRow }[];
+  memoryTags: { tag: TaxonomyLabelRow }[];
 };
 
 export interface MemoryBrowseRow {
@@ -649,18 +674,51 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }),
       findReaderAggregateById: async (id) =>
         db.query.memories.findFirst({
+          columns: {
+            id: true,
+            url: true,
+            title: true,
+            description: true,
+            faviconUrl: true,
+            extractionStatus: true,
+            contentPath: true,
+            read: true,
+            createdAt: true,
+            updatedAt: true,
+          },
           where: eq(schema.memories.id, id),
           with: {
-            moments: true,
-            flashbacks: true,
+            moments: {
+              columns: {
+                id: true,
+                sectionAnchor: true,
+                sectionTitle: true,
+                sectionLevel: true,
+                sectionPath: true,
+                sectionStartOffset: true,
+                sectionEndOffset: true,
+                contentHash: true,
+                createdAt: true,
+              },
+            },
             memoryCategories: {
               with: {
-                category: true,
+                category: {
+                  columns: {
+                    id: true,
+                    name: true,
+                  },
+                },
               },
             },
             memoryTags: {
               with: {
-                tag: true,
+                tag: {
+                  columns: {
+                    id: true,
+                    name: true,
+                  },
+                },
               },
             },
           },
@@ -759,19 +817,51 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         }),
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({
+          columns: {
+            id: true,
+            title: true,
+            url: true,
+            description: true,
+            createdAt: true,
+            read: true,
+            extractionStatus: true,
+          },
           orderBy: [desc(schema.memories.createdAt)],
           with: {
             flashbacks: {
+              columns: {
+                id: true,
+                variantKind: true,
+                langCode: true,
+                translationOutputHash: true,
+                text: true,
+                prefix: true,
+                suffix: true,
+                startOffset: true,
+                endOffset: true,
+                contentHash: true,
+                createdAt: true,
+              },
               orderBy: [desc(schema.flashbacks.createdAt)],
             },
             memoryCategories: {
               with: {
-                category: true,
+                category: {
+                  columns: {
+                    id: true,
+                    name: true,
+                  },
+                },
               },
             },
             memoryTags: {
               with: {
-                tag: true,
+                tag: {
+                  columns: {
+                    id: true,
+                    name: true,
+                  },
+                },
               },
             },
           },

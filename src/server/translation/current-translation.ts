@@ -57,25 +57,49 @@ export async function resolveCurrentTranslationReadOnly(input: {
       sourceHash: source.sourceHash,
     };
   }
+
+  return resolveCompleteTranslationRecordReadOnly({
+    config: input.config,
+    job,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    sourceSnapshot: source,
+  });
+}
+
+export async function resolveCompleteTranslationRecordReadOnly(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+  job: TranslationJobRecord;
+  sourceSnapshot: TranslationSourceSnapshot;
+}): Promise<CurrentTranslationResult> {
+  if (input.job.sourceHash !== input.sourceSnapshot.sourceHash) {
+    return {
+      status: "missing",
+      sourceHash: input.sourceSnapshot.sourceHash,
+    };
+  }
+
   if (
-    job.promptPolicyVersion !== BRILLIANT_PROMPT_POLICY_VERSION ||
-    job.chunkerVersion !== BRILLIANT_CHUNKER_VERSION
+    input.job.promptPolicyVersion !== BRILLIANT_PROMPT_POLICY_VERSION ||
+    input.job.chunkerVersion !== BRILLIANT_CHUNKER_VERSION
   ) {
     return {
       status: "unavailable",
-      job,
+      job: input.job,
       reason: "policy_version_mismatch",
-      sourceHash: source.sourceHash,
+      sourceHash: input.sourceSnapshot.sourceHash,
     };
   }
 
   const expectedPath = resolveTranslatedMemoryContentPath(input);
-  if (job.outputPath !== expectedPath.relativePath) {
+  if (input.job.outputPath !== expectedPath.relativePath) {
     return {
       status: "unavailable",
-      job,
+      job: input.job,
       reason: "output_missing",
-      sourceHash: source.sourceHash,
+      sourceHash: input.sourceSnapshot.sourceHash,
     };
   }
 
@@ -88,29 +112,29 @@ export async function resolveCurrentTranslationReadOnly(input: {
     }
     return {
       status: "unavailable",
-      job,
+      job: input.job,
       reason: "output_missing",
-      sourceHash: source.sourceHash,
+      sourceHash: input.sourceSnapshot.sourceHash,
     };
   }
 
   const outputHash = createSha256ContentHash(bytes);
-  if (outputHash !== job.outputHash) {
+  if (outputHash !== input.job.outputHash) {
     return {
       status: "unavailable",
-      job,
+      job: input.job,
       reason: "output_hash_mismatch",
-      sourceHash: source.sourceHash,
+      sourceHash: input.sourceSnapshot.sourceHash,
     };
   }
 
   return {
     status: "current",
-    job,
+    job: input.job,
     outputHash,
     outputPath: expectedPath.relativePath,
     readerUrl: createTranslatedReaderUrl(input),
-    sourceHash: source.sourceHash,
+    sourceHash: input.sourceSnapshot.sourceHash,
   };
 }
 

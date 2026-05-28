@@ -12,6 +12,7 @@ import { createMemoryContentFixture } from "../../../src/server/store";
 import { MemoryContentStoreError } from "../../../src/server/store";
 import {
   repairUnavailableTranslation,
+  resolveCompleteTranslationRecordReadOnly,
   resolveCurrentTranslationReadOnly,
 } from "../../../src/server/translation/current-translation";
 import {
@@ -125,6 +126,24 @@ describe("translation source and current output", () => {
         outputPath: `memories/${memoryId}/ja-JP/CONTENT.md`,
         readerUrl: `/memories/ja-JP/${memoryId}`,
         status: "current",
+      });
+      const completeJob =
+        await connection.repositories.translations.getTranslationJob("job-current");
+      expect(completeJob).not.toBeNull();
+      expect(
+        await resolveCompleteTranslationRecordReadOnly({
+          config,
+          job: completeJob!,
+          langCode: "ja-JP",
+          memoryId,
+          sourceSnapshot: {
+            ...source,
+            sourceHash: "sha256:stale-source",
+          },
+        }),
+      ).toEqual({
+        status: "missing",
+        sourceHash: "sha256:stale-source",
       });
 
       await expect(

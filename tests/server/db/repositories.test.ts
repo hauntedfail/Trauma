@@ -852,6 +852,48 @@ describe("memory and taxonomy repositories", () => {
     );
   });
 
+  it("keeps reader aggregates scoped to metadata and active-variant relations", () => {
+    const aggregateStart = repositorySource.indexOf(
+      "findReaderAggregateById: async",
+    );
+    const aggregateEnd = repositorySource.indexOf(
+      "create: async (input)",
+      aggregateStart,
+    );
+    expect(aggregateStart).toBeGreaterThanOrEqual(0);
+    expect(aggregateEnd).toBeGreaterThan(aggregateStart);
+
+    const aggregateSource = repositorySource.slice(aggregateStart, aggregateEnd);
+    expect(aggregateSource).toContain("columns: {");
+    expect(aggregateSource).toContain("moments: {");
+    expect(aggregateSource).toContain("memoryCategories: {");
+    expect(aggregateSource).toContain("memoryTags: {");
+    expect(aggregateSource).not.toContain("flashbacks:");
+    expect(aggregateSource).not.toContain("backupStatus:");
+    expect(aggregateSource).not.toContain("extractionError:");
+  });
+
+  it("selects only browse-list columns for memory rows and nested labels", () => {
+    const browseStart = repositorySource.indexOf(
+      "const rows = await db.query.memories.findMany",
+    );
+    const browseEnd = repositorySource.indexOf(
+      "return rows.map((memory)",
+      browseStart,
+    );
+    expect(browseStart).toBeGreaterThanOrEqual(0);
+    expect(browseEnd).toBeGreaterThan(browseStart);
+
+    const browseSource = repositorySource.slice(browseStart, browseEnd);
+    expect(browseSource).toContain("extractionStatus: true");
+    expect(browseSource).toContain("flashbacks: {");
+    expect(browseSource).toContain("category: {");
+    expect(browseSource).toContain("tag: {");
+    expect(browseSource).not.toContain("contentPath:");
+    expect(browseSource).not.toContain("backupStatus:");
+    expect(browseSource).not.toContain("lastBackupError:");
+  });
+
   it("deletes memory rows while preserving global taxonomy records", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(
