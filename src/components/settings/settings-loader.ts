@@ -18,5 +18,8 @@ export const getReaderTranslationSettingsState = query(async () => {
 }, "reader-translation-settings-state");
 
 export function revalidateSettingsState() {
-  return revalidate(getSettingsState.key);
+  return Promise.all([
+    revalidate(getSettingsState.key),
+    revalidate(getReaderTranslationSettingsState.key),
+  ]).then(() => undefined);
 }

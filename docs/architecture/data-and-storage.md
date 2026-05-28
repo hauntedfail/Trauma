@@ -51,6 +51,7 @@ Runtime tables:
 - `translation_projection_spans`
 - `backup_environment_stamps`
 - `backup_failsafe_alerts`
+- `app_settings`
 
 `memories` stores URL metadata, content path, extraction status, backup status,
 and timestamps.
@@ -72,6 +73,11 @@ config against this stamp before accepting new writes.
 one exists. Alert kinds distinguish path drift, missing backup repository,
 remote push failure, and backup content inconsistency so the UI can offer only
 the recovery actions that are safe for that condition.
+
+`app_settings` stores singleton local application preferences. Translation
+defaults such as `translation_target_language`, `codex_translation_model`, and
+`codex_translation_reasoning_effort` are current UI/settings state used to seed
+future translation forms. They are not historical job records.
 
 ## Flashback Model
 
@@ -159,6 +165,9 @@ Translated content is stored beside the source memory:
 ```
 
 `translation_jobs` is the current/history table for translation attempts.
+Each row stores the resolved `model` and `reasoning_effort` used for that
+attempt, so later settings changes do not rewrite the model or effort that a
+queued, running, completed, or failed job actually used.
 `translation_chunks` may temporarily hold translated chunk Markdown while a job
 is running, but completed chunk bodies and temporary projection JSON are purged
 after final commit.

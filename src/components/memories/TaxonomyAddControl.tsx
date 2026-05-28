@@ -36,7 +36,7 @@ export interface TaxonomyAddControlProps {
 const addTaxonomyPillClass =
   "inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary";
 const selectorPanelClass =
-  "w-[min(300px,calc(100vw-2rem))] text-trauma-text-primary";
+  "w-[min(300px,calc(100vw-2rem))] p-2 text-trauma-text-primary";
 const selectorListClass =
   "flex max-h-[min(40vh,18rem)] flex-wrap items-center gap-x-1.5 gap-y-1.5 overflow-y-auto overscroll-contain p-1";
 const optionClass =

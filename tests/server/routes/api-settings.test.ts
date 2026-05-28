@@ -184,6 +184,54 @@ describe("settings API routes", () => {
     });
   });
 
+  it("persists normalized Codex translation defaults through the settings route", async () => {
+    await useTempRouteConfig();
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "model-id",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+
+    const first = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        model: "model-id",
+        reasoning_effort: "high",
+      }),
+    );
+    const second = await handler(
+      jsonEvent("/api/settings/translation-codex-defaults", "PATCH", {
+        reasoning_effort: "medium",
+      }),
+    );
+    const settings = await readSettings(apiEvent("/api/settings", "GET"));
+
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+    expect(second.status).toBe(200);
+    await expect(second.json()).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "medium",
+    });
+    expect(settings.status).toBe(200);
+    await expect(settings.json()).resolves.toMatchObject({
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "medium",
+    });
+  });
+
   it("preserves omitted Codex translation default fields in PATCH payloads", async () => {
     const updates: unknown[] = [];
     const handler = createUpdateCodexTranslationDefaultsHandler({

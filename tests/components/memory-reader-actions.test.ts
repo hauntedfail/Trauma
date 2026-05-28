@@ -401,9 +401,47 @@ describe("memory reader actions", () => {
     expect(html).toContain("Translate memory to ja-JP");
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain(">Translate<");
-    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
+    expect(memoryReaderSource).toContain(
+      "setTranslationDialogOpen(open)",
+    );
     expect(memoryReaderSource).toContain("translationFormModel");
     expect(memoryReaderSource).toContain("reasoning_effort");
+  });
+
+  it("uses the shared Popup shell for reader translation settings", () => {
+    expect(memoryReaderSource).toContain('import { Popup } from "../ui/Popup"');
+    expect(memoryReaderSource).toContain("<Popup");
+    expect(memoryReaderSource).toContain(
+      'label="Translation settings"',
+    );
+    expect(memoryReaderSource).toContain(
+      "onOpenChange={handleTranslationPopoverOpenChange}",
+    );
+    expect(memoryReaderSource).toContain("onSubmit={submitTranslationDialog(close)}");
+    expect(memoryReaderSource).not.toContain(
+      'class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"',
+    );
+  });
+
+  it("keeps remembered model values selectable and the submit button primary", () => {
+    expect(memoryReaderSource).toContain("canonicalTranslationModel");
+    expect(memoryReaderSource).toContain(
+      "!translationCatalogModels().some((model) =>",
+    );
+    expect(memoryReaderSource).toContain(
+      "model.model === translationFormModel()",
+    );
+    expect(memoryReaderSource).toContain(
+      "selected={translationFormModel() === model.model}",
+    );
+    expect(memoryReaderSource).toContain(
+      "selected={translationFormEffort() === effort}",
+    );
+    expect(memoryReaderSource).toContain("setTranslationProgress(undefined)");
+    expect(memoryReaderSource).toContain("bg-trauma-accent");
+    expect(memoryReaderSource).toContain("text-trauma-accent-ink");
+    expect(memoryReaderSource).toContain("hover:bg-trauma-accent-hover");
+    expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
   });
 
   it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
@@ -478,6 +516,21 @@ describe("memory reader actions", () => {
     );
     expect(memoryReaderRouteSource).toContain(
       "categoryOptions={taxonomy()?.categories ?? []}",
+    );
+  });
+
+  it("passes persisted reader translation settings from the route loader", () => {
+    expect(memoryReaderRouteSource).toContain(
+      "getReaderTranslationSettingsState",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationModel={settings()?.codexTranslationModel}",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationReasoningEffort={settings()?.codexTranslationReasoningEffort}",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationTargetLanguage={settings()?.translationTargetLanguage}",
     );
   });
 });

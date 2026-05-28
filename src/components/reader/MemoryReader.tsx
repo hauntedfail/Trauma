@@ -7,6 +7,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type JSX,
 } from "solid-js";
 
@@ -58,6 +59,7 @@ import {
 } from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
+import { Popup } from "../ui/Popup";
 import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
@@ -80,6 +82,7 @@ import {
   ScrollableUrlLink,
 } from "../url/ScrollableUrlText";
 import { submitReadCodexModels } from "../settings/settings-submit";
+import { revalidateSettingsState } from "../settings/settings-loader";
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -232,15 +235,23 @@ function ReadyMemoryReader(props: {
   const [translationProgress, setTranslationProgress] =
     createSignal<TranslationProgressState>();
   const [translationDialogOpen, setTranslationDialogOpen] = createSignal(false);
+  const [translationDefaultLanguage, setTranslationDefaultLanguage] =
+    createSignal<SupportedLanguageCode | "">(props.translationTargetLanguage ?? "");
+  const [translationDefaultModel, setTranslationDefaultModel] = createSignal(
+    props.translationModel ?? "",
+  );
+  const [translationDefaultEffort, setTranslationDefaultEffort] = createSignal<
+    CodexReasoningEffort | ""
+  >(props.translationReasoningEffort ?? "");
   const [translationFormLanguage, setTranslationFormLanguage] = createSignal<
     SupportedLanguageCode | ""
-  >(props.translationTargetLanguage ?? "");
+  >(translationDefaultLanguage());
   const [translationFormModel, setTranslationFormModel] = createSignal(
-    props.translationModel ?? "",
+    translationDefaultModel(),
   );
   const [translationFormEffort, setTranslationFormEffort] = createSignal<
     CodexReasoningEffort | ""
-  >(props.translationReasoningEffort ?? "");
+  >(translationDefaultEffort());
   const [translationCatalogModels, setTranslationCatalogModels] = createSignal<
     CodexModelCatalog["models"]
   >([]);
@@ -254,11 +265,22 @@ function ReadyMemoryReader(props: {
     closeSelectionMenu();
     closeSectionMenu();
   };
+  const resetTranslationFormToDefaults = () => {
+    setTranslationFormLanguage(translationDefaultLanguage());
+    setTranslationFormModel(translationDefaultModel());
+    setTranslationFormEffort(translationDefaultEffort());
+  };
   createEffect(() => {
-    if (!translationDialogOpen()) {
-      setTranslationFormLanguage(props.translationTargetLanguage ?? "");
-      setTranslationFormModel(props.translationModel ?? "");
-      setTranslationFormEffort(props.translationReasoningEffort ?? "");
+    const nextLanguage = props.translationTargetLanguage ?? "";
+    const nextModel = props.translationModel ?? "";
+    const nextEffort = props.translationReasoningEffort ?? "";
+    setTranslationDefaultLanguage(nextLanguage);
+    setTranslationDefaultModel(nextModel);
+    setTranslationDefaultEffort(nextEffort);
+    if (!untrack(translationDialogOpen)) {
+      setTranslationFormLanguage(nextLanguage);
+      setTranslationFormModel(nextModel);
+      setTranslationFormEffort(nextEffort);
     }
   });
   createEffect(() => {
@@ -483,6 +505,14 @@ function ReadyMemoryReader(props: {
       model.model === current || model.id === current
     );
   });
+  const canonicalTranslationModel = () => {
+    const current = translationFormModel();
+    if (current === "") {
+      return null;
+    }
+
+    return selectedTranslationModel()?.model ?? current;
+  };
   const translationReasoningEfforts = createMemo(() => {
     const selected = selectedTranslationModel();
     if (selected !== undefined) {
@@ -504,14 +534,14 @@ function ReadyMemoryReader(props: {
       );
     }
   };
-  const openTranslationDialog = (): void => {
-    if (!canStartTranslation()) {
+  const handleTranslationPopoverOpenChange = (open: boolean): void => {
+    setTranslationDialogOpen(open);
+    if (!open) {
+      resetTranslationFormToDefaults();
       return;
     }
-    setTranslationFormLanguage(props.translationTargetLanguage ?? "");
-    setTranslationFormModel(props.translationModel ?? "");
-    setTranslationFormEffort(props.translationReasoningEffort ?? "");
-    setTranslationDialogOpen(true);
+
+    resetTranslationFormToDefaults();
     if (translationCatalogModels().length === 0) {
       void refreshTranslationCatalog();
     }
@@ -577,9 +607,9 @@ function ReadyMemoryReader(props: {
       });
     };
   };
-  const submitTranslationDialog: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
-    event,
-  ) => {
+  const submitTranslationDialog = (
+    close: () => void,
+  ): JSX.EventHandler<HTMLFormElement, SubmitEvent> => (event) => {
     event.preventDefault();
     const langCode = translationFormLanguage();
     if (langCode === "") {
@@ -587,14 +617,16 @@ function ReadyMemoryReader(props: {
     }
     const selectedEffort = translationFormEffort();
     void startTranslation({
+      close,
       langCode,
-      model: translationFormModel() === "" ? null : translationFormModel(),
+      model: canonicalTranslationModel(),
       reasoningEffort: selectedEffort === ""
         ? null
         : selectedEffort,
     });
   };
   const startTranslation = async (input: {
+    close: () => void;
     langCode: SupportedLanguageCode;
     model: string | null;
     reasoningEffort: CodexReasoningEffort | null;
@@ -619,8 +651,13 @@ function ReadyMemoryReader(props: {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
+      setTranslationDefaultLanguage(input.langCode);
+      setTranslationDefaultModel(input.model ?? "");
+      setTranslationDefaultEffort(input.reasoningEffort ?? "");
+      void revalidateSettingsState();
       if (result.status === "current") {
-        setTranslationDialogOpen(false);
+        setTranslationProgress(undefined);
+        input.close();
         navigate(result.reader_url);
         return;
       }
@@ -634,7 +671,7 @@ function ReadyMemoryReader(props: {
         preview: "",
         status: "running",
       });
-      setTranslationDialogOpen(false);
+      input.close();
       connectTranslationProgress(result.event_url, result.job_id);
     } catch (error) {
       setTranslationProgress({
@@ -879,131 +916,164 @@ function ReadyMemoryReader(props: {
               </Show>
               <Show when={canStartTranslation()}>
                 <div class="relative flex shrink-0 justify-end" data-reader-noncontent>
-                  <button
-                    aria-expanded={translationDialogOpen() ? "true" : "false"}
-                    aria-haspopup="dialog"
-                    aria-label={`Translate memory to ${props.translationTargetLanguage}`}
-                    class="group grid h-10 w-10 grid-cols-[2.5rem_minmax(0,1fr)] items-center overflow-hidden rounded-full text-trauma-text-muted transition-[width,background-color,color] duration-200 hover:w-32 hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
+                  <Popup
                     disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
-                    title={`Translate to ${props.translationTargetLanguage}`}
-                    type="button"
-                    onClick={openTranslationDialog}
-                  >
-                    <span class="grid size-10 place-items-center">
-                      <CodexIcon size={18} />
-                    </span>
-                    <span class="whitespace-nowrap pr-4 text-sm font-extrabold opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      Translate
-                    </span>
-                  </button>
-                  <Show when={translationDialogOpen()}>
-                    <form
-                      class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"
-                      role="dialog"
-                      aria-label="Translation settings"
-                      onSubmit={submitTranslationDialog}
-                    >
-                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                        Language
-                        <select
-                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                          value={translationFormLanguage()}
-                          onChange={(event) =>
-                            setTranslationFormLanguage(
-                              event.currentTarget.value as SupportedLanguageCode,
-                            )
-                          }
-                        >
-                          {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
-                            <option value={option.code}>
-                              {option.label} ({option.code})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                        Model
-                        <select
-                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                          value={translationFormModel()}
-                          onChange={(event) =>
-                            setTranslationFormModel(event.currentTarget.value)
-                          }
-                        >
-                          <option value="">Codex app-server default</option>
-                          <Show
-                            when={
-                              translationFormModel() !== "" &&
-                              !translationCatalogModels().some((model) =>
-                                model.id === translationFormModel() ||
-                                model.model === translationFormModel()
-                              )
-                            }
-                          >
-                            <option value={translationFormModel()}>
-                              {translationFormModel()}
-                            </option>
-                          </Show>
-                          {translationCatalogModels().map((model) => (
-                            <option value={model.model}>
-                              {model.displayName} ({model.model})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                        Reasoning effort
-                        <select
-                          class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                          value={translationFormEffort()}
-                          onChange={(event) =>
-                            setTranslationFormEffort(
-                              event.currentTarget.value as CodexReasoningEffort | "",
-                            )
-                          }
-                        >
-                          <option value="">Selected model default</option>
-                          <Show
-                            when={
-                              translationFormEffort() !== "" &&
-                              !translationReasoningEfforts().includes(
-                                translationFormEffort() as CodexReasoningEffort,
-                              )
-                            }
-                          >
-                            <option value={translationFormEffort()}>
-                              {translationFormEffort()}
-                            </option>
-                          </Show>
-                          {translationReasoningEfforts().map((effort) => (
-                            <option value={effort}>{effort}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <Show when={translationCatalogError()}>
-                        {(value) => (
-                          <p class="mb-0 text-xs font-bold text-trauma-text-muted">
-                            {value()}
-                          </p>
-                        )}
-                      </Show>
-                      <div class="flex justify-end gap-2">
-                        <button
-                          class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
-                          type="button"
-                          onClick={() => setTranslationDialogOpen(false)}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent/50 px-3 text-sm font-extrabold text-trauma-accent-ink"
-                          type="submit"
-                        >
+                    id={`memory-${props.result.memory.id}-translation-settings`}
+                    label="Translation settings"
+                    mode="dialog"
+                    panelClass="grid w-[min(18rem,calc(100vw-2rem))] gap-3 p-3 text-left"
+                    placement="bottom-end"
+                    onOpenChange={handleTranslationPopoverOpenChange}
+                    trigger={({ triggerProps }) => (
+                      <button
+                        {...triggerProps}
+                        aria-label={`Translate memory to ${props.translationTargetLanguage}`}
+                        class="group grid h-10 w-10 grid-cols-[2.5rem_minmax(0,1fr)] items-center overflow-hidden rounded-full text-trauma-text-muted transition-[width,background-color,color] duration-200 hover:w-32 hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
+                        title={`Translate to ${props.translationTargetLanguage}`}
+                        type="button"
+                      >
+                        <span class="grid size-10 place-items-center">
+                          <CodexIcon size={18} />
+                        </span>
+                        <span class="whitespace-nowrap pr-4 text-sm font-extrabold opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                           Translate
-                        </button>
-                      </div>
-                    </form>
-                  </Show>
+                        </span>
+                      </button>
+                    )}
+                  >
+                    {({ close }) => (
+                      <form class="grid gap-3" onSubmit={submitTranslationDialog(close)}>
+                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                          Language
+                          <select
+                            aria-label="Language"
+                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            value={translationFormLanguage()}
+                            onChange={(event) =>
+                              setTranslationFormLanguage(
+                                event.currentTarget.value as SupportedLanguageCode,
+                              )
+                            }
+                          >
+                            {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
+                              <option
+                                selected={translationFormLanguage() === option.code}
+                                value={option.code}
+                              >
+                                {option.label} ({option.code})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                          Model
+                          <select
+                            aria-label="Model"
+                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            value={translationFormModel()}
+                            onChange={(event) =>
+                              setTranslationFormModel(event.currentTarget.value)
+                            }
+                          >
+                            <option
+                              selected={translationFormModel() === ""}
+                              value=""
+                            >
+                              Codex app-server default
+                            </option>
+                            <Show
+                              when={
+                                translationFormModel() !== "" &&
+                                !translationCatalogModels().some((model) =>
+                                  model.model === translationFormModel()
+                                )
+                              }
+                            >
+                              <option
+                                selected
+                                value={translationFormModel()}
+                              >
+                                {translationFormModel()}
+                              </option>
+                            </Show>
+                            {translationCatalogModels().map((model) => (
+                              <option
+                                selected={translationFormModel() === model.model}
+                                value={model.model}
+                              >
+                                {model.displayName} ({model.model})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                          Reasoning effort
+                          <select
+                            aria-label="Reasoning effort"
+                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            value={translationFormEffort()}
+                            onChange={(event) =>
+                              setTranslationFormEffort(
+                                event.currentTarget.value as CodexReasoningEffort | "",
+                              )
+                            }
+                          >
+                            <option
+                              selected={translationFormEffort() === ""}
+                              value=""
+                            >
+                              Selected model default
+                            </option>
+                            <Show
+                              when={
+                                translationFormEffort() !== "" &&
+                                !translationReasoningEfforts().includes(
+                                  translationFormEffort() as CodexReasoningEffort,
+                                )
+                              }
+                            >
+                              <option
+                                selected
+                                value={translationFormEffort()}
+                              >
+                                {translationFormEffort()}
+                              </option>
+                            </Show>
+                            {translationReasoningEfforts().map((effort) => (
+                              <option
+                                selected={translationFormEffort() === effort}
+                                value={effort}
+                              >
+                                {effort}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <Show when={translationCatalogError()}>
+                          {(value) => (
+                            <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                              {value()}
+                            </p>
+                          )}
+                        </Show>
+                        <div class="flex justify-end gap-2">
+                          <button
+                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                            type="button"
+                            onClick={close}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
+                            type="submit"
+                          >
+                            Translate
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </Popup>
                 </div>
               </Show>
             </div>

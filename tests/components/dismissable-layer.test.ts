@@ -10,6 +10,11 @@ const taxonomyInlineCreateSource = readFileSync(
   "src/components/memories/TaxonomyInlineCreateControl.tsx",
   "utf8",
 );
+const popupSource = readFileSync("src/components/ui/Popup.tsx", "utf8");
+const memoryReaderSource = readFileSync(
+  "src/components/reader/MemoryReader.tsx",
+  "utf8",
+);
 
 describe("dismissable popup layers", () => {
   it("suppresses the next outside click only after primary outside pointer dismissal", () => {
@@ -45,5 +50,10 @@ describe("dismissable popup layers", () => {
     expect(taxonomyInlineCreateSource).toContain("useDismissableLayer");
     expect(taxonomyInlineCreateSource).toContain("isEnabled: isOpen");
     expect(taxonomyInlineCreateSource).toContain("onDismiss: () => setOpen(false)");
+  });
+
+  it("keeps anchored popover dismissal inside the shared Popup shell", () => {
+    expect(popupSource).toContain("useDismissableLayer");
+    expect(memoryReaderSource).not.toContain("useDismissableLayer");
   });
 });

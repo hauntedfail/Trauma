@@ -119,10 +119,16 @@ Check:
   chrome.
 - Theme controls are hidden until the left-rail `Theme` tab opens their popover.
 - On phone, Theme opens from the bottom tab bar as a popover above the bar.
+- Theme, Add memory, action-menu, taxonomy, and reader translation popovers use
+  the shared translucent elevated panel with backdrop blur.
 - Theme selected state is visible inside the popover in every theme.
 - Theme popover buttons remain labelled and readable below desktop.
 - Add-memory composer opens from shell routes as a popover above route panes.
 - On phone, Add memory opens from the bottom tab bar as a popover above the bar.
+- Reader translation popover outside-click and Escape dismissal close without
+  starting a translation.
+- Reader translation popover opens with the persisted model and reasoning effort
+  selected when DB-backed defaults exist.
 - Tablet compact Add memory uses a centered icon-only control without paper or
   Hermès wax-seal chrome shifting the icon.
 - Browse filters update URL state without clearing unrelated query state.

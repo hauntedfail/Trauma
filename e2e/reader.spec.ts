@@ -12,6 +12,7 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   await expect(page.getByText("Memory", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
@@ -42,12 +43,111 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await expect(page.getByText("Curated markdown body")).toHaveCount(0);
 });
 
+test("uses remembered translation defaults and cancels the popover on dismissal", async ({
+  page,
+}) => {
+  createReaderFixture();
+  seedReaderTranslationDefaults({
+    model: "gpt-5.5",
+    reasoningEffort: "high",
+  });
+  let translationStartCount = 0;
+  let lastTranslationBody: unknown;
+  await page.route("**/api/settings/codex-models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+          {
+            id: "fast",
+            model: "gpt-5.3",
+            displayName: "GPT-5.3",
+            description: "Fast model",
+            isDefault: false,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["medium", "high"],
+          },
+        ],
+      }),
+    });
+  });
+  await page.route(
+    `**/api/memories/${READER_MEMORY_ID}/translations`,
+    async (route) => {
+      translationStartCount += 1;
+      lastTranslationBody = route.request().postDataJSON();
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          status: "current",
+          job_id: "job-current",
+          memory_id: READER_MEMORY_ID,
+          lang_code: "ja-JP",
+          source_hash: "sha256:source",
+          output_path: `memories/${READER_MEMORY_ID}/ja-JP/CONTENT.md`,
+          reader_url: `/memories/${READER_MEMORY_ID}`,
+        }),
+      });
+    },
+  );
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", {
+    name: "Translate memory to ja-JP",
+  });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Translation settings" });
+  const modelSelect = dialog.getByLabel("Model", { exact: true });
+  const effortSelect = dialog.getByLabel("Reasoning effort", { exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(modelSelect).toHaveValue("gpt-5.5");
+  await expect(effortSelect).toHaveValue("high");
+
+  await modelSelect.selectOption("gpt-5.3");
+  await page.getByRole("heading", { name: "Fixture Reader" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(translationStartCount).toBe(0);
+
+  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await expect(modelSelect).toHaveValue("gpt-5.5");
+  await expect(effortSelect).toHaveValue("high");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  expect(translationStartCount).toBe(0);
+
+  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await modelSelect.selectOption("gpt-5.3");
+  await effortSelect.selectOption("medium");
+  await dialog.getByRole("button", { name: "Translate" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(translationStartCount).toBe(1);
+  expect(lastTranslationBody).toEqual({
+    lang_code: "ja-JP",
+    model: "gpt-5.3",
+    reasoning_effort: "medium",
+  });
+});
+
 test("deletes a memory from reader actions and returns to browse", async ({
   page,
 }) => {
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
 
   page.once("dialog", (dialog) => {
@@ -85,6 +185,7 @@ test("keeps linked reader flashback anchors readable in non-normal themes", asyn
   ] as const) {
     await setReaderTheme(page, theme.brightness, theme.surface);
     await page.goto(`/memories/${READER_MEMORY_ID}#flashback-fixture`);
+    await waitForReaderReady(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
     const targetStyle = await page.locator("mark#flashback-fixture").evaluate((mark) => {
@@ -123,6 +224,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
   ] as const) {
     await setReaderTheme(page, theme.brightness, theme.surface);
     await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await waitForReaderReady(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
     const sourceLinkColor = await page
@@ -146,6 +248,7 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   const selectedText = "Curated markdown body";
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   const createResponse = page.waitForResponse(
     (response) =>
@@ -160,6 +263,7 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   expect((await createResponse).ok()).toBe(true);
 
   await page.reload();
+  await waitForReaderReady(page);
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
@@ -177,6 +281,7 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   expect((await removeResponse).ok()).toBe(true);
 
   await page.reload();
+  await waitForReaderReady(page);
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
@@ -189,6 +294,7 @@ test("creates a Moment from a right-rail table of contents button", async ({
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   const createResponse = page.waitForResponse(
     (response) =>
@@ -216,6 +322,7 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   const tocButton = page
     .getByRole("navigation", { name: "Table of contents" })
@@ -248,6 +355,7 @@ test("creates a Moment from a reader heading affordance button", async ({
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   const createResponse = page.waitForResponse(
     (response) =>
@@ -271,6 +379,7 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/moments") &&
@@ -313,6 +422,7 @@ test("opens reader right-rail Flashback shortcuts at the reader flashback mark",
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
   await page
     .getByRole("complementary", { name: "Browse filters" })
     .getByRole("link", { name: /deep saved flashback/i })
@@ -330,6 +440,7 @@ test("creates a Moment from the selection menu when the range contains a section
   createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
   await selectReaderSection(page, "details");
 
   const menu = page.getByRole("menu", {
@@ -358,6 +469,7 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
 
   const toc = page.getByRole("navigation", { name: "Table of contents" });
   await expect(toc).toBeVisible();
@@ -625,6 +737,49 @@ function createReaderFixture() {
   `);
 }
 
+function seedReaderTranslationDefaults(input: {
+  model: string | null;
+  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+}) {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        const now = Date.parse("2026-05-28T00:00:00.000Z");
+        try {
+          database
+            .query(\`
+              insert into app_settings (
+                id,
+                translation_target_language,
+                codex_translation_model,
+                codex_translation_reasoning_effort,
+                created_at,
+                updated_at
+              ) values (?, ?, ?, ?, ?, ?)
+              on conflict(id) do update set
+                translation_target_language = excluded.translation_target_language,
+                codex_translation_model = excluded.codex_translation_model,
+                codex_translation_reasoning_effort = excluded.codex_translation_reasoning_effort,
+                updated_at = excluded.updated_at
+            \`)
+            .run(
+              "default",
+              "ja-JP",
+              ${JSON.stringify(input.model)},
+              ${JSON.stringify(input.reasoningEffort)},
+              now,
+              now,
+            );
+        } finally {
+          database.close();
+        }
+  `);
+}
+
 function readMomentAnchors(): string[] {
   const stdout = runBunFixtureScript(`
         import { Database } from "bun:sqlite";
@@ -647,11 +802,15 @@ function readMomentAnchors(): string[] {
   return JSON.parse(stdout.trim()) as string[];
 }
 
-async function selectReaderText(page: Page, text: string) {
+async function waitForReaderReady(page: Page) {
   await expect(page.locator("[data-reader-content]")).toHaveAttribute(
     "data-reader-ready",
     "true",
   );
+}
+
+async function selectReaderText(page: Page, text: string) {
+  await waitForReaderReady(page);
   await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
     const findTextNode = (node: Node): Text | undefined => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -687,10 +846,7 @@ async function selectReaderText(page: Page, text: string) {
 }
 
 async function selectReaderSection(page: Page, anchor: string) {
-  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
-    "data-reader-ready",
-    "true",
-  );
+  await waitForReaderReady(page);
   await page.locator("[data-reader-content]").evaluate(async (root, sectionAnchor) => {
     const section = root.querySelector<HTMLElement>(
       `[data-reader-section-anchor="${sectionAnchor}"]`,

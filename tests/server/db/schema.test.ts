@@ -315,6 +315,68 @@ describe("db foundation", () => {
     );
   });
 
+  it("rejects unsupported persisted Codex reasoning effort values", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const now = Date.now();
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            try {
+              connection.sqlite
+                .prepare("insert into app_settings (id, translation_target_language, codex_translation_model, codex_translation_reasoning_effort, created_at, updated_at) values (?, ?, ?, ?, ?, ?)")
+                .run("default", "ja-JP", "gpt-5.5", "extreme", now, now);
+              process.stdout.write(JSON.stringify({ accepted: true }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                accepted: false,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      accepted: false,
+      message: expect.stringContaining(
+        "app_settings_codex_translation_reasoning_effort_check",
+      ),
+    });
+  });
+
   it("migrates existing memories to unread", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(

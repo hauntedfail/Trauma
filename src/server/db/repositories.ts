@@ -376,8 +376,8 @@ export interface BackupEnvironmentRepository {
 export interface SettingsRepository {
   getSettings: (now: Date) => Promise<AppSettings>;
   updateCodexTranslationDefaults: (input: {
-    model: string | null;
-    reasoningEffort: CodexReasoningEffort | null;
+    model?: string | null;
+    reasoningEffort?: CodexReasoningEffort | null;
     updatedAt: Date;
   }) => Promise<AppSettings>;
   updateTranslationTargetLanguage: (input: {
@@ -1529,13 +1529,22 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
       updateCodexTranslationDefaults: async (input) => {
         await getOrCreateSettings(db, input.updatedAt);
+        const values: {
+          codexTranslationModel?: string | null;
+          codexTranslationReasoningEffort?: CodexReasoningEffort | null;
+          updatedAt: Date;
+        } = {
+          updatedAt: input.updatedAt,
+        };
+        if (input.model !== undefined) {
+          values.codexTranslationModel = input.model;
+        }
+        if (input.reasoningEffort !== undefined) {
+          values.codexTranslationReasoningEffort = input.reasoningEffort;
+        }
         const updated = await db
           .update(schema.appSettings)
-          .set({
-            codexTranslationModel: input.model,
-            codexTranslationReasoningEffort: input.reasoningEffort,
-            updatedAt: input.updatedAt,
-          })
+          .set(values)
           .where(eq(schema.appSettings.id, "default"))
           .returning()
           .get();

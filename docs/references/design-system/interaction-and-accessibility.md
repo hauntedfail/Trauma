@@ -74,6 +74,8 @@ Theme controls:
 - Do not write to SQLite, markdown files, or `trauma.config.json`.
 - Expose the opened panel as a labelled dialog-like popover.
 - Close the popover with Escape and outside pointer interaction.
+- Use the shared translucent `Popup` surface for anchored popovers; domain
+  components must not add their own outside-pointer listeners for those panels.
 
 ## Focus And Keyboard
 
@@ -86,6 +88,8 @@ Rules:
 - Route rows and reader links must have visible focus treatment.
 - Reader flashback keyboard toggling must remain explicit and must not trigger
   during ordinary text navigation.
+- Confirmation popovers must treat Cancel, Escape, and outside pointer
+  dismissal as the same cancel/reset path.
 
 ## Labels And Landmarks
 
