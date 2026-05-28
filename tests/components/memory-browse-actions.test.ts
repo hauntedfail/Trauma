@@ -156,6 +156,23 @@ describe("memory browse actions", () => {
     expect(searchBarSource).toContain("navigate(buildBrowseHref(query(), { q: value }), { replace: true })");
   });
 
+  it("wires vim-like keyboard operation to the memories route", () => {
+    expect(browseSource).toContain("onCleanup");
+    expect(browseSource).toContain('document.addEventListener("keydown", handleBrowseKeyDown)');
+    expect(browseSource).toContain('document.removeEventListener("keydown", handleBrowseKeyDown)');
+    expect(browseSource).toContain('event.key === "j"');
+    expect(browseSource).toContain('event.key === "k"');
+    expect(browseSource).toContain('event.key === "/"');
+    expect(browseSource).toContain('event.key === "l"');
+    expect(browseSource).toContain('event.key === "Enter"');
+    expect(browseSource).toContain('data-keyboard-selected={isSelected() ? "true" : "false"}');
+    expect(browseSource).toContain("focusSearchInput");
+    expect(browseSource).toContain("isBrowseKeyboardSuppressed");
+    expect(searchBarSource).toContain("onSearchInputMount");
+    expect(searchBarSource).toContain("event.key === \"Escape\"");
+    expect(searchBarSource).toContain("event.currentTarget.blur()");
+  });
+
   it("renders memories read-state tabs instead of list and grid view controls", () => {
     expect(browseSource).toContain("MemoryReadStateTabs");
     expect(browseSource).toContain('role="tablist"');

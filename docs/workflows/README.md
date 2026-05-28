@@ -21,6 +21,7 @@ architecture, reference, quality, or operations docs.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
+| 22 | [Vim-like memory browse keybindings](task-22-vim-like-key-bindings.md) | `/memories` keyboard cursor, search focus, and selected-memory open behaviour | In progress on `feat/vim-like-key-bind` |
 
 ## Current Audit Notes
 
@@ -111,4 +112,5 @@ Use concise branch names that match the workflow:
 - `chore/reader-library-decision`
 - `refactor/markdown-reader`
 - `chore/refactor-wave-integration`
+- `feat/vim-like-key-bind`
 - `feat/brilliant`

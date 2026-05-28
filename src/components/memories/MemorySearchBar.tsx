@@ -9,6 +9,7 @@ const surfaceInput =
 
 export function MemorySearchBar(props: {
   disabled: boolean;
+  onSearchInputMount?: (input: HTMLInputElement) => void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -28,8 +29,14 @@ export function MemorySearchBar(props: {
           class={surfaceInput}
           disabled={props.disabled}
           placeholder="Search memories - title, URL, tags, or flashbacks"
+          ref={(element) => props.onSearchInputMount?.(element)}
           type="search"
           value={query().q}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.currentTarget.blur();
+            }
+          }}
           onInput={(event) => updateSearch(event.currentTarget.value)}
         />
       </label>
