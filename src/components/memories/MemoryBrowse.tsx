@@ -260,6 +260,17 @@ function MemoryReadStateTabs(props: {
   onChange: (value: BrowseReadStateFilter) => void;
 }) {
   const tabButtons: HTMLButtonElement[] = [];
+  const focusTabButton = (index: number): void => {
+    tabButtons[index]?.focus();
+  };
+  const scheduleFocusTabButton = (index: number): void => {
+    if (typeof window === "undefined") {
+      focusTabButton(index);
+      return;
+    }
+
+    window.requestAnimationFrame(() => focusTabButton(index));
+  };
   const focusTab = (index: number): void => {
     const tab = readStateTabs[index];
     if (tab === undefined) {
@@ -267,7 +278,7 @@ function MemoryReadStateTabs(props: {
     }
 
     props.onChange(tab.value);
-    tabButtons[index]?.focus();
+    scheduleFocusTabButton(index);
   };
   const handleKeyDown = (event: KeyboardEvent, index: number): void => {
     const lastIndex = readStateTabs.length - 1;
