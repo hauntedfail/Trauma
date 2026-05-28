@@ -219,9 +219,6 @@ function ReadyMemoryReader(props: {
   const [currentFlashbacks, setCurrentFlashbacks] = createSignal([
     ...props.result.memory.flashbacks,
   ]);
-  const allFlashbacks = props.flashbackRows === undefined
-    ? createAsync(() => getFlashbackBrowseRows())
-    : () => props.flashbackRows;
   const [selectionMenu, setSelectionMenu] =
     createSignal<ReaderSelectionMenuState>();
   const [sectionMenu, setSectionMenu] = createSignal<ReaderSectionMenuState>();
@@ -278,8 +275,8 @@ function ReadyMemoryReader(props: {
   createEffect(() => {
     setRightRailContent(
       <ReaderRightRailContent
-        allFlashbacks={allFlashbacks()}
         currentFlashbacks={currentFlashbacks()}
+        flashbackRows={props.flashbackRows}
         moments={moments()}
         memoryId={props.result.memory.id}
         onCreateMoment={(section) => void toggleMoment(section)}
@@ -1825,8 +1822,8 @@ function ReaderContextMenu(props: {
 }
 
 function ReaderRightRailContent(props: {
-  allFlashbacks: FlashbackBrowseRow[] | undefined;
   currentFlashbacks: ReaderFlashbackItem[];
+  flashbackRows?: FlashbackBrowseRow[];
   moments: ReaderMomentItem[];
   memoryId: string;
   onCreateMoment: (section: ReaderMomentSection) => void;
@@ -1844,7 +1841,7 @@ function ReaderRightRailContent(props: {
         toc={props.toc}
       />
       <ReaderFlashbackTabs
-        allFlashbacks={props.allFlashbacks}
+        allFlashbacks={props.flashbackRows}
         currentFlashbacks={props.currentFlashbacks}
         memoryId={props.memoryId}
       />
@@ -1853,7 +1850,7 @@ function ReaderRightRailContent(props: {
 }
 
 export function ReaderFlashbackTabs(props: {
-  allFlashbacks: FlashbackBrowseRow[] | undefined;
+  allFlashbacks?: FlashbackBrowseRow[];
   currentFlashbacks: ReaderFlashbackItem[];
   initialTab?: "all" | "memory";
   memoryId: string;
@@ -1861,8 +1858,23 @@ export function ReaderFlashbackTabs(props: {
   const [activeTab, setActiveTab] = createSignal<"all" | "memory">(
     props.initialTab ?? "memory",
   );
-  const allRows = createMemo(() => props.allFlashbacks ?? []);
-  const isLoadingAll = () => props.allFlashbacks === undefined;
+  const [shouldLoadAll, setShouldLoadAll] = createSignal(props.initialTab === "all");
+  const lazyAllFlashbacks = createAsync(async () => {
+    if (props.allFlashbacks !== undefined || !shouldLoadAll()) {
+      return undefined;
+    }
+
+    return getFlashbackBrowseRows();
+  });
+  const allRows = createMemo(() => props.allFlashbacks ?? lazyAllFlashbacks() ?? []);
+  const isLoadingAll = () =>
+    props.allFlashbacks === undefined &&
+    shouldLoadAll() &&
+    lazyAllFlashbacks() === undefined;
+  const activateAllTab = (): void => {
+    setShouldLoadAll(true);
+    setActiveTab("all");
+  };
 
   return (
     <section class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5">
@@ -1880,7 +1892,7 @@ export function ReaderFlashbackTabs(props: {
         <SegmentedToggleButton
           active={activeTab() === "all"}
           hint="Show all"
-          onClick={() => setActiveTab("all")}
+          onClick={activateAllTab}
         >
           All
         </SegmentedToggleButton>
