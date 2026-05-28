@@ -30,7 +30,6 @@ import {
 } from "../icons";
 import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import {
-  getBrowseMemories,
   getBrowseTaxonomy,
   revalidateBrowseTaxonomy,
 } from "../memories/browse-loader";
@@ -38,7 +37,6 @@ import {
   buildBrowseHref,
   buildFlashbackBrowseHref,
   getBrowseSearchFieldValues,
-  getRecentFlashbacks,
   parseBrowseQuery,
   toggleBrowseSearchFieldFilter,
   type BrowseSearchField,
@@ -47,6 +45,7 @@ import {
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
+import { getRecentFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
 import {
   DEFAULT_BRIGHTNESS_MODE,
   DEFAULT_SURFACE_MODE,
@@ -158,15 +157,20 @@ export function AppShell(props: AppShellProps) {
     DEFAULT_BRIGHTNESS_MODE,
   );
   const [surface, setSurface] = createSignal<SurfaceMode>(DEFAULT_SURFACE_MODE);
-  const memories = createAsync(() => getBrowseMemories());
   const taxonomy = createAsync(() => getBrowseTaxonomy());
   const backupFailsafeAlert = createAsync(() => getBackupFailsafeAlert());
-  const browseMemories = createMemo(() => memories() ?? []);
   const query = createMemo(() => parseBrowseQuery(location.search));
   const categories = createMemo(() => taxonomy()?.categories ?? []);
   const tags = createMemo(() => taxonomy()?.tags ?? []);
-  const flashbacks = createMemo(() => getRecentFlashbacks(browseMemories()));
   const activePath = createMemo(() => location.pathname);
+  const showRightRailFlashbacks = createMemo(
+    () =>
+      rightRailContent() === undefined &&
+      !activePath().startsWith("/flashbacks"),
+  );
+  const flashbacks = createAsync(async () =>
+    showRightRailFlashbacks() ? getRecentFlashbackBrowseRows(5) : [],
+  );
   const activeCategoryIds = createMemo(() =>
     getActiveTaxonomyIds({
       explicitId: query().category,
@@ -258,7 +262,7 @@ export function AppShell(props: AppShellProps) {
             activeTag={query().tag}
             activeTagIds={activeTagIds()}
             categories={categories()}
-            flashbacks={flashbacks()}
+            flashbacks={flashbacks() ?? []}
             idPrefix="desktop"
             onCreatedCategory={() => void revalidateBrowseTaxonomy()}
             onCreatedTag={() => void revalidateBrowseTaxonomy()}
@@ -276,10 +280,7 @@ export function AppShell(props: AppShellProps) {
                 value: tag.name,
               })
             }
-            showFlashbacks={
-              rightRailContent() === undefined &&
-              !activePath().startsWith("/flashbacks")
-            }
+            showFlashbacks={showRightRailFlashbacks()}
             tags={tags()}
           />
           <RightRailFooter />

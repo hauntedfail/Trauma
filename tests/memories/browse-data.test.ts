@@ -304,6 +304,44 @@ describe("browse query state", () => {
     expect(getMemoryDisplayFlashback(memory, "")?.text).toBe("first flashback");
   });
 
+  it("selects memory result excerpts from lazy flashback rows when page rows omit flashbacks", () => {
+    const memory: BrowseMemory = {
+      ...fixtures[0]!,
+      flashbacks: [],
+    };
+    const flashbacks = [
+      {
+        id: "h-first",
+        memoryId: "memory-foundation",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+        text: "first lazy flashback",
+        prefix: "first",
+        suffix: "context",
+        createdAt: "2026-05-09T10:00:00.000Z",
+      },
+      {
+        id: "h-selected",
+        memoryId: "memory-foundation",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+        text: "selected lazy flashback",
+        prefix: "selected",
+        suffix: "context",
+        createdAt: "2026-05-09T11:00:00.000Z",
+      },
+    ] as const;
+
+    expect(getMemoryDisplayFlashback(memory, "h-selected", flashbacks)?.text).toBe(
+      "selected lazy flashback",
+    );
+    expect(getMemoryDisplayFlashback(memory, "", flashbacks)?.text).toBe(
+      "first lazy flashback",
+    );
+  });
+
   it("sorts recent flashback shortcuts globally by flashback creation time", () => {
     const memories: BrowseMemory[] = [
       {

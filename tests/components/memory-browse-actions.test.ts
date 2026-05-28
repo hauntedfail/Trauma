@@ -70,6 +70,34 @@ describe("memory browse actions", () => {
     expect(html).not.toContain("saved");
   });
 
+  it("renders flashback excerpts from lazy card flashbacks", () => {
+    const html = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory,
+        flashbacks: [
+          {
+            id: "flashback-card",
+            memoryId: memory.id,
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
+            text: "lazy card excerpt",
+            prefix: "before",
+            suffix: "after",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        selectedFlashbackId: "",
+        view: "list",
+        onDeleted: () => {},
+      }),
+    );
+
+    expect(html).toContain("lazy card excerpt");
+    expect(html).toContain("before");
+    expect(html).toContain("after");
+  });
+
   it("posts add-tag and add-category actions by name", async () => {
     const requests: Request[] = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
@@ -163,6 +191,14 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("createNextBrowseMemoryPageRequest");
     expect(browseSource).not.toContain("getBrowseMemories");
     expect(browseSource).not.toContain("filterBrowseMemories");
+  });
+
+  it("loads card flashbacks separately for currently visible memory rows", () => {
+    expect(browseSource).toContain("getBrowseFlashbacksForMemories");
+    expect(browseSource).toContain("visibleMemoryIds");
+    expect(browseSource).toContain("flashbacksByMemoryId");
+    expect(browseSource).toContain("selectedFlashbackId: query().flashback");
+    expect(browseSource).toContain("flashbacks={flashbacksByMemoryId()?.[memory.id] ?? []}");
   });
 
   it("resets accumulated memory pages when the route query changes", () => {

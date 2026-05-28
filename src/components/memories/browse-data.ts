@@ -214,12 +214,16 @@ export function getRecentFlashbacks(memories: BrowseMemory[]): BrowseFlashback[]
     .slice(0, 5);
 }
 
-export function getMemoryDisplayFlashback(memory: BrowseMemory, activeFlashbackId: string): BrowseFlashback | undefined {
+export function getMemoryDisplayFlashback(
+  memory: BrowseMemory,
+  activeFlashbackId: string,
+  flashbacks: readonly BrowseFlashback[] = memory.flashbacks,
+): BrowseFlashback | undefined {
   if (activeFlashbackId.length > 0) {
-    return memory.flashbacks.find((flashback) => flashback.id === activeFlashbackId) ?? memory.flashbacks[0];
+    return flashbacks.find((flashback) => flashback.id === activeFlashbackId) ?? flashbacks[0];
   }
 
-  return memory.flashbacks[0];
+  return flashbacks[0];
 }
 
 export function getMemoryReaderFlashbacks(memory: BrowseMemory): BrowseReaderFlashback[] {

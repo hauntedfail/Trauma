@@ -21,6 +21,7 @@ import {
   isSameBrowseQuery,
   parseBrowseQuery,
   setBrowseReadStateFilter,
+  type BrowseFlashback,
   type BrowseMemoryPage,
   type BrowseReadStateFilter,
   type BrowseMemory,
@@ -47,7 +48,10 @@ import {
   detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
-import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
+import {
+  getBrowseFlashbacksForMemories,
+  revalidateFlashbackBrowseRows,
+} from "../flashbacks/flashbacks-loader";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
@@ -106,6 +110,18 @@ export function MemoryBrowse() {
       .flatMap((page) => page.memories)
       .filter((memory) => !removedMemoryIds().has(memory.id)),
   );
+  const visibleMemoryIds = createMemo(() => visibleMemories().map((memory) => memory.id));
+  const flashbacksByMemoryId = createAsync(async () => {
+    const memoryIds = visibleMemoryIds();
+    if (memoryIds.length === 0) {
+      return {};
+    }
+
+    return getBrowseFlashbacksForMemories({
+      memoryIds,
+      selectedFlashbackId: query().flashback,
+    });
+  });
   const isGrid = createMemo(() => query().view === "grid");
   const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
@@ -197,6 +213,7 @@ export function MemoryBrowse() {
             {(memory) => (
               <MemoryItem
                 memory={memory}
+                flashbacks={flashbacksByMemoryId()?.[memory.id] ?? []}
                 availableCategories={availableCategories()}
                 availableTags={availableTags()}
                 selectedFlashbackId={query().flashback}
@@ -314,13 +331,20 @@ function MemoryReadStateTabs(props: {
 export function MemoryItem(props: {
   availableCategories?: readonly BrowseTaxonomySummaryItem[];
   availableTags?: readonly BrowseTaxonomySummaryItem[];
+  flashbacks?: readonly BrowseFlashback[];
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
   onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
 }) {
-  const displayFlashback = createMemo(() => getMemoryDisplayFlashback(props.memory, props.selectedFlashbackId));
+  const displayFlashback = createMemo(() =>
+    getMemoryDisplayFlashback(
+      props.memory,
+      props.selectedFlashbackId,
+      props.flashbacks,
+    ),
+  );
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
   const [tags, setTags] = createSignal<BrowseTaxonomyItem[]>(props.memory.tags);

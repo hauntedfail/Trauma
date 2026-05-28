@@ -67,6 +67,10 @@ describe("refined app shell contract", () => {
 
   it("keeps right-rail Flashback shortcuts as browse filters", () => {
     expect(appShellSource).toContain("buildFlashbackBrowseHref");
+    expect(appShellSource).toContain("getRecentFlashbackBrowseRows");
+    expect(appShellSource).toContain("showRightRailFlashbacks()");
+    expect(appShellSource).not.toContain("getRecentFlashbacks");
+    expect(appShellSource).not.toContain("getBrowseMemories");
     expect(appShellSource).not.toContain("buildMemoryAnchorHref");
   });
 

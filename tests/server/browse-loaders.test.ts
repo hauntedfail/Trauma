@@ -10,7 +10,11 @@ import {
 } from "../../src/components/memories/browse-data";
 import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/config";
 import { initializeDatabase, schema } from "../../src/server/db";
-import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
+import {
+  loadBrowseFlashbacksForMemories,
+  loadFlashbackBrowseRows,
+  loadRecentFlashbackBrowseRows,
+} from "../../src/server/flashbacks/browse";
 import {
   loadBrowseMemories,
   loadBrowseMemoryPage,
@@ -196,6 +200,7 @@ describe("server browse loaders", () => {
     const outputHash = createSha256ContentHash(
       await readFile(translatedPath.absolutePath),
     );
+    const staleHash = "sha256:" + "b".repeat(64);
     const connection = initializeDatabase(config);
     try {
       await connection.db.insert(schema.translationJobs).values({
@@ -231,11 +236,43 @@ describe("server browse loaders", () => {
         createdAt: now,
         updatedAt: now,
       });
+      await connection.db.insert(schema.flashbacks).values({
+        id: "stale-translated-flashback-loader",
+        memoryId,
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: staleHash,
+        text: "selected text",
+        prefix: "翻訳された ",
+        suffix: ".",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(translatedMarkdown),
+        createdAt: new Date(now.getTime() + 1_000),
+        updatedAt: new Date(now.getTime() + 1_000),
+      });
     } finally {
       connection.close();
     }
 
     await expect(loadFlashbackBrowseRows()).resolves.toEqual([
+      {
+        id: "translated-flashback-loader",
+        memoryId,
+        memoryTitle: "Loader Memory",
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: outputHash,
+        text: "selected text",
+        prefix: "翻訳された ",
+        suffix: ".",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(translatedMarkdown),
+        createdAt: "2026-05-16T00:00:00.000Z",
+      },
+    ]);
+    await expect(loadRecentFlashbackBrowseRows({ limit: 5 })).resolves.toEqual([
       {
         id: "translated-flashback-loader",
         memoryId,
@@ -391,6 +428,76 @@ describe("server browse loaders", () => {
       ],
       nextCursor: null,
     });
+  });
+
+  it("returns memory-card flashbacks keyed by memory id", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const markdown = "# Loader Memory\n\nA selected text.";
+    const flashbackStartOffset =
+      readCanonicalReaderText(markdown).indexOf("selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values({
+        id: "memory-card-flashback",
+        memoryId,
+        text: "selected text",
+        prefix: "before",
+        suffix: "after",
+        startOffset: flashbackStartOffset,
+        endOffset: flashbackStartOffset + "selected text".length,
+        contentHash: createReaderContentHash(markdown),
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(
+      loadBrowseFlashbacksForMemories({
+        memoryIds: [memoryId],
+        selectedFlashbackId: "memory-card-flashback",
+      }),
+    ).resolves.toEqual({
+      [memoryId]: [
+        {
+          id: "memory-card-flashback",
+          memoryId,
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
+          text: "selected text",
+          prefix: "before",
+          suffix: "after",
+          createdAt: "2026-05-16T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  it("returns an empty memory-card flashback record without config for empty memory ids", async () => {
+    const root = await makeTempRoot();
+    process.env.TRAUMA_CONFIG_PATH = join(root, "missing-trauma.config.json");
+
+    await expect(
+      loadBrowseFlashbacksForMemories({
+        memoryIds: [],
+        selectedFlashbackId: "unused",
+      }),
+    ).resolves.toEqual({});
   });
 
   it("keeps the Moment browse database open until rows materialize", async () => {

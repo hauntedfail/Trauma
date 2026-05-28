@@ -255,6 +255,9 @@ export interface FlashbackRepository {
     flashbacks: Flashback[];
   }) => Promise<Flashback[]>;
   listForBrowse: () => Promise<FlashbackBrowseRow[]>;
+  listRecentForBrowse: (input: { limit: number }) => Promise<FlashbackBrowseRow[]>;
+  listForBrowseMemoryIds: (input: { memoryIds: string[] }) => Promise<FlashbackBrowseRow[]>;
+  findForBrowseById: (flashbackId: string) => Promise<FlashbackBrowseRow | undefined>;
 }
 
 export interface MomentRepository {
@@ -677,33 +680,35 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       replaceForMemoryVariant: async (input) =>
         replaceFlashbacksForMemoryVariant(db, input),
       listForBrowse: async () => {
-        const rows = await db
-          .select({
-            id: schema.flashbacks.id,
-            memoryId: schema.flashbacks.memoryId,
-            memoryTitle: schema.memories.title,
-            variantKind: schema.flashbacks.variantKind,
-            langCode: schema.flashbacks.langCode,
-            translationOutputHash: schema.flashbacks.translationOutputHash,
-            text: schema.flashbacks.text,
-            prefix: schema.flashbacks.prefix,
-            suffix: schema.flashbacks.suffix,
-            startOffset: schema.flashbacks.startOffset,
-            endOffset: schema.flashbacks.endOffset,
-            contentHash: schema.flashbacks.contentHash,
-            createdAt: schema.flashbacks.createdAt,
-          })
-          .from(schema.flashbacks)
-          .innerJoin(
-            schema.memories,
-            eq(schema.flashbacks.memoryId, schema.memories.id),
-          )
+        const rows = await selectFlashbackBrowseRows(db)
           .orderBy(desc(schema.flashbacks.createdAt));
 
-        return rows.map((row) => ({
-          ...row,
-          createdAt: formatDateTime(row.createdAt),
-        }));
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      listRecentForBrowse: async (input) => {
+        const rows = await selectFlashbackBrowseRows(db)
+          .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id))
+          .limit(normalizeFlashbackBrowseLimit(input.limit));
+
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      listForBrowseMemoryIds: async (input) => {
+        if (input.memoryIds.length === 0) {
+          return [];
+        }
+
+        const rows = await selectFlashbackBrowseRows(db)
+          .where(inArray(schema.flashbacks.memoryId, input.memoryIds))
+          .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id));
+
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      findForBrowseById: async (flashbackId) => {
+        const row = await selectFlashbackBrowseRows(db)
+          .where(eq(schema.flashbacks.id, flashbackId))
+          .get();
+
+        return row === undefined ? undefined : formatFlashbackBrowseRow(row);
       },
     },
     memories: {
@@ -1618,6 +1623,60 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
   };
+}
+
+function selectFlashbackBrowseRows(db: TraumaDatabase) {
+  return db
+    .select({
+      id: schema.flashbacks.id,
+      memoryId: schema.flashbacks.memoryId,
+      memoryTitle: schema.memories.title,
+      variantKind: schema.flashbacks.variantKind,
+      langCode: schema.flashbacks.langCode,
+      translationOutputHash: schema.flashbacks.translationOutputHash,
+      text: schema.flashbacks.text,
+      prefix: schema.flashbacks.prefix,
+      suffix: schema.flashbacks.suffix,
+      startOffset: schema.flashbacks.startOffset,
+      endOffset: schema.flashbacks.endOffset,
+      contentHash: schema.flashbacks.contentHash,
+      createdAt: schema.flashbacks.createdAt,
+    })
+    .from(schema.flashbacks)
+    .innerJoin(
+      schema.memories,
+      eq(schema.flashbacks.memoryId, schema.memories.id),
+    );
+}
+
+function formatFlashbackBrowseRow(row: {
+  id: string;
+  memoryId: string;
+  memoryTitle: string;
+  variantKind: "source" | "translation";
+  langCode: SupportedLanguageCode | null;
+  translationOutputHash: string | null;
+  text: string;
+  prefix: string;
+  suffix: string;
+  startOffset: number;
+  endOffset: number;
+  contentHash: string | null;
+  createdAt: Date | number;
+}): FlashbackBrowseRow {
+  return {
+    ...row,
+    createdAt: formatDateTime(row.createdAt),
+  };
+}
+
+function normalizeFlashbackBrowseLimit(limit: number): number {
+  const normalized = Math.trunc(limit);
+  if (!Number.isFinite(normalized) || normalized < 1) {
+    return 1;
+  }
+
+  return Math.min(normalized, 100);
 }
 
 async function listMemoryBrowsePage(
