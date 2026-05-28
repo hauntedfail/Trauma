@@ -1,17 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BROWSE_MEMORY_PAGE_SIZE,
   buildBrowseHref,
   buildFlashbackBrowseHref,
+  createInitialBrowseMemoryPageRequest,
+  createNextBrowseMemoryPageRequest,
   filterBrowseMemories,
   getBrowseReadStateFilter,
   getBrowseSearchFieldValues,
   getMemoryDisplayFlashback,
   getMemoryReaderFlashbacks,
   getRecentFlashbacks,
+  isSameBrowseQuery,
   parseBrowseQuery,
   setBrowseReadStateFilter,
   toggleBrowseSearchFieldFilter,
+  type BrowseMemoryCursor,
   type BrowseMemory,
 } from "../../src/components/memories/browse-data";
 import { browseFixtureMemories } from "../../src/components/memories/browse-fixtures";
@@ -60,6 +65,41 @@ const fixtures: BrowseMemory[] = [
 ];
 
 describe("browse query state", () => {
+  it("creates the first memory page request from parsed browse query state", () => {
+    const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
+
+    expect(createInitialBrowseMemoryPageRequest(query)).toEqual({
+      query,
+      cursor: null,
+      limit: BROWSE_MEMORY_PAGE_SIZE,
+    });
+  });
+
+  it("creates the next memory page request with the cursor unchanged", () => {
+    const query = parseBrowseQuery("?q=reader");
+    const cursor: BrowseMemoryCursor = {
+      createdAt: "2026-05-09T12:00:00.000Z",
+      id: "memory-foundation",
+    };
+
+    expect(createNextBrowseMemoryPageRequest(query, cursor)).toEqual({
+      query,
+      cursor,
+      limit: BROWSE_MEMORY_PAGE_SIZE,
+    });
+  });
+
+  it("compares browse queries by every route-owned value", () => {
+    const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
+
+    expect(isSameBrowseQuery(query, { ...query })).toBe(true);
+    expect(isSameBrowseQuery(query, { ...query, q: "sqlite" })).toBe(false);
+    expect(isSameBrowseQuery(query, { ...query, category: "operations" })).toBe(false);
+    expect(isSameBrowseQuery(query, { ...query, tag: "sqlite" })).toBe(false);
+    expect(isSameBrowseQuery(query, { ...query, flashback: "h-ops" })).toBe(false);
+    expect(isSameBrowseQuery(query, { ...query, view: "list" })).toBe(false);
+  });
+
   it("parses supported query state and preserves grid view state", () => {
     const query = parseBrowseQuery("?q=reader&category=research&tag=solidstart&flashback=h-foundation&view=grid");
 

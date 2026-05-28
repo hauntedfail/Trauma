@@ -48,12 +48,30 @@ export interface BrowseMemory {
   flashbacks: BrowseFlashback[];
 }
 
+export const BROWSE_MEMORY_PAGE_SIZE = 30;
+
 export interface BrowseQuery {
   q: string;
   category: string;
   tag: string;
   flashback: string;
   view: BrowseView;
+}
+
+export interface BrowseMemoryCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface BrowseMemoryPageRequest {
+  query: BrowseQuery;
+  cursor: BrowseMemoryCursor | null;
+  limit: number;
+}
+
+export interface BrowseMemoryPage {
+  memories: BrowseMemory[];
+  nextCursor: BrowseMemoryCursor | null;
 }
 
 export const defaultBrowseQuery: BrowseQuery = {
@@ -78,6 +96,35 @@ export function parseBrowseQuery(search: string): BrowseQuery {
       "",
     view,
   };
+}
+
+export function createInitialBrowseMemoryPageRequest(query: BrowseQuery): BrowseMemoryPageRequest {
+  return {
+    query,
+    cursor: null,
+    limit: BROWSE_MEMORY_PAGE_SIZE,
+  };
+}
+
+export function createNextBrowseMemoryPageRequest(
+  query: BrowseQuery,
+  cursor: BrowseMemoryCursor,
+): BrowseMemoryPageRequest {
+  return {
+    query,
+    cursor,
+    limit: BROWSE_MEMORY_PAGE_SIZE,
+  };
+}
+
+export function isSameBrowseQuery(left: BrowseQuery, right: BrowseQuery): boolean {
+  return (
+    left.q === right.q &&
+    left.category === right.category &&
+    left.tag === right.tag &&
+    left.flashback === right.flashback &&
+    left.view === right.view
+  );
 }
 
 export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>): string {
