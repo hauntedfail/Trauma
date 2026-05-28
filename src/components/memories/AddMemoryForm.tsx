@@ -6,7 +6,10 @@ import {
   submitAddMemoryUrl,
   type AddMemorySubmitResult,
 } from "./add-memory-submit";
-import { revalidateBrowseMemories } from "./browse-loader";
+import {
+  revalidateBrowseMemoryFirstPage,
+  revalidateBrowseTaxonomy,
+} from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 export interface AddMemoryFormProps {
@@ -51,7 +54,10 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       }
 
       setUrl("");
-      void revalidateBrowseMemories();
+      void Promise.all([
+        revalidateBrowseMemoryFirstPage(),
+        revalidateBrowseTaxonomy(),
+      ]);
       navigate(`/memories/${encodeURIComponent(result.memoryId)}`);
       props.onCreated?.(result.memoryId);
     } finally {

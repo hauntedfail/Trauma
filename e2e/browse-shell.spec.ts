@@ -201,6 +201,33 @@ test("updates URL query state from search, taxonomy filters, and read-state tabs
   );
 });
 
+test("loads additional memory pages and keeps search global", async ({ page }) => {
+  await page.goto("/memories");
+
+  await expect(page.locator("article")).toHaveCount(30);
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Load more" }).click();
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(36);
+  const memoryTitles = await page
+    .locator("article h2 a")
+    .evaluateAll((links) => links.map((link) => link.textContent ?? ""));
+  expect(new Set(memoryTitles).size).toBe(memoryTitles.length);
+
+  await page.goto("/memories?q=Pagination+Fixture+31");
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(1);
+});
+
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {

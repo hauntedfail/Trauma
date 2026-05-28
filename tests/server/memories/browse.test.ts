@@ -60,7 +60,7 @@ describe("browse memory loader error policy", () => {
         { id: "memory-design", flashbacks: [] },
         { id: "memory-no-flashbacks", flashbacks: [] },
       ],
-      nextCursor: null,
+      nextCursor: { createdAt: "2026-05-06", id: "memory-no-flashbacks" },
     });
   });
 
