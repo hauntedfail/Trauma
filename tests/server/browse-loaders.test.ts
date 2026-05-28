@@ -4,10 +4,17 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  createInitialBrowseMemoryPageRequest,
+  parseBrowseQuery,
+} from "../../src/components/memories/browse-data";
 import { loadTraumaConfig, type ResolvedTraumaConfig } from "../../src/server/config";
 import { initializeDatabase, schema } from "../../src/server/db";
 import { loadFlashbackBrowseRows } from "../../src/server/flashbacks/browse";
-import { loadBrowseMemories } from "../../src/server/memories/browse";
+import {
+  loadBrowseMemories,
+  loadBrowseMemoryPage,
+} from "../../src/server/memories/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
 import {
   createMemoryContentFixture,
@@ -347,6 +354,43 @@ describe("server browse loaders", () => {
         ],
       },
     ]);
+  });
+
+  it("loads memory browse pages without validating or returning flashbacks", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values({
+        id: "unvalidated-page-flashback",
+        memoryId,
+        text: "selected text",
+        prefix: "before",
+        suffix: "after",
+        startOffset: 0,
+        endOffset: "selected text".length,
+        contentHash:
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await expect(
+      loadBrowseMemoryPage(
+        createInitialBrowseMemoryPageRequest(parseBrowseQuery("")),
+      ),
+    ).resolves.toMatchObject({
+      memories: [
+        {
+          id: memoryId,
+          flashbacks: [],
+        },
+      ],
+      nextCursor: null,
+    });
   });
 
   it("keeps the Moment browse database open until rows materialize", async () => {

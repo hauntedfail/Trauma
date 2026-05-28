@@ -248,12 +248,12 @@ function getSearchableText(memory: BrowseMemory): string[] {
 
 export type BrowseSearchField = "title" | "url" | "tag" | "category" | "flashback";
 
-interface BrowseFieldFilter {
+export interface BrowseFieldFilter {
   field: BrowseSearchField;
   value: string;
 }
 
-interface ParsedBrowseSearch {
+export interface ParsedBrowseSearch {
   fields: BrowseFieldFilter[];
   freeTerms: string[];
   readState: "all" | "both" | "read" | "unread";
@@ -267,7 +267,7 @@ const fieldNames = new Set<BrowseSearchField>([
   "flashback",
 ]);
 
-function parseBrowseSearch(query: string): ParsedBrowseSearch {
+export function parseBrowseSearch(query: string): ParsedBrowseSearch {
   const fields: BrowseFieldFilter[] = [];
   const freeTerms: string[] = [];
   let read = false;
