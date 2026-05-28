@@ -1,4 +1,4 @@
-# Task 21.3: Popover Consumer Audit
+# Task 21.5: Popover Consumer Audit
 
 ## Goal
 
@@ -68,6 +68,8 @@ mise exec -- bun run typecheck
 - New anchored popovers have one obvious implementation path: use `Popup`.
 - Translation, shell, action-menu, and taxonomy selector popovers share
   dismissal, layer, animation, and panel surface.
+- The audit does not collapse DB-backed translation default handling into
+  popover chrome; persistence remains owned by Tasks 21.1 and 21.2.
 - The only direct `useDismissableLayer` consumer outside `Popup` is documented
   as an inline control.
 - No domain component owns outside-pointer dismissal for an anchored popover.

@@ -1,4 +1,4 @@
-# Task 21.1: Shared Popover Visual Contract
+# Task 21.3: Shared Popover Visual Contract
 
 ## Goal
 
@@ -16,7 +16,8 @@ Primary files:
 - Modify `docs/references/design-system/interaction-and-accessibility.md`
 - Modify `docs/references/design-system/verification.md`
 
-Do not modify reader translation behaviour in this subtask.
+Do not modify DB/settings persistence or reader translation behaviour in this
+subtask.
 
 ## Contract
 
@@ -66,4 +67,4 @@ mise exec -- bun run typecheck
   transparent background without local duplicated background classes.
 - Design docs say outside pointer and Escape dismissal are shared popover
   behaviour.
-- No reader translation code changes in this subtask.
+- No DB/settings or reader translation code changes in this subtask.

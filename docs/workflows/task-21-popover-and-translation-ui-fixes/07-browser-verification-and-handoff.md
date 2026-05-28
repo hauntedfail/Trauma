@@ -1,4 +1,4 @@
-# Task 21.5: Browser Verification and Handoff
+# Task 21.7: Browser Verification and Handoff
 
 ## Goal
 
@@ -34,6 +34,8 @@ Verify:
 - Action menus use the transparent elevated panel.
 - Taxonomy selector popover uses the transparent elevated panel.
 - Reader translation popover uses the shared transparent panel.
+- Reader translation popover opens with the remembered DB-backed model and
+  reasoning effort selected.
 - The reader translation `Translate` button has active primary contrast.
 - Clicking outside the reader translation popover closes it without starting a
   translation.
@@ -42,6 +44,8 @@ Verify:
 - Pressing Cancel closes the reader translation popover without starting a
   translation.
 - Submit still starts progress or navigates according to the API response.
+- After choosing a non-default model such as `gpt-5.5`, a later popover open
+  selects `gpt-5.5` by default.
 - Popovers are not clipped by left rail, route pane, right rail, or phone
   bottom bar.
 - No horizontal overflow appears on mobile.
@@ -52,6 +56,7 @@ Run focused suites first:
 
 ```bash
 mise exec -- bun run test tests/components/popup.test.tsx tests/components/app-shell.test.ts tests/components/taxonomy-add-control.test.tsx tests/components/memory-reader-actions.test.ts
+mise exec -- bun run test tests/server/settings/settings.test.ts tests/server/routes/api-settings.test.ts
 mise exec -- bun run test tests/server/translation/api-routes.test.ts tests/server/translation/runner.test.ts
 mise exec -- bun run test:e2e e2e/reader.spec.ts e2e/cross-device-responsive.spec.ts
 ```
@@ -86,6 +91,8 @@ mise exec -- bun run verify
 - Browser verification confirms the unified transparent popover design.
 - Reader translation outside dismissal, Escape, and Cancel are verified as
   cancel actions.
+- Remembered model/effort defaults are verified from DB persistence through the
+  reader popover selected state.
 - The translation submit button is visually distinct from disabled controls.
 - Focused tests, typecheck, and build pass or have concrete documented blockers.
 - PR handoff describes scope, verification, and any known residual risk.
