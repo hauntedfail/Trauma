@@ -12,6 +12,7 @@ import { readBundledMigrations } from "../../../src/server/db/bundled-migrations
 const PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS = 1778934734173;
 const VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS = 1779449000000;
 const STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS = 1779449500000;
+const MEMORY_BROWSE_PAGINATION_MIGRATION_FOLDER_MILLIS = 1779955000000;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -313,6 +314,64 @@ describe("db foundation", () => {
         id_type: "integer",
       })),
     );
+  });
+
+  it("creates the memory browse cursor pagination index through runtime migrations", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: true,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            process.stdout.write(JSON.stringify({
+              indexNames: connection.sqlite
+                .prepare("PRAGMA index_list('memories')")
+                .all()
+                .map((row) => row.name)
+                .sort(),
+              migrationRecorded: connection.sqlite
+                .prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${MEMORY_BROWSE_PAGINATION_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      indexNames: expect.arrayContaining(["memories_created_at_id_idx"]),
+      migrationRecorded: 1,
+    });
   });
 
   it("migrates existing memories to unread", () => {
