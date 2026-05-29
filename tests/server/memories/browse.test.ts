@@ -164,6 +164,10 @@ describe("browse memory loader error policy", () => {
         } from "./src/components/memories/browse-data.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
         import { loadBrowseMemoryPage } from "./src/server/memories/browse.ts";
+        import {
+          createReaderContentHash,
+          writeMemoryContent,
+        } from "./src/server/store/index.ts";
 
         const root = process.env.TRAUMA_TEST_ROOT;
         const configPath = process.env.TRAUMA_TEST_CONFIG_PATH;
@@ -191,17 +195,32 @@ describe("browse memory loader error policy", () => {
         try {
           const now = Date.parse("2026-05-09T00:00:00.000Z");
           const older = Date.parse("2026-05-08T00:00:00.000Z");
+          const firstMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f211";
+          const secondMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f212";
+          const secondMarkdown = "deep lazy excerpt";
           connection.sqlite
             .prepare("insert into memories (id, url, title, description, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run("memory-first", "https://example.com/first", "First Memory", "First description", "memories/memory-first/CONTENT.md", "success", "disabled", now, now);
+            .run(firstMemoryId, "https://example.com/first", "First Memory", "First description", "memories/" + firstMemoryId + "/CONTENT.md", "success", "disabled", now, now);
           connection.sqlite
             .prepare("insert into memories (id, url, title, description, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run("memory-second", "https://example.com/second", "Second Memory", "Second description", "memories/memory-second/CONTENT.md", "success", "disabled", older, older);
+            .run(secondMemoryId, "https://example.com/second", "Second Memory", "Second description", "memories/" + secondMemoryId + "/CONTENT.md", "success", "disabled", older, older);
+          await writeMemoryContent({
+            config,
+            memoryId: secondMemoryId,
+            frontmatter: {
+              id: secondMemoryId,
+              url: "https://example.com/second",
+              title: "Second Memory",
+              capturedAt: new Date(older).toISOString(),
+              extractionStatus: "success",
+            },
+            markdown: secondMarkdown,
+          });
           connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-search", "search-tag", now, now);
-          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-second", "tag-search", now, now);
+          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run(secondMemoryId, "tag-search", now, now);
           connection.sqlite
-            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run("flashback-second", "memory-second", "deep lazy excerpt", "", "", 0, 17, now, now);
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-second", secondMemoryId, "deep lazy excerpt", "", "", 0, secondMarkdown.length, createReaderContentHash(secondMarkdown), now, now);
         } finally {
           connection.close();
         }
@@ -237,24 +256,26 @@ describe("browse memory loader error policy", () => {
       },
     );
 
+    const firstMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f211";
+    const secondMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f212";
     expect(JSON.parse(output)).toMatchObject({
       firstPage: {
-        memories: [{ id: "memory-first", flashbacks: [] }],
+        memories: [{ id: firstMemoryId, flashbacks: [] }],
         nextCursor: {
           createdAt: "2026-05-09T00:00:00.000Z",
-          id: "memory-first",
+          id: firstMemoryId,
         },
       },
       secondPage: {
-        memories: [{ id: "memory-second", flashbacks: [] }],
+        memories: [{ id: secondMemoryId, flashbacks: [] }],
         nextCursor: null,
       },
       fieldedSearchPage: {
-        memories: [{ id: "memory-second", flashbacks: [] }],
+        memories: [{ id: secondMemoryId, flashbacks: [] }],
         nextCursor: null,
       },
       flashbackFilterPage: {
-        memories: [{ id: "memory-second", flashbacks: [] }],
+        memories: [{ id: secondMemoryId, flashbacks: [] }],
         nextCursor: null,
       },
     });

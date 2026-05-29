@@ -215,7 +215,10 @@ describe("memory browse actions", () => {
   });
 
   it("uses first-page scoped revalidation after add-memory success", () => {
+    expect(addMemoryFormSource).toContain("useLocation");
+    expect(addMemoryFormSource).toContain("parseBrowseQuery(location.search)");
     expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage");
+    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage(query())");
     expect(addMemoryFormSource).toContain("revalidateBrowseTaxonomy");
     expect(addMemoryFormSource).not.toContain("revalidateBrowseMemories");
   });

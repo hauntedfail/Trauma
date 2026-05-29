@@ -3,7 +3,9 @@ import type { ResolvedTraumaConfig } from "../config";
 import { getMemoryBackupQueue } from "../backup";
 import { initializeDatabase } from "../db";
 import type {
+  FlashbackBrowseRow,
   ListMemoryBrowsePageInput,
+  MemoryBrowsePageResult,
   MemoryBrowsePageRow,
   MemoryBrowseRow,
 } from "../db/repositories";
@@ -12,10 +14,12 @@ import { browseFixtureMemories } from "../../components/memories/browse-fixtures
 import {
   filterBrowseMemories,
   parseBrowseSearch,
+  type BrowseFlashback,
   type BrowseMemory,
   type BrowseMemoryCursor,
   type BrowseMemoryPage,
   type BrowseMemoryPageRequest,
+  type BrowseQuery,
 } from "../../components/memories/browse-data";
 
 export interface LoadBrowseMemoriesOptions {
@@ -64,9 +68,17 @@ export async function loadBrowseMemoryPage(
     const config = loadRuntimeTraumaConfig();
     (options.startBackupQueue ?? startBackupQueue)(config);
     connection = initializeDatabase(config);
-    const page = await connection.repositories.memories.listForBrowsePage(
-      toMemoryBrowsePageRepositoryInput(request),
-    );
+    const repositoryInput = toMemoryBrowsePageRepositoryInput(request);
+    const page = shouldApplyRenderableFlashbackBrowseFilters(request.query)
+      ? await listBrowseMemoryPageWithRenderableFlashbackFilters({
+          config,
+          query: request.query,
+          repositories: connection.repositories,
+          repositoryInput,
+        })
+      : await connection.repositories.memories.listForBrowsePage(
+          repositoryInput,
+        );
 
     return {
       memories: page.rows.map(toBrowseMemoryWithoutFlashbacks),
@@ -124,6 +136,128 @@ function normalizePageRequestLimit(limit: number): number {
   }
 
   return normalized;
+}
+
+async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
+  config: ResolvedTraumaConfig;
+  query: BrowseQuery;
+  repositories: ReturnType<typeof initializeDatabase>["repositories"];
+  repositoryInput: ListMemoryBrowsePageInput;
+}): Promise<MemoryBrowsePageResult> {
+  const limit = normalizeRepositoryBrowsePageLimit(input.repositoryInput.limit);
+  const rows: MemoryBrowsePageRow[] = [];
+  let cursor = input.repositoryInput.cursor;
+  let nextCursor: MemoryBrowsePageResult["nextCursor"] = null;
+
+  while (rows.length < limit) {
+    const page = await input.repositories.memories.listForBrowsePage({
+      ...input.repositoryInput,
+      cursor,
+      limit: limit - rows.length,
+    });
+
+    if (page.rows.length === 0) {
+      nextCursor = null;
+      break;
+    }
+
+    rows.push(
+      ...(await filterPageRowsByRenderableFlashbacks({
+        config: input.config,
+        query: input.query,
+        repositories: input.repositories,
+        rows: page.rows,
+      })),
+    );
+
+    if (rows.length >= limit) {
+      nextCursor = page.nextCursor;
+      break;
+    }
+
+    if (page.nextCursor === null) {
+      nextCursor = null;
+      break;
+    }
+
+    cursor = page.nextCursor;
+  }
+
+  return { rows, nextCursor };
+}
+
+function shouldApplyRenderableFlashbackBrowseFilters(query: BrowseQuery): boolean {
+  const search = parseBrowseSearch(query.q);
+  return (
+    query.flashback.length > 0 ||
+    search.freeTerms.length > 0 ||
+    search.fields.some((field) => field.field === "flashback")
+  );
+}
+
+async function filterPageRowsByRenderableFlashbacks(input: {
+  config: ResolvedTraumaConfig;
+  query: BrowseQuery;
+  repositories: ReturnType<typeof initializeDatabase>["repositories"];
+  rows: MemoryBrowsePageRow[];
+}): Promise<MemoryBrowsePageRow[]> {
+  const memoryIds = input.rows.map((row) => row.id);
+  const renderableFlashbacks = await filterRenderableFlashbackRows({
+    config: input.config,
+    rows: await input.repositories.flashbacks.listForBrowseMemoryIds({
+      memoryIds,
+    }),
+    translationRepository: input.repositories.translations,
+  });
+  const flashbacksByMemoryId =
+    groupBrowseFlashbacksByMemoryId(renderableFlashbacks);
+  const matchingIds = new Set(
+    filterBrowseMemories(
+      input.rows.map((row) => ({
+        ...toBrowseMemoryWithoutFlashbacks(row),
+        flashbacks: flashbacksByMemoryId.get(row.id) ?? [],
+      })),
+      input.query,
+    ).map((memory) => memory.id),
+  );
+
+  return input.rows.filter((row) => matchingIds.has(row.id));
+}
+
+function groupBrowseFlashbacksByMemoryId(
+  rows: FlashbackBrowseRow[],
+): Map<string, BrowseFlashback[]> {
+  const grouped = new Map<string, BrowseFlashback[]>();
+  for (const row of rows) {
+    const flashbacks = grouped.get(row.memoryId) ?? [];
+    flashbacks.push(toBrowseFlashback(row));
+    grouped.set(row.memoryId, flashbacks);
+  }
+
+  return grouped;
+}
+
+function toBrowseFlashback(row: FlashbackBrowseRow): BrowseFlashback {
+  return {
+    id: row.id,
+    memoryId: row.memoryId,
+    variantKind: row.variantKind,
+    langCode: row.langCode,
+    translationOutputHash: row.translationOutputHash,
+    text: row.text,
+    prefix: row.prefix,
+    suffix: row.suffix,
+    createdAt: row.createdAt,
+  };
+}
+
+function normalizeRepositoryBrowsePageLimit(limit: number): number {
+  const normalized = Math.trunc(limit);
+  if (!Number.isFinite(normalized) || normalized < 1) {
+    return 1;
+  }
+
+  return Math.min(normalized, 100);
 }
 
 function toMemoryBrowsePageRepositoryInput(

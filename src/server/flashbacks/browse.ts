@@ -19,6 +19,8 @@ import {
 import { resolveCurrentTranslationReadOnly } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
 
+const RECENT_FLASHBACK_BACKFILL_CANDIDATE_LIMIT = 100;
+
 export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   "use server";
 
@@ -54,14 +56,30 @@ export async function loadRecentFlashbackBrowseRows(input: {
   try {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
+    const limit = normalizeFlashbackLimit(input.limit);
     const rows = await connection.repositories.flashbacks.listRecentForBrowse({
-      limit: input.limit,
+      limit,
     });
-    return await filterRenderableFlashbackRows({
+    const renderableRows = await filterRenderableFlashbackRows({
       config,
       rows,
       translationRepository: connection.repositories.translations,
     });
+    if (renderableRows.length >= limit || rows.length < limit) {
+      return renderableRows.slice(0, limit);
+    }
+
+    const backfillRows =
+      await connection.repositories.flashbacks.listRecentForBrowse({
+        limit: RECENT_FLASHBACK_BACKFILL_CANDIDATE_LIMIT,
+      });
+    return (
+      await filterRenderableFlashbackRows({
+        config,
+        rows: backfillRows,
+        translationRepository: connection.repositories.translations,
+      })
+    ).slice(0, limit);
   } finally {
     connection?.close();
   }

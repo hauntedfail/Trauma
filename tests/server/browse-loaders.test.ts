@@ -35,6 +35,7 @@ import {
 
 const originalEnv = { ...process.env };
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901";
+const olderMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f902";
 const now = new Date("2026-05-16T00:00:00.000Z");
 const tempDirs: string[] = [];
 
@@ -330,6 +331,77 @@ describe("server browse loaders", () => {
     await expect(loadFlashbackBrowseRows()).resolves.toEqual([]);
   });
 
+  it("backfills recent flashback rows after renderability filtering", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const markdown =
+      "# Loader Memory\n\nA first selected text and a second selected text.";
+    const readerText = readCanonicalReaderText(markdown);
+    const firstOffset = readerText.indexOf("first selected text");
+    const secondOffset = readerText.indexOf("second selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values([
+        {
+          id: "stale-recent-flashback",
+          memoryId,
+          text: "first selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: firstOffset,
+          endOffset: firstOffset + "first selected text".length,
+          contentHash:
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          createdAt: new Date(now.getTime() + 2_000),
+          updatedAt: new Date(now.getTime() + 2_000),
+        },
+        {
+          id: "renderable-recent-flashback",
+          memoryId,
+          text: "first selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: firstOffset,
+          endOffset: firstOffset + "first selected text".length,
+          contentHash: createReaderContentHash(markdown),
+          createdAt: new Date(now.getTime() + 1_000),
+          updatedAt: new Date(now.getTime() + 1_000),
+        },
+        {
+          id: "backfilled-recent-flashback",
+          memoryId,
+          text: "second selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: secondOffset,
+          endOffset: secondOffset + "second selected text".length,
+          contentHash: createReaderContentHash(markdown),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    } finally {
+      connection.close();
+    }
+
+    await expect(loadRecentFlashbackBrowseRows({ limit: 2 })).resolves.toEqual([
+      expect.objectContaining({ id: "renderable-recent-flashback" }),
+      expect.objectContaining({ id: "backfilled-recent-flashback" }),
+    ]);
+  });
+
   it("filters stale flashbacks from memory browse aggregates", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
@@ -426,6 +498,111 @@ describe("server browse loaders", () => {
           flashbacks: [],
         },
       ],
+      nextCursor: null,
+    });
+  });
+
+  it("filters stale flashbacks from paged browse flashback filters", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config, {
+      createdAt: new Date(now.getTime() + 1_000),
+      id: memoryId,
+      title: "Stale Flashback Memory",
+    });
+    await seedMemory(config, {
+      createdAt: now,
+      id: olderMemoryId,
+      title: "Renderable Flashback Memory",
+    });
+    const staleMarkdown = "# Stale Flashback Memory\n\nA stale selected text.";
+    const renderableMarkdown =
+      "# Renderable Flashback Memory\n\nA needle selected text.";
+    const renderableOffset =
+      readCanonicalReaderText(renderableMarkdown).indexOf("needle selected text");
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Stale Flashback Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: staleMarkdown,
+    });
+    await writeMemoryContent({
+      config,
+      memoryId: olderMemoryId,
+      frontmatter: {
+        id: olderMemoryId,
+        url: `https://example.com/${olderMemoryId}`,
+        title: "Renderable Flashback Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: renderableMarkdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values([
+        {
+          id: "stale-page-flashback",
+          memoryId,
+          text: "needle selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: 0,
+          endOffset: "needle selected text".length,
+          contentHash:
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          createdAt: new Date(now.getTime() + 1_000),
+          updatedAt: new Date(now.getTime() + 1_000),
+        },
+        {
+          id: "renderable-page-flashback",
+          memoryId: olderMemoryId,
+          text: "needle selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: renderableOffset,
+          endOffset: renderableOffset + "needle selected text".length,
+          contentHash: createReaderContentHash(renderableMarkdown),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    } finally {
+      connection.close();
+    }
+
+    const fieldedPage = await loadBrowseMemoryPage({
+      ...createInitialBrowseMemoryPageRequest(
+        parseBrowseQuery("?q=flashback:{needle selected text}"),
+      ),
+      limit: 1,
+    });
+    const freeSearchPage = await loadBrowseMemoryPage({
+      ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
+      limit: 1,
+    });
+    const staleIdPage = await loadBrowseMemoryPage({
+      ...createInitialBrowseMemoryPageRequest(
+        parseBrowseQuery("?flashback=stale-page-flashback"),
+      ),
+      limit: 1,
+    });
+
+    expect(fieldedPage).toMatchObject({
+      memories: [{ id: olderMemoryId, flashbacks: [] }],
+      nextCursor: null,
+    });
+    expect(freeSearchPage).toMatchObject({
+      memories: [{ id: olderMemoryId, flashbacks: [] }],
+      nextCursor: null,
+    });
+    expect(staleIdPage).toEqual({
+      memories: [],
       nextCursor: null,
     });
   });
@@ -632,23 +809,33 @@ async function makeTempRoot(): Promise<string> {
   return root;
 }
 
-async function seedMemory(config: ResolvedTraumaConfig): Promise<void> {
+async function seedMemory(
+  config: ResolvedTraumaConfig,
+  input: {
+    createdAt?: Date;
+    id?: string;
+    title?: string;
+  } = {},
+): Promise<void> {
+  const id = input.id ?? memoryId;
+  const title = input.title ?? "Loader Memory";
+  const createdAt = input.createdAt ?? now;
   const connection = initializeDatabase(config);
   try {
     await connection.repositories.memories.create({
-      id: memoryId,
-      url: `https://example.com/${memoryId}`,
-      title: "Loader Memory",
+      id,
+      url: `https://example.com/${id}`,
+      title,
       description: null,
       faviconUrl: null,
-      contentPath: `memories/${memoryId}/CONTENT.md`,
+      contentPath: `memories/${id}/CONTENT.md`,
       extractionStatus: "success",
       extractionError: null,
       backupStatus: "disabled",
       lastBackupAt: null,
       lastBackupError: null,
-      createdAt: now,
-      updatedAt: now,
+      createdAt,
+      updatedAt: createdAt,
     });
   } finally {
     connection.close();
