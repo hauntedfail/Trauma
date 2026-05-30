@@ -2249,6 +2249,39 @@ function ReaderToc(props: {
     const height = last.offsetTop + last.offsetHeight - top;
     setReadingBand({ top, height });
     setReadingBandVisible(true);
+    ensureReadingBandVisible(top, height);
+  };
+  // When the spied range reaches a section outside the TOC's bounded scroll
+  // viewport, scroll the TOC just enough to follow the reader's position. Only
+  // runs on range changes, so manual TOC browsing is not interrupted until the
+  // reader scrolls again.
+  const ensureReadingBandVisible = (top: number, height: number) => {
+    const list = scrollRef;
+    if (list === undefined) {
+      return;
+    }
+
+    const margin = 8;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+    let next = viewTop;
+    if (top < viewTop + margin) {
+      next = top - margin;
+    } else if (top + height > viewBottom - margin) {
+      next = top + height + margin - list.clientHeight;
+    }
+
+    next = Math.max(0, next);
+    if (Math.abs(next - viewTop) <= 1) {
+      return;
+    }
+
+    const prefersReduced = typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    list.scrollTo({
+      top: next,
+      behavior: readingBandAnimated() && !prefersReduced ? "smooth" : "auto",
+    });
   };
   const updateTocScrollHint = () => {
     if (scrollRef === undefined) {

@@ -96,10 +96,15 @@ static aids (anchors, scroll fades, Moment toggles, long-press menus).
   is semantic only and applies no visual emphasis.
 - With nothing on screen mapped to a heading (empty TOC) the TOC renders in its
   plain static state with no highlight.
+- The TOC body is bounded, so memories with many sections scroll inside it. When
+  the spied range reaches a section outside that bounded viewport, the TOC
+  auto-scrolls just enough to keep the range in view and follow the reader. This
+  runs only on range changes, so manual TOC browsing is not interrupted until
+  the reader scrolls the document again.
 - Scroll observation is `requestAnimationFrame`-batched, attached as passive
   listeners, and fully torn down on reader unmount. Under
-  `prefers-reduced-motion: reduce` the band only fades; its position no longer
-  animates.
+  `prefers-reduced-motion: reduce` the band only fades, its position no longer
+  animates, and the follow-scroll jumps instantly instead of smoothing.
 
 ## Markdown Prose
 

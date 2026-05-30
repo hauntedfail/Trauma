@@ -94,6 +94,15 @@ describe("reader TOC reading-range visualization wiring", () => {
     expect(readerSource).not.toContain("trauma-toc-reading-range-end");
   });
 
+  it("auto-scrolls the bounded TOC to follow the spied range", () => {
+    // When the range reaches a section outside the TOC's scroll viewport, the
+    // TOC scrolls to follow, honoring reduced motion.
+    expect(readerSource).toContain("ensureReadingBandVisible");
+    expect(readerSource).toContain("list.scrollTo({");
+    expect(readerSource).toContain('window.matchMedia("(prefers-reduced-motion: reduce)")');
+    expect(readerSource).toContain("list.clientHeight");
+  });
+
   it("does not recolor the spied section text", () => {
     expect(readerSource).not.toContain("trauma-toc-reading-position");
     expect(tailwindSource).not.toContain("trauma-toc-reading-position");
