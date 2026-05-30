@@ -22,6 +22,7 @@ architecture, reference, quality, or operations docs.
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
 | 20 | [Lazy loading performance](task-20-lazy-loading-performance/README.md) | Cursor-paginated memories, lazy Flashback data, reader All-tab deferral | Ready on `feat/lazy-loading` from `fix/perform` |
+| 23 | [Reader TOC reading-progress](task-23-reader-toc-reading-progress/README.md) | Dynamic TOC that visualizes the active chapter reading range on `/memories/:id` | Active on `fix/toc` from `fix/perform` |
 
 ## Current Audit Notes
 
@@ -39,6 +40,10 @@ architecture, reference, quality, or operations docs.
   is intentionally scoped to lazy loading and pagination; renderer caching,
   extractor pooling, and backup integrity refactors remain separate future
   work unless a later workflow adds them.
+- Task 23 is a reader UI workflow for the `fix/perform` follow-up branch on the
+  `fix/toc` worktree. It is scoped to making the reader TOC visualize the live
+  reading range; it must not change markdown rendering, Moment behaviour, or any
+  non-reader surface.
 
 ## Archived Workflows
 
