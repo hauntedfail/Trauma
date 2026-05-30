@@ -215,6 +215,23 @@ describe("memory browse actions", () => {
     expect(browseSource).not.toContain("loadMoreSentinel === undefined || typeof IntersectionObserver");
   });
 
+  it("reports handled load-more failures without rethrowing to void callers", () => {
+    const loadNextPageStart = browseSource.indexOf("const loadNextPage = async");
+    const loadNextPageEnd = browseSource.indexOf(
+      "const clearAdditionalBrowsePages",
+      loadNextPageStart,
+    );
+    const loadNextPageSource = browseSource.slice(
+      loadNextPageStart,
+      loadNextPageEnd,
+    );
+
+    expect(loadNextPageSource).toContain(
+      'setLoadNextPageError("Failed to load more memories.")',
+    );
+    expect(loadNextPageSource).not.toContain("throw error");
+  });
+
   it("clears appended pages after card mutations revalidate browse data", () => {
     expect(browseSource).toContain("clearAdditionalBrowsePages");
     expect(browseSource).toContain("onMemoryMutated={clearAdditionalBrowsePages}");

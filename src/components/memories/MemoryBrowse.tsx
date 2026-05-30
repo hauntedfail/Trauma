@@ -151,9 +151,8 @@ export function MemoryBrowse() {
         return;
       }
       setAdditionalPages((current) => [...current, page]);
-    } catch (error) {
+    } catch {
       setLoadNextPageError("Failed to load more memories.");
-      throw error;
     } finally {
       setIsLoadingNextPage(false);
     }

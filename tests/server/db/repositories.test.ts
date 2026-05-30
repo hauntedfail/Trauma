@@ -1032,7 +1032,8 @@ describe("memory and taxonomy repositories", () => {
           const secondPage = await page({ limit: 2, cursor: firstPage.nextCursor });
           const readPage = await page({ readState: "read" });
           const unreadPage = await page({ readState: "unread" });
-          const bothPage = await page({ readState: "both" });
+          const allPage = await page({ readState: "all" });
+          const conflictingReadStatePage = await page({ readState: "both" });
 
           process.stdout.write(JSON.stringify({
             firstPageIds: firstPage.rows.map((memory) => memory.id),
@@ -1041,7 +1042,8 @@ describe("memory and taxonomy repositories", () => {
             secondPageIds: secondPage.rows.map((memory) => memory.id),
             readIds: readPage.rows.map((memory) => memory.id),
             unreadIds: unreadPage.rows.map((memory) => memory.id),
-            bothIds: bothPage.rows.map((memory) => memory.id),
+            allIds: allPage.rows.map((memory) => memory.id),
+            conflictingReadStateIds: conflictingReadStatePage.rows.map((memory) => memory.id),
             categoryIds: (await page({ categoryId: "category-research" })).rows.map((memory) => memory.id),
             tagIds: (await page({ tagId: "tag-sqlite" })).rows.map((memory) => memory.id),
             flashbackIds: (await page({ flashbackId: "flashback-selected" })).rows.map((memory) => memory.id),
@@ -1072,7 +1074,8 @@ describe("memory and taxonomy repositories", () => {
       secondPageIds: ["memory-c", "memory-b"],
       readIds: ["memory-b"],
       unreadIds: ["memory-e", "memory-d", "memory-c", "memory-a"],
-      bothIds: [],
+      allIds: ["memory-e", "memory-d", "memory-c", "memory-b", "memory-a"],
+      conflictingReadStateIds: [],
       categoryIds: ["memory-a"],
       tagIds: ["memory-b"],
       flashbackIds: ["memory-c"],

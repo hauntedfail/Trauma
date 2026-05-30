@@ -163,6 +163,25 @@ describe("refined app shell contract", () => {
     expect(contextualContentIndex).toBeLessThan(browseFiltersIndex);
   });
 
+  it("uses shell-owned route state before loading right-rail flashback shortcuts", () => {
+    expect(appShellSource).toContain("function isMemoryReaderPath");
+    expect(appShellSource).toContain("canShowShellFlashbackShortcuts");
+
+    const flashbackResourceStart = appShellSource.indexOf("const flashbacks = createAsync");
+    const flashbackResourceEnd = appShellSource.indexOf(
+      "const activeCategoryIds",
+      flashbackResourceStart,
+    );
+    const flashbackResource = appShellSource.slice(
+      flashbackResourceStart,
+      flashbackResourceEnd,
+    );
+
+    expect(flashbackResource).toContain("canShowShellFlashbackShortcuts()");
+    expect(flashbackResource).not.toContain("showRightRailFlashbacks()");
+    expect(flashbackResource).not.toContain("rightRailContent()");
+  });
+
   it("keeps right rail shortcut lists as bounded independent scroll regions", () => {
     expect(appShellSource).toContain("rightRailSurface");
     expect(appShellSource).toContain("rightRailStack");

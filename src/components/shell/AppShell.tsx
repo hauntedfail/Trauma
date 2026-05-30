@@ -112,6 +112,14 @@ const compactAddMemoryButton =
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
 const SURFACE_STORAGE_KEY = "trauma:surface";
 
+function isMemoryReaderPath(pathname: string): boolean {
+  if (!pathname.startsWith("/memories/")) {
+    return false;
+  }
+
+  return pathname.split("/").filter(Boolean).length >= 2;
+}
+
 const routeNavItems = [
   { href: "/memories", icon: "memories", label: "Memories", pip: false },
   { href: "/flashbacks", icon: "flashbacks", label: "Flashbacks", pip: true },
@@ -163,13 +171,16 @@ export function AppShell(props: AppShellProps) {
   const categories = createMemo(() => taxonomy()?.categories ?? []);
   const tags = createMemo(() => taxonomy()?.tags ?? []);
   const activePath = createMemo(() => location.pathname);
-  const showRightRailFlashbacks = createMemo(
+  const canShowShellFlashbackShortcuts = createMemo(
     () =>
-      rightRailContent() === undefined &&
-      !activePath().startsWith("/flashbacks"),
+      !activePath().startsWith("/flashbacks") &&
+      !isMemoryReaderPath(activePath()),
+  );
+  const showRightRailFlashbacks = createMemo(
+    () => canShowShellFlashbackShortcuts() && rightRailContent() === undefined,
   );
   const flashbacks = createAsync(async () =>
-    showRightRailFlashbacks() ? getRecentFlashbackBrowseRows(5) : [],
+    canShowShellFlashbackShortcuts() ? getRecentFlashbackBrowseRows(5) : [],
   );
   const activeCategoryIds = createMemo(() =>
     getActiveTaxonomyIds({
