@@ -53,6 +53,8 @@ describe("popup shell", () => {
 
   it("owns shared popup chrome and close interactions", () => {
     expect(popupSource).toContain("useDismissableLayer");
+    expect(popupSource).toContain("untrack(() => props.onOpenChange?.(nextOpen))");
+    expect(popupSource).toContain("untrack(() => props.onClose?.())");
     expect(popupSource).not.toContain("shouldSuppressPopupOutsideClick");
     expect(popupSource).not.toContain("isPopupActionTarget");
     expect(popupSource).not.toContain("[data-popup-dismiss-only]");

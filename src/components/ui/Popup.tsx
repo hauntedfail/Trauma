@@ -2,6 +2,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  untrack,
   type JSX,
 } from "solid-js";
 
@@ -61,9 +62,9 @@ export function Popup(props: PopupProps) {
 
   createEffect(() => {
     const nextOpen = open();
-    props.onOpenChange?.(nextOpen);
+    untrack(() => props.onOpenChange?.(nextOpen));
     if (hasObservedOpenState && !nextOpen) {
-      props.onClose?.();
+      untrack(() => props.onClose?.());
     }
     hasObservedOpenState = true;
   });
