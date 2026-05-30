@@ -1,9 +1,16 @@
 import { readFileSync } from "node:fs";
 
 import { createComponent, renderToString } from "solid-js/web";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReaderFlashbackTabs } from "../../src/components/reader/MemoryReader";
+const flashbackLoaderMocks = vi.hoisted(() => ({
+  getFlashbackBrowseRows: vi.fn<() => Promise<never>>(),
+  revalidateFlashbackBrowseRows: vi.fn(),
+}));
+
+vi.mock("../../src/components/flashbacks/flashbacks-loader", () => flashbackLoaderMocks);
+
+const { ReaderFlashbackTabs } = await import("../../src/components/reader/MemoryReader");
 
 const allFlashbacks = [
   {
@@ -52,6 +59,14 @@ const currentFlashbacks = [
 ];
 
 describe("reader flashback tabs", () => {
+  beforeEach(() => {
+    flashbackLoaderMocks.getFlashbackBrowseRows.mockReset();
+    flashbackLoaderMocks.getFlashbackBrowseRows.mockReturnValue(
+      new Promise<never>(() => {}),
+    );
+    flashbackLoaderMocks.revalidateFlashbackBrowseRows.mockReset();
+  });
+
   it("renders Current as the left tab and All as the second tab", () => {
     const html = renderTabs({ initialTab: "memory" });
     const currentIndex = html.indexOf(">Current<");
@@ -93,11 +108,29 @@ describe("reader flashback tabs", () => {
     expect(html).toContain('href="#flashback-current"');
   });
 
+  it("does not request global flashbacks while the default Current tab is active", () => {
+    const html = renderTabs({ omitAllFlashbacks: true });
+
+    expect(html).toContain("current flashback");
+    expect(html).not.toContain("Loading flashbacks...");
+    expect(flashbackLoaderMocks.getFlashbackBrowseRows).not.toHaveBeenCalled();
+  });
+
   it("defaults to Current when the active memory has no flashbacks", () => {
     const html = renderTabs({ currentFlashbacks: [] });
 
     expect(html).toContain("No flashbacks for this memory yet");
     expect(html).not.toContain("other flashback");
+  });
+
+  it("loads global flashbacks when All is the initial tab and keeps loading state visible", () => {
+    const html = renderTabs({
+      initialTab: "all",
+      omitAllFlashbacks: true,
+    });
+
+    expect(flashbackLoaderMocks.getFlashbackBrowseRows).toHaveBeenCalledOnce();
+    expect(html).toContain("Loading flashbacks...");
   });
 
   it("lists all flashback rows across memories when the all tab is active", () => {
@@ -107,6 +140,7 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("other flashback");
     expect(html).toContain('href="/memories/memory-1#flashback-current"');
     expect(html).toContain('href="/memories/ja-JP/memory-2#flashback-other"');
+    expect(flashbackLoaderMocks.getFlashbackBrowseRows).not.toHaveBeenCalled();
   });
 
   it("uses shared memory anchor href builders for Flashback shortcuts", () => {
@@ -114,6 +148,23 @@ describe("reader flashback tabs", () => {
 
     expect(source).toContain("buildMemoryVariantAnchorHref");
     expect(source).toContain("buildSameMemoryAnchorHref");
+  });
+
+  it("keeps the global Flashback query out of the reader's initial render path", () => {
+    const source = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
+    const readyReaderSource = source.slice(
+      source.indexOf("function ReadyMemoryReader"),
+      source.indexOf("function ReaderRightRailContent"),
+    );
+    const tabsSource = source.slice(
+      source.indexOf("export function ReaderFlashbackTabs"),
+      source.indexOf("function getReaderSelectionKey"),
+    );
+
+    expect(readyReaderSource).not.toContain("getFlashbackBrowseRows");
+    expect(readyReaderSource).not.toContain("createAsync(() => getFlashbackBrowseRows())");
+    expect(tabsSource).toContain("shouldLoadAll");
+    expect(tabsSource).toContain("getFlashbackBrowseRows");
   });
 
   it("renders a concise current-memory empty state", () => {
@@ -129,13 +180,23 @@ describe("reader flashback tabs", () => {
 function renderTabs(input: {
   currentFlashbacks?: typeof currentFlashbacks;
   initialTab?: "all" | "memory";
+  omitAllFlashbacks?: boolean;
 } = {}) {
   return renderToString(() =>
-    createComponent(ReaderFlashbackTabs, {
-      allFlashbacks,
-      currentFlashbacks: input.currentFlashbacks ?? currentFlashbacks,
-      initialTab: input.initialTab,
-      memoryId: "memory-1",
-    }),
+    createComponent(
+      ReaderFlashbackTabs,
+      input.omitAllFlashbacks === true
+        ? {
+            currentFlashbacks: input.currentFlashbacks ?? currentFlashbacks,
+            initialTab: input.initialTab,
+            memoryId: "memory-1",
+          }
+        : {
+            allFlashbacks,
+            currentFlashbacks: input.currentFlashbacks ?? currentFlashbacks,
+            initialTab: input.initialTab,
+            memoryId: "memory-1",
+          },
+    ),
   );
 }

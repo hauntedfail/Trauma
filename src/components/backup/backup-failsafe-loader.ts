@@ -22,13 +22,16 @@ export async function loadBackupFailsafeAlert(): Promise<BackupFailsafeAlertView
   const [
     { loadRuntimeTraumaConfig },
     { initializeDatabase },
+    { getMemoryBackupQueue },
     { getBackupFailsafeStatus },
   ] = await Promise.all([
     import("~/server/config"),
     import("~/server/db"),
+    import("~/server/backup"),
     import("~/server/backup/environment"),
   ]);
   const config = loadRuntimeTraumaConfig();
+  getMemoryBackupQueue(config);
   const connection = initializeDatabase(config);
   try {
     return (await getBackupFailsafeStatus({ config, db: connection.db })).alert;

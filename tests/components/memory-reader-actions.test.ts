@@ -172,6 +172,17 @@ describe("memory reader actions", () => {
     );
   });
 
+  it("keeps Flashback toggles invalidating reader, global Flashbacks, and browse pages", () => {
+    const revalidationSource = memoryReaderSource.slice(
+      memoryReaderSource.indexOf("async function revalidateAfterFlashbackToggle"),
+      memoryReaderSource.indexOf("function ReaderContextMenu"),
+    );
+
+    expect(revalidationSource).toContain("revalidateFlashbackBrowseRows()");
+    expect(revalidationSource).toContain("revalidateReaderMemory(memoryId, langCode)");
+    expect(revalidationSource).toContain("revalidateBrowseMemoryWorkspace()");
+  });
+
   it("keeps browser EventSource retries alive for transient translation stream errors", () => {
     const onErrorIndex = memoryReaderSource.indexOf("eventSource.onerror = () => {");
     expect(onErrorIndex).toBeGreaterThan(-1);

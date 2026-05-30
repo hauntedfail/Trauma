@@ -6,7 +6,7 @@ import {
   submitAddMemoryUrl,
   type AddMemorySubmitResult,
 } from "./add-memory-submit";
-import { revalidateBrowseMemories } from "./browse-loader";
+import { revalidateBrowseMemoryWorkspace } from "./browse-loader";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 export interface AddMemoryFormProps {
@@ -51,7 +51,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       }
 
       setUrl("");
-      void revalidateBrowseMemories();
+      void revalidateBrowseMemoryWorkspace();
       navigate(`/memories/${encodeURIComponent(result.memoryId)}`);
       props.onCreated?.(result.memoryId);
     } finally {

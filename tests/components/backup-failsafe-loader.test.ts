@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -19,6 +21,10 @@ const routerMocks = vi.hoisted(() => ({
 vi.mock("@solidjs/router", () => routerMocks);
 
 const previousBrowseFixtures = process.env.TRAUMA_BROWSE_FIXTURES;
+const backupFailsafeLoaderSource = readFileSync(
+  "src/components/backup/backup-failsafe-loader.ts",
+  "utf8",
+);
 
 afterEach(() => {
   if (previousBrowseFixtures === undefined) {
@@ -48,5 +54,10 @@ describe("backup failsafe loader", () => {
     expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
       getBackupFailsafeAlert.key,
     );
+  });
+
+  it("starts the backup retry queue from the shell startup loader", () => {
+    expect(backupFailsafeLoaderSource).toContain("getMemoryBackupQueue");
+    expect(backupFailsafeLoaderSource).toContain("getMemoryBackupQueue(config)");
   });
 });

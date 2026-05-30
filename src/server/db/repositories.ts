@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import {
@@ -13,6 +13,7 @@ import {
   type SupportedLanguageCode,
 } from "../../settings/languages";
 import { validateTagName } from "../../taxonomy/name-policy";
+import { normalizeBrowseLimit } from "../browse/limits";
 import {
   TRANSLATION_CHUNK_STATUSES,
   type TranslationChunkStatus,
@@ -96,6 +97,44 @@ export interface MemoryBrowseRow {
   flashbacks: FlashbackBrowseRow[];
 }
 
+export interface MemoryBrowsePageRow {
+  id: string;
+  title: string;
+  url: string;
+  description: string;
+  capturedAt: string;
+  read: boolean;
+  extractionStatus: ExtractionStatus;
+  categories: { id: string; name: string }[];
+  tags: { id: string; name: string }[];
+}
+
+export type MemoryBrowseSearchField =
+  | "title"
+  | "url"
+  | "tag"
+  | "category"
+  | "flashback";
+
+export interface ListMemoryBrowsePageInput {
+  categoryId: string;
+  cursor: { createdAt: Date; id: string } | null;
+  flashbackId: string;
+  limit: number;
+  readState: "all" | "both" | "read" | "unread";
+  searchFields: {
+    field: MemoryBrowseSearchField;
+    values: string[];
+  }[];
+  searchTerms: string[];
+  tagId: string;
+}
+
+export interface MemoryBrowsePageResult {
+  rows: MemoryBrowsePageRow[];
+  nextCursor: { createdAt: Date; id: string } | null;
+}
+
 export interface FlashbackBrowseRow {
   id: string;
   memoryId: string;
@@ -110,6 +149,11 @@ export interface FlashbackBrowseRow {
   endOffset: number;
   contentHash?: string | null;
   createdAt: string;
+}
+
+export interface FlashbackBrowseCursor {
+  createdAt: Date;
+  id: string;
 }
 
 export interface MomentBrowseRow {
@@ -150,6 +194,7 @@ export interface MemoryRepository {
     updatedAt: Date;
   }) => Promise<MemoryBackupStatusUpdate>;
   listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
+  listForBrowsePage: (input: ListMemoryBrowsePageInput) => Promise<MemoryBrowsePageResult>;
   listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
@@ -216,6 +261,12 @@ export interface FlashbackRepository {
     flashbacks: Flashback[];
   }) => Promise<Flashback[]>;
   listForBrowse: () => Promise<FlashbackBrowseRow[]>;
+  listRecentForBrowse: (input: {
+    cursor?: FlashbackBrowseCursor | null;
+    limit: number;
+  }) => Promise<FlashbackBrowseRow[]>;
+  listForBrowseMemoryIds: (input: { memoryIds: string[] }) => Promise<FlashbackBrowseRow[]>;
+  findForBrowseById: (flashbackId: string) => Promise<FlashbackBrowseRow | undefined>;
 }
 
 export interface MomentRepository {
@@ -638,33 +689,36 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       replaceForMemoryVariant: async (input) =>
         replaceFlashbacksForMemoryVariant(db, input),
       listForBrowse: async () => {
-        const rows = await db
-          .select({
-            id: schema.flashbacks.id,
-            memoryId: schema.flashbacks.memoryId,
-            memoryTitle: schema.memories.title,
-            variantKind: schema.flashbacks.variantKind,
-            langCode: schema.flashbacks.langCode,
-            translationOutputHash: schema.flashbacks.translationOutputHash,
-            text: schema.flashbacks.text,
-            prefix: schema.flashbacks.prefix,
-            suffix: schema.flashbacks.suffix,
-            startOffset: schema.flashbacks.startOffset,
-            endOffset: schema.flashbacks.endOffset,
-            contentHash: schema.flashbacks.contentHash,
-            createdAt: schema.flashbacks.createdAt,
-          })
-          .from(schema.flashbacks)
-          .innerJoin(
-            schema.memories,
-            eq(schema.flashbacks.memoryId, schema.memories.id),
-          )
+        const rows = await selectFlashbackBrowseRows(db)
           .orderBy(desc(schema.flashbacks.createdAt));
 
-        return rows.map((row) => ({
-          ...row,
-          createdAt: formatDateTime(row.createdAt),
-        }));
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      listRecentForBrowse: async (input) => {
+        const rows = await selectFlashbackBrowseRows(db)
+          .where(buildFlashbackBrowseCursorWhere(input.cursor ?? null))
+          .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id))
+          .limit(normalizeBrowseLimit(input.limit));
+
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      listForBrowseMemoryIds: async (input) => {
+        if (input.memoryIds.length === 0) {
+          return [];
+        }
+
+        const rows = await selectFlashbackBrowseRows(db)
+          .where(inArray(schema.flashbacks.memoryId, input.memoryIds))
+          .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id));
+
+        return rows.map(formatFlashbackBrowseRow);
+      },
+      findForBrowseById: async (flashbackId) => {
+        const row = await selectFlashbackBrowseRows(db)
+          .where(eq(schema.flashbacks.id, flashbackId))
+          .get();
+
+        return row === undefined ? undefined : formatFlashbackBrowseRow(row);
       },
     },
     memories: {
@@ -815,6 +869,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           where: inArray(schema.memories.backupStatus, ["pending", "queued", "failed"]),
           orderBy: [asc(schema.memories.updatedAt), asc(schema.memories.id)],
         }),
+      listForBrowsePage: async (input) => listMemoryBrowsePage(db, input),
       listForBrowse: async () => {
         const rows = await db.query.memories.findMany({
           columns: {
@@ -1587,6 +1642,361 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
   };
+}
+
+function selectFlashbackBrowseRows(db: TraumaDatabase) {
+  return db
+    .select({
+      id: schema.flashbacks.id,
+      memoryId: schema.flashbacks.memoryId,
+      memoryTitle: schema.memories.title,
+      variantKind: schema.flashbacks.variantKind,
+      langCode: schema.flashbacks.langCode,
+      translationOutputHash: schema.flashbacks.translationOutputHash,
+      text: schema.flashbacks.text,
+      prefix: schema.flashbacks.prefix,
+      suffix: schema.flashbacks.suffix,
+      startOffset: schema.flashbacks.startOffset,
+      endOffset: schema.flashbacks.endOffset,
+      contentHash: schema.flashbacks.contentHash,
+      createdAt: schema.flashbacks.createdAt,
+    })
+    .from(schema.flashbacks)
+    .innerJoin(
+      schema.memories,
+      eq(schema.flashbacks.memoryId, schema.memories.id),
+    );
+}
+
+function formatFlashbackBrowseRow(row: {
+  id: string;
+  memoryId: string;
+  memoryTitle: string;
+  variantKind: "source" | "translation";
+  langCode: SupportedLanguageCode | null;
+  translationOutputHash: string | null;
+  text: string;
+  prefix: string;
+  suffix: string;
+  startOffset: number;
+  endOffset: number;
+  contentHash: string | null;
+  createdAt: Date | number;
+}): FlashbackBrowseRow {
+  return {
+    ...row,
+    createdAt: formatDateTime(row.createdAt),
+  };
+}
+
+async function listMemoryBrowsePage(
+  db: TraumaDatabase,
+  input: ListMemoryBrowsePageInput,
+): Promise<MemoryBrowsePageResult> {
+  if (input.readState === "both") {
+    return { rows: [], nextCursor: null };
+  }
+
+  const limit = normalizeBrowseLimit(input.limit);
+  const fetchedRows = await db
+    .select({
+      id: schema.memories.id,
+      title: schema.memories.title,
+      url: schema.memories.url,
+      description: schema.memories.description,
+      createdAt: schema.memories.createdAt,
+      read: schema.memories.read,
+      extractionStatus: schema.memories.extractionStatus,
+    })
+    .from(schema.memories)
+    .where(buildMemoryBrowsePageWhere(input))
+    .orderBy(desc(schema.memories.createdAt), desc(schema.memories.id))
+    .limit(limit + 1);
+
+  const pageRows = fetchedRows.slice(0, limit);
+  const lastPageRow = pageRows[pageRows.length - 1];
+  const nextCursor =
+    fetchedRows.length > limit && lastPageRow !== undefined
+      ? { createdAt: lastPageRow.createdAt, id: lastPageRow.id }
+      : null;
+  const memoryIds = pageRows.map((row) => row.id);
+  const [categoriesByMemoryId, tagsByMemoryId] = await Promise.all([
+    listBrowsePageCategoriesByMemoryId(db, memoryIds),
+    listBrowsePageTagsByMemoryId(db, memoryIds),
+  ]);
+
+  return {
+    rows: pageRows.map((memory) => ({
+      id: memory.id,
+      title: memory.title,
+      url: memory.url,
+      description: memory.description ?? "",
+      capturedAt: formatDate(memory.createdAt),
+      read: memory.read,
+      extractionStatus: memory.extractionStatus,
+      categories: categoriesByMemoryId.get(memory.id) ?? [],
+      tags: tagsByMemoryId.get(memory.id) ?? [],
+    })),
+    nextCursor,
+  };
+}
+
+function buildMemoryBrowsePageWhere(
+  input: ListMemoryBrowsePageInput,
+): SQL | undefined {
+  const filters: SQL[] = [];
+
+  if (input.cursor !== null) {
+    const cursorCreatedAt = input.cursor.createdAt.getTime();
+    filters.push(
+      sql`(${schema.memories.createdAt} < ${cursorCreatedAt} or (${schema.memories.createdAt} = ${cursorCreatedAt} and ${schema.memories.id} < ${input.cursor.id}))`,
+    );
+  }
+
+  if (input.readState === "read") {
+    filters.push(eq(schema.memories.read, true));
+  } else if (input.readState === "unread") {
+    filters.push(eq(schema.memories.read, false));
+  }
+
+  if (input.categoryId.length > 0) {
+    filters.push(memoryHasCategoryId(input.categoryId));
+  }
+
+  if (input.tagId.length > 0) {
+    filters.push(memoryHasTagId(input.tagId));
+  }
+
+  if (input.flashbackId.length > 0) {
+    filters.push(memoryHasFlashbackId(input.flashbackId));
+  }
+
+  for (const term of input.searchTerms.map(normalizeBrowseSearchValue)) {
+    if (term.length > 0) {
+      filters.push(memoryMatchesFreeSearchTerm(term));
+    }
+  }
+
+  for (const field of input.searchFields) {
+    for (const value of field.values.map(normalizeBrowseSearchValue)) {
+      if (value.length > 0) {
+        filters.push(memoryMatchesFieldSearchValue(field.field, value));
+      }
+    }
+  }
+
+  return and(...filters);
+}
+
+function buildFlashbackBrowseCursorWhere(
+  cursor: FlashbackBrowseCursor | null,
+): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+
+  return (
+    or(
+      lt(schema.flashbacks.createdAt, cursor.createdAt),
+      and(
+        eq(schema.flashbacks.createdAt, cursor.createdAt),
+        lt(schema.flashbacks.id, cursor.id),
+      ),
+    ) ?? sql`0 = 1`
+  );
+}
+
+function memoryHasCategoryId(categoryId: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryCategories}
+    where ${schema.memoryCategories.memoryId} = ${schema.memories.id}
+      and ${schema.memoryCategories.categoryId} = ${categoryId}
+  )`;
+}
+
+function memoryHasTagId(tagId: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryTags}
+    where ${schema.memoryTags.memoryId} = ${schema.memories.id}
+      and ${schema.memoryTags.tagId} = ${tagId}
+  )`;
+}
+
+function memoryHasFlashbackId(flashbackId: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.flashbacks}
+    where ${schema.flashbacks.memoryId} = ${schema.memories.id}
+      and ${schema.flashbacks.id} = ${flashbackId}
+  )`;
+}
+
+function memoryMatchesFreeSearchTerm(term: string): SQL {
+  return (
+    or(
+      likeInsensitive(schema.memories.title, term),
+      likeInsensitive(schema.memories.url, term),
+      likeInsensitive(schema.memories.description, term),
+      memoryHasCategoryNameLike(term),
+      memoryHasTagNameLike(term),
+      memoryHasFlashbackTextLike(term),
+    ) ?? sql`0 = 1`
+  );
+}
+
+function memoryMatchesFieldSearchValue(
+  field: MemoryBrowseSearchField,
+  value: string,
+): SQL {
+  switch (field) {
+    case "title":
+      return likeInsensitive(schema.memories.title, value);
+    case "url":
+      return likeInsensitive(schema.memories.url, value);
+    case "tag":
+      return memoryHasTagName(value);
+    case "category":
+      return memoryHasCategoryName(value);
+    case "flashback":
+      return memoryHasFlashbackTextLike(value);
+  }
+}
+
+function memoryHasCategoryName(value: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryCategories}
+    inner join ${schema.categories}
+      on ${schema.categories.id} = ${schema.memoryCategories.categoryId}
+    where ${schema.memoryCategories.memoryId} = ${schema.memories.id}
+      and lower(${schema.categories.name}) = ${value}
+  )`;
+}
+
+function memoryHasTagName(value: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryTags}
+    inner join ${schema.tags}
+      on ${schema.tags.id} = ${schema.memoryTags.tagId}
+    where ${schema.memoryTags.memoryId} = ${schema.memories.id}
+      and lower(${schema.tags.name}) = ${value}
+  )`;
+}
+
+function memoryHasCategoryNameLike(value: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryCategories}
+    inner join ${schema.categories}
+      on ${schema.categories.id} = ${schema.memoryCategories.categoryId}
+    where ${schema.memoryCategories.memoryId} = ${schema.memories.id}
+      and ${likeInsensitive(schema.categories.name, value)}
+  )`;
+}
+
+function memoryHasTagNameLike(value: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.memoryTags}
+    inner join ${schema.tags}
+      on ${schema.tags.id} = ${schema.memoryTags.tagId}
+    where ${schema.memoryTags.memoryId} = ${schema.memories.id}
+      and ${likeInsensitive(schema.tags.name, value)}
+  )`;
+}
+
+function memoryHasFlashbackTextLike(value: string): SQL {
+  return sql`exists (
+    select 1 from ${schema.flashbacks}
+    where ${schema.flashbacks.memoryId} = ${schema.memories.id}
+      and (
+        ${likeInsensitive(schema.flashbacks.text, value)}
+        or ${likeInsensitive(schema.flashbacks.prefix, value)}
+        or ${likeInsensitive(schema.flashbacks.suffix, value)}
+      )
+  )`;
+}
+
+function likeInsensitive(
+  column:
+    | typeof schema.memories.title
+    | typeof schema.memories.url
+    | typeof schema.memories.description
+    | typeof schema.categories.name
+    | typeof schema.tags.name
+    | typeof schema.flashbacks.text
+    | typeof schema.flashbacks.prefix
+    | typeof schema.flashbacks.suffix,
+  value: string,
+): SQL {
+  return sql`lower(${column}) like ${`%${escapeSqlLikeValue(value)}%`} escape '\\'`;
+}
+
+function escapeSqlLikeValue(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function normalizeBrowseSearchValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function listBrowsePageCategoriesByMemoryId(
+  db: TraumaDatabase,
+  memoryIds: string[],
+): Promise<Map<string, { id: string; name: string }[]>> {
+  const grouped = createEmptyTaxonomyMap(memoryIds);
+  if (memoryIds.length === 0) {
+    return grouped;
+  }
+
+  const rows = await db
+    .select({
+      memoryId: schema.memoryCategories.memoryId,
+      id: schema.categories.id,
+      name: schema.categories.name,
+    })
+    .from(schema.memoryCategories)
+    .innerJoin(
+      schema.categories,
+      eq(schema.categories.id, schema.memoryCategories.categoryId),
+    )
+    .where(inArray(schema.memoryCategories.memoryId, memoryIds))
+    .orderBy(asc(schema.categories.name), asc(schema.categories.id));
+
+  for (const row of rows) {
+    grouped.get(row.memoryId)?.push({ id: row.id, name: row.name });
+  }
+
+  return grouped;
+}
+
+async function listBrowsePageTagsByMemoryId(
+  db: TraumaDatabase,
+  memoryIds: string[],
+): Promise<Map<string, { id: string; name: string }[]>> {
+  const grouped = createEmptyTaxonomyMap(memoryIds);
+  if (memoryIds.length === 0) {
+    return grouped;
+  }
+
+  const rows = await db
+    .select({
+      memoryId: schema.memoryTags.memoryId,
+      id: schema.tags.id,
+      name: schema.tags.name,
+    })
+    .from(schema.memoryTags)
+    .innerJoin(schema.tags, eq(schema.tags.id, schema.memoryTags.tagId))
+    .where(inArray(schema.memoryTags.memoryId, memoryIds))
+    .orderBy(asc(schema.tags.name), asc(schema.tags.id));
+
+  for (const row of rows) {
+    grouped.get(row.memoryId)?.push({ id: row.id, name: row.name });
+  }
+
+  return grouped;
+}
+
+function createEmptyTaxonomyMap(
+  memoryIds: string[],
+): Map<string, { id: string; name: string }[]> {
+  return new Map(memoryIds.map((memoryId) => [memoryId, []]));
 }
 
 function listFlashbacksForMemoryVariant(

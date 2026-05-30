@@ -1,6 +1,10 @@
 import { query, revalidate } from "@solidjs/router";
 
-import { loadFlashbackBrowseRows } from "~/server/flashbacks/browse";
+import {
+  loadBrowseFlashbacksForMemories,
+  loadFlashbackBrowseRows,
+  loadRecentFlashbackBrowseRows,
+} from "~/server/flashbacks/browse";
 
 export const getFlashbackBrowseRows = query(async () => {
   "use server";
@@ -8,6 +12,25 @@ export const getFlashbackBrowseRows = query(async () => {
   return loadFlashbackBrowseRows();
 }, "flashback-browse-rows");
 
-export function revalidateFlashbackBrowseRows() {
-  return revalidate(getFlashbackBrowseRows.key);
+export const getRecentFlashbackBrowseRows = query(async (limit: number) => {
+  "use server";
+
+  return loadRecentFlashbackBrowseRows({ limit });
+}, "recent-flashback-browse-rows");
+
+export const getBrowseFlashbacksForMemories = query(async (input: {
+  memoryIds: string[];
+  selectedFlashbackId: string;
+}) => {
+  "use server";
+
+  return loadBrowseFlashbacksForMemories(input);
+}, "browse-flashbacks-for-memories");
+
+export async function revalidateFlashbackBrowseRows() {
+  await Promise.all([
+    revalidate(getFlashbackBrowseRows.key),
+    revalidate(getRecentFlashbackBrowseRows.key),
+    revalidate(getBrowseFlashbacksForMemories.key),
+  ]);
 }
