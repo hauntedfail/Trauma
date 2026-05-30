@@ -18,8 +18,10 @@ import {
 } from "../store/flashback-markers";
 import { resolveCurrentTranslationReadOnly } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
+import { normalizeBrowseLimit } from "../browse/limits";
 
-const RECENT_FLASHBACK_BACKFILL_CANDIDATE_LIMIT = 100;
+const RECENT_FLASHBACK_SCAN_CHUNK_LIMIT = 100;
+const MAX_RECENT_FLASHBACK_FETCH_ROUNDS = 20;
 
 export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   "use server";
@@ -49,37 +51,51 @@ export async function loadRecentFlashbackBrowseRows(input: {
   "use server";
 
   if (process.env.TRAUMA_BROWSE_FIXTURES === "1") {
-    return fixtureFlashbackBrowseRows().slice(0, normalizeFlashbackLimit(input.limit));
+    return fixtureFlashbackBrowseRows().slice(0, normalizeBrowseLimit(input.limit));
   }
 
   let connection: ReturnType<typeof initializeDatabase> | undefined;
   try {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    const limit = normalizeFlashbackLimit(input.limit);
-    const rows = await connection.repositories.flashbacks.listRecentForBrowse({
-      limit,
-    });
-    const renderableRows = await filterRenderableFlashbackRows({
-      config,
-      rows,
-      translationRepository: connection.repositories.translations,
-    });
-    if (renderableRows.length >= limit || rows.length < limit) {
-      return renderableRows.slice(0, limit);
+    const limit = normalizeBrowseLimit(input.limit);
+    const renderableRows: FlashbackBrowseRow[] = [];
+    let cursor: { createdAt: Date; id: string } | null = null;
+    let rounds = 0;
+
+    while (
+      renderableRows.length < limit &&
+      rounds < MAX_RECENT_FLASHBACK_FETCH_ROUNDS
+    ) {
+      rounds += 1;
+      const rows = await connection.repositories.flashbacks.listRecentForBrowse({
+        cursor,
+        limit: RECENT_FLASHBACK_SCAN_CHUNK_LIMIT,
+      });
+      if (rows.length === 0) {
+        break;
+      }
+
+      renderableRows.push(
+        ...(await filterRenderableFlashbackRows({
+          config,
+          rows,
+          translationRepository: connection.repositories.translations,
+        })),
+      );
+
+      const lastRow = rows[rows.length - 1];
+      if (rows.length < RECENT_FLASHBACK_SCAN_CHUNK_LIMIT || lastRow === undefined) {
+        break;
+      }
+
+      cursor = {
+        createdAt: new Date(lastRow.createdAt),
+        id: lastRow.id,
+      };
     }
 
-    const backfillRows =
-      await connection.repositories.flashbacks.listRecentForBrowse({
-        limit: RECENT_FLASHBACK_BACKFILL_CANDIDATE_LIMIT,
-      });
-    return (
-      await filterRenderableFlashbackRows({
-        config,
-        rows: backfillRows,
-        translationRepository: connection.repositories.translations,
-      })
-    ).slice(0, limit);
+    return renderableRows.slice(0, limit);
   } finally {
     connection?.close();
   }
@@ -155,15 +171,6 @@ function fixtureFlashbackBrowseRows(): FlashbackBrowseRow[] {
     .toSorted(
       (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
     );
-}
-
-function normalizeFlashbackLimit(limit: number): number {
-  const normalized = Math.trunc(limit);
-  if (!Number.isFinite(normalized) || normalized < 1) {
-    return 1;
-  }
-
-  return Math.min(normalized, 100);
 }
 
 function mergeSelectedFlashbackCandidate(input: {

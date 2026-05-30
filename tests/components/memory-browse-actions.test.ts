@@ -208,18 +208,32 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("setLoadNextPageError(\"\")");
   });
 
+  it("installs the load-more observer after the sentinel is rendered", () => {
+    expect(browseSource).toContain("observeLoadMoreSentinel");
+    expect(browseSource).toContain("createEffect(() => observeLoadMoreSentinel())");
+    expect(browseSource).toContain("onCleanup(() => observer.disconnect())");
+    expect(browseSource).not.toContain("loadMoreSentinel === undefined || typeof IntersectionObserver");
+  });
+
+  it("clears appended pages after card mutations revalidate browse data", () => {
+    expect(browseSource).toContain("clearAdditionalBrowsePages");
+    expect(browseSource).toContain("onMemoryMutated={clearAdditionalBrowsePages}");
+    expect(browseSource).toContain("props.onMemoryMutated?.()");
+  });
+
   it("keeps deletion as an optimistic removed-id filter across loaded pages", () => {
     expect(browseSource).toContain("removedMemoryIds");
     expect(browseSource).toContain("flatMap((page) => page.memories)");
     expect(browseSource).toContain("setRemovedMemoryIds((current) => new Set([...current, memoryId]))");
   });
 
-  it("uses first-page scoped revalidation after add-memory success", () => {
-    expect(addMemoryFormSource).toContain("useLocation");
-    expect(addMemoryFormSource).toContain("parseBrowseQuery(location.search)");
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage");
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage(query())");
-    expect(addMemoryFormSource).toContain("revalidateBrowseTaxonomy");
+  it("uses global browse workspace revalidation after add-memory success", () => {
+    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace");
+    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace()");
+    expect(addMemoryFormSource).not.toContain("revalidateBrowseTaxonomy");
+    expect(addMemoryFormSource).not.toContain("useLocation");
+    expect(addMemoryFormSource).not.toContain("parseBrowseQuery(location.search)");
+    expect(addMemoryFormSource).not.toContain("revalidateBrowseMemoryFirstPage");
     expect(addMemoryFormSource).not.toContain("revalidateBrowseMemories");
   });
 
@@ -232,6 +246,7 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain('event.key === "ArrowRight"');
     expect(browseSource).toContain('event.key === "Home"');
     expect(browseSource).toContain("setBrowseReadStateFilter");
+    expect(browseSource).not.toContain('typeof window === "undefined"');
     expect(browseSource).not.toContain('aria-label="View mode"');
     expect(browseSource).not.toContain('hint="List view"');
     expect(browseSource).not.toContain('hint="Grid view"');

@@ -21,6 +21,9 @@ import {
   type BrowseMemoryPageRequest,
   type BrowseQuery,
 } from "../../components/memories/browse-data";
+import { normalizeBrowseLimit } from "../browse/limits";
+
+const MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS = 20;
 
 export interface LoadBrowseMemoriesOptions {
   startBackupQueue?: (config: ResolvedTraumaConfig) => void;
@@ -100,7 +103,7 @@ function loadBrowseFixtureMemoryPage(
 ): BrowseMemoryPage {
   const filtered = filterBrowseMemories(browseFixtureMemories, request.query);
   const start = findFixtureCursorIndex(filtered, request.cursor);
-  const limit = normalizePageRequestLimit(request.limit);
+  const limit = normalizeBrowseLimit(request.limit);
   const pageRows = filtered.slice(start, start + limit);
   const hasNextPage = start + limit < filtered.length;
   const lastPageRow = pageRows[pageRows.length - 1];
@@ -129,27 +132,23 @@ function findFixtureCursorIndex(
   return index === -1 ? memories.length : index + 1;
 }
 
-function normalizePageRequestLimit(limit: number): number {
-  const normalized = Math.trunc(limit);
-  if (!Number.isFinite(normalized) || normalized < 1) {
-    return 1;
-  }
-
-  return normalized;
-}
-
 async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   config: ResolvedTraumaConfig;
   query: BrowseQuery;
   repositories: ReturnType<typeof initializeDatabase>["repositories"];
   repositoryInput: ListMemoryBrowsePageInput;
 }): Promise<MemoryBrowsePageResult> {
-  const limit = normalizeRepositoryBrowsePageLimit(input.repositoryInput.limit);
+  const limit = normalizeBrowseLimit(input.repositoryInput.limit);
   const rows: MemoryBrowsePageRow[] = [];
   let cursor = input.repositoryInput.cursor;
   let nextCursor: MemoryBrowsePageResult["nextCursor"] = null;
+  let rounds = 0;
 
-  while (rows.length < limit) {
+  while (
+    rows.length < limit &&
+    rounds < MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS
+  ) {
+    rounds += 1;
     const page = await input.repositories.memories.listForBrowsePage({
       ...input.repositoryInput,
       cursor,
@@ -175,8 +174,8 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
       break;
     }
 
+    nextCursor = page.nextCursor;
     if (page.nextCursor === null) {
-      nextCursor = null;
       break;
     }
 
@@ -249,15 +248,6 @@ function toBrowseFlashback(row: FlashbackBrowseRow): BrowseFlashback {
     suffix: row.suffix,
     createdAt: row.createdAt,
   };
-}
-
-function normalizeRepositoryBrowsePageLimit(limit: number): number {
-  const normalized = Math.trunc(limit);
-  if (!Number.isFinite(normalized) || normalized < 1) {
-    return 1;
-  }
-
-  return Math.min(normalized, 100);
 }
 
 function toMemoryBrowsePageRepositoryInput(

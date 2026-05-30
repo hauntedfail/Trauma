@@ -125,7 +125,8 @@ export function MemoryBrowse() {
   const isGrid = createMemo(() => query().view === "grid");
   const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
-  let loadMoreSentinel: HTMLDivElement | undefined;
+  const [loadMoreSentinel, setLoadMoreSentinel] =
+    createSignal<HTMLDivElement>();
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
@@ -157,20 +158,12 @@ export function MemoryBrowse() {
       setIsLoadingNextPage(false);
     }
   };
-
-  createEffect(
-    on(query, (nextQuery, previousQuery) => {
-      if (previousQuery !== undefined && !isSameBrowseQuery(nextQuery, previousQuery)) {
-        setAdditionalPages([]);
-        setRemovedMemoryIds(new Set<string>());
-        setLoadNextPageError("");
-      }
-    }),
-  );
-
-  onMount(() => {
-    setIsClientReady(true);
-    if (loadMoreSentinel === undefined || typeof IntersectionObserver === "undefined") {
+  const clearAdditionalBrowsePages = (): void => {
+    setAdditionalPages([]);
+  };
+  const observeLoadMoreSentinel = (): void => {
+    const sentinel = loadMoreSentinel();
+    if (sentinel === undefined || typeof IntersectionObserver === "undefined") {
       return;
     }
 
@@ -182,9 +175,22 @@ export function MemoryBrowse() {
       },
       { rootMargin: "480px" },
     );
-    observer.observe(loadMoreSentinel);
+    observer.observe(sentinel);
     onCleanup(() => observer.disconnect());
-  });
+  };
+
+  createEffect(
+    on(query, (nextQuery, previousQuery) => {
+      if (previousQuery !== undefined && !isSameBrowseQuery(nextQuery, previousQuery)) {
+        setAdditionalPages([]);
+        setRemovedMemoryIds(new Set<string>());
+        setLoadNextPageError("");
+      }
+    }),
+  );
+  createEffect(() => observeLoadMoreSentinel());
+
+  onMount(() => setIsClientReady(true));
 
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
@@ -222,6 +228,7 @@ export function MemoryBrowse() {
                 onDeleted={(memoryId) =>
                   setRemovedMemoryIds((current) => new Set([...current, memoryId]))
                 }
+                onMemoryMutated={clearAdditionalBrowsePages}
               />
             )}
           </For>
@@ -246,9 +253,7 @@ export function MemoryBrowse() {
         <div
           aria-hidden="true"
           class="h-px"
-          ref={(element) => {
-            loadMoreSentinel = element;
-          }}
+          ref={setLoadMoreSentinel}
         />
       </Show>
     </section>
@@ -264,11 +269,6 @@ function MemoryReadStateTabs(props: {
     tabButtons[index]?.focus();
   };
   const scheduleFocusTabButton = (index: number): void => {
-    if (typeof window === "undefined") {
-      focusTabButton(index);
-      return;
-    }
-
     window.requestAnimationFrame(() => focusTabButton(index));
   };
   const focusTab = (index: number): void => {
@@ -348,6 +348,7 @@ export function MemoryItem(props: {
   view: "list" | "grid";
   onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
+  onMemoryMutated?: () => void;
 }) {
   const displayFlashback = createMemo(() =>
     getMemoryDisplayFlashback(
@@ -398,6 +399,7 @@ export function MemoryItem(props: {
         name,
       });
       setTags((current) => mergeTaxonomyItem(current, tag));
+      props.onMemoryMutated?.();
       void revalidateAfterTaxonomyChange(props.memory.id);
     } catch (error) {
       setActionError("Failed to add tag.");
@@ -413,6 +415,7 @@ export function MemoryItem(props: {
         name,
       });
       setTags((current) => current.filter((item) => item.id !== tag.id));
+      props.onMemoryMutated?.();
       void revalidateAfterTaxonomyChange(props.memory.id);
     } catch (error) {
       setActionError("Failed to remove tag.");
@@ -428,6 +431,7 @@ export function MemoryItem(props: {
     try {
       const category = await attachCategoryToMemoryByName(input);
       setCategories((current) => mergeTaxonomyItem(current, category));
+      props.onMemoryMutated?.();
       void revalidateAfterTaxonomyChange(input.memoryId);
     } catch (error) {
       setActionError("Failed to add category.");
@@ -440,6 +444,7 @@ export function MemoryItem(props: {
     try {
       await deleteBrowseMemory({ memoryId });
       props.onDeleted?.(memoryId);
+      props.onMemoryMutated?.();
       void revalidateAfterMemoryDeletion(memoryId);
     } catch (error) {
       if (isBackupFailsafeMemoryActionError(error)) {
@@ -486,7 +491,10 @@ export function MemoryItem(props: {
               memoryId={props.memory.id}
               initialRead={props.memory.read}
               variant="icon"
-              onSaved={() => revalidateAfterReadStatusChange(props.memory.id)}
+              onSaved={() => {
+                props.onMemoryMutated?.();
+                void revalidateAfterReadStatusChange(props.memory.id);
+              }}
             />
             <MemoryActionMenu
               memoryId={props.memory.id}

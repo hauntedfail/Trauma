@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import {
@@ -13,6 +13,7 @@ import {
   type SupportedLanguageCode,
 } from "../../settings/languages";
 import { validateTagName } from "../../taxonomy/name-policy";
+import { normalizeBrowseLimit } from "../browse/limits";
 import {
   TRANSLATION_CHUNK_STATUSES,
   type TranslationChunkStatus,
@@ -150,6 +151,11 @@ export interface FlashbackBrowseRow {
   createdAt: string;
 }
 
+export interface FlashbackBrowseCursor {
+  createdAt: Date;
+  id: string;
+}
+
 export interface MomentBrowseRow {
   id: string;
   memoryId: string;
@@ -255,7 +261,10 @@ export interface FlashbackRepository {
     flashbacks: Flashback[];
   }) => Promise<Flashback[]>;
   listForBrowse: () => Promise<FlashbackBrowseRow[]>;
-  listRecentForBrowse: (input: { limit: number }) => Promise<FlashbackBrowseRow[]>;
+  listRecentForBrowse: (input: {
+    cursor?: FlashbackBrowseCursor | null;
+    limit: number;
+  }) => Promise<FlashbackBrowseRow[]>;
   listForBrowseMemoryIds: (input: { memoryIds: string[] }) => Promise<FlashbackBrowseRow[]>;
   findForBrowseById: (flashbackId: string) => Promise<FlashbackBrowseRow | undefined>;
 }
@@ -687,8 +696,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
       listRecentForBrowse: async (input) => {
         const rows = await selectFlashbackBrowseRows(db)
+          .where(buildFlashbackBrowseCursorWhere(input.cursor ?? null))
           .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id))
-          .limit(normalizeFlashbackBrowseLimit(input.limit));
+          .limit(normalizeBrowseLimit(input.limit));
 
         return rows.map(formatFlashbackBrowseRow);
       },
@@ -1670,15 +1680,6 @@ function formatFlashbackBrowseRow(row: {
   };
 }
 
-function normalizeFlashbackBrowseLimit(limit: number): number {
-  const normalized = Math.trunc(limit);
-  if (!Number.isFinite(normalized) || normalized < 1) {
-    return 1;
-  }
-
-  return Math.min(normalized, 100);
-}
-
 async function listMemoryBrowsePage(
   db: TraumaDatabase,
   input: ListMemoryBrowsePageInput,
@@ -1687,7 +1688,7 @@ async function listMemoryBrowsePage(
     return { rows: [], nextCursor: null };
   }
 
-  const limit = normalizeBrowsePageLimit(input.limit);
+  const limit = normalizeBrowseLimit(input.limit);
   const fetchedRows = await db
     .select({
       id: schema.memories.id,
@@ -1729,15 +1730,6 @@ async function listMemoryBrowsePage(
     })),
     nextCursor,
   };
-}
-
-function normalizeBrowsePageLimit(limit: number): number {
-  const normalized = Math.trunc(limit);
-  if (!Number.isFinite(normalized) || normalized < 1) {
-    return 1;
-  }
-
-  return Math.min(normalized, 100);
 }
 
 function buildMemoryBrowsePageWhere(
@@ -1785,6 +1777,24 @@ function buildMemoryBrowsePageWhere(
   }
 
   return and(...filters);
+}
+
+function buildFlashbackBrowseCursorWhere(
+  cursor: FlashbackBrowseCursor | null,
+): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+
+  return (
+    or(
+      lt(schema.flashbacks.createdAt, cursor.createdAt),
+      and(
+        eq(schema.flashbacks.createdAt, cursor.createdAt),
+        lt(schema.flashbacks.id, cursor.id),
+      ),
+    ) ?? sql`0 = 1`
+  );
 }
 
 function memoryHasCategoryId(categoryId: string): SQL {
