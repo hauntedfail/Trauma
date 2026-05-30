@@ -607,6 +607,99 @@ describe("server browse loaders", () => {
     });
   });
 
+  it("keeps scanning stale flashback page candidates until a renderable row is found", async () => {
+    const config = await createRuntimeConfig();
+    const staleCount = 25;
+    const staleFlashbacks: (typeof schema.flashbacks.$inferInsert)[] = [];
+
+    for (let index = 0; index < staleCount; index += 1) {
+      const id = `018f04a2-3c6f-7c88-9a8b-8c99a9b7e${String(index).padStart(3, "0")}`;
+      const createdAt = new Date(now.getTime() + (staleCount - index) * 1_000);
+      await seedMemory(config, {
+        createdAt,
+        id,
+        title: `Stale Flashback Memory ${index}`,
+      });
+      await writeMemoryContent({
+        config,
+        memoryId: id,
+        frontmatter: {
+          id,
+          url: `https://example.com/${id}`,
+          title: `Stale Flashback Memory ${index}`,
+          capturedAt: createdAt.toISOString(),
+          extractionStatus: "success",
+        },
+        markdown: `# Stale Flashback Memory ${index}\n\nA stale selected text.`,
+      });
+      staleFlashbacks.push({
+        id: `stale-page-flashback-${index}`,
+        memoryId: id,
+        text: "needle selected text",
+        prefix: "before",
+        suffix: "after",
+        startOffset: 0,
+        endOffset: "needle selected text".length,
+        contentHash:
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
+
+    const renderableMarkdown =
+      "# Renderable Flashback Memory\n\nA needle selected text.";
+    const renderableOffset =
+      readCanonicalReaderText(renderableMarkdown).indexOf("needle selected text");
+    await seedMemory(config, {
+      createdAt: now,
+      id: olderMemoryId,
+      title: "Renderable Flashback Memory",
+    });
+    await writeMemoryContent({
+      config,
+      memoryId: olderMemoryId,
+      frontmatter: {
+        id: olderMemoryId,
+        url: `https://example.com/${olderMemoryId}`,
+        title: "Renderable Flashback Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: renderableMarkdown,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.db.insert(schema.flashbacks).values([
+        ...staleFlashbacks,
+        {
+          id: "renderable-page-flashback-after-stale-window",
+          memoryId: olderMemoryId,
+          text: "needle selected text",
+          prefix: "before",
+          suffix: "after",
+          startOffset: renderableOffset,
+          endOffset: renderableOffset + "needle selected text".length,
+          contentHash: createReaderContentHash(renderableMarkdown),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    } finally {
+      connection.close();
+    }
+
+    await expect(
+      loadBrowseMemoryPage({
+        ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      memories: [{ id: olderMemoryId, flashbacks: [] }],
+      nextCursor: null,
+    });
+  });
+
   it("returns memory-card flashbacks keyed by memory id", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);

@@ -144,10 +144,7 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   let nextCursor: MemoryBrowsePageResult["nextCursor"] = null;
   let rounds = 0;
 
-  while (
-    rows.length < limit &&
-    rounds < MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS
-  ) {
+  while (rows.length < limit) {
     rounds += 1;
     const page = await input.repositories.memories.listForBrowsePage({
       ...input.repositoryInput,
@@ -176,6 +173,12 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
 
     nextCursor = page.nextCursor;
     if (page.nextCursor === null) {
+      break;
+    }
+    if (
+      rows.length > 0 &&
+      rounds >= MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS
+    ) {
       break;
     }
 
