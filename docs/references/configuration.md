@@ -9,6 +9,11 @@ trauma.config.json
 The initial design does not allow executable config files or arbitrary
 lifecycle hooks.
 
+Runtime UI preferences are stored in SQLite, not in `trauma.config.json`.
+Codex translation defaults such as the selected model and reasoning effort are
+managed through `app_settings` so the reader translation popover can reopen with
+the user's last saved selections.
+
 ## Initial Shape
 
 ```json
