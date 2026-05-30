@@ -449,20 +449,37 @@ describe("memory reader actions", () => {
     const persistIndex = memoryReaderSource.indexOf(
       "await submitCodexTranslationDefaults",
     );
+    const defaultUpdateIndex = memoryReaderSource.indexOf(
+      "setTranslationDefaultLanguage(input.langCode)",
+      persistIndex,
+    );
     const startIndex = memoryReaderSource.indexOf(
       "await startReaderTranslation",
       persistIndex,
     );
     const revalidateIndex = memoryReaderSource.indexOf(
       "void revalidateSettingsState()",
-      startIndex,
+      persistIndex,
     );
 
     expect(persistIndex).toBeGreaterThan(-1);
+    expect(defaultUpdateIndex).toBeGreaterThan(persistIndex);
+    expect(defaultUpdateIndex).toBeLessThan(startIndex);
+    expect(revalidateIndex).toBeGreaterThan(defaultUpdateIndex);
+    expect(revalidateIndex).toBeLessThan(startIndex);
     expect(startIndex).toBeGreaterThan(persistIndex);
-    expect(revalidateIndex).toBeGreaterThan(startIndex);
     expect(memoryReaderSource).toContain("codexTranslationModel");
     expect(memoryReaderSource).toContain("codexTranslationReasoningEffort");
+  });
+
+  it("validates the selected translation language before submitting", () => {
+    expect(memoryReaderSource).toContain("hasTranslationVariant");
+    expect(memoryReaderSource).toContain(
+      "canStartTranslation(langCode)",
+    );
+    expect(memoryReaderSource).toContain(
+      "!hasTranslationVariant(langCode)",
+    );
   });
 
   it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {

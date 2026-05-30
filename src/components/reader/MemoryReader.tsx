@@ -493,15 +493,16 @@ function ReadyMemoryReader(props: {
     }
   };
   const isTranslatedReader = () => props.result.content.langCode !== undefined;
-  const hasConfiguredTargetVariant = () => {
-    const langCode = props.translationTargetLanguage;
+  const hasTranslationVariant = (langCode: SupportedLanguageCode | undefined) => {
     return langCode !== undefined &&
       props.result.content.variants.some((variant) => variant.langCode === langCode);
   };
-  const canStartTranslation = () =>
+  const canStartTranslation = (
+    langCode: SupportedLanguageCode | undefined = props.translationTargetLanguage,
+  ) =>
     !isTranslatedReader() &&
-    props.translationTargetLanguage !== undefined &&
-    !hasConfiguredTargetVariant();
+    langCode !== undefined &&
+    !hasTranslationVariant(langCode);
   const selectedTranslationModel = createMemo(() => {
     const current = translationFormModel();
     return translationCatalogModels().find((model) =>
@@ -635,7 +636,7 @@ function ReadyMemoryReader(props: {
     reasoningEffort: CodexReasoningEffort | null;
   }): Promise<void> => {
     const langCode = input.langCode;
-    if (langCode === undefined || !canStartTranslation()) {
+    if (langCode === undefined || !canStartTranslation(langCode)) {
       return;
     }
 
@@ -654,16 +655,16 @@ function ReadyMemoryReader(props: {
       });
       const persistedModel = settings.codexTranslationModel;
       const persistedReasoningEffort = settings.codexTranslationReasoningEffort;
+      setTranslationDefaultLanguage(input.langCode);
+      setTranslationDefaultModel(persistedModel ?? "");
+      setTranslationDefaultEffort(persistedReasoningEffort ?? "");
+      void revalidateSettingsState();
       const result = await startReaderTranslation({
         langCode,
         memoryId: props.result.memory.id,
         model: persistedModel,
         reasoningEffort: persistedReasoningEffort,
       });
-      setTranslationDefaultLanguage(input.langCode);
-      setTranslationDefaultModel(persistedModel ?? "");
-      setTranslationDefaultEffort(persistedReasoningEffort ?? "");
-      void revalidateSettingsState();
       if (result.status === "current") {
         setTranslationProgress(undefined);
         input.close();

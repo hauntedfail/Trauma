@@ -52,7 +52,6 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     reasoningEffort: "high",
   });
   let translationStartCount = 0;
-  let lastTranslationBody: unknown;
   await page.route("**/api/settings/codex-models", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -84,7 +83,6 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     `**/api/memories/${READER_MEMORY_ID}/translations`,
     async (route) => {
       translationStartCount += 1;
-      lastTranslationBody = route.request().postDataJSON();
       await route.fulfill({
         contentType: "application/json",
         status: 200,
@@ -100,6 +98,26 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       });
     },
   );
+  await page.route("**/api/settings/translation-codex-defaults", async (route) => {
+    const body = route.request().postDataJSON() as {
+      model: string | null;
+      reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+    };
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        translationTargetLanguage: "ja-JP",
+        codexTranslationModel: body.model,
+        codexTranslationReasoningEffort: body.reasoning_effort,
+        openaiAuth: {
+          status: "enabled",
+          provider: "codex",
+          message: "Codex ChatGPT sign-in is enabled.",
+        },
+      }),
+    });
+  });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -131,10 +149,27 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   await expect(dialog).toBeVisible();
   await modelSelect.selectOption("gpt-5.3");
   await effortSelect.selectOption("medium");
+  const defaultsRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/api/settings/translation-codex-defaults") &&
+      request.method() === "PATCH",
+  );
+  const translationRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/memories/${READER_MEMORY_ID}/translations`) &&
+      request.method() === "POST",
+  );
   await dialog.getByRole("button", { name: "Translate" }).click();
+  const [settingsRequest, request] = await Promise.all([
+    defaultsRequest,
+    translationRequest,
+  ]);
   await expect(dialog).toHaveCount(0);
-  expect(translationStartCount).toBe(1);
-  expect(lastTranslationBody).toEqual({
+  expect(settingsRequest.postDataJSON()).toEqual({
+    model: "gpt-5.3",
+    reasoning_effort: "medium",
+  });
+  expect(request.postDataJSON()).toEqual({
     lang_code: "ja-JP",
     model: "gpt-5.3",
     reasoning_effort: "medium",
