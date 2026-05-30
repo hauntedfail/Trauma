@@ -425,6 +425,7 @@ describe("memory reader actions", () => {
 
   it("keeps remembered model values selectable and the submit button primary", () => {
     expect(memoryReaderSource).toContain("canonicalTranslationModel");
+    expect(memoryReaderSource).toContain("submitCodexTranslationDefaults");
     expect(memoryReaderSource).toContain(
       "!translationCatalogModels().some((model) =>",
     );
@@ -442,6 +443,26 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain("text-trauma-accent-ink");
     expect(memoryReaderSource).toContain("hover:bg-trauma-accent-hover");
     expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
+  });
+
+  it("persists reader-selected Codex defaults before translation start revalidation", () => {
+    const persistIndex = memoryReaderSource.indexOf(
+      "await submitCodexTranslationDefaults",
+    );
+    const startIndex = memoryReaderSource.indexOf(
+      "await startReaderTranslation",
+      persistIndex,
+    );
+    const revalidateIndex = memoryReaderSource.indexOf(
+      "void revalidateSettingsState()",
+      startIndex,
+    );
+
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(startIndex).toBeGreaterThan(persistIndex);
+    expect(revalidateIndex).toBeGreaterThan(startIndex);
+    expect(memoryReaderSource).toContain("codexTranslationModel");
+    expect(memoryReaderSource).toContain("codexTranslationReasoningEffort");
   });
 
   it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {

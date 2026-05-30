@@ -81,7 +81,10 @@ import {
   ScrollableUrlDisplay,
   ScrollableUrlLink,
 } from "../url/ScrollableUrlText";
-import { submitReadCodexModels } from "../settings/settings-submit";
+import {
+  submitCodexTranslationDefaults,
+  submitReadCodexModels,
+} from "../settings/settings-submit";
 import { revalidateSettingsState } from "../settings/settings-loader";
 
 interface MemoryReaderProps {
@@ -645,15 +648,21 @@ function ReadyMemoryReader(props: {
       status: "starting",
     });
     try {
-      const result = await startReaderTranslation({
-        langCode,
-        memoryId: props.result.memory.id,
+      const settings = await submitCodexTranslationDefaults({
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
+      const persistedModel = settings.codexTranslationModel;
+      const persistedReasoningEffort = settings.codexTranslationReasoningEffort;
+      const result = await startReaderTranslation({
+        langCode,
+        memoryId: props.result.memory.id,
+        model: persistedModel,
+        reasoningEffort: persistedReasoningEffort,
+      });
       setTranslationDefaultLanguage(input.langCode);
-      setTranslationDefaultModel(input.model ?? "");
-      setTranslationDefaultEffort(input.reasoningEffort ?? "");
+      setTranslationDefaultModel(persistedModel ?? "");
+      setTranslationDefaultEffort(persistedReasoningEffort ?? "");
       void revalidateSettingsState();
       if (result.status === "current") {
         setTranslationProgress(undefined);
