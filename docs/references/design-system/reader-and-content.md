@@ -79,22 +79,27 @@ static aids (anchors, scroll fades, Moment toggles, long-press menus).
 - The reader and the right-rail TOC communicate this range through
   `MemoryReader`-owned reactive state passed down as props; the TOC never reads
   reader DOM.
-- Range entries are painted with `trauma-toc-reading-range` as a subtle
-  translucent contrast lift over the TOC surface
-  (`color-mix(in srgb, var(--fg-1) 8%, transparent)`), forming one continuous
-  band with rounded `start`/`end` edges. The treatment is background-only: it
-  does not recolor or re-weight the spied section text. Only design tokens are
-  used; no raw hex.
-- Entering the visible range plays an elastic, water-droplet `trauma-toc-droplet`
-  squash-and-stretch animation so chapters ease into the band instead of
-  switching instantly.
+- The range is painted by a single measured overlay element
+  (`trauma-toc-reading-band`) positioned behind the entries, not per-row
+  backgrounds. Its top/height are measured from the first and last on-screen
+  rows so the highlight is one seamless region with no visible seams between
+  chapters. The fill is a subtle translucent contrast lift over the TOC surface
+  (`color-mix(in srgb, var(--fg-1) 8%, transparent)`); background-only, it does
+  not recolor or re-weight the spied section text. Only design tokens are used;
+  no raw hex.
+- The band eases its `top`/`height` with an elastic
+  `cubic-bezier(0.34, 1.56, 0.64, 1)` transition, so moving between adjacent
+  chapters reads as the band growing vertically out of the previous range into
+  the next one rather than popping or switching instantly. The first paint is
+  not animated (the band appears in place).
 - The `leadId` entry carries `aria-current="location"` for assistive tech; this
   is semantic only and applies no visual emphasis.
 - With nothing on screen mapped to a heading (empty TOC) the TOC renders in its
   plain static state with no highlight.
 - Scroll observation is `requestAnimationFrame`-batched, attached as passive
-  listeners, and fully torn down on reader unmount. The droplet animation and
-  background transition are disabled under `prefers-reduced-motion: reduce`.
+  listeners, and fully torn down on reader unmount. Under
+  `prefers-reduced-motion: reduce` the band only fades; its position no longer
+  animates.
 
 ## Markdown Prose
 

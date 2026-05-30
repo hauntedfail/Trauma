@@ -977,40 +977,34 @@
     }
   }
 
-  .trauma-toc-reading-range {
-    position: relative;
-    background-color: color-mix(in srgb, var(--fg-1) 8%, transparent);
-    transform-origin: center;
-    transition: background-color 220ms ease;
-    animation: trauma-toc-droplet 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
-    will-change: transform;
-  }
-
-  .trauma-toc-reading-range:not(.trauma-toc-reading-range-end)::after {
-    content: "";
+  .trauma-toc-reading-band {
     position: absolute;
     right: 0;
-    bottom: -0.625rem;
     left: 0;
-    height: 0.625rem;
-    background-color: inherit;
+    border-radius: 10px;
+    background-color: color-mix(in srgb, var(--fg-1) 8%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
   }
 
-  .trauma-toc-reading-range-start {
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
+  .trauma-toc-reading-band[data-visible="true"] {
+    opacity: 1;
   }
 
-  .trauma-toc-reading-range-end {
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
+  /* Elastic vertical growth: the band eases its top/height between adjacent
+     ranges so a new chapter appears to extend out of the previous range
+     rather than popping in. */
+  .trauma-toc-reading-band-animated {
+    transition:
+      top 480ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      height 480ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity 200ms ease;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .trauma-toc-reading-range {
-      transition: none;
-      animation: none;
-      will-change: auto;
+    .trauma-toc-reading-band-animated {
+      transition: opacity 120ms ease;
     }
   }
 }
@@ -1059,28 +1053,6 @@
 @media (orientation: landscape) {
   .trauma-orientation-landscape-compact {
     --trauma-orientation-density: compact;
-  }
-}
-
-@keyframes trauma-toc-droplet {
-  0% {
-    transform: scale(0.97, 0.62);
-  }
-
-  40% {
-    transform: scale(1.025, 1.16);
-  }
-
-  64% {
-    transform: scale(0.99, 0.94);
-  }
-
-  82% {
-    transform: scale(1.004, 1.02);
-  }
-
-  100% {
-    transform: scale(1, 1);
   }
 }
 

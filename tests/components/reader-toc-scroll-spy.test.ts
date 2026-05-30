@@ -83,7 +83,15 @@ describe("reader TOC reading-range visualization wiring", () => {
   it("feeds the active range into the TOC and marks the lead reading position", () => {
     expect(readerSource).toContain("activeTocRange={props.activeTocRange}");
     expect(readerSource).toContain('aria-current={isReadingLead() ? "location" : undefined}');
-    expect(readerSource).toContain("trauma-toc-reading-range");
+  });
+
+  it("renders the highlight as one continuous measured band", () => {
+    // A single overlay band, not per-row backgrounds, so there are no visible
+    // seams between adjacent chapters.
+    expect(readerSource).toContain('class="trauma-toc-reading-band"');
+    expect(readerSource).toContain('querySelectorAll<HTMLElement>(\'[data-reading-range="true"]\')');
+    expect(readerSource).not.toContain("trauma-toc-reading-range-start");
+    expect(readerSource).not.toContain("trauma-toc-reading-range-end");
   });
 
   it("does not recolor the spied section text", () => {
@@ -102,23 +110,24 @@ describe("reader TOC reading-range visualization wiring", () => {
     );
   });
 
-  it("defines a subtle translucent reading-range surface with design tokens", () => {
-    expect(tailwindSource).toContain(".trauma-toc-reading-range");
+  it("defines a subtle translucent reading band with design tokens", () => {
+    expect(tailwindSource).toContain(".trauma-toc-reading-band");
     // Subtle, transparent contrast lift rather than an accent fill.
     expect(tailwindSource).toMatch(
-      /\.trauma-toc-reading-range \{[\s\S]*?background-color: color-mix\(in srgb, var\(--fg-1\) \d+% *, *transparent\)/,
+      /\.trauma-toc-reading-band \{[\s\S]*?background-color: color-mix\(in srgb, var\(--fg-1\) \d+% *, *transparent\)/,
     );
-    expect(tailwindSource).not.toMatch(/trauma-toc-reading-range[\s\S]*?#[0-9a-fA-F]{3,6}/);
+    expect(tailwindSource).not.toMatch(/trauma-toc-reading-band[\s\S]*?#[0-9a-fA-F]{3,6}/);
   });
 
-  it("adds an elastic droplet animation gated by reduced motion", () => {
-    expect(tailwindSource).toContain("@keyframes trauma-toc-droplet");
+  it("eases the band top/height elastically and gates it on reduced motion", () => {
+    // Vertical growth between adjacent ranges, not a per-row scale bounce.
     expect(tailwindSource).toMatch(
-      /\.trauma-toc-reading-range \{[\s\S]*?animation: trauma-toc-droplet/,
+      /\.trauma-toc-reading-band-animated \{[\s\S]*?top 480ms cubic-bezier[\s\S]*?height 480ms cubic-bezier/,
     );
+    expect(tailwindSource).not.toContain("@keyframes trauma-toc-droplet");
     expect(tailwindSource).toContain("prefers-reduced-motion: reduce");
     expect(tailwindSource).toMatch(
-      /prefers-reduced-motion: reduce\)[\s\S]*?\.trauma-toc-reading-range \{[\s\S]*?animation: none/,
+      /prefers-reduced-motion: reduce\)[\s\S]*?\.trauma-toc-reading-band-animated \{[\s\S]*?transition: opacity/,
     );
   });
 });

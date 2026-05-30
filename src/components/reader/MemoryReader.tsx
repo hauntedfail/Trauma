@@ -2220,6 +2220,36 @@ function ReaderToc(props: {
   let scrollRef: HTMLOListElement | undefined;
   const [tocScrollState, setTocScrollState] =
     createSignal<TocScrollState>(noTocScrollState);
+  const [readingBand, setReadingBand] = createSignal<{
+    top: number;
+    height: number;
+  }>({ top: 0, height: 0 });
+  const [readingBandVisible, setReadingBandVisible] = createSignal(false);
+  const [readingBandAnimated, setReadingBandAnimated] = createSignal(false);
+  // Measures the contiguous on-screen range as one continuous band so the
+  // highlight renders seamlessly (no per-section seams) and can ease between
+  // adjacent ranges by growing its top/height rather than popping per row.
+  const measureReadingBand = () => {
+    const list = scrollRef;
+    if (list === undefined) {
+      return;
+    }
+
+    const rows = Array.from(
+      list.querySelectorAll<HTMLElement>('[data-reading-range="true"]'),
+    );
+    if (rows.length === 0) {
+      setReadingBandVisible(false);
+      return;
+    }
+
+    const first = rows[0]!;
+    const last = rows[rows.length - 1]!;
+    const top = first.offsetTop;
+    const height = last.offsetTop + last.offsetHeight - top;
+    setReadingBand({ top, height });
+    setReadingBandVisible(true);
+  };
   const updateTocScrollHint = () => {
     if (scrollRef === undefined) {
       setTocScrollState(noTocScrollState);
@@ -2252,10 +2282,26 @@ function ReaderToc(props: {
     queueMicrotask(updateTocScrollHint);
   });
 
+  createEffect(() => {
+    props.activeTocRange();
+    queueMicrotask(measureReadingBand);
+  });
+
   onMount(() => {
     updateTocScrollHint();
-    window.addEventListener("resize", updateTocScrollHint);
-    onCleanup(() => window.removeEventListener("resize", updateTocScrollHint));
+    measureReadingBand();
+    const enableBandAnimation = window.requestAnimationFrame(() =>
+      setReadingBandAnimated(true)
+    );
+    const handleResize = () => {
+      updateTocScrollHint();
+      measureReadingBand();
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      window.cancelAnimationFrame(enableBandAnimation);
+    });
   });
 
   return (
@@ -2270,9 +2316,21 @@ function ReaderToc(props: {
         <div class="trauma-toc-scroll-shell">
           <ol
             ref={scrollRef}
-            class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-0`}
+            class={`${readerTocScrollContent} relative m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
+            <div
+              class="trauma-toc-reading-band"
+              classList={{
+                "trauma-toc-reading-band-animated": readingBandAnimated(),
+              }}
+              data-visible={readingBandVisible() ? "true" : "false"}
+              style={{
+                top: `${readingBand().top}px`,
+                height: `${readingBand().height}px`,
+              }}
+              aria-hidden="true"
+            />
             {props.toc.map((entry) => (
               <ReaderTocEntryRow
                 active={props.moments.some(
@@ -2363,13 +2421,8 @@ function ReaderTocEntryRow(props: {
   pending: boolean;
 }) {
   let rowRef: HTMLLIElement | undefined;
-  const rangePosition = createMemo(() =>
-    props.activeTocRange().rangeIds.indexOf(props.entry.id)
-  );
-  const inReadingRange = () => rangePosition() !== -1;
-  const readingRangeStart = () => rangePosition() === 0;
-  const readingRangeEnd = () =>
-    rangePosition() === props.activeTocRange().rangeIds.length - 1;
+  const inReadingRange = () =>
+    props.activeTocRange().rangeIds.includes(props.entry.id);
   const isReadingLead = () =>
     props.activeTocRange().leadId === props.entry.id;
   let longPressTimer: number | undefined;
@@ -2395,13 +2448,10 @@ function ReaderTocEntryRow(props: {
     <li
       ref={rowRef}
       data-reading-range={inReadingRange() ? "true" : undefined}
-      class="group grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
+      class="group relative z-[1] grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
       classList={{
         "ml-2.5": props.entry.level === 2,
         "ml-5": props.entry.level === 3,
-        "trauma-toc-reading-range": inReadingRange(),
-        "trauma-toc-reading-range-start": readingRangeStart(),
-        "trauma-toc-reading-range-end": readingRangeEnd(),
       }}
       onPointerCancel={clearLongPress}
       onPointerLeave={clearLongPress}
