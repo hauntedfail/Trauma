@@ -62,6 +62,32 @@ Contract:
 - Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
 - Motion is disabled under `prefers-reduced-motion: reduce`.
 
+### Reading-Progress Visualization
+
+The TOC tracks the reader's live position and visualizes it as a background
+treatment, so it doubles as a reading-progress indicator without losing its
+static aids (anchors, scroll fades, Moment toggles, long-press menus).
+
+- `MemoryReader` observes the rendered section headings
+  (`[data-reader-section-anchor]`) inside the reading column and resolves the
+  active heading against a reading line one third down the viewport.
+- The active heading is mapped to a contiguous reading range: the active
+  chapter plus its associated subtitles, where a chapter is the nearest entry
+  at the TOC's minimum heading level. The range is never a disjoint selection.
+- The reader and the right-rail TOC communicate this range through
+  `MemoryReader`-owned reactive state passed down as props; the TOC never reads
+  reader DOM.
+- Range entries are painted with `trauma-toc-reading-range` using the accent
+  surface tokens (`--accent-soft`, `--accent`), forming one continuous band
+  with rounded `start`/`end` edges. Only design tokens are used; no raw hex.
+- The precise active entry gets `trauma-toc-reading-position` emphasis and
+  `aria-current="location"` on its anchor.
+- With no active heading (top of document or empty TOC) the TOC renders in its
+  plain static state with no highlight.
+- Scroll observation is `requestAnimationFrame`-batched, attached as passive
+  listeners, and fully torn down on reader unmount. Highlight transitions are
+  disabled under `prefers-reduced-motion: reduce`.
+
 ## Markdown Prose
 
 Rendered markdown uses Tailwind Typography through `@tailwindcss/typography`.
