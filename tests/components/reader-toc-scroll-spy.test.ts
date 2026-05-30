@@ -84,9 +84,20 @@ describe("isSameActiveTocRange", () => {
 describe("reader TOC reading-range visualization wiring", () => {
   it("feeds the active range into the TOC and marks the reading position", () => {
     expect(readerSource).toContain("activeTocRange={props.activeTocRange}");
-    expect(readerSource).toContain('aria-current={props.isReadingPosition ? "location" : undefined}');
+    expect(readerSource).toContain('aria-current={isReadingPosition() ? "location" : undefined}');
     expect(readerSource).toContain("trauma-toc-reading-range");
     expect(readerSource).toContain("trauma-toc-reading-position");
+  });
+
+  it("reads the active range as an accessor so scrolling does not remount the right rail", () => {
+    // The right-rail registration effect must not depend on the scroll-driven
+    // active range; it is passed down as an accessor and read reactively inside
+    // the mounted TOC rows instead.
+    expect(readerSource).toContain("activeTocRange={activeTocRange}");
+    expect(readerSource).not.toContain("activeTocRange={activeTocRange()}");
+    expect(readerSource).toContain(
+      "activeTocRange: Accessor<ActiveTocRange>",
+    );
   });
 
   it("defines the reading-range surface treatment with design tokens", () => {

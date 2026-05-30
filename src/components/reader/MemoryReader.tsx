@@ -7,6 +7,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  type Accessor,
   type JSX,
 } from "solid-js";
 
@@ -288,7 +289,7 @@ function ReadyMemoryReader(props: {
   createEffect(() => {
     setRightRailContent(
       <ReaderRightRailContent
-        activeTocRange={activeTocRange()}
+        activeTocRange={activeTocRange}
         currentFlashbacks={currentFlashbacks()}
         flashbackRows={props.flashbackRows}
         moments={moments()}
@@ -1887,7 +1888,7 @@ function ReaderContextMenu(props: {
 }
 
 function ReaderRightRailContent(props: {
-  activeTocRange: ActiveTocRange;
+  activeTocRange: Accessor<ActiveTocRange>;
   currentFlashbacks: ReaderFlashbackItem[];
   flashbackRows?: FlashbackBrowseRow[];
   moments: ReaderMomentItem[];
@@ -2135,7 +2136,7 @@ function ReaderState(props: { message: string }) {
 }
 
 function ReaderToc(props: {
-  activeTocRange: ActiveTocRange;
+  activeTocRange: Accessor<ActiveTocRange>;
   moments: ReaderMomentItem[];
   onCreateMoment: (section: ReaderMomentSection) => void;
   onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
@@ -2198,27 +2199,20 @@ function ReaderToc(props: {
             class={`${readerTocScrollContent} m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
-            {props.toc.map((entry) => {
-              const rangeIds = props.activeTocRange.rangeIds;
-              const rangePosition = rangeIds.indexOf(entry.id);
-              return (
-                <ReaderTocEntryRow
-                  active={props.moments.some(
-                    (moment) =>
-                      resolveReaderMomentTarget(moment, props.toc)?.id ===
-                        entry.id,
-                  )}
-                  entry={entry}
-                  inReadingRange={rangePosition !== -1}
-                  readingRangeStart={rangePosition === 0}
-                  readingRangeEnd={rangePosition === rangeIds.length - 1}
-                  isReadingPosition={props.activeTocRange.activeId === entry.id}
-                  onCreateMoment={props.onCreateMoment}
-                  onOpenSectionMenu={props.onOpenSectionMenu}
-                  pending={props.pendingMomentKey === getReaderMomentKey(entry)}
-                />
-              );
-            })}
+            {props.toc.map((entry) => (
+              <ReaderTocEntryRow
+                active={props.moments.some(
+                  (moment) =>
+                    resolveReaderMomentTarget(moment, props.toc)?.id ===
+                      entry.id,
+                )}
+                activeTocRange={props.activeTocRange}
+                entry={entry}
+                onCreateMoment={props.onCreateMoment}
+                onOpenSectionMenu={props.onOpenSectionMenu}
+                pending={props.pendingMomentKey === getReaderMomentKey(entry)}
+              />
+            ))}
           </ol>
         </div>
         <Show when={tocScrollState().canScrollUp}>
@@ -2288,16 +2282,22 @@ function syncReaderSectionMomentButtons(input: {
 
 function ReaderTocEntryRow(props: {
   active: boolean;
+  activeTocRange: Accessor<ActiveTocRange>;
   entry: ReaderTocEntry;
-  inReadingRange: boolean;
-  readingRangeStart: boolean;
-  readingRangeEnd: boolean;
-  isReadingPosition: boolean;
   onCreateMoment: (section: ReaderMomentSection) => void;
   onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
   pending: boolean;
 }) {
   let rowRef: HTMLLIElement | undefined;
+  const rangePosition = createMemo(() =>
+    props.activeTocRange().rangeIds.indexOf(props.entry.id)
+  );
+  const inReadingRange = () => rangePosition() !== -1;
+  const readingRangeStart = () => rangePosition() === 0;
+  const readingRangeEnd = () =>
+    rangePosition() === props.activeTocRange().rangeIds.length - 1;
+  const isReadingPosition = () =>
+    props.activeTocRange().activeId === props.entry.id;
   let longPressTimer: number | undefined;
   const clearLongPress = () => {
     if (longPressTimer === undefined) {
@@ -2320,15 +2320,15 @@ function ReaderTocEntryRow(props: {
   return (
     <li
       ref={rowRef}
-      data-reading-range={props.inReadingRange ? "true" : undefined}
+      data-reading-range={inReadingRange() ? "true" : undefined}
       class="group grid grid-cols-[1.125rem_minmax(0,1fr)] items-start gap-1"
       classList={{
         "ml-2.5": props.entry.level === 2,
         "ml-5": props.entry.level === 3,
-        "trauma-toc-reading-range": props.inReadingRange,
-        "trauma-toc-reading-range-start": props.readingRangeStart,
-        "trauma-toc-reading-range-end": props.readingRangeEnd,
-        "trauma-toc-reading-position": props.isReadingPosition,
+        "trauma-toc-reading-range": inReadingRange(),
+        "trauma-toc-reading-range-start": readingRangeStart(),
+        "trauma-toc-reading-range-end": readingRangeEnd(),
+        "trauma-toc-reading-position": isReadingPosition(),
       }}
       onPointerCancel={clearLongPress}
       onPointerLeave={clearLongPress}
@@ -2362,7 +2362,7 @@ function ReaderTocEntryRow(props: {
       <a
         class="hover:text-trauma-link"
         href={`#${props.entry.id}`}
-        aria-current={props.isReadingPosition ? "location" : undefined}
+        aria-current={isReadingPosition() ? "location" : undefined}
       >
         {props.entry.text}
       </a>
