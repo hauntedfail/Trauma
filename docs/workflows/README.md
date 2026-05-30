@@ -23,6 +23,7 @@ architecture, reference, quality, or operations docs.
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
 | 20 | [Lazy loading performance](task-20-lazy-loading-performance/README.md) | Cursor-paginated memories, lazy Flashback data, reader All-tab deferral | Ready on `feat/lazy-loading` from `fix/perform` |
 | 21 | [Popover and translation UI fixes](task-21-popover-and-translation-ui-fixes/README.md) | Unified translucent popovers, reader translation cancellation, and translation UI integration checks | Ready on `fix/anything` from `fix/perform` |
+| 23 | [Reader TOC reading-progress](task-23-reader-toc-reading-progress/README.md) | Dynamic TOC that visualizes the active chapter reading range on `/memories/:id` | Active on `fix/toc` from `fix/perform` |
 
 ## Current Audit Notes
 
@@ -45,6 +46,10 @@ architecture, reference, quality, or operations docs.
   architecture; it only changes reader translation popover behaviour, shared
   popover chrome, and integration verification around the existing translation
   APIs.
+- Task 23 is a reader UI workflow for the `fix/perform` follow-up branch on the
+  `fix/toc` worktree. It is scoped to making the reader TOC visualize the live
+  reading range; it must not change markdown rendering, Moment behaviour, or any
+  non-reader surface.
 
 ## Archived Workflows
 
