@@ -111,8 +111,16 @@ export function MemoryBrowse() {
       .filter((memory) => !removedMemoryIds().has(memory.id)),
   );
   const visibleMemoryIds = createMemo(() => visibleMemories().map((memory) => memory.id));
-  const flashbacksByMemoryId = createAsync(async () => {
-    const memoryIds = visibleMemoryIds();
+  const [flashbacksByMemoryId, setFlashbacksByMemoryId] =
+    createSignal<Record<string, BrowseFlashback[]>>({});
+  const flashbackRequestMemoryIds = createMemo(() => {
+    const hydratedFlashbacks = flashbacksByMemoryId();
+    return visibleMemoryIds().filter(
+      (memoryId) => hydratedFlashbacks[memoryId] === undefined,
+    );
+  });
+  const loadedFlashbacksByMemoryId = createAsync(async () => {
+    const memoryIds = flashbackRequestMemoryIds();
     if (memoryIds.length === 0) {
       return {};
     }
@@ -182,11 +190,26 @@ export function MemoryBrowse() {
     on(query, (nextQuery, previousQuery) => {
       if (previousQuery !== undefined && !isSameBrowseQuery(nextQuery, previousQuery)) {
         setAdditionalPages([]);
+        setFlashbacksByMemoryId({});
         setRemovedMemoryIds(new Set<string>());
         setLoadNextPageError("");
       }
     }),
   );
+  createEffect(() => {
+    const loadedFlashbacks = loadedFlashbacksByMemoryId();
+    if (
+      loadedFlashbacks === undefined ||
+      Object.keys(loadedFlashbacks).length === 0
+    ) {
+      return;
+    }
+
+    setFlashbacksByMemoryId((current) => ({
+      ...current,
+      ...loadedFlashbacks,
+    }));
+  });
   createEffect(() => observeLoadMoreSentinel());
 
   onMount(() => setIsClientReady(true));

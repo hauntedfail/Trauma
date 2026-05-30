@@ -197,13 +197,24 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("getBrowseFlashbacksForMemories");
     expect(browseSource).toContain("visibleMemoryIds");
     expect(browseSource).toContain("flashbacksByMemoryId");
+    expect(browseSource).toContain("flashbackRequestMemoryIds");
     expect(browseSource).toContain("selectedFlashbackId: query().flashback");
     expect(browseSource).toContain("flashbacks={flashbacksByMemoryId()?.[memory.id] ?? []}");
+  });
+
+  it("hydrates card flashbacks only for visible memories missing from the local cache", () => {
+    expect(browseSource).toContain("setFlashbacksByMemoryId");
+    expect(browseSource).toContain("hydratedFlashbacks[memoryId] === undefined");
+    expect(browseSource).toContain("const loadedFlashbacks = loadedFlashbacksByMemoryId()");
+    expect(browseSource).toContain("Object.keys(loadedFlashbacks).length === 0");
+    expect(browseSource).toContain("setFlashbacksByMemoryId((current) => ({");
+    expect(browseSource).not.toContain("const memoryIds = visibleMemoryIds()");
   });
 
   it("resets accumulated memory pages when the route query changes", () => {
     expect(browseSource).toContain("isSameBrowseQuery");
     expect(browseSource).toContain("setAdditionalPages([])");
+    expect(browseSource).toContain("setFlashbacksByMemoryId({})");
     expect(browseSource).toContain("setRemovedMemoryIds(new Set<string>())");
     expect(browseSource).toContain("setLoadNextPageError(\"\")");
   });
