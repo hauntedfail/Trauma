@@ -821,50 +821,6 @@
     );
   }
 
-  .trauma-toc-reading-range {
-    position: relative;
-    background-color: color-mix(in srgb, var(--accent-soft) 60%, transparent);
-    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 28%, transparent);
-    transition: background-color 180ms ease, box-shadow 180ms ease;
-  }
-
-  .trauma-toc-reading-range:not(.trauma-toc-reading-range-end)::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    bottom: -0.625rem;
-    left: 0;
-    height: 0.625rem;
-    background-color: inherit;
-    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 28%, transparent);
-  }
-
-  .trauma-toc-reading-range-start {
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-  }
-
-  .trauma-toc-reading-range-end {
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-  }
-
-  .trauma-toc-reading-position {
-    background-color: color-mix(in srgb, var(--accent-soft) 92%, transparent);
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-
-  .trauma-toc-reading-position > a {
-    color: var(--accent-soft-ink);
-    font-weight: 600;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .trauma-toc-reading-range {
-      transition: none;
-    }
-  }
-
   .trauma-flashback-context {
     color: color-mix(in srgb, var(--fg-2) 72%, var(--fg-3));
     filter: blur(0.25px);
@@ -1018,6 +974,50 @@
     :root[data-theme^="paper"] .trauma-active-nav-item::after {
       animation: none;
       clip-path: inset(0 0 0 0);
+    }
+  }
+
+  .trauma-toc-reading-range {
+    position: relative;
+    background-color: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 28%, transparent);
+    transition: background-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .trauma-toc-reading-range:not(.trauma-toc-reading-range-end)::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: -0.625rem;
+    left: 0;
+    height: 0.625rem;
+    background-color: inherit;
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+
+  .trauma-toc-reading-range-start {
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+  }
+
+  .trauma-toc-reading-range-end {
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+  }
+
+  .trauma-toc-reading-position {
+    background-color: color-mix(in srgb, var(--accent-soft) 92%, transparent);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .trauma-toc-reading-position > a {
+    color: var(--accent-soft-ink);
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trauma-toc-reading-range {
+      transition: none;
     }
   }
 }
