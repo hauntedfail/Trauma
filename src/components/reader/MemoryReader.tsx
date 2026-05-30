@@ -50,14 +50,12 @@ import {
   type FetchFunction,
 } from "../memories/memory-action-requests";
 import {
-  computeActiveTocRange,
+  computeVisibleTocRange,
   emptyActiveTocRange,
-  resolveActiveHeadingId,
   type ActiveTocRange,
 } from "./toc-reading-range";
 import {
   isSameActiveTocRange,
-  readingLineOffset,
   readReaderHeadingPositions,
 } from "./toc-scroll-spy";
 import {
@@ -725,11 +723,7 @@ function ReadyMemoryReader(props: {
     }
 
     const positions = readReaderHeadingPositions(readerRootRef);
-    const activeId = resolveActiveHeadingId(
-      positions,
-      readingLineOffset(window.innerHeight),
-    );
-    const next = computeActiveTocRange(toc, activeId);
+    const next = computeVisibleTocRange(positions, window.innerHeight);
     setActiveTocRange((current) =>
       isSameActiveTocRange(current, next) ? current : next
     );
@@ -2376,8 +2370,8 @@ function ReaderTocEntryRow(props: {
   const readingRangeStart = () => rangePosition() === 0;
   const readingRangeEnd = () =>
     rangePosition() === props.activeTocRange().rangeIds.length - 1;
-  const isReadingPosition = () =>
-    props.activeTocRange().activeId === props.entry.id;
+  const isReadingLead = () =>
+    props.activeTocRange().leadId === props.entry.id;
   let longPressTimer: number | undefined;
   const clearLongPress = () => {
     if (longPressTimer === undefined) {
@@ -2408,7 +2402,6 @@ function ReaderTocEntryRow(props: {
         "trauma-toc-reading-range": inReadingRange(),
         "trauma-toc-reading-range-start": readingRangeStart(),
         "trauma-toc-reading-range-end": readingRangeEnd(),
-        "trauma-toc-reading-position": isReadingPosition(),
       }}
       onPointerCancel={clearLongPress}
       onPointerLeave={clearLongPress}
@@ -2442,7 +2435,7 @@ function ReaderTocEntryRow(props: {
       <a
         class="hover:text-trauma-link"
         href={`#${props.entry.id}`}
-        aria-current={isReadingPosition() ? "location" : undefined}
+        aria-current={isReadingLead() ? "location" : undefined}
       >
         {props.entry.text}
       </a>

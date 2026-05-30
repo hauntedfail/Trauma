@@ -69,24 +69,32 @@ treatment, so it doubles as a reading-progress indicator without losing its
 static aids (anchors, scroll fades, Moment toggles, long-press menus).
 
 - `MemoryReader` observes the rendered section headings
-  (`[data-reader-section-anchor]`) inside the reading column and resolves the
-  active heading against a reading line one third down the viewport.
-- The active heading is mapped to a contiguous reading range: the active
-  chapter plus its associated subtitles, where a chapter is the nearest entry
-  at the TOC's minimum heading level. The range is never a disjoint selection.
+  (`[data-reader-section-anchor]`) inside the reading column. Each heading owns
+  the section that runs to the next heading; a section counts as on screen when
+  that span overlaps the viewport.
+- The spy tracks whatever range is currently rendered on screen, not a single
+  chapter. If the sections for several chapters are visible at once, every
+  visible entry is highlighted. The result is always a contiguous slice of the
+  TOC ordering; the topmost visible entry is the `leadId`.
 - The reader and the right-rail TOC communicate this range through
   `MemoryReader`-owned reactive state passed down as props; the TOC never reads
   reader DOM.
-- Range entries are painted with `trauma-toc-reading-range` using the accent
-  surface tokens (`--accent-soft`, `--accent`), forming one continuous band
-  with rounded `start`/`end` edges. Only design tokens are used; no raw hex.
-- The precise active entry gets `trauma-toc-reading-position` emphasis and
-  `aria-current="location"` on its anchor.
-- With no active heading (top of document or empty TOC) the TOC renders in its
+- Range entries are painted with `trauma-toc-reading-range` as a subtle
+  translucent contrast lift over the TOC surface
+  (`color-mix(in srgb, var(--fg-1) 8%, transparent)`), forming one continuous
+  band with rounded `start`/`end` edges. The treatment is background-only: it
+  does not recolor or re-weight the spied section text. Only design tokens are
+  used; no raw hex.
+- Entering the visible range plays an elastic, water-droplet `trauma-toc-droplet`
+  squash-and-stretch animation so chapters ease into the band instead of
+  switching instantly.
+- The `leadId` entry carries `aria-current="location"` for assistive tech; this
+  is semantic only and applies no visual emphasis.
+- With nothing on screen mapped to a heading (empty TOC) the TOC renders in its
   plain static state with no highlight.
 - Scroll observation is `requestAnimationFrame`-batched, attached as passive
-  listeners, and fully torn down on reader unmount. Highlight transitions are
-  disabled under `prefers-reduced-motion: reduce`.
+  listeners, and fully torn down on reader unmount. The droplet animation and
+  background transition are disabled under `prefers-reduced-motion: reduce`.
 
 ## Markdown Prose
 

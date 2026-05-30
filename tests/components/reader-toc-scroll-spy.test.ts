@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { emptyActiveTocRange } from "../../src/components/reader/toc-reading-range";
 import {
   isSameActiveTocRange,
-  readingLineOffset,
   readReaderHeadingPositions,
 } from "../../src/components/reader/toc-scroll-spy";
 
@@ -14,12 +13,6 @@ const readerSource = readFileSync(
   "utf8",
 );
 const tailwindSource = readFileSync("src/styles/tailwind.css", "utf8");
-
-describe("readingLineOffset", () => {
-  it("anchors the reading line one third down the viewport", () => {
-    expect(readingLineOffset(900)).toBe(300);
-  });
-});
 
 describe("readReaderHeadingPositions", () => {
   it("returns an empty list when the root is undefined", () => {
@@ -58,35 +51,44 @@ describe("isSameActiveTocRange", () => {
   it("treats structurally equal ranges as equal", () => {
     expect(
       isSameActiveTocRange(
-        { activeId: "a", chapterId: "a", rangeIds: ["a", "b"] },
-        { activeId: "a", chapterId: "a", rangeIds: ["a", "b"] },
+        { leadId: "a", rangeIds: ["a", "b"] },
+        { leadId: "a", rangeIds: ["a", "b"] },
       ),
     ).toBe(true);
   });
 
-  it("detects differences in active id or range membership", () => {
+  it("detects differences in lead id or range membership", () => {
     expect(
       isSameActiveTocRange(emptyActiveTocRange, {
-        activeId: "a",
-        chapterId: "a",
+        leadId: "a",
         rangeIds: ["a"],
       }),
     ).toBe(false);
     expect(
       isSameActiveTocRange(
-        { activeId: "a", chapterId: "a", rangeIds: ["a", "b"] },
-        { activeId: "a", chapterId: "a", rangeIds: ["a", "c"] },
+        { leadId: "a", rangeIds: ["a", "b"] },
+        { leadId: "a", rangeIds: ["a", "c"] },
+      ),
+    ).toBe(false);
+    expect(
+      isSameActiveTocRange(
+        { leadId: "a", rangeIds: ["a", "b"] },
+        { leadId: "b", rangeIds: ["a", "b"] },
       ),
     ).toBe(false);
   });
 });
 
 describe("reader TOC reading-range visualization wiring", () => {
-  it("feeds the active range into the TOC and marks the reading position", () => {
+  it("feeds the active range into the TOC and marks the lead reading position", () => {
     expect(readerSource).toContain("activeTocRange={props.activeTocRange}");
-    expect(readerSource).toContain('aria-current={isReadingPosition() ? "location" : undefined}');
+    expect(readerSource).toContain('aria-current={isReadingLead() ? "location" : undefined}');
     expect(readerSource).toContain("trauma-toc-reading-range");
-    expect(readerSource).toContain("trauma-toc-reading-position");
+  });
+
+  it("does not recolor the spied section text", () => {
+    expect(readerSource).not.toContain("trauma-toc-reading-position");
+    expect(tailwindSource).not.toContain("trauma-toc-reading-position");
   });
 
   it("reads the active range as an accessor so scrolling does not remount the right rail", () => {
@@ -100,10 +102,23 @@ describe("reader TOC reading-range visualization wiring", () => {
     );
   });
 
-  it("defines the reading-range surface treatment with design tokens", () => {
+  it("defines a subtle translucent reading-range surface with design tokens", () => {
     expect(tailwindSource).toContain(".trauma-toc-reading-range");
-    expect(tailwindSource).toContain(".trauma-toc-reading-position");
-    expect(tailwindSource).toContain("prefers-reduced-motion: reduce");
+    // Subtle, transparent contrast lift rather than an accent fill.
+    expect(tailwindSource).toMatch(
+      /\.trauma-toc-reading-range \{[\s\S]*?background-color: color-mix\(in srgb, var\(--fg-1\) \d+% *, *transparent\)/,
+    );
     expect(tailwindSource).not.toMatch(/trauma-toc-reading-range[\s\S]*?#[0-9a-fA-F]{3,6}/);
+  });
+
+  it("adds an elastic droplet animation gated by reduced motion", () => {
+    expect(tailwindSource).toContain("@keyframes trauma-toc-droplet");
+    expect(tailwindSource).toMatch(
+      /\.trauma-toc-reading-range \{[\s\S]*?animation: trauma-toc-droplet/,
+    );
+    expect(tailwindSource).toContain("prefers-reduced-motion: reduce");
+    expect(tailwindSource).toMatch(
+      /prefers-reduced-motion: reduce\)[\s\S]*?\.trauma-toc-reading-range \{[\s\S]*?animation: none/,
+    );
   });
 });

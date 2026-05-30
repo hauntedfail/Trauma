@@ -3,15 +3,6 @@ import type { ActiveTocRange, HeadingPosition } from "./toc-reading-range";
 const SECTION_ANCHOR_ATTRIBUTE = "data-reader-section-anchor";
 
 /**
- * The reading-line anchor sits one third down the viewport so the active
- * chapter matches the content the reader is actually looking at rather than the
- * very top edge of the viewport.
- */
-export function readingLineOffset(viewportHeight: number): number {
-  return viewportHeight / 3;
-}
-
-/**
  * Reads the viewport-relative top of every rendered section heading inside the
  * reader root. The measurement step is injectable so the seam can be unit
  * tested without a real layout engine.
@@ -49,8 +40,7 @@ export function isSameActiveTocRange(
   b: ActiveTocRange,
 ): boolean {
   return (
-    a.activeId === b.activeId &&
-    a.chapterId === b.chapterId &&
+    a.leadId === b.leadId &&
     a.rangeIds.length === b.rangeIds.length &&
     a.rangeIds.every((id, index) => id === b.rangeIds[index])
   );
