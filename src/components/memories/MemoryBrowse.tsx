@@ -1,15 +1,28 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, useLocation, useNavigate } from "@solidjs/router";
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
 import {
   buildBrowseHref,
-  filterBrowseMemories,
+  createInitialBrowseMemoryPageRequest,
+  createNextBrowseMemoryPageRequest,
   getBrowseReadStateFilter,
   getMemoryDisplayFlashback,
+  isSameBrowseQuery,
   parseBrowseQuery,
   setBrowseReadStateFilter,
+  type BrowseFlashback,
+  type BrowseMemoryPage,
   type BrowseReadStateFilter,
   type BrowseMemory,
   type BrowseTaxonomyItem,
@@ -17,7 +30,7 @@ import {
 } from "./browse-data";
 import { buildMemoryVariantAnchorHref } from "./memory-anchor-hrefs";
 import {
-  getBrowseMemories,
+  getBrowseMemoryPage,
   getBrowseTaxonomy,
   revalidateBrowseMemoryWorkspace,
 } from "./browse-loader";
@@ -35,7 +48,10 @@ import {
   detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
 } from "./memory-action-requests";
-import { revalidateFlashbackBrowseRows } from "../flashbacks/flashbacks-loader";
+import {
+  getBrowseFlashbacksForMemories,
+  revalidateFlashbackBrowseRows,
+} from "../flashbacks/flashbacks-loader";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
@@ -65,22 +81,51 @@ const readStateTabs = [
 export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
-  const memories = createAsync(() => getBrowseMemories());
+  const query = createMemo(() => parseBrowseQuery(location.search));
+  const firstPage = createAsync(() =>
+    getBrowseMemoryPage(createInitialBrowseMemoryPageRequest(query())),
+  );
   const taxonomy = createAsync(() => getBrowseTaxonomy());
-  const browseMemories = createMemo(() => memories() ?? []);
   const availableCategories = createMemo(() => taxonomy()?.categories ?? []);
   const availableTags = createMemo(() => taxonomy()?.tags ?? []);
-  const query = createMemo(() => parseBrowseQuery(location.search));
+  const [additionalPages, setAdditionalPages] = createSignal<BrowseMemoryPage[]>([]);
+  const [isLoadingNextPage, setIsLoadingNextPage] = createSignal(false);
+  const [loadNextPageError, setLoadNextPageError] = createSignal("");
   const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
+  const pages = createMemo(() => {
+    const initialPage = firstPage();
+    return initialPage === undefined
+      ? additionalPages()
+      : [initialPage, ...additionalPages()];
+  });
+  const nextCursor = createMemo(() => {
+    const loadedPages = pages();
+    const lastPage = loadedPages[loadedPages.length - 1];
+    return lastPage?.nextCursor ?? null;
+  });
   const visibleMemories = createMemo(() =>
-    browseMemories().filter((memory) => !removedMemoryIds().has(memory.id)),
+    pages()
+      .flatMap((page) => page.memories)
+      .filter((memory) => !removedMemoryIds().has(memory.id)),
   );
-  const filteredMemories = createMemo(() => filterBrowseMemories(visibleMemories(), query()));
+  const visibleMemoryIds = createMemo(() => visibleMemories().map((memory) => memory.id));
+  const flashbacksByMemoryId = createAsync(async () => {
+    const memoryIds = visibleMemoryIds();
+    if (memoryIds.length === 0) {
+      return {};
+    }
+
+    return getBrowseFlashbacksForMemories({
+      memoryIds,
+      selectedFlashbackId: query().flashback,
+    });
+  });
   const isGrid = createMemo(() => query().view === "grid");
   const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
+  let loadMoreSentinel: HTMLDivElement | undefined;
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
@@ -88,8 +133,58 @@ export function MemoryBrowse() {
   const updateReadStateFilter = (readState: BrowseReadStateFilter): void => {
     updateQuery({ q: setBrowseReadStateFilter(query().q, readState) });
   };
+  const loadNextPage = async (): Promise<void> => {
+    const cursor = nextCursor();
+    if (cursor === null || isLoadingNextPage()) {
+      return;
+    }
 
-  onMount(() => setIsClientReady(true));
+    const requestedQuery = query();
+    setIsLoadingNextPage(true);
+    setLoadNextPageError("");
+    try {
+      const page = await getBrowseMemoryPage(
+        createNextBrowseMemoryPageRequest(requestedQuery, cursor),
+      );
+      if (!isSameBrowseQuery(query(), requestedQuery)) {
+        return;
+      }
+      setAdditionalPages((current) => [...current, page]);
+    } catch (error) {
+      setLoadNextPageError("Failed to load more memories.");
+      throw error;
+    } finally {
+      setIsLoadingNextPage(false);
+    }
+  };
+
+  createEffect(
+    on(query, (nextQuery, previousQuery) => {
+      if (previousQuery !== undefined && !isSameBrowseQuery(nextQuery, previousQuery)) {
+        setAdditionalPages([]);
+        setRemovedMemoryIds(new Set<string>());
+        setLoadNextPageError("");
+      }
+    }),
+  );
+
+  onMount(() => {
+    setIsClientReady(true);
+    if (loadMoreSentinel === undefined || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadNextPage();
+        }
+      },
+      { rootMargin: "480px" },
+    );
+    observer.observe(loadMoreSentinel);
+    onCleanup(() => observer.disconnect());
+  });
 
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
@@ -105,7 +200,7 @@ export function MemoryBrowse() {
       </header>
       <MemorySearchBar disabled={!isClientReady()} />
       <Show
-        when={filteredMemories().length > 0}
+        when={visibleMemories().length > 0}
         fallback={
           <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
             <h2 class="text-xl font-bold text-trauma-text-primary">No matching memories</h2>
@@ -114,10 +209,11 @@ export function MemoryBrowse() {
         }
       >
         <div class={isGrid() ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2" : "trauma-memory-list grid"}>
-          <For each={filteredMemories()}>
+          <For each={visibleMemories()}>
             {(memory) => (
               <MemoryItem
                 memory={memory}
+                flashbacks={flashbacksByMemoryId()?.[memory.id] ?? []}
                 availableCategories={availableCategories()}
                 availableTags={availableTags()}
                 selectedFlashbackId={query().flashback}
@@ -130,6 +226,30 @@ export function MemoryBrowse() {
             )}
           </For>
         </div>
+        <Show when={nextCursor() !== null}>
+          <div class="trauma-route-row grid gap-3 px-6 py-6 text-center">
+            <button
+              class="justify-self-center rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-wait disabled:opacity-60"
+              type="button"
+              disabled={isLoadingNextPage()}
+              onClick={() => void loadNextPage()}
+            >
+              {isLoadingNextPage() ? "Loading..." : "Load more"}
+            </button>
+            <Show when={loadNextPageError() !== ""}>
+              <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
+                {loadNextPageError()}
+              </p>
+            </Show>
+          </div>
+        </Show>
+        <div
+          aria-hidden="true"
+          class="h-px"
+          ref={(element) => {
+            loadMoreSentinel = element;
+          }}
+        />
       </Show>
     </section>
   );
@@ -140,6 +260,17 @@ function MemoryReadStateTabs(props: {
   onChange: (value: BrowseReadStateFilter) => void;
 }) {
   const tabButtons: HTMLButtonElement[] = [];
+  const focusTabButton = (index: number): void => {
+    tabButtons[index]?.focus();
+  };
+  const scheduleFocusTabButton = (index: number): void => {
+    if (typeof window === "undefined") {
+      focusTabButton(index);
+      return;
+    }
+
+    window.requestAnimationFrame(() => focusTabButton(index));
+  };
   const focusTab = (index: number): void => {
     const tab = readStateTabs[index];
     if (tab === undefined) {
@@ -147,7 +278,7 @@ function MemoryReadStateTabs(props: {
     }
 
     props.onChange(tab.value);
-    tabButtons[index]?.focus();
+    scheduleFocusTabButton(index);
   };
   const handleKeyDown = (event: KeyboardEvent, index: number): void => {
     const lastIndex = readStateTabs.length - 1;
@@ -211,13 +342,20 @@ function MemoryReadStateTabs(props: {
 export function MemoryItem(props: {
   availableCategories?: readonly BrowseTaxonomySummaryItem[];
   availableTags?: readonly BrowseTaxonomySummaryItem[];
+  flashbacks?: readonly BrowseFlashback[];
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
   onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
 }) {
-  const displayFlashback = createMemo(() => getMemoryDisplayFlashback(props.memory, props.selectedFlashbackId));
+  const displayFlashback = createMemo(() =>
+    getMemoryDisplayFlashback(
+      props.memory,
+      props.selectedFlashbackId,
+      props.flashbacks,
+    ),
+  );
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
   const [tags, setTags] = createSignal<BrowseTaxonomyItem[]>(props.memory.tags);

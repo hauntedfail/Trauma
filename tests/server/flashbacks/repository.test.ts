@@ -221,6 +221,105 @@ describe("flashback repository", () => {
     ]);
   });
 
+  it("loads bounded recent and memory-scoped flashback browse candidates", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const now = Date.parse("2026-05-10T03:00:00.000Z");
+        const middle = Date.parse("2026-05-10T02:00:00.000Z");
+        const older = Date.parse("2026-05-10T01:00:00.000Z");
+        const outputHash = "sha256:" + "a".repeat(64);
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          for (const [memoryId, title] of [
+            ["memory-a", "Memory A"],
+            ["memory-b", "Memory B"],
+            ["memory-c", "Memory C"],
+          ]) {
+            connection.sqlite
+              .prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(memoryId, "https://example.com/" + memoryId, title, "memories/" + memoryId + "/CONTENT.md", "success", "disabled", older, older);
+          }
+
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-old", "memory-a", "old text", "", "", 0, 8, older, older);
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-middle", "memory-b", "middle text", "", "", 0, 11, middle, middle);
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-new-translated", "memory-c", "translation", "ja-JP", outputHash, "translated text", "", "", 0, 15, now, now);
+
+          const recent = await connection.repositories.flashbacks.listRecentForBrowse({ limit: 2 });
+          const memoryRows = await connection.repositories.flashbacks.listForBrowseMemoryIds({
+            memoryIds: ["memory-a", "memory-c"],
+          });
+          const selectedSource = await connection.repositories.flashbacks.findForBrowseById("flashback-old");
+          const selected = await connection.repositories.flashbacks.findForBrowseById("flashback-new-translated");
+          const missing = await connection.repositories.flashbacks.findForBrowseById("missing-flashback");
+
+          process.stdout.write(JSON.stringify({
+            recent: recent.map((row) => row.id),
+            memoryRows: memoryRows.map((row) => [row.id, row.memoryId]),
+            selectedSource,
+            selected,
+            missing: missing ?? null,
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      recent: ["flashback-new-translated", "flashback-middle"],
+      memoryRows: [
+        ["flashback-new-translated", "memory-c"],
+        ["flashback-old", "memory-a"],
+      ],
+      selectedSource: expect.objectContaining({
+        id: "flashback-old",
+        memoryId: "memory-a",
+        variantKind: "source",
+        langCode: null,
+        translationOutputHash: null,
+      }),
+      selected: expect.objectContaining({
+        id: "flashback-new-translated",
+        memoryId: "memory-c",
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: "sha256:" + "a".repeat(64),
+      }),
+      missing: null,
+    });
+  });
+
   it("replaces source flashbacks without deleting translated variants", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(

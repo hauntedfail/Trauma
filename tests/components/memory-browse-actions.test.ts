@@ -27,6 +27,7 @@ const memory = {
 } satisfies BrowseMemory;
 const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
 const searchBarSource = readFileSync("src/components/memories/MemorySearchBar.tsx", "utf8");
+const addMemoryFormSource = readFileSync("src/components/memories/AddMemoryForm.tsx", "utf8");
 
 describe("memory browse actions", () => {
   it("renders actions, read status, and attached taxonomy", () => {
@@ -67,6 +68,34 @@ describe("memory browse actions", () => {
 
     expect(html).toContain("Link-only");
     expect(html).not.toContain("saved");
+  });
+
+  it("renders flashback excerpts from lazy card flashbacks", () => {
+    const html = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory,
+        flashbacks: [
+          {
+            id: "flashback-card",
+            memoryId: memory.id,
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
+            text: "lazy card excerpt",
+            prefix: "before",
+            suffix: "after",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        selectedFlashbackId: "",
+        view: "list",
+        onDeleted: () => {},
+      }),
+    );
+
+    expect(html).toContain("lazy card excerpt");
+    expect(html).toContain("before");
+    expect(html).toContain("after");
   });
 
   it("posts add-tag and add-category actions by name", async () => {
@@ -154,6 +183,44 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("MemorySearchBar");
     expect(searchBarSource).toContain("parseBrowseQuery(location.search)");
     expect(searchBarSource).toContain("navigate(buildBrowseHref(query(), { q: value }), { replace: true })");
+  });
+
+  it("loads memory browse rows from paged server queries", () => {
+    expect(browseSource).toContain("getBrowseMemoryPage");
+    expect(browseSource).toContain("createInitialBrowseMemoryPageRequest");
+    expect(browseSource).toContain("createNextBrowseMemoryPageRequest");
+    expect(browseSource).not.toContain("getBrowseMemories");
+    expect(browseSource).not.toContain("filterBrowseMemories");
+  });
+
+  it("loads card flashbacks separately for currently visible memory rows", () => {
+    expect(browseSource).toContain("getBrowseFlashbacksForMemories");
+    expect(browseSource).toContain("visibleMemoryIds");
+    expect(browseSource).toContain("flashbacksByMemoryId");
+    expect(browseSource).toContain("selectedFlashbackId: query().flashback");
+    expect(browseSource).toContain("flashbacks={flashbacksByMemoryId()?.[memory.id] ?? []}");
+  });
+
+  it("resets accumulated memory pages when the route query changes", () => {
+    expect(browseSource).toContain("isSameBrowseQuery");
+    expect(browseSource).toContain("setAdditionalPages([])");
+    expect(browseSource).toContain("setRemovedMemoryIds(new Set<string>())");
+    expect(browseSource).toContain("setLoadNextPageError(\"\")");
+  });
+
+  it("keeps deletion as an optimistic removed-id filter across loaded pages", () => {
+    expect(browseSource).toContain("removedMemoryIds");
+    expect(browseSource).toContain("flatMap((page) => page.memories)");
+    expect(browseSource).toContain("setRemovedMemoryIds((current) => new Set([...current, memoryId]))");
+  });
+
+  it("uses first-page scoped revalidation after add-memory success", () => {
+    expect(addMemoryFormSource).toContain("useLocation");
+    expect(addMemoryFormSource).toContain("parseBrowseQuery(location.search)");
+    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage");
+    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryFirstPage(query())");
+    expect(addMemoryFormSource).toContain("revalidateBrowseTaxonomy");
+    expect(addMemoryFormSource).not.toContain("revalidateBrowseMemories");
   });
 
   it("renders memories read-state tabs instead of list and grid view controls", () => {

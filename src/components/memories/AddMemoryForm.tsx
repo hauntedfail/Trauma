@@ -1,4 +1,4 @@
-import { useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
@@ -6,7 +6,11 @@ import {
   submitAddMemoryUrl,
   type AddMemorySubmitResult,
 } from "./add-memory-submit";
-import { revalidateBrowseMemories } from "./browse-loader";
+import {
+  revalidateBrowseMemoryFirstPage,
+  revalidateBrowseTaxonomy,
+} from "./browse-loader";
+import { parseBrowseQuery } from "./browse-data";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 export interface AddMemoryFormProps {
@@ -20,7 +24,9 @@ export interface AddMemoryFormProps {
 }
 
 export function AddMemoryForm(props: AddMemoryFormProps) {
+  const location = useLocation();
   const navigate = useNavigate();
+  const query = createMemo(() => parseBrowseQuery(location.search));
   const [url, setUrl] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const [isSubmitting, setIsSubmitting] = createSignal(false);
@@ -51,7 +57,10 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       }
 
       setUrl("");
-      void revalidateBrowseMemories();
+      void Promise.all([
+        revalidateBrowseMemoryFirstPage(query()),
+        revalidateBrowseTaxonomy(),
+      ]);
       navigate(`/memories/${encodeURIComponent(result.memoryId)}`);
       props.onCreated?.(result.memoryId);
     } finally {
