@@ -165,10 +165,7 @@ describe("backup environment failsafe", () => {
     const currentRemoteUrl = join(root, "current.git");
     await writeContent(config.storePath, "memory-1");
     initializeGitRepository(config.projectPath);
-    execFileSync("git", ["remote", "add", "origin", currentRemoteUrl], {
-      cwd: config.projectPath,
-      stdio: "ignore",
-    });
+    runGit(config.projectPath, ["remote", "add", "origin", currentRemoteUrl]);
     const connection = initializeDatabase(config);
     try {
       await connection.repositories.memories.create({
@@ -404,8 +401,21 @@ async function writeContent(storePath: string, memoryId: string) {
 }
 
 function initializeGitRepository(projectPath: string) {
-  execFileSync("git", ["init", "--initial-branch=main"], {
-    cwd: projectPath,
+  runGit(projectPath, ["init", "--initial-branch=main"]);
+}
+
+function runGit(cwd: string, args: string[]) {
+  execFileSync("git", args, {
+    cwd,
+    env: createChildEnv(),
     stdio: "ignore",
   });
+}
+
+function createChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
 }

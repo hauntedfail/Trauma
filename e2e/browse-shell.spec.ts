@@ -201,6 +201,33 @@ test("updates URL query state from search, taxonomy filters, and read-state tabs
   );
 });
 
+test("loads additional memory pages and keeps search global", async ({ page }) => {
+  await page.goto("/memories");
+
+  await expect(page.locator("article")).toHaveCount(30);
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Load more" }).click();
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(36);
+  const memoryTitles = await page
+    .locator("article h2 a")
+    .evaluateAll((links) => links.map((link) => link.textContent ?? ""));
+  expect(new Set(memoryTitles).size).toBe(memoryTitles.length);
+
+  await page.goto("/memories?q=Pagination+Fixture+31");
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(1);
+});
+
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {
@@ -735,19 +762,20 @@ test("preserves native Enter activation on a focused browse result link", async 
   const opsLink = page.getByRole("link", {
     name: "Open memory Local Hosting Checklist",
   });
-  const opsRow = opsLink.locator("xpath=ancestor::article");
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  const readerRow = readerLink.locator("xpath=ancestor::article");
 
+  await expect(searchBox).toBeEnabled();
   await expect(readerLink).toBeVisible();
   await expect(opsLink).toBeVisible();
 
   await page.keyboard.press("j");
-  await page.keyboard.press("j");
-  await expect(opsRow).toHaveAttribute("data-keyboard-selected", "true");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
 
-  await readerLink.focus();
+  await opsLink.focus();
   await page.keyboard.press("Enter");
 
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
@@ -790,6 +818,8 @@ test("supports vim-like keyboard operation on the memories browse route", async 
   await page.keyboard.press("Escape");
   await expect(searchBox).toHaveValue("reader");
   await expect(searchBox).not.toBeFocused();
+  await expect(readerLink).toBeVisible();
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
 
   await page.keyboard.press("l");
   await expect(page).toHaveURL(/\/memories\/memory-foundation$/);

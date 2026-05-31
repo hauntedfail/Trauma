@@ -115,7 +115,9 @@ The initial markdown reader supports:
 - HTML sanitization.
 - Footnotes.
 - Heading anchors.
-- Table of contents.
+- Table of contents that tracks the reader's live position and highlights the
+  active chapter reading range (see the design-system reader-and-content TOC
+  reading-progress contract).
 - Controlled external embeds.
 - Flashback marks.
 

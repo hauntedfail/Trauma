@@ -2,6 +2,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  untrack,
   type JSX,
 } from "solid-js";
 
@@ -35,7 +36,7 @@ export interface PopupProps {
 
 const rootClass = "relative inline-grid";
 const panelBaseClass =
-  "z-[70] rounded-[20px] border border-trauma-border bg-trauma-bg-elev p-2 shadow-trauma-2 animate-trauma-pop-bounce";
+  "z-[70] rounded-[20px] border border-trauma-border bg-trauma-bg-elev/50 shadow-trauma-2 backdrop-blur animate-trauma-pop-bounce";
 const phonePanelClass =
   "fixed inset-x-3 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] mx-auto w-[min(360px,calc(100vw-1.5rem))]";
 const placementClass = {
@@ -61,9 +62,9 @@ export function Popup(props: PopupProps) {
 
   createEffect(() => {
     const nextOpen = open();
-    props.onOpenChange?.(nextOpen);
+    untrack(() => props.onOpenChange?.(nextOpen));
     if (hasObservedOpenState && !nextOpen) {
-      props.onClose?.();
+      untrack(() => props.onClose?.());
     }
     hasObservedOpenState = true;
   });

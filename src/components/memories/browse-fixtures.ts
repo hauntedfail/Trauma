@@ -97,4 +97,25 @@ export const browseFixtureMemories: BrowseMemory[] = [
     ],
     flashbacks: [],
   },
+  ...createPaginationFixtureMemories(),
 ];
+
+function createPaginationFixtureMemories(): BrowseMemory[] {
+  return Array.from({ length: 32 }, (_, index) => {
+    const ordinal = index + 1;
+    const id = `memory-pagination-${ordinal.toString().padStart(2, "0")}`;
+
+    return {
+      id,
+      title: `Pagination Fixture ${ordinal}`,
+      url: `https://example.com/pagination/${ordinal}`,
+      description: `Older pagination fixture row ${ordinal} for infinite scroll coverage.`,
+      capturedAt: new Date(Date.UTC(2026, 3, 30 - index)).toISOString().slice(0, 10),
+      read: false,
+      extractionStatus: "success",
+      categories: [],
+      tags: [],
+      flashbacks: [],
+    };
+  });
+}

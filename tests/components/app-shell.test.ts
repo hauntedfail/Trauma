@@ -67,6 +67,10 @@ describe("refined app shell contract", () => {
 
   it("keeps right-rail Flashback shortcuts as browse filters", () => {
     expect(appShellSource).toContain("buildFlashbackBrowseHref");
+    expect(appShellSource).toContain("getRecentFlashbackBrowseRows");
+    expect(appShellSource).toContain("showRightRailFlashbacks()");
+    expect(appShellSource).not.toContain("getRecentFlashbacks");
+    expect(appShellSource).not.toContain("getBrowseMemories");
     expect(appShellSource).not.toContain("buildMemoryAnchorHref");
   });
 
@@ -157,6 +161,25 @@ describe("refined app shell contract", () => {
     const browseFiltersIndex = appShellSource.indexOf("<RightRailFilters");
     expect(contextualContentIndex).toBeGreaterThan(-1);
     expect(contextualContentIndex).toBeLessThan(browseFiltersIndex);
+  });
+
+  it("uses shell-owned route state before loading right-rail flashback shortcuts", () => {
+    expect(appShellSource).toContain("function isMemoryReaderPath");
+    expect(appShellSource).toContain("canShowShellFlashbackShortcuts");
+
+    const flashbackResourceStart = appShellSource.indexOf("const flashbacks = createAsync");
+    const flashbackResourceEnd = appShellSource.indexOf(
+      "const activeCategoryIds",
+      flashbackResourceStart,
+    );
+    const flashbackResource = appShellSource.slice(
+      flashbackResourceStart,
+      flashbackResourceEnd,
+    );
+
+    expect(flashbackResource).toContain("canShowShellFlashbackShortcuts()");
+    expect(flashbackResource).not.toContain("showRightRailFlashbacks()");
+    expect(flashbackResource).not.toContain("rightRailContent()");
   });
 
   it("keeps right rail shortcut lists as bounded independent scroll regions", () => {

@@ -150,6 +150,40 @@ describe("settings service", () => {
     });
   });
 
+  it("preserves omitted Codex translation defaults when updating through the repository", async () => {
+    const config = await makeConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.settings.updateCodexTranslationDefaults({
+        model: "gpt-5.3",
+        reasoningEffort: "medium",
+        updatedAt: new Date("2026-05-15T00:00:00.000Z"),
+      });
+
+      await expect(
+        connection.repositories.settings.updateCodexTranslationDefaults({
+          model: "gpt-5.5",
+          updatedAt: new Date("2026-05-15T00:01:00.000Z"),
+        }),
+      ).resolves.toMatchObject({
+        codexTranslationModel: "gpt-5.5",
+        codexTranslationReasoningEffort: "medium",
+      });
+
+      await expect(
+        connection.repositories.settings.updateCodexTranslationDefaults({
+          reasoningEffort: "high",
+          updatedAt: new Date("2026-05-15T00:02:00.000Z"),
+        }),
+      ).resolves.toMatchObject({
+        codexTranslationModel: "gpt-5.5",
+        codexTranslationReasoningEffort: "high",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("rejects unsupported translation target languages", async () => {
     const config = await makeConfig();
 

@@ -102,8 +102,14 @@ drawers:
 - General action menus use the same `Popup` shell with `role="menu"`. Memory,
   Moment, and Flashback delete actions use one danger menu-item treatment and
   the shared trash icon.
+- Popup chrome is translucent by default: `Popup` owns the rounded elevated
+  border, `bg-trauma-bg-elev/50`, backdrop blur, animation, and layer. Consumers
+  only provide width, grid, gap, padding, text alignment, and placement-specific
+  constraints.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
+- Outside pointer dismissal is a cancel action for confirmation popovers. It
+  closes the panel and resets draft form edits without submitting the action.
 - Add memory keeps the shell-level command globally reachable, but the composer
   itself stays attached to the rail action that opened it.
 - The primary rail must allow visible overflow and sit above route panes.

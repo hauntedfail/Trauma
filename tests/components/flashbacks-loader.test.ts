@@ -12,25 +12,30 @@ const routerMocks = vi.hoisted(() => ({
 
 vi.mock("@solidjs/router", () => routerMocks);
 vi.mock("~/server/flashbacks/browse", () => ({
+  loadBrowseFlashbacksForMemories: vi.fn(),
   loadFlashbackBrowseRows: vi.fn(),
+  loadRecentFlashbackBrowseRows: vi.fn(),
 }));
 
-const { getFlashbackBrowseRows, revalidateFlashbackBrowseRows } = await import(
-  "../../src/components/flashbacks/flashbacks-loader"
-);
+const {
+  getBrowseFlashbacksForMemories,
+  getFlashbackBrowseRows,
+  getRecentFlashbackBrowseRows,
+  revalidateFlashbackBrowseRows,
+} = await import("../../src/components/flashbacks/flashbacks-loader");
 
 describe("flashbacks loader", () => {
   beforeEach(() => {
     routerMocks.revalidate.mockReset();
   });
 
-  it("revalidates the Flashback browse query cache", async () => {
+  it("revalidates Flashback browse, recent, and memory-card query caches", async () => {
     routerMocks.revalidate.mockResolvedValue(undefined);
 
     await revalidateFlashbackBrowseRows();
 
-    expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
-      getFlashbackBrowseRows.key,
-    );
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getFlashbackBrowseRows.key);
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getRecentFlashbackBrowseRows.key);
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseFlashbacksForMemories.key);
   });
 });
