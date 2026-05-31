@@ -53,10 +53,14 @@ describe("popup shell", () => {
 
   it("owns shared popup chrome and close interactions", () => {
     expect(popupSource).toContain("useDismissableLayer");
+    expect(popupSource).toContain("untrack(() => props.onOpenChange?.(nextOpen))");
+    expect(popupSource).toContain("untrack(() => props.onClose?.())");
     expect(popupSource).not.toContain("shouldSuppressPopupOutsideClick");
     expect(popupSource).not.toContain("isPopupActionTarget");
     expect(popupSource).not.toContain("[data-popup-dismiss-only]");
     expect(popupSource).toContain("rounded-[20px]");
+    expect(popupSource).toContain("bg-trauma-bg-elev/50");
+    expect(popupSource).toContain("backdrop-blur");
     expect(popupSource).toContain("animate-trauma-pop-bounce");
     expect(popupSource).toContain("shadow-trauma-2");
   });

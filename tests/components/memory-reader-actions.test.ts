@@ -14,6 +14,7 @@ import {
 } from "../../src/components/reader/MemoryReader";
 import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
 import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
+import type { SupportedLanguageCode } from "../../src/settings/languages";
 import type { ReaderMemoryResult } from "../../src/server/reader/page-data";
 
 const memoryReaderRouteSource = readFileSync(
@@ -170,6 +171,17 @@ describe("memory reader actions", () => {
         "      );",
       ].join("\n"),
     );
+  });
+
+  it("keeps Flashback toggles invalidating reader, global Flashbacks, and browse pages", () => {
+    const revalidationSource = memoryReaderSource.slice(
+      memoryReaderSource.indexOf("async function revalidateAfterFlashbackToggle"),
+      memoryReaderSource.indexOf("function ReaderContextMenu"),
+    );
+
+    expect(revalidationSource).toContain("revalidateFlashbackBrowseRows()");
+    expect(revalidationSource).toContain("revalidateReaderMemory(memoryId, langCode)");
+    expect(revalidationSource).toContain("revalidateBrowseMemoryWorkspace()");
   });
 
   it("keeps browser EventSource retries alive for transient translation stream errors", () => {
@@ -398,15 +410,91 @@ describe("memory reader actions", () => {
       translationReasoningEffort: "high",
     });
 
-    expect(html).toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-label="Translate memory"');
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain(">Translate<");
-    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
+    expect(memoryReaderSource).toContain(
+      "setTranslationDialogOpen(open)",
+    );
     expect(memoryReaderSource).toContain("translationFormModel");
     expect(memoryReaderSource).toContain("reasoning_effort");
   });
 
-  it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
+  it("uses the shared Popup shell for reader translation settings", () => {
+    expect(memoryReaderSource).toContain('import { Popup } from "../ui/Popup"');
+    expect(memoryReaderSource).toContain("<Popup");
+    expect(memoryReaderSource).toContain(
+      'label="Translation settings"',
+    );
+    expect(memoryReaderSource).toContain(
+      "onOpenChange={handleTranslationPopoverOpenChange}",
+    );
+    expect(memoryReaderSource).toContain("onSubmit={submitTranslationDialog(close)}");
+    expect(memoryReaderSource).not.toContain(
+      'class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"',
+    );
+  });
+
+  it("keeps remembered model values selectable and the submit button primary", () => {
+    expect(memoryReaderSource).toContain("canonicalTranslationModel");
+    expect(memoryReaderSource).toContain("submitCodexTranslationDefaults");
+    expect(memoryReaderSource).toContain(
+      "!translationCatalogModels().some((model) =>",
+    );
+    expect(memoryReaderSource).toContain(
+      "model.model === translationFormModel()",
+    );
+    expect(memoryReaderSource).toContain(
+      "selected={translationFormModel() === model.model}",
+    );
+    expect(memoryReaderSource).toContain(
+      "selected={translationFormEffort() === effort}",
+    );
+    expect(memoryReaderSource).toContain("setTranslationProgress(undefined)");
+    expect(memoryReaderSource).toContain("bg-trauma-accent");
+    expect(memoryReaderSource).toContain("text-trauma-accent-ink");
+    expect(memoryReaderSource).toContain("hover:bg-trauma-accent-hover");
+    expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
+  });
+
+  it("persists reader-selected Codex defaults before translation start revalidation", () => {
+    const persistIndex = memoryReaderSource.indexOf(
+      "await submitCodexTranslationDefaults",
+    );
+    const defaultUpdateIndex = memoryReaderSource.indexOf(
+      "setTranslationDefaultLanguage(input.langCode)",
+      persistIndex,
+    );
+    const startIndex = memoryReaderSource.indexOf(
+      "await startReaderTranslation",
+      persistIndex,
+    );
+    const revalidateIndex = memoryReaderSource.indexOf(
+      "void revalidateSettingsState()",
+      persistIndex,
+    );
+
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(defaultUpdateIndex).toBeGreaterThan(persistIndex);
+    expect(defaultUpdateIndex).toBeLessThan(startIndex);
+    expect(revalidateIndex).toBeGreaterThan(defaultUpdateIndex);
+    expect(revalidateIndex).toBeLessThan(startIndex);
+    expect(startIndex).toBeGreaterThan(persistIndex);
+    expect(memoryReaderSource).toContain("codexTranslationModel");
+    expect(memoryReaderSource).toContain("codexTranslationReasoningEffort");
+  });
+
+  it("validates the selected translation language before submitting", () => {
+    expect(memoryReaderSource).toContain("hasTranslationVariant");
+    expect(memoryReaderSource).toContain(
+      "canStartTranslation(langCode)",
+    );
+    expect(memoryReaderSource).toContain(
+      "!hasTranslationVariant(langCode)",
+    );
+  });
+
+  it("keeps translation settings available when another target language is untranslated", () => {
     const html = renderReader({
       ...readyResult,
       content: {
@@ -437,7 +525,24 @@ describe("memory reader actions", () => {
     expect(html).toContain(">Original<");
     expect(html).toContain(">Japanese<");
     expect(html).toContain('href="/memories/ja-JP/memory-reader"');
-    expect(html).not.toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-label="Translate memory"');
+    expect(memoryReaderSource).toContain("canOpenTranslationSettings");
+    expect(memoryReaderSource).toContain("SUPPORTED_TRANSLATION_LANGUAGES.some");
+    expect(memoryReaderSource).toContain("canStartTranslation(option.code)");
+  });
+
+  it("hides translation settings on translated reader variants", () => {
+    const html = renderReader({
+      ...readyResult,
+      content: {
+        ...readyResult.content,
+        langCode: "ja-JP",
+      },
+    }, {
+      translationTargetLanguage: "en-US",
+    });
+
+    expect(html).not.toContain('aria-label="Translate memory"');
   });
 
   it("detaches a tag by name through the memory tag API", async () => {
@@ -480,6 +585,21 @@ describe("memory reader actions", () => {
       "categoryOptions={taxonomy()?.categories ?? []}",
     );
   });
+
+  it("passes persisted reader translation settings from the route loader", () => {
+    expect(memoryReaderRouteSource).toContain(
+      "getReaderTranslationSettingsState",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationModel={settings()?.codexTranslationModel}",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationReasoningEffort={settings()?.codexTranslationReasoningEffort}",
+    );
+    expect(memoryReaderRouteSource).toContain(
+      "translationTargetLanguage={settings()?.translationTargetLanguage}",
+    );
+  });
 });
 
 function renderReader(
@@ -488,7 +608,7 @@ function renderReader(
     tagOptions?: readonly BrowseTaxonomySummaryItem[];
     translationModel?: string | null;
     translationReasoningEffort?: "high" | null;
-    translationTargetLanguage?: "ja-JP";
+    translationTargetLanguage?: SupportedLanguageCode;
   } = {},
 ): string {
   return renderToString(() => {

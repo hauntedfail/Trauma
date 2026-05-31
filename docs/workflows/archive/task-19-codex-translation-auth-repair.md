@@ -18,14 +18,14 @@ the translation runner before scheduling Codex-backed translation work.
 
 ## Required Context
 
-- [Documentation index](../INDEX.md)
+- [Documentation index](../../INDEX.md)
 - [Task 19 overview](task-19-codex-translation.md)
 - [Task 19 app-server integration](task-19-codex-translation/05-codex-app-server-integration.md)
 - [Task 19 auth setup flow](task-19-codex-translation/06-codex-auth-and-device-code-setup-flow.md)
 - [Task 19 prompt and validation contract](task-19-codex-translation/contracts/06-codex-prompt-and-validation.md)
-- [Configuration reference](../references/configuration.md)
-- [Verification strategy](../quality/verification.md)
-- [Coding standards](../references/coding-standards/INDEX.md)
+- [Configuration reference](../../references/configuration.md)
+- [Verification strategy](../../quality/verification.md)
+- [Coding standards](../../references/coding-standards/INDEX.md)
 
 ## Current Failure To Reproduce
 

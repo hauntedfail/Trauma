@@ -303,6 +303,54 @@ describe("translation repositories", () => {
     }
   });
 
+  it("keeps translation job model and reasoning effort as historical attempt state", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+      await connection.repositories.settings.updateCodexTranslationDefaults({
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        updatedAt: now,
+      });
+
+      await connection.repositories.translations.createTranslationJob({
+        jobId: "job-model-snapshot",
+        memoryId,
+        langCode: "ja-JP",
+        sourceHash: "sha256:model-snapshot",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        promptPolicyVersion: "brilliant-v1",
+        chunkerVersion: "chunker-v1",
+        chunkCount: 1,
+        now,
+      });
+      await connection.repositories.settings.updateCodexTranslationDefaults({
+        model: "gpt-5.3",
+        reasoningEffort: "medium",
+        updatedAt: later,
+      });
+
+      await expect(
+        connection.repositories.translations.getTranslationJob(
+          "job-model-snapshot",
+        ),
+      ).resolves.toMatchObject({
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      });
+      await expect(
+        connection.repositories.settings.getSettings(later),
+      ).resolves.toMatchObject({
+        codexTranslationModel: "gpt-5.3",
+        codexTranslationReasoningEffort: "medium",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("round-trips safe translation validation diagnostics in chunk errors", async () => {
     const config = await createConfig();
     const connection = initializeDatabase(config);

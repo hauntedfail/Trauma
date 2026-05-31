@@ -852,6 +852,245 @@ describe("memory and taxonomy repositories", () => {
     );
   });
 
+  it("keeps reader aggregates scoped to metadata and active-variant relations", () => {
+    const aggregateStart = repositorySource.indexOf(
+      "findReaderAggregateById: async",
+    );
+    const aggregateEnd = repositorySource.indexOf(
+      "create: async (input)",
+      aggregateStart,
+    );
+    expect(aggregateStart).toBeGreaterThanOrEqual(0);
+    expect(aggregateEnd).toBeGreaterThan(aggregateStart);
+
+    const aggregateSource = repositorySource.slice(aggregateStart, aggregateEnd);
+    expect(aggregateSource).toContain("columns: {");
+    expect(aggregateSource).toContain("moments: {");
+    expect(aggregateSource).toContain("memoryCategories: {");
+    expect(aggregateSource).toContain("memoryTags: {");
+    expect(aggregateSource).not.toContain("flashbacks:");
+    expect(aggregateSource).not.toContain("backupStatus:");
+    expect(aggregateSource).not.toContain("extractionError:");
+  });
+
+  it("selects only browse-list columns for memory rows and nested labels", () => {
+    const browseStart = repositorySource.indexOf(
+      "const rows = await db.query.memories.findMany",
+    );
+    const browseEnd = repositorySource.indexOf(
+      "return rows.map((memory)",
+      browseStart,
+    );
+    expect(browseStart).toBeGreaterThanOrEqual(0);
+    expect(browseEnd).toBeGreaterThan(browseStart);
+
+    const browseSource = repositorySource.slice(browseStart, browseEnd);
+    expect(browseSource).toContain("extractionStatus: true");
+    expect(browseSource).toContain("flashbacks: {");
+    expect(browseSource).toContain("category: {");
+    expect(browseSource).toContain("tag: {");
+    expect(browseSource).not.toContain("contentPath:");
+    expect(browseSource).not.toContain("backupStatus:");
+    expect(browseSource).not.toContain("lastBackupError:");
+  });
+
+  it("paginates memory browse rows with server-side filters and escaped search", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        const baseInput = {
+          categoryId: "",
+          cursor: null,
+          flashbackId: "",
+          limit: 10,
+          readState: "all",
+          searchFields: [],
+          searchTerms: [],
+          tagId: "",
+        };
+
+        async function createMemory(input) {
+          await connection.repositories.memories.create({
+            id: input.id,
+            url: input.url,
+            title: input.title,
+            description: input.description,
+            faviconUrl: null,
+            contentPath: "memories/" + input.id + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            read: input.read,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: input.createdAt,
+            updatedAt: input.createdAt,
+          });
+        }
+
+        function insertTaxonomy() {
+          const now = Date.parse("2026-05-20T00:00:00.000Z");
+          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-research", "Research", now, now);
+          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-ops", "Operations", now, now);
+          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-lazy", "lazy", now, now);
+          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-search", "search", now, now);
+          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-sqlite", "sqlite", now, now);
+          connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-a", "category-research", now, now);
+          connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-b", "category-ops", now, now);
+          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-a", "tag-lazy", now, now);
+          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-a", "tag-search", now, now);
+          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-b", "tag-sqlite", now, now);
+          connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("memory-e", "tag-lazy", now, now);
+        }
+
+        function insertFlashbacks() {
+          const now = Date.parse("2026-05-20T00:00:00.000Z");
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-a", "memory-a", "outside initial flashback literal 100%_match", "needle prefix", "context", 0, 43, now, now);
+          connection.sqlite
+            .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("flashback-selected", "memory-c", "selected excerpt", "cursor", "target", 0, 16, now, now);
+        }
+
+        async function page(overrides) {
+          return connection.repositories.memories.listForBrowsePage({
+            ...baseInput,
+            ...overrides,
+          });
+        }
+
+        try {
+          await createMemory({
+            id: "memory-a",
+            title: "Literal 100%_match Memory",
+            url: "https://example.com/a",
+            description: "Old research item",
+            read: false,
+            createdAt: new Date("2026-05-17T00:00:00.000Z"),
+          });
+          await createMemory({
+            id: "memory-b",
+            title: "SQLite Read Item",
+            url: "https://example.com/b",
+            description: "Read database item",
+            read: true,
+            createdAt: new Date("2026-05-18T00:00:00.000Z"),
+          });
+          await createMemory({
+            id: "memory-c",
+            title: "Cursor Peer C",
+            url: "https://example.com/c",
+            description: "Peer item",
+            read: false,
+            createdAt: new Date("2026-05-19T00:00:00.000Z"),
+          });
+          await createMemory({
+            id: "memory-d",
+            title: "Cursor Peer D",
+            url: "https://example.com/d",
+            description: "Back\\\\slash exact",
+            read: false,
+            createdAt: new Date("2026-05-19T00:00:00.000Z"),
+          });
+          await createMemory({
+            id: "memory-e",
+            title: "Literal 100AAAmatch Decoy",
+            url: "https://example.com/e",
+            description: "Latest item",
+            read: false,
+            createdAt: new Date("2026-05-20T00:00:00.000Z"),
+          });
+          insertTaxonomy();
+          insertFlashbacks();
+
+          const firstPage = await page({ limit: 2 });
+          const secondPage = await page({ limit: 2, cursor: firstPage.nextCursor });
+          const readPage = await page({ readState: "read" });
+          const unreadPage = await page({ readState: "unread" });
+          const allPage = await page({ readState: "all" });
+          const conflictingReadStatePage = await page({ readState: "both" });
+
+          process.stdout.write(JSON.stringify({
+            firstPageIds: firstPage.rows.map((memory) => memory.id),
+            firstPageHasFlashbacks: Object.prototype.hasOwnProperty.call(firstPage.rows[0] ?? {}, "flashbacks"),
+            firstPageNextCursor: firstPage.nextCursor,
+            secondPageIds: secondPage.rows.map((memory) => memory.id),
+            readIds: readPage.rows.map((memory) => memory.id),
+            unreadIds: unreadPage.rows.map((memory) => memory.id),
+            allIds: allPage.rows.map((memory) => memory.id),
+            conflictingReadStateIds: conflictingReadStatePage.rows.map((memory) => memory.id),
+            categoryIds: (await page({ categoryId: "category-research" })).rows.map((memory) => memory.id),
+            tagIds: (await page({ tagId: "tag-sqlite" })).rows.map((memory) => memory.id),
+            flashbackIds: (await page({ flashbackId: "flashback-selected" })).rows.map((memory) => memory.id),
+            freeCategoryIds: (await page({ searchTerms: ["research"] })).rows.map((memory) => memory.id),
+            freeTagIds: (await page({ searchTerms: ["lazy"] })).rows.map((memory) => memory.id),
+            freeFlashbackIds: (await page({ searchTerms: ["outside"] })).rows.map((memory) => memory.id),
+            escapedPercentIds: (await page({ searchTerms: ["100%_match"] })).rows.map((memory) => memory.id),
+            escapedBackslashIds: (await page({ searchTerms: ["back\\\\slash"] })).rows.map((memory) => memory.id),
+            fieldedTagIds: (await page({ searchFields: [{ field: "tag", values: ["sqlite"] }] })).rows.map((memory) => memory.id),
+            fieldedCategoryIds: (await page({ searchFields: [{ field: "category", values: ["Research"] }] })).rows.map((memory) => memory.id),
+            fieldedFlashbackIds: (await page({ searchFields: [{ field: "flashback", values: ["needle prefix"] }] })).rows.map((memory) => memory.id),
+            multiValueFieldIds: (await page({ searchFields: [{ field: "tag", values: ["lazy", "search"] }] })).rows.map((memory) => memory.id),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      firstPageIds: ["memory-e", "memory-d"],
+      firstPageHasFlashbacks: false,
+      firstPageNextCursor: {
+        createdAt: "2026-05-19T00:00:00.000Z",
+        id: "memory-d",
+      },
+      secondPageIds: ["memory-c", "memory-b"],
+      readIds: ["memory-b"],
+      unreadIds: ["memory-e", "memory-d", "memory-c", "memory-a"],
+      allIds: ["memory-e", "memory-d", "memory-c", "memory-b", "memory-a"],
+      conflictingReadStateIds: [],
+      categoryIds: ["memory-a"],
+      tagIds: ["memory-b"],
+      flashbackIds: ["memory-c"],
+      freeCategoryIds: ["memory-a"],
+      freeTagIds: ["memory-e", "memory-a"],
+      freeFlashbackIds: ["memory-a"],
+      escapedPercentIds: ["memory-a"],
+      escapedBackslashIds: ["memory-d"],
+      fieldedTagIds: ["memory-b"],
+      fieldedCategoryIds: ["memory-a"],
+      fieldedFlashbackIds: ["memory-a"],
+      multiValueFieldIds: ["memory-a"],
+    });
+  });
+
   it("deletes memory rows while preserving global taxonomy records", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(

@@ -21,8 +21,8 @@
   - [Task 19 chunk validation and retry logic](task-19-codex-translation/09-chunk-validation-and-retry-logic.md)
   - [Task 19 prompt and validation contract](task-19-codex-translation/contracts/06-codex-prompt-and-validation.md)
   - [Task 19 error handling and cancellation](task-19-codex-translation/15-error-handling-and-cancellation.md)
-  - [Coding standards](../references/coding-standards/INDEX.md)
-  - [Verification strategy](../quality/verification.md)
+  - [Coding standards](../../references/coding-standards/INDEX.md)
+  - [Verification strategy](../../quality/verification.md)
 
 ## Current Failure To Reproduce
 

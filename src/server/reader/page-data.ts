@@ -1,5 +1,9 @@
 import { initializeDatabase } from "../db";
-import type { ReaderMemoryAggregateRow } from "../db/repositories";
+import type {
+  Flashback,
+  ReaderMemoryAggregateRow,
+  TranslationJobRecord,
+} from "../db/repositories";
 import {
   loadRuntimeTraumaConfig,
   TraumaConfigError,
@@ -24,17 +28,19 @@ import {
   type FlashbackVariant,
 } from "../flashbacks/variant";
 import {
+  resolveCompleteTranslationRecordReadOnly,
   resolveCurrentTranslationReadOnly,
 } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
 import {
+  isSupportedLanguageCode,
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "../translation/languages";
 import { loadTranslationSourceSnapshot } from "../translation/source-loader";
 import type { TranslationSourceSnapshot } from "../translation/types";
 
-type FlashbackRow = ReaderMemoryAggregateRow["flashbacks"][number];
+type FlashbackRow = Flashback;
 
 interface LoadedReaderContent {
   langCode?: SupportedLanguageCode;
@@ -294,12 +300,23 @@ async function loadReaderContentVariants(input: {
     },
   ];
 
+  const completeTranslations = await listCurrentSourceTranslationRecords({
+    memoryId: input.memoryId,
+    repository: input.repository,
+    sourceHash: input.sourceSnapshot.sourceHash,
+  });
+
   for (const language of SUPPORTED_TRANSLATION_LANGUAGES) {
-    const current = await resolveCurrentTranslationReadOnly({
+    const job = completeTranslations.get(language.code);
+    if (job === undefined) {
+      continue;
+    }
+
+    const current = await resolveCompleteTranslationRecordReadOnly({
       config: input.config,
+      job,
       langCode: language.code,
       memoryId: input.memoryId,
-      repository: input.repository,
       sourceSnapshot: input.sourceSnapshot,
     });
     if (current.status !== "current") {
@@ -317,6 +334,30 @@ async function loadReaderContentVariants(input: {
   }
 
   return variants;
+}
+
+async function listCurrentSourceTranslationRecords(input: {
+  memoryId: string;
+  repository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
+  sourceHash: string;
+}): Promise<Map<SupportedLanguageCode, TranslationJobRecord>> {
+  const translationsByLanguage = new Map<
+    SupportedLanguageCode,
+    TranslationJobRecord
+  >();
+  for (const job of await input.repository.listCompleteTranslationRecordsForMemory(
+    input.memoryId,
+  )) {
+    if (
+      job.sourceHash !== input.sourceHash ||
+      !isSupportedLanguageCode(job.langCode) ||
+      translationsByLanguage.has(job.langCode)
+    ) {
+      continue;
+    }
+    translationsByLanguage.set(job.langCode, job);
+  }
+  return translationsByLanguage;
 }
 
 function renderMemoryMarkdownSafely(

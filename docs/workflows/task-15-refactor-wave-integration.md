@@ -7,7 +7,7 @@ together after Tasks 10-14.
 
 ## Required Context
 
-- [Task 10](task-10-runtime-dev-server-stabilization.md)
+- [Task 10](archive/task-10-runtime-dev-server-stabilization.md)
 - [Task 11](task-11-test-suite-health-refactor.md)
 - [Task 12](task-12-github-actions-and-docs-health.md)
 - [Task 13](task-13-markdown-reader-library-decision.md)

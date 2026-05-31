@@ -201,6 +201,33 @@ test("updates URL query state from search, taxonomy filters, and read-state tabs
   );
 });
 
+test("loads additional memory pages and keeps search global", async ({ page }) => {
+  await page.goto("/memories");
+
+  await expect(page.locator("article")).toHaveCount(30);
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Load more" }).click();
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(36);
+  const memoryTitles = await page
+    .locator("article h2 a")
+    .evaluateAll((links) => links.map((link) => link.textContent ?? ""));
+  expect(new Set(memoryTitles).size).toBe(memoryTitles.length);
+
+  await page.goto("/memories?q=Pagination+Fixture+31");
+
+  await expect(
+    page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
+  ).toBeVisible();
+  await expect(page.locator("article")).toHaveCount(1);
+});
+
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {
@@ -722,6 +749,81 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
+});
+
+test("preserves native Enter activation on a focused browse result link", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  const opsLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  const readerRow = readerLink.locator("xpath=ancestor::article");
+
+  await expect(searchBox).toBeEnabled();
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
+
+  await page.keyboard.press("j");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await opsLink.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+});
+
+test("supports vim-like keyboard operation on the memories browse route", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  const opsLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const readerRow = readerLink.locator("xpath=ancestor::article");
+  const opsRow = opsLink.locator("xpath=ancestor::article");
+
+  await expect(searchBox).toBeEnabled();
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
+
+  await page.keyboard.press("j");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("j");
+  await expect(readerRow).not.toHaveAttribute("data-keyboard-selected", "true");
+  await expect(opsRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("k");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("/");
+  await expect(searchBox).toBeFocused();
+
+  await page.keyboard.press("j");
+  await expect(searchBox).toHaveValue("j");
+
+  await searchBox.fill("reader");
+  await page.keyboard.press("Escape");
+  await expect(searchBox).toHaveValue("reader");
+  await expect(searchBox).not.toBeFocused();
+  await expect(readerLink).toBeVisible();
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("l");
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {

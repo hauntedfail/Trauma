@@ -976,6 +976,37 @@
       clip-path: inset(0 0 0 0);
     }
   }
+
+  .trauma-toc-reading-band {
+    position: absolute;
+    right: 0;
+    left: 0;
+    border-radius: 10px;
+    background-color: color-mix(in srgb, var(--fg-1) 8%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .trauma-toc-reading-band[data-visible="true"] {
+    opacity: 1;
+  }
+
+  /* Elastic vertical growth: the band eases its top/height between adjacent
+     ranges so a new chapter appears to extend out of the previous range
+     rather than popping in. */
+  .trauma-toc-reading-band-animated {
+    transition:
+      top 480ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      height 480ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity 200ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trauma-toc-reading-band-animated {
+      transition: opacity 120ms ease;
+    }
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

@@ -92,6 +92,7 @@ export const memories = sqliteTable(
   (table) => [
     index("memories_url_idx").on(table.url),
     index("memories_created_at_idx").on(table.createdAt),
+    index("memories_created_at_id_idx").on(table.createdAt, table.id),
     index("memories_extraction_status_idx").on(table.extractionStatus),
     index("memories_backup_status_idx").on(table.backupStatus),
     check(
