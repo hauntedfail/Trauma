@@ -122,7 +122,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   const trigger = page.getByRole("button", {
-    name: "Translate memory to ja-JP",
+    name: "Translate memory",
   });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Translation settings" });
