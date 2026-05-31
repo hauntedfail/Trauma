@@ -513,6 +513,12 @@ function ReadyMemoryReader(props: {
     !isTranslatedReader() &&
     langCode !== undefined &&
     !hasTranslationVariant(langCode);
+  const canOpenTranslationSettings = createMemo(() =>
+    !isTranslatedReader() &&
+    SUPPORTED_TRANSLATION_LANGUAGES.some((option) =>
+      canStartTranslation(option.code),
+    ),
+  );
   const selectedTranslationModel = createMemo(() => {
     const current = translationFormModel();
     return translationCatalogModels().find((model) =>
@@ -981,7 +987,7 @@ function ReadyMemoryReader(props: {
                   />
                 )}
               </Show>
-              <Show when={canStartTranslation()}>
+              <Show when={canOpenTranslationSettings()}>
                 <div class="relative flex shrink-0 justify-end" data-reader-noncontent>
                   <Popup
                     disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
@@ -994,9 +1000,9 @@ function ReadyMemoryReader(props: {
                     trigger={({ triggerProps }) => (
                       <button
                         {...triggerProps}
-                        aria-label={`Translate memory to ${props.translationTargetLanguage}`}
+                        aria-label="Translate memory"
                         class="group grid h-10 w-10 grid-cols-[2.5rem_minmax(0,1fr)] items-center overflow-hidden rounded-full text-trauma-text-muted transition-[width,background-color,color] duration-200 hover:w-32 hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
-                        title={`Translate to ${props.translationTargetLanguage}`}
+                        title="Translate memory"
                         type="button"
                       >
                         <span class="grid size-10 place-items-center">

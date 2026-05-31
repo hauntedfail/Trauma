@@ -128,6 +128,7 @@ export function MemoryBrowse() {
   const visibleMemoryIds = createMemo(() => visibleMemories().map((memory) => memory.id));
   const [flashbacksByMemoryId, setFlashbacksByMemoryId] =
     createSignal<Record<string, BrowseFlashback[]>>({});
+  const [, setCurrentFirstPage] = createSignal<BrowseMemoryPage>();
   const flashbackRequestMemoryIds = createMemo(() => {
     const hydratedFlashbacks = flashbacksByMemoryId();
     return visibleMemoryIds().filter(
@@ -174,6 +175,21 @@ export function MemoryBrowse() {
         memoryLinkRefs.delete(memoryId);
       }
     }
+  });
+  createEffect(() => {
+    const nextFirstPage = firstPageForCurrentQuery();
+    if (nextFirstPage === undefined) {
+      return;
+    }
+
+    setCurrentFirstPage((previousFirstPage) => {
+      if (previousFirstPage !== undefined && previousFirstPage !== nextFirstPage) {
+        setAdditionalPages([]);
+        setFlashbacksByMemoryId({});
+      }
+
+      return nextFirstPage;
+    });
   });
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {

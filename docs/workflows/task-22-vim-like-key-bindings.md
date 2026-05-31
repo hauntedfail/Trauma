@@ -8,6 +8,7 @@ memory without using the mouse.
 
 ## Required Context
 
+- [Project orientation](../INDEX.md)
 - [UI and routing architecture](../architecture/ui-and-routing.md)
 - [Interaction and accessibility](../references/design-system/interaction-and-accessibility.md)
 - [Verification strategy](../quality/verification.md)
@@ -65,7 +66,7 @@ backup, importer, or translation logic in this task.
 3. Implement the browse cursor state in `MemoryBrowse`.
    - Store the selected memory id instead of only an index so filtering and
      deletion can preserve selection when possible.
-   - Derive selected index from `filteredMemories`.
+   - Derive selected index from `visibleMemories`.
    - Clamp movement when the list is empty or the selected memory disappears.
    - Keep refs for row links so selected rows can be focused or scrolled.
 

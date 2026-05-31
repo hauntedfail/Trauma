@@ -295,6 +295,21 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("createNextBrowseMemoryPageRequest(requestedQuery, cursor)");
   });
 
+  it("clears lazy pages and card flashback cache when the first page revalidates", () => {
+    const firstPageRevalidationSource = browseSource.slice(
+      browseSource.indexOf("const [, setCurrentFirstPage]"),
+      browseSource.indexOf("const updateQuery"),
+    );
+
+    expect(firstPageRevalidationSource).toContain(
+      "setCurrentFirstPage((previousFirstPage) => {",
+    );
+    expect(firstPageRevalidationSource).toContain("previousFirstPage !== undefined");
+    expect(firstPageRevalidationSource).toContain("previousFirstPage !== nextFirstPage");
+    expect(firstPageRevalidationSource).toContain("setAdditionalPages([])");
+    expect(firstPageRevalidationSource).toContain("setFlashbacksByMemoryId({})");
+  });
+
   it("defers selected flashback hrefs until lazy flashback hydration is available", () => {
     expect(browseSource).toContain("flashbacksHydrated?: boolean");
     expect(browseSource).toContain("const isSelectedFlashbackHydrating = createMemo(() =>");

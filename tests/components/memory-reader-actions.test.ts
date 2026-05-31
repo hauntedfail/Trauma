@@ -14,6 +14,7 @@ import {
 } from "../../src/components/reader/MemoryReader";
 import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
 import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
+import type { SupportedLanguageCode } from "../../src/settings/languages";
 import type { ReaderMemoryResult } from "../../src/server/reader/page-data";
 
 const memoryReaderRouteSource = readFileSync(
@@ -409,7 +410,7 @@ describe("memory reader actions", () => {
       translationReasoningEffort: "high",
     });
 
-    expect(html).toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-label="Translate memory"');
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain(">Translate<");
     expect(memoryReaderSource).toContain(
@@ -493,7 +494,7 @@ describe("memory reader actions", () => {
     );
   });
 
-  it("renders variant tabs and hides the Codex trigger when the target variant exists", () => {
+  it("keeps translation settings available when another target language is untranslated", () => {
     const html = renderReader({
       ...readyResult,
       content: {
@@ -524,7 +525,24 @@ describe("memory reader actions", () => {
     expect(html).toContain(">Original<");
     expect(html).toContain(">Japanese<");
     expect(html).toContain('href="/memories/ja-JP/memory-reader"');
-    expect(html).not.toContain("Translate memory to ja-JP");
+    expect(html).toContain('aria-label="Translate memory"');
+    expect(memoryReaderSource).toContain("canOpenTranslationSettings");
+    expect(memoryReaderSource).toContain("SUPPORTED_TRANSLATION_LANGUAGES.some");
+    expect(memoryReaderSource).toContain("canStartTranslation(option.code)");
+  });
+
+  it("hides translation settings on translated reader variants", () => {
+    const html = renderReader({
+      ...readyResult,
+      content: {
+        ...readyResult.content,
+        langCode: "ja-JP",
+      },
+    }, {
+      translationTargetLanguage: "en-US",
+    });
+
+    expect(html).not.toContain('aria-label="Translate memory"');
   });
 
   it("detaches a tag by name through the memory tag API", async () => {
@@ -590,7 +608,7 @@ function renderReader(
     tagOptions?: readonly BrowseTaxonomySummaryItem[];
     translationModel?: string | null;
     translationReasoningEffort?: "high" | null;
-    translationTargetLanguage?: "ja-JP";
+    translationTargetLanguage?: SupportedLanguageCode;
   } = {},
 ): string {
   return renderToString(() => {
