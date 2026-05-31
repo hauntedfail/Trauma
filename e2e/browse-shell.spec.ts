@@ -724,6 +724,33 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await expect(page.getByText("Page not found")).toHaveCount(0);
 });
 
+test("preserves native Enter activation on a focused browse result link", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  const opsLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const opsRow = opsLink.locator("xpath=ancestor::article");
+
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
+
+  await page.keyboard.press("j");
+  await page.keyboard.press("j");
+  await expect(opsRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await readerLink.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+});
+
 test("supports vim-like keyboard operation on the memories browse route", async ({
   page,
 }) => {
@@ -740,6 +767,8 @@ test("supports vim-like keyboard operation on the memories browse route", async 
   const opsRow = opsLink.locator("xpath=ancestor::article");
 
   await expect(searchBox).toBeEnabled();
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
 
   await page.keyboard.press("j");
   await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
@@ -759,6 +788,7 @@ test("supports vim-like keyboard operation on the memories browse route", async 
 
   await searchBox.fill("reader");
   await page.keyboard.press("Escape");
+  await expect(searchBox).toHaveValue("reader");
   await expect(searchBox).not.toBeFocused();
 
   await page.keyboard.press("l");

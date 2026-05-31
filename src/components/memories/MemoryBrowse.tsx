@@ -1,6 +1,14 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, useLocation, useNavigate } from "@solidjs/router";
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
 import {
@@ -98,6 +106,14 @@ export function MemoryBrowse() {
     const index = selectedMemoryIndex();
     return index >= 0 ? filteredMemories()[index] : undefined;
   });
+  createEffect(() => {
+    const visibleMemoryIds = new Set(filteredMemories().map((memory) => memory.id));
+    for (const memoryId of memoryLinkRefs.keys()) {
+      if (!visibleMemoryIds.has(memoryId)) {
+        memoryLinkRefs.delete(memoryId);
+      }
+    }
+  });
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
@@ -169,6 +185,9 @@ export function MemoryBrowse() {
       }
 
       if (event.key === "l" || event.key === "Enter") {
+        if (isNativeActivationTarget(event.target)) {
+          return;
+        }
         event.preventDefault();
         openSelectedMemory();
       }
@@ -594,6 +613,14 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
   }
 
   return target.isContentEditable || target.matches("input, textarea, select");
+}
+
+function isNativeActivationTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return target.closest("a,button,[role='button']") !== null;
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {

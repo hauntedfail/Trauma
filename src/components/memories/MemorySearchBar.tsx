@@ -34,6 +34,7 @@ export function MemorySearchBar(props: {
           value={query().q}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              event.preventDefault();
               event.currentTarget.blur();
             }
           }}

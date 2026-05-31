@@ -168,8 +168,11 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain('data-keyboard-selected={isSelected() ? "true" : "false"}');
     expect(browseSource).toContain("focusSearchInput");
     expect(browseSource).toContain("isBrowseKeyboardSuppressed");
+    expect(browseSource).toContain("isNativeActivationTarget");
+    expect(browseSource).toContain("memoryLinkRefs.delete(memoryId)");
     expect(searchBarSource).toContain("onSearchInputMount");
     expect(searchBarSource).toContain("event.key === \"Escape\"");
+    expect(searchBarSource).toContain("event.preventDefault()");
     expect(searchBarSource).toContain("event.currentTarget.blur()");
   });
 
