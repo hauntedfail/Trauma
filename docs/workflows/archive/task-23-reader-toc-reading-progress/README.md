@@ -37,14 +37,14 @@ paints those entries with the TOC background-color treatment.
 
 ## Required Context
 
-- [Documentation index](../../INDEX.md)
-- [UI and routing architecture](../../architecture/ui-and-routing.md)
-- [Runtime flows](../../architecture/flows.md)
-- [Design system: reader and content](../../references/design-system/reader-and-content.md)
-- [Design system: interaction and accessibility](../../references/design-system/interaction-and-accessibility.md)
-- [Verification strategy](../../quality/verification.md)
-- [SolidStart UI rules](../../references/coding-standards/solidstart-ui.md)
-- [Testing and verification rules](../../references/coding-standards/testing-verification.md)
+- [Documentation index](../../../INDEX.md)
+- [UI and routing architecture](../../../architecture/ui-and-routing.md)
+- [Runtime flows](../../../architecture/flows.md)
+- [Design system: reader and content](../../../references/design-system/reader-and-content.md)
+- [Design system: interaction and accessibility](../../../references/design-system/interaction-and-accessibility.md)
+- [Verification strategy](../../../quality/verification.md)
+- [SolidStart UI rules](../../../references/coding-standards/solidstart-ui.md)
+- [Testing and verification rules](../../../references/coding-standards/testing-verification.md)
 
 ## Scope
 

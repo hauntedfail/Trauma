@@ -20,14 +20,14 @@ payload.
 
 ## Required Context
 
-- [Documentation index](../../INDEX.md)
-- [Data and storage architecture](../../architecture/data-and-storage.md)
-- [UI and routing architecture](../../architecture/ui-and-routing.md)
-- [Runtime flows](../../architecture/flows.md)
-- [Verification strategy](../../quality/verification.md)
-- [SolidStart UI rules](../../references/coding-standards/solidstart-ui.md)
-- [Drizzle and SQLite rules](../../references/coding-standards/drizzle-sqlite.md)
-- [Testing and verification rules](../../references/coding-standards/testing-verification.md)
+- [Documentation index](../../../INDEX.md)
+- [Data and storage architecture](../../../architecture/data-and-storage.md)
+- [UI and routing architecture](../../../architecture/ui-and-routing.md)
+- [Runtime flows](../../../architecture/flows.md)
+- [Verification strategy](../../../quality/verification.md)
+- [SolidStart UI rules](../../../references/coding-standards/solidstart-ui.md)
+- [Drizzle and SQLite rules](../../../references/coding-standards/drizzle-sqlite.md)
+- [Testing and verification rules](../../../references/coding-standards/testing-verification.md)
 
 ## Scope
 
