@@ -23,6 +23,7 @@ architecture, reference, quality, or operations docs.
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
 | 20 | [Lazy loading performance](task-20-lazy-loading-performance/README.md) | Cursor-paginated memories, lazy Flashback data, reader All-tab deferral | Ready on `feat/lazy-loading` from `fix/perform` |
 | 21 | [Popover and translation UI fixes](task-21-popover-and-translation-ui-fixes/README.md) | Unified translucent popovers, reader translation cancellation, and translation UI integration checks | Ready on `fix/anything` from `fix/perform` |
+| 22 | [Vim-like memory browse keybindings](task-22-vim-like-key-bindings.md) | `/memories` keyboard cursor, search focus, and selected-memory open behaviour | In progress on `feat/vim-like-key-bind` |
 | 23 | [Reader TOC reading-progress](task-23-reader-toc-reading-progress/README.md) | Dynamic TOC that visualizes the active chapter reading range on `/memories/:id` | Active on `fix/toc` from `fix/perform` |
 
 ## Current Audit Notes
@@ -130,3 +131,4 @@ Use concise branch names that match the workflow:
 - `feat/brilliant`
 - `feat/lazy-loading`
 - `fix/anything`
+- `feat/vim-like-key-bind`

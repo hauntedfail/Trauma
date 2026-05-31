@@ -751,6 +751,81 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await expect(page.getByText("Page not found")).toHaveCount(0);
 });
 
+test("preserves native Enter activation on a focused browse result link", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  const opsLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  const readerRow = readerLink.locator("xpath=ancestor::article");
+
+  await expect(searchBox).toBeEnabled();
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
+
+  await page.keyboard.press("j");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await opsLink.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+});
+
+test("supports vim-like keyboard operation on the memories browse route", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  const opsLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const readerRow = readerLink.locator("xpath=ancestor::article");
+  const opsRow = opsLink.locator("xpath=ancestor::article");
+
+  await expect(searchBox).toBeEnabled();
+  await expect(readerLink).toBeVisible();
+  await expect(opsLink).toBeVisible();
+
+  await page.keyboard.press("j");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("j");
+  await expect(readerRow).not.toHaveAttribute("data-keyboard-selected", "true");
+  await expect(opsRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("k");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("/");
+  await expect(searchBox).toBeFocused();
+
+  await page.keyboard.press("j");
+  await expect(searchBox).toHaveValue("j");
+
+  await searchBox.fill("reader");
+  await page.keyboard.press("Escape");
+  await expect(searchBox).toHaveValue("reader");
+  await expect(searchBox).not.toBeFocused();
+  await expect(readerLink).toBeVisible();
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+
+  await page.keyboard.press("l");
+  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page.locator("#reader-state-title")).toBeVisible();
+});
+
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
   await page.goto("/flashbacks");
 

@@ -148,14 +148,82 @@ export function MemoryBrowse() {
   const isGrid = createMemo(() => query().view === "grid");
   const readStateFilter = createMemo(() => getBrowseReadStateFilter(query().q));
   const [isClientReady, setIsClientReady] = createSignal(false);
+  const [selectedMemoryId, setSelectedMemoryId] = createSignal<string | null>(
+    null,
+  );
+  const memoryLinkRefs = new Map<string, HTMLAnchorElement>();
   const [loadMoreSentinel, setLoadMoreSentinel] =
     createSignal<HTMLDivElement>();
+  let searchInput: HTMLInputElement | undefined;
+  const selectedMemoryIndex = createMemo(() => {
+    const selectedId = selectedMemoryId();
+    if (selectedId === null) {
+      return -1;
+    }
+
+    return visibleMemories().findIndex((memory) => memory.id === selectedId);
+  });
+  const selectedMemory = createMemo(() => {
+    const index = selectedMemoryIndex();
+    return index >= 0 ? visibleMemories()[index] : undefined;
+  });
+  createEffect(() => {
+    const visibleMemoryIdSet = new Set(visibleMemories().map((memory) => memory.id));
+    for (const memoryId of memoryLinkRefs.keys()) {
+      if (!visibleMemoryIdSet.has(memoryId)) {
+        memoryLinkRefs.delete(memoryId);
+      }
+    }
+  });
 
   const updateQuery = (patch: Parameters<typeof buildBrowseHref>[1], options: { replace?: boolean } = {}) => {
     navigate(buildBrowseHref(query(), patch), { replace: options.replace });
   };
   const updateReadStateFilter = (readState: BrowseReadStateFilter): void => {
     updateQuery({ q: setBrowseReadStateFilter(query().q, readState) });
+  };
+  const focusSearchInput = (): void => {
+    searchInput?.focus();
+    const cursorPosition = searchInput?.value.length ?? 0;
+    searchInput?.setSelectionRange(cursorPosition, cursorPosition);
+  };
+  const setSelectedMemory = (memory: BrowseMemory): void => {
+    setSelectedMemoryId(memory.id);
+    requestAnimationFrame(() => {
+      const link = memoryLinkRefs.get(memory.id);
+      link?.closest("article")?.scrollIntoView({ block: "nearest" });
+    });
+  };
+  const selectMemoryAt = (index: number): void => {
+    const memories = visibleMemories();
+    if (memories.length === 0) {
+      setSelectedMemoryId(null);
+      return;
+    }
+
+    const clampedIndex = Math.min(Math.max(index, 0), memories.length - 1);
+    const memory = memories[clampedIndex];
+    if (memory !== undefined) {
+      setSelectedMemory(memory);
+    }
+  };
+  const moveSelectedMemory = (delta: -1 | 1): void => {
+    const currentIndex = selectedMemoryIndex();
+    selectMemoryAt(currentIndex === -1 ? 0 : currentIndex + delta);
+  };
+  const openSelectedMemory = (): void => {
+    const memory = selectedMemory();
+    if (memory === undefined) {
+      return;
+    }
+
+    const selectedFlashbackId = query().flashback;
+    const flashbacks = flashbacksByMemoryId()[memory.id];
+    if (selectedFlashbackId.length > 0 && flashbacks === undefined) {
+      return;
+    }
+
+    navigate(buildMemoryBrowseItemHref(memory, selectedFlashbackId, flashbacks));
   };
   const loadNextPage = async (): Promise<void> => {
     if (isLoadingNextPage() || firstPageForCurrentQuery() === undefined) {
@@ -231,7 +299,45 @@ export function MemoryBrowse() {
   });
   createEffect(() => observeLoadMoreSentinel());
 
-  onMount(() => setIsClientReady(true));
+  onMount(() => {
+    setIsClientReady(true);
+    const handleBrowseKeyDown = (event: KeyboardEvent): void => {
+      if (isBrowseKeyboardSuppressed(event)) {
+        return;
+      }
+
+      if (event.key === "/") {
+        event.preventDefault();
+        focusSearchInput();
+        return;
+      }
+
+      if (event.key === "j") {
+        event.preventDefault();
+        moveSelectedMemory(1);
+        return;
+      }
+
+      if (event.key === "k") {
+        event.preventDefault();
+        moveSelectedMemory(-1);
+        return;
+      }
+
+      if (event.key === "l" || event.key === "Enter") {
+        if (isNativeActivationTarget(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        openSelectedMemory();
+      }
+    };
+
+    document.addEventListener("keydown", handleBrowseKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("keydown", handleBrowseKeyDown);
+    });
+  });
 
   return (
     <section class={pageFrame} aria-labelledby="memories-title">
@@ -245,7 +351,12 @@ export function MemoryBrowse() {
           onChange={updateReadStateFilter}
         />
       </header>
-      <MemorySearchBar disabled={!isClientReady()} />
+      <MemorySearchBar
+        disabled={!isClientReady()}
+        onSearchInputMount={(input) => {
+          searchInput = input;
+        }}
+      />
       <Show
         when={visibleMemories().length > 0}
         fallback={
@@ -270,8 +381,12 @@ export function MemoryBrowse() {
                   availableCategories={availableCategories()}
                   availableTags={availableTags()}
                   selectedFlashbackId={query().flashback}
+                  isKeyboardSelected={selectedMemoryId() === memory.id}
                   view={query().view}
                   onOpen={(href) => navigate(href)}
+                  onOpenLinkMount={(element) => {
+                    memoryLinkRefs.set(memory.id, element);
+                  }}
                   onDeleted={(memoryId) =>
                     setRemovedMemoryIds((current) => new Set([...current, memoryId]))
                   }
@@ -392,12 +507,14 @@ export function MemoryItem(props: {
   availableTags?: readonly BrowseTaxonomySummaryItem[];
   flashbacks?: readonly BrowseFlashback[];
   flashbacksHydrated?: boolean;
+  isKeyboardSelected?: boolean;
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
   onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
   onMemoryMutated?: () => void;
+  onOpenLinkMount?: (link: HTMLAnchorElement) => void;
 }) {
   const displayFlashback = createMemo(() =>
     getMemoryDisplayFlashback(
@@ -408,6 +525,7 @@ export function MemoryItem(props: {
   );
   const host = createMemo(() => getHostLabel(props.memory.url));
   const initial = createMemo(() => host().charAt(0).toLocaleUpperCase());
+  const isSelected = createMemo(() => props.isKeyboardSelected === true);
   const [tags, setTags] = createSignal<BrowseTaxonomyItem[]>(props.memory.tags);
   const [categories, setCategories] = createSignal<BrowseTaxonomyItem[]>(
     props.memory.categories,
@@ -419,19 +537,7 @@ export function MemoryItem(props: {
     displayFlashback()?.id !== props.selectedFlashbackId,
   );
   const href = createMemo(() =>
-    buildMemoryVariantAnchorHref({
-      anchorId:
-        props.selectedFlashbackId.length > 0 &&
-        displayFlashback()?.id === props.selectedFlashbackId
-          ? props.selectedFlashbackId
-          : null,
-      langCode:
-        props.selectedFlashbackId.length > 0 &&
-        displayFlashback()?.id === props.selectedFlashbackId
-          ? displayFlashback()?.langCode
-          : null,
-      memoryId: props.memory.id,
-    }),
+    buildMemoryBrowseItemHref(props.memory, props.selectedFlashbackId, props.flashbacks),
   );
 
   const openMemory = (): void => {
@@ -521,7 +627,8 @@ export function MemoryItem(props: {
 
   return (
     <article
-      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
+      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${isSelected() ? "bg-trauma-bg-tint ring-1 ring-inset ring-trauma-border-strong" : ""} ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
+      data-keyboard-selected={isSelected() ? "true" : "false"}
       onClick={(event) => {
         if (!isInteractiveTarget(event.target)) {
           openMemory();
@@ -545,6 +652,7 @@ export function MemoryItem(props: {
                 aria-disabled={isSelectedFlashbackHydrating() ? "true" : undefined}
                 class="text-trauma-text-primary no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-trauma-accent"
                 href={isSelectedFlashbackHydrating() ? undefined : href()}
+                ref={(element) => props.onOpenLinkMount?.(element)}
                 onClick={handleMemoryLinkClick}
               >
                 {props.memory.title}
@@ -669,6 +777,62 @@ function mergeTaxonomyItem(
     return current;
   }
   return [...current, next];
+}
+
+function buildMemoryBrowseItemHref(
+  memory: BrowseMemory,
+  selectedFlashbackId: string,
+  flashbacks: readonly BrowseFlashback[] | undefined,
+): string {
+  const displayFlashback = getMemoryDisplayFlashback(
+    memory,
+    selectedFlashbackId,
+    flashbacks,
+  );
+  const hasSelectedFlashback =
+    selectedFlashbackId.length > 0 &&
+    displayFlashback?.id === selectedFlashbackId;
+
+  return buildMemoryVariantAnchorHref({
+    anchorId: hasSelectedFlashback ? selectedFlashbackId : null,
+    langCode: hasSelectedFlashback ? displayFlashback.langCode : null,
+    memoryId: memory.id,
+  });
+}
+
+function isBrowseKeyboardSuppressed(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+    return true;
+  }
+
+  if (
+    isTextEntryTarget(event.target) ||
+    isTextEntryTarget(document.activeElement)
+  ) {
+    return true;
+  }
+
+  if (document.querySelector('[role="dialog"], [role="menu"]') !== null) {
+    return true;
+  }
+
+  return false;
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || target.matches("input, textarea, select");
+}
+
+function isNativeActivationTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return target.closest("a,button,[role='button']") !== null;
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
