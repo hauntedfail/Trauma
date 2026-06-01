@@ -41,7 +41,7 @@ Expanded state:
   visible.
 - Escape closes the panel and returns focus to the home-bar trigger.
 - Closing the panel does not discard the transcript for the current reader
-  session.
+  thread.
 
 Reduced motion:
 
@@ -67,15 +67,16 @@ as Markdown content and cannot interfere with flashback text selection.
 `psychiatrist-requests.ts` owns browser fetch helpers:
 
 ```ts
-export async function createPsychiatristSession(input: {
+export async function createPsychiatristThread(input: {
   langCode?: string;
   memoryId: string;
-}): Promise<PsychiatristSessionResponse>;
+  resumeLatest?: boolean;
+}): Promise<PsychiatristThreadResponse>;
 
 export async function sendPsychiatristMessage(input: {
   clientMessageId: string;
   message: string;
-  sessionId: string;
+  threadId: string;
 }): Promise<PsychiatristTurnStartedResponse>;
 
 export async function cancelPsychiatristTurn(input: {
@@ -85,6 +86,11 @@ export async function cancelPsychiatristTurn(input: {
 
 The dock connects to `event_url` with `EventSource` and appends assistant
 deltas until `psychiatrist.answer.completed`.
+
+On reader mount, the dock calls `createPsychiatristThread()` with
+`resumeLatest: true` so the newest non-stale memory-local thread can be loaded
+from `{storePath}/memories/{memoryId}/threads/`. If no matching thread exists,
+the server creates a new thread.
 
 ## Tests
 
@@ -97,6 +103,7 @@ Component tests:
 - Dock source keeps chat outside `data-reader-content`.
 - Empty prompt does not call the message route.
 - Enter sends and Shift+Enter keeps a newline.
+- Opening the dock loads stored thread messages returned by the thread API.
 
 E2E tests:
 
@@ -104,6 +111,8 @@ E2E tests:
 - `/memories` does not show the dock.
 - Clicking the home bar expands the panel.
 - A fake streamed response appends assistant text to the transcript.
+- The fake streamed response persists the user prompt and completed answer under
+  the memory-local `threads/` subtree.
 - Mobile viewport keeps the panel within the viewport and above bottom chrome.
 
 Run:

@@ -21,7 +21,7 @@ architecture, reference, quality, or operations docs.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
-| 24 | [Psychiatrist memory assistant](task-24-psychiatrist-assistant/README.md) | Reader-only memory-scoped assistant using Codex app-server sessions and a floating chat dock | Ready for `feat/psychiatrist` |
+| 24 | [Psychiatrist memory assistant](task-24-psychiatrist-assistant/README.md) | Reader-only memory-scoped assistant using Codex app-server turns, memory-local thread storage, and a floating chat dock | Ready for `feat/psychiatrist` |
 
 ## Current Audit Notes
 

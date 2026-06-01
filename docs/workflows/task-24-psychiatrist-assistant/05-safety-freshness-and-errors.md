@@ -9,12 +9,14 @@ browser-visible errors, and turn lifecycle edge cases.
 
 - Modify: `src/server/psychiatrist/context.ts`
 - Modify: `src/server/psychiatrist/prompt.ts`
-- Modify: `src/server/psychiatrist/sessions.ts`
+- Modify: `src/server/psychiatrist/thread-store.ts`
+- Modify: `src/server/psychiatrist/threads.ts`
 - Modify: `src/server/psychiatrist/message-route.ts`
 - Modify: `src/components/reader/PsychiatristDock.tsx`
 - Test: `tests/server/psychiatrist/context.test.ts`
 - Test: `tests/server/psychiatrist/prompt.test.ts`
-- Test: `tests/server/psychiatrist/sessions.test.ts`
+- Test: `tests/server/psychiatrist/thread-store.test.ts`
+- Test: `tests/server/psychiatrist/threads.test.ts`
 - Test: `tests/components/psychiatrist-dock.test.tsx`
 
 ## Required Behavior
@@ -22,9 +24,11 @@ browser-visible errors, and turn lifecycle edge cases.
 Stale context:
 
 - Recompute the active content hash before every turn.
-- If the hash differs from the session hash, stop before calling Codex.
-- Emit or return `session_stale` with action `refresh_session`.
-- The dock automatically creates a new session and lets the user resend.
+- If the hash differs from the thread manifest hash, stop before calling Codex.
+- Mark `THREAD.json` stale and emit or return `thread_stale` with action
+  `refresh_thread`.
+- The dock automatically creates or resumes a fresh thread and lets the user
+  resend.
 
 Prompt injection:
 
@@ -47,10 +51,11 @@ Turn lifecycle:
 
 - A canceled turn calls app-server `turn/interrupt` when thread and turn ids are
   known.
+- Cancellation updates `turns/{turnId}.json` and appends no assistant answer to
+  `MESSAGES.jsonl`.
 - Closing the UI panel does not cancel a running turn.
 - Route unmount closes the browser `EventSource`.
-- A server-side expired session emits `session_not_found` and the UI creates a
-  new session.
+- A missing thread emits `thread_not_found` and the UI creates a new thread.
 
 Safe UI errors:
 
@@ -70,13 +75,16 @@ Add or extend tests for:
 - Oversized memory uses deterministic section selection.
 - Prompt-injection text remains inside untrusted section delimiters.
 - Cancel route interrupts when thread and turn ids are known.
-- UI refreshes a stale session and preserves the unsent user prompt.
-- Browser-visible errors omit Markdown, prompts, socket paths, and credentials.
+- UI refreshes a stale thread and preserves the unsent user prompt.
+- Browser-visible errors omit Markdown, prompts, socket paths, absolute store
+  paths, and credentials.
+- User prompts remain persisted in `MESSAGES.jsonl` when the assistant turn
+  fails after the prompt has been accepted.
 
 Run:
 
 ```bash
-mise exec -- bun run test tests/server/psychiatrist/context.test.ts tests/server/psychiatrist/prompt.test.ts tests/server/psychiatrist/sessions.test.ts tests/components/psychiatrist-dock.test.tsx
+mise exec -- bun run test tests/server/psychiatrist/context.test.ts tests/server/psychiatrist/prompt.test.ts tests/server/psychiatrist/thread-store.test.ts tests/server/psychiatrist/threads.test.ts tests/components/psychiatrist-dock.test.tsx
 mise exec -- bun run typecheck
 ```
 

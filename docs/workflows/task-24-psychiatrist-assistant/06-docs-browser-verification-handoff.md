@@ -22,9 +22,12 @@ browser, and prepare the PR handoff with exact evidence.
 `docs/architecture/flows.md`:
 
 - Add a memory-scoped Psychiatrist flow.
-- State that session creation loads context and message turns stream through
+- State that thread creation loads context and message turns stream through
   TRAUMA SSE.
-- State that no memory content or SQLite state is modified by chat.
+- State that user prompts and Psychiatrist answers are stored under
+  `{storePath}/memories/{memoryId}/threads/{threadId}/`, not SQLite.
+- State that canonical memory content, translated content, taxonomy,
+  Flashbacks, Moments, and SQLite state are not modified by chat.
 
 `docs/architecture/ui-and-routing.md`:
 
@@ -36,6 +39,8 @@ browser, and prepare the PR handoff with exact evidence.
 `docs/references/design-system/reader-and-content.md`:
 
 - Add the floating home-bar dock and expanded chat panel visual contract.
+- State that the dock resumes stored memory-local thread messages when the
+  thread API returns them.
 - Include reduced-motion and mobile viewport behavior.
 
 `docs/references/configuration.md`:
@@ -58,7 +63,7 @@ Focused:
 
 ```bash
 mise exec -- bun run test tests/server/translation/codex-app-server.test.ts
-mise exec -- bun run test tests/server/psychiatrist/context.test.ts tests/server/psychiatrist/prompt.test.ts tests/server/psychiatrist/api-routes.test.ts tests/server/psychiatrist/events.test.ts tests/server/psychiatrist/sessions.test.ts
+mise exec -- bun run test tests/server/psychiatrist/context.test.ts tests/server/psychiatrist/prompt.test.ts tests/server/psychiatrist/api-routes.test.ts tests/server/psychiatrist/events.test.ts tests/server/psychiatrist/thread-store.test.ts tests/server/psychiatrist/threads.test.ts
 mise exec -- bun run test tests/components/psychiatrist-dock.test.tsx tests/components/memory-reader-actions.test.ts
 ```
 
@@ -85,8 +90,9 @@ Then verify:
 - Browse route does not show Psychiatrist.
 - Chat expands and collapses with animation.
 - Reduced-motion emulation removes transform-heavy animation.
-- A real or fake Codex streamed answer appears in the transcript.
-- Stale-session recovery asks for or creates a fresh session before resending.
+- A real or fake Codex streamed answer appears in the transcript and is written
+  under the active memory's `threads/` subtree.
+- Stale-thread recovery asks for or creates a fresh thread before resending.
 
 ## PR Handoff Requirements
 
@@ -94,10 +100,14 @@ The PR body must include:
 
 - One-paragraph product behavior summary.
 - API route list.
-- Statement that no SQLite persistence or canonical memory writes were added.
+- Statement that prompts and answers are persisted under memory-local
+  `threads/` storage, not SQLite.
+- Statement that no canonical memory content writes were added outside
+  Psychiatrist thread artifacts.
 - Exact verification commands and outcomes.
 - Browser viewport evidence for desktop and mobile.
-- Known limitations: sessions are in-memory and transcripts are not persisted.
+- Known limitations: this workflow does not add archive-wide thread browse,
+  thread deletion UI, or cross-memory retrieval.
 
 ## Acceptance Criteria
 
