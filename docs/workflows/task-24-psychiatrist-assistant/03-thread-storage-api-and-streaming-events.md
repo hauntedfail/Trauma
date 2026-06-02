@@ -6,21 +6,26 @@ Add TRAUMA API routes and storage-backed thread management for memory-scoped
 Psychiatrist conversations. Each durable transcript row is a pair containing one
 accepted user prompt and the corresponding Psychiatrist response when one
 exists. Pair records are persisted under the owning memory directory, while
-active turn state stays in memory only for SSE fan-out and cancellation.
+user-visible streaming state is persisted so the browser can replay running
+turns after navigation or reload. In-memory active-turn state is only an index
+for SSE fan-out, cancellation, and app-server turn ids.
 
 ## Files Likely Owned
 
 - Create: `src/server/psychiatrist/errors.ts`
 - Create: `src/server/psychiatrist/events.ts`
 - Create: `src/server/psychiatrist/thread-store.ts`
+- Create: `src/server/psychiatrist/stream-store.ts`
 - Create: `src/server/psychiatrist/threads.ts`
 - Create: `src/server/psychiatrist/thread-route.ts`
 - Create: `src/server/psychiatrist/message-route.ts`
+- Create: `src/server/psychiatrist/regenerate-route.ts`
 - Create: `src/server/psychiatrist/events-route.ts`
 - Create: `src/server/psychiatrist/cancel-route.ts`
 - Create: `src/routes/api/memories/[memoryId]/psychiatrist/threads.ts`
 - Create: `src/routes/api/psychiatrist-threads/[threadId].ts`
 - Create: `src/routes/api/psychiatrist-threads/[threadId]/messages.ts`
+- Create: `src/routes/api/psychiatrist-pairs/[pairId]/regenerate.ts`
 - Create: `src/routes/api/psychiatrist-turns/[turnId]/events.ts`
 - Create: `src/routes/api/psychiatrist-turns/[turnId]/cancel.ts`
 - Test: `tests/server/psychiatrist/api-routes.test.ts`
@@ -34,8 +39,13 @@ Persist each conversation under the active memory's store directory:
 
 ```text
 {storePath}/memories/{memoryId}/threads/{threadId}/THREAD.json
+{storePath}/memories/{memoryId}/threads/{threadId}/THREAD.md
 {storePath}/memories/{memoryId}/threads/{threadId}/PAIRS.jsonl
+{storePath}/memories/{memoryId}/threads/{threadId}/pairs/{pairId}/PROMPT.md
+{storePath}/memories/{memoryId}/threads/{threadId}/pairs/{pairId}/CONTEXT.json
+{storePath}/memories/{memoryId}/threads/{threadId}/pairs/{pairId}/RESPONSE.md
 {storePath}/memories/{memoryId}/threads/{threadId}/turns/{turnId}.json
+{storePath}/memories/{memoryId}/threads/{threadId}/streams/{turnId}.jsonl
 ```
 
 Rules:
@@ -48,26 +58,45 @@ Rules:
 - `THREAD.json` stores memory id, variant kind, optional lang code, source hash,
   active content hash, optional translation output hash, created/updated times,
   status, and the latest known Codex app-server thread id.
+- `THREAD.md` is the human-readable Markdown projection for the thread. It is
+  rewritten from the latest pair state after accepted prompts, completed
+  answers, failed/stopped turns, and Regenerate completion. It is a storage
+  artifact under `threads/`, not canonical memory content.
 - `PAIRS.jsonl` stores an append-only prompt/response pair revision log in
   chronological order. Each row includes `pair_id`, `thread_id`, `turn_id`,
   `revision_kind`, `status`, `user_prompt`, optional `assistant_response`,
-  optional `source_citations`, optional `web_source_policy`, `created_at`, and
-  `updated_at`.
+  optional `response_markdown_path`, optional `context_snapshot_path`, optional
+  `stream_path`, optional `source_citations`, optional `web_source_policy`,
+  optional `regenerated_from_turn_id`, `created_at`, and `updated_at`.
 - Thread loading reduces rows by `pair_id` and keeps the latest complete
   revision for display, prompt history, retry, and cancellation decisions.
 - A pending pair is appended after the user prompt is accepted and before Codex
   starts. The same `pair_id` is completed by appending a completed revision with
   the assistant response after final output validation.
+- `pairs/{pairId}/PROMPT.md` stores the exact accepted prompt for the pair.
+- `pairs/{pairId}/CONTEXT.json` stores prompt policy version, memory variant,
+  content hash, selected context section anchors, selected context section
+  hashes, and other provenance needed to regenerate from the same context.
+- `pairs/{pairId}/RESPONSE.md` stores the latest completed response Markdown for
+  that pair. Regenerate overwrites this same file; it does not create a new
+  response file, pair, or thread.
 - `turns/{turnId}.json` stores turn status, started/completed/canceled/failed
   timestamps, safe error code/action, and transient Codex thread/turn ids when
   known.
-- Streamed deltas are not durable transcript state. Append the assistant answer
-  to the pair only after the Codex turn completes.
+- `streams/{turnId}.jsonl` stores durable, user-visible stream events for that
+  turn: answer deltas, safe process/reasoning events, status events, stop
+  acknowledgment, failure events, and completion events. It must not contain
+  hidden chain-of-thought, raw app-server payloads, local paths, tokens, or
+  credentials.
+- Streamed deltas are durable UI replay state. They are not the canonical final
+  answer until the turn completes and `pairs/{pairId}/RESPONSE.md` plus
+  `PAIRS.jsonl` are updated.
 - Failed or canceled turns leave their pair without `assistant_response` and
   mark the pair status `failed` or `canceled`. Their safe status is also stored
   in `turns/{turnId}.json`.
 - Writes must be atomic: write temp files inside the thread directory, then
-  rename. JSONL appends must preserve complete-line integrity.
+  rename. JSONL appends must preserve complete-line integrity. Rewriting
+  `THREAD.md` and `pairs/{pairId}/RESPONSE.md` must use temp-file plus rename.
 - Browser API responses may include opaque ids and safe statuses. They must not
   include absolute store paths.
 - No Psychiatrist prompt, answer, transcript, turn status, or thread manifest is
@@ -102,6 +131,12 @@ Successful response:
   "lang_code": "ja-JP",
   "variant_kind": "translation",
   "content_hash": "sha256:...",
+  "active_turn": {
+    "pair_id": "019f...",
+    "turn_id": "019f...",
+    "status": "running",
+    "event_url": "/api/psychiatrist-turns/019f.../events"
+  },
   "pairs": [
     {
       "pair_id": "019f...",
@@ -129,7 +164,9 @@ GET /api/psychiatrist-threads/:threadId
 This returns the safe thread manifest and stored pairs for a thread that still
 belongs to an existing memory and active variant. The API may project pairs into
 message bubbles for UI convenience, but the storage source of truth remains the
-pair row.
+pair row. If a turn is still running, the response includes `active_turn` with
+the same `pair_id`, `turn_id`, `status`, and `event_url` so the browser can
+resume streaming after route navigation or reload.
 
 Send message:
 
@@ -152,7 +189,8 @@ Response:
   "pair_id": "019f...",
   "turn_id": "019f...",
   "thread_id": "019f...",
-  "event_url": "/api/psychiatrist-turns/019f.../events"
+  "event_url": "/api/psychiatrist-turns/019f.../events",
+  "replay_url": "/api/psychiatrist-turns/019f.../events"
 }
 ```
 
@@ -170,12 +208,25 @@ accept: text/event-stream
 Event names:
 
 - `psychiatrist.turn.started`
+- `psychiatrist.process.delta`
 - `psychiatrist.answer.delta`
 - `psychiatrist.answer.completed`
 - `psychiatrist.answer.failed`
 - `psychiatrist.turn.canceled`
 - `psychiatrist.thread.stale`
 - `psychiatrist.network.permission_required`
+- `psychiatrist.regenerate.started`
+- `psychiatrist.regenerate.completed`
+
+Each event has a monotonically increasing `event_id` within the turn. The event
+route replays persisted `streams/{turnId}.jsonl` rows before subscribing the
+client to live events. If the request includes `Last-Event-ID` or
+`?after_event_id=...`, replay starts after that event. Replaying a completed
+turn returns the same event sequence and then closes the SSE stream.
+
+`psychiatrist.process.delta` contains only user-visible process/status text that
+TRAUMA has classified as safe to show. It must not include hidden
+chain-of-thought or raw app-server notifications.
 
 Cancel turn:
 
@@ -183,12 +234,42 @@ Cancel turn:
 POST /api/psychiatrist-turns/:turnId/cancel
 ```
 
+Regenerate response:
+
+```http
+POST /api/psychiatrist-pairs/:pairId/regenerate
+content-type: application/json
+
+{
+  "web_source_permission": "deny"
+}
+```
+
+Response:
+
+```json
+{
+  "status": "started",
+  "pair_id": "019f...",
+  "turn_id": "019f...",
+  "thread_id": "019f...",
+  "event_url": "/api/psychiatrist-turns/019f.../events"
+}
+```
+
+Regenerate uses the existing `pair_id`, the stored `PROMPT.md`, and the stored
+`CONTEXT.json`. It creates a new `turn_id` for the new attempt, but it does not
+create a new pair, new thread, or new response Markdown path.
+
 ## Thread Rules
 
 - Threads persist until explicitly deleted by a future workflow. This workflow
   does not add a thread deletion UI.
 - In-memory active-turn records exist only while a turn is running so SSE and
   cancellation can find the current Codex turn ids.
+- Durable stream records in `streams/{turnId}.jsonl` are the browser replay
+  source. A closed EventSource, panel close, route change, memory switch, or
+  browser reload must not cancel the server turn.
 - Only one active turn may run per thread. A concurrent message returns `409`
   with `code = "turn_conflict"`.
 - Before each turn, the server reloads the active memory content hash. If it no
@@ -197,18 +278,42 @@ POST /api/psychiatrist-turns/:turnId/cancel
 - The server appends a pending pair to `PAIRS.jsonl` before starting the Codex
   turn. If Codex fails, the user prompt remains stored in the failed pair so the
   UI can retry or start a follow-up.
+- The server writes `pairs/{pairId}/PROMPT.md`,
+  `pairs/{pairId}/CONTEXT.json`, an initial `PAIRS.jsonl` revision, and an
+  initial `streams/{turnId}.jsonl` started event before calling Codex.
+- While Codex runs, every safe answer delta and safe process/status delta is
+  appended to `streams/{turnId}.jsonl` before fan-out to live SSE subscribers.
 - Completed assistant output appends a completed revision for the same `pair_id`
   in `PAIRS.jsonl` after final output validation and before the completed SSE
   event is emitted.
+- Completed assistant output overwrites `pairs/{pairId}/RESPONSE.md`, rewrites
+  `THREAD.md`, appends the completed stream event, and enqueues git backup for
+  the changed thread artifacts.
 - The server never stores an assistant response without the user prompt in the
   same pair.
+- Stop is explicit. `POST /api/psychiatrist-turns/:turnId/cancel` is called
+  only when the user presses Stop. Stop appends a stopped stream event, calls
+  app-server `turn/interrupt` when possible, marks the turn stopped/canceled,
+  rewrites `THREAD.md`, and leaves the pair without an assistant response.
 - If network is denied and Psychiatrist determines that a current web source is
   required, it returns a safe `network_permission_required` response/event
   instead of attempting web access. The UI may let the user retry the same pair
   with `web_source_permission = "allow_for_this_turn"`.
+- Regenerate is available only for a completed pair. It reuses the existing
+  `pair_id`, stored `PROMPT.md`, and stored `CONTEXT.json`; creates a new
+  `turn_id`; streams through `streams/{turnId}.jsonl`; overwrites
+  `pairs/{pairId}/RESPONSE.md`; rewrites `THREAD.md`; appends a
+  `regenerated_completed` pair revision; and enqueues git backup with reason
+  `psychiatrist_response_regenerate`.
+- Normal first answers enqueue git backup with reason
+  `psychiatrist_thread_update`. Regenerate enqueues backup with reason
+  `psychiatrist_response_regenerate` so `{action}` can render as
+  `regenerated psychiatrist response` in the configured commit message
+  template.
 - On server restart, previously stored pairs are available for a resumed thread,
-  but in-flight turns are treated as failed or interrupted because app-server
-  turn ids are not reliable across process restarts.
+  and stored streams are replayable. In-flight app-server turns are treated as
+  failed or interrupted because app-server turn ids are not reliable across
+  process restarts.
 
 ## Error Contract
 
@@ -241,7 +346,10 @@ Required codes:
 - `timeout`
 - `stream_disconnected`
 - `turn_interrupted`
+- `turn_stopped`
+- `regenerate_unavailable`
 - `filesystem_failure`
+- `backup_enqueue_failed`
 - `unknown`
 
 Messages must not include memory Markdown, prompt text, app-server payloads,
@@ -266,9 +374,29 @@ Cover:
   canceled pair revision without writing an `assistant_response`.
 - The store rejects any attempt to append an assistant response without a
   matching pending pair.
-- Event route emits started/delta/completed in order.
+- Stream store persists started/process delta/answer delta/completed events in
+  `streams/{turnId}.jsonl` before fan-out.
+- Event route replays persisted stream events after route navigation and after
+  browser reload using `Last-Event-ID` or `after_event_id`.
+- Event route emits started/process delta/answer delta/completed in order.
+- Process delta filtering rejects hidden chain-of-thought and raw app-server
+  payloads.
 - Failed app-server turns emit safe failure events.
-- Cancel route calls `cancelTurn()` with the stored Codex thread id and turn id.
+- Closing the UI, navigating to another memory, and reloading the browser do not
+  call the cancel route and do not interrupt the server turn.
+- Cancel route calls `cancelTurn()` with the stored Codex thread id and turn id
+  only after explicit Stop.
+- Stop appends `turn_stopped`, leaves no `assistant_response`, and preserves the
+  stored stream replay.
+- Regenerate route rejects pending, failed, stale, and cross-memory pairs.
+- Regenerate route reuses the same `pair_id`, stored prompt, and stored context
+  snapshot; creates only a new `turn_id`; and overwrites
+  `pairs/{pairId}/RESPONSE.md` instead of creating a new response file.
+- Completed Regenerate rewrites `THREAD.md`, appends a regenerated pair
+  revision, and enqueues backup with reason
+  `psychiatrist_response_regenerate`.
+- Backup enqueue failures for Psychiatrist thread artifacts are reported as a
+  safe warning and do not discard the completed response.
 - Denied network turns do not send a network-enabled app-server payload.
 - User-approved web-source turns record `web_source_policy` and safe source
   citation metadata on the pair.
@@ -288,6 +416,12 @@ mise exec -- bun run typecheck
 - A reader can create or resume a context-ready thread before sending a prompt.
 - Each user message and completed Psychiatrist answer is persisted under the
   owning memory's `threads/` subtree as one prompt/response pair.
-- Each user message streams through TRAUMA SSE, not direct app-server access.
+- Each user message streams process and answer events through TRAUMA SSE, not
+  direct app-server access.
+- Running turn stream state survives route navigation and browser reload.
+- A turn runs until completion, failure, timeout, server interruption, or the
+  user explicitly presses Stop.
+- Regenerate updates the existing pair/thread Markdown artifacts and backup
+  state without creating a new pair or thread.
 - Stale memory content is detected before the assistant answers.
 - Psychiatrist introduces no SQLite transcript or assistant-history schema.

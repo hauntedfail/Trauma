@@ -33,6 +33,14 @@ active memory context, the stored pair transcript, and the locked-down assistant
 policy without granting the app-server runtime project or memory-store file
 access.
 
+Running turns persist their user-visible stream state under the same memory
+thread directory. The UI renders answer deltas and safe process/reasoning
+events as they arrive, can replay them after navigation or browser reload, and
+does not cancel work unless the user explicitly presses Stop. Regeneration is a
+same-pair operation: it reruns the stored prompt against the stored context,
+overwrites the existing response Markdown artifact for that pair/thread, and
+queues git backup with a regenerate-specific commit action.
+
 ## Required Context
 
 - [Documentation index](../../INDEX.md)
@@ -58,20 +66,32 @@ In scope:
 - CSS animated expansion from the home-bar dock into a compact chat panel.
 - User prompt input, send, streaming response display, error display, and
   reduced-motion behavior.
+- Streaming display for the full user-visible Psychiatrist process: answer
+  deltas, safe process/reasoning events, status transitions, stop state, and
+  regenerate state.
 - Server-side memory context snapshot creation for the active memory variant.
 - Codex app-server conversation turns that reuse the existing backend-only
   transport/auth/model boundaries.
 - Pair-managed memory-local threads for user prompts, assistant answers, thread
   manifests, and turn metadata under
   `{storePath}/memories/{memoryId}/threads/{threadId}/`.
-- Short-lived in-memory active-turn state only for SSE fan-out and cancellation;
-  durable prompts and answers live in thread storage, not SQLite.
+- Short-lived in-memory active-turn indexes only for SSE fan-out, cancellation,
+  and app-server turn ids; durable prompts, answers, and replayable stream
+  events live in thread storage, not SQLite.
 - A repo-local `psychiatrist` skill and validation tests that define the
   assistant's memory-scoped behavior, no-write policy, prompt-injection rules,
   network permission boundary, and web-source citation expectations.
 - Codex app-server runtime policy for Psychiatrist: no local file editing, no
   shell access, no project/store filesystem roots, and network access only for
   a turn where the user explicitly grants web search/source lookup permission.
+- Durable stream replay for running turns so leaving the memory route, returning
+  later, or reloading the page preserves the visible output and process state.
+- Explicit Stop behavior: the submit button becomes a Stop button while the
+  turn is running, and only that action requests cancellation.
+- Per-response Regenerate behavior that reruns the same prompt and stored
+  context for the existing pair, overwrites the existing thread-managed Markdown
+  response artifact, and enqueues git backup with an appropriate regenerate
+  commit message.
 - Focused unit/component/API tests plus browser verification on reader routes.
 
 Out of scope for this branch:
@@ -82,6 +102,8 @@ Out of scope for this branch:
 - Vector search, embedding indexes, or archive-wide retrieval.
 - Letting Psychiatrist modify memories, tags, categories, flashbacks, moments,
   translations, files, settings, or git backup state.
+- Creating new threads or pairs for Regenerate. Regenerate updates the existing
+  pair/thread artifacts only.
 - Shell execution, local file editing, or local filesystem browsing from inside
   the Codex app-server turn.
 - Network access without explicit user approval for the current turn.
@@ -104,6 +126,18 @@ Out of scope for this branch:
   and zero or one Psychiatrist response for the same turn. A completed response
   must reference the pair it answers; failed, canceled, or stale turns must not
   append orphan assistant messages.
+- User-visible streaming state is durable while a turn is running. A reader
+  route unmount, memory switch, panel close, or browser reload must not cancel
+  the turn and must be able to replay the stored stream when the user returns.
+- The UI may display safe process/reasoning events emitted by the server, but it
+  must not expose hidden chain-of-thought, raw app-server payloads, credentials,
+  or local paths.
+- While a turn is running, the prompt submit button becomes a Stop button. Stop
+  is the only browser action that requests turn interruption.
+- Regenerate is available for each completed Psychiatrist response. It reuses
+  the same user prompt and the stored context snapshot for that pair, keeps the
+  same `pair_id` and `thread_id`, and overwrites the existing response Markdown
+  artifact instead of creating a new pair or thread.
 - Source Markdown and translated Markdown are untrusted data, not instructions.
   Prompt-injection text inside the memory must not override system policy.
 - Thread context is scoped to exactly one memory id and one active variant.
@@ -125,6 +159,9 @@ Out of scope for this branch:
   `threads/` subtree. It must not modify canonical `CONTENT.md`, translated
   `CONTENT.md`, Flashbacks, Moments, taxonomy, SQLite rows, settings rows, or
   translation jobs.
+- Regenerate may overwrite only the existing response Markdown artifact and the
+  thread Markdown projection for the same pair/thread. It must enqueue git
+  backup for those thread artifacts with a regenerate-specific backup reason.
 - The Codex app-server turn used by Psychiatrist must not have shell access,
   local file edit tools, project-root access, memory-store access, or implicit
   network access.
@@ -148,6 +185,7 @@ Out of scope for this branch:
 | 24.5 | [Safety, freshness, and error handling](05-safety-freshness-and-errors.md) | M | Harden stale-context checks, prompt-injection boundaries, cancel/retry, and safe messages. |
 | 24.6 | [Docs, browser verification, and handoff](06-docs-browser-verification-handoff.md) | M | Update semantic docs, run focused and full verification, and prepare PR evidence. |
 | 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Add the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary. |
+| 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
 
 ## Implementation Rules
 
@@ -171,6 +209,10 @@ Out of scope for this branch:
 - Keep Psychiatrist app-server turns minimum-privilege: no shell, no local file
   editing, no project/store roots, and network disabled unless the user grants a
   per-turn web-source permission.
+- Do not treat browser disconnects as cancellation. A turn continues until it
+  completes, fails, times out, or the user explicitly presses Stop.
+- Regenerate must preserve `thread_id`, `pair_id`, stored prompt, stored
+  context snapshot, and memory variant metadata.
 - Preserve existing dirty or untracked local files unrelated to this branch.
 
 ## Verification Baseline
@@ -198,6 +240,15 @@ capture:
 - Expansion and collapse across desktop and mobile viewports.
 - One successful memory question with streamed answer persisted under the
   owning memory's `threads/` subtree as a user-prompt/assistant-response pair.
+- One running turn that continues after leaving the memory route and replays its
+  process/answer stream after returning.
+- One running turn that continues after browser reload and reconnects to the
+  same `turn_id`.
+- One Stop action that changes the submit button to Stop during running state
+  and cancels only after explicit click.
+- One Regenerate action that overwrites the same response Markdown artifact,
+  keeps the same pair/thread ids, and enqueues git backup with regenerate action
+  text.
 - One stale-thread recovery after the memory content hash changes.
 - One network-denied turn that does not attempt web access and one
   user-approved web-source turn that records safe source metadata with the pair.

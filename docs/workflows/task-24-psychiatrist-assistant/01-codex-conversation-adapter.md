@@ -74,16 +74,21 @@ Rules:
   app-server field names as translation.
 - Final answer text comes from completed app-server item content, not streamed
   deltas.
-- Streamed deltas are forwarded only through `onEvent`.
+- Streamed answer deltas and app-server status/process notifications that are
+  safe for user display are forwarded through `onEvent`.
+- Hidden chain-of-thought, raw app-server payloads, credential paths, local
+  paths, and tool internals must not be forwarded as Psychiatrist process
+  events. If the app-server distinguishes hidden reasoning from visible
+  summaries, forward only the visible summary/status form.
 - Raw app-server notifications stay parsed inside `codex-app-server.ts`.
 
 ## Implementation Steps
 
 1. Add failing tests in `tests/server/translation/codex-app-server.test.ts`.
    Cover new thread creation, existing thread reuse, event forwarding, final
-   text extraction, model/effort pass-through, cancellation, denied shell/file
-   policy, disabled network default, and the explicit user-approved network
-   flag.
+   text extraction, safe process-event forwarding, hidden-reasoning filtering,
+   model/effort pass-through, cancellation, denied shell/file policy, disabled
+   network default, and the explicit user-approved network flag.
 
 2. Extract or reuse the existing private request helpers so translation and
    conversation turns share initialization, request timeout, model field names,
@@ -118,3 +123,5 @@ continue to pass.
 - Psychiatrist app-server turns are minimum-privilege: no shell, no local file
   editing, no local filesystem roots, and network disabled unless the user
   approved web-source access for that turn.
+- Psychiatrist can stream user-visible process/status events without exposing
+  hidden chain-of-thought or raw app-server internals.

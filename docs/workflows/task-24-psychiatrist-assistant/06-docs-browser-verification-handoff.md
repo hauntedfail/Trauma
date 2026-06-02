@@ -29,9 +29,16 @@ browser, and prepare the PR handoff with exact evidence.
   SQLite.
 - State that every durable assistant answer belongs to one stored user prompt in
   the same pair.
+- State that safe process/answer stream events are stored under the memory-local
+  thread directory and can be replayed after navigation or reload.
+- State that completed responses are materialized to thread-managed Markdown
+  artifacts and Regenerate overwrites the existing artifact for the same pair.
 - State that Psychiatrist Codex app-server turns deny shell access, local file
   editing, local filesystem browsing, project/store filesystem roots, and
   unapproved network access.
+- State that completed Psychiatrist writes and Regenerate overwrites enqueue
+  built-in git backup with `psychiatrist_thread_update` or
+  `psychiatrist_response_regenerate` reasons.
 - State that canonical memory content, translated content, taxonomy,
   Flashbacks, Moments, and SQLite state are not modified by chat.
 
@@ -49,6 +56,9 @@ browser, and prepare the PR handoff with exact evidence.
   API returns them.
 - Add the per-turn web-source permission UI state for
   `network_permission_required`.
+- Add running-turn UI: submit becomes Stop, process stream is shown, navigation
+  and reload resume the active stream, and completed responses expose a
+  Regenerate button.
 - Include reduced-motion and mobile viewport behavior.
 
 `docs/references/configuration.md`:
@@ -108,6 +118,13 @@ Then verify:
 - Reduced-motion emulation removes transform-heavy animation.
 - A real or fake Codex streamed answer appears in the transcript and is written
   under the active memory's `threads/` subtree as one prompt/response pair.
+- Safe process/reasoning stream rows appear while the answer is running.
+- A running answer survives memory navigation away/back and browser reload.
+- Submit becomes Stop while running, and Stop is the only UI action that
+  interrupts the turn.
+- Regenerate on a completed response reuses the same pair, overwrites the
+  existing response Markdown artifact, rewrites the thread Markdown projection,
+  and enqueues git backup with regenerate action text.
 - Stale-thread recovery asks for or creates a fresh thread before resending.
 - A network-required response does not use web access before approval.
 - A user-approved web-source retry records source metadata on the pair.
@@ -120,6 +137,12 @@ The PR body must include:
 - API route list.
 - Statement that prompts and answers are persisted as pair records under
   memory-local `threads/` storage, not SQLite.
+- Statement that process/answer streams are replayable after navigation and
+  reload.
+- Statement that Stop is explicit and route lifecycle changes do not cancel
+  running work.
+- Statement that Regenerate overwrites existing thread-managed Markdown for the
+  same pair and uses the git backup queue with regenerate commit action.
 - Statement that no canonical memory content writes were added outside
   Psychiatrist thread artifacts.
 - Statement that Psychiatrist is governed by the repo-local `psychiatrist`

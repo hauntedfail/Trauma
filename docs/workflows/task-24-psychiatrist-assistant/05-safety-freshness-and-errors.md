@@ -57,6 +57,14 @@ Network boundary:
 - If network is approved, store safe source citation metadata on the pair and do
   not expose raw fetch payloads, credentials, or app-server transport details.
 
+Streaming boundary:
+
+- Persist only user-visible process/status events and answer deltas.
+- Do not persist or display hidden chain-of-thought, raw app-server
+  notifications, local paths, tokens, credential paths, or raw tool payloads.
+- Store stream events before SSE fan-out so reload/navigation replay cannot
+  miss already-emitted output.
+
 Context bounds:
 
 - Enforce `PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4000`.
@@ -72,8 +80,12 @@ Turn lifecycle:
   known.
 - Cancellation updates `turns/{turnId}.json`, marks the pair `canceled`, and
   writes no `assistant_response`.
+- The browser calls cancellation only for an explicit Stop click.
 - Closing the UI panel does not cancel a running turn.
-- Route unmount closes the browser `EventSource`.
+- Route unmount, memory navigation, and browser reload close the browser
+  `EventSource` but do not cancel the server turn.
+- Reopening the same memory resumes the latest thread and reconnects to
+  `active_turn.event_url` when present.
 - A missing thread emits `thread_not_found` and the UI creates a new thread.
 
 Pair integrity:
@@ -85,6 +97,22 @@ Pair integrity:
 - Failed, canceled, stale, and network-permission-required turns must not create
   orphan assistant responses.
 
+Regenerate integrity:
+
+- Regenerate is allowed only for a completed pair.
+- Regenerate uses the stored prompt and stored context snapshot for that pair,
+  not the current textarea value and not a new memory context.
+- Regenerate keeps the same `thread_id` and `pair_id`; it creates only a new
+  `turn_id`.
+- Regenerate overwrites `pairs/{pairId}/RESPONSE.md` and rewrites `THREAD.md`
+  for the existing thread. It must not create a new response Markdown file, new
+  pair, or new thread.
+- If Regenerate fails or is stopped, the previous completed response remains the
+  visible completed response and the failed/stopped regenerate status is stored
+  as pair/turn metadata.
+- Completed Regenerate enqueues git backup with reason
+  `psychiatrist_response_regenerate`.
+
 Safe UI errors:
 
 - `auth_required` points to Codex auth setup.
@@ -94,6 +122,10 @@ Safe UI errors:
   assistant context.
 - `network_permission_required` asks the user to allow web search/source lookup
   for this answer.
+- `turn_stopped` records explicit user Stop.
+- `regenerate_unavailable` says the response cannot be regenerated because the
+  pair is no longer completed, no longer belongs to the active memory, or lacks
+  stored prompt/context provenance.
 - Unknown errors use a generic message and log details server-side only.
 
 ## Tests
@@ -105,9 +137,13 @@ Add or extend tests for:
 - Oversized memory uses deterministic section selection.
 - Prompt-injection text remains inside untrusted section delimiters.
 - Cancel route interrupts when thread and turn ids are known.
+- Cancel route is not called on panel close, route unmount, memory navigation,
+  or browser reload.
 - UI refreshes a stale thread and preserves the unsent user prompt.
 - Browser-visible errors omit Markdown, prompts, socket paths, absolute store
   paths, and credentials.
+- Stream replay persists safe process and answer events without exposing hidden
+  chain-of-thought.
 - User prompts remain persisted in `PAIRS.jsonl` when the assistant turn fails
   after the prompt has been accepted, with no `assistant_response`.
 - Completed assistant output revision cannot be written unless a matching
@@ -116,6 +152,9 @@ Add or extend tests for:
   or web-source metadata.
 - User-approved network turns persist safe source citation metadata on the
   matching pair.
+- Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
+  provenance, overwrites the existing response Markdown artifact, and enqueues
+  backup with reason `psychiatrist_response_regenerate`.
 
 Run:
 
@@ -131,3 +170,7 @@ mise exec -- bun run typecheck
 - The UI gives recoverable failures without leaking backend details.
 - Runtime and prompt policy both prohibit shell access, local file editing, and
   unapproved network access.
+- Turns are not interrupted by browser lifecycle changes. Explicit Stop is the
+  only user-driven interruption path.
+- Regenerate is an overwrite of an existing pair response artifact, not a new
+  conversation branch.
