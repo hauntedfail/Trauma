@@ -113,6 +113,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
   activePsychiatristTurns.register({
     client,
     memoryId: loaded.manifest.memoryId,
+    pairId,
     threadId: loaded.manifest.threadId,
     turnId,
   });

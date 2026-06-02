@@ -215,6 +215,53 @@ export async function appendRegeneratedAssistantResponse(input: {
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
+export async function markPsychiatristTurnCanceled(input: {
+  codexThreadId?: string;
+  codexTurnId?: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+  if (existing === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "pair_not_found",
+      "Cannot cancel a turn without a matching pair.",
+    );
+  }
+  const now = new Date().toISOString();
+  await appendPairRevision(input.config, loaded.manifest, {
+    created_at: existing.user.createdAt,
+    pair_id: input.pairId,
+    revision_kind: "canceled",
+    status: "canceled",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+    updated_at: now,
+    user_prompt: existing.user.content,
+  });
+  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+    canceled_at: now,
+    codex_thread_id: input.codexThreadId,
+    codex_turn_id: input.codexTurnId,
+    pair_id: input.pairId,
+    safe_error: {
+      action: "retry",
+      code: "turn_stopped",
+      message: "Psychiatrist turn was stopped.",
+    },
+    status: "canceled",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  });
+  await rewriteThreadMarkdown(input.config, loaded.manifest);
+}
+
 export async function loadPsychiatristPairRegeneration(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   pairId: string;

@@ -10,6 +10,7 @@ import {
   type ActivePsychiatristTurnRegistry,
 } from "./active-turns";
 import { appendPsychiatristStreamEvent } from "./stream-store";
+import { markPsychiatristTurnCanceled } from "./thread-store";
 
 export function createCancelPsychiatristTurnHandler(input: {
   activeTurns?: ActivePsychiatristTurnRegistry;
@@ -43,6 +44,14 @@ export async function handleCancelPsychiatristTurnRequest(
     });
   }
   const config = input.config ?? loadRuntimeTraumaConfig();
+  await markPsychiatristTurnCanceled({
+    codexThreadId: active.codexThreadId,
+    codexTurnId: active.codexTurnId,
+    config,
+    pairId: active.pairId,
+    threadId: active.threadId,
+    turnId: active.turnId,
+  });
   await appendPsychiatristStreamEvent({
     config,
     event: {

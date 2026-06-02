@@ -5,6 +5,7 @@ export interface ActivePsychiatristTurn {
   codexThreadId?: string;
   codexTurnId?: string;
   memoryId: string;
+  pairId: string;
   threadId: string;
   turnId: string;
 }

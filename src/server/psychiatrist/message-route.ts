@@ -151,6 +151,7 @@ export async function handleSendPsychiatristMessageRequest(
     activePsychiatristTurns.register({
       client,
       memoryId: thread.manifest.memoryId,
+      pairId,
       threadId,
       turnId,
     });

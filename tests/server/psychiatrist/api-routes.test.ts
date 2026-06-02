@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { APIEvent } from "@solidjs/start/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { createSendPsychiatristMessageHandler } from "../../../src/server/psychiatrist/message-route";
 import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychiatrist/cancel-route";
@@ -32,8 +32,19 @@ const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
 const PAIR_ID = "019e8a00-0000-7000-8000-000000000002";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
+const EXTRA_TURN_IDS = [
+  "019e8a00-0000-7000-8000-000000000004",
+  "019e8a00-0000-7000-8000-000000000005",
+];
 
 describe("Psychiatrist thread API routes", () => {
+  afterEach(() => {
+    activePsychiatristTurns.unregister(TURN_ID);
+    for (const turnId of EXTRA_TURN_IDS) {
+      activePsychiatristTurns.unregister(turnId);
+    }
+  });
+
   it("creates a source thread and returns safe reader-facing JSON", async () => {
     const created: unknown[] = [];
     const handler = createStartPsychiatristThreadHandler({
@@ -455,12 +466,27 @@ describe("Psychiatrist thread API routes", () => {
   it("cancels only an explicitly requested active turn", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-"));
     const client = new CancelTrackingClient();
-    activePsychiatristTurns.register({
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
       client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Stop this turn." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    activePsychiatristTurns.updateCodexIds({
       codexThreadId: "codex-thread-1",
       codexTurnId: "codex-turn-1",
-      memoryId: MEMORY_ID,
-      threadId: THREAD_ID,
       turnId: TURN_ID,
     });
     const handler = createCancelPsychiatristTurnHandler({
@@ -485,12 +511,34 @@ describe("Psychiatrist thread API routes", () => {
     expect(client.cancelCalls).toEqual([
       { threadId: "codex-thread-1", turnId: "codex-turn-1" },
     ]);
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "canceled",
+        turnId: TURN_ID,
+        user: expect.objectContaining({ content: "Stop this turn." }),
+      }),
+    ]);
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      pair_id: PAIR_ID,
+      status: "canceled",
+      thread_id: THREAD_ID,
+      turn_id: TURN_ID,
+    });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
     expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.turn.started",
       "psychiatrist.turn.canceled",
     ]);
   });
@@ -786,7 +834,10 @@ class CancelTrackingClient implements CodexConversationClient {
     return undefined;
   }
 
-  async runConversationTurn() {
+  async runConversationTurn(input: CodexConversationTurnInput) {
+    input.onEvent?.({ type: "thread.started", threadId: "codex-thread-1" });
+    input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
+    await new Promise(() => undefined);
     return {
       outputText: "",
       threadId: "codex-thread-1",
