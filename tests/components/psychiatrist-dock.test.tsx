@@ -10,6 +10,10 @@ import {
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
 } from "../../src/components/reader/psychiatrist-requests";
+import {
+  applyPsychiatristStreamEvent,
+  toPsychiatristTranscriptPairs,
+} from "../../src/components/reader/psychiatrist-transcript";
 
 const dockSource = readFileSync(
   "src/components/reader/PsychiatristDock.tsx",
@@ -133,6 +137,89 @@ describe("PsychiatristDock", () => {
       web_source_permission: "deny",
     });
   });
+
+  it("converts stored pairs and appends safe process plus answer stream deltas", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-reader",
+        status: "pending",
+        turn_id: "turn-reader",
+        user_prompt: {
+          content: "What changed?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const withProcess = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "Reading the active memory." },
+      type: "psychiatrist.process.delta",
+    }));
+    const withHiddenProcess = applyPsychiatristStreamEvent(withProcess, streamEvent({
+      data: { text: "hidden reasoning: chain-of-thought" },
+      type: "psychiatrist.process.delta",
+    }));
+    const withAnswer = applyPsychiatristStreamEvent(withHiddenProcess, streamEvent({
+      data: { text: "The answer." },
+      type: "psychiatrist.answer.delta",
+    }));
+    const completed = applyPsychiatristStreamEvent(withAnswer, streamEvent({
+      data: { pair_id: "pair-reader" },
+      type: "psychiatrist.answer.completed",
+    }));
+
+    expect(completed).toEqual([
+      {
+        answer: "The answer.",
+        pairId: "pair-reader",
+        process: ["Reading the active memory."],
+        status: "completed",
+        turnId: "turn-reader",
+        userPrompt: "What changed?",
+      },
+    ]);
+  });
+
+  it("keeps regenerate in the same pair and replaces the visible answer on first delta", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Old answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-reader",
+        status: "completed",
+        turn_id: "turn-reader",
+        user_prompt: {
+          content: "What changed?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const regenerating = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-reader" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.started",
+    }));
+    const withAnswer = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: { text: "New answer." },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    expect(withAnswer).toEqual([
+      {
+        answer: "New answer.",
+        pairId: "pair-reader",
+        process: [],
+        status: "running",
+        turnId: "turn-regenerate",
+        userPrompt: "What changed?",
+      },
+    ]);
+  });
 });
 
 function jsonResponse(value: unknown): Response {
@@ -140,4 +227,24 @@ function jsonResponse(value: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function streamEvent(input: {
+  data: unknown;
+  turnId?: string;
+  type:
+    | "psychiatrist.process.delta"
+    | "psychiatrist.answer.delta"
+    | "psychiatrist.answer.completed"
+    | "psychiatrist.regenerate.started";
+}) {
+  return {
+    data: input.data,
+    eventId: "000000000001",
+    memoryId: "memory-reader",
+    threadId: "thread-reader",
+    timestamp: 1,
+    turnId: input.turnId ?? "turn-reader",
+    type: input.type,
+  };
 }

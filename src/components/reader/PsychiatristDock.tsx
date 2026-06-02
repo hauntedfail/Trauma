@@ -13,9 +13,14 @@ import {
   sendPsychiatristMessage,
 } from "./psychiatrist-requests";
 import type {
-  PsychiatristThreadPairResponse,
+  PsychiatristStreamEvent,
   PsychiatristThreadResponse,
 } from "./psychiatrist-types";
+import {
+  applyPsychiatristStreamEvent,
+  toPsychiatristTranscriptPairs,
+  type PsychiatristTranscriptPair,
+} from "./psychiatrist-transcript";
 
 interface PsychiatristDockProps {
   langCode?: string;
@@ -27,12 +32,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   let inputRef: HTMLTextAreaElement | undefined;
   const [isOpen, setIsOpen] = createSignal(false);
   const [thread, setThread] = createSignal<PsychiatristThreadResponse>();
+  const [transcriptPairs, setTranscriptPairs] = createSignal<
+    PsychiatristTranscriptPair[]
+  >([]);
   const [prompt, setPrompt] = createSignal("");
   const [isRunning, setIsRunning] = createSignal(false);
   const [runningTurnId, setRunningTurnId] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
 
-  const pairs = () => thread()?.pairs ?? [];
+  const pairs = () => transcriptPairs();
   const openDock = () => {
     setIsOpen(true);
     void loadThread();
@@ -50,10 +58,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         resumeLatest: true,
       });
       setThread(nextThread);
+      setTranscriptPairs(toPsychiatristTranscriptPairs(nextThread.pairs));
       if (nextThread.active_turn !== null) {
         setIsRunning(true);
         setRunningTurnId(nextThread.active_turn.turn_id);
-        connectPsychiatristStream(nextThread.active_turn.event_url);
+        connectPsychiatristStream(nextThread.active_turn.event_url, handleStreamEvent);
       }
     } catch {
       setErrorMessage("Psychiatrist is unavailable.");
@@ -76,7 +85,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         webSourcePermission: "deny",
       });
       setRunningTurnId(started.turn_id);
-      connectPsychiatristStream(started.event_url);
+      connectPsychiatristStream(started.event_url, handleStreamEvent);
     } catch {
       setIsRunning(false);
       setErrorMessage("Psychiatrist could not send the prompt.");
@@ -90,7 +99,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     await cancelPsychiatristTurn({ turnId });
     setIsRunning(false);
   };
-  const regeneratePair = async (pair: PsychiatristThreadPairResponse) => {
+  const regeneratePair = async (pair: PsychiatristTranscriptPair) => {
     if (pair.status !== "completed" || isRunning()) {
       return;
     }
@@ -98,11 +107,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setErrorMessage("");
     try {
       const started = await regeneratePsychiatristResponse({
-        pairId: pair.pair_id,
+        pairId: pair.pairId,
         webSourcePermission: "deny",
       });
       setRunningTurnId(started.turn_id);
-      connectPsychiatristStream(started.event_url);
+      connectPsychiatristStream(started.event_url, handleStreamEvent);
     } catch {
       setIsRunning(false);
       setErrorMessage("Psychiatrist could not regenerate the response.");
@@ -116,6 +125,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void submitPrompt();
+    }
+  };
+  const handleStreamEvent = (event: PsychiatristStreamEvent) => {
+    setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, event));
+    if (
+      event.type === "psychiatrist.answer.completed" ||
+      event.type === "psychiatrist.regenerate.completed" ||
+      event.type === "psychiatrist.answer.failed" ||
+      event.type === "psychiatrist.turn.canceled"
+    ) {
+      setIsRunning(false);
+      setRunningTurnId("");
     }
   };
 
@@ -161,13 +182,20 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
             <Show when={pairs().length > 0} fallback={<p class="text-trauma-text-secondary">No messages yet.</p>}>
               <For each={pairs()}>
                 {(pair) => (
-                  <article class="grid gap-1" data-psychiatrist-pair={pair.pair_id}>
+                  <article class="grid gap-1" data-psychiatrist-pair={pair.pairId}>
                     <p class="justify-self-end rounded-lg bg-trauma-accent px-3 py-2 text-trauma-accent-ink">
-                      {pair.user_prompt}
+                      {pair.userPrompt}
                     </p>
                     <div class="justify-self-start rounded-lg bg-trauma-bg-sunken px-3 py-2 text-trauma-text-secondary">
+                      <For each={pair.process}>
+                        {(processText) => (
+                          <p class="mb-1 text-xs text-trauma-text-muted" data-psychiatrist-process>
+                            {processText}
+                          </p>
+                        )}
+                      </For>
                       <Show
-                        when={pair.assistant_response}
+                        when={pair.answer}
                         fallback={<p class="text-xs uppercase tracking-[0.08em]">{pair.status}</p>}
                       >
                         {(response) => <p>{response()}</p>}
@@ -223,17 +251,54 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   );
 }
 
-function connectPsychiatristStream(eventUrl: string): void {
+function connectPsychiatristStream(
+  eventUrl: string,
+  onEvent: (event: PsychiatristStreamEvent) => void,
+): void {
   const eventSource = new EventSource(eventUrl);
-  eventSource.addEventListener("psychiatrist.answer.completed", () => {
+  const handleMessage = (message: MessageEvent) => {
+    const event = parsePsychiatristStreamEvent(message.data);
+    if (event !== undefined) {
+      onEvent(event);
+    }
+  };
+  eventSource.addEventListener("psychiatrist.process.delta", handleMessage);
+  eventSource.addEventListener("psychiatrist.answer.delta", handleMessage);
+  eventSource.addEventListener("psychiatrist.answer.completed", (message) => {
+    handleMessage(message);
     eventSource.close();
   });
-  eventSource.addEventListener("psychiatrist.regenerate.completed", () => {
+  eventSource.addEventListener("psychiatrist.regenerate.started", handleMessage);
+  eventSource.addEventListener("psychiatrist.regenerate.completed", (message) => {
+    handleMessage(message);
     eventSource.close();
   });
-  eventSource.addEventListener("psychiatrist.answer.failed", () => {
+  eventSource.addEventListener("psychiatrist.answer.failed", (message) => {
+    handleMessage(message);
     eventSource.close();
   });
+  eventSource.addEventListener("psychiatrist.turn.canceled", (message) => {
+    handleMessage(message);
+    eventSource.close();
+  });
+}
+
+function parsePsychiatristStreamEvent(data: string): PsychiatristStreamEvent | undefined {
+  try {
+    const value = JSON.parse(data) as unknown;
+    return isPsychiatristStreamEvent(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPsychiatristStreamEvent(value: unknown): value is PsychiatristStreamEvent {
+  return typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    "turnId" in value &&
+    typeof value.type === "string" &&
+    typeof value.turnId === "string";
 }
 
 const psychiatristDockStyles = `

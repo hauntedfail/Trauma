@@ -19,11 +19,22 @@ export interface PsychiatristActiveTurnResponse {
 }
 
 export interface PsychiatristThreadPairResponse {
-  assistant_response?: string;
+  assistant_response?: {
+    completed_at: string;
+    content: string;
+    source_citations: Array<{
+      source_id: string;
+      title: string;
+      url: string;
+    }>;
+  };
   pair_id: string;
   status: "pending" | "completed" | "failed" | "canceled" | "stale";
   turn_id: string;
-  user_prompt: string;
+  user_prompt: {
+    content: string;
+    created_at: string;
+  };
 }
 
 export interface PsychiatristTurnStartedResponse {
@@ -33,4 +44,24 @@ export interface PsychiatristTurnStartedResponse {
   status: "started";
   thread_id: string;
   turn_id: string;
+}
+
+export type PsychiatristStreamEventType =
+  | "psychiatrist.turn.started"
+  | "psychiatrist.process.delta"
+  | "psychiatrist.answer.delta"
+  | "psychiatrist.answer.completed"
+  | "psychiatrist.answer.failed"
+  | "psychiatrist.turn.canceled"
+  | "psychiatrist.regenerate.started"
+  | "psychiatrist.regenerate.completed";
+
+export interface PsychiatristStreamEvent {
+  data: unknown;
+  eventId: string;
+  memoryId: string;
+  threadId: string;
+  timestamp: number;
+  turnId: string;
+  type: PsychiatristStreamEventType;
 }
