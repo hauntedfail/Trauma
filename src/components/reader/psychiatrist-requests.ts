@@ -28,6 +28,34 @@ export class PsychiatristRequestError extends Error {
   }
 }
 
+export function getPsychiatristErrorMessage(error: unknown): string {
+  if (!(error instanceof PsychiatristRequestError)) {
+    return "Psychiatrist request failed.";
+  }
+  switch (error.code) {
+    case "auth_required":
+      return "Set up Codex auth before using Psychiatrist.";
+    case "setup_required":
+      return "Codex app-server must be available before using Psychiatrist.";
+    case "usage_limit":
+    case "timeout":
+    case "stream_disconnected":
+      return "Psychiatrist could not finish. Retry when ready.";
+    case "context_overflow":
+      return "This memory is too large for the current assistant context.";
+    case "network_permission_required":
+      return "Allow web search/source lookup for this answer to continue.";
+    case "turn_stopped":
+      return "Psychiatrist turn was stopped.";
+    case "regenerate_unavailable":
+      return "This response cannot be regenerated.";
+    case "thread_not_found":
+      return "Open the reader again to start a new Psychiatrist thread.";
+    default:
+      return "Psychiatrist request failed.";
+  }
+}
+
 export async function createPsychiatristThread(input: {
   fetch?: BrowserFetch;
   langCode?: string;

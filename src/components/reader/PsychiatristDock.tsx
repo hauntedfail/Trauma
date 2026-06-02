@@ -9,6 +9,7 @@ import {
 import {
   cancelPsychiatristTurn,
   createPsychiatristThread,
+  getPsychiatristErrorMessage,
   PsychiatristRequestError,
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
@@ -65,8 +66,8 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setRunningTurnId(nextThread.active_turn.turn_id);
         connectPsychiatristStream(nextThread.active_turn.event_url, handleStreamEvent);
       }
-    } catch {
-      setErrorMessage("Psychiatrist is unavailable.");
+    } catch (error) {
+      setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
   const submitPrompt = async () => {
@@ -99,7 +100,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         queueMicrotask(() => inputRef?.focus());
         return;
       }
-      setErrorMessage("Psychiatrist could not send the prompt.");
+      setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
   const handleStop = async () => {
@@ -123,9 +124,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       });
       setRunningTurnId(started.turn_id);
       connectPsychiatristStream(started.event_url, handleStreamEvent);
-    } catch {
+    } catch (error) {
       setIsRunning(false);
-      setErrorMessage("Psychiatrist could not regenerate the response.");
+      setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
   const handleKeyDown = (event: KeyboardEvent) => {

@@ -7,6 +7,7 @@ import { PsychiatristDock } from "../../src/components/reader/PsychiatristDock";
 import {
   cancelPsychiatristTurn,
   createPsychiatristThread,
+  getPsychiatristErrorMessage,
   PsychiatristRequestError,
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
@@ -160,6 +161,33 @@ describe("PsychiatristDock", () => {
       name: "PsychiatristRequestError",
       responseStatus: 409,
     } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("maps structured API failures to safe reader messages", () => {
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "setup_codex_auth",
+      code: "auth_required",
+      message: "raw auth path /Users/example/.codex/auth.json",
+      responseStatus: 401,
+    }))).toBe("Set up Codex auth before using Psychiatrist.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
+      code: "context_overflow",
+      message: "raw markdown <memory_section_untrusted>",
+      responseStatus: 413,
+    }))).toBe("This memory is too large for the current assistant context.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "allow_web_sources",
+      code: "network_permission_required",
+      message: "fetch https://example.com with token secret",
+      responseStatus: 409,
+    }))).toBe("Allow web search/source lookup for this answer to continue.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
+      code: "unknown",
+      message: "socket /private/tmp/app-server.sock token abc",
+      responseStatus: 500,
+    }))).toBe("Psychiatrist request failed.");
   });
 
   it("refreshes a stale reader thread without dropping the unsent prompt", () => {
