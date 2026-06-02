@@ -220,7 +220,14 @@ describe("Psychiatrist thread API routes", () => {
       manifest: manifest(),
     });
     const client = new FakeConversationClient("The memory says rollback is missing.");
+    const backupEnqueues: unknown[] = [];
     const handler = createSendPsychiatristMessageHandler({
+      backupQueue: {
+        enqueue: async (input) => {
+          backupEnqueues.push(input);
+          return { backupStatus: "queued" };
+        },
+      },
       client,
       config: { storePath },
       generateId: createIdGenerator([PAIR_ID, TURN_ID]),
@@ -298,6 +305,19 @@ describe("Psychiatrist thread API routes", () => {
       "psychiatrist.answer.delta",
       "psychiatrist.answer.completed",
     ]);
+    expect(backupEnqueues).toEqual([
+      {
+        contentPaths: [
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/PROMPT.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/CONTEXT.json`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,
+        ],
+        memoryId: MEMORY_ID,
+        reason: "psychiatrist_thread_update",
+      },
+    ]);
     expect(JSON.stringify(replay)).not.toContain("/private/");
   });
 
@@ -334,6 +354,50 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       return loaded.pairs[0]?.status === "completed";
     });
+  });
+
+  it("keeps a completed answer when backup enqueue fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-backup-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const handler = createSendPsychiatristMessageHandler({
+      backupQueue: {
+        enqueue: async () => {
+          throw new Error("backup unavailable");
+        },
+      },
+      client: new FakeConversationClient("Completed despite backup failure."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What is the answer?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.assistant?.content === "Completed despite backup failure.";
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({
+          content: "Completed despite backup failure.",
+        }),
+        pairId: PAIR_ID,
+        status: "completed",
+      }),
+    ]);
   });
 
   it("marks accepted prompts failed without writing an assistant response when Codex fails", async () => {

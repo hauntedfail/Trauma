@@ -2,6 +2,11 @@ import type { APIEvent } from "@solidjs/start/server";
 import { randomBytes } from "node:crypto";
 
 import {
+  createNoopMemoryBackupQueue,
+  getMemoryBackupQueue,
+  type MemoryBackupQueue,
+} from "../backup";
+import {
   loadRuntimeTraumaConfig,
   type ResolvedTraumaConfig,
 } from "../config";
@@ -44,6 +49,7 @@ type ResolveActiveContentHash = (input: {
 }) => Promise<string>;
 
 export function createSendPsychiatristMessageHandler(input: {
+  backupQueue?: MemoryBackupQueue;
   client?: CodexConversationClient;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   generateId?: () => string;
@@ -59,6 +65,7 @@ export function createSendPsychiatristMessageHandler(input: {
 export async function handleSendPsychiatristMessageRequest(
   event: APIEvent,
   input: {
+    backupQueue?: MemoryBackupQueue;
     client?: CodexConversationClient;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
     generateId?: () => string;
@@ -157,6 +164,7 @@ export async function handleSendPsychiatristMessageRequest(
       turnId,
     });
     void runPsychiatristTurn({
+      backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
       config,
       pairId,
@@ -186,6 +194,7 @@ export async function handleSendPsychiatristMessageRequest(
 }
 
 async function runPsychiatristTurn(input: {
+  backupQueue: MemoryBackupQueue;
   client: CodexConversationClient;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   pairId: string;
@@ -257,6 +266,7 @@ async function runPsychiatristTurn(input: {
       pairId: input.pairId,
       threadId: input.threadId,
     });
+    await enqueueCompletedAnswerBackup(input).catch(() => undefined);
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
@@ -295,6 +305,33 @@ async function runPsychiatristTurn(input: {
   } finally {
     activePsychiatristTurns.unregister(input.turnId);
   }
+}
+
+async function enqueueCompletedAnswerBackup(input: {
+  backupQueue: MemoryBackupQueue;
+  pairId: string;
+  thread: { manifest: PsychiatristThreadManifest };
+  threadId: string;
+}): Promise<void> {
+  await input.backupQueue.enqueue({
+    contentPaths: [
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/THREAD.md`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/PROMPT.md`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/CONTEXT.json`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/RESPONSE.md`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/PAIRS.jsonl`,
+    ],
+    memoryId: input.thread.manifest.memoryId,
+    reason: "psychiatrist_thread_update",
+  });
+}
+
+function resolveBackupQueue(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+): MemoryBackupQueue {
+  return "backup" in config
+    ? getMemoryBackupQueue(config as ResolvedTraumaConfig)
+    : createNoopMemoryBackupQueue();
 }
 
 async function parseMessagePayload(request: Request): Promise<MessagePayload> {
