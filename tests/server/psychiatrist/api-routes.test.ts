@@ -390,7 +390,7 @@ describe("Psychiatrist thread API routes", () => {
     const oversized = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
-          body: JSON.stringify({ message: "x".repeat(12001) }),
+          body: JSON.stringify({ message: "x".repeat(4001) }),
           method: "POST",
         }),
         { threadId: THREAD_ID },
@@ -405,7 +405,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(oversized.status).toBe(400);
     await expect(oversized.json()).resolves.toMatchObject({
       code: "invalid_request",
-      message: "message must be 12000 characters or fewer.",
+      message: "message must be 4000 characters or fewer.",
     });
   });
 

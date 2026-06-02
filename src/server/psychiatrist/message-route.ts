@@ -28,7 +28,7 @@ import type {
   PsychiatristWebSourcePolicy,
 } from "./types";
 
-const MAX_MESSAGE_LENGTH = 12_000;
+export const PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4_000;
 type MessagePayload =
   | {
       ok: true;
@@ -295,8 +295,8 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
     return { ok: false, message: "message must be a non-empty string." };
   }
   const message = payload.message.trim();
-  if (message.length > MAX_MESSAGE_LENGTH) {
-    return { ok: false, message: "message must be 12000 characters or fewer." };
+  if (message.length > PSYCHIATRIST_MAX_USER_MESSAGE_CHARS) {
+    return { ok: false, message: "message must be 4000 characters or fewer." };
   }
   const webSourcePermission =
     typeof payload.web_source_permission === "string"
