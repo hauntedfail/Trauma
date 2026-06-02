@@ -172,6 +172,108 @@ export async function appendAssistantResponse(input: {
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
+export async function appendRegeneratedAssistantResponse(input: {
+  assistantResponse: string;
+  citations: PsychiatristPairAssistant["citations"];
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+  if (existing === undefined || existing.assistant === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "pair_not_found",
+      "Cannot regenerate an assistant response without a completed pair.",
+    );
+  }
+
+  const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
+  await mkdir(pairDirectoryPath, { recursive: true });
+  await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
+  await appendPairRevision(input.config, loaded.manifest, {
+    assistant_response: input.assistantResponse,
+    created_at: existing.user.createdAt,
+    pair_id: input.pairId,
+    response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
+    revision_kind: "completed",
+    source_citations: input.citations.map((citation) => ({
+      source_id: citation.sourceId,
+      title: citation.title,
+      url: citation.url,
+    })),
+    status: "completed",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+    updated_at: new Date().toISOString(),
+    user_prompt: existing.user.content,
+  });
+  await rewriteThreadMarkdown(input.config, loaded.manifest);
+}
+
+export async function loadPsychiatristPairRegeneration(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+}): Promise<{
+  contextSnapshot: PsychiatristContextSnapshotManifest;
+  manifest: PsychiatristThreadManifest;
+  pair: PsychiatristThreadPair;
+  paths: {
+    pairContextRelativePath: string;
+    pairPromptRelativePath: string;
+    pairResponseRelativePath: string;
+    pairRevisionLogRelativePath: string;
+    threadMarkdownRelativePath: string;
+  };
+  prompt: string;
+  thread: {
+    manifest: PsychiatristThreadManifest;
+    pairs: PsychiatristThreadPair[];
+  };
+}> {
+  validateSafeId(input.pairId);
+  const root = join(resolve(input.config.storePath), "memories");
+  const glob = new Bun.Glob(`*/threads/*/pairs/${input.pairId}/PROMPT.md`);
+  const relativePromptPath = glob.scanSync({ cwd: root }).next().value;
+  if (typeof relativePromptPath !== "string") {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
+  }
+  const parts = relativePromptPath.split("/");
+  const memoryId = parts[0];
+  const threadId = parts[2];
+  if (memoryId === undefined || threadId === undefined) {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
+  }
+  const thread = await loadPsychiatristThread({ config: input.config, threadId });
+  const pair = thread.pairs.find((candidate) => candidate.pairId === input.pairId);
+  if (pair === undefined) {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
+  }
+  const prompt = await readFile(join(root, relativePromptPath), "utf8");
+  const contextPath = join(pairDirectory(input.config, thread.manifest, input.pairId), "CONTEXT.json");
+  const contextSnapshot = parseContextSnapshot(
+    JSON.parse(await readFile(contextPath, "utf8")),
+  );
+  return {
+    contextSnapshot,
+    manifest: thread.manifest,
+    pair,
+    paths: {
+      pairContextRelativePath: pairContextRelativePath(thread.manifest, input.pairId),
+      pairPromptRelativePath: pairPromptRelativePath(thread.manifest, input.pairId),
+      pairResponseRelativePath: pairResponseRelativePath(thread.manifest, input.pairId),
+      pairRevisionLogRelativePath: pairRevisionLogRelativePath(thread.manifest),
+      threadMarkdownRelativePath: threadMarkdownRelativePath(thread.manifest),
+    },
+    prompt,
+    thread,
+  };
+}
+
 export async function loadPsychiatristThread(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   threadId: string;
@@ -191,6 +293,24 @@ export async function loadPsychiatristThread(input: {
   return {
     manifest,
     pairs: reducePairRows(rows),
+  };
+}
+
+function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManifest {
+  if (!isRecord(value)) {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Invalid CONTEXT.json.");
+  }
+  return {
+    contentHash: readRequiredString(value, "content_hash"),
+    contextSnapshotId: readRequiredString(value, "context_snapshot_id"),
+    langCode: readOptionalString(value, "lang_code"),
+    memoryId: readRequiredString(value, "memory_id"),
+    policyVersion: readRequiredString(value, "policy_version"),
+    selectedSectionAnchors: readStringArray(value, "selected_section_anchors"),
+    selectedSectionHashes: readStringArray(value, "selected_section_hashes"),
+    translationOutputHash: readOptionalString(value, "translation_output_hash"),
+    userPrompt: readRequiredString(value, "user_prompt"),
+    variantKind: readRequiredString(value, "variant_kind") as "source" | "translation",
   };
 }
 
@@ -336,6 +456,37 @@ function renderThreadMarkdown(pairs: PsychiatristThreadPair[]): string {
   ].join("\n");
 }
 
+function threadMarkdownRelativePath(manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "THREAD.md");
+}
+
+function pairPromptRelativePath(
+  manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
+  pairId: string,
+): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "pairs", pairId, "PROMPT.md");
+}
+
+function pairContextRelativePath(
+  manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
+  pairId: string,
+): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "pairs", pairId, "CONTEXT.json");
+}
+
+function pairResponseRelativePath(
+  manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
+  pairId: string,
+): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "pairs", pairId, "RESPONSE.md");
+}
+
+function pairRevisionLogRelativePath(
+  manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
+): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "PAIRS.jsonl");
+}
+
 function threadDirectory(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
@@ -385,6 +536,14 @@ function readRequiredString(value: Record<string, unknown>, key: string): string
 function readOptionalString(value: Record<string, unknown>, key: string): string | undefined {
   const field = value[key];
   return typeof field === "string" ? field : undefined;
+}
+
+function readStringArray(value: Record<string, unknown>, key: string): string[] {
+  const field = value[key];
+  if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) {
+    throw new PsychiatristThreadStoreError("pair_not_found", `Missing ${key}.`);
+  }
+  return field;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { createSendPsychiatristMessageHandler } from "../../../src/server/psychiatrist/message-route";
 import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychiatrist/cancel-route";
+import { createRegeneratePsychiatristResponseHandler } from "../../../src/server/psychiatrist/regenerate-route";
 import { activePsychiatristTurns } from "../../../src/server/psychiatrist/active-turns";
 import { loadPsychiatristStreamReplay } from "../../../src/server/psychiatrist/stream-store";
 import {
@@ -444,6 +445,166 @@ describe("Psychiatrist thread API routes", () => {
       "psychiatrist.turn.canceled",
     ]);
   });
+
+  it("regenerates a completed pair by reusing prompt context and overwriting the response artifact", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendClient = new FakeConversationClient("Original answer.");
+    const sendHandler = createSendPsychiatristMessageHandler({
+      client: sendClient,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What changed?", web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed";
+    });
+
+    const backupEnqueues: unknown[] = [];
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000004";
+    const regenerateClient = new FakeConversationClient("Regenerated answer.");
+    const regenerateHandler = createRegeneratePsychiatristResponseHandler({
+      backupQueue: {
+        enqueue: async (input) => {
+          backupEnqueues.push(input);
+          return { backupStatus: "queued" };
+        },
+      },
+      client: regenerateClient,
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+    });
+
+    const response = await regenerateHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      event_url: `/api/psychiatrist-turns/${regenerateTurnId}/events`,
+      pair_id: PAIR_ID,
+      replay_url: `/api/psychiatrist-turns/${regenerateTurnId}/events`,
+      status: "started",
+      thread_id: THREAD_ID,
+      turn_id: regenerateTurnId,
+    });
+    expect(regenerateClient.inputs[0]).toMatchObject({
+      cwdPurpose: "psychiatrist",
+      input: expect.stringContaining('"reason":"user_requested_regenerate"'),
+      networkAccess: "disabled",
+    });
+    expect(regenerateClient.inputs[0]?.input).toContain("What changed?");
+
+    await waitFor(async () => {
+      const content = await readFile(
+        join(
+          storePath,
+          "memories",
+          MEMORY_ID,
+          "threads",
+          THREAD_ID,
+          "pairs",
+          PAIR_ID,
+          "RESPONSE.md",
+        ),
+        "utf8",
+      );
+      return content === "Regenerated answer.";
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({ content: "Regenerated answer." }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: regenerateTurnId,
+      }),
+    ]);
+    await expect(
+      readFile(join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md"), "utf8"),
+    ).resolves.toContain("Regenerated answer.");
+    expect(backupEnqueues).toEqual([
+      {
+        contentPaths: [
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,
+        ],
+        memoryId: MEMORY_ID,
+        reason: "psychiatrist_response_regenerate",
+      },
+    ]);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.regenerate.started",
+      "psychiatrist.process.delta",
+      "psychiatrist.answer.delta",
+      "psychiatrist.regenerate.completed",
+    ]);
+  });
+
+  it("rejects regenerate for a non-completed pair", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-pending-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const handler = createSendPsychiatristMessageHandler({
+      client: new HangingConversationClient(),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Still running" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      client: new FakeConversationClient("unused"),
+      config: config(storePath),
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "regenerate_unavailable",
+    });
+  });
 });
 
 function context(
@@ -494,6 +655,24 @@ function manifest(): PsychiatristThreadManifest {
     threadId: THREAD_ID,
     updatedAt: "2026-06-01T00:00:00.000Z",
     variantKind: "source",
+  };
+}
+
+function config(storePath: string) {
+  return {
+    backup: {
+      git: {
+        branch: "main",
+        commitMessageTemplate: "backup {action} {memory_id}",
+        enabled: false,
+        push: false,
+        remote: "origin",
+      },
+    },
+    configFilePath: join(storePath, "trauma.config.json"),
+    databasePath: join(storePath, "trauma.db"),
+    projectPath: storePath,
+    storePath,
   };
 }
 

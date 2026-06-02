@@ -31,7 +31,9 @@ export type BackupTriggerReason =
   | "memory_creation"
   | "flashback_update"
   | "memory_deletion"
-  | "translation_update";
+  | "translation_update"
+  | "psychiatrist_thread_update"
+  | "psychiatrist_response_regenerate";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -594,6 +596,10 @@ function formatBackupAction(reason: BackupTriggerReason): string {
       return "deleted memory";
     case "translation_update":
       return "updated translation";
+    case "psychiatrist_thread_update":
+      return "updated psychiatrist thread";
+    case "psychiatrist_response_regenerate":
+      return "regenerated psychiatrist response";
   }
 }
 

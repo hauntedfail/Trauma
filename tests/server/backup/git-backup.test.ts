@@ -207,6 +207,8 @@ describe("git backup runner", () => {
     const contentPath = `memories/${memoryId}/CONTENT.md`;
     const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
     const translationPath = `memories/${memoryId}/ja-JP/CONTENT.md`;
+    const psychiatristThreadPath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md`;
+    const psychiatristResponsePath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md`;
     await mkdir(join(storePath, "memories", memoryId), { recursive: true });
     initializeGitRepository(projectPath);
     const config = createConfig({
@@ -246,6 +248,39 @@ describe("git backup runner", () => {
       }),
     });
 
+    await mkdir(join(storePath, "memories", memoryId, "threads", "019e8a00-0000-7000-8000-000000000001"), {
+      recursive: true,
+    });
+    await writeFile(join(storePath, psychiatristThreadPath), "# Psychiatrist Thread", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristThreadPath],
+        reason: "psychiatrist_thread_update",
+      }),
+    });
+
+    await mkdir(
+      join(
+        storePath,
+        "memories",
+        memoryId,
+        "threads",
+        "019e8a00-0000-7000-8000-000000000001",
+        "pairs",
+        "019e8a00-0000-7000-8000-000000000002",
+      ),
+      { recursive: true },
+    );
+    await writeFile(join(storePath, psychiatristResponsePath), "Regenerated", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristResponsePath],
+        reason: "psychiatrist_response_regenerate",
+      }),
+    });
+
     await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
     await runGitBackupJob({
       config,
@@ -258,6 +293,8 @@ describe("git backup runner", () => {
     expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
       .toEqual([
         `backup deleted memory ${memoryId}`,
+        `backup regenerated psychiatrist response ${memoryId}`,
+        `backup updated psychiatrist thread ${memoryId}`,
         `backup updated translation ${memoryId}`,
         `backup updated flashbacks ${memoryId}`,
         `backup created memory ${memoryId}`,
