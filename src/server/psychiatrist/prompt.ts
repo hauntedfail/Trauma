@@ -68,7 +68,7 @@ export function buildPsychiatristPrompt(input: PsychiatristPromptInput): string 
         title: section.title,
       }),
       `<memory_section_untrusted anchor="${escapeDelimiterAttribute(section.anchor)}">`,
-      section.markdown,
+      escapeUntrustedMemoryMarkdown(section.markdown),
       "</memory_section_untrusted>",
       "",
     ]),
@@ -115,4 +115,12 @@ function serializePair(pair: PsychiatristThreadPair) {
 
 function escapeDelimiterAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function escapeUntrustedMemoryMarkdown(markdown: string): string {
+  return markdown
+    .replace(/<memory_section_untrusted\b[^>]*>/gi, (match) =>
+      match.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    )
+    .replace(/<\/memory_section_untrusted>/gi, "&lt;/memory_section_untrusted&gt;");
 }
