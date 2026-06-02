@@ -23,6 +23,7 @@ export type CodexAppServerEvent =
   | { type: "thread.started"; threadId: string }
   | { type: "turn.started"; turnId: string }
   | { type: "delta"; text: string }
+  | { type: "process"; message: string }
   | { type: "item.started"; itemId: string | null }
   | { type: "item.completed"; itemId: string | null };
 
@@ -87,6 +88,37 @@ export interface TranslationClient {
   translateChunk: (input: TranslateChunkInput) => Promise<RawCodexChunkOutput>;
 }
 
+export interface CodexConversationTurnInput {
+  cwdPurpose: "translation" | "psychiatrist";
+  input: string;
+  model?: string | null;
+  networkAccess?: "disabled" | "user_approved_web_sources";
+  onEvent?: (event: CodexAppServerEvent) => void;
+  reasoningEffort?: CodexReasoningEffort | null;
+  sandboxPolicy?: CodexSandboxPolicy;
+  threadId?: string;
+}
+
+export interface CodexConversationTurnResult {
+  outputText: string;
+  threadId: string;
+  turnId: string;
+}
+
+export interface CodexConversationClient {
+  cancelTurn(input: { threadId: string; turnId: string }): Promise<void>;
+  close?: () => Promise<void> | void;
+  probe(): Promise<void>;
+  runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult>;
+}
+
+export interface CodexSandboxPolicy {
+  type: "readOnly";
+  networkAccess: boolean;
+}
+
 interface WireMessage {
   id?: string;
   method?: string;
@@ -148,7 +180,7 @@ export function parseCodexAppServerEndpoint(
   );
 }
 
-export class CodexAppServerClient implements TranslationClient {
+export class CodexAppServerClient implements TranslationClient, CodexConversationClient {
   private initialized = false;
   private connectionClosed = false;
   private readonly closeListeners = new Set<(error: CodexAppServerError) => void>();
@@ -335,6 +367,99 @@ export class CodexAppServerClient implements TranslationClient {
       this.outputSchemaMode = "prompt_only";
       return this.translateChunkAttempt(input, { includeOutputSchema: false });
     }
+  }
+
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    await this.probe();
+    const runtimeCwd = await createRuntimeCwd(
+      input.threadId === undefined
+        ? `${input.cwdPurpose}-${randomBytes(8).toString("hex")}`
+        : `${input.cwdPurpose}-${input.threadId}`,
+    );
+    try {
+      const threadId = input.threadId ?? await this.startEphemeralThread({
+        cwd: runtimeCwd,
+        onEvent: input.onEvent,
+      });
+
+      let turnId: string | undefined;
+      const completed = this.waitForTextTurnCompletion({
+        onEvent: input.onEvent,
+        threadId,
+        turnId: () => turnId,
+      });
+      let turn: unknown;
+      const networkAccess = input.networkAccess === "user_approved_web_sources";
+      const turnStartParams = {
+        threadId,
+        input: [{ type: "text", text: input.input, text_elements: [] }],
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        sandboxPolicy: input.sandboxPolicy ?? {
+          type: "readOnly",
+          networkAccess,
+        },
+        ...(input.model === undefined || input.model === null
+          ? {}
+          : { model: input.model }),
+        ...(input.reasoningEffort === undefined || input.reasoningEffort === null
+          ? {}
+          : { effort: input.reasoningEffort }),
+      };
+      try {
+        turn = await this.request("turn/start", turnStartParams);
+      } catch (error) {
+        completed.unsubscribe();
+        throw error;
+      }
+      turnId = readTurnStartResponseTurnId(turn);
+      if (turnId !== undefined) {
+        input.onEvent?.({ type: "turn.started", turnId });
+      }
+      const immediateOutput = readFinalTextOutput(turn);
+      if (immediateOutput !== undefined && turnId !== undefined) {
+        completed.unsubscribe();
+        return { outputText: immediateOutput, threadId, turnId };
+      }
+
+      try {
+        const completedOutput = await completed.output;
+        return {
+          outputText: completedOutput.outputText,
+          threadId,
+          turnId: completedOutput.turnId,
+        };
+      } finally {
+        completed.unsubscribe();
+      }
+    } finally {
+      await removeRuntimeCwd(runtimeCwd);
+    }
+  }
+
+  private async startEphemeralThread(input: {
+    cwd: string;
+    onEvent?: (event: CodexAppServerEvent) => void;
+  }): Promise<string> {
+    const thread = await this.request("thread/start", {
+      cwd: input.cwd,
+      ephemeral: true,
+      approvalPolicy: "never",
+      approvalsReviewer: "auto_review",
+      sandbox: "read-only",
+      threadSource: "user",
+    });
+    const threadId = readThreadStartResponseThreadId(thread);
+    if (threadId === undefined) {
+      throw new CodexAppServerError(
+        "app_server_unavailable",
+        "Codex app-server did not return a thread id.",
+      );
+    }
+    input.onEvent?.({ type: "thread.started", threadId });
+    return threadId;
   }
 
   private async translateChunkAttempt(
@@ -648,6 +773,149 @@ export class CodexAppServerClient implements TranslationClient {
             return;
           }
           settleResolve(finalOutput);
+        }
+      });
+    });
+    return {
+      output,
+      unsubscribe: () => {
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        unsubscribe();
+        unsubscribeClose();
+      },
+    };
+  }
+
+  private waitForTextTurnCompletion(input: {
+    onEvent?: (event: CodexAppServerEvent) => void;
+    threadId: string;
+    turnId: () => string | undefined;
+  }): {
+    output: Promise<{ outputText: string; turnId: string }>;
+    unsubscribe: () => void;
+  } {
+    let unsubscribe: () => void = () => undefined;
+    let unsubscribeClose: () => void = () => undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const output = new Promise<{ outputText: string; turnId: string }>((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (value: { outputText: string; turnId: string }) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        resolve(value);
+      };
+      const settleReject = (error: CodexAppServerError) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        reject(error);
+      };
+      timeout = setTimeout(() => {
+        settleReject(
+          new CodexAppServerError(
+            "timeout",
+            "Codex app-server turn timed out.",
+          ),
+        );
+      }, readRequestTimeoutMs());
+      unsubscribeClose = this.subscribeClose((error) => {
+        settleReject(error);
+      });
+      unsubscribe = this.subscribeNotification((message) => {
+        if (message.method === "turn/started") {
+          const startedTurnId = readNotificationTurnId(message.params);
+          if (
+            readNotificationThreadId(message.params) === input.threadId &&
+            startedTurnId !== undefined
+          ) {
+            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+          }
+          return;
+        }
+        if (message.method === "item/agentMessage/delta") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const delta = readStringField(message.params, "delta");
+          if (delta !== undefined) {
+            input.onEvent?.({ type: "delta", text: delta });
+          }
+          return;
+        }
+        if (message.method === "item/process") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const processMessage = readSafeProcessMessage(message.params);
+          if (processMessage !== undefined) {
+            input.onEvent?.({ message: processMessage, type: "process" });
+          }
+          return;
+        }
+        if (message.method === "item/reasoning" || message.method === "raw/event") {
+          return;
+        }
+        if (message.method === "item/started") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          input.onEvent?.({
+            itemId: readNotificationItemId(message.params) ?? null,
+            type: "item.started",
+          });
+          return;
+        }
+        if (message.method === "item/completed") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          input.onEvent?.({
+            itemId: readNotificationItemId(message.params) ?? null,
+            type: "item.completed",
+          });
+          const itemOutput = readFinalTextOutput(message.params);
+          const turnId = readNotificationTurnId(message.params) ?? input.turnId();
+          if (itemOutput !== undefined && turnId !== undefined) {
+            settleResolve({ outputText: itemOutput, turnId });
+          }
+          return;
+        }
+        if (message.method === "turn/completed") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const finalOutput = readFinalTextOutput(message.params);
+          const turnId = readNotificationTurnId(message.params) ?? input.turnId();
+          if (finalOutput === undefined || turnId === undefined) {
+            if (isTurnInterruptedCompletion(message.params)) {
+              settleReject(
+                new CodexAppServerError(
+                  "turn_interrupted",
+                  "Codex app-server turn was interrupted.",
+                ),
+              );
+              return;
+            }
+            settleReject(
+              new CodexAppServerError(
+                "invalid_final_output",
+                "Codex app-server did not return a final conversation response.",
+              ),
+            );
+            return;
+          }
+          settleResolve({ outputText: finalOutput, turnId });
         }
       });
     });
@@ -1062,6 +1330,48 @@ function readFinalOutput(value: unknown): RawCodexChunkOutput | undefined {
   return undefined;
 }
 
+function readFinalTextOutput(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const output = value.output ?? value.finalOutput ?? value.text;
+  if (typeof output === "string") {
+    return output;
+  }
+  if (isRecord(output)) {
+    const text = readStringField(output, "text") ??
+      readStringField(output, "outputText") ??
+      readStringField(output, "content");
+    if (text !== undefined) {
+      return text;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readFinalTextOutput(value.turn);
+    if (turnOutput !== undefined) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readFinalTextOutput(value.item);
+    if (itemOutput !== undefined) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readFinalTextOutput(value.items[index]);
+      if (itemOutput !== undefined) {
+        return itemOutput;
+      }
+    }
+  }
+  if (value.type === "agentMessage" && typeof value.text === "string") {
+    return value.text;
+  }
+  return undefined;
+}
+
 function readThreadStartResponseThreadId(value: unknown): string | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -1295,6 +1605,26 @@ function readStringField(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
     ? value[key]
     : undefined;
+}
+
+function readSafeProcessMessage(params: unknown): string | undefined {
+  const message = readStringField(params, "message") ??
+    readStringField(params, "summary") ??
+    readStringField(params, "status");
+  if (message === undefined || message.trim() === "") {
+    return undefined;
+  }
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("chain of thought") ||
+    normalized.includes("hidden reasoning") ||
+    normalized.includes("/private/") ||
+    normalized.includes("credential") ||
+    normalized.includes("token")
+  ) {
+    return undefined;
+  }
+  return message;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  type CodexAppServerEvent,
   CodexAppServerClient,
   CodexAppServerError,
   parseCodexAppServerEndpoint,
@@ -450,6 +451,159 @@ describe("Codex app-server endpoint parsing", () => {
       });
       expect(turnStart.params).not.toHaveProperty("reasoningEffort");
       expect(turnStart.params).not.toHaveProperty("reasoning_effort");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("runs a new Psychiatrist conversation turn with locked-down defaults", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "The memory says this project is file-backed.",
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      const result = await client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "What does the memory say?",
+        onEvent: (event) => events.push(event),
+      });
+
+      expect(result).toEqual({
+        outputText: "The memory says this project is file-backed.",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "thread/start",
+        "turn/start",
+      ]);
+      const threadStart = findCapturedRequest(receivedMessages, "thread/start");
+      expect(threadStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        ephemeral: true,
+        sandbox: "read-only",
+        threadSource: "user",
+      });
+      expect(JSON.stringify(threadStart.params)).not.toContain(process.cwd());
+      expect(JSON.stringify(threadStart.params)).not.toContain("memories/");
+
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        input: [{ type: "text", text: "What does the memory say?", text_elements: [] }],
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        threadId: "thread-1",
+      });
+      expect(JSON.stringify(turnStart.params).toLowerCase()).not.toContain("shell");
+      expect(JSON.stringify(turnStart.params).toLowerCase()).not.toContain("fileedit");
+      expect(events).toContainEqual({ type: "thread.started", threadId: "thread-1" });
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reuses an existing Psychiatrist thread and enables network only after explicit approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-reuse-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Cited answer.",
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Use the approved source.",
+          model: "gpt-5.5",
+          networkAccess: "user_approved_web_sources",
+          reasoningEffort: "high",
+          threadId: "thread-existing",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Cited answer.",
+        threadId: "thread-existing",
+        turnId: "turn-1",
+      });
+
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "turn/start",
+      ]);
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        effort: "high",
+        model: "gpt-5.5",
+        sandboxPolicy: { type: "readOnly", networkAccess: true },
+        threadId: "thread-existing",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("forwards safe Psychiatrist process events while filtering hidden reasoning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-events-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Final answer.",
+      sendConversationProcessEvents: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "Explain this.",
+        onEvent: (event) => events.push(event),
+      });
+
+      expect(events).toContainEqual({ type: "delta", text: "visible delta" });
+      expect(events).toContainEqual({
+        message: "Reading the active memory context.",
+        type: "process",
+      });
+      expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
+      expect(JSON.stringify(events)).not.toContain("/private/store/path");
     } finally {
       await server.close();
     }
@@ -1101,6 +1255,10 @@ function handleClientMessage(
       sendJson(socket, { id, result: { threadId: "thread-1" } });
       break;
     case "turn/start":
+      const activeThreadId = isRecord(value.params) &&
+          typeof value.params.threadId === "string"
+        ? value.params.threadId
+        : "thread-1";
       if (
         options.rejectOutputSchemaOnce === true &&
         isRecord(value.params) &&
@@ -1124,7 +1282,7 @@ function handleClientMessage(
           params: {
             reason: "interrupted",
             status: "interrupted",
-            threadId: "thread-1",
+            threadId: activeThreadId,
             turnId: "turn-1",
           },
         });
@@ -1132,20 +1290,42 @@ function handleClientMessage(
       }
       sendJson(socket, {
         method: "turn/started",
-        params: { threadId: "thread-1", turnId: "turn-1" },
+        params: { threadId: activeThreadId, turnId: "turn-1" },
       });
+      if (options.sendConversationProcessEvents === true) {
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading the active memory context.",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/reasoning",
+          params: {
+            message: "hidden chain of thought from /private/store/path",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "turn-1", delta: "visible delta" },
+        });
+      }
       sendJson(socket, {
         method: "item/agentMessage/delta",
-        params: { threadId: "thread-1", turnId: "turn-1", delta: "翻訳" },
+        params: { threadId: activeThreadId, turnId: "turn-1", delta: "翻訳" },
       });
       sendJson(socket, {
         method: "item/completed",
         params: {
-          threadId: "thread-1",
+          threadId: activeThreadId,
           turnId: "turn-1",
           item: {
             id: "item-1",
-            text: JSON.stringify({
+            text: options.conversationFinalText ?? JSON.stringify({
               chunk_index: 0,
               segments: [{ id: "s000001", translated_text: "翻訳本文" }],
               translated_markdown: "翻訳本文",
@@ -1166,6 +1346,7 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  conversationFinalText?: string;
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
@@ -1173,6 +1354,7 @@ interface FakeAppServerOptions {
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
   sendCloseBeforeAccountReadResponse?: boolean;
+  sendConversationProcessEvents?: boolean;
   sendInterruptedTurnCompletion?: boolean;
   sendPingBeforeAccountReadResponse?: boolean;
   sendMalformedJsonAfterInitialize?: boolean;
