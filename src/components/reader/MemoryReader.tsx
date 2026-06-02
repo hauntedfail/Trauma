@@ -80,6 +80,7 @@ import {
   readerPadding,
   readerStatePanel,
 } from "./reader-styles";
+import { PsychiatristDock } from "./PsychiatristDock";
 import { toSafeReaderSourceHref } from "./source-url";
 import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
@@ -871,6 +872,10 @@ function ReadyMemoryReader(props: {
 
   return (
     <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
+      <PsychiatristDock
+        langCode={props.result.content.langCode}
+        memoryId={props.result.memory.id}
+      />
       <RouteHeader
         class={`${readerPadding} trauma-reader-header`}
         leading={() => (
