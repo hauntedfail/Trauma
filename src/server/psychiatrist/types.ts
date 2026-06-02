@@ -66,3 +66,57 @@ export interface PsychiatristWebSourcePolicy {
   allowed: boolean;
   reason: "default_denied" | "user_approved_for_turn";
 }
+
+export interface PsychiatristThreadManifest {
+  activeContentHash: string;
+  codexThreadId?: string;
+  createdAt: string;
+  langCode?: string;
+  memoryId: string;
+  policyVersion: string;
+  sourceHash: string;
+  status: "ready" | "running" | "stale" | "failed" | "canceled";
+  threadId: string;
+  translationOutputHash?: string;
+  updatedAt: string;
+  variantKind: "source" | "translation";
+}
+
+export interface PsychiatristContextSnapshotManifest {
+  contentHash: string;
+  contextSnapshotId: string;
+  langCode?: string;
+  memoryId: string;
+  policyVersion: string;
+  selectedSectionAnchors: string[];
+  selectedSectionHashes: string[];
+  translationOutputHash?: string;
+  userPrompt: string;
+  variantKind: "source" | "translation";
+}
+
+export type PsychiatristStreamEventType =
+  | "psychiatrist.turn.started"
+  | "psychiatrist.process.delta"
+  | "psychiatrist.answer.delta"
+  | "psychiatrist.answer.completed"
+  | "psychiatrist.answer.failed"
+  | "psychiatrist.turn.canceled"
+  | "psychiatrist.thread.stale"
+  | "psychiatrist.network.permission_required"
+  | "psychiatrist.regenerate.started"
+  | "psychiatrist.regenerate.completed";
+
+export interface PsychiatristStreamEventInput<TData = unknown> {
+  data: TData;
+  memoryId: string;
+  threadId: string;
+  turnId: string;
+  type: PsychiatristStreamEventType;
+}
+
+export interface PsychiatristStreamEvent<TData = unknown>
+  extends PsychiatristStreamEventInput<TData> {
+  eventId: string;
+  timestamp: number;
+}
