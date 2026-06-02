@@ -22,10 +22,16 @@ browser, and prepare the PR handoff with exact evidence.
 `docs/architecture/flows.md`:
 
 - Add a memory-scoped Psychiatrist flow.
-- State that thread creation loads context and message turns stream through
+- State that thread creation loads context and prompt/response pair turns stream through
   TRAUMA SSE.
 - State that user prompts and Psychiatrist answers are stored under
-  `{storePath}/memories/{memoryId}/threads/{threadId}/`, not SQLite.
+  `{storePath}/memories/{memoryId}/threads/{threadId}/PAIRS.jsonl`, not
+  SQLite.
+- State that every durable assistant answer belongs to one stored user prompt in
+  the same pair.
+- State that Psychiatrist Codex app-server turns deny shell access, local file
+  editing, local filesystem browsing, project/store filesystem roots, and
+  unapproved network access.
 - State that canonical memory content, translated content, taxonomy,
   Flashbacks, Moments, and SQLite state are not modified by chat.
 
@@ -39,18 +45,28 @@ browser, and prepare the PR handoff with exact evidence.
 `docs/references/design-system/reader-and-content.md`:
 
 - Add the floating home-bar dock and expanded chat panel visual contract.
-- State that the dock resumes stored memory-local thread messages when the
-  thread API returns them.
+- State that the dock resumes stored memory-local thread pairs when the thread
+  API returns them.
+- Add the per-turn web-source permission UI state for
+  `network_permission_required`.
 - Include reduced-motion and mobile viewport behavior.
 
 `docs/references/configuration.md`:
 
 - Update the Codex app-server section so it covers translation and
   Psychiatrist as backend-only consumers.
+- Document that Psychiatrist does not add shell/file access configuration.
+  Network access is per-turn and user-approved only.
 
 `docs/references/glossary.md`:
 
 - Add `Psychiatrist` as TRAUMA product language for a memory-scoped assistant.
+
+`.agents/skills/psychiatrist/SKILL.md`:
+
+- Document the assistant's durable behavior policy, including memory-only
+  scope, pair discipline, no medical role, no writes, no shell/file access, and
+  user-approved web-source access only.
 
 `docs/workflows/README.md`:
 
@@ -91,8 +107,10 @@ Then verify:
 - Chat expands and collapses with animation.
 - Reduced-motion emulation removes transform-heavy animation.
 - A real or fake Codex streamed answer appears in the transcript and is written
-  under the active memory's `threads/` subtree.
+  under the active memory's `threads/` subtree as one prompt/response pair.
 - Stale-thread recovery asks for or creates a fresh thread before resending.
+- A network-required response does not use web access before approval.
+- A user-approved web-source retry records source metadata on the pair.
 
 ## PR Handoff Requirements
 
@@ -100,10 +118,14 @@ The PR body must include:
 
 - One-paragraph product behavior summary.
 - API route list.
-- Statement that prompts and answers are persisted under memory-local
-  `threads/` storage, not SQLite.
+- Statement that prompts and answers are persisted as pair records under
+  memory-local `threads/` storage, not SQLite.
 - Statement that no canonical memory content writes were added outside
   Psychiatrist thread artifacts.
+- Statement that Psychiatrist is governed by the repo-local `psychiatrist`
+  skill policy and the deterministic runtime prompt mirrors it.
+- Statement that app-server turns have no shell/local-file access and no
+  network access unless the user approves web-source lookup for that turn.
 - Exact verification commands and outcomes.
 - Browser viewport evidence for desktop and mobile.
 - Known limitations: this workflow does not add archive-wide thread browse,

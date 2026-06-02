@@ -38,6 +38,25 @@ Prompt injection:
   leak credentials, or write files. The expected prompt keeps that text inside
   the memory context section only.
 
+Runtime boundary:
+
+- Psychiatrist Codex app-server turns run without shell access, local file edit
+  tools, local filesystem browsing, project-root access, or memory-store access.
+- The prompt includes the same boundary, but the adapter test must also prove
+  the app-server payload does not expose those capabilities.
+- TRAUMA server code may write only `THREAD.json`, `PAIRS.jsonl`, and
+  `turns/{turnId}.json` under the active memory thread directory.
+
+Network boundary:
+
+- Network is denied by default for every Psychiatrist turn.
+- Web search/source lookup can be enabled only when the user explicitly approves
+  it for the current turn or retry.
+- If network is denied and current web sources are required, return
+  `network_permission_required` without attempting network access.
+- If network is approved, store safe source citation metadata on the pair and do
+  not expose raw fetch payloads, credentials, or app-server transport details.
+
 Context bounds:
 
 - Enforce `PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4000`.
@@ -51,11 +70,20 @@ Turn lifecycle:
 
 - A canceled turn calls app-server `turn/interrupt` when thread and turn ids are
   known.
-- Cancellation updates `turns/{turnId}.json` and appends no assistant answer to
-  `MESSAGES.jsonl`.
+- Cancellation updates `turns/{turnId}.json`, marks the pair `canceled`, and
+  writes no `assistant_response`.
 - Closing the UI panel does not cancel a running turn.
 - Route unmount closes the browser `EventSource`.
 - A missing thread emits `thread_not_found` and the UI creates a new thread.
+
+Pair integrity:
+
+- Every durable prompt/answer turn is stored as one pair in `PAIRS.jsonl`.
+- A pending pair is created before Codex execution begins.
+- Completed output can append only a completed revision for the matching pending
+  pair.
+- Failed, canceled, stale, and network-permission-required turns must not create
+  orphan assistant responses.
 
 Safe UI errors:
 
@@ -64,6 +92,8 @@ Safe UI errors:
 - `usage_limit`, `timeout`, and `stream_disconnected` are retryable.
 - `context_overflow` tells the user the memory is too large for the current
   assistant context.
+- `network_permission_required` asks the user to allow web search/source lookup
+  for this answer.
 - Unknown errors use a generic message and log details server-side only.
 
 ## Tests
@@ -78,8 +108,14 @@ Add or extend tests for:
 - UI refreshes a stale thread and preserves the unsent user prompt.
 - Browser-visible errors omit Markdown, prompts, socket paths, absolute store
   paths, and credentials.
-- User prompts remain persisted in `MESSAGES.jsonl` when the assistant turn
-  fails after the prompt has been accepted.
+- User prompts remain persisted in `PAIRS.jsonl` when the assistant turn fails
+  after the prompt has been accepted, with no `assistant_response`.
+- Completed assistant output revision cannot be written unless a matching
+  pending pair already exists.
+- Default-denied network turns do not include network-enabled app-server fields
+  or web-source metadata.
+- User-approved network turns persist safe source citation metadata on the
+  matching pair.
 
 Run:
 
@@ -93,3 +129,5 @@ mise exec -- bun run typecheck
 - Psychiatrist cannot be driven by instructions embedded in a memory.
 - Stale content is never answered as if current.
 - The UI gives recoverable failures without leaking backend details.
+- Runtime and prompt policy both prohibit shell access, local file editing, and
+  unapproved network access.

@@ -21,7 +21,7 @@ architecture, reference, quality, or operations docs.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
-| 24 | [Psychiatrist memory assistant](task-24-psychiatrist-assistant/README.md) | Reader-only memory-scoped assistant using Codex app-server turns, memory-local thread storage, and a floating chat dock | Ready for `feat/psychiatrist` |
+| 24 | [Psychiatrist memory assistant](task-24-psychiatrist-assistant/README.md) | Reader-only memory-scoped assistant using Codex app-server turns, pair-managed memory-local thread storage, skill-governed runtime policy, and a floating chat dock | Ready for `feat/psychiatrist` |
 
 ## Current Audit Notes
 
@@ -43,6 +43,10 @@ architecture, reference, quality, or operations docs.
   introduces `Psychiatrist` as TRAUMA product language for a memory-scoped,
   reader-only assistant that reuses backend-only Codex app-server integration
   without reopening Brilliant translation storage or stitching behavior.
+  Durable chat history is stored as user-prompt/assistant-response pairs under
+  each memory's `threads/` subtree, and the assistant policy is governed by a
+  future repo-local `psychiatrist` skill with no shell/file access and
+  user-approved network access only.
 
 ## Archived Workflows
 

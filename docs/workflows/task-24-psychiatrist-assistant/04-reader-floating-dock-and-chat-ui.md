@@ -33,12 +33,20 @@ Expanded state:
   height transitions.
 - Header text is `Psychiatrist`.
 - Transcript area is bounded and scrollable.
-- User messages and assistant messages have distinct alignment and surface
+- Transcript state is loaded as prompt/response pairs. The UI may render each
+  pair as a user bubble followed by an assistant bubble or status row, but the
+  client model keeps `pairId`, `turnId`, pair `status`, `userPrompt`, and
+  optional `assistantResponse` together.
+- User prompts and assistant responses have distinct alignment and surface
   treatments using existing design tokens.
 - Input is a textarea with a send button. Enter sends, Shift+Enter inserts a
   newline.
 - While a turn is running, the send button is disabled and a cancel action is
   visible.
+- If the server returns `network_permission_required`, show a compact
+  per-turn approval action for web search/source lookup. Approval retries the
+  same prompt with `web_source_permission: "allow_for_this_turn"`; denial leaves
+  network disabled.
 - Escape closes the panel and returns focus to the home-bar trigger.
 - Closing the panel does not discard the transcript for the current reader
   thread.
@@ -77,6 +85,7 @@ export async function sendPsychiatristMessage(input: {
   clientMessageId: string;
   message: string;
   threadId: string;
+  webSourcePermission?: "deny" | "allow_for_this_turn";
 }): Promise<PsychiatristTurnStartedResponse>;
 
 export async function cancelPsychiatristTurn(input: {
@@ -92,6 +101,10 @@ On reader mount, the dock calls `createPsychiatristThread()` with
 from `{storePath}/memories/{memoryId}/threads/`. If no matching thread exists,
 the server creates a new thread.
 
+The thread API returns stored pairs. `PsychiatristDock` converts them into
+display rows without losing the pair relationship so retry, cancel, and stale
+status actions can target the correct `pairId` and `turnId`.
+
 ## Tests
 
 Component tests:
@@ -103,16 +116,22 @@ Component tests:
 - Dock source keeps chat outside `data-reader-content`.
 - Empty prompt does not call the message route.
 - Enter sends and Shift+Enter keeps a newline.
-- Opening the dock loads stored thread messages returned by the thread API.
+- Opening the dock loads stored thread pairs returned by the thread API and
+  renders completed pairs as user/assistant rows.
+- Web-source approval sends only `web_source_permission:
+  "allow_for_this_turn"` for the active retry and never persists a global
+  network preference.
 
 E2E tests:
 
 - `/memories/:id` shows collapsed dock.
 - `/memories` does not show the dock.
 - Clicking the home bar expands the panel.
-- A fake streamed response appends assistant text to the transcript.
-- The fake streamed response persists the user prompt and completed answer under
-  the memory-local `threads/` subtree.
+- A fake streamed response appends assistant text to the active pair.
+- The fake streamed response persists the user prompt and completed answer as
+  one pair under the memory-local `threads/` subtree.
+- A fake network-required response keeps network disabled until the user
+  approves the per-turn web-source retry action.
 - Mobile viewport keeps the panel within the viewport and above bottom chrome.
 
 Run:

@@ -3,9 +3,10 @@
 ## Goal
 
 Add TRAUMA API routes and storage-backed thread management for memory-scoped
-Psychiatrist conversations. User prompts and Psychiatrist answers are persisted
-under the owning memory directory, while active turn state stays in memory only
-for SSE fan-out and cancellation.
+Psychiatrist conversations. Each durable transcript row is a pair containing one
+accepted user prompt and the corresponding Psychiatrist response when one
+exists. Pair records are persisted under the owning memory directory, while
+active turn state stays in memory only for SSE fan-out and cancellation.
 
 ## Files Likely Owned
 
@@ -33,7 +34,7 @@ Persist each conversation under the active memory's store directory:
 
 ```text
 {storePath}/memories/{memoryId}/threads/{threadId}/THREAD.json
-{storePath}/memories/{memoryId}/threads/{threadId}/MESSAGES.jsonl
+{storePath}/memories/{memoryId}/threads/{threadId}/PAIRS.jsonl
 {storePath}/memories/{memoryId}/threads/{threadId}/turns/{turnId}.json
 ```
 
@@ -47,16 +48,24 @@ Rules:
 - `THREAD.json` stores memory id, variant kind, optional lang code, source hash,
   active content hash, optional translation output hash, created/updated times,
   status, and the latest known Codex app-server thread id.
-- `MESSAGES.jsonl` stores user prompts and completed Psychiatrist answers in
-  chronological order. Each row includes message id, role, content, created_at,
-  and turn_id.
+- `PAIRS.jsonl` stores an append-only prompt/response pair revision log in
+  chronological order. Each row includes `pair_id`, `thread_id`, `turn_id`,
+  `revision_kind`, `status`, `user_prompt`, optional `assistant_response`,
+  optional `source_citations`, optional `web_source_policy`, `created_at`, and
+  `updated_at`.
+- Thread loading reduces rows by `pair_id` and keeps the latest complete
+  revision for display, prompt history, retry, and cancellation decisions.
+- A pending pair is appended after the user prompt is accepted and before Codex
+  starts. The same `pair_id` is completed by appending a completed revision with
+  the assistant response after final output validation.
 - `turns/{turnId}.json` stores turn status, started/completed/canceled/failed
   timestamps, safe error code/action, and transient Codex thread/turn ids when
   known.
 - Streamed deltas are not durable transcript state. Append the assistant answer
-  only after the Codex turn completes.
-- Failed or canceled turns append no assistant answer. Their safe status is
-  stored in `turns/{turnId}.json`.
+  to the pair only after the Codex turn completes.
+- Failed or canceled turns leave their pair without `assistant_response` and
+  mark the pair status `failed` or `canceled`. Their safe status is also stored
+  in `turns/{turnId}.json`.
 - Writes must be atomic: write temp files inside the thread directory, then
   rename. JSONL appends must preserve complete-line integrity.
 - Browser API responses may include opaque ids and safe statuses. They must not
@@ -93,12 +102,19 @@ Successful response:
   "lang_code": "ja-JP",
   "variant_kind": "translation",
   "content_hash": "sha256:...",
-  "messages": [
+  "pairs": [
     {
-      "id": "019f...",
-      "role": "user",
-      "content": "What does this memory say about the deployment risk?",
-      "created_at": "2026-06-01T12:00:00.000Z"
+      "pair_id": "019f...",
+      "status": "completed",
+      "user_prompt": {
+        "content": "What does this memory say about the deployment risk?",
+        "created_at": "2026-06-01T12:00:00.000Z"
+      },
+      "assistant_response": {
+        "content": "The memory says the deployment risk is...",
+        "completed_at": "2026-06-01T12:00:04.000Z",
+        "source_citations": []
+      }
     }
   ]
 }
@@ -110,8 +126,10 @@ Read thread:
 GET /api/psychiatrist-threads/:threadId
 ```
 
-This returns the safe thread manifest and stored messages for a thread that
-still belongs to an existing memory and active variant.
+This returns the safe thread manifest and stored pairs for a thread that still
+belongs to an existing memory and active variant. The API may project pairs into
+message bubbles for UI convenience, but the storage source of truth remains the
+pair row.
 
 Send message:
 
@@ -121,7 +139,8 @@ content-type: application/json
 
 {
   "client_message_id": "local-1",
-  "message": "What does this memory say about the deployment risk?"
+  "message": "What does this memory say about the deployment risk?",
+  "web_source_permission": "deny"
 }
 ```
 
@@ -130,11 +149,16 @@ Response:
 ```json
 {
   "status": "started",
+  "pair_id": "019f...",
   "turn_id": "019f...",
   "thread_id": "019f...",
   "event_url": "/api/psychiatrist-turns/019f.../events"
 }
 ```
+
+`web_source_permission` defaults to `"deny"`. The only enabling value is
+`"allow_for_this_turn"`, and it is valid only when the user explicitly approved
+web search/source lookup in the UI for this send or retry action.
 
 Stream turn events:
 
@@ -151,6 +175,7 @@ Event names:
 - `psychiatrist.answer.failed`
 - `psychiatrist.turn.canceled`
 - `psychiatrist.thread.stale`
+- `psychiatrist.network.permission_required`
 
 Cancel turn:
 
@@ -169,14 +194,21 @@ POST /api/psychiatrist-turns/:turnId/cancel
 - Before each turn, the server reloads the active memory content hash. If it no
   longer matches `THREAD.json`, mark the thread `stale`, return or emit
   `thread_stale`, and require a fresh thread.
-- The server appends the user prompt to `MESSAGES.jsonl` before starting the
-  Codex turn. If Codex fails, the user prompt remains stored with the failed
-  turn id so the UI can retry or start a follow-up.
-- Completed assistant output is appended to `MESSAGES.jsonl` after final output
-  validation and before the completed SSE event is emitted.
-- On server restart, previously stored transcript messages are available for a
-  resumed thread, but in-flight turns are treated as failed or interrupted
-  because app-server turn ids are not reliable across process restarts.
+- The server appends a pending pair to `PAIRS.jsonl` before starting the Codex
+  turn. If Codex fails, the user prompt remains stored in the failed pair so the
+  UI can retry or start a follow-up.
+- Completed assistant output appends a completed revision for the same `pair_id`
+  in `PAIRS.jsonl` after final output validation and before the completed SSE
+  event is emitted.
+- The server never stores an assistant response without the user prompt in the
+  same pair.
+- If network is denied and Psychiatrist determines that a current web source is
+  required, it returns a safe `network_permission_required` response/event
+  instead of attempting web access. The UI may let the user retry the same pair
+  with `web_source_permission = "allow_for_this_turn"`.
+- On server restart, previously stored pairs are available for a resumed thread,
+  but in-flight turns are treated as failed or interrupted because app-server
+  turn ids are not reliable across process restarts.
 
 ## Error Contract
 
@@ -198,6 +230,7 @@ Required codes:
 - `context_unavailable`
 - `thread_not_found`
 - `thread_stale`
+- `network_permission_required`
 - `turn_conflict`
 - `auth_required`
 - `setup_required`
@@ -227,13 +260,18 @@ Cover:
 - Message route rejects empty messages and oversized messages.
 - Message route rejects missing, stale, and cross-memory threads.
 - Message route rejects a second active turn for the same thread.
-- User prompts and completed assistant answers are appended to `MESSAGES.jsonl`
-  in chronological order.
-- Failed and canceled turns update `turns/{turnId}.json` without appending an
-  assistant answer.
+- User prompts and completed assistant answers are stored as prompt/response
+  pair revisions in `PAIRS.jsonl` in chronological order.
+- Failed and canceled turns update `turns/{turnId}.json` and append a failed or
+  canceled pair revision without writing an `assistant_response`.
+- The store rejects any attempt to append an assistant response without a
+  matching pending pair.
 - Event route emits started/delta/completed in order.
 - Failed app-server turns emit safe failure events.
 - Cancel route calls `cancelTurn()` with the stored Codex thread id and turn id.
+- Denied network turns do not send a network-enabled app-server payload.
+- User-approved web-source turns record `web_source_policy` and safe source
+  citation metadata on the pair.
 - Browser-visible JSON never contains app-server endpoint details, absolute
   store paths, or raw memory Markdown.
 - No test creates or reads a Psychiatrist SQLite table.
@@ -249,7 +287,7 @@ mise exec -- bun run typecheck
 
 - A reader can create or resume a context-ready thread before sending a prompt.
 - Each user message and completed Psychiatrist answer is persisted under the
-  owning memory's `threads/` subtree.
+  owning memory's `threads/` subtree as one prompt/response pair.
 - Each user message streams through TRAUMA SSE, not direct app-server access.
 - Stale memory content is detected before the assistant answers.
 - Psychiatrist introduces no SQLite transcript or assistant-history schema.

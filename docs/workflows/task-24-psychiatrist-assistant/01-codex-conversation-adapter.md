@@ -22,6 +22,7 @@ export interface CodexConversationTurnInput {
   cwdPurpose: "translation" | "psychiatrist";
   input: string;
   model?: string | null;
+  networkAccess?: "disabled" | "user_approved_web_sources";
   onEvent?: (event: CodexAppServerEvent) => void;
   reasoningEffort?: CodexReasoningEffort | null;
   sandboxPolicy?: CodexSandboxPolicy;
@@ -57,6 +58,18 @@ Rules:
   store root.
 - `approvalPolicy`, `approvalsReviewer`, and sandbox defaults remain locked
   down. Psychiatrist turns do not grant filesystem write access.
+- Psychiatrist turns must not grant shell access, local file edit tools, local
+  filesystem browsing, project-root access, memory-store access, or MCP tools
+  that can mutate local state.
+- `networkAccess` defaults to `"disabled"`. The adapter may enable network only
+  when the caller passes `"user_approved_web_sources"` for a turn after the user
+  explicitly approved web search/source lookup.
+- When network remains disabled and the app-server schema can express network
+  denial, send that field. If the schema cannot express it, omit network-capable
+  tools and document the minimum-privilege payload before implementation.
+- TRAUMA server code, not the app-server runtime, writes `THREAD.json`,
+  `PAIRS.jsonl`, and `turns/{turnId}.json` after validating route and context
+  state.
 - The selected `model` and `reasoningEffort` pass through using the same stable
   app-server field names as translation.
 - Final answer text comes from completed app-server item content, not streamed
@@ -68,7 +81,9 @@ Rules:
 
 1. Add failing tests in `tests/server/translation/codex-app-server.test.ts`.
    Cover new thread creation, existing thread reuse, event forwarding, final
-   text extraction, model/effort pass-through, and cancellation.
+   text extraction, model/effort pass-through, cancellation, denied shell/file
+   policy, disabled network default, and the explicit user-approved network
+   flag.
 
 2. Extract or reuse the existing private request helpers so translation and
    conversation turns share initialization, request timeout, model field names,
@@ -79,7 +94,12 @@ Rules:
 4. Keep `translateChunk()` behavior unchanged by having it continue to call the
    existing translation-specific prompt/output parsing path.
 
-5. Run:
+5. Add a narrow fake-app-server assertion that a Psychiatrist turn never
+   includes the project root, memory store root, shell-enabled tool declarations,
+   file-edit tool declarations, or a network-enabled payload unless
+   `networkAccess` is `"user_approved_web_sources"`.
+
+6. Run:
 
 ```bash
 mise exec -- bun run test tests/server/translation/codex-app-server.test.ts
@@ -95,3 +115,6 @@ continue to pass.
   translation chunks.
 - Brilliant translation still uses the existing `TranslationClient` surface.
 - The new adapter never exposes app-server endpoint details to frontend code.
+- Psychiatrist app-server turns are minimum-privilege: no shell, no local file
+  editing, no local filesystem roots, and network disabled unless the user
+  approved web-source access for that turn.
