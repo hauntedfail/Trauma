@@ -26,6 +26,7 @@ import type {
   CodexAppServerEvent,
   CodexConversationClient,
   CodexConversationTurnInput,
+  CodexConversationTurnResult,
 } from "../../../src/server/translation/codex-app-server";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
@@ -331,6 +332,65 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       return loaded.pairs[0]?.status === "completed";
+    });
+  });
+
+  it("marks accepted prompts failed without writing an assistant response when Codex fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-failed-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const handler = createSendPsychiatristMessageHandler({
+      client: new FailingConversationClient(),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What failed?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(async () => {
+      const replay = await loadPsychiatristStreamReplay({
+        config: { storePath },
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      });
+      return replay.some((event) => event.type === "psychiatrist.answer.failed");
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "failed",
+        turnId: TURN_ID,
+        user: expect.objectContaining({ content: "What failed?" }),
+      }),
+    ]);
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      pair_id: PAIR_ID,
+      safe_error: {
+        action: "retry",
+        code: "unknown",
+        message: "Psychiatrist answer failed.",
+      },
+      status: "failed",
+      thread_id: THREAD_ID,
+      turn_id: TURN_ID,
     });
   });
 
@@ -791,7 +851,9 @@ class FakeConversationClient implements CodexConversationClient {
     return undefined;
   }
 
-  async runConversationTurn(input: CodexConversationTurnInput) {
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
     this.inputs.push(input);
     input.onEvent?.({ message: "Reading the active memory context.", type: "process" });
     input.onEvent?.({ text: "partial answer", type: "delta" });
@@ -812,7 +874,9 @@ class HangingConversationClient implements CodexConversationClient {
     return undefined;
   }
 
-  async runConversationTurn(input: CodexConversationTurnInput) {
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
     input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
     await new Promise(() => undefined);
     return {
@@ -820,6 +884,24 @@ class HangingConversationClient implements CodexConversationClient {
       threadId: "codex-thread-1",
       turnId: "codex-turn-1",
     };
+  }
+}
+
+class FailingConversationClient implements CodexConversationClient {
+  async cancelTurn(): Promise<void> {
+    return undefined;
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    input.onEvent?.({ type: "thread.started", threadId: "codex-thread-1" });
+    input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
+    throw new Error("raw failure with /private/tmp/store and token");
   }
 }
 

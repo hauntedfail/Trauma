@@ -262,6 +262,54 @@ export async function markPsychiatristTurnCanceled(input: {
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
+export async function markPsychiatristTurnFailed(input: {
+  codexThreadId?: string;
+  codexTurnId?: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  error: {
+    action: "retry";
+    code: string;
+    message: string;
+  };
+  pairId: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+  if (existing === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "pair_not_found",
+      "Cannot fail a turn without a matching pair.",
+    );
+  }
+  const now = new Date().toISOString();
+  await appendPairRevision(input.config, loaded.manifest, {
+    created_at: existing.user.createdAt,
+    pair_id: input.pairId,
+    revision_kind: "failed",
+    status: "failed",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+    updated_at: now,
+    user_prompt: existing.user.content,
+  });
+  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+    codex_thread_id: input.codexThreadId,
+    codex_turn_id: input.codexTurnId,
+    failed_at: now,
+    pair_id: input.pairId,
+    safe_error: input.error,
+    status: "failed",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  });
+  await rewriteThreadMarkdown(input.config, loaded.manifest);
+}
+
 export async function loadPsychiatristPairRegeneration(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   pairId: string;

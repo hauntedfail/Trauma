@@ -18,6 +18,7 @@ import {
   appendAssistantResponse,
   appendPendingPair,
   loadPsychiatristThread,
+  markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
   PsychiatristThreadStoreError,
 } from "./thread-store";
@@ -267,6 +268,20 @@ async function runPsychiatristTurn(input: {
       },
     });
   } catch {
+    const active = activePsychiatristTurns.getByTurnId(input.turnId);
+    await markPsychiatristTurnFailed({
+      codexThreadId: active?.codexThreadId,
+      codexTurnId: active?.codexTurnId,
+      config: input.config,
+      error: {
+        action: "retry",
+        code: "unknown",
+        message: "Psychiatrist answer failed.",
+      },
+      pairId: input.pairId,
+      threadId: input.threadId,
+      turnId: input.turnId,
+    });
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
