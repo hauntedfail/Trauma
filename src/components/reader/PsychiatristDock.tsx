@@ -9,6 +9,7 @@ import {
 import {
   cancelPsychiatristTurn,
   createPsychiatristThread,
+  PsychiatristRequestError,
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
 } from "./psychiatrist-requests";
@@ -74,7 +75,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (message === "" || currentThread === undefined || isRunning()) {
       return;
     }
-    setPrompt("");
     setIsRunning(true);
     setErrorMessage("");
     try {
@@ -84,10 +84,21 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         threadId: currentThread.thread_id,
         webSourcePermission: "deny",
       });
+      setPrompt("");
       setRunningTurnId(started.turn_id);
       connectPsychiatristStream(started.event_url, handleStreamEvent);
-    } catch {
+    } catch (error) {
       setIsRunning(false);
+      if (
+        error instanceof PsychiatristRequestError &&
+        error.code === "thread_stale" &&
+        error.action === "refresh_thread"
+      ) {
+        await loadThread();
+        setErrorMessage("Psychiatrist thread was refreshed. Send again.");
+        queueMicrotask(() => inputRef?.focus());
+        return;
+      }
       setErrorMessage("Psychiatrist could not send the prompt.");
     }
   };

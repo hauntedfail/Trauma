@@ -9,6 +9,25 @@ type BrowserFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export class PsychiatristRequestError extends Error {
+  action: string;
+  code: string;
+  responseStatus: number;
+
+  constructor(input: {
+    action: string;
+    code: string;
+    message: string;
+    responseStatus: number;
+  }) {
+    super(input.message);
+    this.name = "PsychiatristRequestError";
+    this.action = input.action;
+    this.code = input.code;
+    this.responseStatus = input.responseStatus;
+  }
+}
+
 export async function createPsychiatristThread(input: {
   fetch?: BrowserFetch;
   langCode?: string;
@@ -87,7 +106,7 @@ async function requestJson<T>(input: {
     method: input.method,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readRequestError(response);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -95,13 +114,27 @@ async function requestJson<T>(input: {
   return await response.json() as T;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readRequestError(response: Response): Promise<PsychiatristRequestError> {
   try {
-    const value = await response.json() as { message?: unknown };
-    return typeof value.message === "string"
-      ? value.message
-      : "Psychiatrist request failed.";
+    const value = await response.json() as {
+      action?: unknown;
+      code?: unknown;
+      message?: unknown;
+    };
+    return new PsychiatristRequestError({
+      action: typeof value.action === "string" ? value.action : "retry",
+      code: typeof value.code === "string" ? value.code : "request_failed",
+      message: typeof value.message === "string"
+        ? value.message
+        : "Psychiatrist request failed.",
+      responseStatus: response.status,
+    });
   } catch {
-    return "Psychiatrist request failed.";
+    return new PsychiatristRequestError({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist request failed.",
+      responseStatus: response.status,
+    });
   }
 }

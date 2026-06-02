@@ -7,6 +7,7 @@ import { PsychiatristDock } from "../../src/components/reader/PsychiatristDock";
 import {
   cancelPsychiatristTurn,
   createPsychiatristThread,
+  PsychiatristRequestError,
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
 } from "../../src/components/reader/psychiatrist-requests";
@@ -136,6 +137,43 @@ describe("PsychiatristDock", () => {
     await expect(requests[2]?.json()).resolves.toEqual({
       web_source_permission: "deny",
     });
+  });
+
+  it("preserves structured stale-thread errors for reader recovery", async () => {
+    await expect(sendPsychiatristMessage({
+      clientMessageId: "local-1",
+      fetch: async () => new Response(JSON.stringify({
+        action: "refresh_thread",
+        code: "thread_stale",
+        message: "The psychiatrist thread is stale. Refresh the reader thread before retrying.",
+        status: "error",
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      }),
+      message: "What changed?",
+      threadId: "thread-reader",
+    })).rejects.toMatchObject({
+      action: "refresh_thread",
+      code: "thread_stale",
+      message: "The psychiatrist thread is stale. Refresh the reader thread before retrying.",
+      name: "PsychiatristRequestError",
+      responseStatus: 409,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("refreshes a stale reader thread without dropping the unsent prompt", () => {
+    const sendIndex = dockSource.indexOf("const started = await sendPsychiatristMessage");
+    const clearIndex = dockSource.indexOf("setPrompt(\"\")", sendIndex);
+    const staleIndex = dockSource.indexOf("error.code === \"thread_stale\"");
+    const refreshIndex = dockSource.indexOf("await loadThread()", staleIndex);
+
+    expect(sendIndex).toBeGreaterThan(-1);
+    expect(clearIndex).toBeGreaterThan(sendIndex);
+    expect(dockSource).toContain("error instanceof PsychiatristRequestError");
+    expect(staleIndex).toBeGreaterThan(-1);
+    expect(refreshIndex).toBeGreaterThan(staleIndex);
+    expect(dockSource).toContain("Psychiatrist thread was refreshed. Send again.");
   });
 
   it("converts stored pairs and appends safe process plus answer stream deltas", () => {
