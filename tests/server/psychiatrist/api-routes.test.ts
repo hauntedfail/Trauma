@@ -6,6 +6,8 @@ import type { APIEvent } from "@solidjs/start/server";
 import { describe, expect, it } from "vitest";
 
 import { createSendPsychiatristMessageHandler } from "../../../src/server/psychiatrist/message-route";
+import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychiatrist/cancel-route";
+import { activePsychiatristTurns } from "../../../src/server/psychiatrist/active-turns";
 import { loadPsychiatristStreamReplay } from "../../../src/server/psychiatrist/stream-store";
 import {
   createPsychiatristThread,
@@ -399,6 +401,49 @@ describe("Psychiatrist thread API routes", () => {
       code: "turn_conflict",
     });
   });
+
+  it("cancels only an explicitly requested active turn", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-"));
+    const client = new CancelTrackingClient();
+    activePsychiatristTurns.register({
+      client,
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const handler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      status: "canceled",
+      turn_id: TURN_ID,
+    });
+    expect(client.cancelCalls).toEqual([
+      { threadId: "codex-thread-1", turnId: "codex-turn-1" },
+    ]);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.turn.canceled",
+    ]);
+  });
 });
 
 function context(
@@ -494,6 +539,26 @@ class HangingConversationClient implements CodexConversationClient {
   async runConversationTurn(input: CodexConversationTurnInput) {
     input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
     await new Promise(() => undefined);
+    return {
+      outputText: "",
+      threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+    };
+  }
+}
+
+class CancelTrackingClient implements CodexConversationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn() {
     return {
       outputText: "",
       threadId: "codex-thread-1",

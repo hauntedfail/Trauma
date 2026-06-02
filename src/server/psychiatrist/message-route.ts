@@ -13,6 +13,7 @@ import {
 } from "../translation/codex-app-server";
 import { buildPsychiatristPrompt } from "./prompt";
 import { appendPsychiatristStreamEvent } from "./stream-store";
+import { activePsychiatristTurns } from "./active-turns";
 import {
   appendAssistantResponse,
   appendPendingPair,
@@ -27,8 +28,6 @@ import type {
 } from "./types";
 
 const MAX_MESSAGE_LENGTH = 12_000;
-const runningTurnsByThreadId = new Set<string>();
-
 type MessagePayload =
   | {
       ok: true;
@@ -67,7 +66,7 @@ export async function handleSendPsychiatristMessageRequest(
   if (!payload.ok) {
     return safeErrorResponse("invalid_request", payload.message, 400);
   }
-  if (runningTurnsByThreadId.has(threadId)) {
+  if (activePsychiatristTurns.getByThreadId(threadId) !== undefined) {
     return safeErrorResponse(
       "turn_conflict",
       "A Psychiatrist turn is already running for this thread.",
@@ -96,7 +95,6 @@ export async function handleSendPsychiatristMessageRequest(
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
 
-  runningTurnsByThreadId.add(threadId);
   try {
     await appendPendingPair({
       config,
@@ -117,8 +115,15 @@ export async function handleSendPsychiatristMessageRequest(
       },
     });
 
+    const client = input.client ?? new CodexAppServerClient();
+    activePsychiatristTurns.register({
+      client,
+      memoryId: thread.manifest.memoryId,
+      threadId,
+      turnId,
+    });
     void runPsychiatristTurn({
-      client: input.client ?? new CodexAppServerClient(),
+      client,
       config,
       pairId,
       payload,
@@ -131,7 +136,7 @@ export async function handleSendPsychiatristMessageRequest(
       status: 202,
     });
   } catch (error) {
-    runningTurnsByThreadId.delete(threadId);
+    activePsychiatristTurns.unregister(turnId);
     await appendPsychiatristStreamEvent({
       config,
       event: {
@@ -186,6 +191,18 @@ async function runPsychiatristTurn(input: {
         ? "user_approved_web_sources"
         : "disabled",
       onEvent: (codexEvent) => {
+        if (codexEvent.type === "thread.started") {
+          activePsychiatristTurns.updateCodexIds({
+            codexThreadId: codexEvent.threadId,
+            turnId: input.turnId,
+          });
+        }
+        if (codexEvent.type === "turn.started") {
+          activePsychiatristTurns.updateCodexIds({
+            codexTurnId: codexEvent.turnId,
+            turnId: input.turnId,
+          });
+        }
         eventWriteChain = eventWriteChain.then(() =>
           persistCodexEvent({
             config: input.config,
@@ -228,7 +245,7 @@ async function runPsychiatristTurn(input: {
       },
     });
   } finally {
-    runningTurnsByThreadId.delete(input.threadId);
+    activePsychiatristTurns.unregister(input.turnId);
   }
 }
 

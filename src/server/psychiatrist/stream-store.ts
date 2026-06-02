@@ -37,10 +37,12 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
 export async function loadPsychiatristStreamReplay(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
-  threadId: string;
+  threadId?: string;
   turnId: string;
 }): Promise<PsychiatristStreamEvent[]> {
-  validateSafeId(input.threadId);
+  if (input.threadId !== undefined) {
+    validateSafeId(input.threadId);
+  }
   validateSafeId(input.turnId);
   const path = findStreamPath(input.config, input.threadId, input.turnId);
   if (path === undefined) {
@@ -84,14 +86,18 @@ function streamPath(
 
 function findStreamPath(
   config: Pick<ResolvedTraumaConfig, "storePath">,
-  threadId: string,
+  threadId: string | undefined,
   turnId: string,
 ): string | undefined {
   const root = join(resolve(config.storePath), "memories");
   if (!existsSync(root)) {
     return undefined;
   }
-  const glob = new Bun.Glob(`*/threads/${threadId}/streams/${turnId}.jsonl`);
+  const glob = new Bun.Glob(
+    threadId === undefined
+      ? `*/threads/*/streams/${turnId}.jsonl`
+      : `*/threads/${threadId}/streams/${turnId}.jsonl`,
+  );
   const match = glob.scanSync({ cwd: root }).next().value;
   return typeof match === "string" ? join(root, match) : undefined;
 }

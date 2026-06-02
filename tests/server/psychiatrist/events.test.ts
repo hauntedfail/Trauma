@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import type { APIEvent } from "@solidjs/start/server";
 
+import { createPsychiatristTurnEventsHandler } from "../../../src/server/psychiatrist/events-route";
 import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
@@ -119,4 +121,67 @@ describe("Psychiatrist stream store", () => {
     expect(jsonl).not.toContain("hidden chain-of-thought");
     expect(jsonl).not.toContain("/private/store/path");
   });
+
+  it("replays persisted SSE events after the requested event id", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-"));
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Answer delta" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { pair_id: "pair-1" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.completed",
+      },
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(
+          `http://localhost/api/psychiatrist-turns/${TURN_ID}/events?after_event_id=000000000001`,
+        ),
+        { turnId: TURN_ID },
+      ),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).not.toContain("psychiatrist.turn.started");
+    expect(text).toContain("event: psychiatrist.answer.delta");
+    expect(text).toContain("event: psychiatrist.answer.completed");
+  });
 });
+
+function createApiEvent(request: Request, params: Record<string, string>): APIEvent {
+  return {
+    request,
+    params,
+    response: new Response(),
+    locals: {},
+    nativeEvent: {},
+  } as unknown as APIEvent;
+}
