@@ -296,6 +296,24 @@ export async function loadPsychiatristThread(input: {
   };
 }
 
+export async function markPsychiatristThreadStale(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  threadId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  await writeJsonAtomic(
+    join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
+    serializeThreadManifest({
+      ...loaded.manifest,
+      status: "stale",
+      updatedAt: new Date().toISOString(),
+    }),
+  );
+}
+
 function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManifest {
   if (!isRecord(value)) {
     throw new PsychiatristThreadStoreError("pair_not_found", "Invalid CONTEXT.json.");

@@ -10,6 +10,7 @@ import {
   appendPendingPair,
   createPsychiatristThread,
   loadPsychiatristThread,
+  markPsychiatristThreadStale,
 } from "../../../src/server/psychiatrist/thread-store";
 import type {
   PsychiatristContextSnapshotManifest,
@@ -156,6 +157,40 @@ describe("Psychiatrist thread store", () => {
       code: "pair_not_found",
       name: "PsychiatristThreadStoreError",
     } satisfies Partial<PsychiatristThreadStoreError>);
+  });
+
+  it("marks a thread stale without changing its stored content hash", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stale-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+
+    await markPsychiatristThreadStale({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.manifest).toMatchObject({
+      activeContentHash: "sha256:source",
+      status: "stale",
+      threadId: THREAD_ID,
+    });
+    const manifestJson = JSON.parse(
+      await readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.json"),
+        "utf8",
+      ),
+    );
+    expect(manifestJson).toMatchObject({
+      active_content_hash: "sha256:source",
+      status: "stale",
+      thread_id: THREAD_ID,
+    });
   });
 });
 

@@ -323,6 +323,55 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("marks stale threads and blocks Codex execution before accepting a message", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-stale-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const client = new FakeConversationClient("must not run");
+    const handler = createSendPsychiatristMessageHandler({
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+      resolveActiveContentHash: async () => "sha256:changed",
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({
+            message: "What is current?",
+            web_source_permission: "deny",
+          }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      action: "refresh_thread",
+      code: "thread_stale",
+      message: "Psychiatrist thread is stale. Refresh the thread and retry.",
+      status: "error",
+    });
+    expect(client.inputs).toEqual([]);
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.manifest.status).toBe("stale");
+    expect(loaded.pairs).toEqual([]);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.thread.stale",
+    ]);
+    expect(JSON.stringify(replay)).not.toContain("What is current?");
+  });
+
   it("rejects empty and oversized messages", async () => {
     const handler = createSendPsychiatristMessageHandler({
       client: new FakeConversationClient("unused"),

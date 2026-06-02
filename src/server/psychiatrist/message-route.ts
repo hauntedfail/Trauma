@@ -18,6 +18,7 @@ import {
   appendAssistantResponse,
   appendPendingPair,
   loadPsychiatristThread,
+  markPsychiatristThreadStale,
   PsychiatristThreadStoreError,
 } from "./thread-store";
 import type {
@@ -36,12 +37,18 @@ type MessagePayload =
     }
   | { ok: false; message: string };
 
+type ResolveActiveContentHash = (input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  manifest: PsychiatristThreadManifest;
+}) => Promise<string>;
+
 export function createSendPsychiatristMessageHandler(input: {
   client?: CodexConversationClient;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   generateId?: () => string;
   loadThread?: typeof loadPsychiatristThread;
   now?: () => Date;
+  resolveActiveContentHash?: ResolveActiveContentHash;
 } = {}) {
   return async function sendPsychiatristMessage(event: APIEvent): Promise<Response> {
     return handleSendPsychiatristMessageRequest(event, input);
@@ -56,6 +63,7 @@ export async function handleSendPsychiatristMessageRequest(
     generateId?: () => string;
     loadThread?: typeof loadPsychiatristThread;
     now?: () => Date;
+    resolveActiveContentHash?: ResolveActiveContentHash;
   } = {},
 ): Promise<Response> {
   const threadId = event.params.threadId?.trim();
@@ -85,6 +93,30 @@ export async function handleSendPsychiatristMessageRequest(
 
   const pairId = input.generateId?.() ?? generateUuidV7Like();
   const turnId = input.generateId?.() ?? generateUuidV7Like();
+  const resolveActiveContentHash = input.resolveActiveContentHash ??
+    defaultResolveActiveContentHash;
+  const activeContentHash = await resolveActiveContentHash({
+    config,
+    manifest: thread.manifest,
+  });
+  if (activeContentHash !== thread.manifest.activeContentHash) {
+    await markPsychiatristThreadStale({ config, threadId });
+    await appendPsychiatristStreamEvent({
+      config,
+      event: {
+        data: { status: "stale" },
+        memoryId: thread.manifest.memoryId,
+        threadId,
+        turnId,
+        type: "psychiatrist.thread.stale",
+      },
+    });
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
   const contextSnapshot = createContextSnapshot({
     manifest: thread.manifest,
     pairId,
@@ -367,6 +399,12 @@ function formatMessageError(error: unknown): Response {
   return safeErrorResponse("unknown", "Psychiatrist message request failed.", 500);
 }
 
+async function defaultResolveActiveContentHash(input: {
+  manifest: PsychiatristThreadManifest;
+}): Promise<string> {
+  return input.manifest.activeContentHash;
+}
+
 function safeErrorResponse(
   code: string,
   message: string,
@@ -374,13 +412,23 @@ function safeErrorResponse(
 ): Response {
   return jsonResponse(
     {
-      action: code === "thread_not_found" ? "open_reader" : "retry",
+      action: safeErrorAction(code),
       code,
       message,
       status: "error",
     },
     { status },
   );
+}
+
+function safeErrorAction(code: string): "open_reader" | "refresh_thread" | "retry" {
+  if (code === "thread_not_found") {
+    return "open_reader";
+  }
+  if (code === "thread_stale") {
+    return "refresh_thread";
+  }
+  return "retry";
 }
 
 function generateUuidV7Like(): string {

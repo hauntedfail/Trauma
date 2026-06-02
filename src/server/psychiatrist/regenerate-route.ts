@@ -148,6 +148,7 @@ async function runRegenerateTurn(input: {
 }): Promise<void> {
   const pair = input.loaded.pair;
   try {
+    let eventWriteChain = Promise.resolve();
     const result = await input.client.runConversationTurn({
       cwdPurpose: "psychiatrist",
       input: buildPsychiatristPrompt({
@@ -180,16 +181,19 @@ async function runRegenerateTurn(input: {
         ? "user_approved_web_sources"
         : "disabled",
       onEvent: (codexEvent) => {
-        void persistCodexEvent({
-          config: input.config,
-          event: codexEvent,
-          memoryId: input.loaded.manifest.memoryId,
-          threadId: input.loaded.manifest.threadId,
-          turnId: input.turnId,
-        });
+        eventWriteChain = eventWriteChain.then(() =>
+          persistCodexEvent({
+            config: input.config,
+            event: codexEvent,
+            memoryId: input.loaded.manifest.memoryId,
+            threadId: input.loaded.manifest.threadId,
+            turnId: input.turnId,
+          }),
+        );
       },
       threadId: input.loaded.manifest.codexThreadId,
     });
+    await eventWriteChain;
     await appendRegeneratedAssistantResponse({
       assistantResponse: result.outputText,
       citations: [],
