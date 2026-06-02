@@ -250,6 +250,7 @@ export async function markPsychiatristTurnCanceled(input: {
     codex_thread_id: input.codexThreadId,
     codex_turn_id: input.codexTurnId,
     pair_id: input.pairId,
+    policy_version: loaded.manifest.policyVersion,
     safe_error: {
       action: "retry",
       code: "turn_stopped",
@@ -302,6 +303,7 @@ export async function markPsychiatristTurnFailed(input: {
     codex_turn_id: input.codexTurnId,
     failed_at: now,
     pair_id: input.pairId,
+    policy_version: loaded.manifest.policyVersion,
     safe_error: input.error,
     status: "failed",
     thread_id: input.threadId,

@@ -12,6 +12,7 @@ import {
   loadPsychiatristThread,
   markPsychiatristThreadStale,
 } from "../../../src/server/psychiatrist/thread-store";
+import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import type {
   PsychiatristContextSnapshotManifest,
   PsychiatristThreadManifest,
@@ -40,6 +41,7 @@ describe("Psychiatrist thread store", () => {
     expect(manifestJson).toMatchObject({
       active_content_hash: "sha256:source",
       memory_id: MEMORY_ID,
+      policy_version: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       status: "ready",
       thread_id: THREAD_ID,
       variant_kind: "source",
@@ -199,7 +201,7 @@ function manifest(): PsychiatristThreadManifest {
     activeContentHash: "sha256:source",
     createdAt: "2026-06-01T00:00:00.000Z",
     memoryId: MEMORY_ID,
-    policyVersion: "psychiatrist-memory-v1",
+    policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
     sourceHash: "sha256:source",
     status: "ready",
     threadId: THREAD_ID,
@@ -213,7 +215,7 @@ function contextSnapshot(): PsychiatristContextSnapshotManifest {
     contentHash: "sha256:source",
     contextSnapshotId: "snapshot-1",
     memoryId: MEMORY_ID,
-    policyVersion: "psychiatrist-memory-v1",
+    policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
     selectedSectionAnchors: ["risk"],
     selectedSectionHashes: ["sha256:section"],
     userPrompt: "What is the risk?",

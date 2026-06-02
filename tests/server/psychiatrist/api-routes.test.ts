@@ -10,6 +10,7 @@ import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychia
 import { createRegeneratePsychiatristResponseHandler } from "../../../src/server/psychiatrist/regenerate-route";
 import { activePsychiatristTurns } from "../../../src/server/psychiatrist/active-turns";
 import { loadPsychiatristStreamReplay } from "../../../src/server/psychiatrist/stream-store";
+import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import {
   createPsychiatristThread,
   loadPsychiatristThread,
@@ -179,7 +180,7 @@ describe("Psychiatrist thread API routes", () => {
           activeContentHash: "sha256:context",
           createdAt: "2026-06-01T00:00:00.000Z",
           memoryId: MEMORY_ID,
-          policyVersion: "psychiatrist-memory-v1",
+          policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
           sourceHash: "sha256:source",
           status: "ready",
           threadId: THREAD_ID,
@@ -383,6 +384,7 @@ describe("Psychiatrist thread API routes", () => {
       ).then((content) => JSON.parse(content)),
     ).resolves.toMatchObject({
       pair_id: PAIR_ID,
+      policy_version: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       safe_error: {
         action: "retry",
         code: "unknown",
@@ -588,6 +590,7 @@ describe("Psychiatrist thread API routes", () => {
       ).then((content) => JSON.parse(content)),
     ).resolves.toMatchObject({
       pair_id: PAIR_ID,
+      policy_version: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       status: "canceled",
       thread_id: THREAD_ID,
       turn_id: TURN_ID,
@@ -806,7 +809,7 @@ function manifest(): PsychiatristThreadManifest {
     activeContentHash: "sha256:context",
     createdAt: "2026-06-01T00:00:00.000Z",
     memoryId: MEMORY_ID,
-    policyVersion: "psychiatrist-memory-v1",
+    policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
     sourceHash: "sha256:context",
     status: "ready",
     threadId: THREAD_ID,
