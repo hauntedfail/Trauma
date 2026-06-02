@@ -1,0 +1,387 @@
+import type { APIEvent } from "@solidjs/start/server";
+import { randomBytes } from "node:crypto";
+
+import {
+  loadRuntimeTraumaConfig,
+  type ResolvedTraumaConfig,
+} from "../config";
+import { jsonResponse } from "../http/json";
+import {
+  CodexAppServerClient,
+  type CodexAppServerEvent,
+  type CodexConversationClient,
+} from "../translation/codex-app-server";
+import { buildPsychiatristPrompt } from "./prompt";
+import { appendPsychiatristStreamEvent } from "./stream-store";
+import {
+  appendAssistantResponse,
+  appendPendingPair,
+  loadPsychiatristThread,
+  PsychiatristThreadStoreError,
+} from "./thread-store";
+import type {
+  PsychiatristContextSnapshotManifest,
+  PsychiatristThreadManifest,
+  PsychiatristThreadPair,
+  PsychiatristWebSourcePolicy,
+} from "./types";
+
+const MAX_MESSAGE_LENGTH = 12_000;
+const runningTurnsByThreadId = new Set<string>();
+
+type MessagePayload =
+  | {
+      ok: true;
+      message: string;
+      webSourcePermission: "deny" | "allow_for_this_turn";
+    }
+  | { ok: false; message: string };
+
+export function createSendPsychiatristMessageHandler(input: {
+  client?: CodexConversationClient;
+  config?: Pick<ResolvedTraumaConfig, "storePath">;
+  generateId?: () => string;
+  loadThread?: typeof loadPsychiatristThread;
+  now?: () => Date;
+} = {}) {
+  return async function sendPsychiatristMessage(event: APIEvent): Promise<Response> {
+    return handleSendPsychiatristMessageRequest(event, input);
+  };
+}
+
+export async function handleSendPsychiatristMessageRequest(
+  event: APIEvent,
+  input: {
+    client?: CodexConversationClient;
+    config?: Pick<ResolvedTraumaConfig, "storePath">;
+    generateId?: () => string;
+    loadThread?: typeof loadPsychiatristThread;
+    now?: () => Date;
+  } = {},
+): Promise<Response> {
+  const threadId = event.params.threadId?.trim();
+  if (threadId === undefined || threadId === "") {
+    return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
+  }
+  const payload = await parseMessagePayload(event.request);
+  if (!payload.ok) {
+    return safeErrorResponse("invalid_request", payload.message, 400);
+  }
+  if (runningTurnsByThreadId.has(threadId)) {
+    return safeErrorResponse(
+      "turn_conflict",
+      "A Psychiatrist turn is already running for this thread.",
+      409,
+    );
+  }
+
+  const config = input.config ?? loadRuntimeTraumaConfig();
+  const loadThread = input.loadThread ?? loadPsychiatristThread;
+  let thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
+  try {
+    thread = await loadThread({ config, threadId });
+  } catch (error) {
+    return formatMessageError(error);
+  }
+
+  const pairId = input.generateId?.() ?? generateUuidV7Like();
+  const turnId = input.generateId?.() ?? generateUuidV7Like();
+  const contextSnapshot = createContextSnapshot({
+    manifest: thread.manifest,
+    pairId,
+    prompt: payload.message,
+  });
+  const webSourcePolicy: PsychiatristWebSourcePolicy =
+    payload.webSourcePermission === "allow_for_this_turn"
+      ? { allowed: true, reason: "user_approved_for_turn" }
+      : { allowed: false, reason: "default_denied" };
+
+  runningTurnsByThreadId.add(threadId);
+  try {
+    await appendPendingPair({
+      config,
+      contextSnapshot,
+      pairId,
+      prompt: payload.message,
+      threadId,
+      turnId,
+    });
+    await appendPsychiatristStreamEvent({
+      config,
+      event: {
+        data: { status: "running" },
+        memoryId: thread.manifest.memoryId,
+        threadId,
+        turnId,
+        type: "psychiatrist.turn.started",
+      },
+    });
+
+    void runPsychiatristTurn({
+      client: input.client ?? new CodexAppServerClient(),
+      config,
+      pairId,
+      payload,
+      thread,
+      threadId,
+      turnId,
+      webSourcePolicy,
+    });
+    return jsonResponse(toStartedResponse({ pairId, threadId, turnId }), {
+      status: 202,
+    });
+  } catch (error) {
+    runningTurnsByThreadId.delete(threadId);
+    await appendPsychiatristStreamEvent({
+      config,
+      event: {
+        data: { code: "unknown", message: "Psychiatrist answer failed." },
+        memoryId: thread.manifest.memoryId,
+        threadId,
+        turnId,
+        type: "psychiatrist.answer.failed",
+      },
+    });
+    return formatMessageError(error);
+  }
+}
+
+async function runPsychiatristTurn(input: {
+  client: CodexConversationClient;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  payload: { message: string };
+  thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
+  threadId: string;
+  turnId: string;
+  webSourcePolicy: PsychiatristWebSourcePolicy;
+}): Promise<void> {
+  try {
+    const prompt = buildPsychiatristPrompt({
+      context: {
+        categories: [],
+        contentHash: input.thread.manifest.activeContentHash,
+        ...(input.thread.manifest.langCode === undefined
+          ? {}
+          : { langCode: input.thread.manifest.langCode }),
+        memoryId: input.thread.manifest.memoryId,
+        relativePath: "",
+        sections: [],
+        sourceUrl: "",
+        tags: [],
+        title: "",
+        variantKind: input.thread.manifest.variantKind,
+      },
+      contextSnapshotId: input.pairId,
+      pairs: input.thread.pairs,
+      threadId: input.threadId,
+      userMessage: input.payload.message,
+      webSourcePolicy: input.webSourcePolicy,
+    });
+    let eventWriteChain = Promise.resolve();
+    const result = await input.client.runConversationTurn({
+      cwdPurpose: "psychiatrist",
+      input: prompt,
+      networkAccess: input.webSourcePolicy.allowed
+        ? "user_approved_web_sources"
+        : "disabled",
+      onEvent: (codexEvent) => {
+        eventWriteChain = eventWriteChain.then(() =>
+          persistCodexEvent({
+            config: input.config,
+            event: codexEvent,
+            memoryId: input.thread.manifest.memoryId,
+            threadId: input.threadId,
+            turnId: input.turnId,
+          }),
+        );
+      },
+      threadId: input.thread.manifest.codexThreadId,
+    });
+    await eventWriteChain;
+    await appendAssistantResponse({
+      assistantResponse: result.outputText,
+      citations: [],
+      config: input.config,
+      pairId: input.pairId,
+      threadId: input.threadId,
+    });
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: { pair_id: input.pairId },
+        memoryId: input.thread.manifest.memoryId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        type: "psychiatrist.answer.completed",
+      },
+    });
+  } catch {
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: { code: "unknown", message: "Psychiatrist answer failed." },
+        memoryId: input.thread.manifest.memoryId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        type: "psychiatrist.answer.failed",
+      },
+    });
+  } finally {
+    runningTurnsByThreadId.delete(input.threadId);
+  }
+}
+
+async function parseMessagePayload(request: Request): Promise<MessagePayload> {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(await request.text());
+  } catch {
+    return { ok: false, message: "request body must be JSON." };
+  }
+  if (!isRecord(payload)) {
+    return { ok: false, message: "request body must be an object." };
+  }
+  if (typeof payload.message !== "string" || payload.message.trim() === "") {
+    return { ok: false, message: "message must be a non-empty string." };
+  }
+  const message = payload.message.trim();
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return { ok: false, message: "message must be 12000 characters or fewer." };
+  }
+  const webSourcePermission =
+    typeof payload.web_source_permission === "string"
+      ? payload.web_source_permission
+      : "deny";
+  if (
+    webSourcePermission !== "deny" &&
+    webSourcePermission !== "allow_for_this_turn"
+  ) {
+    return {
+      ok: false,
+      message: "web_source_permission must be deny or allow_for_this_turn.",
+    };
+  }
+  return { ok: true, message, webSourcePermission };
+}
+
+function createContextSnapshot(input: {
+  manifest: PsychiatristThreadManifest;
+  pairId: string;
+  prompt: string;
+}): PsychiatristContextSnapshotManifest {
+  return {
+    contentHash: input.manifest.activeContentHash,
+    contextSnapshotId: input.pairId,
+    ...(input.manifest.langCode === undefined
+      ? {}
+      : { langCode: input.manifest.langCode }),
+    memoryId: input.manifest.memoryId,
+    policyVersion: input.manifest.policyVersion,
+    selectedSectionAnchors: [],
+    selectedSectionHashes: [],
+    ...(input.manifest.translationOutputHash === undefined
+      ? {}
+      : { translationOutputHash: input.manifest.translationOutputHash }),
+    userPrompt: input.prompt,
+    variantKind: input.manifest.variantKind,
+  };
+}
+
+async function persistCodexEvent(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  event: CodexAppServerEvent;
+  memoryId: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  if (input.event.type === "process") {
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: { text: input.event.message },
+        memoryId: input.memoryId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        type: "psychiatrist.process.delta",
+      },
+    });
+  }
+  if (input.event.type === "delta") {
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: { text: input.event.text },
+        memoryId: input.memoryId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+  }
+}
+
+function toStartedResponse(input: {
+  pairId: string;
+  threadId: string;
+  turnId: string;
+}) {
+  const eventUrl = `/api/psychiatrist-turns/${input.turnId}/events`;
+  return {
+    event_url: eventUrl,
+    pair_id: input.pairId,
+    replay_url: eventUrl,
+    status: "started",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  };
+}
+
+function formatMessageError(error: unknown): Response {
+  if (error instanceof PsychiatristThreadStoreError) {
+    return safeErrorResponse(
+      error.code === "thread_not_found" ? "thread_not_found" : "invalid_request",
+      error.code === "thread_not_found"
+        ? "Psychiatrist thread was not found."
+        : "Psychiatrist message request is invalid.",
+      error.code === "thread_not_found" ? 404 : 400,
+    );
+  }
+  return safeErrorResponse("unknown", "Psychiatrist message request failed.", 500);
+}
+
+function safeErrorResponse(
+  code: string,
+  message: string,
+  status: number,
+): Response {
+  return jsonResponse(
+    {
+      action: code === "thread_not_found" ? "open_reader" : "retry",
+      code,
+      message,
+      status: "error",
+    },
+    { status },
+  );
+}
+
+function generateUuidV7Like(): string {
+  const now = BigInt(Date.now());
+  const random = randomBytes(10);
+  const timestamp = now.toString(16).padStart(12, "0").slice(-12);
+  const randomHex = random.toString("hex");
+  return [
+    timestamp.slice(0, 8),
+    timestamp.slice(8, 12),
+    `7${randomHex.slice(0, 3)}`,
+    `${((Number.parseInt(randomHex.slice(3, 5), 16) & 0x3f) | 0x80)
+      .toString(16)
+      .padStart(2, "0")}${randomHex.slice(5, 7)}`,
+    randomHex.slice(7, 19).padEnd(12, "0"),
+  ].join("-");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
