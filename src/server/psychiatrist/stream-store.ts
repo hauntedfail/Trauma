@@ -10,6 +10,8 @@ import type {
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
+const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
 
 export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -31,7 +33,27 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   const path = streamPath(input.config, input.event);
   await mkdir(dirname(path), { recursive: true });
   await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+  publishStreamEvent(event);
   return event;
+}
+
+export function subscribePsychiatristStream(input: {
+  onEvent: StreamSubscriber;
+  turnId: string;
+}): () => void {
+  validateSafeId(input.turnId);
+  let subscribers = subscribersByTurnId.get(input.turnId);
+  if (subscribers === undefined) {
+    subscribers = new Set();
+    subscribersByTurnId.set(input.turnId, subscribers);
+  }
+  subscribers.add(input.onEvent);
+  return () => {
+    subscribers?.delete(input.onEvent);
+    if (subscribers?.size === 0) {
+      subscribersByTurnId.delete(input.turnId);
+    }
+  };
 }
 
 export async function loadPsychiatristStreamReplay(input: {
@@ -119,6 +141,16 @@ function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {
     normalized.includes("credential") ||
     normalized.includes("token")
   );
+}
+
+function publishStreamEvent(event: PsychiatristStreamEvent): void {
+  const subscribers = subscribersByTurnId.get(event.turnId);
+  if (subscribers === undefined) {
+    return;
+  }
+  for (const subscriber of subscribers) {
+    subscriber(event);
+  }
 }
 
 function readProcessText(data: unknown): string | undefined {

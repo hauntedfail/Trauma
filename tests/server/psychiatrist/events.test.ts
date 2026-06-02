@@ -2,9 +2,10 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { APIEvent } from "@solidjs/start/server";
 
+import { activePsychiatristTurns } from "../../../src/server/psychiatrist/active-turns";
 import { createPsychiatristTurnEventsHandler } from "../../../src/server/psychiatrist/events-route";
 import {
   appendPsychiatristStreamEvent,
@@ -16,6 +17,10 @@ const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 
 describe("Psychiatrist stream store", () => {
+  afterEach(() => {
+    activePsychiatristTurns.unregister(TURN_ID);
+  });
+
   it("persists replayable stream events in turn-local order", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-"));
 
@@ -174,7 +179,70 @@ describe("Psychiatrist stream store", () => {
     expect(text).toContain("event: psychiatrist.answer.delta");
     expect(text).toContain("event: psychiatrist.answer.completed");
   });
+
+  it("streams live events after replay while the turn remains active", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-live-"));
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    await expect(readChunk(reader!)).resolves.toContain("event: psychiatrist.turn.started");
+
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Live answer delta" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+
+    await expect(readChunk(reader!)).resolves.toContain("Live answer delta");
+    await reader?.cancel();
+  });
 });
+
+async function readChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<string> {
+  const result = await reader.read();
+  return new TextDecoder().decode(result.value);
+}
 
 function createApiEvent(request: Request, params: Record<string, string>): APIEvent {
   return {
