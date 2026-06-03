@@ -53,6 +53,11 @@ export class ActivePsychiatristTurnRegistry {
     this.byTurnId.delete(turnId);
     this.byThreadId.delete(turn.threadId);
   }
+
+  clear(): void {
+    this.byTurnId.clear();
+    this.byThreadId.clear();
+  }
 }
 
 export const activePsychiatristTurns = new ActivePsychiatristTurnRegistry();
