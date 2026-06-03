@@ -54,8 +54,16 @@ Network boundary:
   it for the current turn or retry.
 - If network is denied and current web sources are required, return
   `network_permission_required` without attempting network access.
+- This must be enforced by a server-observable branch. Do not rely only on
+  prompt instructions telling Psychiatrist to ask the user. The tests must use
+  a fake app-server or adapter signal that represents "current web source
+  required" and assert that TRAUMA returns/emits `network_permission_required`
+  while app-server network access remains disabled.
 - If network is approved, store safe source citation metadata on the pair and do
   not expose raw fetch payloads, credentials, or app-server transport details.
+  The pair revision must also store the per-turn `web_source_policy` object so
+  later audits can distinguish default-denied turns from explicitly approved
+  turns.
 
 Streaming boundary:
 
@@ -102,6 +110,11 @@ Regenerate integrity:
 - Regenerate is allowed only for a completed pair.
 - Regenerate uses the stored prompt and stored context snapshot for that pair,
   not the current textarea value and not a new memory context.
+- The stored context snapshot must contain the original selected section
+  Markdown, heading, anchor, order, hashes, source URL/title, variant metadata,
+  and policy version needed to rebuild the same prompt context. Regenerate must
+  not substitute an empty context, blank metadata, or freshly selected current
+  memory sections.
 - Regenerate keeps the same `thread_id` and `pair_id`; it creates only a new
   `turn_id`.
 - Regenerate overwrites `pairs/{pairId}/RESPONSE.md` and rewrites `THREAD.md`
@@ -110,6 +123,10 @@ Regenerate integrity:
 - If Regenerate fails or is stopped, the previous completed response remains the
   visible completed response and the failed/stopped regenerate status is stored
   as pair/turn metadata.
+- The reducer that loads display pairs must therefore prefer the latest
+  completed response when the newest revision for the same `pair_id` is a
+  failed or canceled Regenerate attempt. A failed/stopped Regenerate must not
+  make the pair look like a normal failed first answer on reload.
 - Completed Regenerate enqueues git backup with reason
   `psychiatrist_response_regenerate`.
 
@@ -153,8 +170,11 @@ Add or extend tests for:
 - User-approved network turns persist safe source citation metadata on the
   matching pair.
 - Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
-  provenance, overwrites the existing response Markdown artifact, and enqueues
-  backup with reason `psychiatrist_response_regenerate`.
+  provenance with non-empty stored section Markdown, overwrites the existing
+  response Markdown artifact, and enqueues backup with reason
+  `psychiatrist_response_regenerate`.
+- Failed and canceled Regenerate attempts leave the previous completed response
+  visible after a fresh `loadPsychiatristThread()` call.
 
 Run:
 

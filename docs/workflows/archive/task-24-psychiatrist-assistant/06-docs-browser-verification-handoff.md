@@ -129,6 +129,21 @@ Then verify:
 - A network-required response does not use web access before approval.
 - A user-approved web-source retry records source metadata on the pair.
 
+The PR handoff must include concrete evidence for each browser item above. For
+stateful items, include the observed `thread_id`, `pair_id`, and `turn_id`
+where applicable, and mention the checked artifact path relative to the memory
+store, never an absolute store path in browser-visible UI. The handoff is
+incomplete if it only states that generic reader E2E passed without showing:
+
+- the running turn reconnecting to the same `turn_id` after reload;
+- Stop being triggered only by the visible Stop button;
+- Regenerate overwriting the same `pairs/{pairId}/RESPONSE.md`;
+- failed or stopped Regenerate keeping the previous completed answer visible
+  after reload;
+- `network_permission_required` occurring before approval with network disabled;
+- the approved retry recording `web_source_policy` and source citation metadata
+  in `PAIRS.jsonl`.
+
 ## PR Handoff Requirements
 
 The PR body must include:

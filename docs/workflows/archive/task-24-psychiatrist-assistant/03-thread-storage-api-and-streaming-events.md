@@ -77,6 +77,13 @@ Rules:
 - `pairs/{pairId}/CONTEXT.json` stores prompt policy version, memory variant,
   content hash, selected context section anchors, selected context section
   hashes, and other provenance needed to regenerate from the same context.
+  It must also store enough immutable section data to rebuild the exact
+  prompt context without reading the current memory content again. At minimum
+  this means each selected section's anchor, heading, normalized Markdown text,
+  section hash, and order index, plus the source URL/title metadata used in the
+  original prompt. Storing only hashes or anchors is insufficient because
+  Regenerate must answer from the original accepted context, not from an empty
+  section list or newly selected current memory content.
 - `pairs/{pairId}/RESPONSE.md` stores the latest completed response Markdown for
   that pair. Regenerate overwrites this same file; it does not create a new
   response file, pair, or thread.
@@ -300,7 +307,8 @@ create a new pair, new thread, or new response Markdown path.
   instead of attempting web access. The UI may let the user retry the same pair
   with `web_source_permission = "allow_for_this_turn"`.
 - Regenerate is available only for a completed pair. It reuses the existing
-  `pair_id`, stored `PROMPT.md`, and stored `CONTEXT.json`; creates a new
+  `pair_id`, stored `PROMPT.md`, and stored `CONTEXT.json`; reconstructs the
+  prompt from the section Markdown stored in `CONTEXT.json`; creates a new
   `turn_id`; streams through `streams/{turnId}.jsonl`; overwrites
   `pairs/{pairId}/RESPONSE.md`; rewrites `THREAD.md`; appends a
   `regenerated_completed` pair revision; and enqueues git backup with reason
@@ -391,15 +399,30 @@ Cover:
 - Regenerate route rejects pending, failed, stale, and cross-memory pairs.
 - Regenerate route reuses the same `pair_id`, stored prompt, and stored context
   snapshot; creates only a new `turn_id`; and overwrites
-  `pairs/{pairId}/RESPONSE.md` instead of creating a new response file.
+  `pairs/{pairId}/RESPONSE.md` instead of creating a new response file. Tests
+  must assert that the app-server prompt for Regenerate includes a non-empty
+  selected section from stored `CONTEXT.json`; a prompt built with
+  `sections: []`, blank title, or blank source URL must fail the test.
 - Completed Regenerate rewrites `THREAD.md`, appends a regenerated pair
   revision, and enqueues backup with reason
   `psychiatrist_response_regenerate`.
+- Failed or canceled Regenerate attempts append turn metadata for the new
+  `turn_id` without replacing the latest completed display state for the pair.
+  On reload, `loadPsychiatristThread()` must still return the previous
+  completed `assistant_response` for that `pair_id`, plus safe regenerate
+  failure/stopped status when the UI needs to show it.
 - Backup enqueue failures for Psychiatrist thread artifacts are reported as a
   safe warning and do not discard the completed response.
 - Denied network turns do not send a network-enabled app-server payload.
+- If network is denied and the assistant or adapter determines current web
+  sources are required, the server must persist and emit
+  `psychiatrist.network.permission_required`, return safe error code
+  `network_permission_required`, and must not call app-server with network
+  enabled for that turn.
 - User-approved web-source turns record `web_source_policy` and safe source
-  citation metadata on the pair.
+  citation metadata on the pair. Tests must read `PAIRS.jsonl` and assert
+  `web_source_policy.reason = "user_approved_for_turn"` for the approved
+  turn, not only source citations in the browser response.
 - Browser-visible JSON never contains app-server endpoint details, absolute
   store paths, or raw memory Markdown.
 - No test creates or reads a Psychiatrist SQLite table.

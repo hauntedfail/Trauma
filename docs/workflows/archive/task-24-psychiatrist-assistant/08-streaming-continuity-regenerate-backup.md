@@ -57,6 +57,10 @@ Rules:
 - `pairs/{pairId}/CONTEXT.json` stores enough prompt/context provenance to
   regenerate from the same context: memory variant, content hash, prompt policy
   version, selected section anchors, selected section hashes, and source URL.
+  It must include the selected section Markdown payloads themselves: order,
+  anchor, heading, normalized Markdown text, and hash for each selected
+  section. Regenerate tests must fail if the rebuilt prompt uses `sections: []`
+  or blank title/source URL metadata.
 
 ## API And Event Contract
 
@@ -96,11 +100,20 @@ Rules:
 - Reject non-completed pairs with `409 regenerate_unavailable`.
 - Reject stale, missing, or cross-memory pairs.
 - Load `PROMPT.md` and `CONTEXT.json` for the same `pair_id`.
+- Rebuild the Regenerate prompt from `PROMPT.md` plus the section Markdown and
+  metadata stored in `CONTEXT.json`. Do not reread current memory content to
+  select new sections, and do not pass empty section arrays or blank source
+  metadata to the prompt builder.
 - Create a new `turn_id` for the regenerate attempt.
 - Keep the existing `thread_id`, `pair_id`, and `RESPONSE.md` path.
 - Stream through the normal event route.
 - On completion, overwrite `RESPONSE.md`, rewrite `THREAD.md`, append a
   `regenerated_completed` pair revision, and enqueue backup.
+- On failure or Stop, append safe failed/stopped metadata for the new
+  regenerate `turn_id` without overwriting `RESPONSE.md` and without changing
+  the loaded pair's visible completed assistant response. Reloading the thread
+  after that failed/stopped Regenerate must still show the previous completed
+  answer.
 
 ## UI Contract
 
@@ -128,6 +141,9 @@ Regenerate:
 - On first new answer delta, replace the visible previous answer for that pair.
 - If Regenerate fails or is stopped, keep the previous completed answer visible
   and show the safe failure/stopped state.
+- This rule must hold both in the live transcript reducer and after a fresh
+  thread reload from storage. Component tests alone are not sufficient; server
+  storage tests must cover the reload case.
 
 ## Backup Contract
 
@@ -181,6 +197,10 @@ await backupQueue.enqueue({
 Backup enqueue failure must return a safe warning and must not discard the
 completed response. The existing backup failsafe UI remains responsible for
 global backup alerts.
+Tests must inject a backup queue failure and assert both outcomes: the
+completed response remains in `RESPONSE.md`/`PAIRS.jsonl`, and the API or
+terminal stream exposes a safe warning that contains no store path, prompt, or
+raw app-server details.
 
 ## Tests
 
@@ -197,8 +217,14 @@ Server tests:
 - Regenerate rejects non-completed pairs.
 - Regenerate keeps `thread_id` and `pair_id`, creates a new `turn_id`, uses
   stored `PROMPT.md` and `CONTEXT.json`, and overwrites `RESPONSE.md`.
+- Regenerate prompt reconstruction includes non-empty stored section Markdown
+  and original source metadata from `CONTEXT.json`; the test must inspect the
+  fake app-server input and fail if it contains an empty context.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
   `psychiatrist_response_regenerate`.
+- Failed and stopped Regenerate attempts do not overwrite `RESPONSE.md`; a
+  fresh thread load still exposes the previous completed assistant response for
+  the same `pair_id`.
 - Backup formatting maps `psychiatrist_response_regenerate` to
   `regenerated psychiatrist response`.
 
@@ -212,6 +238,9 @@ Component tests:
 - Regenerate button appears only on completed assistant responses.
 - Regenerate calls the regenerate route with the existing `pairId`.
 - Failed Regenerate leaves the previous completed response visible.
+- Failed/stopped Regenerate remains visible as a safe status while preserving
+  the previous completed answer after the component receives server state from a
+  fresh thread load.
 
 E2E tests:
 
@@ -221,6 +250,8 @@ E2E tests:
   `turn_id`.
 - Stop cancels only after explicit Stop click.
 - Regenerate overwrites the same response artifact and does not add a new pair.
+- A failed fake Regenerate and a stopped fake Regenerate both leave the previous
+  completed response visible after browser reload.
 
 Run:
 
