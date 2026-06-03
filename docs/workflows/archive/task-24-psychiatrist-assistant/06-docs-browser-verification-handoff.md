@@ -144,6 +144,21 @@ incomplete if it only states that generic reader E2E passed without showing:
 - the approved retry recording `web_source_policy` and source citation metadata
   in `PAIRS.jsonl`.
 
+If `e2e/reader.spec.ts` has no Psychiatrist-specific assertions for these
+stateful cases, the browser portion is not satisfied by running the existing
+reader suite. Either add focused fake-stream browser coverage to
+`e2e/reader.spec.ts`, or record equivalent browser evidence with the observed
+`thread_id`, `pair_id`, `turn_id`, and relative thread artifact paths.
+
+When the plan names a likely test file that the implementation does not use,
+the PR handoff must map the requirement to the actual coverage instead of
+silently skipping it. For example, a missing
+`tests/server/psychiatrist/threads.test.ts` file is acceptable only if the
+handoff maps every planned thread behavior to concrete tests in
+`tests/server/psychiatrist/api-routes.test.ts`,
+`tests/server/psychiatrist/thread-store.test.ts`, or another focused file.
+Unmapped planned files or behaviors remain incomplete.
+
 ## PR Handoff Requirements
 
 The PR body must include:

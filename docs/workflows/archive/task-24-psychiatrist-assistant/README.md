@@ -252,3 +252,33 @@ capture:
 - One stale-thread recovery after the memory content hash changes.
 - One network-denied turn that does not attempt web access and one
   user-approved web-source turn that records safe source metadata with the pair.
+
+## Completion Audit Rules
+
+Before declaring Task 24 complete, perform a plan-to-implementation audit
+against every subtask acceptance criterion and every verification bullet above.
+The audit must distinguish three states:
+
+- `Satisfied`: current code, tests, docs, or browser evidence directly proves
+  the requirement.
+- `Mapped`: the plan names an example file, but the implemented coverage lives
+  in another focused file. Record the actual file and test name. Example:
+  requirements that mention `tests/server/psychiatrist/threads.test.ts` may be
+  satisfied by route/thread-store tests only if the audit maps each required
+  thread behavior to the concrete test that covers it.
+- `Missing`: no current implementation or evidence proves the requirement.
+  Do not mark the task complete until the missing item is implemented, or until
+  this workflow is explicitly updated with a narrower accepted scope.
+
+Generic command success is not enough for `Satisfied`. In particular,
+`bun run test:e2e e2e/reader.spec.ts` only satisfies the browser requirements
+when that spec or a recorded browser run proves the Psychiatrist-specific
+running-turn, reload, Stop, Regenerate, failed/stopped Regenerate,
+network-required, and web-source-approved cases listed above. If the existing
+reader E2E suite only exercises non-Psychiatrist reader behavior, the
+Psychiatrist browser items remain `Missing`.
+
+The final PR handoff must include the audit matrix or a concise equivalent
+mapping. Any `Mapped` item must name the actual file/test or browser evidence.
+Any `Missing` item must remain open in the PR summary and must not be described
+as implemented.
