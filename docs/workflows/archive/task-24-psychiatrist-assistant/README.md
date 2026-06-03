@@ -186,6 +186,7 @@ Out of scope for this branch:
 | 24.6 | [Docs, browser verification, and handoff](06-docs-browser-verification-handoff.md) | M | Update semantic docs, run focused and full verification, and prepare PR evidence. |
 | 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Add the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary. |
 | 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
+| 24.9 | [Completion audit](09-completion-audit.md) | M | Map the workflow exec-plan to current implementation evidence and confirm no missing requirements remain. |
 
 ## Implementation Rules
 
