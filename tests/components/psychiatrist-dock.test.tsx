@@ -45,6 +45,14 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("Enter");
   });
 
+  it("keeps web-source approval scoped to a single retry turn", () => {
+    expect(dockSource).toContain("webSourceRetryPrompt");
+    expect(dockSource).toContain("network_permission_required");
+    expect(dockSource).toContain("Allow web sources for this turn");
+    expect(dockSource).toContain("allow_for_this_turn");
+    expect(dockSource).not.toContain("localStorage");
+  });
+
   it("creates or resumes a source thread with network disabled by default", async () => {
     const requests: Request[] = [];
     const thread = await createPsychiatristThread({

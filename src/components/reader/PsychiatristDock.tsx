@@ -42,6 +42,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [isRunning, setIsRunning] = createSignal(false);
   const [runningTurnId, setRunningTurnId] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
+  const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
 
   const pairs = () => transcriptPairs();
   const openDock = () => {
@@ -75,20 +76,24 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
-  const submitPrompt = async () => {
-    const message = prompt().trim();
+  const submitPrompt = async (
+    webSourcePermission: "deny" | "allow_for_this_turn" = "deny",
+    promptOverride?: string,
+  ) => {
+    const message = (promptOverride ?? prompt()).trim();
     const currentThread = thread();
     if (message === "" || currentThread === undefined || isRunning()) {
       return;
     }
     setIsRunning(true);
     setErrorMessage("");
+    setWebSourceRetryPrompt("");
     try {
       const started = await sendPsychiatristMessage({
         clientMessageId: crypto.randomUUID(),
         message,
         threadId: currentThread.thread_id,
-        webSourcePermission: "deny",
+        webSourcePermission,
       });
       setPrompt("");
       setRunningTurnId(started.turn_id);
@@ -109,8 +114,22 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         queueMicrotask(() => inputRef?.focus());
         return;
       }
+      if (
+        error instanceof PsychiatristRequestError &&
+        error.code === "network_permission_required"
+      ) {
+        setWebSourceRetryPrompt(message);
+      }
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
+  };
+  const approveWebSourcesForTurn = async () => {
+    const retryPrompt = webSourceRetryPrompt();
+    if (retryPrompt === "") {
+      return;
+    }
+    setPrompt(retryPrompt);
+    await submitPrompt("allow_for_this_turn", retryPrompt);
   };
   const handleStop = async () => {
     const turnId = runningTurnId();
@@ -256,7 +275,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               value={prompt()}
             />
             <Show when={errorMessage() !== ""}>
-              <p class="text-xs text-trauma-danger">{errorMessage()}</p>
+              <div class="grid gap-2">
+                <p class="text-xs text-trauma-danger">{errorMessage()}</p>
+                <Show when={webSourceRetryPrompt() !== ""}>
+                  <button
+                    type="button"
+                    class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                    onClick={() => void approveWebSourcesForTurn()}
+                  >
+                    Allow web sources for this turn
+                  </button>
+                </Show>
+              </div>
             </Show>
             <button
               type={isRunning() ? "button" : "submit"}

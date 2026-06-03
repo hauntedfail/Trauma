@@ -101,6 +101,7 @@ export interface CodexConversationTurnInput {
 
 export interface CodexConversationTurnResult {
   outputText: string;
+  sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   threadId: string;
   turnId: string;
 }

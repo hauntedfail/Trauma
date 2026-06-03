@@ -21,6 +21,7 @@ import {
 } from "../../../src/server/psychiatrist/thread-route";
 import type {
   PsychiatristMemoryContext,
+  PsychiatristSourceCitation,
   PsychiatristThreadManifest,
 } from "../../../src/server/psychiatrist/types";
 import type {
@@ -175,6 +176,69 @@ describe("Psychiatrist thread API routes", () => {
       memory_id: MEMORY_ID,
       thread_id: THREAD_ID,
       variant_kind: "source",
+    });
+  });
+
+  it("returns active turn metadata when resuming or reading a running thread", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-active-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    activePsychiatristTurns.register({
+      client: new HangingConversationClient(),
+      memoryId: MEMORY_ID,
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const startHandler = createStartPsychiatristThreadHandler({
+      buildContext: async () => context(),
+      config: { storePath },
+      generateId: () => THREAD_ID_2,
+      now: () => new Date("2026-06-01T00:00:01.000Z"),
+    });
+
+    const resumed = await startHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads`, {
+          body: JSON.stringify({ resume_latest: true }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID },
+      ),
+    );
+
+    expect(resumed.status).toBe(200);
+    await expect(resumed.json()).resolves.toMatchObject({
+      active_turn: {
+        event_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+        pair_id: PAIR_ID,
+        status: "running",
+        turn_id: TURN_ID,
+      },
+      thread_id: THREAD_ID,
+    });
+
+    const readHandler = createReadPsychiatristThreadHandler({
+      config: { storePath },
+    });
+    const read = await readHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(read.status).toBe(200);
+    await expect(read.json()).resolves.toMatchObject({
+      active_turn: {
+        event_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+        pair_id: PAIR_ID,
+        status: "running",
+        turn_id: TURN_ID,
+      },
+      thread_id: THREAD_ID,
     });
   });
 
@@ -374,7 +438,18 @@ describe("Psychiatrist thread API routes", () => {
       config: { storePath },
       manifest: manifest(),
     });
-    const client = new FakeConversationClient("Cited answer.");
+    const client = new FakeConversationClient("Cited answer.", [
+      {
+        sourceId: "../unsafe",
+        title: "  Current release notes\nhidden  ",
+        url: "https://example.com/releases?token=secret",
+      },
+      {
+        sourceId: "drop-local",
+        title: "Local file",
+        url: "file:///private/tmp/secret",
+      },
+    ]);
     const handler = createSendPsychiatristMessageHandler({
       client,
       config: { storePath },
@@ -401,6 +476,14 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       return loaded.pairs[0]?.status === "completed";
     });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]?.assistant?.citations).toEqual([
+      {
+        sourceId: "source-1",
+        title: "Current release notes hidden",
+        url: "https://example.com/releases?token=secret",
+      },
+    ]);
   });
 
   it("keeps a completed answer when backup enqueue fails", async () => {
@@ -987,7 +1070,10 @@ function createIdGenerator(ids: string[]): () => string {
 class FakeConversationClient implements CodexConversationClient {
   readonly inputs: CodexConversationTurnInput[] = [];
 
-  constructor(private readonly outputText: string) {}
+  constructor(
+    private readonly outputText: string,
+    private readonly sourceCitations: PsychiatristSourceCitation[] = [],
+  ) {}
 
   async cancelTurn(): Promise<void> {
     return undefined;
@@ -1005,6 +1091,7 @@ class FakeConversationClient implements CodexConversationClient {
     input.onEvent?.({ text: "partial answer", type: "delta" });
     return {
       outputText: this.outputText,
+      sourceCitations: this.sourceCitations,
       threadId: input.threadId ?? "codex-thread-1",
       turnId: "codex-turn-1",
     };

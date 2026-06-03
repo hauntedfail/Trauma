@@ -17,6 +17,7 @@ import {
 } from "../translation/codex-app-server";
 import { activePsychiatristTurns } from "./active-turns";
 import { buildPsychiatristPrompt } from "./prompt";
+import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
@@ -197,7 +198,7 @@ async function runRegenerateTurn(input: {
     await eventWriteChain;
     await appendRegeneratedAssistantResponse({
       assistantResponse: result.outputText,
-      citations: [],
+      citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
       config: input.config,
       pairId: input.pairId,
       threadId: input.loaded.manifest.threadId,

@@ -20,6 +20,7 @@ import {
 import { createSha256ContentHash } from "../translation/hash";
 import { buildPsychiatristMemoryContext } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
+import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
 import {
@@ -265,7 +266,7 @@ async function runPsychiatristTurn(input: {
     await eventWriteChain;
     await appendAssistantResponse({
       assistantResponse: result.outputText,
-      citations: [],
+      citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
       config: input.config,
       pairId: input.pairId,
       threadId: input.threadId,
@@ -530,12 +531,15 @@ function safeErrorResponse(
   );
 }
 
-function safeErrorAction(code: string): "open_reader" | "refresh_thread" | "retry" {
+function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "refresh_thread" | "retry" {
   if (code === "thread_not_found") {
     return "open_reader";
   }
   if (code === "thread_stale") {
     return "refresh_thread";
+  }
+  if (code === "network_permission_required") {
+    return "allow_web_sources";
   }
   return "retry";
 }

@@ -12,6 +12,7 @@ import {
   buildPsychiatristMemoryContext,
   PsychiatristContextError,
 } from "./context";
+import { activePsychiatristTurns } from "./active-turns";
 import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
@@ -209,8 +210,16 @@ function toThreadResponse(input: {
   manifest: PsychiatristThreadManifest;
   pairs: PsychiatristThreadPair[];
 }) {
+  const activeTurn = activePsychiatristTurns.getByThreadId(input.manifest.threadId);
   return {
-    active_turn: null,
+    active_turn: activeTurn === undefined
+      ? null
+      : {
+        event_url: `/api/psychiatrist-turns/${activeTurn.turnId}/events`,
+        pair_id: activeTurn.pairId,
+        status: "running",
+        turn_id: activeTurn.turnId,
+      },
     content_hash: input.manifest.activeContentHash,
     lang_code: input.manifest.langCode ?? null,
     memory_id: input.manifest.memoryId,
