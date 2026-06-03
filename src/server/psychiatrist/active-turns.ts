@@ -13,16 +13,34 @@ export interface ActivePsychiatristTurn {
 export class ActivePsychiatristTurnRegistry {
   private readonly byTurnId = new Map<string, ActivePsychiatristTurn>();
   private readonly byThreadId = new Map<string, ActivePsychiatristTurn>();
+  private readonly reservedThreadIds = new Set<string>();
 
   getByThreadId(threadId: string): ActivePsychiatristTurn | undefined {
     return this.byThreadId.get(threadId);
+  }
+
+  hasActiveOrReservedThread(threadId: string): boolean {
+    return this.byThreadId.has(threadId) || this.reservedThreadIds.has(threadId);
   }
 
   getByTurnId(turnId: string): ActivePsychiatristTurn | undefined {
     return this.byTurnId.get(turnId);
   }
 
+  reserveThread(threadId: string): boolean {
+    if (this.hasActiveOrReservedThread(threadId)) {
+      return false;
+    }
+    this.reservedThreadIds.add(threadId);
+    return true;
+  }
+
+  releaseThread(threadId: string): void {
+    this.reservedThreadIds.delete(threadId);
+  }
+
   register(turn: ActivePsychiatristTurn): void {
+    this.reservedThreadIds.delete(turn.threadId);
     this.byTurnId.set(turn.turnId, turn);
     this.byThreadId.set(turn.threadId, turn);
   }
@@ -52,11 +70,13 @@ export class ActivePsychiatristTurnRegistry {
     }
     this.byTurnId.delete(turnId);
     this.byThreadId.delete(turn.threadId);
+    this.reservedThreadIds.delete(turn.threadId);
   }
 
   clear(): void {
     this.byTurnId.clear();
     this.byThreadId.clear();
+    this.reservedThreadIds.clear();
   }
 }
 

@@ -118,7 +118,7 @@ export async function handleStartPsychiatristThreadRequest(
       ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
       memoryId: context.memoryId,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
-      sourceHash: context.variantKind === "source" ? context.contentHash : context.contentHash,
+      sourceHash: context.sourceHash,
       status: "ready",
       threadId: input.generateId?.() ?? generateUuidV7Like(),
       ...(context.variantKind === "translation"

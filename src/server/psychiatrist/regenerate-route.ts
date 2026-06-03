@@ -12,6 +12,7 @@ import {
 import { jsonResponse } from "../http/json";
 import {
   CodexAppServerClient,
+  CodexAppServerError,
   type CodexAppServerEvent,
   type CodexConversationClient,
 } from "../translation/codex-app-server";
@@ -88,7 +89,14 @@ export async function handleRegeneratePsychiatristResponseRequest(
       409,
     );
   }
-  if (activePsychiatristTurns.getByThreadId(loaded.manifest.threadId) !== undefined) {
+  if (loaded.manifest.status === "stale") {
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
+  if (!activePsychiatristTurns.reserveThread(loaded.manifest.threadId)) {
     return safeErrorResponse(
       "turn_conflict",
       "A Psychiatrist turn is already running for this thread.",
@@ -102,41 +110,52 @@ export async function handleRegeneratePsychiatristResponseRequest(
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
 
-  await recordPsychiatristTurnStarted({
-    config,
-    pairId,
-    regenerateFromTurnId: loaded.pair.turnId,
-    threadId: loaded.manifest.threadId,
-    turnId,
-  });
-  await appendPsychiatristStreamEvent({
-    config,
-    event: {
-      data: { pair_id: pairId, status: "running" },
-      memoryId: loaded.manifest.memoryId,
+  try {
+    await recordPsychiatristTurnStarted({
+      config,
+      pairId,
+      regenerateFromTurnId: loaded.pair.turnId,
       threadId: loaded.manifest.threadId,
       turnId,
-      type: "psychiatrist.regenerate.started",
-    },
-  });
+    });
+    await appendPsychiatristStreamEvent({
+      config,
+      event: {
+        data: { pair_id: pairId, status: "running" },
+        memoryId: loaded.manifest.memoryId,
+        threadId: loaded.manifest.threadId,
+        turnId,
+        type: "psychiatrist.regenerate.started",
+      },
+    });
 
-  const client = input.client ?? new CodexAppServerClient();
-  activePsychiatristTurns.register({
-    client,
-    memoryId: loaded.manifest.memoryId,
-    pairId,
-    threadId: loaded.manifest.threadId,
-    turnId,
-  });
-  void runRegenerateTurn({
-    backupQueue: input.backupQueue ?? getMemoryBackupQueue(config),
-    client,
-    config,
-    loaded,
-    pairId,
-    turnId,
-    webSourcePolicy,
-  });
+    const ownsClient = input.client === undefined;
+    const client = input.client ?? new CodexAppServerClient();
+    activePsychiatristTurns.register({
+      client,
+      memoryId: loaded.manifest.memoryId,
+      pairId,
+      threadId: loaded.manifest.threadId,
+      turnId,
+    });
+    void runRegenerateTurn({
+      backupQueue: input.backupQueue ?? getMemoryBackupQueue(config),
+      client,
+      config,
+      loaded,
+      ownsClient,
+      pairId,
+      turnId,
+      webSourcePolicy,
+    });
+  } catch (error) {
+    activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
+    return safeErrorResponse(
+      error instanceof CodexAppServerError ? error.code : "unknown",
+      "Psychiatrist regenerate request failed.",
+      500,
+    );
+  }
 
   const eventUrl = `/api/psychiatrist-turns/${turnId}/events`;
   return jsonResponse({
@@ -154,6 +173,7 @@ async function runRegenerateTurn(input: {
   client: CodexConversationClient;
   config: ResolvedTraumaConfig;
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+  ownsClient: boolean;
   pairId: string;
   turnId: string;
   webSourcePolicy: PsychiatristWebSourcePolicy;
@@ -173,6 +193,7 @@ async function runRegenerateTurn(input: {
           memoryId: input.loaded.contextSnapshot.memoryId,
           relativePath: input.loaded.contextSnapshot.relativePath,
           sections: input.loaded.contextSnapshot.sections,
+          sourceHash: input.loaded.manifest.sourceHash,
           sourceUrl: input.loaded.contextSnapshot.sourceUrl,
           tags: input.loaded.contextSnapshot.tags,
           title: input.loaded.contextSnapshot.title,
@@ -193,6 +214,18 @@ async function runRegenerateTurn(input: {
         ? "user_approved_web_sources"
         : "disabled",
       onEvent: (codexEvent) => {
+        if (codexEvent.type === "thread.started") {
+          activePsychiatristTurns.updateCodexIds({
+            codexThreadId: codexEvent.threadId,
+            turnId: input.turnId,
+          });
+        }
+        if (codexEvent.type === "turn.started") {
+          activePsychiatristTurns.updateCodexIds({
+            codexTurnId: codexEvent.turnId,
+            turnId: input.turnId,
+          });
+        }
         eventWriteChain = eventWriteChain.then(() =>
           persistCodexEvent({
             config: input.config,
@@ -206,6 +239,36 @@ async function runRegenerateTurn(input: {
       threadId: input.loaded.manifest.codexThreadId,
     });
     await eventWriteChain;
+    if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {
+      const safeError = {
+        action: "retry" as const,
+        code: "network_permission_required",
+        message: "Allow web-source access to answer this request.",
+      };
+      await markPsychiatristRegenerateFailed({
+        config: input.config,
+        error: safeError,
+        pairId: input.pairId,
+        threadId: input.loaded.manifest.threadId,
+        turnId: input.turnId,
+      });
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          data: {
+            code: safeError.code,
+            message: safeError.message,
+            pair_id: input.pairId,
+            user_prompt: input.loaded.prompt,
+          },
+          memoryId: input.loaded.manifest.memoryId,
+          threadId: input.loaded.manifest.threadId,
+          turnId: input.turnId,
+          type: "psychiatrist.network.permission_required",
+        },
+      });
+      return;
+    }
     await appendRegeneratedAssistantResponse({
       assistantResponse: result.outputText,
       citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
@@ -224,17 +287,7 @@ async function runRegenerateTurn(input: {
       threadId: input.loaded.manifest.threadId,
       turnId: input.turnId,
     });
-    await appendPsychiatristStreamEvent({
-      config: input.config,
-      event: {
-        data: { pair_id: input.pairId },
-        memoryId: input.loaded.manifest.memoryId,
-        threadId: input.loaded.manifest.threadId,
-        turnId: input.turnId,
-        type: "psychiatrist.regenerate.completed",
-      },
-    });
-    await input.backupQueue.enqueue({
+    const backupWarning = await input.backupQueue.enqueue({
       contentPaths: [
         input.loaded.paths.threadMarkdownRelativePath,
         input.loaded.paths.pairResponseRelativePath,
@@ -242,15 +295,31 @@ async function runRegenerateTurn(input: {
       ],
       memoryId: input.loaded.manifest.memoryId,
       reason: "psychiatrist_response_regenerate",
+    }).then(() => undefined).catch(() => ({
+      code: "backup_enqueue_failed",
+      message: "Psychiatrist answer was saved, but backup enqueue failed.",
+    }));
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: {
+          ...(backupWarning === undefined ? {} : { warning: backupWarning }),
+          pair_id: input.pairId,
+        },
+        memoryId: input.loaded.manifest.memoryId,
+        threadId: input.loaded.manifest.threadId,
+        turnId: input.turnId,
+        type: "psychiatrist.regenerate.completed",
+      },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
+      return;
+    }
+    const safeError = toSafeCodexError(error, "Psychiatrist regenerate failed.");
     await markPsychiatristRegenerateFailed({
       config: input.config,
-      error: {
-        action: "retry",
-        code: "unknown",
-        message: "Psychiatrist regenerate failed.",
-      },
+      error: safeError,
       pairId: input.pairId,
       threadId: input.loaded.manifest.threadId,
       turnId: input.turnId,
@@ -258,7 +327,7 @@ async function runRegenerateTurn(input: {
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
-        data: { code: "unknown", message: "Psychiatrist regenerate failed." },
+        data: { code: safeError.code, message: safeError.message },
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,
         turnId: input.turnId,
@@ -267,6 +336,17 @@ async function runRegenerateTurn(input: {
     });
   } finally {
     activePsychiatristTurns.unregister(input.turnId);
+    if (input.ownsClient) {
+      await closeOwnedClient(input.client);
+    }
+  }
+}
+
+async function closeOwnedClient(client: CodexConversationClient): Promise<void> {
+  try {
+    await client.close?.();
+  } catch {
+    // A close failure must not rewrite the persisted turn outcome.
   }
 }
 
@@ -347,13 +427,64 @@ function safeErrorResponse(
 ): Response {
   return jsonResponse(
     {
-      action: code === "pair_not_found" ? "open_reader" : "retry",
+      action: safeErrorAction(code),
       code,
       message,
       status: "error",
     },
     { status },
   );
+}
+
+function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "refresh_thread" | "retry" | "setup_codex_auth" {
+  if (code === "auth_required") {
+    return "setup_codex_auth";
+  }
+  if (code === "pair_not_found") {
+    return "open_reader";
+  }
+  if (code === "thread_stale") {
+    return "refresh_thread";
+  }
+  if (code === "network_permission_required") {
+    return "allow_web_sources";
+  }
+  return "retry";
+}
+
+function toSafeCodexError(error: unknown, fallbackMessage: string): {
+  action: "retry";
+  code: string;
+  message: string;
+} {
+  if (!(error instanceof CodexAppServerError)) {
+    return {
+      action: "retry",
+      code: "unknown",
+      message: fallbackMessage,
+    };
+  }
+  return {
+    action: "retry",
+    code: error.code,
+    message: safeCodexErrorMessage(error.code, fallbackMessage),
+  };
+}
+
+function safeCodexErrorMessage(code: string, fallbackMessage: string): string {
+  if (code === "auth_required") {
+    return "Codex authentication is required before using Psychiatrist.";
+  }
+  if (code === "app_server_unavailable") {
+    return "Codex app-server is unavailable.";
+  }
+  if (code === "timeout") {
+    return "Codex app-server request timed out.";
+  }
+  if (code === "turn_interrupted") {
+    return "Psychiatrist turn was interrupted.";
+  }
+  return fallbackMessage;
 }
 
 function generateUuidV7Like(): string {

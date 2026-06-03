@@ -99,6 +99,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         ...current,
         {
           answer: "",
+          citations: [],
           pairId: started.pair_id,
           process: [],
           status: "running",
@@ -173,6 +174,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     }
   };
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (!isOpen()) {
+      return;
+    }
     if (event.key === "Escape") {
       closeDock();
       return;
@@ -183,6 +187,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     }
   };
   const handleStreamEvent = (event: PsychiatristStreamEvent) => {
+    const retryPrompt = event.type === "psychiatrist.network.permission_required"
+      ? findPromptForStreamEvent(transcriptPairs(), event)
+      : "";
     setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, event));
     if (
       event.type === "psychiatrist.answer.completed" ||
@@ -193,6 +200,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     ) {
       setIsRunning(false);
       setRunningTurnId("");
+      if (event.type === "psychiatrist.network.permission_required" && retryPrompt !== "") {
+        setWebSourceRetryPrompt(retryPrompt);
+        setErrorMessage("Allow web search/source lookup for this answer to continue.");
+      }
     }
   };
 
@@ -256,6 +267,24 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                         fallback={<p class="text-xs uppercase tracking-[0.08em]">{pair.status}</p>}
                       >
                         {(response) => <p>{response()}</p>}
+                      </Show>
+                      <Show when={pair.citations.length > 0}>
+                        <ul class="mt-2 grid gap-1 text-xs">
+                          <For each={pair.citations}>
+                            {(citation) => (
+                              <li>
+                                <a
+                                  class="text-trauma-accent hover:underline"
+                                  href={citation.url}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  {citation.title}
+                                </a>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
                       </Show>
                       <Show when={pair.status === "completed"}>
                         <button
@@ -345,11 +374,34 @@ function connectPsychiatristStream(
     handleMessage(message);
     eventSource.close();
   });
+  eventSource.addEventListener("psychiatrist.network.permission_required", (message) => {
+    handleMessage(message);
+    eventSource.close();
+  });
   eventSource.addEventListener("psychiatrist.turn.canceled", (message) => {
     handleMessage(message);
     eventSource.close();
   });
   return () => eventSource.close();
+}
+
+function findPromptForStreamEvent(
+  pairs: readonly PsychiatristTranscriptPair[],
+  event: PsychiatristStreamEvent,
+): string {
+  const pairId = readPairId(event.data);
+  const pair = pairId === undefined
+    ? pairs.find((candidate) => candidate.turnId === event.turnId)
+    : pairs.find((candidate) => candidate.pairId === pairId);
+  return pair?.userPrompt ?? "";
+}
+
+function readPairId(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.pair_id === "string" ? data.pair_id : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parsePsychiatristStreamEvent(data: string): PsychiatristStreamEvent | undefined {

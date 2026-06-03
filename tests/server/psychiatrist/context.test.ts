@@ -62,6 +62,7 @@ describe("Psychiatrist memory context", () => {
       contentHash: createSha256ContentHash(markdown),
       memoryId: MEMORY_ID,
       relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
+      sourceHash: createSha256ContentHash(markdown),
       sourceUrl: "https://example.com/source",
       tags: ["deploy"],
       title: "Deploy Notes",
@@ -112,6 +113,43 @@ describe("Psychiatrist memory context", () => {
     ]);
   });
 
+  it("splits duplicate headings by occurrence instead of reusing the first offset", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-duplicate-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "## Repeat",
+      "",
+      "First body.",
+      "",
+      "## Repeat",
+      "",
+      "Second body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    const repeated = context.sections.filter((section) => section.title === "Repeat");
+    expect(repeated).toHaveLength(2);
+    expect(repeated[0]?.markdown).toContain("First body.");
+    expect(repeated[0]?.markdown).not.toContain("Second body.");
+    expect(repeated[1]?.markdown).toContain("Second body.");
+    expect(repeated[1]?.startOffset).toBeGreaterThan(repeated[0]?.startOffset ?? 0);
+  });
+
   it("uses current translated CONTENT.md and output hash for translated context", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-ja-"));
     const sourceMarkdown = "# Source\n\nOriginal.";
@@ -148,6 +186,7 @@ describe("Psychiatrist memory context", () => {
         markdown: translatedMarkdown,
       }),
     );
+    const sourceHash = createSha256ContentHash(sourceContent);
 
     const context = await buildPsychiatristMemoryContext({
       config: { storePath },
@@ -157,7 +196,7 @@ describe("Psychiatrist memory context", () => {
       translationRepository: fakeTranslationRepository({
         outputHash,
         outputPath: translatedPath.relativePath,
-        sourceHash: createSha256ContentHash(sourceContent),
+        sourceHash,
       }),
     });
 
@@ -165,6 +204,7 @@ describe("Psychiatrist memory context", () => {
       contentHash: outputHash,
       langCode: "ja-JP",
       relativePath: translatedPath.relativePath,
+      sourceHash,
       title: "Source",
       variantKind: "translation",
     });

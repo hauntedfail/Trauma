@@ -574,6 +574,49 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("preserves source citations returned by Psychiatrist conversation turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-citations-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Cited answer.",
+      conversationSourceCitations: [
+        {
+          sourceId: "codex-source-1",
+          title: "Release notes",
+          url: "https://example.com/releases",
+        },
+      ],
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Use approved sources.",
+          networkAccess: "user_approved_web_sources",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Cited answer.",
+        sourceCitations: [
+          {
+            sourceId: "codex-source-1",
+            title: "Release notes",
+            url: "https://example.com/releases",
+          },
+        ],
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("forwards safe Psychiatrist process events while filtering hidden reasoning", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-events-"));
     tempRoots.push(root);
@@ -604,6 +647,7 @@ describe("Codex app-server endpoint parsing", () => {
       });
       expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
       expect(JSON.stringify(events)).not.toContain("/private/store/path");
+      expect(JSON.stringify(events)).not.toContain("/home/runner/work");
     } finally {
       await server.close();
     }
@@ -1302,6 +1346,14 @@ function handleClientMessage(
           },
         });
         sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Inspecting /home/runner/work/trauma/store",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
           method: "item/reasoning",
           params: {
             message: "hidden chain of thought from /private/store/path",
@@ -1325,6 +1377,7 @@ function handleClientMessage(
           turnId: "turn-1",
           item: {
             id: "item-1",
+            sourceCitations: options.conversationSourceCitations,
             text: options.conversationFinalText ?? JSON.stringify({
               chunk_index: 0,
               segments: [{ id: "s000001", translated_text: "翻訳本文" }],
@@ -1347,6 +1400,7 @@ interface FakeAppServerOptions {
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
   conversationFinalText?: string;
+  conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;

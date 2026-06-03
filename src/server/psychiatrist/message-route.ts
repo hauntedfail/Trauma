@@ -14,11 +14,12 @@ import { initializeDatabase } from "../db";
 import { jsonResponse } from "../http/json";
 import {
   CodexAppServerClient,
+  CodexAppServerError,
   type CodexAppServerEvent,
   type CodexConversationClient,
 } from "../translation/codex-app-server";
 import { createSha256ContentHash } from "../translation/hash";
-import { buildPsychiatristMemoryContext } from "./context";
+import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
@@ -93,7 +94,7 @@ export async function handleSendPsychiatristMessageRequest(
   if (!payload.ok) {
     return safeErrorResponse("invalid_request", payload.message, 400);
   }
-  if (activePsychiatristTurns.getByThreadId(threadId) !== undefined) {
+  if (!activePsychiatristTurns.reserveThread(threadId)) {
     return safeErrorResponse(
       "turn_conflict",
       "A Psychiatrist turn is already running for this thread.",
@@ -107,24 +108,41 @@ export async function handleSendPsychiatristMessageRequest(
   try {
     thread = await loadThread({ config, threadId });
   } catch (error) {
+    activePsychiatristTurns.releaseThread(threadId);
     return formatMessageError(error);
+  }
+  if (thread.manifest.status === "stale") {
+    activePsychiatristTurns.releaseThread(threadId);
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
   }
 
   const pairId = input.generateId?.() ?? generateUuidV7Like();
   const turnId = input.generateId?.() ?? generateUuidV7Like();
-  const context = await resolveTurnContext({
-    buildContext: input.buildContext,
-    config,
-    manifest: thread.manifest,
-  });
-  const resolveActiveContentHash = input.resolveActiveContentHash ??
-    defaultResolveActiveContentHash;
-  const activeContentHash = await resolveActiveContentHash({
-    config,
-    context,
-    manifest: thread.manifest,
-  });
+  let context: PsychiatristMemoryContext;
+  let activeContentHash: string;
+  try {
+    context = await resolveTurnContext({
+      buildContext: input.buildContext,
+      config,
+      manifest: thread.manifest,
+    });
+    const resolveActiveContentHash = input.resolveActiveContentHash ??
+      defaultResolveActiveContentHash;
+    activeContentHash = await resolveActiveContentHash({
+      config,
+      context,
+      manifest: thread.manifest,
+    });
+  } catch (error) {
+    activePsychiatristTurns.releaseThread(threadId);
+    return formatMessageError(error);
+  }
   if (activeContentHash !== thread.manifest.activeContentHash) {
+    activePsychiatristTurns.releaseThread(threadId);
     await markPsychiatristThreadStale({ config, threadId });
     await appendPsychiatristStreamEvent({
       config,
@@ -183,6 +201,7 @@ export async function handleSendPsychiatristMessageRequest(
       },
     });
 
+    const ownsClient = input.client === undefined;
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
@@ -202,12 +221,14 @@ export async function handleSendPsychiatristMessageRequest(
       threadId,
       turnId,
       webSourcePolicy,
+      ownsClient,
     });
     return jsonResponse(toStartedResponse({ pairId, threadId, turnId }), {
       status: 202,
     });
   } catch (error) {
     activePsychiatristTurns.unregister(turnId);
+    activePsychiatristTurns.releaseThread(threadId);
     await appendPsychiatristStreamEvent({
       config,
       event: {
@@ -229,6 +250,7 @@ async function runPsychiatristTurn(input: {
   context: PsychiatristMemoryContext;
   pairId: string;
   payload: { message: string };
+  ownsClient: boolean;
   thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
   threadId: string;
   turnId: string;
@@ -297,6 +319,8 @@ async function runPsychiatristTurn(input: {
           data: {
             code: safeError.code,
             message: safeError.message,
+            pair_id: input.pairId,
+            user_prompt: input.payload.message,
           },
           memoryId: input.thread.manifest.memoryId,
           threadId: input.threadId,
@@ -341,17 +365,17 @@ async function runPsychiatristTurn(input: {
         type: "psychiatrist.answer.completed",
       },
     });
-  } catch {
+  } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);
+    if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
+      return;
+    }
+    const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
     await markPsychiatristTurnFailed({
       codexThreadId: active?.codexThreadId,
       codexTurnId: active?.codexTurnId,
       config: input.config,
-      error: {
-        action: "retry",
-        code: "unknown",
-        message: "Psychiatrist answer failed.",
-      },
+      error: safeError,
       pairId: input.pairId,
       threadId: input.threadId,
       turnId: input.turnId,
@@ -359,7 +383,7 @@ async function runPsychiatristTurn(input: {
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
-        data: { code: "unknown", message: "Psychiatrist answer failed." },
+        data: { code: safeError.code, message: safeError.message },
         memoryId: input.thread.manifest.memoryId,
         threadId: input.threadId,
         turnId: input.turnId,
@@ -368,6 +392,17 @@ async function runPsychiatristTurn(input: {
     });
   } finally {
     activePsychiatristTurns.unregister(input.turnId);
+    if (input.ownsClient) {
+      await closeOwnedClient(input.client);
+    }
+  }
+}
+
+async function closeOwnedClient(client: CodexConversationClient): Promise<void> {
+  try {
+    await client.close?.();
+  } catch {
+    // A close failure must not rewrite the persisted turn outcome.
   }
 }
 
@@ -504,6 +539,7 @@ function fallbackManifestContext(
     memoryId: manifest.memoryId,
     relativePath: "",
     sections: [],
+    sourceHash: manifest.sourceHash,
     sourceUrl: "",
     tags: [],
     title: "",
@@ -570,7 +606,55 @@ function formatMessageError(error: unknown): Response {
       error.code === "thread_not_found" ? 404 : 400,
     );
   }
+  if (error instanceof PsychiatristContextError) {
+    return safeErrorResponse(
+      error.code,
+      error.code === "missing_memory"
+        ? "Memory was not found."
+        : "Psychiatrist context is unavailable for this memory.",
+      error.code === "missing_memory" ? 404 : 409,
+    );
+  }
+  if (error instanceof CodexAppServerError) {
+    const safeError = toSafeCodexError(error, "Psychiatrist message request failed.");
+    return safeErrorResponse(safeError.code, safeError.message, 500);
+  }
   return safeErrorResponse("unknown", "Psychiatrist message request failed.", 500);
+}
+
+function toSafeCodexError(error: unknown, fallbackMessage: string): {
+  action: "retry";
+  code: string;
+  message: string;
+} {
+  if (!(error instanceof CodexAppServerError)) {
+    return {
+      action: "retry",
+      code: "unknown",
+      message: fallbackMessage,
+    };
+  }
+  return {
+    action: "retry",
+    code: error.code,
+    message: safeCodexErrorMessage(error.code, fallbackMessage),
+  };
+}
+
+function safeCodexErrorMessage(code: string, fallbackMessage: string): string {
+  if (code === "auth_required") {
+    return "Codex authentication is required before using Psychiatrist.";
+  }
+  if (code === "app_server_unavailable") {
+    return "Codex app-server is unavailable.";
+  }
+  if (code === "timeout") {
+    return "Codex app-server request timed out.";
+  }
+  if (code === "turn_interrupted") {
+    return "Psychiatrist turn was interrupted.";
+  }
+  return fallbackMessage;
 }
 
 async function defaultResolveActiveContentHash(input: {
@@ -596,7 +680,10 @@ function safeErrorResponse(
   );
 }
 
-function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "refresh_thread" | "retry" {
+function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "refresh_thread" | "retry" | "setup_codex_auth" {
+  if (code === "auth_required") {
+    return "setup_codex_auth";
+  }
   if (code === "thread_not_found") {
     return "open_reader";
   }

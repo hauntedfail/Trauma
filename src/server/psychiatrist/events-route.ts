@@ -34,14 +34,14 @@ export async function handlePsychiatristTurnEventsRequest(
     event.request.headers.get("Last-Event-ID") ??
     undefined;
   const config = input.config ?? loadRuntimeTraumaConfig();
-  const replay = await loadPsychiatristStreamReplay({
-    afterEventId,
-    config,
-    turnId,
-  });
-  const body = activePsychiatristTurns.getByTurnId(turnId) === undefined
-    ? replay.map(encodePsychiatristServerSentEvent).join("")
-    : createLiveEventStream({ replay, turnId });
+  const isLiveTurn = activePsychiatristTurns.getByTurnId(turnId) !== undefined;
+  const body = isLiveTurn
+    ? createLiveEventStream({ afterEventId, config, turnId })
+    : (await loadPsychiatristStreamReplay({
+      afterEventId,
+      config,
+      turnId,
+    })).map(encodePsychiatristServerSentEvent).join("");
   return new Response(body, {
     headers: {
       "cache-control": "no-cache, no-transform",
@@ -54,26 +54,49 @@ export async function handlePsychiatristTurnEventsRequest(
 }
 
 function createLiveEventStream(input: {
-  replay: PsychiatristStreamEvent[];
+  afterEventId?: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
   turnId: string;
 }): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   return new ReadableStream({
-    start(controller) {
-      for (const event of input.replay) {
+    async start(controller) {
+      let closed = false;
+      const sentEventIds = new Set<string>();
+      const enqueue = (event: PsychiatristStreamEvent) => {
+        if (input.afterEventId !== undefined && event.eventId <= input.afterEventId) {
+          return;
+        }
+        if (closed || sentEventIds.has(event.eventId)) {
+          return;
+        }
+        sentEventIds.add(event.eventId);
         controller.enqueue(encoder.encode(encodePsychiatristServerSentEvent(event)));
-      }
+        if (isTerminalEvent(event)) {
+          closed = true;
+          unsubscribe?.();
+          controller.close();
+        }
+      };
       unsubscribe = subscribePsychiatristStream({
-        onEvent: (event) => {
-          controller.enqueue(encoder.encode(encodePsychiatristServerSentEvent(event)));
-          if (isTerminalEvent(event)) {
-            unsubscribe?.();
-            controller.close();
-          }
-        },
+        onEvent: enqueue,
         turnId: input.turnId,
       });
+      const replay = await loadPsychiatristStreamReplay({
+        afterEventId: input.afterEventId,
+        config: input.config,
+        turnId: input.turnId,
+      });
+      if (closed) {
+        return;
+      }
+      for (const event of replay) {
+        enqueue(event);
+        if (closed) {
+          return;
+        }
+      }
     },
     cancel() {
       unsubscribe?.();

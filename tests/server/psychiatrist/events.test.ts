@@ -86,6 +86,39 @@ describe("Psychiatrist stream store", () => {
     ]);
   });
 
+  it("serializes concurrent appends so event ids remain unique", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-concurrent-"));
+
+    await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        appendPsychiatristStreamEvent({
+          config: { storePath },
+          event: {
+            data: { text: `delta ${index}` },
+            memoryId: MEMORY_ID,
+            threadId: THREAD_ID,
+            turnId: TURN_ID,
+            type: "psychiatrist.answer.delta",
+          },
+        })
+      ),
+    );
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.eventId)).toEqual([
+      "000000000001",
+      "000000000002",
+      "000000000003",
+      "000000000004",
+      "000000000005",
+      "000000000006",
+    ]);
+  });
+
   it("filters unsafe process events before writing JSONL replay", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-safe-"));
 

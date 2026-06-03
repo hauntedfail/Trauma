@@ -61,6 +61,7 @@ export async function buildPsychiatristMemoryContext(input: {
     memoryId: input.memoryId,
     relativePath: loaded.relativePath,
     sections: splitContextSections(loaded.markdown),
+    sourceHash: loaded.sourceHash,
     sourceUrl: memory.url,
     tags: memory.memoryTags.map(({ tag }) => tag.name),
     title: memory.title,
@@ -75,6 +76,7 @@ async function loadSourceContextContent(input: {
   contentHash: string;
   markdown: string;
   relativePath: string;
+  sourceHash: string;
 }> {
   try {
     const content = await readMemoryContent(input);
@@ -82,6 +84,7 @@ async function loadSourceContextContent(input: {
       contentHash: createSha256ContentHash(content.markdown),
       markdown: content.markdown,
       relativePath: content.relativePath,
+      sourceHash: createSha256ContentHash(content.markdown),
     };
   } catch (error) {
     if (error instanceof MemoryContentStoreError && error.code === "missing_content") {
@@ -103,6 +106,7 @@ async function loadTranslatedContextContent(input: {
   contentHash: string;
   markdown: string;
   relativePath: string;
+  sourceHash: string;
 }> {
   if (!isSupportedLanguageCode(input.langCode)) {
     throw new PsychiatristContextError(
@@ -135,6 +139,7 @@ async function loadTranslatedContextContent(input: {
     contentHash: current.outputHash,
     markdown,
     relativePath: translatedPath.relativePath,
+    sourceHash: current.sourceHash,
   };
 }
 
@@ -152,10 +157,12 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
     }];
   }
 
-  const starts = rendered.toc.map((entry) => ({
-    entry,
-    startOffset: findHeadingOffset(markdown, entry.text),
-  }));
+  let searchOffset = 0;
+  const starts = rendered.toc.map((entry) => {
+    const startOffset = findHeadingOffset(markdown, entry.text, searchOffset);
+    searchOffset = startOffset + 1;
+    return { entry, startOffset };
+  });
   return starts.map((current, index) => {
     const next = starts[index + 1];
     const endOffset = next?.startOffset ?? markdown.length;
@@ -171,8 +178,13 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
   });
 }
 
-function findHeadingOffset(markdown: string, title: string): number {
+function findHeadingOffset(markdown: string, title: string, minOffset: number): number {
   const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`^#{1,6}\\s+${escapedTitle}\\s*$`, "m").exec(markdown);
-  return match?.index ?? 0;
+  const pattern = new RegExp(`^#{1,6}\\s+${escapedTitle}\\s*$`, "gm");
+  for (let match = pattern.exec(markdown); match !== null; match = pattern.exec(markdown)) {
+    if (match.index >= minOffset) {
+      return match.index;
+    }
+  }
+  return minOffset;
 }

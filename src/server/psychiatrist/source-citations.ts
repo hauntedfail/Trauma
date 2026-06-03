@@ -2,6 +2,8 @@ import type { PsychiatristSourceCitation } from "./types";
 
 const MAX_CITATIONS = 8;
 const MAX_TITLE_CHARS = 160;
+const SENSITIVE_QUERY_KEY_PATTERN =
+  /(?:^|[-_])(auth|credential|key|password|secret|signature|token)(?:$|[-_])/i;
 
 export function sanitizePsychiatristSourceCitations(
   citations: readonly PsychiatristSourceCitation[] | undefined,
@@ -37,6 +39,14 @@ function sanitizeSourceUrl(value: string): string | undefined {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return undefined;
   }
+  url.username = "";
+  url.password = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (SENSITIVE_QUERY_KEY_PATTERN.test(key)) {
+      url.searchParams.delete(key);
+    }
+  }
+  url.hash = "";
   return url.toString();
 }
 

@@ -11,6 +11,7 @@ import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
   loadPsychiatristThread,
+  markPsychiatristTurnCompleted,
   markPsychiatristThreadStale,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -140,6 +141,52 @@ describe("Psychiatrist thread store", () => {
         user: expect.objectContaining({ content: "What is the risk?" }),
       }),
     ]);
+    const manifestJson = JSON.parse(
+      await readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.json"),
+        "utf8",
+      ),
+    );
+    expect(manifestJson.updated_at).not.toBe("2026-06-01T00:00:00.000Z");
+  });
+
+  it("persists Codex thread ids on the thread manifest when turns complete", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-codex-thread-id-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await markPsychiatristTurnCompleted({
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.manifest.codexThreadId).toBe("codex-thread-1");
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.json"),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      codex_thread_id: "codex-thread-1",
+    });
   });
 
   it("rejects assistant responses without a matching pending pair", async () => {

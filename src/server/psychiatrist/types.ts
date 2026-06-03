@@ -5,6 +5,7 @@ export interface PsychiatristMemoryContext {
   memoryId: string;
   relativePath: string;
   sections: PsychiatristContextSection[];
+  sourceHash: string;
   sourceUrl: string;
   tags: string[];
   title: string;

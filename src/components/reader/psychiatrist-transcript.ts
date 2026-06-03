@@ -5,6 +5,7 @@ import type {
 
 export interface PsychiatristTranscriptPair {
   answer: string;
+  citations: Array<{ source_id: string; title: string; url: string }>;
   replaceAnswerOnNextDelta?: boolean;
   pairId: string;
   process: string[];
@@ -18,6 +19,7 @@ export function toPsychiatristTranscriptPairs(
 ): PsychiatristTranscriptPair[] {
   return pairs.map((pair) => ({
     answer: pair.assistant_response?.content ?? "",
+    citations: pair.assistant_response?.source_citations ?? [],
     pairId: pair.pair_id,
     process: [],
     status: pair.status,
@@ -41,6 +43,7 @@ export function applyPsychiatristStreamEvent(
         ...pairs,
         {
           answer: "",
+          citations: [],
           pairId,
           process: [],
           status: "running",
@@ -58,11 +61,11 @@ export function applyPsychiatristStreamEvent(
       return pair;
     }
     if (event.type === "psychiatrist.process.delta") {
-      const text = readSafeText(event.data);
+      const text = readSafeProcessText(event.data);
       return text === undefined ? pair : { ...pair, process: [...pair.process, text] };
     }
     if (event.type === "psychiatrist.answer.delta") {
-      const text = readSafeText(event.data) ?? "";
+      const text = readAnswerText(event.data) ?? "";
       const nextPair = {
         ...pair,
         answer: pair.replaceAnswerOnNextDelta ? text : `${pair.answer}${text}`,
@@ -126,7 +129,11 @@ function readPairId(data: unknown): string | undefined {
     : undefined;
 }
 
-function readSafeText(data: unknown): string | undefined {
+function readAnswerText(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.text === "string" ? data.text : undefined;
+}
+
+function readSafeProcessText(data: unknown): string | undefined {
   if (!isRecord(data) || typeof data.text !== "string") {
     return undefined;
   }

@@ -352,6 +352,11 @@ export async function markPsychiatristTurnCompleted(input: {
     thread_id: input.threadId,
     turn_id: input.turnId,
   });
+  if (input.codexThreadId !== undefined) {
+    await updateThreadManifest(input.config, loaded.manifest, {
+      codexThreadId: input.codexThreadId,
+    });
+  }
 }
 
 export async function markPsychiatristTurnFailed(input: {
@@ -377,6 +382,10 @@ export async function markPsychiatristTurnFailed(input: {
       "pair_not_found",
       "Cannot fail a turn without a matching pair.",
     );
+  }
+  const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
+  if (existingTurn?.status === "canceled") {
+    return;
   }
   const now = new Date().toISOString();
   await appendPairRevision(input.config, loaded.manifest, {
@@ -722,6 +731,43 @@ async function appendPairRevision(
     `${JSON.stringify(row)}\n`,
     "utf8",
   );
+  await updateThreadManifest(config, manifest, {
+    updatedAt: row.updated_at,
+  });
+}
+
+async function updateThreadManifest(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+  patch: Partial<Pick<PsychiatristThreadManifest, "codexThreadId" | "status" | "updatedAt">>,
+): Promise<void> {
+  const updated = {
+    ...manifest,
+    ...patch,
+    updatedAt: patch.updatedAt ?? new Date().toISOString(),
+  };
+  await writeJsonAtomic(
+    join(threadDirectory(config, manifest), "THREAD.json"),
+    serializeThreadManifest(updated),
+  );
+}
+
+async function readTurnRecord(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+  turnId: string,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const raw = JSON.parse(
+      await readFile(join(threadDirectory(config, manifest), "turns", `${turnId}.json`), "utf8"),
+    );
+    return isRecord(raw) ? raw : undefined;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function rewriteThreadMarkdown(

@@ -420,16 +420,19 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       if (turnId !== undefined) {
         input.onEvent?.({ type: "turn.started", turnId });
       }
-      const immediateOutput = readFinalTextOutput(turn);
+      const immediateOutput = readFinalTextTurnOutput(turn);
       if (immediateOutput !== undefined && turnId !== undefined) {
         completed.unsubscribe();
-        return { outputText: immediateOutput, threadId, turnId };
+        return { ...immediateOutput, threadId, turnId };
       }
 
       try {
         const completedOutput = await completed.output;
         return {
           outputText: completedOutput.outputText,
+          ...(completedOutput.sourceCitations === undefined
+            ? {}
+            : { sourceCitations: completedOutput.sourceCitations }),
           threadId,
           turnId: completedOutput.turnId,
         };
@@ -795,15 +798,27 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
     threadId: string;
     turnId: () => string | undefined;
   }): {
-    output: Promise<{ outputText: string; turnId: string }>;
+    output: Promise<{
+      outputText: string;
+      sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+      turnId: string;
+    }>;
     unsubscribe: () => void;
   } {
     let unsubscribe: () => void = () => undefined;
     let unsubscribeClose: () => void = () => undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const output = new Promise<{ outputText: string; turnId: string }>((resolve, reject) => {
+    const output = new Promise<{
+      outputText: string;
+      sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+      turnId: string;
+    }>((resolve, reject) => {
       let settled = false;
-      const settleResolve = (value: { outputText: string; turnId: string }) => {
+      const settleResolve = (value: {
+        outputText: string;
+        sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+        turnId: string;
+      }) => {
         if (settled) {
           return;
         }
@@ -886,10 +901,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.completed",
           });
-          const itemOutput = readFinalTextOutput(message.params);
+          const itemOutput = readFinalTextTurnOutput(message.params);
           const turnId = readNotificationTurnId(message.params) ?? input.turnId();
           if (itemOutput !== undefined && turnId !== undefined) {
-            settleResolve({ outputText: itemOutput, turnId });
+            settleResolve({ ...itemOutput, turnId });
           }
           return;
         }
@@ -897,7 +912,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          const finalOutput = readFinalTextOutput(message.params);
+          const finalOutput = readFinalTextTurnOutput(message.params);
           const turnId = readNotificationTurnId(message.params) ?? input.turnId();
           if (finalOutput === undefined || turnId === undefined) {
             if (isTurnInterruptedCompletion(message.params)) {
@@ -917,7 +932,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             );
             return;
           }
-          settleResolve({ outputText: finalOutput, turnId });
+          settleResolve({ ...finalOutput, turnId });
         }
       });
     });
@@ -1374,6 +1389,93 @@ function readFinalTextOutput(value: unknown): string | undefined {
   return undefined;
 }
 
+function readFinalTextTurnOutput(value: unknown): {
+  outputText: string;
+  sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+} | undefined {
+  const outputText = readFinalTextOutput(value);
+  if (outputText === undefined) {
+    return undefined;
+  }
+  const sourceCitations = readSourceCitations(value);
+  return {
+    outputText,
+    ...(sourceCitations.length === 0 ? {} : { sourceCitations }),
+  };
+}
+
+function readSourceCitations(value: unknown): Array<{ sourceId: string; title: string; url: string }> {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const direct = readCitationArray(value.sourceCitations) ??
+    readCitationArray(value.source_citations) ??
+    readCitationArray(value.citations);
+  if (direct !== undefined) {
+    return direct;
+  }
+  if (isRecord(value.output)) {
+    const output = readSourceCitations(value.output);
+    if (output.length > 0) {
+      return output;
+    }
+  }
+  if (isRecord(value.finalOutput)) {
+    const finalOutput = readSourceCitations(value.finalOutput);
+    if (finalOutput.length > 0) {
+      return finalOutput;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readSourceCitations(value.turn);
+    if (turnOutput.length > 0) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readSourceCitations(value.item);
+    if (itemOutput.length > 0) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readSourceCitations(value.items[index]);
+      if (itemOutput.length > 0) {
+        return itemOutput;
+      }
+    }
+  }
+  return [];
+}
+
+function readCitationArray(value: unknown): Array<{ sourceId: string; title: string; url: string }> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const citations: Array<{ sourceId: string; title: string; url: string }> = [];
+  for (const row of value) {
+    if (!isRecord(row)) {
+      continue;
+    }
+    const url = readStringField(row, "url") ?? readStringField(row, "uri");
+    if (url === undefined) {
+      continue;
+    }
+    citations.push({
+      sourceId: readStringField(row, "sourceId") ??
+        readStringField(row, "source_id") ??
+        readStringField(row, "id") ??
+        `source-${citations.length + 1}`,
+      title: readStringField(row, "title") ??
+        readStringField(row, "name") ??
+        "Source",
+      url,
+    });
+  }
+  return citations;
+}
+
 function readThreadStartResponseThreadId(value: unknown): string | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -1620,13 +1722,17 @@ function readSafeProcessMessage(params: unknown): string | undefined {
   if (
     normalized.includes("chain of thought") ||
     normalized.includes("hidden reasoning") ||
-    normalized.includes("/private/") ||
+    containsAbsolutePath(message) ||
     normalized.includes("credential") ||
     normalized.includes("token")
   ) {
     return undefined;
   }
   return message;
+}
+
+function containsAbsolutePath(value: string): boolean {
+  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

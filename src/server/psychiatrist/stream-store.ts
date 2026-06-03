@@ -11,6 +11,7 @@ import type {
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
+const appendQueuesByPath = new Map<string, Promise<void>>();
 const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
 
 export async function appendPsychiatristStreamEvent<TData>(input: {
@@ -20,21 +21,35 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   if (!isSafeStreamEvent(input.event)) {
     return undefined;
   }
-  const existing = await loadPsychiatristStreamReplay({
-    config: input.config,
-    threadId: input.event.threadId,
-    turnId: input.event.turnId,
-  });
-  const event = {
-    ...input.event,
-    eventId: String(existing.length + 1).padStart(12, "0"),
-    timestamp: Date.now(),
-  } satisfies PsychiatristStreamEvent<TData>;
   const path = streamPath(input.config, input.event);
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
-  publishStreamEvent(event);
-  return event;
+  let written: PsychiatristStreamEvent<TData> | undefined;
+  const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const existing = await loadPsychiatristStreamReplay({
+      config: input.config,
+      threadId: input.event.threadId,
+      turnId: input.event.turnId,
+    });
+    const event = {
+      ...input.event,
+      eventId: String(existing.length + 1).padStart(12, "0"),
+      timestamp: Date.now(),
+    } satisfies PsychiatristStreamEvent<TData>;
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+    publishStreamEvent(event);
+    written = event;
+  });
+  const tracked = next.catch(() => undefined);
+  appendQueuesByPath.set(path, tracked);
+  try {
+    await next;
+    return written;
+  } finally {
+    if (appendQueuesByPath.get(path) === tracked) {
+      appendQueuesByPath.delete(path);
+    }
+  }
 }
 
 export function subscribePsychiatristStream(input: {
@@ -137,10 +152,14 @@ function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {
     normalized.includes("chain-of-thought") ||
     normalized.includes("chain of thought") ||
     normalized.includes("hidden reasoning") ||
-    normalized.includes("/private/") ||
+    containsAbsolutePath(text) ||
     normalized.includes("credential") ||
     normalized.includes("token")
   );
+}
+
+function containsAbsolutePath(value: string): boolean {
+  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value);
 }
 
 function publishStreamEvent(event: PsychiatristStreamEvent): void {

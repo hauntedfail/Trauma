@@ -50,6 +50,7 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("network_permission_required");
     expect(dockSource).toContain("Allow web sources for this turn");
     expect(dockSource).toContain("allow_for_this_turn");
+    expect(dockSource).toContain("psychiatrist.network.permission_required");
     expect(dockSource).not.toContain("localStorage");
   });
 
@@ -263,6 +264,7 @@ describe("PsychiatristDock", () => {
     expect(completed).toEqual([
       {
         answer: "The answer.",
+        citations: [],
         pairId: "pair-reader",
         process: ["Reading the active memory."],
         status: "completed",
@@ -270,6 +272,62 @@ describe("PsychiatristDock", () => {
         userPrompt: "What changed?",
       },
     ]);
+  });
+
+  it("preserves stored source citations in transcript pairs", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Cited answer.",
+          source_citations: [
+            {
+              source_id: "source-1",
+              title: "Release notes",
+              url: "https://example.com/releases",
+            },
+          ],
+        },
+        pair_id: "pair-cited",
+        status: "completed",
+        turn_id: "turn-cited",
+        user_prompt: {
+          content: "Need source?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    expect(transcript[0]?.citations).toEqual([
+      {
+        source_id: "source-1",
+        title: "Release notes",
+        url: "https://example.com/releases",
+      },
+    ]);
+  });
+
+  it("does not apply process redaction rules to answer deltas", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-answer",
+        status: "pending",
+        turn_id: "turn-answer",
+        user_prompt: {
+          content: "What does it mention?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const withAnswer = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "The memory mentions token rotation." },
+      turnId: "turn-answer",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    expect(withAnswer[0]?.answer).toBe("The memory mentions token rotation.");
   });
 
   it("adds a new live pair when a started stream event arrives after send", () => {
@@ -285,6 +343,7 @@ describe("PsychiatristDock", () => {
     expect(transcript).toEqual([
       {
         answer: "",
+        citations: [],
         pairId: "pair-started",
         process: [],
         status: "running",
@@ -326,6 +385,7 @@ describe("PsychiatristDock", () => {
     expect(withAnswer).toEqual([
       {
         answer: "New answer.",
+        citations: [],
         pairId: "pair-reader",
         process: [],
         status: "running",

@@ -203,6 +203,63 @@ describe("Psychiatrist prompt contract", () => {
     expect(prompt).not.toContain("## Section 1: Appendix");
     expect(prompt).not.toContain("irrelevant irrelevant irrelevant");
   });
+
+  it("includes a truncated oversized matching section instead of dropping all context", () => {
+    const prompt = buildPsychiatristPrompt({
+      context: context({
+        sections: [
+          {
+            anchor: "risk",
+            endOffset: 120_000,
+            level: 2,
+            markdown: `## Risk\n\nRollback missing. ${"details ".repeat(30_000)}`,
+            path: "1.1",
+            startOffset: 0,
+            title: "Risk",
+          },
+        ],
+      }),
+      contextSnapshotId: "snapshot-1",
+      pairs: [],
+      threadId: "thread-1",
+      userMessage: "What is the risk?",
+      webSourcePolicy: { allowed: false, reason: "default_denied" },
+    });
+
+    expect(prompt.length).toBeLessThanOrEqual(PSYCHIATRIST_MAX_CONTEXT_CHARS);
+    expect(prompt).toContain("## Section 1: Risk");
+    expect(prompt).toContain("Rollback missing.");
+    expect(prompt).toContain("[section truncated for prompt budget]");
+  });
+
+  it("bounds prior pair history and labels it as untrusted data", () => {
+    const prompt = buildPsychiatristPrompt({
+      context: context(),
+      contextSnapshotId: "snapshot-1",
+      pairs: Array.from({ length: 20 }, (_, index) => ({
+        assistant: {
+          citations: [],
+          completedAt: "2026-06-01T00:00:01.000Z",
+          content: `Answer ${index} ${"long ".repeat(1_000)}`,
+        },
+        pairId: `pair-${index}`,
+        status: "completed" as const,
+        turnId: `turn-${index}`,
+        user: {
+          content: `Prompt ${index} ${"long ".repeat(1_000)}`,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+      })),
+      threadId: "thread-1",
+      userMessage: "Continue.",
+      webSourcePolicy: { allowed: false, reason: "default_denied" },
+    });
+
+    expect(prompt).toContain("untrusted conversation data");
+    expect(prompt).toContain("pair-19");
+    expect(prompt).not.toContain("pair-0");
+    expect(prompt.length).toBeLessThanOrEqual(PSYCHIATRIST_MAX_CONTEXT_CHARS);
+  });
 });
 
 function context(
@@ -227,6 +284,7 @@ function context(
         title: "Risk",
       },
     ],
+    sourceHash: "sha256:context",
     sourceUrl: "https://example.com/source",
     tags: ["deploy"],
     title: "Deploy Notes",
