@@ -44,6 +44,7 @@ const EXTRA_TURN_IDS = [
 describe("Psychiatrist thread API routes", () => {
   afterEach(() => {
     activePsychiatristTurns.unregister(TURN_ID);
+    activePsychiatristTurns.unregister("019e8a00-0000-7000-8000-000000000004");
     for (const turnId of EXTRA_TURN_IDS) {
       activePsychiatristTurns.unregister(turnId);
     }
