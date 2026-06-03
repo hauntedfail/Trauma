@@ -503,7 +503,8 @@ describe("Psychiatrist thread API routes", () => {
     });
     await waitFor(async () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
-      return loaded.pairs[0]?.status === "completed";
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
     });
     const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     expect(loaded.pairs[0]?.assistant?.citations).toEqual([
@@ -985,7 +986,8 @@ describe("Psychiatrist thread API routes", () => {
     );
     await waitFor(async () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
-      return loaded.pairs[0]?.status === "completed";
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
     });
 
     const backupEnqueues: unknown[] = [];
