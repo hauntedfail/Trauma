@@ -10,12 +10,15 @@ import {
   loadRuntimeTraumaConfig,
   type ResolvedTraumaConfig,
 } from "../config";
+import { initializeDatabase } from "../db";
 import { jsonResponse } from "../http/json";
 import {
   CodexAppServerClient,
   type CodexAppServerEvent,
   type CodexConversationClient,
 } from "../translation/codex-app-server";
+import { createSha256ContentHash } from "../translation/hash";
+import { buildPsychiatristMemoryContext } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
@@ -29,12 +32,14 @@ import {
 } from "./thread-store";
 import type {
   PsychiatristContextSnapshotManifest,
+  PsychiatristMemoryContext,
   PsychiatristThreadManifest,
   PsychiatristThreadPair,
   PsychiatristWebSourcePolicy,
 } from "./types";
 
 export const PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4_000;
+type BuildContext = typeof buildPsychiatristMemoryContext;
 type MessagePayload =
   | {
       ok: true;
@@ -45,11 +50,13 @@ type MessagePayload =
 
 type ResolveActiveContentHash = (input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  context: PsychiatristMemoryContext;
   manifest: PsychiatristThreadManifest;
 }) => Promise<string>;
 
 export function createSendPsychiatristMessageHandler(input: {
   backupQueue?: MemoryBackupQueue;
+  buildContext?: BuildContext;
   client?: CodexConversationClient;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   generateId?: () => string;
@@ -66,6 +73,7 @@ export async function handleSendPsychiatristMessageRequest(
   event: APIEvent,
   input: {
     backupQueue?: MemoryBackupQueue;
+    buildContext?: BuildContext;
     client?: CodexConversationClient;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
     generateId?: () => string;
@@ -101,10 +109,16 @@ export async function handleSendPsychiatristMessageRequest(
 
   const pairId = input.generateId?.() ?? generateUuidV7Like();
   const turnId = input.generateId?.() ?? generateUuidV7Like();
+  const context = await resolveTurnContext({
+    buildContext: input.buildContext,
+    config,
+    manifest: thread.manifest,
+  });
   const resolveActiveContentHash = input.resolveActiveContentHash ??
     defaultResolveActiveContentHash;
   const activeContentHash = await resolveActiveContentHash({
     config,
+    context,
     manifest: thread.manifest,
   });
   if (activeContentHash !== thread.manifest.activeContentHash) {
@@ -126,6 +140,7 @@ export async function handleSendPsychiatristMessageRequest(
     );
   }
   const contextSnapshot = createContextSnapshot({
+    context,
     manifest: thread.manifest,
     pairId,
     prompt: payload.message,
@@ -167,6 +182,7 @@ export async function handleSendPsychiatristMessageRequest(
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
       config,
+      context,
       pairId,
       payload,
       thread,
@@ -197,6 +213,7 @@ async function runPsychiatristTurn(input: {
   backupQueue: MemoryBackupQueue;
   client: CodexConversationClient;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  context: PsychiatristMemoryContext;
   pairId: string;
   payload: { message: string };
   thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
@@ -206,20 +223,7 @@ async function runPsychiatristTurn(input: {
 }): Promise<void> {
   try {
     const prompt = buildPsychiatristPrompt({
-      context: {
-        categories: [],
-        contentHash: input.thread.manifest.activeContentHash,
-        ...(input.thread.manifest.langCode === undefined
-          ? {}
-          : { langCode: input.thread.manifest.langCode }),
-        memoryId: input.thread.manifest.memoryId,
-        relativePath: "",
-        sections: [],
-        sourceUrl: "",
-        tags: [],
-        title: "",
-        variantKind: input.thread.manifest.variantKind,
-      },
+      context: input.context,
       contextSnapshotId: input.pairId,
       pairs: input.thread.pairs,
       threadId: input.threadId,
@@ -368,25 +372,76 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
 }
 
 function createContextSnapshot(input: {
+  context: PsychiatristMemoryContext;
   manifest: PsychiatristThreadManifest;
   pairId: string;
   prompt: string;
 }): PsychiatristContextSnapshotManifest {
   return {
-    contentHash: input.manifest.activeContentHash,
+    contentHash: input.context.contentHash,
     contextSnapshotId: input.pairId,
     ...(input.manifest.langCode === undefined
       ? {}
       : { langCode: input.manifest.langCode }),
     memoryId: input.manifest.memoryId,
     policyVersion: input.manifest.policyVersion,
-    selectedSectionAnchors: [],
-    selectedSectionHashes: [],
+    selectedSectionAnchors: input.context.sections.map((section) => section.anchor),
+    selectedSectionHashes: input.context.sections.map((section) =>
+      createSha256ContentHash(section.markdown)
+    ),
     ...(input.manifest.translationOutputHash === undefined
       ? {}
       : { translationOutputHash: input.manifest.translationOutputHash }),
     userPrompt: input.prompt,
     variantKind: input.manifest.variantKind,
+  };
+}
+
+async function resolveTurnContext(input: {
+  buildContext?: BuildContext;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  manifest: PsychiatristThreadManifest;
+}): Promise<PsychiatristMemoryContext> {
+  if (input.buildContext !== undefined) {
+    return await input.buildContext({
+      config: input.config,
+      langCode: input.manifest.langCode,
+      memoryId: input.manifest.memoryId,
+      memoryRepository: undefined as never,
+      translationRepository: undefined as never,
+    });
+  }
+  if (!("backup" in input.config)) {
+    return fallbackManifestContext(input.manifest);
+  }
+  const connection = initializeDatabase(input.config as ResolvedTraumaConfig);
+  try {
+    return await buildPsychiatristMemoryContext({
+      config: input.config,
+      langCode: input.manifest.langCode,
+      memoryId: input.manifest.memoryId,
+      memoryRepository: connection.repositories.memories,
+      translationRepository: connection.repositories.translations,
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+function fallbackManifestContext(
+  manifest: PsychiatristThreadManifest,
+): PsychiatristMemoryContext {
+  return {
+    categories: [],
+    contentHash: manifest.activeContentHash,
+    ...(manifest.langCode === undefined ? {} : { langCode: manifest.langCode }),
+    memoryId: manifest.memoryId,
+    relativePath: "",
+    sections: [],
+    sourceUrl: "",
+    tags: [],
+    title: "",
+    variantKind: manifest.variantKind,
   };
 }
 
@@ -453,9 +508,10 @@ function formatMessageError(error: unknown): Response {
 }
 
 async function defaultResolveActiveContentHash(input: {
+  context: PsychiatristMemoryContext;
   manifest: PsychiatristThreadManifest;
 }): Promise<string> {
-  return input.manifest.activeContentHash;
+  return input.context.contentHash;
 }
 
 function safeErrorResponse(

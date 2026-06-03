@@ -228,6 +228,19 @@ describe("Psychiatrist thread API routes", () => {
           return { backupStatus: "queued" };
         },
       },
+      buildContext: async () => context({
+        sections: [
+          {
+            anchor: "risks",
+            endOffset: 28,
+            level: 2,
+            markdown: "## Risks\n\nNo rollback plan.",
+            path: "1.1",
+            startOffset: 0,
+            title: "Risks",
+          },
+        ],
+      }),
       client,
       config: { storePath },
       generateId: createIdGenerator([PAIR_ID, TURN_ID]),
@@ -260,10 +273,11 @@ describe("Psychiatrist thread API routes", () => {
     expect(client.inputs).toEqual([
       expect.objectContaining({
         cwdPurpose: "psychiatrist",
-        input: expect.stringContaining("What is the risk?"),
+        input: expect.stringContaining("No rollback plan."),
         networkAccess: "disabled",
       }),
     ]);
+    expect(client.inputs[0]?.input).toContain("What is the risk?");
 
     await waitFor(async () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
@@ -507,6 +521,38 @@ describe("Psychiatrist thread API routes", () => {
       "psychiatrist.thread.stale",
     ]);
     expect(JSON.stringify(replay)).not.toContain("What is current?");
+  });
+
+  it("marks stale threads when the loaded context hash changed", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-context-stale-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const client = new FakeConversationClient("must not run");
+    const handler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context({ contentHash: "sha256:changed" }),
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What is current?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      action: "refresh_thread",
+      code: "thread_stale",
+    });
+    expect(client.inputs).toEqual([]);
   });
 
   it("rejects empty and oversized messages", async () => {
