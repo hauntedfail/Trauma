@@ -204,6 +204,14 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("Psychiatrist thread was refreshed. Send again.");
   });
 
+  it("closes EventSource connections on lifecycle cleanup without canceling turns", () => {
+    expect(dockSource).toContain("let disconnectPsychiatristStream");
+    expect(dockSource).toContain("disconnectPsychiatristStream?.()");
+    expect(dockSource).toContain("disconnectPsychiatristStream = connectPsychiatristStream");
+    expect(dockSource).toContain("return () => eventSource.close()");
+    expect(dockSource).not.toContain("onCleanup(() => {\n      void handleStop()");
+  });
+
   it("converts stored pairs and appends safe process plus answer stream deltas", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {

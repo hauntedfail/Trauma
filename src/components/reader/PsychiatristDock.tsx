@@ -32,6 +32,7 @@ interface PsychiatristDockProps {
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
+  let disconnectPsychiatristStream: (() => void) | undefined;
   const [isOpen, setIsOpen] = createSignal(false);
   const [thread, setThread] = createSignal<PsychiatristThreadResponse>();
   const [transcriptPairs, setTranscriptPairs] = createSignal<
@@ -64,7 +65,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (nextThread.active_turn !== null) {
         setIsRunning(true);
         setRunningTurnId(nextThread.active_turn.turn_id);
-        connectPsychiatristStream(nextThread.active_turn.event_url, handleStreamEvent);
+        disconnectPsychiatristStream?.();
+        disconnectPsychiatristStream = connectPsychiatristStream(
+          nextThread.active_turn.event_url,
+          handleStreamEvent,
+        );
       }
     } catch (error) {
       setErrorMessage(getPsychiatristErrorMessage(error));
@@ -87,7 +92,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       });
       setPrompt("");
       setRunningTurnId(started.turn_id);
-      connectPsychiatristStream(started.event_url, handleStreamEvent);
+      disconnectPsychiatristStream?.();
+      disconnectPsychiatristStream = connectPsychiatristStream(
+        started.event_url,
+        handleStreamEvent,
+      );
     } catch (error) {
       setIsRunning(false);
       if (
@@ -123,7 +132,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         webSourcePermission: "deny",
       });
       setRunningTurnId(started.turn_id);
-      connectPsychiatristStream(started.event_url, handleStreamEvent);
+      disconnectPsychiatristStream?.();
+      disconnectPsychiatristStream = connectPsychiatristStream(
+        started.event_url,
+        handleStreamEvent,
+      );
     } catch (error) {
       setIsRunning(false);
       setErrorMessage(getPsychiatristErrorMessage(error));
@@ -156,6 +169,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     document.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
       document.removeEventListener("keydown", handleKeyDown);
+      disconnectPsychiatristStream?.();
     });
   });
 
@@ -266,7 +280,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
 function connectPsychiatristStream(
   eventUrl: string,
   onEvent: (event: PsychiatristStreamEvent) => void,
-): void {
+): () => void {
   const eventSource = new EventSource(eventUrl);
   const handleMessage = (message: MessageEvent) => {
     const event = parsePsychiatristStreamEvent(message.data);
@@ -293,6 +307,7 @@ function connectPsychiatristStream(
     handleMessage(message);
     eventSource.close();
   });
+  return () => eventSource.close();
 }
 
 function parsePsychiatristStreamEvent(data: string): PsychiatristStreamEvent | undefined {
