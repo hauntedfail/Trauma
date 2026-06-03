@@ -108,6 +108,12 @@ design changes the route model.
 `memories/<memory_id>/<lang_code>/CONTENT.md` when the translation row and file
 hash are current.
 
+Psychiatrist is a reader-only surface on `/memories/:id` and
+`/memories/:lang_code/:id`. It is not rendered on `/memories`, `/flashbacks`,
+settings, or shell-only routes. The reader creates or resumes a memory-local
+thread for the active source or translated variant, and all chat traffic goes
+through TRAUMA API routes rather than browser-to-Codex connections.
+
 The initial markdown reader supports:
 
 - GitHub Flavored Markdown.

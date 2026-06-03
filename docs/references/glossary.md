@@ -46,6 +46,11 @@ older use of `Flashback` for section bookmarks.
 : Generic behaviour description for what TRAUMA product language calls a
 `Moment`. Prefer `Moment` in user-facing docs.
 
+`Psychiatrist`
+: TRAUMA product language for a memory-scoped reader assistant. It answers from
+the active memory context and current thread pair history; it is not a medical
+professional and does not provide diagnosis or treatment advice.
+
 ## Status Fields
 
 `extraction_status`

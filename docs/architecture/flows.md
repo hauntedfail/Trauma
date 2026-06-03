@@ -118,6 +118,44 @@ If flashback persistence returns backup failsafe metadata, the frontend must
 refresh the global backup failsafe alert before showing the local flashback
 failure state.
 
+## Psychiatrist
+
+Psychiatrist is a reader-only, memory-scoped assistant. It appears on source and
+translated reader routes and talks to TRAUMA API routes only; browser code never
+connects to Codex app-server directly.
+
+Flow:
+
+1. The reader creates or resumes a thread for the active memory variant through
+   `/api/memories/:memoryId/psychiatrist/threads`.
+2. The server loads the active source or translated memory context, records the
+   active content hash, and stores thread metadata under
+   `{storePath}/memories/{memoryId}/threads/{threadId}/`.
+3. A user prompt creates one pending pair in `PAIRS.jsonl` before Codex
+   execution starts. Prompts and answers are pair records under the thread
+   subtree, not SQLite rows.
+4. The server builds the deterministic Psychiatrist prompt from the repo-local
+   `psychiatrist` policy, active memory context, visible pair history, and
+   current user prompt.
+5. Codex app-server turns run backend-only with shell access, file editing,
+   local filesystem browsing, project/store roots, and network access denied by
+   default. Network may be enabled only for a user-approved web-source turn.
+6. Safe process and answer events are written to
+   `streams/{turnId}.jsonl` before SSE fan-out, so navigation and reload can
+   replay already-visible output.
+7. A completed first answer writes `pairs/{pairId}/RESPONSE.md`, rewrites
+   `THREAD.md`, appends a completed pair revision, and enqueues built-in git
+   backup with reason `psychiatrist_thread_update`.
+8. Regenerate reuses the same stored prompt and context provenance for the same
+   pair, overwrites the existing `RESPONSE.md`, rewrites `THREAD.md`, and
+   enqueues backup with reason `psychiatrist_response_regenerate`.
+
+Every durable assistant answer belongs to exactly one stored user prompt in the
+same pair. Failed, canceled, stale, and permission-required turns must not append
+orphan assistant responses. Psychiatrist writes are limited to the memory-local
+`threads/` subtree; canonical `CONTENT.md`, translated `CONTENT.md`, taxonomy,
+Flashbacks, Moments, settings, and other SQLite state are not modified by chat.
+
 ## Git Backup
 
 Backup is built-in git backup, not a generic hook system.
