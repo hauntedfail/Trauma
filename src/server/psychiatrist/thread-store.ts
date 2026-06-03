@@ -393,6 +393,53 @@ export async function loadPsychiatristThread(input: {
   };
 }
 
+export async function findLatestPsychiatristThread(input: {
+  activeContentHash: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  langCode?: string;
+  memoryId: string;
+  variantKind: PsychiatristThreadManifest["variantKind"];
+}): Promise<{
+  manifest: PsychiatristThreadManifest;
+  pairs: PsychiatristThreadPair[];
+} | undefined> {
+  validateSafeId(input.memoryId);
+  const root = join(resolve(input.config.storePath), "memories", input.memoryId, "threads");
+  let matches: PsychiatristThreadManifest[] = [];
+  const glob = new Bun.Glob("*/THREAD.json");
+  try {
+    for await (const relativePath of glob.scan({ cwd: root })) {
+      const raw = JSON.parse(await readFile(join(root, relativePath), "utf8"));
+      const manifest = parseThreadManifest(raw);
+      if (
+        manifest.memoryId === input.memoryId &&
+        manifest.activeContentHash === input.activeContentHash &&
+        manifest.variantKind === input.variantKind &&
+        manifest.langCode === input.langCode &&
+        manifest.status !== "stale"
+      ) {
+        matches.push(manifest);
+      }
+    }
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+  matches = matches.sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt) ||
+    right.createdAt.localeCompare(left.createdAt)
+  );
+  const latest = matches[0];
+  return latest === undefined
+    ? undefined
+    : {
+      manifest: latest,
+      pairs: reducePairRows(await readPairRevisionRows(input.config, latest)),
+    };
+}
+
 export async function markPsychiatristThreadStale(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   threadId: string;

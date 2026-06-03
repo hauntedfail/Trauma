@@ -32,6 +32,7 @@ import type {
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
+const THREAD_ID_2 = "019e8a00-0000-7000-8000-000000000006";
 const PAIR_ID = "019e8a00-0000-7000-8000-000000000002";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 const EXTRA_TURN_IDS = [
@@ -143,6 +144,38 @@ describe("Psychiatrist thread API routes", () => {
         variantKind: "translation",
       }),
     ]);
+  });
+
+  it("resumes the latest matching thread when requested", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-resume-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const handler = createStartPsychiatristThreadHandler({
+      buildContext: async () => context(),
+      config: { storePath },
+      generateId: () => THREAD_ID_2,
+      now: () => new Date("2026-06-01T00:00:01.000Z"),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads`, {
+          body: JSON.stringify({ resume_latest: true }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      content_hash: "sha256:context",
+      memory_id: MEMORY_ID,
+      thread_id: THREAD_ID,
+      variant_kind: "source",
+    });
   });
 
   it("rejects malformed thread create payloads", async () => {

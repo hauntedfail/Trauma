@@ -9,6 +9,7 @@ import {
   appendAssistantResponse,
   appendPendingPair,
   createPsychiatristThread,
+  findLatestPsychiatristThread,
   loadPsychiatristThread,
   markPsychiatristThreadStale,
 } from "../../../src/server/psychiatrist/thread-store";
@@ -20,6 +21,7 @@ import type {
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
+const THREAD_ID_2 = "019e8a00-0000-7000-8000-000000000004";
 const PAIR_ID = "019e8a00-0000-7000-8000-000000000002";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 
@@ -194,9 +196,44 @@ describe("Psychiatrist thread store", () => {
       thread_id: THREAD_ID,
     });
   });
+
+  it("finds the latest ready thread matching memory variant and content hash", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-latest-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        createdAt: "2026-06-01T00:00:00.000Z",
+        threadId: THREAD_ID,
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      }),
+    });
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        createdAt: "2026-06-01T00:00:01.000Z",
+        threadId: THREAD_ID_2,
+        updatedAt: "2026-06-01T00:00:01.000Z",
+      }),
+    });
+
+    await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:source",
+      config: { storePath },
+      langCode: undefined,
+      memoryId: MEMORY_ID,
+      variantKind: "source",
+    })).resolves.toMatchObject({
+      manifest: expect.objectContaining({
+        threadId: THREAD_ID_2,
+      }),
+      pairs: [],
+    });
+  });
 });
 
-function manifest(): PsychiatristThreadManifest {
+function manifest(
+  input: Partial<PsychiatristThreadManifest> = {},
+): PsychiatristThreadManifest {
   return {
     activeContentHash: "sha256:source",
     createdAt: "2026-06-01T00:00:00.000Z",
@@ -207,6 +244,7 @@ function manifest(): PsychiatristThreadManifest {
     threadId: THREAD_ID,
     updatedAt: "2026-06-01T00:00:00.000Z",
     variantKind: "source",
+    ...input,
   };
 }
 

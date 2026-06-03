@@ -14,6 +14,7 @@ import {
 } from "./context";
 import {
   createPsychiatristThread,
+  findLatestPsychiatristThread,
   loadPsychiatristThread,
   PsychiatristThreadStoreError,
 } from "./thread-store";
@@ -25,6 +26,7 @@ import type {
 
 type BuildContext = typeof buildPsychiatristMemoryContext;
 type CreateThread = typeof createPsychiatristThread;
+type FindLatestThread = typeof findLatestPsychiatristThread;
 type LoadThread = typeof loadPsychiatristThread;
 
 type ThreadPayload =
@@ -35,6 +37,7 @@ export function createStartPsychiatristThreadHandler(input: {
   buildContext?: BuildContext;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   createThread?: CreateThread;
+  findLatestThread?: FindLatestThread;
   generateId?: () => string;
   now?: () => Date;
 } = {}) {
@@ -58,6 +61,7 @@ export async function handleStartPsychiatristThreadRequest(
     buildContext?: BuildContext;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
     createThread?: CreateThread;
+    findLatestThread?: FindLatestThread;
     generateId?: () => string;
     now?: () => Date;
   } = {},
@@ -95,6 +99,18 @@ export async function handleStartPsychiatristThreadRequest(
     }
 
     const now = (input.now?.() ?? new Date()).toISOString();
+    if (payload.resumeLatest) {
+      const latest = await (input.findLatestThread ?? findLatestPsychiatristThread)({
+        activeContentHash: context.contentHash,
+        config,
+        langCode: context.langCode,
+        memoryId: context.memoryId,
+        variantKind: context.variantKind,
+      });
+      if (latest !== undefined) {
+        return jsonResponse(toThreadResponse(latest), { status: 200 });
+      }
+    }
     const manifest: PsychiatristThreadManifest = {
       activeContentHash: context.contentHash,
       createdAt: now,
