@@ -1145,7 +1145,14 @@ describe("Psychiatrist thread API routes", () => {
     );
     await waitFor(async () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
-      return loaded.pairs[0]?.status === "completed";
+      const replay = await loadPsychiatristStreamReplay({
+        config: { storePath },
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      });
+      return loaded.pairs[0]?.status === "completed" &&
+        replay.some((event) => event.type === "psychiatrist.answer.completed") &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
     });
 
     const regenerateTurnId = "019e8a00-0000-7000-8000-000000000004";
