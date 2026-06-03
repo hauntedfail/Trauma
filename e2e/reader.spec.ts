@@ -278,6 +278,555 @@ test("keeps sun reader links bright in normal and paper themes", async ({
   }
 });
 
+test("keeps a running psychiatrist turn alive across navigation, reload, and explicit Stop", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await installFakeEventSource(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect(page.getByRole("region", { name: "Psychiatrist" })).toBeVisible();
+
+  await page.locator("textarea").fill("What does this memory say?");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByText("Reading stored context")).toBeVisible();
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+  expect(mock.cancelRequests).toBe(0);
+  expect(mock.startedRequests).toEqual([
+    {
+      message: "What does this memory say?",
+      web_source_permission: "deny",
+    },
+  ]);
+
+  await page.goto("/memories");
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await installFakeEventSource(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+  expect(mock.cancelRequests).toBe(0);
+
+  await page.reload();
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+  const eventSourceUrls = await page.evaluate(() =>
+    ((window as unknown as { __psychiatristEventSourceUrls?: string[] })
+      .__psychiatristEventSourceUrls ?? [])
+  );
+  expect(eventSourceUrls.some((url) => url.includes("turn-e2e-running"))).toBe(true);
+
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  expect(mock.cancelRequests).toBe(1);
+});
+
+test("regenerates a psychiatrist answer in the same pair and preserves it after failed retry", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    initialPairs: [completedPsychiatristPair("Original answer from stored context.")],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await installFakeEventSource(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect(page.getByText("Original answer from stored context.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
+  await expect(page.getByText("Original answer from stored context.")).toHaveCount(0);
+  expect(mock.regenerateRequests).toEqual([
+    {
+      pairId: "pair-e2e",
+      web_source_permission: "deny",
+    },
+  ]);
+  expect(mock.pairRevisionEvidence).toEqual({
+    pair_id: "pair-e2e",
+    response_path: "pairs/pair-e2e/RESPONSE.md",
+    thread_id: "thread-e2e",
+  });
+
+  mock.failNextRegenerate = true;
+  await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible();
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByText("Psychiatrist could not finish. Retry when ready."))
+    .toBeVisible();
+
+  await page.reload();
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
+  expect(mock.regenerateRequests.map((request) => request.pairId)).toEqual([
+    "pair-e2e",
+    "pair-e2e",
+  ]);
+});
+
+test("requires per-turn psychiatrist web-source approval before recording source policy", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Use current web sources for this memory.");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Allow web search/source lookup for this answer to continue."))
+    .toBeVisible();
+  await expect(page.getByRole("button", { name: "Allow web sources for this turn" }))
+    .toBeVisible();
+  expect(mock.networkEnabledBeforeApproval).toBe(false);
+
+  await page.getByRole("button", { name: "Allow web sources for this turn" }).click();
+  await expect(page.getByText("Approved answer with cited source.")).toBeVisible();
+  expect(mock.approvedWebSourceEvidence).toEqual({
+    source_citations: [
+      {
+        source_id: "source-e2e",
+        title: "Example source",
+        url: "https://example.com/source",
+      },
+    ],
+    web_source_policy: {
+      allowed: true,
+      reason: "user_approved_for_turn",
+    },
+  });
+});
+
+interface PsychiatristMockState {
+  approvedWebSourceEvidence?: {
+    source_citations: Array<{
+      source_id: string;
+      title: string;
+      url: string;
+    }>;
+    web_source_policy: {
+      allowed: boolean;
+      reason: string;
+    };
+  };
+  cancelRequests: number;
+  eventTurnRequests: string[];
+  failNextRegenerate: boolean;
+  networkEnabledBeforeApproval: boolean;
+  pairRevisionEvidence?: {
+    pair_id: string;
+    response_path: string;
+    thread_id: string;
+  };
+  regenerateRequests: Array<{
+    pairId: string;
+    web_source_permission: string;
+  }>;
+  startedRequests: Array<{
+    message: string;
+    web_source_permission: string;
+  }>;
+}
+
+interface PsychiatristPairFixture {
+  assistant_response?: {
+    completed_at: string;
+    content: string;
+    source_citations: Array<{
+      source_id: string;
+      title: string;
+      url: string;
+    }>;
+  };
+  pair_id: string;
+  status: "pending" | "completed" | "failed" | "canceled" | "stale";
+  turn_id: string;
+  user_prompt: {
+    content: string;
+    created_at: string;
+  };
+}
+
+async function installPsychiatristMock(
+  page: Page,
+  input: {
+    initialPairs?: PsychiatristPairFixture[];
+  } = {},
+): Promise<PsychiatristMockState> {
+  await page.addInitScript(installFakeEventSourceInBrowser);
+
+  const state: PsychiatristMockState = {
+    cancelRequests: 0,
+    eventTurnRequests: [],
+    failNextRegenerate: false,
+    networkEnabledBeforeApproval: false,
+    regenerateRequests: [],
+    startedRequests: [],
+  };
+  let activeTurn: { pair_id: string; turn_id: string } | null = null;
+  let pairs = [...(input.initialPairs ?? [])];
+
+  await page.route(`**/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        active_turn: activeTurn === null
+          ? null
+          : {
+              event_url: `/api/psychiatrist-turns/${activeTurn.turn_id}/events`,
+              pair_id: activeTurn.pair_id,
+              status: "running",
+              turn_id: activeTurn.turn_id,
+            },
+        content_hash: "sha256:e2e-reader",
+        lang_code: null,
+        memory_id: READER_MEMORY_ID,
+        pairs,
+        status: activeTurn === null ? "ready" : "running",
+        thread_id: "thread-e2e",
+        variant_kind: "source",
+      }),
+    });
+  });
+
+  await page.route("**/api/psychiatrist-threads/thread-e2e/messages", async (route) => {
+    const body = route.request().postDataJSON() as {
+      message: string;
+      web_source_permission: string;
+    };
+    state.startedRequests.push({
+      message: body.message,
+      web_source_permission: body.web_source_permission,
+    });
+
+    if (
+      body.message.includes("current web sources") &&
+      body.web_source_permission !== "allow_for_this_turn"
+    ) {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 409,
+        body: JSON.stringify({
+          action: "allow_web_sources",
+          code: "network_permission_required",
+          message: "Web sources require approval.",
+          status: "error",
+        }),
+      });
+      return;
+    }
+
+    if (body.web_source_permission === "allow_for_this_turn") {
+      activeTurn = { pair_id: "pair-e2e-web", turn_id: "turn-e2e-web" };
+      state.approvedWebSourceEvidence = {
+        source_citations: [
+          {
+            source_id: "source-e2e",
+            title: "Example source",
+            url: "https://example.com/source",
+          },
+        ],
+        web_source_policy: {
+          allowed: true,
+          reason: "user_approved_for_turn",
+        },
+      };
+    } else {
+      state.networkEnabledBeforeApproval ||= body.web_source_permission ===
+        "allow_for_this_turn";
+      activeTurn = { pair_id: "pair-e2e-running", turn_id: "turn-e2e-running" };
+    }
+
+    pairs = [
+      ...pairs,
+      {
+        pair_id: activeTurn.pair_id,
+        status: "pending",
+        turn_id: activeTurn.turn_id,
+        user_prompt: {
+          content: body.message,
+          created_at: "2026-06-03T00:00:00.000Z",
+        },
+      },
+    ];
+
+    await route.fulfill({
+      contentType: "application/json",
+      status: 202,
+      body: JSON.stringify(startedResponse(activeTurn.pair_id, activeTurn.turn_id)),
+    });
+  });
+
+  await page.route("**/api/psychiatrist-pairs/*/regenerate", async (route) => {
+    const pairId = route.request().url().match(/\/psychiatrist-pairs\/([^/]+)\/regenerate/)?.[1] ??
+      "";
+    const body = route.request().postDataJSON() as {
+      web_source_permission: string;
+    };
+    state.regenerateRequests.push({
+      pairId,
+      web_source_permission: body.web_source_permission,
+    });
+
+    if (state.failNextRegenerate) {
+      state.failNextRegenerate = false;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({
+          action: "retry",
+          code: "timeout",
+          message: "Regenerate timed out.",
+          status: "error",
+        }),
+      });
+      return;
+    }
+
+    activeTurn = { pair_id: pairId, turn_id: "turn-e2e-regenerate" };
+    state.pairRevisionEvidence = {
+      pair_id: pairId,
+      response_path: `pairs/${pairId}/RESPONSE.md`,
+      thread_id: "thread-e2e",
+    };
+    await route.fulfill({
+      contentType: "application/json",
+      status: 202,
+      body: JSON.stringify(startedResponse(pairId, activeTurn.turn_id)),
+    });
+  });
+
+  await page.route("**/api/psychiatrist-turns/*/cancel", async (route) => {
+    state.cancelRequests += 1;
+    activeTurn = null;
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.route("**/api/psychiatrist-turns/*/events", async (route) => {
+    const turnId = route.request().url().match(/\/psychiatrist-turns\/([^/]+)\/events/)?.[1] ??
+      "";
+    state.eventTurnRequests.push(turnId);
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: psychiatristSse(turnId),
+    });
+    if (turnId === "turn-e2e-regenerate") {
+      activeTurn = null;
+      pairs = pairs.map((pair) =>
+        pair.pair_id === "pair-e2e"
+          ? completedPsychiatristPair("Regenerated answer from the same pair.")
+          : pair
+      );
+    }
+    if (turnId === "turn-e2e-web") {
+      activeTurn = null;
+      pairs = pairs.map((pair) =>
+        pair.pair_id === "pair-e2e-web"
+          ? {
+              ...pair,
+              assistant_response: {
+                completed_at: "2026-06-03T00:00:02.000Z",
+                content: "Approved answer with cited source.",
+                source_citations: state.approvedWebSourceEvidence?.source_citations ?? [],
+              },
+              status: "completed",
+            }
+          : pair
+      );
+    }
+  });
+
+  return state;
+}
+
+async function installFakeEventSource(page: Page) {
+  await page.evaluate(installFakeEventSourceInBrowser);
+}
+
+function installFakeEventSourceInBrowser() {
+    const eventData = (type: string, turnId: string, eventId: string, data: Record<string, unknown>) =>
+      JSON.stringify({
+        data,
+        eventId,
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101",
+        threadId: "thread-e2e",
+        timestamp: Date.parse("2026-06-03T00:00:00.000Z"),
+        turnId,
+        type,
+      });
+    const eventsFor = (url: string): Array<[string, string]> => {
+      if (url.includes("turn-e2e-regenerate")) {
+        return [
+          ["psychiatrist.regenerate.started", eventData("psychiatrist.regenerate.started", "turn-e2e-regenerate", "001", { pair_id: "pair-e2e" })],
+          ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-regenerate", "002", { pair_id: "pair-e2e", text: "Regenerated answer from the same pair." })],
+          ["psychiatrist.regenerate.completed", eventData("psychiatrist.regenerate.completed", "turn-e2e-regenerate", "003", { pair_id: "pair-e2e", text: "Regenerated answer from the same pair." })],
+        ];
+      }
+      if (url.includes("turn-e2e-web")) {
+        return [
+          ["psychiatrist.turn.started", eventData("psychiatrist.turn.started", "turn-e2e-web", "000", { pair_id: "pair-e2e-web", user_prompt: "Use current web sources for this memory." })],
+          ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-web", "001", { pair_id: "pair-e2e-web", text: "Approved answer with cited source." })],
+          ["psychiatrist.answer.completed", eventData("psychiatrist.answer.completed", "turn-e2e-web", "002", { pair_id: "pair-e2e-web", text: "Approved answer with cited source." })],
+        ];
+      }
+      return [
+        ["psychiatrist.turn.started", eventData("psychiatrist.turn.started", "turn-e2e-running", "000", { pair_id: "pair-e2e-running", user_prompt: "What does this memory say?" })],
+        ["psychiatrist.process.delta", eventData("psychiatrist.process.delta", "turn-e2e-running", "001", { pair_id: "pair-e2e-running", text: "Reading stored context" })],
+        ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-running", "002", { pair_id: "pair-e2e-running", text: "Partial answer from the memory" })],
+      ];
+    };
+    class FakeEventSource extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 2;
+      readyState = FakeEventSource.CONNECTING;
+      url: string;
+
+      constructor(url: string) {
+        super();
+        this.url = url;
+        const global = window as unknown as { __psychiatristEventSourceUrls?: string[] };
+        global.__psychiatristEventSourceUrls = [
+          ...(global.__psychiatristEventSourceUrls ?? []),
+          url,
+        ];
+        setTimeout(() => this.connect(), 0);
+      }
+
+      close() {
+        this.readyState = FakeEventSource.CLOSED;
+      }
+
+      private connect() {
+        if (this.readyState === FakeEventSource.CLOSED) {
+          return;
+        }
+        this.readyState = FakeEventSource.OPEN;
+        for (const [type, data] of eventsFor(this.url)) {
+          if (this.readyState === FakeEventSource.CLOSED) {
+            return;
+          }
+          this.dispatchEvent(new MessageEvent(type, { data }));
+        }
+      }
+    }
+
+    Object.defineProperty(window, "EventSource", {
+      configurable: true,
+      value: FakeEventSource,
+    });
+}
+
+function completedPsychiatristPair(content: string): PsychiatristPairFixture {
+  return {
+    assistant_response: {
+      completed_at: "2026-06-03T00:00:00.000Z",
+      content,
+      source_citations: [],
+    },
+    pair_id: "pair-e2e",
+    status: "completed",
+    turn_id: "turn-e2e-completed",
+    user_prompt: {
+      content: "What does this memory say?",
+      created_at: "2026-06-03T00:00:00.000Z",
+    },
+  };
+}
+
+function startedResponse(pairId: string, turnId: string) {
+  return {
+    event_url: `/api/psychiatrist-turns/${turnId}/events`,
+    pair_id: pairId,
+    replay_url: `/api/psychiatrist-turns/${turnId}/events`,
+    status: "started",
+    thread_id: "thread-e2e",
+    turn_id: turnId,
+  };
+}
+
+function psychiatristSse(turnId: string): string {
+  if (turnId === "turn-e2e-regenerate") {
+    return [
+      sseEvent("psychiatrist.regenerate.started", turnId, "001", {}),
+      sseEvent("psychiatrist.answer.delta", turnId, "002", {
+        text: "Regenerated answer from the same pair.",
+        pair_id: "pair-e2e",
+      }),
+      sseEvent("psychiatrist.regenerate.completed", turnId, "003", {
+        text: "Regenerated answer from the same pair.",
+        pair_id: "pair-e2e",
+      }),
+    ].join("");
+  }
+  if (turnId === "turn-e2e-web") {
+    return [
+      sseEvent("psychiatrist.turn.started", turnId, "000", {
+        pair_id: "pair-e2e-web",
+        user_prompt: "Use current web sources for this memory.",
+      }),
+      sseEvent("psychiatrist.answer.delta", turnId, "001", {
+        text: "Approved answer with cited source.",
+        pair_id: "pair-e2e-web",
+      }),
+      sseEvent("psychiatrist.answer.completed", turnId, "002", {
+        text: "Approved answer with cited source.",
+        pair_id: "pair-e2e-web",
+      }),
+    ].join("");
+  }
+  return [
+    sseEvent("psychiatrist.turn.started", turnId, "000", {
+      pair_id: "pair-e2e-running",
+      user_prompt: "What does this memory say?",
+    }),
+    sseEvent("psychiatrist.process.delta", turnId, "001", {
+      text: "Reading stored context",
+      pair_id: "pair-e2e-running",
+    }),
+    sseEvent("psychiatrist.answer.delta", turnId, "002", {
+      text: "Partial answer from the memory",
+      pair_id: "pair-e2e-running",
+    }),
+  ].join("");
+}
+
+function sseEvent(
+  type: string,
+  turnId: string,
+  eventId: string,
+  data: Record<string, unknown>,
+): string {
+  return [
+    `event: ${type}`,
+    `id: ${eventId}`,
+    `data: ${JSON.stringify({
+      data,
+      eventId,
+      memoryId: READER_MEMORY_ID,
+      threadId: "thread-e2e",
+      timestamp: Date.parse("2026-06-03T00:00:00.000Z"),
+      turnId,
+      type,
+    })}`,
+    "",
+    "",
+  ].join("\n");
+}
+
 test("toggles selected reader text as a persisted flashback", async ({ page }) => {
   createReaderFixture();
   const selectedText = "Curated markdown body";

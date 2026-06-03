@@ -33,6 +33,22 @@ export function applyPsychiatristStreamEvent(
   const index = pairId === undefined
     ? pairs.findIndex((pair) => pair.turnId === event.turnId)
     : pairs.findIndex((pair) => pair.pairId === pairId);
+  if (index < 0 && event.type === "psychiatrist.turn.started" && pairId !== undefined) {
+    const userPrompt = readUserPrompt(event.data);
+    if (userPrompt !== undefined) {
+      return [
+        ...pairs,
+        {
+          answer: "",
+          pairId,
+          process: [],
+          status: "running",
+          turnId: event.turnId,
+          userPrompt,
+        },
+      ];
+    }
+  }
   if (index < 0) {
     return [...pairs];
   }
@@ -99,6 +115,12 @@ function readSafeText(data: unknown): string | undefined {
     return undefined;
   }
   return data.text;
+}
+
+function readUserPrompt(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.user_prompt === "string"
+    ? data.user_prompt
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -95,6 +95,17 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         threadId: currentThread.thread_id,
         webSourcePermission,
       });
+      setTranscriptPairs((current) => [
+        ...current,
+        {
+          answer: "",
+          pairId: started.pair_id,
+          process: [],
+          status: "running",
+          turnId: started.turn_id,
+          userPrompt: message,
+        },
+      ]);
       setPrompt("");
       setRunningTurnId(started.turn_id);
       disconnectPsychiatristStream?.();

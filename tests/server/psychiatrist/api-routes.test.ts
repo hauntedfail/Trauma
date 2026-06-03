@@ -419,6 +419,11 @@ describe("Psychiatrist thread API routes", () => {
       "psychiatrist.answer.delta",
       "psychiatrist.answer.completed",
     ]);
+    expect(replay[0]?.data).toEqual({
+      pair_id: PAIR_ID,
+      status: "running",
+      user_prompt: "What is the risk?",
+    });
     expect(backupEnqueues).toEqual([
       {
         contentPaths: [

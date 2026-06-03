@@ -171,7 +171,11 @@ export async function handleSendPsychiatristMessageRequest(
     await appendPsychiatristStreamEvent({
       config,
       event: {
-        data: { status: "running" },
+        data: {
+          pair_id: pairId,
+          status: "running",
+          user_prompt: payload.message,
+        },
         memoryId: thread.manifest.memoryId,
         threadId,
         turnId,

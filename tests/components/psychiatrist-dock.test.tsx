@@ -148,6 +148,16 @@ describe("PsychiatristDock", () => {
     });
   });
 
+  it("creates a running transcript pair immediately after a send starts", () => {
+    const sendIndex = dockSource.indexOf("const started = await sendPsychiatristMessage");
+    const pairIndex = dockSource.indexOf("setTranscriptPairs((current) => [", sendIndex);
+    const promptIndex = dockSource.indexOf("userPrompt: message", pairIndex);
+
+    expect(sendIndex).toBeGreaterThan(-1);
+    expect(pairIndex).toBeGreaterThan(sendIndex);
+    expect(promptIndex).toBeGreaterThan(pairIndex);
+  });
+
   it("preserves structured stale-thread errors for reader recovery", async () => {
     await expect(sendPsychiatristMessage({
       clientMessageId: "local-1",
@@ -262,6 +272,28 @@ describe("PsychiatristDock", () => {
     ]);
   });
 
+  it("adds a new live pair when a started stream event arrives after send", () => {
+    const transcript = applyPsychiatristStreamEvent([], streamEvent({
+      data: {
+        pair_id: "pair-started",
+        user_prompt: "What does this memory say?",
+      },
+      turnId: "turn-started",
+      type: "psychiatrist.turn.started",
+    }));
+
+    expect(transcript).toEqual([
+      {
+        answer: "",
+        pairId: "pair-started",
+        process: [],
+        status: "running",
+        turnId: "turn-started",
+        userPrompt: "What does this memory say?",
+      },
+    ]);
+  });
+
   it("keeps regenerate in the same pair and replaces the visible answer on first delta", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
@@ -343,6 +375,7 @@ function streamEvent(input: {
   data: unknown;
   turnId?: string;
   type:
+    | "psychiatrist.turn.started"
     | "psychiatrist.process.delta"
     | "psychiatrist.answer.delta"
     | "psychiatrist.answer.completed"
