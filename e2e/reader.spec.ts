@@ -344,7 +344,6 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   await expect(page.getByText("Original answer from stored context.")).toBeVisible();
 
   await page.getByRole("button", { name: "Regenerate" }).click();
-  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
   await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
   await expect(page.getByText("Original answer from stored context.")).toHaveCount(0);
   expect(mock.regenerateRequests).toEqual([
@@ -365,11 +364,24 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   await expect(page.getByText("Psychiatrist could not finish. Retry when ready."))
     .toBeVisible();
 
+  mock.stopNextRegenerate = true;
+  await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible();
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
+  expect(mock.stoppedRegenerateEvidence).toEqual({
+    pair_id: "pair-e2e",
+    response_path: "pairs/pair-e2e/RESPONSE.md",
+    thread_id: "thread-e2e",
+  });
+
   await page.reload();
   await waitForReaderReady(page);
   await page.getByRole("button", { name: "Open Psychiatrist" }).click();
   await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
   expect(mock.regenerateRequests.map((request) => request.pairId)).toEqual([
+    "pair-e2e",
     "pair-e2e",
     "pair-e2e",
   ]);
@@ -439,6 +451,12 @@ interface PsychiatristMockState {
     message: string;
     web_source_permission: string;
   }>;
+  stopNextRegenerate: boolean;
+  stoppedRegenerateEvidence?: {
+    pair_id: string;
+    response_path: string;
+    thread_id: string;
+  };
 }
 
 interface PsychiatristPairFixture {
@@ -474,6 +492,7 @@ async function installPsychiatristMock(
     failNextRegenerate: false,
     networkEnabledBeforeApproval: false,
     regenerateRequests: [],
+    stopNextRegenerate: false,
     startedRequests: [],
   };
   let activeTurn: { pair_id: string; turn_id: string } | null = null;
@@ -596,7 +615,20 @@ async function installPsychiatristMock(
       return;
     }
 
-    activeTurn = { pair_id: pairId, turn_id: "turn-e2e-regenerate" };
+    activeTurn = {
+      pair_id: pairId,
+      turn_id: state.stopNextRegenerate
+        ? "turn-e2e-regenerate-stopped"
+        : "turn-e2e-regenerate",
+    };
+    if (state.stopNextRegenerate) {
+      state.stopNextRegenerate = false;
+      state.stoppedRegenerateEvidence = {
+        pair_id: pairId,
+        response_path: `pairs/${pairId}/RESPONSE.md`,
+        thread_id: "thread-e2e",
+      };
+    }
     state.pairRevisionEvidence = {
       pair_id: pairId,
       response_path: `pairs/${pairId}/RESPONSE.md`,
@@ -611,6 +643,13 @@ async function installPsychiatristMock(
 
   await page.route("**/api/psychiatrist-turns/*/cancel", async (route) => {
     state.cancelRequests += 1;
+    if (activeTurn?.turn_id === "turn-e2e-regenerate-stopped") {
+      pairs = pairs.map((pair) =>
+        pair.pair_id === "pair-e2e"
+          ? completedPsychiatristPair("Regenerated answer from the same pair.")
+          : pair
+      );
+    }
     activeTurn = null;
     await route.fulfill({ status: 204 });
   });
@@ -669,6 +708,11 @@ function installFakeEventSourceInBrowser() {
       });
     const eventsFor = (url: string): Array<[string, string]> => {
       if (url.includes("turn-e2e-regenerate")) {
+        if (url.includes("turn-e2e-regenerate-stopped")) {
+          return [
+            ["psychiatrist.regenerate.started", eventData("psychiatrist.regenerate.started", "turn-e2e-regenerate-stopped", "001", { pair_id: "pair-e2e" })],
+          ];
+        }
         return [
           ["psychiatrist.regenerate.started", eventData("psychiatrist.regenerate.started", "turn-e2e-regenerate", "001", { pair_id: "pair-e2e" })],
           ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-regenerate", "002", { pair_id: "pair-e2e", text: "Regenerated answer from the same pair." })],

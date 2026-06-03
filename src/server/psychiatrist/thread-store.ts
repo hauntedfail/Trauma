@@ -261,22 +261,25 @@ export async function markPsychiatristTurnCanceled(input: {
     );
   }
   const now = new Date().toISOString();
-  await appendPairRevision(input.config, loaded.manifest, {
-    created_at: existing.user.createdAt,
-    pair_id: input.pairId,
-    revision_kind: "canceled",
-    status: "canceled",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
-    updated_at: now,
-    user_prompt: existing.user.content,
-  });
+  if (existing.assistant === undefined) {
+    await appendPairRevision(input.config, loaded.manifest, {
+      created_at: existing.user.createdAt,
+      pair_id: input.pairId,
+      revision_kind: "canceled",
+      status: "canceled",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: now,
+      user_prompt: existing.user.content,
+    });
+  }
   await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
     canceled_at: now,
     codex_thread_id: input.codexThreadId,
     codex_turn_id: input.codexTurnId,
     pair_id: input.pairId,
     policy_version: loaded.manifest.policyVersion,
+    regenerate_from_turn_id: existing.assistant === undefined ? undefined : existing.turnId,
     safe_error: {
       action: "retry",
       code: "turn_stopped",

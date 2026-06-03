@@ -222,9 +222,15 @@ Server tests:
   fake app-server input and fail if it contains an empty context.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
   `psychiatrist_response_regenerate`.
-- Failed and stopped Regenerate attempts do not overwrite `RESPONSE.md`; a
-  fresh thread load still exposes the previous completed assistant response for
-  the same `pair_id`.
+- Failed Regenerate attempts do not overwrite `RESPONSE.md`; a fresh thread
+  load still exposes the previous completed assistant response for the same
+  `pair_id`.
+- Stopped Regenerate attempts have separate coverage from failed Regenerate:
+  explicit Stop must append safe stopped metadata for the new regenerate
+  `turn_id`, must not append a pair revision that hides the previous completed
+  assistant response, must not overwrite `pairs/{pairId}/RESPONSE.md`, and a
+  fresh thread load must still expose the previous completed assistant response
+  for the same `pair_id`.
 - Backup formatting maps `psychiatrist_response_regenerate` to
   `regenerated psychiatrist response`.
 
@@ -250,8 +256,31 @@ E2E tests:
   `turn_id`.
 - Stop cancels only after explicit Stop click.
 - Regenerate overwrites the same response artifact and does not add a new pair.
-- A failed fake Regenerate and a stopped fake Regenerate both leave the previous
-  completed response visible after browser reload.
+- A failed fake Regenerate leaves the previous completed response visible after
+  browser reload.
+- A stopped fake Regenerate is a separate browser case: click Regenerate on a
+  completed answer, click Stop before any replacement answer delta is committed,
+  reload the page, reopen the Psychiatrist dock, and verify the previous
+  completed response remains visible for the same pair.
+
+## Interruption Recovery Audit
+
+If implementation is resumed after an interruption, rate limit, context
+compaction, or worker handoff, treat these as independent completion checks
+before marking 24.8 complete:
+
+- Confirm failed Regenerate coverage exists in server storage/API tests and in
+  `e2e/reader.spec.ts`.
+- Confirm stopped Regenerate coverage exists in server storage/API tests and in
+  `e2e/reader.spec.ts`; failed Regenerate coverage does not satisfy this item.
+- Confirm the stopped Regenerate server path preserves the reduced loaded pair:
+  no canceled/stopped pair revision may replace an already completed assistant
+  response during `reducePairRows()` or equivalent pair loading.
+- Confirm stopped Regenerate writes terminal turn metadata with a safe stopped
+  status and safe error, but leaves `pairs/{pairId}/RESPONSE.md` byte-for-byte as
+  the previous completed answer.
+- Confirm browser reload evidence after stopped Regenerate, not only live
+  reducer evidence before reload.
 
 Run:
 

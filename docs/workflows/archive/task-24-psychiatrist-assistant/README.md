@@ -249,6 +249,11 @@ capture:
 - One Regenerate action that overwrites the same response Markdown artifact,
   keeps the same pair/thread ids, and enqueues git backup with regenerate action
   text.
+- One failed Regenerate action that keeps the previous completed response
+  visible after reload.
+- One stopped Regenerate action, verified separately from the failed Regenerate
+  case, that keeps the previous completed response visible after explicit Stop
+  and browser reload.
 - One stale-thread recovery after the memory content hash changes.
 - One network-denied turn that does not attempt web access and one
   user-approved web-source turn that records safe source metadata with the pair.
@@ -277,6 +282,12 @@ running-turn, reload, Stop, Regenerate, failed/stopped Regenerate,
 network-required, and web-source-approved cases listed above. If the existing
 reader E2E suite only exercises non-Psychiatrist reader behavior, the
 Psychiatrist browser items remain `Missing`.
+
+Failed Regenerate and stopped Regenerate are separate audit rows. A failed
+Regenerate test that preserves the previous completed answer does not satisfy
+the stopped Regenerate requirement. The stopped case must prove explicit Stop
+for a regenerate `turn_id`, preservation of the prior `RESPONSE.md`, no loaded
+pair regression after storage reduction, and browser reload evidence.
 
 The final PR handoff must include the audit matrix or a concise equivalent
 mapping. Any `Mapped` item must name the actual file/test or browser evidence.

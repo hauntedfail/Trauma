@@ -5,6 +5,7 @@ import type {
 
 export interface PsychiatristTranscriptPair {
   answer: string;
+  replaceAnswerOnNextDelta?: boolean;
   pairId: string;
   process: string[];
   status: PsychiatristThreadPairResponse["status"] | "running";
@@ -61,7 +62,12 @@ export function applyPsychiatristStreamEvent(
       return text === undefined ? pair : { ...pair, process: [...pair.process, text] };
     }
     if (event.type === "psychiatrist.answer.delta") {
-      return { ...pair, answer: `${pair.answer}${readSafeText(event.data) ?? ""}` };
+      const text = readSafeText(event.data) ?? "";
+      const nextPair = {
+        ...pair,
+        answer: pair.replaceAnswerOnNextDelta ? text : `${pair.answer}${text}`,
+      };
+      return withoutAnswerReplacementFlag(nextPair);
     }
     if (
       event.type === "psychiatrist.turn.started" ||
@@ -69,7 +75,9 @@ export function applyPsychiatristStreamEvent(
     ) {
       return {
         ...pair,
-        ...(event.type === "psychiatrist.regenerate.started" ? { answer: "" } : {}),
+        ...(event.type === "psychiatrist.regenerate.started"
+          ? { replaceAnswerOnNextDelta: true }
+          : {}),
         status: "running",
         turnId: event.turnId,
       };
@@ -78,19 +86,38 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.answer.completed" ||
       event.type === "psychiatrist.regenerate.completed"
     ) {
-      return { ...pair, status: "completed", turnId: event.turnId };
+      return withoutAnswerReplacementFlag({
+        ...pair,
+        status: "completed",
+        turnId: event.turnId,
+      });
     }
     if (event.type === "psychiatrist.turn.canceled") {
-      return { ...pair, status: "canceled", turnId: event.turnId };
+      return withoutAnswerReplacementFlag({
+        ...pair,
+        status: pair.answer === "" ? "canceled" : "completed",
+        turnId: pair.answer === "" ? event.turnId : pair.turnId,
+      });
     }
     if (
       event.type === "psychiatrist.answer.failed" ||
       event.type === "psychiatrist.network.permission_required"
     ) {
-      return { ...pair, status: "failed", turnId: event.turnId };
+      return withoutAnswerReplacementFlag({
+        ...pair,
+        status: pair.answer === "" ? "failed" : "completed",
+        turnId: pair.answer === "" ? event.turnId : pair.turnId,
+      });
     }
     return pair;
   });
+}
+
+function withoutAnswerReplacementFlag(
+  pair: PsychiatristTranscriptPair,
+): PsychiatristTranscriptPair {
+  const { replaceAnswerOnNextDelta: _replaceAnswerOnNextDelta, ...visiblePair } = pair;
+  return visiblePair;
 }
 
 function readPairId(data: unknown): string | undefined {
