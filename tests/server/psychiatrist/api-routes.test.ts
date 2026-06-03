@@ -1046,7 +1046,7 @@ describe("Psychiatrist thread API routes", () => {
         ),
         "utf8",
       );
-      return content === "Regenerated answer.";
+      return content === "Regenerated answer." && backupEnqueues.length === 1;
     });
     const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     expect(loaded.pairs).toEqual([
