@@ -22,7 +22,10 @@ import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
   loadPsychiatristPairRegeneration,
+  markPsychiatristTurnCompleted,
+  markPsychiatristRegenerateFailed,
   PsychiatristThreadStoreError,
+  recordPsychiatristTurnStarted,
 } from "./thread-store";
 import type {
   PsychiatristThreadPair,
@@ -99,6 +102,13 @@ export async function handleRegeneratePsychiatristResponseRequest(
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
 
+  await recordPsychiatristTurnStarted({
+    config,
+    pairId,
+    regenerateFromTurnId: loaded.pair.turnId,
+    threadId: loaded.manifest.threadId,
+    turnId,
+  });
   await appendPsychiatristStreamEvent({
     config,
     event: {
@@ -155,17 +165,17 @@ async function runRegenerateTurn(input: {
       cwdPurpose: "psychiatrist",
       input: buildPsychiatristPrompt({
         context: {
-          categories: [],
+          categories: input.loaded.contextSnapshot.categories,
           contentHash: input.loaded.contextSnapshot.contentHash,
           ...(input.loaded.contextSnapshot.langCode === undefined
             ? {}
             : { langCode: input.loaded.contextSnapshot.langCode }),
           memoryId: input.loaded.contextSnapshot.memoryId,
-          relativePath: "",
-          sections: [],
-          sourceUrl: "",
-          tags: [],
-          title: "",
+          relativePath: input.loaded.contextSnapshot.relativePath,
+          sections: input.loaded.contextSnapshot.sections,
+          sourceUrl: input.loaded.contextSnapshot.sourceUrl,
+          tags: input.loaded.contextSnapshot.tags,
+          title: input.loaded.contextSnapshot.title,
           variantKind: input.loaded.contextSnapshot.variantKind,
         },
         contextSnapshotId: input.loaded.contextSnapshot.contextSnapshotId,
@@ -203,6 +213,16 @@ async function runRegenerateTurn(input: {
       pairId: input.pairId,
       threadId: input.loaded.manifest.threadId,
       turnId: input.turnId,
+      webSourcePolicy: input.webSourcePolicy,
+    });
+    await markPsychiatristTurnCompleted({
+      codexThreadId: result.threadId,
+      codexTurnId: result.turnId,
+      config: input.config,
+      pairId: input.pairId,
+      regenerateFromTurnId: pair.turnId,
+      threadId: input.loaded.manifest.threadId,
+      turnId: input.turnId,
     });
     await appendPsychiatristStreamEvent({
       config: input.config,
@@ -224,6 +244,17 @@ async function runRegenerateTurn(input: {
       reason: "psychiatrist_response_regenerate",
     });
   } catch {
+    await markPsychiatristRegenerateFailed({
+      config: input.config,
+      error: {
+        action: "retry",
+        code: "unknown",
+        message: "Psychiatrist regenerate failed.",
+      },
+      pairId: input.pairId,
+      threadId: input.loaded.manifest.threadId,
+      turnId: input.turnId,
+    });
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {

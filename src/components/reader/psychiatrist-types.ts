@@ -53,6 +53,7 @@ export type PsychiatristStreamEventType =
   | "psychiatrist.answer.completed"
   | "psychiatrist.answer.failed"
   | "psychiatrist.turn.canceled"
+  | "psychiatrist.network.permission_required"
   | "psychiatrist.regenerate.started"
   | "psychiatrist.regenerate.completed";
 

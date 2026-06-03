@@ -27,9 +27,11 @@ import {
   appendAssistantResponse,
   appendPendingPair,
   loadPsychiatristThread,
+  markPsychiatristTurnCompleted,
   markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
   PsychiatristThreadStoreError,
+  recordPsychiatristTurnStarted,
 } from "./thread-store";
 import type {
   PsychiatristContextSnapshotManifest,
@@ -160,6 +162,12 @@ export async function handleSendPsychiatristMessageRequest(
       threadId,
       turnId,
     });
+    await recordPsychiatristTurnStarted({
+      config,
+      pairId,
+      threadId,
+      turnId,
+    });
     await appendPsychiatristStreamEvent({
       config,
       event: {
@@ -264,18 +272,65 @@ async function runPsychiatristTurn(input: {
       threadId: input.thread.manifest.codexThreadId,
     });
     await eventWriteChain;
+    if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {
+      const safeError = {
+        action: "retry" as const,
+        code: "network_permission_required",
+        message: "Allow web-source access to answer this request.",
+      };
+      await markPsychiatristTurnFailed({
+        codexThreadId: result.threadId,
+        codexTurnId: result.turnId,
+        config: input.config,
+        error: safeError,
+        pairId: input.pairId,
+        threadId: input.threadId,
+        turnId: input.turnId,
+      });
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          data: {
+            code: safeError.code,
+            message: safeError.message,
+          },
+          memoryId: input.thread.manifest.memoryId,
+          threadId: input.threadId,
+          turnId: input.turnId,
+          type: "psychiatrist.network.permission_required",
+        },
+      });
+      return;
+    }
     await appendAssistantResponse({
       assistantResponse: result.outputText,
       citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
       config: input.config,
       pairId: input.pairId,
       threadId: input.threadId,
+      webSourcePolicy: input.webSourcePolicy,
     });
-    await enqueueCompletedAnswerBackup(input).catch(() => undefined);
+    await markPsychiatristTurnCompleted({
+      codexThreadId: result.threadId,
+      codexTurnId: result.turnId,
+      config: input.config,
+      pairId: input.pairId,
+      threadId: input.threadId,
+      turnId: input.turnId,
+    });
+    const backupWarning = await enqueueCompletedAnswerBackup(input)
+      .then(() => undefined)
+      .catch(() => ({
+        code: "backup_enqueue_failed",
+        message: "Psychiatrist answer was saved, but backup enqueue failed.",
+      }));
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
-        data: { pair_id: input.pairId },
+        data: {
+          ...(backupWarning === undefined ? {} : { warning: backupWarning }),
+          pair_id: input.pairId,
+        },
         memoryId: input.thread.manifest.memoryId,
         threadId: input.threadId,
         turnId: input.turnId,
@@ -379,6 +434,7 @@ function createContextSnapshot(input: {
   prompt: string;
 }): PsychiatristContextSnapshotManifest {
   return {
+    categories: input.context.categories,
     contentHash: input.context.contentHash,
     contextSnapshotId: input.pairId,
     ...(input.manifest.langCode === undefined
@@ -386,10 +442,15 @@ function createContextSnapshot(input: {
       : { langCode: input.manifest.langCode }),
     memoryId: input.manifest.memoryId,
     policyVersion: input.manifest.policyVersion,
+    relativePath: input.context.relativePath,
     selectedSectionAnchors: input.context.sections.map((section) => section.anchor),
     selectedSectionHashes: input.context.sections.map((section) =>
       createSha256ContentHash(section.markdown)
     ),
+    sections: input.context.sections,
+    sourceUrl: input.context.sourceUrl,
+    tags: input.context.tags,
+    title: input.context.title,
     ...(input.manifest.translationOutputHash === undefined
       ? {}
       : { translationOutputHash: input.manifest.translationOutputHash }),

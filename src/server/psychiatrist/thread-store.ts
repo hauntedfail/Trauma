@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ResolvedTraumaConfig } from "../config";
 import type {
+  PsychiatristContextSection,
   PsychiatristContextSnapshotManifest,
   PsychiatristPairAssistant,
   PsychiatristThreadManifest,
@@ -20,12 +21,15 @@ interface PairRevisionRow {
   pair_id: string;
   response_markdown_path?: string;
   revision_kind: "pending" | "completed" | "failed" | "canceled" | "stale";
+  regenerated_from_turn_id?: string;
   source_citations?: Array<{ source_id: string; title: string; url: string }>;
   status: PsychiatristThreadPair["status"];
+  stream_path?: string;
   thread_id: string;
   turn_id: string;
   updated_at: string;
   user_prompt: string;
+  web_source_policy?: { allowed: boolean; reason: "default_denied" | "user_approved_for_turn" };
 }
 
 export class PsychiatristThreadStoreError extends Error {
@@ -93,13 +97,27 @@ export async function appendPendingPair(input: {
   );
   await writeFileAtomic(join(pairDirectoryPath, "PROMPT.md"), input.prompt);
   await writeJsonAtomic(join(pairDirectoryPath, "CONTEXT.json"), {
+    categories: input.contextSnapshot.categories ?? [],
     content_hash: input.contextSnapshot.contentHash,
     context_snapshot_id: input.contextSnapshot.contextSnapshotId,
     lang_code: input.contextSnapshot.langCode,
     memory_id: input.contextSnapshot.memoryId,
     policy_version: input.contextSnapshot.policyVersion,
+    relative_path: input.contextSnapshot.relativePath ?? "",
     selected_section_anchors: input.contextSnapshot.selectedSectionAnchors,
     selected_section_hashes: input.contextSnapshot.selectedSectionHashes,
+    sections: (input.contextSnapshot.sections ?? []).map((section) => ({
+      anchor: section.anchor,
+      end_offset: section.endOffset,
+      level: section.level,
+      markdown: section.markdown,
+      path: section.path,
+      start_offset: section.startOffset,
+      title: section.title,
+    })),
+    source_url: input.contextSnapshot.sourceUrl ?? "",
+    tags: input.contextSnapshot.tags ?? [],
+    title: input.contextSnapshot.title ?? "",
     translation_output_hash: input.contextSnapshot.translationOutputHash,
     user_prompt: input.contextSnapshot.userPrompt,
     variant_kind: input.contextSnapshot.variantKind,
@@ -110,6 +128,7 @@ export async function appendPendingPair(input: {
     pair_id: input.pairId,
     revision_kind: "pending",
     status: "pending",
+    stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
     thread_id: input.threadId,
     turn_id: input.turnId,
     updated_at: new Date().toISOString(),
@@ -125,6 +144,7 @@ export async function appendAssistantResponse(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   pairId: string;
   threadId: string;
+  webSourcePolicy?: PairRevisionRow["web_source_policy"];
 }): Promise<void> {
   const loaded = await loadPsychiatristThread({
     config: input.config,
@@ -164,10 +184,12 @@ export async function appendAssistantResponse(input: {
       url: citation.url,
     })),
     status: "completed",
+    stream_path: turnStreamRelativePath(loaded.manifest, pending.turnId),
     thread_id: input.threadId,
     turn_id: pending.turnId,
     updated_at: new Date().toISOString(),
     user_prompt: pending.user.content,
+    web_source_policy: input.webSourcePolicy,
   });
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
@@ -179,6 +201,7 @@ export async function appendRegeneratedAssistantResponse(input: {
   pairId: string;
   threadId: string;
   turnId: string;
+  webSourcePolicy?: PairRevisionRow["web_source_policy"];
 }): Promise<void> {
   const loaded = await loadPsychiatristThread({
     config: input.config,
@@ -199,6 +222,7 @@ export async function appendRegeneratedAssistantResponse(input: {
     assistant_response: input.assistantResponse,
     created_at: existing.user.createdAt,
     pair_id: input.pairId,
+    regenerated_from_turn_id: existing.turnId,
     response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
     revision_kind: "completed",
     source_citations: input.citations.map((citation) => ({
@@ -207,10 +231,12 @@ export async function appendRegeneratedAssistantResponse(input: {
       url: citation.url,
     })),
     status: "completed",
+    stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
     thread_id: input.threadId,
     turn_id: input.turnId,
     updated_at: new Date().toISOString(),
     user_prompt: existing.user.content,
+    web_source_policy: input.webSourcePolicy,
   });
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
@@ -263,6 +289,68 @@ export async function markPsychiatristTurnCanceled(input: {
   await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
+export async function recordPsychiatristTurnStarted(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  regenerateFromTurnId?: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+    pair_id: input.pairId,
+    policy_version: loaded.manifest.policyVersion,
+    regenerate_from_turn_id: input.regenerateFromTurnId,
+    started_at: new Date().toISOString(),
+    status: "started",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  });
+}
+
+export async function markPsychiatristTurnCompleted(input: {
+  codexThreadId?: string;
+  codexTurnId?: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  regenerateFromTurnId?: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  const turnPath = join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`);
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = JSON.parse(await readFile(turnPath, "utf8"));
+    if (isRecord(raw)) {
+      existing = raw;
+    }
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  await writeJsonAtomic(turnPath, {
+    ...existing,
+    codex_thread_id: input.codexThreadId,
+    codex_turn_id: input.codexTurnId,
+    completed_at: new Date().toISOString(),
+    pair_id: input.pairId,
+    policy_version: loaded.manifest.policyVersion,
+    regenerate_from_turn_id: input.regenerateFromTurnId,
+    started_at: typeof existing.started_at === "string" ? existing.started_at : new Date().toISOString(),
+    status: "completed",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  });
+}
+
 export async function markPsychiatristTurnFailed(input: {
   codexThreadId?: string;
   codexTurnId?: string;
@@ -310,6 +398,42 @@ export async function markPsychiatristTurnFailed(input: {
     turn_id: input.turnId,
   });
   await rewriteThreadMarkdown(input.config, loaded.manifest);
+}
+
+export async function markPsychiatristRegenerateFailed(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  error: {
+    action: "retry";
+    code: string;
+    message: string;
+  };
+  pairId: string;
+  threadId: string;
+  turnId: string;
+}): Promise<void> {
+  const loaded = await loadPsychiatristThread({
+    config: input.config,
+    threadId: input.threadId,
+  });
+  const existing = loaded.pairs.find((pair) =>
+    pair.pairId === input.pairId && pair.assistant !== undefined
+  );
+  if (existing === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "pair_not_found",
+      "Cannot fail a regenerate turn without a completed pair.",
+    );
+  }
+  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+    failed_at: new Date().toISOString(),
+    pair_id: input.pairId,
+    policy_version: loaded.manifest.policyVersion,
+    regenerate_from_turn_id: existing.turnId,
+    safe_error: input.error,
+    status: "failed",
+    thread_id: input.threadId,
+    turn_id: input.turnId,
+  });
 }
 
 export async function loadPsychiatristPairRegeneration(input: {
@@ -463,13 +587,19 @@ function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManife
     throw new PsychiatristThreadStoreError("pair_not_found", "Invalid CONTEXT.json.");
   }
   return {
+    categories: readOptionalStringArray(value, "categories"),
     contentHash: readRequiredString(value, "content_hash"),
     contextSnapshotId: readRequiredString(value, "context_snapshot_id"),
     langCode: readOptionalString(value, "lang_code"),
     memoryId: readRequiredString(value, "memory_id"),
     policyVersion: readRequiredString(value, "policy_version"),
+    relativePath: readOptionalString(value, "relative_path") ?? "",
     selectedSectionAnchors: readStringArray(value, "selected_section_anchors"),
     selectedSectionHashes: readStringArray(value, "selected_section_hashes"),
+    sections: readOptionalContextSections(value, "sections"),
+    sourceUrl: readOptionalString(value, "source_url") ?? "",
+    tags: readOptionalStringArray(value, "tags"),
+    title: readOptionalString(value, "title") ?? "",
     translationOutputHash: readOptionalString(value, "translation_output_hash"),
     userPrompt: readRequiredString(value, "user_prompt"),
     variantKind: readRequiredString(value, "variant_kind") as "source" | "translation",
@@ -649,6 +779,13 @@ function pairRevisionLogRelativePath(
   return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "PAIRS.jsonl");
 }
 
+function turnStreamRelativePath(
+  manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
+  turnId: string,
+): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "streams", `${turnId}.jsonl`);
+}
+
 function threadDirectory(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">,
@@ -703,6 +840,52 @@ function readOptionalString(value: Record<string, unknown>, key: string): string
 function readStringArray(value: Record<string, unknown>, key: string): string[] {
   const field = value[key];
   if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) {
+    throw new PsychiatristThreadStoreError("pair_not_found", `Missing ${key}.`);
+  }
+  return field;
+}
+
+function readOptionalStringArray(value: Record<string, unknown>, key: string): string[] {
+  const field = value[key];
+  if (field === undefined) {
+    return [];
+  }
+  if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) {
+    throw new PsychiatristThreadStoreError("pair_not_found", `Invalid ${key}.`);
+  }
+  return field;
+}
+
+function readOptionalContextSections(
+  value: Record<string, unknown>,
+  key: string,
+): PsychiatristContextSection[] {
+  const field = value[key];
+  if (field === undefined) {
+    return [];
+  }
+  if (!Array.isArray(field)) {
+    throw new PsychiatristThreadStoreError("pair_not_found", `Invalid ${key}.`);
+  }
+  return field.map((item) => {
+    if (!isRecord(item)) {
+      throw new PsychiatristThreadStoreError("pair_not_found", `Invalid ${key}.`);
+    }
+    return {
+      anchor: readRequiredString(item, "anchor"),
+      endOffset: readRequiredNumber(item, "end_offset"),
+      level: readRequiredNumber(item, "level"),
+      markdown: readRequiredString(item, "markdown"),
+      path: readRequiredString(item, "path"),
+      startOffset: readRequiredNumber(item, "start_offset"),
+      title: readRequiredString(item, "title"),
+    };
+  });
+}
+
+function readRequiredNumber(value: Record<string, unknown>, key: string): number {
+  const field = value[key];
+  if (typeof field !== "number") {
     throw new PsychiatristThreadStoreError("pair_not_found", `Missing ${key}.`);
   }
   return field;

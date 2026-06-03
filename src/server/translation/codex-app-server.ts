@@ -104,6 +104,7 @@ export interface CodexConversationTurnResult {
   sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   threadId: string;
   turnId: string;
+  webSourceRequired?: boolean;
 }
 
 export interface CodexConversationClient {

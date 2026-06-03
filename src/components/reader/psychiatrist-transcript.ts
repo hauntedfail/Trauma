@@ -67,7 +67,10 @@ export function applyPsychiatristStreamEvent(
     if (event.type === "psychiatrist.turn.canceled") {
       return { ...pair, status: "canceled", turnId: event.turnId };
     }
-    if (event.type === "psychiatrist.answer.failed") {
+    if (
+      event.type === "psychiatrist.answer.failed" ||
+      event.type === "psychiatrist.network.permission_required"
+    ) {
       return { ...pair, status: "failed", turnId: event.turnId };
     }
     return pair;

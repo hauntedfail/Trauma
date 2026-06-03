@@ -83,13 +83,19 @@ export interface PsychiatristThreadManifest {
 }
 
 export interface PsychiatristContextSnapshotManifest {
+  categories: string[];
   contentHash: string;
   contextSnapshotId: string;
   langCode?: string;
   memoryId: string;
   policyVersion: string;
+  relativePath: string;
   selectedSectionAnchors: string[];
   selectedSectionHashes: string[];
+  sections: PsychiatristContextSection[];
+  sourceUrl: string;
+  tags: string[];
+  title: string;
   translationOutputHash?: string;
   userPrompt: string;
   variantKind: "source" | "translation";

@@ -250,12 +250,28 @@ function manifest(
 
 function contextSnapshot(): PsychiatristContextSnapshotManifest {
   return {
+    categories: [],
     contentHash: "sha256:source",
     contextSnapshotId: "snapshot-1",
     memoryId: MEMORY_ID,
     policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+    relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
     selectedSectionAnchors: ["risk"],
     selectedSectionHashes: ["sha256:section"],
+    sections: [
+      {
+        anchor: "risk",
+        endOffset: 18,
+        level: 2,
+        markdown: "## Risk\n\nNo rollback.",
+        path: "1",
+        startOffset: 0,
+        title: "Risk",
+      },
+    ],
+    sourceUrl: "https://example.com/memory",
+    tags: [],
+    title: "Memory",
     userPrompt: "What is the risk?",
     variantKind: "source",
   };

@@ -302,6 +302,34 @@ describe("PsychiatristDock", () => {
       },
     ]);
   });
+
+  it("marks network-required stream events as failed without adding an answer", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-network",
+        status: "pending",
+        turn_id: "turn-network",
+        user_prompt: {
+          content: "Need current source?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const networkRequired = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: {
+        code: "network_permission_required",
+        message: "Allow web-source access to answer this request.",
+      },
+      turnId: "turn-network",
+      type: "psychiatrist.network.permission_required",
+    }));
+
+    expect(networkRequired[0]?.answer).toBe("");
+    expect(networkRequired[0]?.status).toBe("failed");
+    expect(networkRequired[0]?.turnId).toBe("turn-network");
+  });
 });
 
 function jsonResponse(value: unknown): Response {
@@ -318,6 +346,7 @@ function streamEvent(input: {
     | "psychiatrist.process.delta"
     | "psychiatrist.answer.delta"
     | "psychiatrist.answer.completed"
+    | "psychiatrist.network.permission_required"
     | "psychiatrist.regenerate.started";
 }) {
   return {

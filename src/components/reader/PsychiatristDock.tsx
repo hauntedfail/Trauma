@@ -177,6 +177,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       event.type === "psychiatrist.answer.completed" ||
       event.type === "psychiatrist.regenerate.completed" ||
       event.type === "psychiatrist.answer.failed" ||
+      event.type === "psychiatrist.network.permission_required" ||
       event.type === "psychiatrist.turn.canceled"
     ) {
       setIsRunning(false);
