@@ -44,10 +44,15 @@ export async function handleCancelPsychiatristTurnRequest(
       409,
     );
   }
-  await active.client.cancelTurn({
-    threadId: active.codexThreadId,
-    turnId: active.codexTurnId,
-  });
+  let interruptFailed = false;
+  try {
+    await active.client.cancelTurn({
+      threadId: active.codexThreadId,
+      turnId: active.codexTurnId,
+    });
+  } catch {
+    interruptFailed = true;
+  }
   const config = input.config ?? loadRuntimeTraumaConfig();
   await markPsychiatristTurnCanceled({
     codexThreadId: active.codexThreadId,
@@ -60,7 +65,17 @@ export async function handleCancelPsychiatristTurnRequest(
   await appendPsychiatristStreamEvent({
     config,
     event: {
-      data: { status: "canceled" },
+      data: {
+        ...(interruptFailed
+          ? {
+            warning: {
+              code: "codex_interrupt_failed",
+              message: "Psychiatrist turn was released locally after Codex interrupt failed.",
+            },
+          }
+          : {}),
+        status: "canceled",
+      },
       memoryId: active.memoryId,
       threadId: active.threadId,
       turnId: active.turnId,
@@ -68,7 +83,18 @@ export async function handleCancelPsychiatristTurnRequest(
     },
   });
   activeTurns.unregister(turnId);
-  return jsonResponse({ status: "canceled", turn_id: turnId }, { status: 202 });
+  return jsonResponse({
+    ...(interruptFailed
+      ? {
+        warning: {
+          code: "codex_interrupt_failed",
+          message: "Psychiatrist turn was released locally after Codex interrupt failed.",
+        },
+      }
+      : {}),
+    status: "canceled",
+    turn_id: turnId,
+  }, { status: 202 });
 }
 
 function safeErrorResponse(

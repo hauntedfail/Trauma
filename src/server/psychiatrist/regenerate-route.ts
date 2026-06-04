@@ -9,6 +9,7 @@ import {
   loadRuntimeTraumaConfig,
   type ResolvedTraumaConfig,
 } from "../config";
+import { initializeDatabase } from "../db";
 import { jsonResponse } from "../http/json";
 import {
   CodexAppServerClient,
@@ -17,12 +18,14 @@ import {
   type CodexConversationClient,
 } from "../translation/codex-app-server";
 import { activePsychiatristTurns } from "./active-turns";
+import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
   loadPsychiatristPairRegeneration,
+  markPsychiatristThreadStale,
   markPsychiatristTurnCompleted,
   markPsychiatristRegenerateFailed,
   PsychiatristThreadStoreError,
@@ -40,12 +43,18 @@ type RegeneratePayload =
     }
   | { ok: false; message: string };
 
+type ResolveRegenerateActiveContentHash = (input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+}) => Promise<string>;
+
 export function createRegeneratePsychiatristResponseHandler(input: {
   backupQueue?: MemoryBackupQueue;
   client?: CodexConversationClient;
   config?: ResolvedTraumaConfig;
   generateId?: () => string;
   loadPair?: typeof loadPsychiatristPairRegeneration;
+  resolveActiveContentHash?: ResolveRegenerateActiveContentHash;
 } = {}) {
   return async function regeneratePsychiatristResponse(event: APIEvent): Promise<Response> {
     return handleRegeneratePsychiatristResponseRequest(event, input);
@@ -60,6 +69,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
     config?: ResolvedTraumaConfig;
     generateId?: () => string;
     loadPair?: typeof loadPsychiatristPairRegeneration;
+    resolveActiveContentHash?: ResolveRegenerateActiveContentHash;
   } = {},
 ): Promise<Response> {
   const pairId = event.params.pairId?.trim();
@@ -105,6 +115,33 @@ export async function handleRegeneratePsychiatristResponseRequest(
   }
 
   const turnId = input.generateId?.() ?? generateUuidV7Like();
+  try {
+    const resolveActiveContentHash = input.resolveActiveContentHash ??
+      defaultResolveRegenerateActiveContentHash;
+    const activeContentHash = await resolveActiveContentHash({ config, loaded });
+    if (activeContentHash !== loaded.manifest.activeContentHash) {
+      activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
+      await markPsychiatristThreadStale({ config, threadId: loaded.manifest.threadId });
+      await appendPsychiatristStreamEvent({
+        config,
+        event: {
+          data: { pair_id: pairId, status: "stale" },
+          memoryId: loaded.manifest.memoryId,
+          threadId: loaded.manifest.threadId,
+          turnId,
+          type: "psychiatrist.thread.stale",
+        },
+      });
+      return safeErrorResponse(
+        "thread_stale",
+        "Psychiatrist thread is stale. Refresh the thread and retry.",
+        409,
+      );
+    }
+  } catch (error) {
+    activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
+    return formatRegeneratePreflightError(error);
+  }
   const webSourcePolicy: PsychiatristWebSourcePolicy =
     payload.webSourcePermission === "allow_for_this_turn"
       ? { allowed: true, reason: "user_approved_for_turn" }
@@ -182,6 +219,7 @@ async function runRegenerateTurn(input: {
   webSourcePolicy: PsychiatristWebSourcePolicy;
 }): Promise<void> {
   const pair = input.loaded.pair;
+  let assistantResponsePersisted = false;
   try {
     let eventWriteChain = Promise.resolve();
     const result = await input.client.runConversationTurn({
@@ -283,6 +321,7 @@ async function runRegenerateTurn(input: {
       turnId: input.turnId,
       webSourcePolicy: input.webSourcePolicy,
     });
+    assistantResponsePersisted = true;
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -326,6 +365,25 @@ async function runRegenerateTurn(input: {
     if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
       return;
     }
+    if (assistantResponsePersisted) {
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          data: {
+            pair_id: input.pairId,
+            warning: {
+              code: "post_save_finalization_failed",
+              message: "Psychiatrist answer was saved, but completion metadata could not be finalized.",
+            },
+          },
+          memoryId: input.loaded.manifest.memoryId,
+          threadId: input.loaded.manifest.threadId,
+          turnId: input.turnId,
+          type: "psychiatrist.regenerate.completed",
+        },
+      }).catch(() => undefined);
+      return;
+    }
     const safeError = toSafeCodexError(error, "Psychiatrist regenerate failed.");
     await markPsychiatristRegenerateFailed({
       config: input.config,
@@ -349,6 +407,28 @@ async function runRegenerateTurn(input: {
     if (input.ownsClient) {
       await closeOwnedClient(input.client);
     }
+  }
+}
+
+async function defaultResolveRegenerateActiveContentHash(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+}): Promise<string> {
+  if (!("backup" in input.config)) {
+    return input.loaded.contextSnapshot.contentHash;
+  }
+  const connection = initializeDatabase(input.config as ResolvedTraumaConfig);
+  try {
+    const context = await buildPsychiatristMemoryContext({
+      config: input.config,
+      langCode: input.loaded.manifest.langCode,
+      memoryId: input.loaded.manifest.memoryId,
+      memoryRepository: connection.repositories.memories,
+      translationRepository: connection.repositories.translations,
+    });
+    return context.contentHash;
+  } finally {
+    connection.close();
   }
 }
 
@@ -460,6 +540,23 @@ function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "r
     return "allow_web_sources";
   }
   return "retry";
+}
+
+function formatRegeneratePreflightError(error: unknown): Response {
+  if (error instanceof PsychiatristContextError) {
+    return safeErrorResponse(
+      error.code,
+      error.code === "missing_memory"
+        ? "Memory was not found."
+        : "Psychiatrist context is unavailable for this memory.",
+      error.code === "missing_memory" ? 404 : 409,
+    );
+  }
+  return safeErrorResponse(
+    error instanceof CodexAppServerError ? error.code : "unknown",
+    "Psychiatrist regenerate request failed.",
+    500,
+  );
 }
 
 function toSafeCodexError(error: unknown, fallbackMessage: string): {

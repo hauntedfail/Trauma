@@ -249,12 +249,16 @@ describe("Codex app-server endpoint parsing", () => {
         socketPath,
       });
 
-      await expect(
-        client.translateChunk({
+      let caught: unknown;
+      try {
+        await client.translateChunk({
           chunk: createChunk(),
           prompt: "translate chunk",
-        }),
-      ).rejects.toMatchObject({
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
         code: "turn_interrupted",
       });
     } finally {
@@ -614,6 +618,37 @@ describe("Codex app-server endpoint parsing", () => {
             url: "https://example.com/releases",
           },
         ],
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("surfaces web-source-required signals returned by Psychiatrist conversation turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-web-required-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Current source access is required.",
+      conversationWebSourceRequired: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Need current sources?",
+          networkAccess: "disabled",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Current source access is required.",
+        webSourceRequired: true,
       });
     } finally {
       await server.close();
@@ -1388,6 +1423,7 @@ function handleClientMessage(
               warnings: [],
             }),
             type: "agentMessage",
+            webSourceRequired: options.conversationWebSourceRequired,
           },
         },
       });
@@ -1404,6 +1440,7 @@ interface FakeAppServerOptions {
   closeAfterTurnStart?: boolean;
   conversationFinalText?: string;
   conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+  conversationWebSourceRequired?: boolean;
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;

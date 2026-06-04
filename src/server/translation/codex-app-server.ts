@@ -431,6 +431,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           ...(completedOutput.sourceCitations === undefined
             ? {}
             : { sourceCitations: completedOutput.sourceCitations }),
+          ...(completedOutput.webSourceRequired === undefined
+            ? {}
+            : { webSourceRequired: completedOutput.webSourceRequired }),
           threadId,
           turnId: completedOutput.turnId,
         };
@@ -802,6 +805,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       outputText: string;
       sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
       turnId: string;
+      webSourceRequired?: boolean;
     }>;
     unsubscribe: () => void;
   } {
@@ -818,6 +822,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         outputText: string;
         sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
         turnId: string;
+        webSourceRequired?: boolean;
       }) => {
         if (settled) {
           return;
@@ -1392,16 +1397,65 @@ function readFinalTextOutput(value: unknown): string | undefined {
 function readFinalTextTurnOutput(value: unknown): {
   outputText: string;
   sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+  webSourceRequired?: boolean;
 } | undefined {
   const outputText = readFinalTextOutput(value);
   if (outputText === undefined) {
     return undefined;
   }
   const sourceCitations = readSourceCitations(value);
+  const webSourceRequired = readWebSourceRequired(value);
   return {
     outputText,
     ...(sourceCitations.length === 0 ? {} : { sourceCitations }),
+    ...(webSourceRequired === undefined ? {} : { webSourceRequired }),
   };
+}
+
+function readWebSourceRequired(value: unknown): boolean | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const direct = readBooleanField(value, "webSourceRequired") ??
+    readBooleanField(value, "web_source_required") ??
+    readBooleanField(value, "requiresWebSources") ??
+    readBooleanField(value, "requires_web_sources");
+  if (direct !== undefined) {
+    return direct;
+  }
+  if (isRecord(value.output)) {
+    const output = readWebSourceRequired(value.output);
+    if (output !== undefined) {
+      return output;
+    }
+  }
+  if (isRecord(value.finalOutput)) {
+    const finalOutput = readWebSourceRequired(value.finalOutput);
+    if (finalOutput !== undefined) {
+      return finalOutput;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readWebSourceRequired(value.turn);
+    if (turnOutput !== undefined) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readWebSourceRequired(value.item);
+    if (itemOutput !== undefined) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readWebSourceRequired(value.items[index]);
+      if (itemOutput !== undefined) {
+        return itemOutput;
+      }
+    }
+  }
+  return undefined;
 }
 
 function readSourceCitations(value: unknown): Array<{ sourceId: string; title: string; url: string }> {
@@ -1707,6 +1761,12 @@ function readNotificationItemId(params: unknown): string | undefined {
 
 function readStringField(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
+    ? value[key]
+    : undefined;
+}
+
+function readBooleanField(value: unknown, key: string): boolean | undefined {
+  return isRecord(value) && typeof value[key] === "boolean"
     ? value[key]
     : undefined;
 }

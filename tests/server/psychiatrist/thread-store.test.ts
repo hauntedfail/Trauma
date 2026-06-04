@@ -12,6 +12,7 @@ import {
   findLatestPsychiatristThread,
   loadPsychiatristThread,
   markPsychiatristTurnCompleted,
+  markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -187,6 +188,67 @@ describe("Psychiatrist thread store", () => {
     ).resolves.toMatchObject({
       codex_thread_id: "codex-thread-1",
     });
+  });
+
+  it("does not hide a saved assistant answer when a later turn finalization fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-post-save-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "The saved answer must remain visible.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+
+    await markPsychiatristTurnFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "post_save_finalization_failed",
+        message: "Finalization failed after the answer was saved.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({
+          content: "The saved answer must remain visible.",
+        }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: TURN_ID,
+      }),
+    ]);
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed"]);
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md"),
+        "utf8",
+      ),
+    ).resolves.toContain("The saved answer must remain visible.");
   });
 
   it("rejects assistant responses without a matching pending pair", async () => {

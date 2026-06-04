@@ -388,16 +388,18 @@ export async function markPsychiatristTurnFailed(input: {
     return;
   }
   const now = new Date().toISOString();
-  await appendPairRevision(input.config, loaded.manifest, {
-    created_at: existing.user.createdAt,
-    pair_id: input.pairId,
-    revision_kind: "failed",
-    status: "failed",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
-    updated_at: now,
-    user_prompt: existing.user.content,
-  });
+  if (existing.assistant === undefined) {
+    await appendPairRevision(input.config, loaded.manifest, {
+      created_at: existing.user.createdAt,
+      pair_id: input.pairId,
+      revision_kind: "failed",
+      status: "failed",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: now,
+      user_prompt: existing.user.content,
+    });
+  }
   await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
     codex_thread_id: input.codexThreadId,
     codex_turn_id: input.codexTurnId,

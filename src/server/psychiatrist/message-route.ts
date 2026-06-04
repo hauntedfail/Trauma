@@ -259,6 +259,7 @@ async function runPsychiatristTurn(input: {
   turnId: string;
   webSourcePolicy: PsychiatristWebSourcePolicy;
 }): Promise<void> {
+  let assistantResponsePersisted = false;
   try {
     const prompt = buildPsychiatristPrompt({
       context: input.context,
@@ -342,6 +343,7 @@ async function runPsychiatristTurn(input: {
       threadId: input.threadId,
       webSourcePolicy: input.webSourcePolicy,
     });
+    assistantResponsePersisted = true;
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -377,6 +379,25 @@ async function runPsychiatristTurn(input: {
   } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);
     if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
+      return;
+    }
+    if (assistantResponsePersisted) {
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          data: {
+            pair_id: input.pairId,
+            warning: {
+              code: "post_save_finalization_failed",
+              message: "Psychiatrist answer was saved, but completion metadata could not be finalized.",
+            },
+          },
+          memoryId: input.thread.manifest.memoryId,
+          threadId: input.threadId,
+          turnId: input.turnId,
+          type: "psychiatrist.answer.completed",
+        },
+      }).catch(() => undefined);
       return;
     }
     const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
