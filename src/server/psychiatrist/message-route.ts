@@ -381,6 +381,9 @@ async function runPsychiatristTurn(input: {
     if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
       return;
     }
+    if (error instanceof PsychiatristThreadStoreError && error.code === "turn_canceled") {
+      return;
+    }
     if (assistantResponsePersisted) {
       await appendPsychiatristStreamEvent({
         config: input.config,

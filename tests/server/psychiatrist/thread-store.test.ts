@@ -8,9 +8,11 @@ import {
   PsychiatristThreadStoreError,
   appendAssistantResponse,
   appendPendingPair,
+  appendRegeneratedAssistantResponse,
   createPsychiatristThread,
   findLatestPsychiatristThread,
   loadPsychiatristThread,
+  markPsychiatristTurnCanceled,
   markPsychiatristTurnCompleted,
   markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
@@ -249,6 +251,128 @@ describe("Psychiatrist thread store", () => {
         "utf8",
       ),
     ).resolves.toContain("The saved answer must remain visible.");
+  });
+
+  it("rejects late assistant completions for canceled message turns", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnCanceled({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await expect(
+      appendAssistantResponse({
+        assistantResponse: "Late answer after Stop.",
+        citations: [],
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+      }),
+    ).rejects.toMatchObject({
+      code: "turn_canceled",
+      name: "PsychiatristThreadStoreError",
+    } satisfies Partial<PsychiatristThreadStoreError>);
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toHaveLength(1);
+    expect(loaded.pairs[0]).toMatchObject({
+      pairId: PAIR_ID,
+      status: "canceled",
+      turnId: TURN_ID,
+    });
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "canceled"]);
+  });
+
+  it("rejects late regenerated completions for canceled regenerate turns", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-regenerate-"));
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCanceled({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+
+    await expect(
+      appendRegeneratedAssistantResponse({
+        assistantResponse: "Late regenerated answer.",
+        citations: [],
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+        turnId: regenerateTurnId,
+      }),
+    ).rejects.toMatchObject({
+      code: "turn_canceled",
+      name: "PsychiatristThreadStoreError",
+    } satisfies Partial<PsychiatristThreadStoreError>);
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({ content: "Original answer." }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: TURN_ID,
+      }),
+    ]);
+    await expect(
+      readFile(
+        join(
+          storePath,
+          "memories",
+          MEMORY_ID,
+          "threads",
+          THREAD_ID,
+          "pairs",
+          PAIR_ID,
+          "RESPONSE.md",
+        ),
+        "utf8",
+      ),
+    ).resolves.toBe("Original answer.");
   });
 
   it("rejects assistant responses without a matching pending pair", async () => {

@@ -156,8 +156,12 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (turnId === "") {
       return;
     }
-    await cancelPsychiatristTurn({ turnId });
-    setIsRunning(false);
+    try {
+      await cancelPsychiatristTurn({ turnId });
+      setIsRunning(false);
+    } catch (error) {
+      setErrorMessage(getPsychiatristErrorMessage(error));
+    }
   };
   const regeneratePair = async (pair: PsychiatristTranscriptPair) => {
     if (pair.status !== "completed" || isRunning()) {
@@ -186,6 +190,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       );
     } catch (error) {
       setIsRunning(false);
+      if (
+        error instanceof PsychiatristRequestError &&
+        error.code === "thread_stale" &&
+        error.action === "refresh_thread"
+      ) {
+        await loadThread();
+        setErrorMessage("Psychiatrist thread was refreshed. Regenerate again.");
+        return;
+      }
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };

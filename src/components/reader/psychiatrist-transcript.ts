@@ -107,10 +107,13 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.answer.failed" ||
       event.type === "psychiatrist.network.permission_required"
     ) {
+      const keepCompletedAnswer =
+        event.type === "psychiatrist.answer.failed" ||
+        readRetryAction(event.data) === "regenerate";
       return withoutAnswerReplacementFlag({
         ...pair,
-        status: pair.answer === "" ? "failed" : "completed",
-        turnId: pair.answer === "" ? event.turnId : pair.turnId,
+        status: keepCompletedAnswer && pair.answer !== "" ? "completed" : "failed",
+        turnId: keepCompletedAnswer && pair.answer !== "" ? pair.turnId : event.turnId,
       });
     }
     return pair;
@@ -155,6 +158,12 @@ function readSafeProcessText(data: unknown): string | undefined {
 function readUserPrompt(data: unknown): string | undefined {
   return isRecord(data) && typeof data.user_prompt === "string"
     ? data.user_prompt
+    : undefined;
+}
+
+function readRetryAction(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.retry_action === "string"
+    ? data.retry_action
     : undefined;
 }
 

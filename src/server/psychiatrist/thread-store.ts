@@ -38,7 +38,8 @@ export class PsychiatristThreadStoreError extends Error {
       | "invalid_id"
       | "thread_not_found"
       | "pair_not_found"
-      | "orphan_assistant_response",
+      | "orphan_assistant_response"
+      | "turn_canceled",
     message: string,
   ) {
     super(message);
@@ -150,15 +151,23 @@ export async function appendAssistantResponse(input: {
     config: input.config,
     threadId: input.threadId,
   });
-  const pending = loaded.pairs.find((pair) =>
-    pair.pairId === input.pairId && pair.assistant === undefined
-  );
+  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+  if (existing?.status === "canceled") {
+    throw new PsychiatristThreadStoreError(
+      "turn_canceled",
+      "Cannot append assistant response for a canceled turn.",
+    );
+  }
+  const pending = existing?.status === "pending" && existing.assistant === undefined
+    ? existing
+    : undefined;
   if (pending === undefined) {
     throw new PsychiatristThreadStoreError(
       "pair_not_found",
       "Cannot append assistant response without a matching pending pair.",
     );
   }
+  await rejectCanceledTurnCompletion(input.config, loaded.manifest, pending.turnId);
 
   const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
   await mkdir(pairDirectoryPath, { recursive: true });
@@ -214,6 +223,7 @@ export async function appendRegeneratedAssistantResponse(input: {
       "Cannot regenerate an assistant response without a completed pair.",
     );
   }
+  await rejectCanceledTurnCompletion(input.config, loaded.manifest, input.turnId);
 
   const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
   await mkdir(pairDirectoryPath, { recursive: true });
@@ -339,6 +349,9 @@ export async function markPsychiatristTurnCompleted(input: {
       throw error;
     }
   }
+  if (existing.status === "canceled") {
+    return;
+  }
   await writeJsonAtomic(turnPath, {
     ...existing,
     codex_thread_id: input.codexThreadId,
@@ -437,6 +450,10 @@ export async function markPsychiatristRegenerateFailed(input: {
       "pair_not_found",
       "Cannot fail a regenerate turn without a completed pair.",
     );
+  }
+  const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
+  if (existingTurn?.status === "canceled") {
+    return;
   }
   await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
     failed_at: new Date().toISOString(),
@@ -769,6 +786,20 @@ async function readTurnRecord(
       return undefined;
     }
     throw error;
+  }
+}
+
+async function rejectCanceledTurnCompletion(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+  turnId: string,
+): Promise<void> {
+  const existingTurn = await readTurnRecord(config, manifest, turnId);
+  if (existingTurn?.status === "canceled") {
+    throw new PsychiatristThreadStoreError(
+      "turn_canceled",
+      "Cannot append an assistant response for a canceled turn.",
+    );
   }
 }
 

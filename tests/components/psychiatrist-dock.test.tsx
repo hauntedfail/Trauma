@@ -231,6 +231,22 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("Psychiatrist thread was refreshed. Send again.");
   });
 
+  it("refreshes stale regenerate requests and surfaces stop retry errors", () => {
+    const regenerateIndex = dockSource.indexOf("const started = await regeneratePsychiatristResponse");
+    const regenerateStaleIndex = dockSource.indexOf("error.code === \"thread_stale\"", regenerateIndex);
+    const regenerateRefreshIndex = dockSource.indexOf("await loadThread()", regenerateStaleIndex);
+    const stopIndex = dockSource.indexOf("const handleStop = async () =>");
+    const stopCatchIndex = dockSource.indexOf("catch (error)", stopIndex);
+    const stopErrorIndex = dockSource.indexOf("setErrorMessage(getPsychiatristErrorMessage(error))", stopCatchIndex);
+
+    expect(regenerateIndex).toBeGreaterThan(-1);
+    expect(regenerateStaleIndex).toBeGreaterThan(regenerateIndex);
+    expect(regenerateRefreshIndex).toBeGreaterThan(regenerateStaleIndex);
+    expect(stopIndex).toBeGreaterThan(-1);
+    expect(stopCatchIndex).toBeGreaterThan(stopIndex);
+    expect(stopErrorIndex).toBeGreaterThan(stopCatchIndex);
+  });
+
   it("closes EventSource connections on lifecycle cleanup without canceling turns", () => {
     expect(dockSource).toContain("let disconnectPsychiatristStream");
     expect(dockSource).toContain("disconnectPsychiatristStream?.()");
@@ -444,6 +460,82 @@ describe("PsychiatristDock", () => {
     expect(networkRequired[0]?.answer).toBe("");
     expect(networkRequired[0]?.status).toBe("failed");
     expect(networkRequired[0]?.turnId).toBe("turn-network");
+  });
+
+  it("keeps streamed web-source-required turns failed even after deltas", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-network",
+        status: "pending",
+        turn_id: "turn-network",
+        user_prompt: {
+          content: "Need current source?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const withDelta = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "I need current" },
+      turnId: "turn-network",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    const networkRequired = applyPsychiatristStreamEvent(withDelta, streamEvent({
+      data: {
+        code: "network_permission_required",
+        message: "Allow web-source access to answer this request.",
+      },
+      turnId: "turn-network",
+      type: "psychiatrist.network.permission_required",
+    }));
+
+    expect(networkRequired[0]).toMatchObject({
+      answer: "I need current",
+      status: "failed",
+      turnId: "turn-network",
+    });
+  });
+
+  it("keeps completed regenerate answers visible for regenerate web-source retries", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Old answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-regenerate",
+        status: "completed",
+        turn_id: "turn-original",
+        user_prompt: {
+          content: "Need current source?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const regenerating = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-regenerate" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.started",
+    }));
+
+    const networkRequired = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: {
+        code: "network_permission_required",
+        message: "Allow web-source access to answer this request.",
+        pair_id: "pair-regenerate",
+        retry_action: "regenerate",
+      },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.network.permission_required",
+    }));
+
+    expect(networkRequired[0]).toMatchObject({
+      answer: "Old answer.",
+      status: "completed",
+      turnId: "turn-regenerate",
+    });
   });
 });
 
