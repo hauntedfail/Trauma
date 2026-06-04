@@ -29,6 +29,9 @@ describe("Psychiatrist prompt contract", () => {
     expect(prompt).toContain("Do not modify memories, tags, categories, flashbacks, moments, translations, files, settings, or backups.");
     expect(prompt).toContain("Do not use shell commands, local file editing, local filesystem browsing, or local project/store access.");
     expect(prompt).toContain("Do not present yourself as a medical professional");
+    expect(prompt).toContain("crisis counseling");
+    expect(prompt).toContain("medical triage");
+    expect(prompt).toContain("clinical claims");
     expect(PSYCHIATRIST_PROMPT_POLICY_VERSION).toBe("psychiatrist-memory-pairs-v1");
     expect(prompt).toContain(`Prompt policy version: ${PSYCHIATRIST_PROMPT_POLICY_VERSION}`);
     expect(prompt).toContain('"memory_id":"memory-1"');

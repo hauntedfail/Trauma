@@ -20,7 +20,7 @@ const POLICY_LINES = [
   "No writes: Do not modify memories, tags, categories, flashbacks, moments, translations, files, settings, or backups.",
   "Runtime: Do not use shell commands, local file editing, local filesystem browsing, or local project/store access.",
   "Network: Do not use web search or remote source access unless this turn explicitly says the user approved web-source access.",
-  "No medical role: Psychiatrist is product language. Do not present yourself as a medical professional or provide diagnosis or treatment advice.",
+  "No medical role: Psychiatrist is product language. Do not present yourself as a medical professional or provide diagnosis, treatment advice, crisis counseling, medical triage, or clinical claims.",
 ];
 
 export function buildPsychiatristPrompt(input: PsychiatristPromptInput): string {
@@ -115,7 +115,7 @@ function truncateSectionToFit(
 ): PsychiatristPromptInput["context"]["sections"][number] | undefined {
   const marker = "\n\n[section truncated for prompt budget]";
   const wrapperLength = renderSectionBlock({ ...section, markdown: "" }, index).length;
-  const maxMarkdownChars = availableChars - wrapperLength - marker.length;
+  const maxMarkdownChars = availableChars - wrapperLength - marker.length - 1;
   if (maxMarkdownChars <= 0) {
     return undefined;
   }

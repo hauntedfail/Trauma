@@ -686,6 +686,7 @@ describe("Codex app-server endpoint parsing", () => {
       expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
       expect(JSON.stringify(events)).not.toContain("/private/store/path");
       expect(JSON.stringify(events)).not.toContain("/home/runner/work");
+      expect(JSON.stringify(events)).not.toContain("sk-live");
     } finally {
       await server.close();
     }
@@ -1387,6 +1388,14 @@ function handleClientMessage(
           method: "item/process",
           params: {
             message: "Inspecting /home/runner/work/trauma/store",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Loaded sk-live-123 from environment",
             threadId: activeThreadId,
             turnId: "turn-1",
           },

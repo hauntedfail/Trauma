@@ -163,7 +163,20 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
     searchOffset = startOffset + 1;
     return { entry, startOffset };
   });
-  return starts.map((current, index) => {
+  const sections: PsychiatristContextSection[] = [];
+  const firstStart = starts[0]?.startOffset ?? 0;
+  if (firstStart > 0 && markdown.slice(0, firstStart).trim() !== "") {
+    sections.push({
+      anchor: "document-introduction",
+      endOffset: firstStart,
+      level: 1,
+      markdown: markdown.slice(0, firstStart).trim(),
+      path: "document/introduction",
+      startOffset: 0,
+      title: "Document introduction",
+    });
+  }
+  sections.push(...starts.map((current, index) => {
     const next = starts[index + 1];
     const endOffset = next?.startOffset ?? markdown.length;
     return {
@@ -175,7 +188,8 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
       startOffset: current.startOffset,
       title: current.entry.text,
     };
-  });
+  }));
+  return sections;
 }
 
 function findHeadingOffset(markdown: string, title: string, minOffset: number): number {

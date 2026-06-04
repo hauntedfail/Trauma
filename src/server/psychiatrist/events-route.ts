@@ -11,8 +11,13 @@ import {
 } from "./stream-store";
 import type { PsychiatristStreamEvent } from "./types";
 
+type LoadPsychiatristStreamReplay = typeof loadPsychiatristStreamReplay;
+type SubscribePsychiatristStream = typeof subscribePsychiatristStream;
+
 export function createPsychiatristTurnEventsHandler(input: {
   config?: Pick<ResolvedTraumaConfig, "storePath">;
+  loadReplay?: LoadPsychiatristStreamReplay;
+  subscribe?: SubscribePsychiatristStream;
 } = {}) {
   return async function psychiatristTurnEvents(event: APIEvent): Promise<Response> {
     return handlePsychiatristTurnEventsRequest(event, input);
@@ -23,6 +28,8 @@ export async function handlePsychiatristTurnEventsRequest(
   event: APIEvent,
   input: {
     config?: Pick<ResolvedTraumaConfig, "storePath">;
+    loadReplay?: LoadPsychiatristStreamReplay;
+    subscribe?: SubscribePsychiatristStream;
   } = {},
 ): Promise<Response> {
   const turnId = event.params.turnId?.trim();
@@ -34,10 +41,12 @@ export async function handlePsychiatristTurnEventsRequest(
     event.request.headers.get("Last-Event-ID") ??
     undefined;
   const config = input.config ?? loadRuntimeTraumaConfig();
+  const loadReplay = input.loadReplay ?? loadPsychiatristStreamReplay;
+  const subscribe = input.subscribe ?? subscribePsychiatristStream;
   const isLiveTurn = activePsychiatristTurns.getByTurnId(turnId) !== undefined;
   const body = isLiveTurn
-    ? createLiveEventStream({ afterEventId, config, turnId })
-    : (await loadPsychiatristStreamReplay({
+    ? createLiveEventStream({ afterEventId, config, loadReplay, subscribe, turnId })
+    : (await loadReplay({
       afterEventId,
       config,
       turnId,
@@ -56,6 +65,8 @@ export async function handlePsychiatristTurnEventsRequest(
 function createLiveEventStream(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  loadReplay: LoadPsychiatristStreamReplay;
+  subscribe: SubscribePsychiatristStream;
   turnId: string;
 }): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -63,8 +74,10 @@ function createLiveEventStream(input: {
   return new ReadableStream({
     async start(controller) {
       let closed = false;
+      let replaying = true;
+      const liveBuffer: PsychiatristStreamEvent[] = [];
       const sentEventIds = new Set<string>();
-      const enqueue = (event: PsychiatristStreamEvent) => {
+      const enqueueNow = (event: PsychiatristStreamEvent) => {
         if (input.afterEventId !== undefined && event.eventId <= input.afterEventId) {
           return;
         }
@@ -79,20 +92,31 @@ function createLiveEventStream(input: {
           controller.close();
         }
       };
-      unsubscribe = subscribePsychiatristStream({
+      const enqueue = (event: PsychiatristStreamEvent) => {
+        if (replaying) {
+          liveBuffer.push(event);
+          return;
+        }
+        enqueueNow(event);
+      };
+      unsubscribe = input.subscribe({
         onEvent: enqueue,
         turnId: input.turnId,
       });
-      const replay = await loadPsychiatristStreamReplay({
+      const replay = await input.loadReplay({
         afterEventId: input.afterEventId,
         config: input.config,
         turnId: input.turnId,
       });
-      if (closed) {
-        return;
-      }
       for (const event of replay) {
-        enqueue(event);
+        enqueueNow(event);
+        if (closed) {
+          return;
+        }
+      }
+      replaying = false;
+      for (const event of liveBuffer) {
+        enqueueNow(event);
         if (closed) {
           return;
         }
@@ -120,5 +144,6 @@ function isTerminalEvent(event: PsychiatristStreamEvent): boolean {
   return event.type === "psychiatrist.answer.completed" ||
     event.type === "psychiatrist.regenerate.completed" ||
     event.type === "psychiatrist.answer.failed" ||
+    event.type === "psychiatrist.network.permission_required" ||
     event.type === "psychiatrist.turn.canceled";
 }

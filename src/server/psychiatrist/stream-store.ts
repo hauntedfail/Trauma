@@ -170,9 +170,27 @@ function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {
     normalized.includes("chain of thought") ||
     normalized.includes("hidden reasoning") ||
     containsAbsolutePath(text) ||
+    containsSensitiveProcessText(text) ||
     normalized.includes("credential") ||
     normalized.includes("token")
   );
+}
+
+function containsSensitiveProcessText(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized.includes("secret") ||
+    normalized.includes("password") ||
+    normalized.includes("passphrase") ||
+    normalized.includes("private key") ||
+    normalized.includes("api key") ||
+    normalized.includes("apikey") ||
+    normalized.includes("access key") ||
+    normalized.includes("authorization") ||
+    /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/i.test(value) ||
+    /\b(?:sk|pk|rk|sess)-[A-Za-z0-9_-]{8,}\b/i.test(value) ||
+    /\b(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{12,}\b/i.test(value) ||
+    /\b(?:secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|bearer)\b\s*[:=]\s*\S+/i
+      .test(value);
 }
 
 function containsAbsolutePath(value: string): boolean {

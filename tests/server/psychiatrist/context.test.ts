@@ -113,6 +113,45 @@ describe("Psychiatrist memory context", () => {
     ]);
   });
 
+  it("preserves pre-heading memory text as an introduction section", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-pre-heading-"));
+    const markdown = [
+      "Important context before any heading.",
+      "",
+      "# Deploy Notes",
+      "",
+      "Main context.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Deploy Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Deploy Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        anchor: "document-introduction",
+        endOffset: markdown.indexOf("# Deploy Notes"),
+        markdown: "Important context before any heading.",
+        startOffset: 0,
+        title: "Document introduction",
+      }),
+      expect.objectContaining({
+        anchor: "deploy-notes",
+        markdown: expect.stringContaining("# Deploy Notes"),
+        title: "Deploy Notes",
+      }),
+    ]);
+  });
+
   it("splits duplicate headings by occurrence instead of reusing the first offset", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-duplicate-"));
     const markdown = [
