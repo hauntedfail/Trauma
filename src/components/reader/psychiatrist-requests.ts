@@ -47,6 +47,8 @@ export function getPsychiatristErrorMessage(error: unknown): string {
       return "Allow web search/source lookup for this answer to continue.";
     case "turn_stopped":
       return "Psychiatrist turn was stopped.";
+    case "turn_not_ready":
+      return "Psychiatrist turn is still starting. Retry Stop after the turn is ready.";
     case "regenerate_unavailable":
       return "This response cannot be regenerated.";
     case "thread_not_found":

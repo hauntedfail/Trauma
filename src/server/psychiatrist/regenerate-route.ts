@@ -220,6 +220,7 @@ async function runRegenerateTurn(input: {
 }): Promise<void> {
   const pair = input.loaded.pair;
   let assistantResponsePersisted = false;
+  let completedAnswerText: string | undefined;
   try {
     let eventWriteChain = Promise.resolve();
     const result = await input.client.runConversationTurn({
@@ -312,6 +313,7 @@ async function runRegenerateTurn(input: {
       return;
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
+    completedAnswerText = result.outputText;
     await appendRegeneratedAssistantResponse({
       assistantResponse: result.outputText,
       citations: sourceCitations,
@@ -354,6 +356,7 @@ async function runRegenerateTurn(input: {
             title: citation.title,
             url: citation.url,
           })),
+          text: result.outputText,
         },
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,
@@ -374,6 +377,7 @@ async function runRegenerateTurn(input: {
         event: {
           data: {
             pair_id: input.pairId,
+            ...(completedAnswerText === undefined ? {} : { text: completedAnswerText }),
             warning: {
               code: "post_save_finalization_failed",
               message: "Psychiatrist answer was saved, but completion metadata could not be finalized.",
@@ -398,7 +402,12 @@ async function runRegenerateTurn(input: {
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
-        data: { code: safeError.code, message: safeError.message },
+        data: {
+          code: safeError.code,
+          message: safeError.message,
+          pair_id: input.pairId,
+          retry_action: "regenerate",
+        },
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,
         turnId: input.turnId,

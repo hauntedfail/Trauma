@@ -211,6 +211,12 @@ describe("PsychiatristDock", () => {
     }))).toBe("Allow web search/source lookup for this answer to continue.");
     expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
       action: "retry",
+      code: "turn_not_ready",
+      message: "stop failed while active turn metadata is settling",
+      responseStatus: 409,
+    }))).toBe("Psychiatrist turn is still starting. Retry Stop after the turn is ready.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
       code: "unknown",
       message: "socket /private/tmp/app-server.sock token abc",
       responseStatus: 500,
@@ -311,6 +317,36 @@ describe("PsychiatristDock", () => {
         userPrompt: "What changed?",
       },
     ]);
+  });
+
+  it("applies final answer text from completion events when no delta was streamed", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-reader",
+        status: "pending",
+        turn_id: "turn-reader",
+        user_prompt: {
+          content: "What changed?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const completed = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: {
+        pair_id: "pair-reader",
+        source_citations: [],
+        text: "Final answer without deltas.",
+      },
+      type: "psychiatrist.answer.completed",
+    }));
+
+    expect(completed[0]).toMatchObject({
+      answer: "Final answer without deltas.",
+      status: "completed",
+      turnId: "turn-reader",
+    });
   });
 
   it("preserves stored source citations in transcript pairs", () => {
@@ -497,6 +533,42 @@ describe("PsychiatristDock", () => {
     });
   });
 
+  it("keeps fresh failed turns failed after streamed answer deltas", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-failed",
+        status: "pending",
+        turn_id: "turn-failed",
+        user_prompt: {
+          content: "What happens?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const withDelta = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "Partial answer" },
+      turnId: "turn-failed",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    const failed = applyPsychiatristStreamEvent(withDelta, streamEvent({
+      data: {
+        code: "timeout",
+        message: "Psychiatrist answer failed.",
+        pair_id: "pair-failed",
+      },
+      turnId: "turn-failed",
+      type: "psychiatrist.answer.failed",
+    }));
+
+    expect(failed[0]).toMatchObject({
+      answer: "Partial answer",
+      status: "failed",
+      turnId: "turn-failed",
+    });
+  });
+
   it("keeps completed regenerate answers visible for regenerate web-source retries", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
@@ -554,6 +626,7 @@ function streamEvent(input: {
     | "psychiatrist.process.delta"
     | "psychiatrist.answer.delta"
     | "psychiatrist.answer.completed"
+    | "psychiatrist.answer.failed"
     | "psychiatrist.network.permission_required"
     | "psychiatrist.regenerate.started"
     | "psychiatrist.regenerate.completed";

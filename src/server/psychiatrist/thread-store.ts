@@ -14,6 +14,8 @@ import type {
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const threadMutationQueues = new Map<string, Promise<void>>();
+
 interface PairRevisionRow {
   assistant_response?: string;
   context_snapshot_path?: string;
@@ -147,60 +149,62 @@ export async function appendAssistantResponse(input: {
   threadId: string;
   webSourcePolicy?: PairRevisionRow["web_source_policy"];
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
-  if (existing?.status === "canceled") {
-    throw new PsychiatristThreadStoreError(
-      "turn_canceled",
-      "Cannot append assistant response for a canceled turn.",
-    );
-  }
-  const pending = existing?.status === "pending" && existing.assistant === undefined
-    ? existing
-    : undefined;
-  if (pending === undefined) {
-    throw new PsychiatristThreadStoreError(
-      "pair_not_found",
-      "Cannot append assistant response without a matching pending pair.",
-    );
-  }
-  await rejectCanceledTurnCompletion(input.config, loaded.manifest, pending.turnId);
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+    if (existing?.status === "canceled") {
+      throw new PsychiatristThreadStoreError(
+        "turn_canceled",
+        "Cannot append assistant response for a canceled turn.",
+      );
+    }
+    const pending = existing?.status === "pending" && existing.assistant === undefined
+      ? existing
+      : undefined;
+    if (pending === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot append assistant response without a matching pending pair.",
+      );
+    }
+    await rejectCanceledTurnCompletion(input.config, loaded.manifest, pending.turnId);
 
-  const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
-  await mkdir(pairDirectoryPath, { recursive: true });
-  await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
-  const responsePath = posix.join(
-    "memories",
-    loaded.manifest.memoryId,
-    "threads",
-    input.threadId,
-    "pairs",
-    input.pairId,
-    "RESPONSE.md",
-  );
-  await appendPairRevision(input.config, loaded.manifest, {
-    assistant_response: input.assistantResponse,
-    created_at: pending.user.createdAt,
-    pair_id: input.pairId,
-    response_markdown_path: responsePath,
-    revision_kind: "completed",
-    source_citations: input.citations.map((citation) => ({
-      source_id: citation.sourceId,
-      title: citation.title,
-      url: citation.url,
-    })),
-    status: "completed",
-    stream_path: turnStreamRelativePath(loaded.manifest, pending.turnId),
-    thread_id: input.threadId,
-    turn_id: pending.turnId,
-    updated_at: new Date().toISOString(),
-    user_prompt: pending.user.content,
-    web_source_policy: input.webSourcePolicy,
+    const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
+    await mkdir(pairDirectoryPath, { recursive: true });
+    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
+    const responsePath = posix.join(
+      "memories",
+      loaded.manifest.memoryId,
+      "threads",
+      input.threadId,
+      "pairs",
+      input.pairId,
+      "RESPONSE.md",
+    );
+    await appendPairRevision(input.config, loaded.manifest, {
+      assistant_response: input.assistantResponse,
+      created_at: pending.user.createdAt,
+      pair_id: input.pairId,
+      response_markdown_path: responsePath,
+      revision_kind: "completed",
+      source_citations: input.citations.map((citation) => ({
+        source_id: citation.sourceId,
+        title: citation.title,
+        url: citation.url,
+      })),
+      status: "completed",
+      stream_path: turnStreamRelativePath(loaded.manifest, pending.turnId),
+      thread_id: input.threadId,
+      turn_id: pending.turnId,
+      updated_at: new Date().toISOString(),
+      user_prompt: pending.user.content,
+      web_source_policy: input.webSourcePolicy,
+    });
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
   });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
 export async function appendRegeneratedAssistantResponse(input: {
@@ -212,43 +216,45 @@ export async function appendRegeneratedAssistantResponse(input: {
   turnId: string;
   webSourcePolicy?: PairRevisionRow["web_source_policy"];
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
-  if (existing === undefined || existing.assistant === undefined) {
-    throw new PsychiatristThreadStoreError(
-      "pair_not_found",
-      "Cannot regenerate an assistant response without a completed pair.",
-    );
-  }
-  await rejectCanceledTurnCompletion(input.config, loaded.manifest, input.turnId);
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+    if (existing === undefined || existing.assistant === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot regenerate an assistant response without a completed pair.",
+      );
+    }
+    await rejectCanceledTurnCompletion(input.config, loaded.manifest, input.turnId);
 
-  const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
-  await mkdir(pairDirectoryPath, { recursive: true });
-  await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
-  await appendPairRevision(input.config, loaded.manifest, {
-    assistant_response: input.assistantResponse,
-    created_at: existing.user.createdAt,
-    pair_id: input.pairId,
-    regenerated_from_turn_id: existing.turnId,
-    response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
-    revision_kind: "completed",
-    source_citations: input.citations.map((citation) => ({
-      source_id: citation.sourceId,
-      title: citation.title,
-      url: citation.url,
-    })),
-    status: "completed",
-    stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
-    thread_id: input.threadId,
-    turn_id: input.turnId,
-    updated_at: new Date().toISOString(),
-    user_prompt: existing.user.content,
-    web_source_policy: input.webSourcePolicy,
+    const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
+    await mkdir(pairDirectoryPath, { recursive: true });
+    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
+    await appendPairRevision(input.config, loaded.manifest, {
+      assistant_response: input.assistantResponse,
+      created_at: existing.user.createdAt,
+      pair_id: input.pairId,
+      regenerated_from_turn_id: existing.turnId,
+      response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
+      revision_kind: "completed",
+      source_citations: input.citations.map((citation) => ({
+        source_id: citation.sourceId,
+        title: citation.title,
+        url: citation.url,
+      })),
+      status: "completed",
+      stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: new Date().toISOString(),
+      user_prompt: existing.user.content,
+      web_source_policy: input.webSourcePolicy,
+    });
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
   });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
 export async function markPsychiatristTurnCanceled(input: {
@@ -259,47 +265,49 @@ export async function markPsychiatristTurnCanceled(input: {
   threadId: string;
   turnId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
-  if (existing === undefined) {
-    throw new PsychiatristThreadStoreError(
-      "pair_not_found",
-      "Cannot cancel a turn without a matching pair.",
-    );
-  }
-  const now = new Date().toISOString();
-  if (existing.assistant === undefined) {
-    await appendPairRevision(input.config, loaded.manifest, {
-      created_at: existing.user.createdAt,
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+    if (existing === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot cancel a turn without a matching pair.",
+      );
+    }
+    const now = new Date().toISOString();
+    if (existing.assistant === undefined) {
+      await appendPairRevision(input.config, loaded.manifest, {
+        created_at: existing.user.createdAt,
+        pair_id: input.pairId,
+        revision_kind: "canceled",
+        status: "canceled",
+        thread_id: input.threadId,
+        turn_id: input.turnId,
+        updated_at: now,
+        user_prompt: existing.user.content,
+      });
+    }
+    await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+      canceled_at: now,
+      codex_thread_id: input.codexThreadId,
+      codex_turn_id: input.codexTurnId,
       pair_id: input.pairId,
-      revision_kind: "canceled",
+      policy_version: loaded.manifest.policyVersion,
+      regenerate_from_turn_id: existing.assistant === undefined ? undefined : existing.turnId,
+      safe_error: {
+        action: "retry",
+        code: "turn_stopped",
+        message: "Psychiatrist turn was stopped.",
+      },
       status: "canceled",
       thread_id: input.threadId,
       turn_id: input.turnId,
-      updated_at: now,
-      user_prompt: existing.user.content,
     });
-  }
-  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-    canceled_at: now,
-    codex_thread_id: input.codexThreadId,
-    codex_turn_id: input.codexTurnId,
-    pair_id: input.pairId,
-    policy_version: loaded.manifest.policyVersion,
-    regenerate_from_turn_id: existing.assistant === undefined ? undefined : existing.turnId,
-    safe_error: {
-      action: "retry",
-      code: "turn_stopped",
-      message: "Psychiatrist turn was stopped.",
-    },
-    status: "canceled",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
   });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
 export async function recordPsychiatristTurnStarted(input: {
@@ -800,6 +808,30 @@ async function rejectCanceledTurnCompletion(
       "turn_canceled",
       "Cannot append an assistant response for a canceled turn.",
     );
+  }
+}
+
+async function withThreadMutationLock<T>(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  threadId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = `${resolve(config.storePath)}:${threadId}`;
+  const previous = threadMutationQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolveCurrent) => {
+    release = resolveCurrent;
+  });
+  const queued = previous.catch(() => undefined).then(() => current);
+  threadMutationQueues.set(key, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (threadMutationQueues.get(key) === queued) {
+      threadMutationQueues.delete(key);
+    }
   }
 }
 

@@ -452,6 +452,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(replay[3]?.data).toEqual({
       pair_id: PAIR_ID,
       source_citations: [],
+      text: "The memory says rollback is missing.",
     });
     expect(backupEnqueues).toEqual([
       {
@@ -875,6 +876,80 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(body)).not.toContain(storePath);
     expect(client.inputs).toEqual([]);
     expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
+  });
+
+  it("marks persisted pending messages failed when client setup fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-client-setup-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const previousEndpoint = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+    process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "https://localhost:1234";
+    try {
+      const handler = createSendPsychiatristMessageHandler({
+        buildContext: async () => context(),
+        config: { storePath },
+        generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+      });
+
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+            body: JSON.stringify({ message: "What is current?" }),
+            method: "POST",
+          }),
+          { threadId: THREAD_ID },
+        ),
+      );
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "setup_required",
+      });
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      expect(loaded.pairs).toEqual([
+        expect.objectContaining({
+          pairId: PAIR_ID,
+          status: "failed",
+          turnId: TURN_ID,
+        }),
+      ]);
+      const replay = await loadPsychiatristStreamReplay({
+        config: { storePath },
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      });
+      expect(replay.map((event) => event.type)).toEqual([
+        "psychiatrist.turn.started",
+        "psychiatrist.answer.failed",
+      ]);
+      expect(replay[1]?.data).toMatchObject({
+        code: "setup_required",
+        pair_id: PAIR_ID,
+      });
+      await expect(
+        readFile(
+          join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+          "utf8",
+        ).then((content) => JSON.parse(content)),
+      ).resolves.toMatchObject({
+        pair_id: PAIR_ID,
+        safe_error: {
+          code: "setup_required",
+        },
+        status: "failed",
+        thread_id: THREAD_ID,
+        turn_id: TURN_ID,
+      });
+      expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
+    } finally {
+      if (previousEndpoint === undefined) {
+        delete process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+      } else {
+        process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = previousEndpoint;
+      }
+    }
   });
 
   it("rejects empty and oversized messages", async () => {
@@ -1326,6 +1401,10 @@ describe("Psychiatrist thread API routes", () => {
       "psychiatrist.answer.delta",
       "psychiatrist.regenerate.completed",
     ]);
+    expect(replay[3]?.data).toMatchObject({
+      pair_id: PAIR_ID,
+      text: "Regenerated answer.",
+    });
     await expect(
       readFile(
         join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),

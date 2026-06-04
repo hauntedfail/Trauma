@@ -171,6 +171,7 @@ export async function handleSendPsychiatristMessageRequest(
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
 
+  let pendingPairPersisted = false;
   try {
     await appendPendingPair({
       config,
@@ -180,6 +181,7 @@ export async function handleSendPsychiatristMessageRequest(
       threadId,
       turnId,
     });
+    pendingPairPersisted = true;
     await recordPsychiatristTurnStarted({
       config,
       pairId,
@@ -232,10 +234,24 @@ export async function handleSendPsychiatristMessageRequest(
   } catch (error) {
     activePsychiatristTurns.unregister(turnId);
     activePsychiatristTurns.releaseThread(threadId);
+    const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
+    if (pendingPairPersisted) {
+      await markPsychiatristTurnFailed({
+        config,
+        error: safeError,
+        pairId,
+        threadId,
+        turnId,
+      }).catch(() => undefined);
+    }
     await appendPsychiatristStreamEvent({
       config,
       event: {
-        data: { code: "unknown", message: "Psychiatrist answer failed." },
+        data: {
+          code: safeError.code,
+          message: safeError.message,
+          pair_id: pairId,
+        },
         memoryId: thread.manifest.memoryId,
         threadId,
         turnId,
@@ -260,6 +276,7 @@ async function runPsychiatristTurn(input: {
   webSourcePolicy: PsychiatristWebSourcePolicy;
 }): Promise<void> {
   let assistantResponsePersisted = false;
+  let completedAnswerText: string | undefined;
   try {
     const prompt = buildPsychiatristPrompt({
       context: input.context,
@@ -335,6 +352,7 @@ async function runPsychiatristTurn(input: {
       return;
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
+    completedAnswerText = result.outputText;
     await appendAssistantResponse({
       assistantResponse: result.outputText,
       citations: sourceCitations,
@@ -369,6 +387,7 @@ async function runPsychiatristTurn(input: {
             title: citation.title,
             url: citation.url,
           })),
+          text: result.outputText,
         },
         memoryId: input.thread.manifest.memoryId,
         threadId: input.threadId,
@@ -390,6 +409,7 @@ async function runPsychiatristTurn(input: {
         event: {
           data: {
             pair_id: input.pairId,
+            ...(completedAnswerText === undefined ? {} : { text: completedAnswerText }),
             warning: {
               code: "post_save_finalization_failed",
               message: "Psychiatrist answer was saved, but completion metadata could not be finalized.",

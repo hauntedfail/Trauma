@@ -89,8 +89,10 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.answer.completed" ||
       event.type === "psychiatrist.regenerate.completed"
     ) {
+      const answer = readAnswerText(event.data);
       return withoutAnswerReplacementFlag({
         ...pair,
+        ...(answer === undefined ? {} : { answer }),
         citations: readSourceCitations(event.data) ?? pair.citations,
         status: "completed",
         turnId: event.turnId,
@@ -107,9 +109,7 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.answer.failed" ||
       event.type === "psychiatrist.network.permission_required"
     ) {
-      const keepCompletedAnswer =
-        event.type === "psychiatrist.answer.failed" ||
-        readRetryAction(event.data) === "regenerate";
+      const keepCompletedAnswer = readRetryAction(event.data) === "regenerate";
       return withoutAnswerReplacementFlag({
         ...pair,
         status: keepCompletedAnswer && pair.answer !== "" ? "completed" : "failed",
