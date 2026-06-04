@@ -133,6 +133,9 @@ export async function handleRegeneratePsychiatristResponseRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
+      ...(loaded.manifest.codexThreadId === undefined
+        ? {}
+        : { codexThreadId: loaded.manifest.codexThreadId }),
       memoryId: loaded.manifest.memoryId,
       pairId,
       threadId: loaded.manifest.threadId,
@@ -259,6 +262,7 @@ async function runRegenerateTurn(input: {
             code: safeError.code,
             message: safeError.message,
             pair_id: input.pairId,
+            retry_action: "regenerate",
             user_prompt: input.loaded.prompt,
           },
           memoryId: input.loaded.manifest.memoryId,
@@ -269,9 +273,10 @@ async function runRegenerateTurn(input: {
       });
       return;
     }
+    const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     await appendRegeneratedAssistantResponse({
       assistantResponse: result.outputText,
-      citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
+      citations: sourceCitations,
       config: input.config,
       pairId: input.pairId,
       threadId: input.loaded.manifest.threadId,
@@ -305,6 +310,11 @@ async function runRegenerateTurn(input: {
         data: {
           ...(backupWarning === undefined ? {} : { warning: backupWarning }),
           pair_id: input.pairId,
+          source_citations: sourceCitations.map((citation) => ({
+            source_id: citation.sourceId,
+            title: citation.title,
+            url: citation.url,
+          })),
         },
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,

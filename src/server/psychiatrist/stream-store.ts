@@ -12,6 +12,7 @@ const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
 const appendQueuesByPath = new Map<string, Promise<void>>();
+const nextEventNumbersByPath = new Map<string, number>();
 const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
 
 export async function appendPsychiatristStreamEvent<TData>(input: {
@@ -25,18 +26,16 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   let written: PsychiatristStreamEvent<TData> | undefined;
   const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
   const next = previous.then(async () => {
-    const existing = await loadPsychiatristStreamReplay({
-      config: input.config,
-      threadId: input.event.threadId,
-      turnId: input.event.turnId,
-    });
+    const eventNumber = nextEventNumbersByPath.get(path) ??
+      await countExistingStreamEvents(path) + 1;
     const event = {
       ...input.event,
-      eventId: String(existing.length + 1).padStart(12, "0"),
+      eventId: String(eventNumber).padStart(12, "0"),
       timestamp: Date.now(),
     } satisfies PsychiatristStreamEvent<TData>;
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+    nextEventNumbersByPath.set(path, eventNumber + 1);
     publishStreamEvent(event);
     written = event;
   });
@@ -137,6 +136,24 @@ function findStreamPath(
   );
   const match = glob.scanSync({ cwd: root }).next().value;
   return typeof match === "string" ? join(root, match) : undefined;
+}
+
+async function countExistingStreamEvents(path: string): Promise<number> {
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+  if (content.trim() === "") {
+    return 0;
+  }
+  return content.endsWith("\n")
+    ? content.split("\n").length - 1
+    : content.split("\n").length;
 }
 
 function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {

@@ -43,6 +43,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [runningTurnId, setRunningTurnId] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
+  const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
 
   const pairs = () => transcriptPairs();
   const openDock = () => {
@@ -88,6 +89,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setIsRunning(true);
     setErrorMessage("");
     setWebSourceRetryPrompt("");
+    setWebSourceRetryPairId("");
     try {
       const started = await sendPsychiatristMessage({
         clientMessageId: crypto.randomUUID(),
@@ -131,6 +133,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         error.code === "network_permission_required"
       ) {
         setWebSourceRetryPrompt(message);
+        setWebSourceRetryPairId("");
       }
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
@@ -138,6 +141,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const approveWebSourcesForTurn = async () => {
     const retryPrompt = webSourceRetryPrompt();
     if (retryPrompt === "") {
+      return;
+    }
+    const retryPairId = webSourceRetryPairId();
+    if (retryPairId !== "") {
+      await regeneratePairById(retryPairId, "allow_for_this_turn");
       return;
     }
     setPrompt(retryPrompt);
@@ -155,12 +163,20 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (pair.status !== "completed" || isRunning()) {
       return;
     }
+    await regeneratePairById(pair.pairId, "deny");
+  };
+  const regeneratePairById = async (
+    pairId: string,
+    webSourcePermission: "deny" | "allow_for_this_turn",
+  ) => {
     setIsRunning(true);
     setErrorMessage("");
+    setWebSourceRetryPrompt("");
+    setWebSourceRetryPairId("");
     try {
       const started = await regeneratePsychiatristResponse({
-        pairId: pair.pairId,
-        webSourcePermission: "deny",
+        pairId,
+        webSourcePermission,
       });
       setRunningTurnId(started.turn_id);
       disconnectPsychiatristStream?.();
@@ -181,7 +197,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       closeDock();
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && event.target === inputRef) {
       event.preventDefault();
       void submitPrompt();
     }
@@ -189,6 +205,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const handleStreamEvent = (event: PsychiatristStreamEvent) => {
     const retryPrompt = event.type === "psychiatrist.network.permission_required"
       ? findPromptForStreamEvent(transcriptPairs(), event)
+      : "";
+    const retryPairId = event.type === "psychiatrist.network.permission_required" &&
+      readRetryAction(event.data) === "regenerate"
+      ? readPairId(event.data) ?? ""
       : "";
     setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, event));
     if (
@@ -202,6 +222,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setRunningTurnId("");
       if (event.type === "psychiatrist.network.permission_required" && retryPrompt !== "") {
         setWebSourceRetryPrompt(retryPrompt);
+        setWebSourceRetryPairId(retryPairId);
         setErrorMessage("Allow web search/source lookup for this answer to continue.");
       }
     }
@@ -398,6 +419,12 @@ function findPromptForStreamEvent(
 
 function readPairId(data: unknown): string | undefined {
   return isRecord(data) && typeof data.pair_id === "string" ? data.pair_id : undefined;
+}
+
+function readRetryAction(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.retry_action === "string"
+    ? data.retry_action
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

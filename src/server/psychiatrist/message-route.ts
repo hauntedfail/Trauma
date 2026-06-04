@@ -205,6 +205,9 @@ export async function handleSendPsychiatristMessageRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
+      ...(thread.manifest.codexThreadId === undefined
+        ? {}
+        : { codexThreadId: thread.manifest.codexThreadId }),
       memoryId: thread.manifest.memoryId,
       pairId,
       threadId,
@@ -330,9 +333,10 @@ async function runPsychiatristTurn(input: {
       });
       return;
     }
+    const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     await appendAssistantResponse({
       assistantResponse: result.outputText,
-      citations: sanitizePsychiatristSourceCitations(result.sourceCitations),
+      citations: sourceCitations,
       config: input.config,
       pairId: input.pairId,
       threadId: input.threadId,
@@ -358,6 +362,11 @@ async function runPsychiatristTurn(input: {
         data: {
           ...(backupWarning === undefined ? {} : { warning: backupWarning }),
           pair_id: input.pairId,
+          source_citations: sourceCitations.map((citation) => ({
+            source_id: citation.sourceId,
+            title: citation.title,
+            url: citation.url,
+          })),
         },
         memoryId: input.thread.manifest.memoryId,
         threadId: input.threadId,

@@ -47,11 +47,19 @@ describe("PsychiatristDock", () => {
 
   it("keeps web-source approval scoped to a single retry turn", () => {
     expect(dockSource).toContain("webSourceRetryPrompt");
+    expect(dockSource).toContain("webSourceRetryPairId");
     expect(dockSource).toContain("network_permission_required");
     expect(dockSource).toContain("Allow web sources for this turn");
     expect(dockSource).toContain("allow_for_this_turn");
     expect(dockSource).toContain("psychiatrist.network.permission_required");
+    expect(dockSource).toContain("retry_action");
+    expect(dockSource).toContain("regeneratePairById(retryPairId, \"allow_for_this_turn\")");
     expect(dockSource).not.toContain("localStorage");
+  });
+
+  it("scopes Enter submit handling to the prompt textarea", () => {
+    expect(dockSource).toContain("event.target === inputRef");
+    expect(dockSource).toContain("event.preventDefault()");
   });
 
   it("creates or resumes a source thread with network disabled by default", async () => {
@@ -257,14 +265,29 @@ describe("PsychiatristDock", () => {
       type: "psychiatrist.answer.delta",
     }));
     const completed = applyPsychiatristStreamEvent(withAnswer, streamEvent({
-      data: { pair_id: "pair-reader" },
+      data: {
+        pair_id: "pair-reader",
+        source_citations: [
+          {
+            source_id: "source-live",
+            title: "Live source",
+            url: "https://example.com/live",
+          },
+        ],
+      },
       type: "psychiatrist.answer.completed",
     }));
 
     expect(completed).toEqual([
       {
         answer: "The answer.",
-        citations: [],
+        citations: [
+          {
+            source_id: "source-live",
+            title: "Live source",
+            url: "https://example.com/live",
+          },
+        ],
         pairId: "pair-reader",
         process: ["Reading the active memory."],
         status: "completed",
@@ -440,7 +463,8 @@ function streamEvent(input: {
     | "psychiatrist.answer.delta"
     | "psychiatrist.answer.completed"
     | "psychiatrist.network.permission_required"
-    | "psychiatrist.regenerate.started";
+    | "psychiatrist.regenerate.started"
+    | "psychiatrist.regenerate.completed";
 }) {
   return {
     data: input.data,

@@ -91,6 +91,7 @@ export function applyPsychiatristStreamEvent(
     ) {
       return withoutAnswerReplacementFlag({
         ...pair,
+        citations: readSourceCitations(event.data) ?? pair.citations,
         status: "completed",
         turnId: event.turnId,
       });
@@ -155,6 +156,25 @@ function readUserPrompt(data: unknown): string | undefined {
   return isRecord(data) && typeof data.user_prompt === "string"
     ? data.user_prompt
     : undefined;
+}
+
+function readSourceCitations(
+  data: unknown,
+): Array<{ source_id: string; title: string; url: string }> | undefined {
+  if (!isRecord(data) || !Array.isArray(data.source_citations)) {
+    return undefined;
+  }
+  const citations = data.source_citations.filter((citation): citation is {
+    source_id: string;
+    title: string;
+    url: string;
+  } =>
+    isRecord(citation) &&
+    typeof citation.source_id === "string" &&
+    typeof citation.title === "string" &&
+    typeof citation.url === "string"
+  );
+  return citations.length === data.source_citations.length ? citations : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

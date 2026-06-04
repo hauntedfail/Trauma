@@ -226,6 +226,7 @@ function toThreadResponse(input: {
     pairs: input.pairs.map((pair) => ({
       pair_id: pair.pairId,
       status: pair.status,
+      turn_id: pair.turnId,
       user_prompt: {
         content: pair.user.content,
         created_at: pair.user.createdAt,

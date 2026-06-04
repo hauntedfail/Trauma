@@ -285,7 +285,18 @@ describe("Psychiatrist thread API routes", () => {
           updatedAt: "2026-06-01T00:00:00.000Z",
           variantKind: "source",
         },
-        pairs: [],
+        pairs: [
+          {
+            assistant: undefined,
+            pairId: PAIR_ID,
+            status: "pending",
+            turnId: TURN_ID,
+            user: {
+              content: "What is next?",
+              createdAt: "2026-06-01T00:00:01.000Z",
+            },
+          },
+        ],
       }),
     });
 
@@ -303,7 +314,17 @@ describe("Psychiatrist thread API routes", () => {
       content_hash: "sha256:context",
       lang_code: null,
       memory_id: MEMORY_ID,
-      pairs: [],
+      pairs: [
+        {
+          pair_id: PAIR_ID,
+          status: "pending",
+          turn_id: TURN_ID,
+          user_prompt: {
+            content: "What is next?",
+            created_at: "2026-06-01T00:00:01.000Z",
+          },
+        },
+      ],
       status: "ready",
       thread_id: THREAD_ID,
       variant_kind: "source",
@@ -427,6 +448,10 @@ describe("Psychiatrist thread API routes", () => {
       pair_id: PAIR_ID,
       status: "running",
       user_prompt: "What is the risk?",
+    });
+    expect(replay[3]?.data).toEqual({
+      pair_id: PAIR_ID,
+      source_citations: [],
     });
     expect(backupEnqueues).toEqual([
       {
@@ -1013,6 +1038,99 @@ describe("Psychiatrist thread API routes", () => {
     ]);
   });
 
+  it("defers local cancel while Codex ids are not ready", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-not-ready-"));
+    const client = new NoCodexIdsCancelTrackingClient();
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Stop this turn early." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    const handler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "turn_not_ready",
+    });
+    expect(client.cancelCalls).toEqual([]);
+    expect(activePsychiatristTurns.getByTurnId(TURN_ID)).toBeDefined();
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      pairId: PAIR_ID,
+      status: "pending",
+      turnId: TURN_ID,
+    });
+  });
+
+  it("seeds stored Codex thread ids so reused turns can be canceled", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-reused-codex-"));
+    const client = new TurnOnlyCancelTrackingClient();
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: { ...manifest(), codexThreadId: "codex-thread-existing" },
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Stop reused thread." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(() =>
+      activePsychiatristTurns.getByTurnId(TURN_ID)?.codexTurnId === "codex-turn-1"
+    );
+    const handler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "codex-thread-existing", turnId: "codex-turn-1" },
+    ]);
+  });
+
   it("regenerates a completed pair by reusing prompt context and overwriting the response artifact", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-"));
     await createPsychiatristThread({
@@ -1075,6 +1193,7 @@ describe("Psychiatrist thread API routes", () => {
       thread_id: THREAD_ID,
       turn_id: regenerateTurnId,
     });
+    await waitFor(() => regenerateClient.inputs.length === 1);
     expect(regenerateClient.inputs[0]).toMatchObject({
       cwdPurpose: "psychiatrist",
       input: expect.stringContaining('"reason":"user_requested_regenerate"'),
@@ -1332,6 +1451,7 @@ describe("Psychiatrist thread API routes", () => {
         data: expect.objectContaining({
           code: "network_permission_required",
           pair_id: PAIR_ID,
+          retry_action: "regenerate",
           user_prompt: "Need current source?",
         }),
         type: "psychiatrist.network.permission_required",
@@ -1833,6 +1953,49 @@ class CancelTrackingClient implements CodexConversationClient {
     return {
       outputText: "",
       threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+    };
+  }
+}
+
+class NoCodexIdsCancelTrackingClient implements CodexConversationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn() {
+    await new Promise(() => undefined);
+    return {
+      outputText: "",
+      threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+    };
+  }
+}
+
+class TurnOnlyCancelTrackingClient implements CodexConversationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(input: CodexConversationTurnInput) {
+    input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
+    await new Promise(() => undefined);
+    return {
+      outputText: "",
+      threadId: "codex-thread-existing",
       turnId: "codex-turn-1",
     };
   }

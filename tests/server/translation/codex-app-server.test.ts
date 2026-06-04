@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import net from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -528,6 +528,8 @@ describe("Codex app-server endpoint parsing", () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-reuse-"));
     tempRoots.push(root);
     const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
     const receivedMethods: string[] = [];
     const receivedMessages: CapturedClientMessage[] = [];
     const server = await startFakeAppServer(socketPath, receivedMethods, {
@@ -569,6 +571,7 @@ describe("Codex app-server endpoint parsing", () => {
         sandboxPolicy: { type: "readOnly", networkAccess: true },
         threadId: "thread-existing",
       });
+      await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await server.close();
     }

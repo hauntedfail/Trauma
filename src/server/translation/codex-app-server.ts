@@ -375,14 +375,12 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
     input: CodexConversationTurnInput,
   ): Promise<CodexConversationTurnResult> {
     await this.probe();
-    const runtimeCwd = await createRuntimeCwd(
-      input.threadId === undefined
-        ? `${input.cwdPurpose}-${randomBytes(8).toString("hex")}`
-        : `${input.cwdPurpose}-${input.threadId}`,
-    );
+    const runtimeCwd = input.threadId === undefined
+      ? await createRuntimeCwd(`${input.cwdPurpose}-${randomBytes(8).toString("hex")}`)
+      : undefined;
     try {
       const threadId = input.threadId ?? await this.startEphemeralThread({
-        cwd: runtimeCwd,
+        cwd: runtimeCwd!,
         onEvent: input.onEvent,
       });
 
@@ -440,7 +438,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         completed.unsubscribe();
       }
     } finally {
-      await removeRuntimeCwd(runtimeCwd);
+      if (runtimeCwd !== undefined) {
+        await removeRuntimeCwd(runtimeCwd);
+      }
     }
   }
 

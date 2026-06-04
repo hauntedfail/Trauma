@@ -37,12 +37,17 @@ export async function handleCancelPsychiatristTurnRequest(
   if (active === undefined) {
     return safeErrorResponse("thread_not_found", "Active Psychiatrist turn was not found.", 404);
   }
-  if (active.codexThreadId !== undefined && active.codexTurnId !== undefined) {
-    await active.client.cancelTurn({
-      threadId: active.codexThreadId,
-      turnId: active.codexTurnId,
-    });
+  if (active.codexThreadId === undefined || active.codexTurnId === undefined) {
+    return safeErrorResponse(
+      "turn_not_ready",
+      "Psychiatrist turn is still starting. Retry Stop after the turn is ready.",
+      409,
+    );
   }
+  await active.client.cancelTurn({
+    threadId: active.codexThreadId,
+    turnId: active.codexTurnId,
+  });
   const config = input.config ?? loadRuntimeTraumaConfig();
   await markPsychiatristTurnCanceled({
     codexThreadId: active.codexThreadId,
