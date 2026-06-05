@@ -29,6 +29,7 @@ import {
   loadPsychiatristTurnSafeError,
   markPsychiatristThreadStale,
   markPsychiatristTurnCompleted,
+  markPsychiatristTurnFailed,
   markPsychiatristRegenerateFailed,
   PsychiatristThreadStoreError,
   recordPsychiatristTurnStarted,
@@ -338,13 +339,25 @@ async function runRegenerateTurn(input: {
         code: "network_permission_required",
         message: "Allow web-source access to answer this request.",
       };
-      await markPsychiatristRegenerateFailed({
-        config: input.config,
-        error: safeError,
-        pairId: input.pairId,
-        threadId: input.loaded.manifest.threadId,
-        turnId: input.turnId,
-      });
+      if (isAnswerRetry) {
+        await markPsychiatristTurnFailed({
+          codexThreadId: result.threadId,
+          codexTurnId: result.turnId,
+          config: input.config,
+          error: safeError,
+          pairId: input.pairId,
+          threadId: input.loaded.manifest.threadId,
+          turnId: input.turnId,
+        });
+      } else {
+        await markPsychiatristRegenerateFailed({
+          config: input.config,
+          error: safeError,
+          pairId: input.pairId,
+          threadId: input.loaded.manifest.threadId,
+          turnId: input.turnId,
+        });
+      }
       await appendPsychiatristStreamEvent({
         config: input.config,
         event: {
@@ -352,7 +365,7 @@ async function runRegenerateTurn(input: {
             code: safeError.code,
             message: safeError.message,
             pair_id: input.pairId,
-            retry_action: "regenerate",
+            ...(isAnswerRetry ? {} : { retry_action: "regenerate" }),
             user_prompt: input.loaded.prompt,
           },
           memoryId: input.loaded.manifest.memoryId,
@@ -454,14 +467,30 @@ async function runRegenerateTurn(input: {
       }).catch(() => undefined);
       return;
     }
-    const safeError = toSafeCodexError(error, "Psychiatrist regenerate failed.");
-    await markPsychiatristRegenerateFailed({
-      config: input.config,
-      error: safeError,
-      pairId: input.pairId,
-      threadId: input.loaded.manifest.threadId,
-      turnId: input.turnId,
-    });
+    const active = activePsychiatristTurns.getByTurnId(input.turnId);
+    const safeError = toSafeCodexError(
+      error,
+      isAnswerRetry ? "Psychiatrist answer failed." : "Psychiatrist regenerate failed.",
+    );
+    if (isAnswerRetry) {
+      await markPsychiatristTurnFailed({
+        codexThreadId: active?.codexThreadId,
+        codexTurnId: active?.codexTurnId,
+        config: input.config,
+        error: safeError,
+        pairId: input.pairId,
+        threadId: input.loaded.manifest.threadId,
+        turnId: input.turnId,
+      });
+    } else {
+      await markPsychiatristRegenerateFailed({
+        config: input.config,
+        error: safeError,
+        pairId: input.pairId,
+        threadId: input.loaded.manifest.threadId,
+        turnId: input.turnId,
+      });
+    }
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
@@ -469,7 +498,7 @@ async function runRegenerateTurn(input: {
           code: safeError.code,
           message: safeError.message,
           pair_id: input.pairId,
-          retry_action: "regenerate",
+          ...(isAnswerRetry ? {} : { retry_action: "regenerate" }),
         },
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,

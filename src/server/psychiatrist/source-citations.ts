@@ -8,6 +8,7 @@ const SENSITIVE_QUERY_KEY_TOKENS = new Set([
   "key",
   "password",
   "secret",
+  "sig",
   "signature",
   "token",
 ]);

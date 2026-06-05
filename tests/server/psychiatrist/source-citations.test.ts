@@ -18,4 +18,20 @@ describe("sanitizePsychiatristSourceCitations", () => {
       },
     ]);
   });
+
+  it("strips short signed URL query keys from source URLs", () => {
+    expect(sanitizePsychiatristSourceCitations([
+      {
+        sourceId: "source-raw",
+        title: "Signed source",
+        url: "https://example.com/article?sig=abc123&view=reader",
+      },
+    ])).toEqual([
+      {
+        sourceId: "source-1",
+        title: "Signed source",
+        url: "https://example.com/article?view=reader",
+      },
+    ]);
+  });
 });

@@ -669,6 +669,107 @@ describe("Psychiatrist thread API routes", () => {
     ]);
   });
 
+  it("records approved first-answer retry failures as normal failed turns", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-retry-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      client: new WebSourceRequiredClient(),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({
+            message: "Do I need current release notes?",
+            web_source_permission: "deny",
+          }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "failed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const retryTurnId = EXTRA_TURN_IDS[0]!;
+    const retryHandler = createRegeneratePsychiatristResponseHandler({
+      client: new FailingConversationClient(),
+      config: config(storePath),
+      generateId: createIdGenerator([retryTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const retryResponse = await retryHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(retryResponse.status).toBe(202);
+    await waitFor(async () => {
+      const turnRecord = await readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${retryTurnId}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content));
+      return turnRecord.status === "failed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const retried = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(retried.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "failed",
+        turnId: retryTurnId,
+      }),
+    ]);
+    expect(retried.pairs[0]?.assistant).toBeUndefined();
+    const turnRecord = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${retryTurnId}.json`),
+      "utf8",
+    ).then((content) => JSON.parse(content));
+    expect(turnRecord).toMatchObject({
+      pair_id: PAIR_ID,
+      safe_error: {
+        action: "retry",
+        code: "unknown",
+        message: "Psychiatrist answer failed.",
+      },
+      status: "failed",
+      thread_id: THREAD_ID,
+      turn_id: retryTurnId,
+    });
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: retryTurnId,
+    });
+    const failedEvent = replay.find((event) => event.type === "psychiatrist.answer.failed");
+    expect(failedEvent).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          code: "unknown",
+          message: "Psychiatrist answer failed.",
+          pair_id: PAIR_ID,
+        }),
+        type: "psychiatrist.answer.failed",
+      }),
+    );
+    expect(failedEvent?.data).not.toMatchObject({ retry_action: "regenerate" });
+    expect(JSON.stringify(replay)).not.toContain("/private/");
+    expect(JSON.stringify(replay)).not.toContain("token");
+  });
+
   it("keeps a completed answer when backup enqueue fails", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-backup-fail-"));
     await createPsychiatristThread({

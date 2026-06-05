@@ -442,46 +442,48 @@ export async function markPsychiatristTurnFailed(input: {
   threadId: string;
   turnId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
-  if (existing === undefined) {
-    throw new PsychiatristThreadStoreError(
-      "pair_not_found",
-      "Cannot fail a turn without a matching pair.",
-    );
-  }
-  const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-  if (existingTurn?.status === "canceled") {
-    return;
-  }
-  const now = new Date().toISOString();
-  if (existing.assistant === undefined) {
-    await appendPairRevision(input.config, loaded.manifest, {
-      created_at: existing.user.createdAt,
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+    if (existing === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot fail a turn without a matching pair.",
+      );
+    }
+    const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
+    if (existingTurn?.status === "canceled") {
+      return;
+    }
+    const now = new Date().toISOString();
+    if (existing.assistant === undefined) {
+      await appendPairRevision(input.config, loaded.manifest, {
+        created_at: existing.user.createdAt,
+        pair_id: input.pairId,
+        revision_kind: "failed",
+        status: "failed",
+        thread_id: input.threadId,
+        turn_id: input.turnId,
+        updated_at: now,
+        user_prompt: existing.user.content,
+      });
+    }
+    await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+      codex_thread_id: input.codexThreadId,
+      codex_turn_id: input.codexTurnId,
+      failed_at: now,
       pair_id: input.pairId,
-      revision_kind: "failed",
+      policy_version: loaded.manifest.policyVersion,
+      safe_error: input.error,
       status: "failed",
       thread_id: input.threadId,
       turn_id: input.turnId,
-      updated_at: now,
-      user_prompt: existing.user.content,
     });
-  }
-  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-    codex_thread_id: input.codexThreadId,
-    codex_turn_id: input.codexTurnId,
-    failed_at: now,
-    pair_id: input.pairId,
-    policy_version: loaded.manifest.policyVersion,
-    safe_error: input.error,
-    status: "failed",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
   });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
 }
 
 export async function markPsychiatristRegenerateFailed(input: {
@@ -495,32 +497,34 @@ export async function markPsychiatristRegenerateFailed(input: {
   threadId: string;
   turnId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  const existing = loaded.pairs.find((pair) =>
-    pair.pairId === input.pairId && pair.assistant !== undefined
-  );
-  if (existing === undefined) {
-    throw new PsychiatristThreadStoreError(
-      "pair_not_found",
-      "Cannot fail a regenerate turn without a completed pair.",
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) =>
+      pair.pairId === input.pairId && pair.assistant !== undefined
     );
-  }
-  const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-  if (existingTurn?.status === "canceled") {
-    return;
-  }
-  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-    failed_at: new Date().toISOString(),
-    pair_id: input.pairId,
-    policy_version: loaded.manifest.policyVersion,
-    regenerate_from_turn_id: existing.turnId,
-    safe_error: input.error,
-    status: "failed",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
+    if (existing === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot fail a regenerate turn without a completed pair.",
+      );
+    }
+    const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
+    if (existingTurn?.status === "canceled") {
+      return;
+    }
+    await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+      failed_at: new Date().toISOString(),
+      pair_id: input.pairId,
+      policy_version: loaded.manifest.policyVersion,
+      regenerate_from_turn_id: existing.turnId,
+      safe_error: input.error,
+      status: "failed",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+    });
   });
 }
 
