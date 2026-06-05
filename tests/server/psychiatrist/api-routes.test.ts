@@ -622,10 +622,51 @@ describe("Psychiatrist thread API routes", () => {
         data: expect.objectContaining({
           code: "network_permission_required",
           message: "Allow web-source access to answer this request.",
+          pair_id: PAIR_ID,
         }),
         type: "psychiatrist.network.permission_required",
       }),
     );
+
+    const retryTurnId = EXTRA_TURN_IDS[0]!;
+    const retryClient = new FakeConversationClient("Approved source answer.");
+    const retryHandler = createRegeneratePsychiatristResponseHandler({
+      client: retryClient,
+      config: config(storePath),
+      generateId: createIdGenerator([retryTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const retryResponse = await retryHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(retryResponse.status).toBe(202);
+    await waitFor(() => retryClient.inputs.length === 1);
+    expect(retryClient.inputs[0]).toMatchObject({
+      cwdPurpose: "psychiatrist",
+      networkAccess: "user_approved_web_sources",
+    });
+    expect(String(retryClient.inputs[0]?.input)).not.toContain("Regenerate metadata JSON");
+    await waitFor(async () => {
+      const reloaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return reloaded.pairs[0]?.status === "completed";
+    });
+    const retried = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(retried.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({ content: "Approved source answer." }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: retryTurnId,
+      }),
+    ]);
   });
 
   it("keeps a completed answer when backup enqueue fails", async () => {
@@ -1383,6 +1424,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(backupEnqueues).toEqual([
       {
         contentPaths: [
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.json`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,

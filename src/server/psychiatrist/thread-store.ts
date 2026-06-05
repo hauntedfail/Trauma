@@ -257,6 +257,55 @@ export async function appendRegeneratedAssistantResponse(input: {
   });
 }
 
+export async function appendRetriedAssistantResponse(input: {
+  assistantResponse: string;
+  citations: PsychiatristPairAssistant["citations"];
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  pairId: string;
+  threadId: string;
+  turnId: string;
+  webSourcePolicy?: PairRevisionRow["web_source_policy"];
+}): Promise<void> {
+  await withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const existing = loaded.pairs.find((pair) => pair.pairId === input.pairId);
+    if (existing === undefined || existing.assistant !== undefined || existing.status !== "failed") {
+      throw new PsychiatristThreadStoreError(
+        "pair_not_found",
+        "Cannot retry an assistant response without a failed unanswered pair.",
+      );
+    }
+    await rejectCanceledTurnCompletion(input.config, loaded.manifest, input.turnId);
+
+    const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
+    await mkdir(pairDirectoryPath, { recursive: true });
+    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
+    await appendPairRevision(input.config, loaded.manifest, {
+      assistant_response: input.assistantResponse,
+      created_at: existing.user.createdAt,
+      pair_id: input.pairId,
+      response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
+      revision_kind: "completed",
+      source_citations: input.citations.map((citation) => ({
+        source_id: citation.sourceId,
+        title: citation.title,
+        url: citation.url,
+      })),
+      status: "completed",
+      stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: new Date().toISOString(),
+      user_prompt: existing.user.content,
+      web_source_policy: input.webSourcePolicy,
+    });
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
+  });
+}
+
 export async function markPsychiatristTurnCanceled(input: {
   codexThreadId?: string;
   codexTurnId?: string;
@@ -487,6 +536,7 @@ export async function loadPsychiatristPairRegeneration(input: {
     pairPromptRelativePath: string;
     pairResponseRelativePath: string;
     pairRevisionLogRelativePath: string;
+    threadManifestRelativePath: string;
     threadMarkdownRelativePath: string;
   };
   prompt: string;
@@ -527,11 +577,31 @@ export async function loadPsychiatristPairRegeneration(input: {
       pairPromptRelativePath: pairPromptRelativePath(thread.manifest, input.pairId),
       pairResponseRelativePath: pairResponseRelativePath(thread.manifest, input.pairId),
       pairRevisionLogRelativePath: pairRevisionLogRelativePath(thread.manifest),
+      threadManifestRelativePath: threadManifestRelativePath(thread.manifest),
       threadMarkdownRelativePath: threadMarkdownRelativePath(thread.manifest),
     },
     prompt,
     thread,
   };
+}
+
+export async function loadPsychiatristTurnSafeError(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  threadId: string;
+  turnId: string;
+}): Promise<{ code: string } | undefined> {
+  validateSafeId(input.threadId);
+  validateSafeId(input.turnId);
+  const manifest = await findThreadManifest(input.config, input.threadId);
+  if (manifest === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "thread_not_found",
+      "Psychiatrist thread was not found.",
+    );
+  }
+  const turn = await readTurnRecord(input.config, manifest, input.turnId);
+  const safeError = isRecord(turn?.safe_error) ? turn.safe_error : undefined;
+  return typeof safeError?.code === "string" ? { code: safeError.code } : undefined;
 }
 
 export async function loadPsychiatristThread(input: {
@@ -864,6 +934,10 @@ function renderThreadMarkdown(pairs: PsychiatristThreadPair[]): string {
 
 function threadMarkdownRelativePath(manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">): string {
   return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "THREAD.md");
+}
+
+function threadManifestRelativePath(manifest: Pick<PsychiatristThreadManifest, "memoryId" | "threadId">): string {
+  return posix.join("memories", manifest.memoryId, "threads", manifest.threadId, "THREAD.json");
 }
 
 function pairPromptRelativePath(

@@ -209,13 +209,44 @@ function findHeadingOffset(
   minOffset: number,
   excludedRanges: readonly MarkdownOffsetRange[],
 ): number {
-  const pattern = new RegExp(`^#{${level}}\\s+.+$`, "gm");
-  for (let match = pattern.exec(markdown); match !== null; match = pattern.exec(markdown)) {
-    if (match.index >= minOffset && !isOffsetInRanges(match.index, excludedRanges)) {
-      return match.index;
+  let lineStart = 0;
+  while (lineStart < markdown.length) {
+    const newlineIndex = markdown.indexOf("\n", lineStart);
+    const lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
+    const nextLineStart = newlineIndex === -1 ? markdown.length : newlineIndex + 1;
+    const line = markdown.slice(lineStart, lineEnd);
+    const nextLineEnd = nextLineStart >= markdown.length
+      ? markdown.length
+      : markdown.indexOf("\n", nextLineStart);
+    const nextLine = nextLineStart >= markdown.length
+      ? ""
+      : markdown.slice(nextLineStart, nextLineEnd === -1 ? markdown.length : nextLineEnd);
+
+    if (lineStart >= minOffset && !isOffsetInRanges(lineStart, excludedRanges)) {
+      const headingLevel = readMarkdownHeadingLevel(line, nextLine);
+      if (headingLevel === level) {
+        return lineStart;
+      }
     }
+
+    lineStart = nextLineStart;
   }
   return minOffset;
+}
+
+function readMarkdownHeadingLevel(line: string, nextLine: string): number | undefined {
+  const atx = /^(?: {0,3})(#{1,6})(?:\s+|$)/.exec(line);
+  if (atx?.[1] !== undefined) {
+    return atx[1].length;
+  }
+  if (line.trim() === "") {
+    return undefined;
+  }
+  const setext = /^(?: {0,3})(=+|-+)\s*$/.exec(nextLine);
+  if (setext?.[1] === undefined) {
+    return undefined;
+  }
+  return setext[1].startsWith("=") ? 1 : 2;
 }
 
 function findFencedCodeRanges(markdown: string): MarkdownOffsetRange[] {

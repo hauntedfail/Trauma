@@ -280,6 +280,57 @@ describe("Psychiatrist memory context", () => {
     expect(context.sections[1]?.markdown).toContain("Real body.");
   });
 
+  it("locates indented ATX headings and setext headings rendered into the TOC", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-commonmark-heading-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "  ## Indented",
+      "",
+      "Indented body.",
+      "",
+      "Setext Details",
+      "--------------",
+      "",
+      "Setext body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        startOffset: 0,
+        title: "Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Indented"),
+        startOffset: markdown.indexOf("  ## Indented"),
+        title: "Indented",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("Setext Details"),
+        startOffset: markdown.indexOf("Setext Details"),
+        title: "Setext Details",
+      }),
+    ]);
+    expect(context.sections[1]?.markdown).toContain("Indented body.");
+    expect(context.sections[1]?.markdown).not.toContain("Setext body.");
+    expect(context.sections[2]?.markdown).toContain("Setext body.");
+  });
+
   it("uses current translated CONTENT.md and output hash for translated context", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-ja-"));
     const sourceMarkdown = "# Source\n\nOriginal.";

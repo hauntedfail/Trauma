@@ -24,7 +24,9 @@ import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
+  appendRetriedAssistantResponse,
   loadPsychiatristPairRegeneration,
+  loadPsychiatristTurnSafeError,
   markPsychiatristThreadStale,
   markPsychiatristTurnCompleted,
   markPsychiatristRegenerateFailed,
@@ -42,6 +44,8 @@ type RegeneratePayload =
       webSourcePermission: "deny" | "allow_for_this_turn";
     }
   | { ok: false; message: string };
+
+type RegenerateTurnMode = "answer_retry" | "regenerate";
 
 type ResolveRegenerateActiveContentHash = (input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -92,7 +96,20 @@ export async function handleRegeneratePsychiatristResponseRequest(
   if (loaded instanceof PsychiatristThreadStoreError) {
     return safeErrorResponse("pair_not_found", "Psychiatrist pair was not found.", 404);
   }
-  if (loaded.pair.status !== "completed" || loaded.pair.assistant === undefined) {
+  let turnMode: RegenerateTurnMode | undefined;
+  try {
+    turnMode = await resolveRegenerateTurnMode({
+      config,
+      loaded,
+      webSourcePermission: payload.webSourcePermission,
+    });
+  } catch (error) {
+    if (error instanceof PsychiatristThreadStoreError) {
+      return safeErrorResponse("pair_not_found", "Psychiatrist pair was not found.", 404);
+    }
+    throw error;
+  }
+  if (turnMode === undefined) {
     return safeErrorResponse(
       "regenerate_unavailable",
       "Only completed Psychiatrist responses can be regenerated.",
@@ -151,7 +168,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
     await recordPsychiatristTurnStarted({
       config,
       pairId,
-      regenerateFromTurnId: loaded.pair.turnId,
+      ...(turnMode === "regenerate" ? { regenerateFromTurnId: loaded.pair.turnId } : {}),
       threadId: loaded.manifest.threadId,
       turnId,
     });
@@ -162,7 +179,9 @@ export async function handleRegeneratePsychiatristResponseRequest(
         memoryId: loaded.manifest.memoryId,
         threadId: loaded.manifest.threadId,
         turnId,
-        type: "psychiatrist.regenerate.started",
+        type: turnMode === "regenerate"
+          ? "psychiatrist.regenerate.started"
+          : "psychiatrist.turn.started",
       },
     });
 
@@ -185,6 +204,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
       loaded,
       ownsClient,
       pairId,
+      turnMode,
       turnId,
       webSourcePolicy,
     });
@@ -208,6 +228,29 @@ export async function handleRegeneratePsychiatristResponseRequest(
   }, { status: 202 });
 }
 
+async function resolveRegenerateTurnMode(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+  webSourcePermission: "deny" | "allow_for_this_turn";
+}): Promise<RegenerateTurnMode | undefined> {
+  if (input.loaded.pair.status === "completed" && input.loaded.pair.assistant !== undefined) {
+    return "regenerate";
+  }
+  if (
+    input.loaded.pair.status !== "failed" ||
+    input.loaded.pair.assistant !== undefined ||
+    input.webSourcePermission !== "allow_for_this_turn"
+  ) {
+    return undefined;
+  }
+  const safeError = await loadPsychiatristTurnSafeError({
+    config: input.config,
+    threadId: input.loaded.manifest.threadId,
+    turnId: input.loaded.pair.turnId,
+  });
+  return safeError?.code === "network_permission_required" ? "answer_retry" : undefined;
+}
+
 async function runRegenerateTurn(input: {
   backupQueue: MemoryBackupQueue;
   client: CodexConversationClient;
@@ -215,10 +258,12 @@ async function runRegenerateTurn(input: {
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
   ownsClient: boolean;
   pairId: string;
+  turnMode: RegenerateTurnMode;
   turnId: string;
   webSourcePolicy: PsychiatristWebSourcePolicy;
 }): Promise<void> {
   const pair = input.loaded.pair;
+  const isAnswerRetry = input.turnMode === "answer_retry";
   let assistantResponsePersisted = false;
   let completedAnswerText: string | undefined;
   try {
@@ -242,12 +287,18 @@ async function runRegenerateTurn(input: {
           variantKind: input.loaded.contextSnapshot.variantKind,
         },
         contextSnapshotId: input.loaded.contextSnapshot.contextSnapshotId,
-        pairs: withoutCurrentAssistant(input.loaded.thread.pairs, input.pairId),
-        regenerate: {
-          originalPairId: input.pairId,
-          originalTurnId: pair.turnId,
-          reason: "user_requested_regenerate",
-        },
+        pairs: isAnswerRetry
+          ? input.loaded.thread.pairs.filter((candidate) => candidate.pairId !== input.pairId)
+          : withoutCurrentAssistant(input.loaded.thread.pairs, input.pairId),
+        ...(isAnswerRetry
+          ? {}
+          : {
+            regenerate: {
+              originalPairId: input.pairId,
+              originalTurnId: pair.turnId,
+              reason: "user_requested_regenerate" as const,
+            },
+          }),
         threadId: input.loaded.manifest.threadId,
         userMessage: input.loaded.prompt,
         webSourcePolicy: input.webSourcePolicy,
@@ -314,7 +365,10 @@ async function runRegenerateTurn(input: {
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
-    await appendRegeneratedAssistantResponse({
+    const appendAssistant = isAnswerRetry
+      ? appendRetriedAssistantResponse
+      : appendRegeneratedAssistantResponse;
+    await appendAssistant({
       assistantResponse: result.outputText,
       citations: sourceCitations,
       config: input.config,
@@ -329,13 +383,20 @@ async function runRegenerateTurn(input: {
       codexTurnId: result.turnId,
       config: input.config,
       pairId: input.pairId,
-      regenerateFromTurnId: pair.turnId,
+      ...(isAnswerRetry ? {} : { regenerateFromTurnId: pair.turnId }),
       threadId: input.loaded.manifest.threadId,
       turnId: input.turnId,
     });
     const backupWarning = await input.backupQueue.enqueue({
       contentPaths: [
+        input.loaded.paths.threadManifestRelativePath,
         input.loaded.paths.threadMarkdownRelativePath,
+        ...(isAnswerRetry
+          ? [
+            input.loaded.paths.pairPromptRelativePath,
+            input.loaded.paths.pairContextRelativePath,
+          ]
+          : []),
         input.loaded.paths.pairResponseRelativePath,
         input.loaded.paths.pairRevisionLogRelativePath,
       ],
@@ -361,7 +422,9 @@ async function runRegenerateTurn(input: {
         memoryId: input.loaded.manifest.memoryId,
         threadId: input.loaded.manifest.threadId,
         turnId: input.turnId,
-        type: "psychiatrist.regenerate.completed",
+        type: isAnswerRetry
+          ? "psychiatrist.answer.completed"
+          : "psychiatrist.regenerate.completed",
       },
     });
   } catch (error) {

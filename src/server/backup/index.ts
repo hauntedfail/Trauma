@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -304,9 +305,51 @@ async function getRetryContentPaths(
       }),
     );
   }
+  paths.push(...getPsychiatristRetryContentPaths(config, backup.id));
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
+}
+
+function getPsychiatristRetryContentPaths(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  memoryId: string,
+): string[] {
+  const threadsRoot = resolve(config.storePath, "memories", memoryId, "threads");
+  const threadIds = readDirectoryNames(threadsRoot);
+  const paths: string[] = [];
+  for (const threadId of threadIds) {
+    const threadBase = `memories/${memoryId}/threads/${threadId}`;
+    paths.push(
+      `${threadBase}/THREAD.json`,
+      `${threadBase}/THREAD.md`,
+      `${threadBase}/PAIRS.jsonl`,
+    );
+    const pairIds = readDirectoryNames(resolve(threadsRoot, threadId, "pairs"));
+    for (const pairId of pairIds) {
+      const pairBase = `${threadBase}/pairs/${pairId}`;
+      paths.push(
+        `${pairBase}/PROMPT.md`,
+        `${pairBase}/CONTEXT.json`,
+        `${pairBase}/RESPONSE.md`,
+      );
+    }
+  }
+  return paths;
+}
+
+function readDirectoryNames(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function validateRetryContentPath(

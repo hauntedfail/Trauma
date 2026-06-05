@@ -1,6 +1,7 @@
 import {
   For,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -44,6 +45,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
+  let loadedReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
 
   const pairs = () => transcriptPairs();
   const openDock = () => {
@@ -55,13 +57,29 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setIsOpen(false);
     triggerRef?.focus();
   };
+  const resetThreadStateForMemoryChange = () => {
+    disconnectPsychiatristStream?.();
+    disconnectPsychiatristStream = undefined;
+    setThread(undefined);
+    setTranscriptPairs([]);
+    setPrompt("");
+    setIsRunning(false);
+    setRunningTurnId("");
+    setErrorMessage("");
+    setWebSourceRetryPrompt("");
+    setWebSourceRetryPairId("");
+  };
   const loadThread = async () => {
+    const requestedReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
     try {
       const nextThread = await createPsychiatristThread({
         langCode: props.langCode,
         memoryId: props.memoryId,
         resumeLatest: true,
       });
+      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
+        return;
+      }
       setThread(nextThread);
       setTranscriptPairs(toPsychiatristTranscriptPairs(nextThread.pairs));
       if (nextThread.active_turn !== null) {
@@ -74,6 +92,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         );
       }
     } catch (error) {
+      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
+        return;
+      }
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
@@ -219,8 +240,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     const retryPrompt = event.type === "psychiatrist.network.permission_required"
       ? findPromptForStreamEvent(transcriptPairs(), event)
       : "";
-    const retryPairId = event.type === "psychiatrist.network.permission_required" &&
-      readRetryAction(event.data) === "regenerate"
+    const retryPairId = event.type === "psychiatrist.network.permission_required"
       ? readPairId(event.data) ?? ""
       : "";
     setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, event));
@@ -243,6 +263,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       }
     }
   };
+
+  createEffect(() => {
+    const nextReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
+    if (nextReaderThreadKey === loadedReaderThreadKey) {
+      return;
+    }
+    loadedReaderThreadKey = nextReaderThreadKey;
+    resetThreadStateForMemoryChange();
+    if (isOpen()) {
+      void loadThread();
+    }
+  });
 
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -396,6 +428,7 @@ function connectPsychiatristStream(
       onEvent(event);
     }
   };
+  eventSource.addEventListener("psychiatrist.turn.started", handleMessage);
   eventSource.addEventListener("psychiatrist.process.delta", handleMessage);
   eventSource.addEventListener("psychiatrist.answer.delta", handleMessage);
   eventSource.addEventListener("psychiatrist.answer.completed", (message) => {
@@ -420,6 +453,10 @@ function connectPsychiatristStream(
     eventSource.close();
   });
   return () => eventSource.close();
+}
+
+function readReaderThreadKey(memoryId: string, langCode: string | undefined): string {
+  return `${memoryId}\n${langCode ?? ""}`;
 }
 
 function findPromptForStreamEvent(
@@ -447,12 +484,6 @@ function getStreamErrorMessage(data: unknown): string {
     message: typeof data.message === "string" ? data.message : "Psychiatrist request failed.",
     responseStatus: 500,
   }));
-}
-
-function readRetryAction(data: unknown): string | undefined {
-  return isRecord(data) && typeof data.retry_action === "string"
-    ? data.retry_action
-    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -52,9 +52,19 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("Allow web sources for this turn");
     expect(dockSource).toContain("allow_for_this_turn");
     expect(dockSource).toContain("psychiatrist.network.permission_required");
-    expect(dockSource).toContain("retry_action");
+    expect(dockSource).toContain("const retryPairId = event.type === \"psychiatrist.network.permission_required\"");
+    expect(dockSource).toContain("readPairId(event.data) ?? \"\"");
+    expect(dockSource).toContain("setWebSourceRetryPairId(retryPairId)");
     expect(dockSource).toContain("regeneratePairById(retryPairId, \"allow_for_this_turn\")");
     expect(dockSource).not.toContain("localStorage");
+  });
+
+  it("resets loaded psychiatrist state when the active reader memory changes", () => {
+    expect(dockSource).toContain("createEffect");
+    expect(dockSource).toContain("readReaderThreadKey(props.memoryId, props.langCode)");
+    expect(dockSource).toContain("resetThreadStateForMemoryChange");
+    expect(dockSource).toContain("if (isOpen())");
+    expect(dockSource).toContain("void loadThread()");
   });
 
   it("scopes Enter submit handling to the prompt textarea", () => {
