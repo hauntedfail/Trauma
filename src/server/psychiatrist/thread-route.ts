@@ -225,6 +225,7 @@ function toThreadResponse(input: {
     memory_id: input.manifest.memoryId,
     pairs: input.pairs.map((pair) => ({
       pair_id: pair.pairId,
+      ...(pair.retryAction === undefined ? {} : { retry_action: pair.retryAction }),
       status: pair.status,
       turn_id: pair.turnId,
       user_prompt: {

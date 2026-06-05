@@ -190,9 +190,6 @@ export async function handleRegeneratePsychiatristResponseRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
-      ...(loaded.manifest.codexThreadId === undefined
-        ? {}
-        : { codexThreadId: loaded.manifest.codexThreadId }),
       memoryId: loaded.manifest.memoryId,
       pairId,
       threadId: loaded.manifest.threadId,
@@ -330,7 +327,6 @@ async function runRegenerateTurn(input: {
           }),
         );
       },
-      threadId: input.loaded.manifest.codexThreadId,
     });
     await eventWriteChain;
     if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {

@@ -41,6 +41,7 @@ export interface PsychiatristRegenerateInput {
 export interface PsychiatristThreadPair {
   assistant?: PsychiatristPairAssistant;
   pairId: string;
+  retryAction?: "allow_web_sources";
   status: "pending" | "completed" | "failed" | "canceled" | "stale";
   turnId: string;
   user: PsychiatristPairUser;

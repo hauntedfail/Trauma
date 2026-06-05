@@ -29,6 +29,7 @@ export interface PsychiatristThreadPairResponse {
     }>;
   };
   pair_id: string;
+  retry_action?: "allow_web_sources";
   status: "pending" | "completed" | "failed" | "canceled" | "stale";
   turn_id: string;
   user_prompt: {

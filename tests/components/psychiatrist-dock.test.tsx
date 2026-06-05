@@ -59,6 +59,19 @@ describe("PsychiatristDock", () => {
     expect(dockSource).not.toContain("localStorage");
   });
 
+  it("restores web-source approval controls for persisted failed turns", () => {
+    expect(dockSource).toContain("findPersistedWebSourceRetryPair");
+    expect(dockSource).toContain("pair.retryAction === \"allow_web_sources\"");
+    expect(dockSource).toContain("setWebSourceRetryPrompt(retryPair.userPrompt)");
+    expect(dockSource).toContain("setWebSourceRetryPairId(retryPair.pairId)");
+  });
+
+  it("clears stale running state when a reloaded thread has no active turn", () => {
+    expect(dockSource).toContain("const clearRunningTurnState = () =>");
+    expect(dockSource).toContain("clearRunningTurnState()");
+    expect(dockSource).toContain("disconnectPsychiatristStream = undefined");
+  });
+
   it("resets loaded psychiatrist state when the active reader memory changes", () => {
     expect(dockSource).toContain("createEffect");
     expect(dockSource).toContain("readReaderThreadKey(props.memoryId, props.langCode)");
@@ -400,6 +413,30 @@ describe("PsychiatristDock", () => {
         url: "https://example.com/releases",
       },
     ]);
+  });
+
+  it("preserves persisted web-source retry actions in transcript pairs", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-network",
+        retry_action: "allow_web_sources",
+        status: "failed",
+        turn_id: "turn-network",
+        user_prompt: {
+          content: "Need current source?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    expect(transcript[0]).toMatchObject({
+      pairId: "pair-network",
+      retryAction: "allow_web_sources",
+      status: "failed",
+      turnId: "turn-network",
+      userPrompt: "Need current source?",
+    });
   });
 
   it("does not apply process redaction rules to answer deltas", () => {

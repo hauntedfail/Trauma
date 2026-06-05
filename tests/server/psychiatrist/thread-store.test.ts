@@ -253,6 +253,76 @@ describe("Psychiatrist thread store", () => {
     ).resolves.toContain("The saved answer must remain visible.");
   });
 
+  it("does not overwrite completed turns when Stop arrives after completion", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-post-complete-stop-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Completed before Stop.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCompleted({
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await markPsychiatristTurnCanceled({
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({
+          content: "Completed before Stop.",
+        }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: TURN_ID,
+      }),
+    ]);
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed"]);
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      completed_at: expect.any(String),
+      status: "completed",
+      turn_id: TURN_ID,
+    });
+  });
+
   it("rejects late assistant completions for canceled message turns", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-"));
     await createPsychiatristThread({

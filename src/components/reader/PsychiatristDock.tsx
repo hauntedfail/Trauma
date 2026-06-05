@@ -57,17 +57,35 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setIsOpen(false);
     triggerRef?.focus();
   };
-  const resetThreadStateForMemoryChange = () => {
+  const clearRunningTurnState = () => {
     disconnectPsychiatristStream?.();
     disconnectPsychiatristStream = undefined;
+    setIsRunning(false);
+    setRunningTurnId("");
+  };
+  const clearWebSourceRetryState = () => {
+    setWebSourceRetryPrompt("");
+    setWebSourceRetryPairId("");
+  };
+  const syncPersistedWebSourceRetryState = (
+    nextPairs: readonly PsychiatristTranscriptPair[],
+  ) => {
+    const retryPair = findPersistedWebSourceRetryPair(nextPairs);
+    if (retryPair === undefined) {
+      clearWebSourceRetryState();
+      return;
+    }
+    setWebSourceRetryPrompt(retryPair.userPrompt);
+    setWebSourceRetryPairId(retryPair.pairId);
+    setErrorMessage("Allow web search/source lookup for this answer to continue.");
+  };
+  const resetThreadStateForMemoryChange = () => {
+    clearRunningTurnState();
     setThread(undefined);
     setTranscriptPairs([]);
     setPrompt("");
-    setIsRunning(false);
-    setRunningTurnId("");
     setErrorMessage("");
-    setWebSourceRetryPrompt("");
-    setWebSourceRetryPairId("");
+    clearWebSourceRetryState();
   };
   const loadThread = async () => {
     const requestedReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
@@ -80,9 +98,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
         return;
       }
+      const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
       setThread(nextThread);
-      setTranscriptPairs(toPsychiatristTranscriptPairs(nextThread.pairs));
+      setTranscriptPairs(nextPairs);
       if (nextThread.active_turn !== null) {
+        clearWebSourceRetryState();
         setIsRunning(true);
         setRunningTurnId(nextThread.active_turn.turn_id);
         disconnectPsychiatristStream?.();
@@ -90,6 +110,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           nextThread.active_turn.event_url,
           handleStreamEvent,
         );
+      } else {
+        clearRunningTurnState();
+        syncPersistedWebSourceRetryState(nextPairs);
       }
     } catch (error) {
       if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
@@ -109,8 +132,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     }
     setIsRunning(true);
     setErrorMessage("");
-    setWebSourceRetryPrompt("");
-    setWebSourceRetryPairId("");
+    clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
         clientMessageId: crypto.randomUUID(),
@@ -196,8 +218,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   ) => {
     setIsRunning(true);
     setErrorMessage("");
-    setWebSourceRetryPrompt("");
-    setWebSourceRetryPairId("");
+    clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
         pairId,
@@ -468,6 +489,18 @@ function findPromptForStreamEvent(
     ? pairs.find((candidate) => candidate.turnId === event.turnId)
     : pairs.find((candidate) => candidate.pairId === pairId);
   return pair?.userPrompt ?? "";
+}
+
+function findPersistedWebSourceRetryPair(
+  pairs: readonly PsychiatristTranscriptPair[],
+): PsychiatristTranscriptPair | undefined {
+  for (let index = pairs.length - 1; index >= 0; index -= 1) {
+    const pair = pairs[index];
+    if (pair?.status === "failed" && pair.retryAction === "allow_web_sources") {
+      return pair;
+    }
+  }
+  return undefined;
 }
 
 function readPairId(data: unknown): string | undefined {

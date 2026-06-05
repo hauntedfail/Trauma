@@ -16,6 +16,8 @@ const UUID_V7_PATTERN =
 
 const threadMutationQueues = new Map<string, Promise<void>>();
 
+export type PsychiatristTurnTerminalStatus = "canceled" | "completed" | "failed";
+
 interface PairRevisionRow {
   assistant_response?: string;
   context_snapshot_path?: string;
@@ -313,8 +315,8 @@ export async function markPsychiatristTurnCanceled(input: {
   pairId: string;
   threadId: string;
   turnId: string;
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristTurnTerminalStatus> {
+  return withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -325,6 +327,14 @@ export async function markPsychiatristTurnCanceled(input: {
         "pair_not_found",
         "Cannot cancel a turn without a matching pair.",
       );
+    }
+    const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
+    const terminalStatus = readTerminalTurnStatus(existingTurn?.status);
+    if (terminalStatus === "completed" || terminalStatus === "canceled") {
+      return terminalStatus;
+    }
+    if (existing.assistant !== undefined && existing.turnId === input.turnId) {
+      return "completed";
     }
     const now = new Date().toISOString();
     if (existing.assistant === undefined) {
@@ -356,6 +366,7 @@ export async function markPsychiatristTurnCanceled(input: {
       turn_id: input.turnId,
     });
     await rewriteThreadMarkdown(input.config, loaded.manifest);
+    return "canceled";
   });
 }
 
@@ -608,6 +619,33 @@ export async function loadPsychiatristTurnSafeError(input: {
   return typeof safeError?.code === "string" ? { code: safeError.code } : undefined;
 }
 
+export async function loadPsychiatristTurnTerminalStatus(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  threadId: string;
+  turnId: string;
+}): Promise<PsychiatristTurnTerminalStatus | undefined> {
+  validateSafeId(input.threadId);
+  validateSafeId(input.turnId);
+  const manifest = await findThreadManifest(input.config, input.threadId);
+  if (manifest === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "thread_not_found",
+      "Psychiatrist thread was not found.",
+    );
+  }
+  const turn = await readTurnRecord(input.config, manifest, input.turnId);
+  const turnStatus = readTerminalTurnStatus(turn?.status);
+  if (turnStatus !== undefined) {
+    return turnStatus;
+  }
+  const pairs = reducePairRows(await readPairRevisionRows(input.config, manifest));
+  const pair = pairs.find((candidate) => candidate.turnId === input.turnId);
+  if (pair?.assistant !== undefined || pair?.status === "completed") {
+    return "completed";
+  }
+  return readTerminalTurnStatus(pair?.status);
+}
+
 export async function loadPsychiatristThread(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   threadId: string;
@@ -626,7 +664,7 @@ export async function loadPsychiatristThread(input: {
   const rows = await readPairRevisionRows(input.config, manifest);
   return {
     manifest,
-    pairs: reducePairRows(rows),
+    pairs: await hydratePairRetryActions(input.config, manifest, reducePairRows(rows)),
   };
 }
 
@@ -673,7 +711,11 @@ export async function findLatestPsychiatristThread(input: {
     ? undefined
     : {
       manifest: latest,
-      pairs: reducePairRows(await readPairRevisionRows(input.config, latest)),
+      pairs: await hydratePairRetryActions(
+        input.config,
+        latest,
+        reducePairRows(await readPairRevisionRows(input.config, latest)),
+      ),
     };
 }
 
@@ -820,6 +862,31 @@ function reducePairRows(rows: PairRevisionRow[]): PsychiatristThreadPair[] {
     });
   }
   return [...pairs.values()];
+}
+
+async function hydratePairRetryActions(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+  pairs: PsychiatristThreadPair[],
+): Promise<PsychiatristThreadPair[]> {
+  return Promise.all(pairs.map(async (pair) => {
+    if (pair.status !== "failed" || pair.assistant !== undefined) {
+      return pair;
+    }
+    const turn = await readTurnRecord(config, manifest, pair.turnId);
+    const safeError = isRecord(turn?.safe_error) ? turn.safe_error : undefined;
+    return safeError?.code === "network_permission_required"
+      ? { ...pair, retryAction: "allow_web_sources" }
+      : pair;
+  }));
+}
+
+function readTerminalTurnStatus(
+  status: unknown,
+): PsychiatristTurnTerminalStatus | undefined {
+  return status === "canceled" || status === "completed" || status === "failed"
+    ? status
+    : undefined;
 }
 
 async function appendPairRevision(

@@ -9,6 +9,7 @@ export interface PsychiatristTranscriptPair {
   replaceAnswerOnNextDelta?: boolean;
   pairId: string;
   process: string[];
+  retryAction?: "allow_web_sources";
   status: PsychiatristThreadPairResponse["status"] | "running";
   turnId: string;
   userPrompt: string;
@@ -22,6 +23,7 @@ export function toPsychiatristTranscriptPairs(
     citations: pair.assistant_response?.source_citations ?? [],
     pairId: pair.pair_id,
     process: [],
+    ...(pair.retry_action === undefined ? {} : { retryAction: pair.retry_action }),
     status: pair.status,
     turnId: pair.turn_id,
     userPrompt: pair.user_prompt.content,

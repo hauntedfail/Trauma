@@ -10,7 +10,10 @@ import {
   type ActivePsychiatristTurnRegistry,
 } from "./active-turns";
 import { appendPsychiatristStreamEvent } from "./stream-store";
-import { markPsychiatristTurnCanceled } from "./thread-store";
+import {
+  loadPsychiatristTurnTerminalStatus,
+  markPsychiatristTurnCanceled,
+} from "./thread-store";
 
 export function createCancelPsychiatristTurnHandler(input: {
   activeTurns?: ActivePsychiatristTurnRegistry;
@@ -44,6 +47,19 @@ export async function handleCancelPsychiatristTurnRequest(
       409,
     );
   }
+  const config = input.config ?? loadRuntimeTraumaConfig();
+  const terminalStatus = await loadPsychiatristTurnTerminalStatus({
+    config,
+    threadId: active.threadId,
+    turnId: active.turnId,
+  });
+  if (terminalStatus !== undefined) {
+    activeTurns.unregister(turnId);
+    return jsonResponse({
+      status: terminalStatus,
+      turn_id: turnId,
+    }, { status: 200 });
+  }
   let interruptFailed = false;
   try {
     await active.client.cancelTurn({
@@ -53,8 +69,7 @@ export async function handleCancelPsychiatristTurnRequest(
   } catch {
     interruptFailed = true;
   }
-  const config = input.config ?? loadRuntimeTraumaConfig();
-  await markPsychiatristTurnCanceled({
+  const cancelStatus = await markPsychiatristTurnCanceled({
     codexThreadId: active.codexThreadId,
     codexTurnId: active.codexTurnId,
     config,
@@ -62,6 +77,13 @@ export async function handleCancelPsychiatristTurnRequest(
     threadId: active.threadId,
     turnId: active.turnId,
   });
+  if (cancelStatus !== "canceled") {
+    activeTurns.unregister(turnId);
+    return jsonResponse({
+      status: cancelStatus,
+      turn_id: turnId,
+    }, { status: 200 });
+  }
   await appendPsychiatristStreamEvent({
     config,
     event: {
