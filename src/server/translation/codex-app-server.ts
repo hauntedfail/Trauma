@@ -375,15 +375,8 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
     input: CodexConversationTurnInput,
   ): Promise<CodexConversationTurnResult> {
     await this.probe();
-    const runtimeCwd = input.threadId === undefined
-      ? await createRuntimeCwd(`${input.cwdPurpose}-${randomBytes(8).toString("hex")}`)
-      : undefined;
-    try {
-      const threadId = input.threadId ?? await this.startEphemeralThread({
-        cwd: runtimeCwd!,
-        onEvent: input.onEvent,
-      });
-
+    let runtimeCwd: string | undefined;
+    const runTextTurn = async (threadId: string): Promise<CodexConversationTurnResult> => {
       let turnId: string | undefined;
       const completed = this.waitForTextTurnCompletion({
         onEvent: input.onEvent,
@@ -440,6 +433,23 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       } finally {
         completed.unsubscribe();
       }
+    };
+    try {
+      if (input.threadId !== undefined) {
+        try {
+          return await runTextTurn(input.threadId);
+        } catch (error) {
+          if (!isReusableCodexThreadUnavailableError(error)) {
+            throw error;
+          }
+        }
+      }
+      runtimeCwd = await createRuntimeCwd(`${input.cwdPurpose}-${randomBytes(8).toString("hex")}`);
+      const threadId = await this.startEphemeralThread({
+        cwd: runtimeCwd,
+        onEvent: input.onEvent,
+      });
+      return await runTextTurn(threadId);
     } finally {
       if (runtimeCwd !== undefined) {
         await removeRuntimeCwd(runtimeCwd);
@@ -1356,7 +1366,17 @@ function readFinalTextOutput(value: unknown): string | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
-  const output = value.output ?? value.finalOutput ?? value.text;
+  if (isAssistantMessageRecord(value)) {
+    const text = readStringField(value, "text") ??
+      readStringField(value, "outputText") ??
+      readStringField(value, "content");
+    if (text !== undefined) {
+      return text;
+    }
+  }
+  const output = isTypedNonAssistantRecord(value)
+    ? undefined
+    : value.output ?? value.finalOutput ?? value.text;
   if (typeof output === "string") {
     return output;
   }
@@ -1392,6 +1412,32 @@ function readFinalTextOutput(value: unknown): string | undefined {
     return value.text;
   }
   return undefined;
+}
+
+function isAssistantMessageRecord(value: Record<string, unknown>): boolean {
+  const type = readStringField(value, "type")?.toLowerCase();
+  const role = readStringField(value, "role")?.toLowerCase();
+  return type === "agentmessage" ||
+    type === "assistant" ||
+    type === "assistant_message" ||
+    (type === "message" && role === "assistant") ||
+    role === "assistant";
+}
+
+function isTypedNonAssistantRecord(value: Record<string, unknown>): boolean {
+  const type = readStringField(value, "type")?.toLowerCase();
+  const role = readStringField(value, "role")?.toLowerCase();
+  if (type === undefined || isAssistantMessageRecord(value)) {
+    return false;
+  }
+  return role !== undefined ||
+    type === "message" ||
+    type.endsWith("message") ||
+    type === "process" ||
+    type === "reasoning" ||
+    type.includes("tool") ||
+    type.includes("function") ||
+    type.includes("command");
 }
 
 function readFinalTextTurnOutput(value: unknown): {
@@ -1885,6 +1931,22 @@ function isOutputSchemaUnsupportedError(error: unknown): boolean {
       normalized,
     )
   );
+}
+
+function isReusableCodexThreadUnavailableError(error: unknown): boolean {
+  if (!(error instanceof CodexAppServerError)) {
+    return false;
+  }
+  const normalized = error.message.toLowerCase();
+  return normalized.includes("thread") &&
+    (
+      normalized.includes("not found") ||
+      normalized.includes("missing") ||
+      normalized.includes("unknown") ||
+      normalized.includes("expired") ||
+      normalized.includes("does not exist") ||
+      normalized.includes("invalid thread")
+    );
 }
 
 function readRequestTimeoutMs(): number {

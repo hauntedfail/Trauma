@@ -159,7 +159,7 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
 
   let searchOffset = 0;
   const starts = rendered.toc.map((entry) => {
-    const startOffset = findHeadingOffset(markdown, entry.text, searchOffset);
+    const startOffset = findHeadingOffset(markdown, entry.level, searchOffset);
     searchOffset = startOffset + 1;
     return { entry, startOffset };
   });
@@ -192,9 +192,8 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
   return sections;
 }
 
-function findHeadingOffset(markdown: string, title: string, minOffset: number): number {
-  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^#{1,6}\\s+${escapedTitle}\\s*$`, "gm");
+function findHeadingOffset(markdown: string, level: number, minOffset: number): number {
+  const pattern = new RegExp(`^#{${level}}\\s+.+$`, "gm");
   for (let match = pattern.exec(markdown); match !== null; match = pattern.exec(markdown)) {
     if (match.index >= minOffset) {
       return match.index;

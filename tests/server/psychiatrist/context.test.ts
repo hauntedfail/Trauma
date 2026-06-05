@@ -189,6 +189,47 @@ describe("Psychiatrist memory context", () => {
     expect(repeated[1]?.startOffset).toBeGreaterThan(repeated[0]?.startOffset ?? 0);
   });
 
+  it("locates headings that contain inline markdown syntax", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-inline-heading-"));
+    const markdown = [
+      "# **Deploy Notes**",
+      "",
+      "Main context.",
+      "",
+      "## [Risks](https://example.com/risks)",
+      "",
+      "Inline link heading body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Deploy Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Deploy Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        markdown: expect.stringContaining("# **Deploy Notes**"),
+        startOffset: 0,
+        title: "Deploy Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## [Risks](https://example.com/risks)"),
+        startOffset: markdown.indexOf("## [Risks]"),
+        title: "Risks",
+      }),
+    ]);
+    expect(context.sections[0]?.markdown).not.toContain("Inline link heading body.");
+    expect(context.sections[1]?.markdown).toContain("Inline link heading body.");
+  });
+
   it("uses current translated CONTENT.md and output hash for translated context", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-ja-"));
     const sourceMarkdown = "# Source\n\nOriginal.";

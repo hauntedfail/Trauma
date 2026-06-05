@@ -581,6 +581,91 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("falls back to a fresh Psychiatrist thread when a stored ephemeral thread is gone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-stale-thread-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Recovered on a fresh thread.",
+      receivedMessages,
+      rejectConversationThreadIdOnce: "thread-expired",
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Continue from local pair history.",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-expired",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Recovered on a fresh thread.",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "turn/start",
+        "thread/start",
+        "turn/start",
+      ]);
+      const turnStarts = receivedMessages.filter((message) => message.method === "turn/start");
+      expect(turnStarts.map((message) =>
+        isRecord(message.params) ? message.params.threadId : undefined
+      )).toEqual(["thread-expired", "thread-1"]);
+      expect(events).toContainEqual({ type: "thread.started", threadId: "thread-1" });
+      await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("uses assistant text instead of later process text in final conversation items", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-final-items-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalItems: [
+        { id: "assistant-1", text: "Assistant answer.", type: "agentMessage" },
+        { id: "process-1", text: "Internal tool output.", type: "process" },
+      ],
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "What is the answer?",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Assistant answer.",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("preserves source citations returned by Psychiatrist conversation turns", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-citations-"));
     tempRoots.push(root);
@@ -1343,6 +1428,20 @@ function handleClientMessage(
         ? value.params.threadId
         : "thread-1";
       if (
+        options.rejectConversationThreadIdOnce !== undefined &&
+        activeThreadId === options.rejectConversationThreadIdOnce
+      ) {
+        options.rejectConversationThreadIdOnce = undefined;
+        sendJson(socket, {
+          id,
+          error: {
+            code: -32004,
+            message: `Thread ${activeThreadId} was not found`,
+          },
+        });
+        break;
+      }
+      if (
         options.rejectOutputSchemaOnce === true &&
         isRecord(value.params) &&
         "outputSchema" in value.params
@@ -1417,6 +1516,17 @@ function handleClientMessage(
         method: "item/agentMessage/delta",
         params: { threadId: activeThreadId, turnId: "turn-1", delta: "翻訳" },
       });
+      if (options.conversationFinalItems !== undefined) {
+        sendJson(socket, {
+          method: "turn/completed",
+          params: {
+            items: options.conversationFinalItems,
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        break;
+      }
       sendJson(socket, {
         method: "item/completed",
         params: {
@@ -1448,12 +1558,14 @@ interface FakeAppServerOptions {
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
   conversationFinalText?: string;
+  conversationFinalItems?: unknown[];
   conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   conversationWebSourceRequired?: boolean;
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
   receivedMessages?: CapturedClientMessage[];
+  rejectConversationThreadIdOnce?: string;
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
   sendCloseBeforeAccountReadResponse?: boolean;
