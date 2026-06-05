@@ -457,6 +457,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(backupEnqueues).toEqual([
       {
         contentPaths: [
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.json`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/PROMPT.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/CONTEXT.json`,

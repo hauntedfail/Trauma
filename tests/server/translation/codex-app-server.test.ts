@@ -641,6 +641,7 @@ describe("Codex app-server endpoint parsing", () => {
     const socketPath = join(root, "app-server.sock");
     const receivedMethods: string[] = [];
     const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalOutput: { text: "Internal final output.", type: "process" },
       conversationFinalItems: [
         { id: "assistant-1", text: "Assistant answer.", type: "agentMessage" },
         { id: "process-1", text: "Internal tool output.", type: "process" },
@@ -1520,6 +1521,9 @@ function handleClientMessage(
         sendJson(socket, {
           method: "turn/completed",
           params: {
+            ...(options.conversationFinalOutput === undefined
+              ? {}
+              : { finalOutput: options.conversationFinalOutput }),
             items: options.conversationFinalItems,
             threadId: activeThreadId,
             turnId: "turn-1",
@@ -1557,6 +1561,7 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  conversationFinalOutput?: unknown;
   conversationFinalText?: string;
   conversationFinalItems?: unknown[];
   conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;

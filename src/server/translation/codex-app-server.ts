@@ -1381,11 +1381,9 @@ function readFinalTextOutput(value: unknown): string | undefined {
     return output;
   }
   if (isRecord(output)) {
-    const text = readStringField(output, "text") ??
-      readStringField(output, "outputText") ??
-      readStringField(output, "content");
-    if (text !== undefined) {
-      return text;
+    const nestedOutput = readFinalTextOutput(output);
+    if (nestedOutput !== undefined) {
+      return nestedOutput;
     }
   }
   if (isRecord(value.turn)) {

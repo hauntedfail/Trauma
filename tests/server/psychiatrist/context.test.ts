@@ -230,6 +230,56 @@ describe("Psychiatrist memory context", () => {
     expect(context.sections[1]?.markdown).toContain("Inline link heading body.");
   });
 
+  it("does not match fenced code hashes as rendered headings", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-code-heading-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "```md",
+      "## Fake",
+      "",
+      "This is example code.",
+      "```",
+      "",
+      "Between code and heading.",
+      "",
+      "## Real",
+      "",
+      "Real body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Fake"),
+        startOffset: 0,
+        title: "Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Real"),
+        startOffset: markdown.indexOf("## Real"),
+        title: "Real",
+      }),
+    ]);
+    expect(context.sections[0]?.markdown).toContain("Between code and heading.");
+    expect(context.sections[0]?.markdown).not.toContain("Real body.");
+    expect(context.sections[1]?.markdown).toContain("Real body.");
+  });
+
   it("uses current translated CONTENT.md and output hash for translated context", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-ja-"));
     const sourceMarkdown = "# Source\n\nOriginal.";

@@ -253,6 +253,16 @@ describe("PsychiatristDock", () => {
     expect(stopErrorIndex).toBeGreaterThan(stopCatchIndex);
   });
 
+  it("surfaces safe messages from streamed answer failures", () => {
+    const streamIndex = dockSource.indexOf("const handleStreamEvent = (event: PsychiatristStreamEvent) =>");
+    const failedIndex = dockSource.indexOf("event.type === \"psychiatrist.answer.failed\"", streamIndex);
+    const errorIndex = dockSource.indexOf("setErrorMessage(getStreamErrorMessage(event.data))", failedIndex);
+
+    expect(streamIndex).toBeGreaterThan(-1);
+    expect(failedIndex).toBeGreaterThan(streamIndex);
+    expect(errorIndex).toBeGreaterThan(failedIndex);
+  });
+
   it("closes EventSource connections on lifecycle cleanup without canceling turns", () => {
     expect(dockSource).toContain("let disconnectPsychiatristStream");
     expect(dockSource).toContain("disconnectPsychiatristStream?.()");
@@ -604,6 +614,47 @@ describe("PsychiatristDock", () => {
     }));
 
     expect(networkRequired[0]).toMatchObject({
+      answer: "Old answer.",
+      status: "completed",
+      turnId: "turn-regenerate",
+    });
+  });
+
+  it("keeps completed regenerate answers visible for normal streamed failures", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Old answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-regenerate",
+        status: "completed",
+        turn_id: "turn-original",
+        user_prompt: {
+          content: "Retry this?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const regenerating = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-regenerate" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.started",
+    }));
+
+    const failed = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: {
+        code: "timeout",
+        message: "Psychiatrist could not finish. Retry when ready.",
+        pair_id: "pair-regenerate",
+        retry_action: "regenerate",
+      },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.answer.failed",
+    }));
+
+    expect(failed[0]).toMatchObject({
       answer: "Old answer.",
       status: "completed",
       turnId: "turn-regenerate",

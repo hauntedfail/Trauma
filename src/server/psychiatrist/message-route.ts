@@ -467,6 +467,7 @@ async function enqueueCompletedAnswerBackup(input: {
 }): Promise<void> {
   await input.backupQueue.enqueue({
     contentPaths: [
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/THREAD.json`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/THREAD.md`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/PROMPT.md`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/CONTEXT.json`,

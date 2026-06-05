@@ -233,6 +233,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     ) {
       setIsRunning(false);
       setRunningTurnId("");
+      if (event.type === "psychiatrist.answer.failed") {
+        setErrorMessage(getStreamErrorMessage(event.data));
+      }
       if (event.type === "psychiatrist.network.permission_required" && retryPrompt !== "") {
         setWebSourceRetryPrompt(retryPrompt);
         setWebSourceRetryPairId(retryPairId);
@@ -432,6 +435,18 @@ function findPromptForStreamEvent(
 
 function readPairId(data: unknown): string | undefined {
   return isRecord(data) && typeof data.pair_id === "string" ? data.pair_id : undefined;
+}
+
+function getStreamErrorMessage(data: unknown): string {
+  if (!isRecord(data) || typeof data.code !== "string") {
+    return "Psychiatrist request failed.";
+  }
+  return getPsychiatristErrorMessage(new PsychiatristRequestError({
+    action: typeof data.action === "string" ? data.action : "retry",
+    code: data.code,
+    message: typeof data.message === "string" ? data.message : "Psychiatrist request failed.",
+    responseStatus: 500,
+  }));
 }
 
 function readRetryAction(data: unknown): string | undefined {

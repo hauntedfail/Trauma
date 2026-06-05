@@ -158,8 +158,14 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
   }
 
   let searchOffset = 0;
+  const fencedCodeRanges = findFencedCodeRanges(markdown);
   const starts = rendered.toc.map((entry) => {
-    const startOffset = findHeadingOffset(markdown, entry.level, searchOffset);
+    const startOffset = findHeadingOffset(
+      markdown,
+      entry.level,
+      searchOffset,
+      fencedCodeRanges,
+    );
     searchOffset = startOffset + 1;
     return { entry, startOffset };
   });
@@ -192,12 +198,83 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
   return sections;
 }
 
-function findHeadingOffset(markdown: string, level: number, minOffset: number): number {
+type MarkdownOffsetRange = {
+  endOffset: number;
+  startOffset: number;
+};
+
+function findHeadingOffset(
+  markdown: string,
+  level: number,
+  minOffset: number,
+  excludedRanges: readonly MarkdownOffsetRange[],
+): number {
   const pattern = new RegExp(`^#{${level}}\\s+.+$`, "gm");
   for (let match = pattern.exec(markdown); match !== null; match = pattern.exec(markdown)) {
-    if (match.index >= minOffset) {
+    if (match.index >= minOffset && !isOffsetInRanges(match.index, excludedRanges)) {
       return match.index;
     }
   }
   return minOffset;
+}
+
+function findFencedCodeRanges(markdown: string): MarkdownOffsetRange[] {
+  const ranges: MarkdownOffsetRange[] = [];
+  let activeFence: { length: number; marker: string; startOffset: number } | undefined;
+  let lineStart = 0;
+
+  while (lineStart < markdown.length) {
+    const newlineIndex = markdown.indexOf("\n", lineStart);
+    const lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
+    const nextLineStart = newlineIndex === -1 ? markdown.length : newlineIndex + 1;
+    const line = markdown.slice(lineStart, lineEnd);
+
+    if (activeFence === undefined) {
+      const fence = readFenceStart(line);
+      if (fence !== undefined) {
+        activeFence = { ...fence, startOffset: lineStart };
+      }
+    } else if (isFenceEnd(line, activeFence)) {
+      ranges.push({
+        endOffset: nextLineStart,
+        startOffset: activeFence.startOffset,
+      });
+      activeFence = undefined;
+    }
+
+    lineStart = nextLineStart;
+  }
+
+  if (activeFence !== undefined) {
+    ranges.push({
+      endOffset: markdown.length,
+      startOffset: activeFence.startOffset,
+    });
+  }
+
+  return ranges;
+}
+
+function readFenceStart(line: string): { length: number; marker: string } | undefined {
+  const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(line);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+  return { length: match[1].length, marker: match[1][0] ?? "" };
+}
+
+function isFenceEnd(
+  line: string,
+  fence: { length: number; marker: string },
+): boolean {
+  const match = /^(?: {0,3})(`{3,}|~{3,})\s*$/.exec(line);
+  return match?.[1]?.startsWith(fence.marker) === true &&
+    match[1].length >= fence.length;
+}
+
+function isOffsetInRanges(
+  offset: number,
+  ranges: readonly MarkdownOffsetRange[],
+): boolean {
+  return ranges.some((range) => offset >= range.startOffset && offset < range.endOffset);
 }
