@@ -778,6 +778,46 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("ignores stale reused-thread notifications until the current turn id is known", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-stale-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Fresh answer.",
+      sendStaleConversationNotificationsBeforeTurnStart: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Follow up",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-1",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Fresh answer.",
+        turnId: "turn-1",
+      });
+
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
+      expect(events).not.toContainEqual({
+        message: "Reading stale context.",
+        type: "process",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("classifies reachable app-server gated-field rejections as protocol errors", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-protocol-"));
     tempRoots.push(root);
@@ -1454,21 +1494,45 @@ function handleClientMessage(
         });
         break;
       }
+      if (options.sendStaleConversationNotificationsBeforeTurnStart === true) {
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "old-turn", delta: "stale delta" },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading stale context.",
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+        sendJson(socket, {
+          method: "turn/completed",
+          params: {
+            item: { text: "Stale answer.", type: "agentMessage" },
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+      }
       sendJson(socket, { id, result: { turnId: "turn-1" } });
       if (options.closeAfterTurnStart === true) {
         socket.end();
         break;
       }
       if (options.sendInterruptedTurnCompletion === true) {
-        sendJson(socket, {
-          method: "turn/completed",
-          params: {
-            reason: "interrupted",
-            status: "interrupted",
-            threadId: activeThreadId,
-            turnId: "turn-1",
-          },
-        });
+        setTimeout(() => {
+          sendJson(socket, {
+            method: "turn/completed",
+            params: {
+              reason: "interrupted",
+              status: "interrupted",
+              threadId: activeThreadId,
+              turnId: "turn-1",
+            },
+          });
+        }, 0);
         break;
       }
       sendJson(socket, {
@@ -1578,6 +1642,7 @@ interface FakeAppServerOptions {
   sendInterruptedTurnCompletion?: boolean;
   sendPingBeforeAccountReadResponse?: boolean;
   sendMalformedJsonAfterInitialize?: boolean;
+  sendStaleConversationNotificationsBeforeTurnStart?: boolean;
 }
 
 interface CapturedClientMessage {

@@ -6,7 +6,9 @@ import type {
 export interface PsychiatristTranscriptPair {
   answer: string;
   citations: Array<{ source_id: string; title: string; url: string }>;
-  replaceAnswerOnNextDelta?: boolean;
+  draftAnswer?: string;
+  draftOriginalTurnId?: string;
+  draftTurnId?: string;
   pairId: string;
   process: string[];
   retryAction?: "allow_web_sources";
@@ -68,11 +70,16 @@ export function applyPsychiatristStreamEvent(
     }
     if (event.type === "psychiatrist.answer.delta") {
       const text = readAnswerText(event.data) ?? "";
-      const nextPair = {
+      if (pair.draftTurnId === event.turnId) {
+        return {
+          ...pair,
+          draftAnswer: `${pair.draftAnswer ?? ""}${text}`,
+        };
+      }
+      return {
         ...pair,
-        answer: pair.replaceAnswerOnNextDelta ? text : `${pair.answer}${text}`,
+        answer: `${pair.answer}${text}`,
       };
-      return withoutAnswerReplacementFlag(nextPair);
     }
     if (
       event.type === "psychiatrist.turn.started" ||
@@ -81,7 +88,7 @@ export function applyPsychiatristStreamEvent(
       return {
         ...pair,
         ...(event.type === "psychiatrist.regenerate.started"
-          ? { replaceAnswerOnNextDelta: true }
+          ? { draftAnswer: "", draftOriginalTurnId: pair.turnId, draftTurnId: event.turnId }
           : {}),
         status: "running",
         turnId: event.turnId,
@@ -92,19 +99,25 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.regenerate.completed"
     ) {
       const answer = readAnswerText(event.data);
-      return withoutAnswerReplacementFlag({
+      const completedRegenerateAnswer = event.type === "psychiatrist.regenerate.completed" &&
+          pair.draftTurnId === event.turnId
+        ? pair.draftAnswer
+        : undefined;
+      return withoutRegenerateDraft({
         ...pair,
-        ...(answer === undefined ? {} : { answer }),
+        ...(answer === undefined && completedRegenerateAnswer === undefined
+          ? {}
+          : { answer: answer ?? completedRegenerateAnswer ?? "" }),
         citations: readSourceCitations(event.data) ?? pair.citations,
         status: "completed",
         turnId: event.turnId,
       });
     }
     if (event.type === "psychiatrist.turn.canceled") {
-      return withoutAnswerReplacementFlag({
+      return withoutRegenerateDraft({
         ...pair,
         status: pair.answer === "" ? "canceled" : "completed",
-        turnId: pair.answer === "" ? event.turnId : pair.turnId,
+        turnId: pair.answer === "" ? event.turnId : pair.draftOriginalTurnId ?? pair.turnId,
       });
     }
     if (
@@ -112,20 +125,27 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.network.permission_required"
     ) {
       const keepCompletedAnswer = readRetryAction(event.data) === "regenerate";
-      return withoutAnswerReplacementFlag({
+      return withoutRegenerateDraft({
         ...pair,
         status: keepCompletedAnswer && pair.answer !== "" ? "completed" : "failed",
-        turnId: keepCompletedAnswer && pair.answer !== "" ? pair.turnId : event.turnId,
+        turnId: keepCompletedAnswer && pair.answer !== ""
+          ? pair.draftOriginalTurnId ?? pair.turnId
+          : event.turnId,
       });
     }
     return pair;
   });
 }
 
-function withoutAnswerReplacementFlag(
+function withoutRegenerateDraft(
   pair: PsychiatristTranscriptPair,
 ): PsychiatristTranscriptPair {
-  const { replaceAnswerOnNextDelta: _replaceAnswerOnNextDelta, ...visiblePair } = pair;
+  const {
+    draftAnswer: _draftAnswer,
+    draftOriginalTurnId: _draftOriginalTurnId,
+    draftTurnId: _draftTurnId,
+    ...visiblePair
+  } = pair;
   return visiblePair;
 }
 

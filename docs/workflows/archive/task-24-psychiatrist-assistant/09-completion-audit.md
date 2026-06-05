@@ -34,6 +34,24 @@ folded back into a new completion audit.
 | Process/status and stream redaction policy | 24.9 cites safe process filtering, but the durable rule is still an implementation-local denylist rather than a file-scoped projection contract with replay tests. | [24.10.7 Process event and stream safety](10-review-driven-contract-hardening/07-process-event-and-stream-safety.md) |
 | Review handoff gate | 24.9 has command evidence but no gate that blocks re-review when duplicate unresolved threads, missing inline replies, or incomplete 24.10 evidence remain. | [24.10.8 Verification and review handoff](10-review-driven-contract-hardening/08-verification-and-review-handoff.md) |
 
+## 24.10 Contract Hardening Evidence
+
+Task 24.10 supersedes the reopened missing rows above with focused
+contract-level fixes. The final PR handoff must still refresh GitHub review
+threads, reply inline, and push the implementation commit, but the local
+implementation evidence is:
+
+| Workflow | Contract Evidence |
+| --- | --- |
+| 24.10.1 | Current PR review state was refreshed before coding; non-outdated unresolved comments mapped to D2, D3, D4, and D5, with D1 and D6 still executed from the hardening plan as preventive contract work. |
+| 24.10.2 | Source citation URL projection now drops all query strings, userinfo, fragments, unsafe schemes, and local/private hosts before citations persist or render. |
+| 24.10.3 | Codex app-server notifications now require an exact known turn id before accepting deltas, process events, completions, or failures; reused-thread stale completions are ignored. |
+| 24.10.4 | Thread terminal transitions are absorbing; completed, failed, and canceled turn records are no longer overwritten by later terminal writes. |
+| 24.10.5 | Regenerate `network_permission_required` state is rehydrated from turn metadata and projected on the completed pair with `retry_action`, `retry_mode: regenerate`, and `retry_turn_id`. |
+| 24.10.6 | Reader transcript state keeps regenerate deltas as draft output until `psychiatrist.regenerate.completed`; failed, stopped, or web-required regenerate turns preserve the prior completed answer. |
+| 24.10.7 | Process stream events are projected before persistence; replay JSONL stores only bounded display text and drops raw nested payloads. |
+| 24.10.8 | Focused 24.10 suites, full test, build, Psychiatrist E2E, and full verify are required before Sawyer finalization and review-thread replies. |
+
 ## Verification Evidence
 
 Fresh verification for the final implementation state:

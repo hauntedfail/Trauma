@@ -330,7 +330,7 @@ export async function markPsychiatristTurnCanceled(input: {
     }
     const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
     const terminalStatus = readTerminalTurnStatus(existingTurn?.status);
-    if (terminalStatus === "completed" || terminalStatus === "canceled") {
+    if (terminalStatus !== undefined) {
       return terminalStatus;
     }
     if (existing.assistant !== undefined && existing.turnId === input.turnId) {
@@ -417,7 +417,7 @@ export async function markPsychiatristTurnCompleted(input: {
       throw error;
     }
   }
-  if (existing.status === "canceled") {
+  if (readTerminalTurnStatus(existing.status) !== undefined) {
     return;
   }
   await writeJsonAtomic(turnPath, {
@@ -466,7 +466,7 @@ export async function markPsychiatristTurnFailed(input: {
       );
     }
     const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-    if (existingTurn?.status === "canceled") {
+    if (readTerminalTurnStatus(existingTurn?.status) !== undefined) {
       return;
     }
     const now = new Date().toISOString();
@@ -523,7 +523,7 @@ export async function markPsychiatristRegenerateFailed(input: {
       );
     }
     const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-    if (existingTurn?.status === "canceled") {
+    if (readTerminalTurnStatus(existingTurn?.status) !== undefined) {
       return;
     }
     await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
@@ -869,16 +869,79 @@ async function hydratePairRetryActions(
   manifest: PsychiatristThreadManifest,
   pairs: PsychiatristThreadPair[],
 ): Promise<PsychiatristThreadPair[]> {
+  const networkRequiredTurns = await readNetworkPermissionRequiredTurns(config, manifest);
   return Promise.all(pairs.map(async (pair) => {
-    if (pair.status !== "failed" || pair.assistant !== undefined) {
+    const retryTurn = networkRequiredTurns
+      .filter((turn) => turn.pairId === pair.pairId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    if (retryTurn === undefined) {
       return pair;
     }
-    const turn = await readTurnRecord(config, manifest, pair.turnId);
-    const safeError = isRecord(turn?.safe_error) ? turn.safe_error : undefined;
-    return safeError?.code === "network_permission_required"
-      ? { ...pair, retryAction: "allow_web_sources" }
-      : pair;
+    if (pair.status === "failed" && pair.assistant === undefined && retryTurn.turnId === pair.turnId) {
+      return {
+        ...pair,
+        retryAction: "allow_web_sources",
+        retryMode: "first_answer",
+        retryTurnId: retryTurn.turnId,
+      };
+    }
+    if (pair.assistant !== undefined && retryTurn.regenerateFromTurnId !== undefined) {
+      return {
+        ...pair,
+        retryAction: "allow_web_sources",
+        retryMode: "regenerate",
+        retryTurnId: retryTurn.turnId,
+      };
+    }
+    return pair;
   }));
+}
+
+async function readNetworkPermissionRequiredTurns(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+): Promise<Array<{
+  pairId: string;
+  regenerateFromTurnId?: string;
+  turnId: string;
+  updatedAt: string;
+}>> {
+  const turnsDirectory = join(threadDirectory(config, manifest), "turns");
+  const glob = new Bun.Glob("*.json");
+  const turns: Array<{
+    pairId: string;
+    regenerateFromTurnId?: string;
+    turnId: string;
+    updatedAt: string;
+  }> = [];
+  try {
+    for await (const relativePath of glob.scan({ cwd: turnsDirectory })) {
+      const raw = JSON.parse(await readFile(join(turnsDirectory, relativePath), "utf8"));
+      if (!isRecord(raw) || raw.status !== "failed" || !isRecord(raw.safe_error)) {
+        continue;
+      }
+      if (raw.safe_error.code !== "network_permission_required") {
+        continue;
+      }
+      const pairId = readOptionalString(raw, "pair_id");
+      const turnId = readOptionalString(raw, "turn_id");
+      if (pairId === undefined || turnId === undefined) {
+        continue;
+      }
+      turns.push({
+        pairId,
+        regenerateFromTurnId: readOptionalString(raw, "regenerate_from_turn_id"),
+        turnId,
+        updatedAt: readOptionalString(raw, "failed_at") ?? readOptionalString(raw, "updated_at") ?? "",
+      });
+    }
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+  return turns;
 }
 
 function readTerminalTurnStatus(

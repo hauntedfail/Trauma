@@ -49,7 +49,7 @@ const PAIR_ID = "019e8a00-0000-7000-8000-000000000002";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 
 describe("Psychiatrist thread store mutation locking", () => {
-  it("keeps Stop as the terminal state when failure races with cancellation", async () => {
+  it("keeps the first terminal state when failure races with cancellation", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-fail-stop-race-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -95,7 +95,7 @@ describe("Psychiatrist thread store mutation locking", () => {
     });
     expect(loaded.pairs[0]).toMatchObject({
       pairId: PAIR_ID,
-      status: "canceled",
+      status: "failed",
       turnId: TURN_ID,
     });
     expect(loaded.pairs[0]?.assistant).toBeUndefined();
@@ -106,10 +106,10 @@ describe("Psychiatrist thread store mutation locking", () => {
     expect(turnRecord).toMatchObject({
       safe_error: {
         action: "retry",
-        code: "turn_stopped",
-        message: "Psychiatrist turn was stopped.",
+        code: "codex_failed",
+        message: "Codex failed.",
       },
-      status: "canceled",
+      status: "failed",
       turn_id: TURN_ID,
     });
   });

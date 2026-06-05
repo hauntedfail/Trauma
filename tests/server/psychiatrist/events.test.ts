@@ -174,6 +174,37 @@ describe("Psychiatrist stream store", () => {
     expect(jsonl).not.toContain("sk-live");
   });
 
+  it("projects process events before persistence instead of storing raw payloads", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-project-"));
+
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: {
+          raw: {
+            referencePath: "/Users/example/.codex/auth.json",
+            referenceLabel: "placeholder-token",
+          },
+          text: "Searching trusted sources.",
+        },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.process.delta",
+      },
+    });
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay).toHaveLength(1);
+    expect(replay[0]?.data).toEqual({ text: "Searching trusted sources." });
+    expect(JSON.stringify(replay)).not.toContain("referencePath");
+    expect(JSON.stringify(replay)).not.toContain("sk-live");
+  });
+
   it("replays persisted SSE events after the requested event id", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-"));
     await appendPsychiatristStreamEvent({

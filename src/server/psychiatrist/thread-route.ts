@@ -226,6 +226,8 @@ function toThreadResponse(input: {
     pairs: input.pairs.map((pair) => ({
       pair_id: pair.pairId,
       ...(pair.retryAction === undefined ? {} : { retry_action: pair.retryAction }),
+      ...(pair.retryMode === undefined ? {} : { retry_mode: pair.retryMode }),
+      ...(pair.retryTurnId === undefined ? {} : { retry_turn_id: pair.retryTurnId }),
       status: pair.status,
       turn_id: pair.turnId,
       user_prompt: {

@@ -1907,6 +1907,9 @@ describe("Psychiatrist thread API routes", () => {
     const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     expect(loaded.pairs[0]).toMatchObject({
       assistant: expect.objectContaining({ content: "Original answer." }),
+      retryAction: "allow_web_sources",
+      retryMode: "regenerate",
+      retryTurnId: regenerateTurnId,
       status: "completed",
       turnId: TURN_ID,
     });

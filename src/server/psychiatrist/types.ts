@@ -42,6 +42,8 @@ export interface PsychiatristThreadPair {
   assistant?: PsychiatristPairAssistant;
   pairId: string;
   retryAction?: "allow_web_sources";
+  retryMode?: "first_answer" | "regenerate";
+  retryTurnId?: string;
   status: "pending" | "completed" | "failed" | "canceled" | "stale";
   turnId: string;
   user: PsychiatristPairUser;

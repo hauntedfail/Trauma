@@ -2,16 +2,7 @@ import type { PsychiatristSourceCitation } from "./types";
 
 const MAX_CITATIONS = 8;
 const MAX_TITLE_CHARS = 160;
-const SENSITIVE_QUERY_KEY_TOKENS = new Set([
-  "auth",
-  "credential",
-  "key",
-  "password",
-  "secret",
-  "sig",
-  "signature",
-  "token",
-]);
+const MAX_URL_CHARS = 2048;
 
 export function sanitizePsychiatristSourceCitations(
   citations: readonly PsychiatristSourceCitation[] | undefined,
@@ -47,22 +38,60 @@ function sanitizeSourceUrl(value: string): string | undefined {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return undefined;
   }
+  if (isUnsafeCitationHost(url.hostname)) {
+    return undefined;
+  }
   url.username = "";
   url.password = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (isSensitiveQueryKey(key)) {
-      url.searchParams.delete(key);
-    }
-  }
+  url.search = "";
   url.hash = "";
-  return url.toString();
+  const projected = url.toString();
+  return projected.length > MAX_URL_CHARS ? undefined : projected;
 }
 
-function isSensitiveQueryKey(key: string): boolean {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .split(/[^A-Za-z0-9]+/)
-    .some((token) => SENSITIVE_QUERY_KEY_TOKENS.has(token.toLowerCase()));
+function isUnsafeCitationHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (host === "" || host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+  const ipv4 = parseIpv4(host);
+  if (ipv4 !== undefined) {
+    const [a, b] = ipv4;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+  const ipv6 = host.replace(/^\[/, "").replace(/\]$/, "");
+  return ipv6 === "::1" ||
+    ipv6.startsWith("fc") ||
+    ipv6.startsWith("fd") ||
+    ipv6.startsWith("fe8") ||
+    ipv6.startsWith("fe9") ||
+    ipv6.startsWith("fea") ||
+    ipv6.startsWith("feb");
+}
+
+function parseIpv4(host: string): [number, number, number, number] | undefined {
+  const parts = host.split(".");
+  if (parts.length !== 4) {
+    return undefined;
+  }
+  const octets = parts.map((part) => {
+    if (!/^\d+$/.test(part)) {
+      return Number.NaN;
+    }
+    return Number(part);
+  });
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return undefined;
+  }
+  return octets as [number, number, number, number];
 }
 
 function sanitizeSourceTitle(value: string): string {

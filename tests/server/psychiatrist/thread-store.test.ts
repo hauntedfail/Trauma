@@ -12,6 +12,7 @@ import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
   loadPsychiatristThread,
+  markPsychiatristRegenerateFailed,
   markPsychiatristTurnCanceled,
   markPsychiatristTurnCompleted,
   markPsychiatristTurnFailed,
@@ -323,6 +324,54 @@ describe("Psychiatrist thread store", () => {
     });
   });
 
+  it("does not overwrite failed turns when Stop arrives after failure", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-failed-stop-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "Needs current sources?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await expect(
+      markPsychiatristTurnCanceled({
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      }),
+    ).resolves.toBe("failed");
+
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      safe_error: { code: "network_permission_required" },
+      status: "failed",
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      retryAction: "allow_web_sources",
+      status: "failed",
+    });
+  });
+
   it("rejects late assistant completions for canceled message turns", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-"));
     await createPsychiatristThread({
@@ -443,6 +492,57 @@ describe("Psychiatrist thread store", () => {
         "utf8",
       ),
     ).resolves.toBe("Original answer.");
+  });
+
+  it("does not overwrite canceled regenerate turns when failure arrives late", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-regenerate-fail-"));
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCanceled({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+
+    await markPsychiatristRegenerateFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "codex_failed",
+        message: "Codex failed.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${regenerateTurnId}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      safe_error: { code: "turn_stopped" },
+      status: "canceled",
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]?.assistant?.content).toBe("Original answer.");
   });
 
   it("rejects assistant responses without a matching pending pair", async () => {

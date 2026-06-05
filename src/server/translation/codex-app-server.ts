@@ -380,6 +380,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       let turnId: string | undefined;
       const completed = this.waitForTextTurnCompletion({
         onEvent: input.onEvent,
+        recordTurnId: (startedTurnId) => {
+          turnId = startedTurnId;
+        },
         threadId,
         turnId: () => turnId,
       });
@@ -506,6 +509,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       let turnId: string | undefined;
       const completed = this.waitForTurnCompletion({
         onEvent: input.onEvent,
+        recordTurnId: (startedTurnId) => {
+          turnId = startedTurnId;
+        },
         threadId,
         turnId: () => turnId,
       });
@@ -683,6 +689,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
 
   private waitForTurnCompletion(input: {
     onEvent?: (event: CodexAppServerEvent) => void;
+    recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
   }): { output: Promise<RawCodexChunkOutput>; unsubscribe: () => void } {
@@ -729,6 +736,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             readNotificationThreadId(message.params) === input.threadId &&
             startedTurnId !== undefined
           ) {
+            input.recordTurnId(startedTurnId);
             input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
           }
           return;
@@ -808,6 +816,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
 
   private waitForTextTurnCompletion(input: {
     onEvent?: (event: CodexAppServerEvent) => void;
+    recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
   }): {
@@ -871,6 +880,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             readNotificationThreadId(message.params) === input.threadId &&
             startedTurnId !== undefined
           ) {
+            input.recordTurnId(startedTurnId);
             input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
           }
           return;
@@ -1758,9 +1768,7 @@ function matchesTurnNotification(
   }
   const expectedTurnId = input.turnId();
   const actualTurnId = readNotificationTurnId(params);
-  return expectedTurnId === undefined ||
-    actualTurnId === undefined ||
-    actualTurnId === expectedTurnId;
+  return expectedTurnId !== undefined && actualTurnId === expectedTurnId;
 }
 
 function isTurnInterruptedCompletion(params: unknown): boolean {

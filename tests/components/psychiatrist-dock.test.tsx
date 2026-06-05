@@ -485,7 +485,7 @@ describe("PsychiatristDock", () => {
     ]);
   });
 
-  it("keeps regenerate in the same pair and replaces the visible answer on first delta", () => {
+  it("keeps regenerate draft separate until completion", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
         assistant_response: {
@@ -516,8 +516,11 @@ describe("PsychiatristDock", () => {
 
     expect(withAnswer).toEqual([
       {
-        answer: "New answer.",
+        answer: "Old answer.",
         citations: [],
+        draftAnswer: "New answer.",
+        draftOriginalTurnId: "turn-reader",
+        draftTurnId: "turn-regenerate",
         pairId: "pair-reader",
         process: [],
         status: "running",
@@ -648,8 +651,13 @@ describe("PsychiatristDock", () => {
       turnId: "turn-regenerate",
       type: "psychiatrist.regenerate.started",
     }));
+    const withDelta = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: { text: "Partial replacement." },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.answer.delta",
+    }));
 
-    const networkRequired = applyPsychiatristStreamEvent(regenerating, streamEvent({
+    const networkRequired = applyPsychiatristStreamEvent(withDelta, streamEvent({
       data: {
         code: "network_permission_required",
         message: "Allow web-source access to answer this request.",
@@ -663,8 +671,9 @@ describe("PsychiatristDock", () => {
     expect(networkRequired[0]).toMatchObject({
       answer: "Old answer.",
       status: "completed",
-      turnId: "turn-regenerate",
+      turnId: "turn-original",
     });
+    expect(networkRequired[0]).not.toHaveProperty("draftAnswer");
   });
 
   it("keeps completed regenerate answers visible for normal streamed failures", () => {
@@ -689,8 +698,13 @@ describe("PsychiatristDock", () => {
       turnId: "turn-regenerate",
       type: "psychiatrist.regenerate.started",
     }));
+    const withDelta = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: { text: "Partial replacement." },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.answer.delta",
+    }));
 
-    const failed = applyPsychiatristStreamEvent(regenerating, streamEvent({
+    const failed = applyPsychiatristStreamEvent(withDelta, streamEvent({
       data: {
         code: "timeout",
         message: "Psychiatrist could not finish. Retry when ready.",
@@ -704,8 +718,9 @@ describe("PsychiatristDock", () => {
     expect(failed[0]).toMatchObject({
       answer: "Old answer.",
       status: "completed",
-      turnId: "turn-regenerate",
+      turnId: "turn-original",
     });
+    expect(failed[0]).not.toHaveProperty("draftAnswer");
   });
 });
 

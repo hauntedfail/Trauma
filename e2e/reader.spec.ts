@@ -342,6 +342,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   await installFakeEventSource(page);
   await page.getByRole("button", { name: "Open Psychiatrist" }).click();
   await expect(page.getByText("Original answer from stored context.")).toBeVisible();
+  await expect.poll(() => mock.threadRequests).toBeGreaterThan(0);
 
   await page.getByRole("button", { name: "Regenerate" }).click();
   await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
@@ -457,6 +458,7 @@ interface PsychiatristMockState {
     response_path: string;
     thread_id: string;
   };
+  threadRequests: number;
 }
 
 interface PsychiatristPairFixture {
@@ -494,11 +496,13 @@ async function installPsychiatristMock(
     regenerateRequests: [],
     stopNextRegenerate: false,
     startedRequests: [],
+    threadRequests: 0,
   };
   let activeTurn: { pair_id: string; turn_id: string } | null = null;
   let pairs = [...(input.initialPairs ?? [])];
 
   await page.route(`**/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`, async (route) => {
+    state.threadRequests += 1;
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

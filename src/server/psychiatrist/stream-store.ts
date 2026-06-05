@@ -19,17 +19,18 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   event: PsychiatristStreamEventInput<TData>;
 }): Promise<PsychiatristStreamEvent<TData> | undefined> {
-  if (!isSafeStreamEvent(input.event)) {
+  const projectedInput = projectSafeStreamEvent(input.event);
+  if (projectedInput === undefined) {
     return undefined;
   }
-  const path = streamPath(input.config, input.event);
+  const path = streamPath(input.config, projectedInput);
   let written: PsychiatristStreamEvent<TData> | undefined;
   const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
   const next = previous.then(async () => {
     const eventNumber = nextEventNumbersByPath.get(path) ??
       await countExistingStreamEvents(path) + 1;
     const event = {
-      ...input.event,
+      ...projectedInput,
       eventId: String(eventNumber).padStart(12, "0"),
       timestamp: Date.now(),
     } satisfies PsychiatristStreamEvent<TData>;
@@ -156,16 +157,18 @@ async function countExistingStreamEvents(path: string): Promise<number> {
     : content.split("\n").length;
 }
 
-function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {
+function projectSafeStreamEvent<TData>(
+  event: PsychiatristStreamEventInput<TData>,
+): PsychiatristStreamEventInput<TData> | undefined {
   if (event.type !== "psychiatrist.process.delta") {
-    return true;
+    return event;
   }
   const text = readProcessText(event.data);
   if (text === undefined) {
-    return false;
+    return undefined;
   }
   const normalized = text.toLowerCase();
-  return !(
+  if (
     normalized.includes("chain-of-thought") ||
     normalized.includes("chain of thought") ||
     normalized.includes("hidden reasoning") ||
@@ -173,7 +176,13 @@ function isSafeStreamEvent(event: PsychiatristStreamEventInput): boolean {
     containsSensitiveProcessText(text) ||
     normalized.includes("credential") ||
     normalized.includes("token")
-  );
+  ) {
+    return undefined;
+  }
+  return {
+    ...event,
+    data: { text } as TData,
+  };
 }
 
 function containsSensitiveProcessText(value: string): boolean {
