@@ -187,6 +187,20 @@ Out of scope for this branch:
 | 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Add the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary. |
 | 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
 | 24.9 | [Completion audit](09-completion-audit.md) | M | Map the workflow exec-plan to current implementation evidence and confirm no missing requirements remain. |
+| 24.10 | [Review-driven contract hardening](10-review-driven-contract-hardening/README.md) | XL | Reopen the completion audit after PR review, deduplicate repeated feedback, and repair the file-scoped contracts behind the fragile fixes. |
+
+## 24.10 Reopened Audit
+
+24.9 is historical evidence for the implementation state that existed when that
+audit was written. Later PR review found unresolved correctness and security
+contract gaps, so completion must proceed through the 24.10 index instead of
+adding ad hoc patches to this parent file.
+
+The 24.10 parent is intentionally an index. Each child workflow owns the
+smallest practical file set, names the implementation method, names the tests
+that must fail first, and states when the work should split again before coding.
+Implementation agents should read only this parent, the 24.10 index, their
+assigned child workflow, and the target files named by that child workflow.
 
 ## Implementation Rules
 

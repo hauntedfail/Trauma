@@ -8,7 +8,31 @@ Status values follow the Task 24 completion rules:
 - `Mapped`: the plan named a likely file, but the implemented coverage lives in
   another focused file named below.
 - `Missing`: no current evidence proves the requirement. This audit has no
-  `Missing` rows.
+  `Missing` rows for the historical implementation state audited below.
+
+## Current Status
+
+This file is no longer final completion evidence for Task 24. It is retained as
+the historical 24.9 audit, but PR review after that audit reopened Task 24 with
+unresolved contract gaps. The current canonical remediation workflow is
+[24.10 Review-driven contract hardening](10-review-driven-contract-hardening/README.md).
+
+The reopened work must not treat the rows below as sufficient proof. Before any
+new implementation claims completion, 24.10 must be executed, verified, and
+folded back into a new completion audit.
+
+## Reopened Missing Matrix
+
+| Gap | Why 24.9 Is Insufficient | Required 24.10 Workflow |
+| --- | --- | --- |
+| Review duplicates and stale closure claims | This audit claims no missing rows, while later review contains duplicate and still-open correctness threads. The workflow did not require a review-thread dedupe pass before more fixes. | [24.10.1 Review history and audit reset](10-review-driven-contract-hardening/01-review-history-and-audit-reset.md) |
+| Source citation URL sanitization | 24.9 records web-source metadata as satisfied but does not define the URL projection rule. Token-by-token query stripping is too fragile for signed URLs and credential-bearing citation links. | [24.10.2 Source citation URL policy](10-review-driven-contract-hardening/02-source-citation-url-policy.md) |
+| Codex turn notification identity | 24.9 accepts generic app-server tests as sufficient, but later review found that reused-thread text completions can be accepted without a known matching turn id. | [24.10.3 Codex turn identity](10-review-driven-contract-hardening/03-codex-turn-identity.md) |
+| Terminal state precedence | 24.9 says Stop and failure behavior are satisfied, but the implementation and tests still allow terminal-state races to obscure the first terminal outcome. | [24.10.4 Thread terminal state machine](10-review-driven-contract-hardening/04-thread-terminal-state-machine.md) |
+| Regenerate web-approval reload projection | 24.9 proves first-load web-source handling but does not require durable retry metadata for a regenerate turn that needs web approval after reload. | [24.10.5 Regenerate server retry projection](10-review-driven-contract-hardening/05-regenerate-server-retry-projection.md) |
+| Regenerate transcript draft handling | 24.9 records first-delta replacement as success, but later review shows partial regenerate output can replace the old answer before the regenerate turn is terminal. | [24.10.6 Reader transcript regenerate draft](10-review-driven-contract-hardening/06-reader-transcript-regenerate-draft.md) |
+| Process/status and stream redaction policy | 24.9 cites safe process filtering, but the durable rule is still an implementation-local denylist rather than a file-scoped projection contract with replay tests. | [24.10.7 Process event and stream safety](10-review-driven-contract-hardening/07-process-event-and-stream-safety.md) |
+| Review handoff gate | 24.9 has command evidence but no gate that blocks re-review when duplicate unresolved threads, missing inline replies, or incomplete 24.10 evidence remain. | [24.10.8 Verification and review handoff](10-review-driven-contract-hardening/08-verification-and-review-handoff.md) |
 
 ## Verification Evidence
 
@@ -95,7 +119,8 @@ Final pushed commit for the stopped-Regenerate fix and audit-plan clarification:
 
 ## Conclusion
 
-Based on the current workflow exec-plan, implementation files, focused tests,
-E2E tests, documentation, and pushed commit state, there are no known
-unimplemented or missing Task 24 requirements. Any future scope change must add
-a new workflow row instead of treating it as an implicit Task 24 omission.
+This conclusion is historical only. It described the state at the time of the
+24.9 audit and is superseded by the reopened missing matrix above.
+
+Task 24 must not be described as complete again until 24.10 has been executed,
+verified, and summarized in a new audit row or successor audit document.
