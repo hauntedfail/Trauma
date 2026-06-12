@@ -1,3 +1,5 @@
+import ipaddr from "ipaddr.js";
+
 import type { PsychiatristSourceCitation } from "./types";
 
 const MAX_CITATIONS = 8;
@@ -54,44 +56,17 @@ function isUnsafeCitationHost(hostname: string): boolean {
   if (host === "" || host === "localhost" || host.endsWith(".localhost")) {
     return true;
   }
-  const ipv4 = parseIpv4(host);
-  if (ipv4 !== undefined) {
-    const [a, b] = ipv4;
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
-  const ipv6 = host.replace(/^\[/, "").replace(/\]$/, "");
-  return ipv6 === "::1" ||
-    ipv6.startsWith("fc") ||
-    ipv6.startsWith("fd") ||
-    ipv6.startsWith("fe8") ||
-    ipv6.startsWith("fe9") ||
-    ipv6.startsWith("fea") ||
-    ipv6.startsWith("feb");
+  const address = parseIpAddress(host);
+  return address === undefined ? false : address.range() !== "unicast";
 }
 
-function parseIpv4(host: string): [number, number, number, number] | undefined {
-  const parts = host.split(".");
-  if (parts.length !== 4) {
+function parseIpAddress(host: string): ReturnType<typeof ipaddr.process> | undefined {
+  const candidate = host.replace(/^\[/, "").replace(/\]$/, "");
+  try {
+    return ipaddr.process(candidate);
+  } catch {
     return undefined;
   }
-  const octets = parts.map((part) => {
-    if (!/^\d+$/.test(part)) {
-      return Number.NaN;
-    }
-    return Number(part);
-  });
-  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
-    return undefined;
-  }
-  return octets as [number, number, number, number];
 }
 
 function sanitizeSourceTitle(value: string): string {

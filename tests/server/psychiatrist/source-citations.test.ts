@@ -79,4 +79,33 @@ describe("sanitizePsychiatristSourceCitations", () => {
       { sourceId: "6", title: "bad", url: "not a url" },
     ])).toEqual([]);
   });
+
+  it("rejects local and private IPv6 citation hosts including IPv4-mapped forms", () => {
+    expect(sanitizePsychiatristSourceCitations([
+      { sourceId: "1", title: "mapped loopback", url: "http://[::ffff:127.0.0.1]/a" },
+      { sourceId: "2", title: "mapped private", url: "http://[::ffff:10.0.0.5]/a" },
+      { sourceId: "3", title: "mapped private hex", url: "http://[::ffff:c0a8:101]/a" },
+      { sourceId: "4", title: "ipv6 loopback", url: "http://[::1]/a" },
+      { sourceId: "5", title: "ipv6 unique local", url: "http://[fc00::1]/a" },
+      { sourceId: "6", title: "ipv6 link local", url: "http://[fe80::1]/a" },
+    ])).toEqual([]);
+  });
+
+  it("keeps public IP citation hosts after URL projection", () => {
+    expect(sanitizePsychiatristSourceCitations([
+      { sourceId: "1", title: "public ipv4", url: "http://8.8.8.8/a?sig=secret#frag" },
+      { sourceId: "2", title: "public ipv6", url: "https://[2001:4860:4860::8888]/dns?token=x" },
+    ])).toEqual([
+      {
+        sourceId: "source-1",
+        title: "public ipv4",
+        url: "http://8.8.8.8/a",
+      },
+      {
+        sourceId: "source-2",
+        title: "public ipv6",
+        url: "https://[2001:4860:4860::8888]/dns",
+      },
+    ]);
+  });
 });

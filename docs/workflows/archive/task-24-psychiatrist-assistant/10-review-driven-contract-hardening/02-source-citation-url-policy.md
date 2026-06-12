@@ -11,6 +11,8 @@ must define what is preserved, not just which tokens are removed.
 
 - Modify: `src/server/psychiatrist/source-citations.ts`
 - Modify: `tests/server/psychiatrist/source-citations.test.ts`
+- Modify: `package.json`
+- Modify: `bun.lock`
 
 If the implementation needs shared host policy helpers, split this workflow
 before coding and create a child plan for that helper and its tests.
@@ -33,10 +35,14 @@ tests:
 3. Reject local, loopback, private, link-local, and empty hosts. This includes
    `localhost`, `.localhost`, IPv4 private ranges, IPv6 loopback/private
    equivalents, and hostless URLs.
-4. Clear `username`, `password`, `hash`, and the entire query string.
-5. Normalize the remaining URL through the URL API before returning it.
-6. Reject URLs whose normalized string exceeds the citation URL length limit.
-7. Return `undefined` for invalid, rejected, or non-URL input.
+4. Use `ipaddr.js` for IP literal parsing and range classification. Do not
+   implement IP validation with string prefix checks.
+5. Normalize IPv4-mapped IPv6 literals before range checks so values such as
+   `::ffff:127.0.0.1` and `::ffff:7f00:1` are rejected as loopback.
+6. Clear `username`, `password`, `hash`, and the entire query string.
+7. Normalize the remaining URL through the URL API before returning it.
+8. Reject URLs whose normalized string exceeds the citation URL length limit.
+9. Return `undefined` for invalid, rejected, or non-URL input.
 
 The default rule is to drop all query parameters. If a future product need
 requires safe query preservation, that must be a separate allowlist with tests
@@ -55,9 +61,15 @@ Add failing tests before implementation for these cases:
 | `https://localhost/a` | rejected |
 | `http://127.0.0.1/a` | rejected |
 | `http://10.0.0.5/a` | rejected |
+| `http://[::ffff:127.0.0.1]/a` | rejected |
+| `http://[::ffff:7f00:1]/a` | rejected |
+| `http://[fc00::1]/a` | rejected |
+| `http://[fe80::1]/a` | rejected |
 | `file:///tmp/a` | rejected |
 | `javascript:alert(1)` | rejected |
 | malformed text | rejected |
+| `http://8.8.8.8/a?sig=abc` | `http://8.8.8.8/a` |
+| `https://[2001:4860:4860::8888]/dns?token=x` | `https://[2001:4860:4860::8888]/dns` |
 
 Also add an extraction-level test proving that a citation returned from Codex
 with a signed URL is persisted only as the projected URL.
@@ -70,6 +82,8 @@ with a signed URL is persisted only as the projected URL.
 - Do not add network calls to validate source URLs.
 - Do not rely on regular expressions for URL parsing when the URL API can parse
   the candidate.
+- Do not use Zod for this boundary. Zod's IP validators are syntax validators;
+  this boundary requires public-host range classification.
 
 ## Verification
 
