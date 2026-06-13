@@ -545,6 +545,72 @@ describe("Psychiatrist thread store", () => {
     expect(loaded.pairs[0]?.assistant?.content).toBe("Original answer.");
   });
 
+  it("does not rehydrate obsolete regenerate web-source retries after a later regenerate succeeds", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-obsolete-regenerate-retry-"));
+    const deniedRegenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    const approvedRegenerateTurnId = "019e8a00-0000-7000-8000-000000000006";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristRegenerateFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: deniedRegenerateTurnId,
+    });
+
+    await expect(loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID })).resolves.toMatchObject({
+      pairs: [
+        expect.objectContaining({
+          assistant: expect.objectContaining({ content: "Original answer." }),
+          retryAction: "allow_web_sources",
+          retryMode: "regenerate",
+          retryTurnId: deniedRegenerateTurnId,
+          status: "completed",
+          turnId: TURN_ID,
+        }),
+      ],
+    });
+
+    await appendRegeneratedAssistantResponse({
+      assistantResponse: "Approved regenerated answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: approvedRegenerateTurnId,
+      webSourcePolicy: { allowed: true, reason: "user_approved_for_turn" },
+    });
+
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      assistant: expect.objectContaining({ content: "Approved regenerated answer." }),
+      status: "completed",
+      turnId: approvedRegenerateTurnId,
+    });
+    expect(loaded.pairs[0]).not.toHaveProperty("retryAction");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryMode");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryTurnId");
+  });
+
   it("rejects assistant responses without a matching pending pair", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-orphan-"));
     await createPsychiatristThread({

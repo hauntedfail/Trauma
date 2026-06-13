@@ -885,7 +885,11 @@ async function hydratePairRetryActions(
         retryTurnId: retryTurn.turnId,
       };
     }
-    if (pair.assistant !== undefined && retryTurn.regenerateFromTurnId !== undefined) {
+    if (
+      pair.assistant !== undefined &&
+      retryTurn.regenerateFromTurnId !== undefined &&
+      retryTurn.regenerateFromTurnId === pair.turnId
+    ) {
       return {
         ...pair,
         retryAction: "allow_web_sources",

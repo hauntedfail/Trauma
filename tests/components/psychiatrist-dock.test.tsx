@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
-import { PsychiatristDock } from "../../src/components/reader/PsychiatristDock";
+import {
+  findPersistedWebSourceRetryPair,
+  PsychiatristDock,
+} from "../../src/components/reader/PsychiatristDock";
 import {
   cancelPsychiatristTurn,
   createPsychiatristThread,
@@ -59,11 +62,33 @@ describe("PsychiatristDock", () => {
     expect(dockSource).not.toContain("localStorage");
   });
 
-  it("restores web-source approval controls for persisted failed turns", () => {
+  it("restores web-source approval controls for persisted retry turns", () => {
     expect(dockSource).toContain("findPersistedWebSourceRetryPair");
-    expect(dockSource).toContain("pair.retryAction === \"allow_web_sources\"");
+    expect(dockSource).toContain("pair?.retryAction === \"allow_web_sources\"");
     expect(dockSource).toContain("setWebSourceRetryPrompt(retryPair.userPrompt)");
     expect(dockSource).toContain("setWebSourceRetryPairId(retryPair.pairId)");
+  });
+
+  it("discovers persisted regenerate web-source retries on completed pairs", () => {
+    const retryPair = findPersistedWebSourceRetryPair([
+      {
+        answer: "Completed answer.",
+        citations: [],
+        pairId: "pair-regenerate",
+        process: [],
+        retryAction: "allow_web_sources",
+        status: "completed",
+        turnId: "turn-original",
+        userPrompt: "Need current source?",
+      },
+    ]);
+
+    expect(retryPair).toMatchObject({
+      pairId: "pair-regenerate",
+      retryAction: "allow_web_sources",
+      status: "completed",
+      userPrompt: "Need current source?",
+    });
   });
 
   it("clears stale running state when a reloaded thread has no active turn", () => {
@@ -421,6 +446,8 @@ describe("PsychiatristDock", () => {
         assistant_response: undefined,
         pair_id: "pair-network",
         retry_action: "allow_web_sources",
+        retry_mode: "first_answer",
+        retry_turn_id: "turn-network",
         status: "failed",
         turn_id: "turn-network",
         user_prompt: {
@@ -433,6 +460,8 @@ describe("PsychiatristDock", () => {
     expect(transcript[0]).toMatchObject({
       pairId: "pair-network",
       retryAction: "allow_web_sources",
+      retryMode: "first_answer",
+      retryTurnId: "turn-network",
       status: "failed",
       turnId: "turn-network",
       userPrompt: "Need current source?",
@@ -662,7 +691,9 @@ describe("PsychiatristDock", () => {
         code: "network_permission_required",
         message: "Allow web-source access to answer this request.",
         pair_id: "pair-regenerate",
-        retry_action: "regenerate",
+        retry_action: "allow_web_sources",
+        retry_mode: "regenerate",
+        retry_turn_id: "turn-regenerate",
       },
       turnId: "turn-regenerate",
       type: "psychiatrist.network.permission_required",
@@ -709,7 +740,7 @@ describe("PsychiatristDock", () => {
         code: "timeout",
         message: "Psychiatrist could not finish. Retry when ready.",
         pair_id: "pair-regenerate",
-        retry_action: "regenerate",
+        retry_mode: "regenerate",
       },
       turnId: "turn-regenerate",
       type: "psychiatrist.answer.failed",

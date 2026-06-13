@@ -491,12 +491,12 @@ function findPromptForStreamEvent(
   return pair?.userPrompt ?? "";
 }
 
-function findPersistedWebSourceRetryPair(
+export function findPersistedWebSourceRetryPair(
   pairs: readonly PsychiatristTranscriptPair[],
 ): PsychiatristTranscriptPair | undefined {
   for (let index = pairs.length - 1; index >= 0; index -= 1) {
     const pair = pairs[index];
-    if (pair?.status === "failed" && pair.retryAction === "allow_web_sources") {
+    if (pair?.retryAction === "allow_web_sources") {
       return pair;
     }
   }

@@ -608,6 +608,8 @@ describe("Psychiatrist thread API routes", () => {
       expect.objectContaining({
         pairId: PAIR_ID,
         retryAction: "allow_web_sources",
+        retryMode: "first_answer",
+        retryTurnId: TURN_ID,
         status: "failed",
         turnId: TURN_ID,
       }),
@@ -627,6 +629,8 @@ describe("Psychiatrist thread API routes", () => {
         {
           pair_id: PAIR_ID,
           retry_action: "allow_web_sources",
+          retry_mode: "first_answer",
+          retry_turn_id: TURN_ID,
           status: "failed",
           turn_id: TURN_ID,
         },
@@ -643,6 +647,9 @@ describe("Psychiatrist thread API routes", () => {
           code: "network_permission_required",
           message: "Allow web-source access to answer this request.",
           pair_id: PAIR_ID,
+          retry_action: "allow_web_sources",
+          retry_mode: "first_answer",
+          retry_turn_id: TURN_ID,
         }),
         type: "psychiatrist.network.permission_required",
       }),
@@ -1929,12 +1936,53 @@ describe("Psychiatrist thread API routes", () => {
         data: expect.objectContaining({
           code: "network_permission_required",
           pair_id: PAIR_ID,
-          retry_action: "regenerate",
+          retry_action: "allow_web_sources",
+          retry_mode: "regenerate",
+          retry_turn_id: regenerateTurnId,
           user_prompt: "Need current source?",
         }),
         type: "psychiatrist.network.permission_required",
       }),
     );
+
+    const approvedRegenerateTurnId = EXTRA_TURN_IDS[1]!;
+    const approvedRegenerateClient = new FakeConversationClient("Approved regenerated answer.");
+    const approvedRegenerateHandler = createRegeneratePsychiatristResponseHandler({
+      client: approvedRegenerateClient,
+      config: config(storePath),
+      generateId: createIdGenerator([approvedRegenerateTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const approvedResponse = await approvedRegenerateHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(approvedResponse.status).toBe(202);
+    await waitFor(async () => {
+      const reloaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return reloaded.pairs[0]?.assistant?.content === "Approved regenerated answer." &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    expect(approvedRegenerateClient.inputs[0]).toMatchObject({
+      cwdPurpose: "psychiatrist",
+      networkAccess: "user_approved_web_sources",
+    });
+    const reloaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(reloaded.pairs[0]).toMatchObject({
+      assistant: expect.objectContaining({ content: "Approved regenerated answer." }),
+      status: "completed",
+      turnId: approvedRegenerateTurnId,
+    });
+    expect(reloaded.pairs[0]).not.toHaveProperty("retryAction");
+    expect(reloaded.pairs[0]).not.toHaveProperty("retryMode");
+    expect(reloaded.pairs[0]).not.toHaveProperty("retryTurnId");
   });
 
   it("keeps the previous completed answer visible when regenerate fails", async () => {

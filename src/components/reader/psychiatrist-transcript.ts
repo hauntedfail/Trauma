@@ -12,6 +12,8 @@ export interface PsychiatristTranscriptPair {
   pairId: string;
   process: string[];
   retryAction?: "allow_web_sources";
+  retryMode?: "first_answer" | "regenerate";
+  retryTurnId?: string;
   status: PsychiatristThreadPairResponse["status"] | "running";
   turnId: string;
   userPrompt: string;
@@ -26,6 +28,8 @@ export function toPsychiatristTranscriptPairs(
     pairId: pair.pair_id,
     process: [],
     ...(pair.retry_action === undefined ? {} : { retryAction: pair.retry_action }),
+    ...(pair.retry_mode === undefined ? {} : { retryMode: pair.retry_mode }),
+    ...(pair.retry_turn_id === undefined ? {} : { retryTurnId: pair.retry_turn_id }),
     status: pair.status,
     turnId: pair.turn_id,
     userPrompt: pair.user_prompt.content,
@@ -124,9 +128,15 @@ export function applyPsychiatristStreamEvent(
       event.type === "psychiatrist.answer.failed" ||
       event.type === "psychiatrist.network.permission_required"
     ) {
-      const keepCompletedAnswer = readRetryAction(event.data) === "regenerate";
+      const retryAction = readRetryAction(event.data);
+      const retryMode = readRetryMode(event.data);
+      const retryTurnId = readRetryTurnId(event.data);
+      const keepCompletedAnswer = retryMode === "regenerate" || retryAction === "regenerate";
       return withoutRegenerateDraft({
         ...pair,
+        ...(retryAction === "allow_web_sources" ? { retryAction } : {}),
+        ...(retryMode === undefined ? {} : { retryMode }),
+        ...(retryTurnId === undefined ? {} : { retryTurnId }),
         status: keepCompletedAnswer && pair.answer !== "" ? "completed" : "failed",
         turnId: keepCompletedAnswer && pair.answer !== ""
           ? pair.draftOriginalTurnId ?? pair.turnId
@@ -186,6 +196,21 @@ function readUserPrompt(data: unknown): string | undefined {
 function readRetryAction(data: unknown): string | undefined {
   return isRecord(data) && typeof data.retry_action === "string"
     ? data.retry_action
+    : undefined;
+}
+
+function readRetryMode(data: unknown): "first_answer" | "regenerate" | undefined {
+  if (!isRecord(data)) {
+    return undefined;
+  }
+  return data.retry_mode === "first_answer" || data.retry_mode === "regenerate"
+    ? data.retry_mode
+    : undefined;
+}
+
+function readRetryTurnId(data: unknown): string | undefined {
+  return isRecord(data) && typeof data.retry_turn_id === "string"
+    ? data.retry_turn_id
     : undefined;
 }
 
