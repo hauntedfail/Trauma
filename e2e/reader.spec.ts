@@ -486,7 +486,7 @@ async function installPsychiatristMock(
     initialPairs?: PsychiatristPairFixture[];
   } = {},
 ): Promise<PsychiatristMockState> {
-  await page.addInitScript(installFakeEventSourceInBrowser);
+  await page.addInitScript(installFakeEventSourceInBrowser, psychiatristEventFramesByTurn());
 
   const state: PsychiatristMockState = {
     cancelRequests: 0,
@@ -696,10 +696,10 @@ async function installPsychiatristMock(
 }
 
 async function installFakeEventSource(page: Page) {
-  await page.evaluate(installFakeEventSourceInBrowser);
+  await page.evaluate(installFakeEventSourceInBrowser, psychiatristEventFramesByTurn());
 }
 
-function installFakeEventSourceInBrowser() {
+function installFakeEventSourceInBrowser(framesByTurn: Record<string, PsychiatristSseFrame[]>) {
     const eventData = (type: string, turnId: string, eventId: string, data: Record<string, unknown>) =>
       JSON.stringify({
         data,
@@ -711,30 +711,12 @@ function installFakeEventSourceInBrowser() {
         type,
       });
     const eventsFor = (url: string): Array<[string, string]> => {
-      if (url.includes("turn-e2e-regenerate")) {
-        if (url.includes("turn-e2e-regenerate-stopped")) {
-          return [
-            ["psychiatrist.regenerate.started", eventData("psychiatrist.regenerate.started", "turn-e2e-regenerate-stopped", "001", { pair_id: "pair-e2e" })],
-          ];
-        }
-        return [
-          ["psychiatrist.regenerate.started", eventData("psychiatrist.regenerate.started", "turn-e2e-regenerate", "001", { pair_id: "pair-e2e" })],
-          ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-regenerate", "002", { pair_id: "pair-e2e", text: "Regenerated answer from the same pair." })],
-          ["psychiatrist.regenerate.completed", eventData("psychiatrist.regenerate.completed", "turn-e2e-regenerate", "003", { pair_id: "pair-e2e", text: "Regenerated answer from the same pair." })],
-        ];
-      }
-      if (url.includes("turn-e2e-web")) {
-        return [
-          ["psychiatrist.turn.started", eventData("psychiatrist.turn.started", "turn-e2e-web", "000", { pair_id: "pair-e2e-web", user_prompt: "Use current web sources for this memory." })],
-          ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-web", "001", { pair_id: "pair-e2e-web", text: "Approved answer with cited source." })],
-          ["psychiatrist.answer.completed", eventData("psychiatrist.answer.completed", "turn-e2e-web", "002", { pair_id: "pair-e2e-web", text: "Approved answer with cited source." })],
-        ];
-      }
-      return [
-        ["psychiatrist.turn.started", eventData("psychiatrist.turn.started", "turn-e2e-running", "000", { pair_id: "pair-e2e-running", user_prompt: "What does this memory say?" })],
-        ["psychiatrist.process.delta", eventData("psychiatrist.process.delta", "turn-e2e-running", "001", { pair_id: "pair-e2e-running", text: "Reading stored context" })],
-        ["psychiatrist.answer.delta", eventData("psychiatrist.answer.delta", "turn-e2e-running", "002", { pair_id: "pair-e2e-running", text: "Partial answer from the memory" })],
-      ];
+      const turnId = url.match(/\/psychiatrist-turns\/([^/]+)\/events/)?.[1] ?? "default";
+      const frames = framesByTurn[turnId] ?? framesByTurn.default ?? [];
+      return frames.map((frame) => [
+        frame.type,
+        eventData(frame.type, turnId, frame.eventId, frame.data),
+      ]);
     };
     class FakeEventSource extends EventTarget {
       static CONNECTING = 0;
@@ -806,50 +788,105 @@ function startedResponse(pairId: string, turnId: string) {
   };
 }
 
+interface PsychiatristSseFrame {
+  data: Record<string, unknown>;
+  eventId: string;
+  type: string;
+}
+
+function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]> {
+  return {
+    default: [
+      {
+        data: {
+          pair_id: "pair-e2e-running",
+          user_prompt: "What does this memory say?",
+        },
+        eventId: "000",
+        type: "psychiatrist.turn.started",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e-running",
+          text: "Reading stored context",
+        },
+        eventId: "001",
+        type: "psychiatrist.process.delta",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e-running",
+          text: "Partial answer from the memory",
+        },
+        eventId: "002",
+        type: "psychiatrist.answer.delta",
+      },
+    ],
+    "turn-e2e-regenerate": [
+      {
+        data: { pair_id: "pair-e2e" },
+        eventId: "001",
+        type: "psychiatrist.regenerate.started",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e",
+          text: "Regenerated answer from the same pair.",
+        },
+        eventId: "002",
+        type: "psychiatrist.answer.delta",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e",
+          text: "Regenerated answer from the same pair.",
+        },
+        eventId: "003",
+        type: "psychiatrist.regenerate.completed",
+      },
+    ],
+    "turn-e2e-regenerate-stopped": [
+      {
+        data: { pair_id: "pair-e2e" },
+        eventId: "001",
+        type: "psychiatrist.regenerate.started",
+      },
+    ],
+    "turn-e2e-web": [
+      {
+        data: {
+          pair_id: "pair-e2e-web",
+          user_prompt: "Use current web sources for this memory.",
+        },
+        eventId: "000",
+        type: "psychiatrist.turn.started",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e-web",
+          text: "Approved answer with cited source.",
+        },
+        eventId: "001",
+        type: "psychiatrist.answer.delta",
+      },
+      {
+        data: {
+          pair_id: "pair-e2e-web",
+          text: "Approved answer with cited source.",
+        },
+        eventId: "002",
+        type: "psychiatrist.answer.completed",
+      },
+    ],
+  };
+}
+
 function psychiatristSse(turnId: string): string {
-  if (turnId === "turn-e2e-regenerate") {
-    return [
-      sseEvent("psychiatrist.regenerate.started", turnId, "001", {}),
-      sseEvent("psychiatrist.answer.delta", turnId, "002", {
-        text: "Regenerated answer from the same pair.",
-        pair_id: "pair-e2e",
-      }),
-      sseEvent("psychiatrist.regenerate.completed", turnId, "003", {
-        text: "Regenerated answer from the same pair.",
-        pair_id: "pair-e2e",
-      }),
-    ].join("");
-  }
-  if (turnId === "turn-e2e-web") {
-    return [
-      sseEvent("psychiatrist.turn.started", turnId, "000", {
-        pair_id: "pair-e2e-web",
-        user_prompt: "Use current web sources for this memory.",
-      }),
-      sseEvent("psychiatrist.answer.delta", turnId, "001", {
-        text: "Approved answer with cited source.",
-        pair_id: "pair-e2e-web",
-      }),
-      sseEvent("psychiatrist.answer.completed", turnId, "002", {
-        text: "Approved answer with cited source.",
-        pair_id: "pair-e2e-web",
-      }),
-    ].join("");
-  }
-  return [
-    sseEvent("psychiatrist.turn.started", turnId, "000", {
-      pair_id: "pair-e2e-running",
-      user_prompt: "What does this memory say?",
-    }),
-    sseEvent("psychiatrist.process.delta", turnId, "001", {
-      text: "Reading stored context",
-      pair_id: "pair-e2e-running",
-    }),
-    sseEvent("psychiatrist.answer.delta", turnId, "002", {
-      text: "Partial answer from the memory",
-      pair_id: "pair-e2e-running",
-    }),
-  ].join("");
+  const framesByTurn = psychiatristEventFramesByTurn();
+  const frames = framesByTurn[turnId] ?? framesByTurn.default ?? [];
+  return frames
+    .map((frame) => sseEvent(frame.type, turnId, frame.eventId, frame.data))
+    .join("");
 }
 
 function sseEvent(

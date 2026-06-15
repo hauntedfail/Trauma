@@ -103,11 +103,18 @@ function createLiveEventStream(input: {
         onEvent: enqueue,
         turnId: input.turnId,
       });
-      const replay = await input.loadReplay({
-        afterEventId: input.afterEventId,
-        config: input.config,
-        turnId: input.turnId,
-      });
+      let replay: PsychiatristStreamEvent[];
+      try {
+        replay = await input.loadReplay({
+          afterEventId: input.afterEventId,
+          config: input.config,
+          turnId: input.turnId,
+        });
+      } catch (error) {
+        closed = true;
+        unsubscribe?.();
+        throw error;
+      }
       for (const event of replay) {
         enqueueNow(event);
         if (closed) {

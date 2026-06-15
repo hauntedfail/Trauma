@@ -205,6 +205,96 @@ describe("Psychiatrist stream store", () => {
     expect(JSON.stringify(replay)).not.toContain("sk-live");
   });
 
+  it("projects all persisted stream event types instead of storing raw payloads", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-project-types-"));
+
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: {
+          pair_id: "pair-1",
+          raw: { snippet: "token-123", path: "C:\\Users\\me\\.codex\\auth.json" },
+        },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.completed",
+      },
+    });
+    const unknown = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { raw: { snippet: "token-unknown" } },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.raw.event",
+      } as never,
+    });
+
+    expect(unknown).toBeUndefined();
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay).toHaveLength(1);
+    expect(replay[0]?.data).toEqual({ pair_id: "pair-1" });
+    expect(JSON.stringify(replay)).not.toContain("sk-live");
+    expect(JSON.stringify(replay)).not.toContain("C:\\Users");
+  });
+
+  it("filters Windows and UNC process paths and bounds persisted process text", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-process-bound-"));
+
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Inspecting C:\\Users\\me\\.codex\\auth.json" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Inspecting \\\\server\\share\\secret.txt" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: `Reading ${"context ".repeat(80)}` },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.process.delta",
+      },
+    });
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay).toHaveLength(1);
+    const data = replay[0]?.data;
+    expect(data).toMatchObject({ text: expect.stringMatching(/\.\.\.$/) });
+    expect(JSON.stringify(replay)).not.toContain("C:\\Users");
+    expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
+    expect((data as { text: string }).text.length).toBeLessThanOrEqual(240);
+  });
+
   it("replays persisted SSE events after the requested event id", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-"));
     await appendPsychiatristStreamEvent({
@@ -365,6 +455,49 @@ describe("Psychiatrist stream store", () => {
     await expect(readChunk(reader!)).resolves.toContain("Stored delta");
     await expect(readChunk(reader!)).resolves.toContain("psychiatrist.answer.completed");
     await expect(reader!.read()).resolves.toMatchObject({ done: true });
+  });
+
+  it("unsubscribes live streams when replay loading fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-replay-fail-"));
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    let unsubscribeCount = 0;
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+      loadReplay: async () => {
+        throw new Error("replay failed");
+      },
+      subscribe: () => {
+        return () => {
+          unsubscribeCount += 1;
+        };
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    await expect(reader!.read()).rejects.toThrow("replay failed");
+    expect(unsubscribeCount).toBe(1);
   });
 
   it("closes live streams after a replayed web-source permission event", async () => {

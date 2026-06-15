@@ -430,6 +430,69 @@ describe("Psychiatrist memory context", () => {
       name: "PsychiatristContextError",
     } satisfies Partial<PsychiatristContextError>);
   });
+
+  it("maps missing translated content file to context_unavailable", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-missing-ja-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: "# Source",
+      memoryId: MEMORY_ID,
+    });
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository({ title: "Source" }),
+        translationRepository: fakeTranslationRepository({
+          outputHash: "sha256:missing",
+          outputPath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+          sourceHash: "sha256:source",
+        }),
+      }),
+    ).rejects.toMatchObject({
+      code: "context_unavailable",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
+
+  it("maps invalid translated content parse failures to context_unavailable", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-invalid-ja-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: "# Source",
+      memoryId: MEMORY_ID,
+    });
+    const translatedPath = resolveTranslatedMemoryContentPath({
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+    });
+    await mkdir(join(storePath, "memories", MEMORY_ID, "ja-JP"), {
+      recursive: true,
+    });
+    await writeFile(translatedPath.absolutePath, "not valid frontmatter", "utf8");
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository({ title: "Source" }),
+        translationRepository: fakeTranslationRepository({
+          outputHash: "sha256:invalid",
+          outputPath: translatedPath.relativePath,
+          sourceHash: "sha256:source",
+        }),
+      }),
+    ).rejects.toMatchObject({
+      code: "context_unavailable",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
 });
 
 function frontmatter(input: { title: string }) {

@@ -1,0 +1,251 @@
+{
+  "pr": {
+    "number": 31,
+    "url": "https://github.com/hauntedfail/Trauma/pull/31",
+    "repository": "hauntedfail/Trauma",
+    "baseRef": "docs/task-24-psychiatrist-plan",
+    "headRef": "feat/psychiatrist",
+    "headShaAtDiscovery": "af30f763365d4eef2833402649ddd47991bab61a",
+    "worktree": "/private/tmp/trauma-task24-psychiatrist-ipaddr"
+  },
+  "discovery": {
+    "source": "gh api REST and GraphQL reviewThreads",
+    "resolverCaveat": "resolve_review_inputs.py failed because its GraphQL query was syntactically invalid; direct gh api calls were used instead.",
+    "latestRelevantReviews": [
+      {
+        "author": "coderabbitai[bot]",
+        "reviewDatabaseId": 4491571868,
+        "url": "https://github.com/hauntedfail/Trauma/pull/31#pullrequestreview-4491571868",
+        "submittedAt": "2026-06-13T14:49:19Z"
+      },
+      {
+        "author": "codex",
+        "reviewDatabaseId": 4491573043,
+        "url": "https://github.com/hauntedfail/Trauma/pull/31#pullrequestreview-4491573043",
+        "submittedAt": "2026-06-13T14:50:30Z"
+      }
+    ]
+  },
+  "items": [
+    {
+      "id": "CR-01",
+      "threadId": "PRRT_kwDOSYaxA86JVSVt",
+      "commentDatabaseId": 3408119867,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119867",
+      "author": "coderabbitai[bot]",
+      "path": "src/components/reader/psychiatrist-transcript.ts",
+      "claim": "Canceled turn handling infers completion from nonempty answer text instead of terminal completed status.",
+      "classification": "valid_must_fix",
+      "subtask": "001_ui_transcript_and_e2e_fixtures"
+    },
+    {
+      "id": "CR-02",
+      "threadId": "PRRT_kwDOSYaxA86JVSVv",
+      "commentDatabaseId": 3408119869,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119869",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/cancel-route.ts",
+      "claim": "Cancel route can leave a stale active turn when appending the cancel stream event throws.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-03",
+      "threadId": "PRRT_kwDOSYaxA86JVSVz",
+      "commentDatabaseId": 3408119873,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119873",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/context.ts",
+      "claim": "Translated context read/parse failures return generic 500 instead of context_unavailable.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-04",
+      "threadId": "PRRT_kwDOSYaxA86JVSV1",
+      "commentDatabaseId": 3408119875,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119875",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/events-route.ts",
+      "claim": "Live SSE subscription is not unsubscribed if replay loading fails.",
+      "classification": "valid_must_fix",
+      "subtask": "003_process_event_safety"
+    },
+    {
+      "id": "CR-05",
+      "threadId": "PRRT_kwDOSYaxA86JVSV6",
+      "commentDatabaseId": 3408119880,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119880",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/message-route.ts",
+      "claim": "Error-path stream append failure can override the safe API response.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-06",
+      "threadId": "PRRT_kwDOSYaxA86JVSV7",
+      "commentDatabaseId": 3408119881,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119881",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/message-route.ts",
+      "claim": "Interrupted/canceled early returns skip post-save recovery when assistant response was already persisted.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-07",
+      "threadId": "PRRT_kwDOSYaxA86JVSV-",
+      "commentDatabaseId": 3408119884,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119884",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/prompt.ts",
+      "claim": "Section title is interpolated into a Markdown heading without prompt-safety escaping.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-08",
+      "threadId": "PRRT_kwDOSYaxA86JVSV_",
+      "commentDatabaseId": 3408119885,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119885",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/prompt.ts",
+      "claim": "Newest history pair can exceed the budget because the guard only breaks after one pair is selected.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-09",
+      "threadId": "PRRT_kwDOSYaxA86JVSWA",
+      "commentDatabaseId": 3408119886,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119886",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/regenerate-route.ts",
+      "claim": "pair_not_found forks the documented regenerate_unavailable API contract.",
+      "classification": "valid_must_fix",
+      "subtask": "002_turn_state_and_regenerate_contracts"
+    },
+    {
+      "id": "CR-10",
+      "threadId": "PRRT_kwDOSYaxA86JVSWC",
+      "commentDatabaseId": 3408119888,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119888",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/regenerate-route.ts",
+      "claim": "Post-save answer_retry recovery emits regenerate.completed instead of answer.completed.",
+      "classification": "valid_must_fix",
+      "subtask": "002_turn_state_and_regenerate_contracts"
+    },
+    {
+      "id": "CR-11",
+      "threadId": "PRRT_kwDOSYaxA86JVSWD",
+      "commentDatabaseId": 3408119890,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119890",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/stream-store.ts",
+      "claim": "Stream event safety only redacts process.delta and returns other event payloads verbatim.",
+      "classification": "valid_must_fix",
+      "subtask": "003_process_event_safety"
+    },
+    {
+      "id": "CR-12",
+      "threadId": "PRRT_kwDOSYaxA86JVSWH",
+      "commentDatabaseId": 3408119894,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119894",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/psychiatrist/thread-store.ts",
+      "claim": "Completion read-check-write is outside the per-thread mutation lock and can overwrite terminal cancel/fail.",
+      "classification": "valid_must_fix",
+      "subtask": "002_turn_state_and_regenerate_contracts"
+    },
+    {
+      "id": "CR-13",
+      "threadId": "PRRT_kwDOSYaxA86JVSWI",
+      "commentDatabaseId": 3408119895,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119895",
+      "author": "coderabbitai[bot]",
+      "path": "src/server/translation/codex-app-server.ts",
+      "claim": "Absolute path filter misses Windows drive and UNC paths.",
+      "classification": "valid_must_fix",
+      "subtask": "003_process_event_safety"
+    },
+    {
+      "id": "CR-14",
+      "threadId": "PRRT_kwDOSYaxA86JVSWM",
+      "commentDatabaseId": 3408119899,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119899",
+      "author": "coderabbitai[bot]",
+      "path": "tests/server/psychiatrist/api-routes.test.ts",
+      "claim": "waitFor should catch transient predicate errors until timeout.",
+      "classification": "valid_must_fix",
+      "subtask": "004_route_error_and_test_hygiene"
+    },
+    {
+      "id": "CR-15",
+      "threadId": "PRRT_kwDOSYaxA86JVSWQ",
+      "commentDatabaseId": 3408119903,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408119903",
+      "author": "coderabbitai[bot]",
+      "path": "tests/server/translation/codex-app-server.test.ts",
+      "claim": "case turn/start declares const directly under a switch case.",
+      "classification": "valid_must_fix",
+      "subtask": "003_process_event_safety"
+    },
+    {
+      "id": "CX-01",
+      "threadId": "PRRT_kwDOSYaxA86JVSov",
+      "commentDatabaseId": 3408121371,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408121371",
+      "author": "codex",
+      "path": "src/server/psychiatrist/thread-store.ts",
+      "claim": "Server restart leaves pending/running psychiatrist rows unchanged when the active registry is empty.",
+      "classification": "valid_must_fix",
+      "subtask": "002_turn_state_and_regenerate_contracts"
+    },
+    {
+      "id": "CX-02",
+      "threadId": "PRRT_kwDOSYaxA86JVSox",
+      "commentDatabaseId": 3408121373,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408121373",
+      "author": "codex",
+      "path": "src/server/translation/codex-app-server.ts",
+      "claim": "Safe process message is unbounded and can leak or bloat raw process/status text.",
+      "classification": "valid_must_fix",
+      "subtask": "003_process_event_safety"
+    },
+    {
+      "id": "CX-03",
+      "threadId": "PRRT_kwDOSYaxA86JVSo0",
+      "commentDatabaseId": 3408121376,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408121376",
+      "author": "codex",
+      "path": "src/components/reader/psychiatrist-transcript.ts",
+      "claim": "Duplicate of CR-01: canceled first-answer after partial delta must stay canceled.",
+      "classification": "valid_must_fix_duplicate",
+      "subtask": "001_ui_transcript_and_e2e_fixtures"
+    },
+    {
+      "id": "CX-04",
+      "threadId": "PRRT_kwDOSYaxA86JVSo3",
+      "commentDatabaseId": 3408121379,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#discussion_r3408121379",
+      "author": "codex",
+      "path": "src/server/psychiatrist/thread-store.ts",
+      "claim": "Old regenerate web-approval prompts can rehydrate after a later terminal regenerate attempt.",
+      "classification": "valid_must_fix",
+      "subtask": "002_turn_state_and_regenerate_contracts"
+    },
+    {
+      "id": "CR-BODY-01",
+      "threadId": null,
+      "commentDatabaseId": null,
+      "url": "https://github.com/hauntedfail/Trauma/pull/31#pullrequestreview-4491571868",
+      "author": "coderabbitai[bot]",
+      "path": "e2e/reader.spec.ts",
+      "claim": "Duplicated SSE event fixtures should be unified to avoid drift.",
+      "classification": "valid_should_fix",
+      "subtask": "001_ui_transcript_and_e2e_fixtures"
+    }
+  ]
+}

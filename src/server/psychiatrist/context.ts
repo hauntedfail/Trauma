@@ -128,13 +128,22 @@ async function loadTranslatedContextContent(input: {
     );
   }
 
-  const translatedPath = resolveTranslatedMemoryContentPath(input);
-  const content = await readFile(translatedPath.absolutePath, "utf8");
-  const { markdown } = parseMemoryContentFixture(
-    content,
-    translatedPath.relativePath,
-    input.memoryId,
-  );
+  let translatedPath: ReturnType<typeof resolveTranslatedMemoryContentPath>;
+  let markdown: string;
+  try {
+    translatedPath = resolveTranslatedMemoryContentPath(input);
+    const content = await readFile(translatedPath.absolutePath, "utf8");
+    ({ markdown } = parseMemoryContentFixture(
+      content,
+      translatedPath.relativePath,
+      input.memoryId,
+    ));
+  } catch {
+    throw new PsychiatristContextError(
+      "context_unavailable",
+      "Translated memory content is unavailable.",
+    );
+  }
   return {
     contentHash: current.outputHash,
     markdown,

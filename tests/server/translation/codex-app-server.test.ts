@@ -772,7 +772,19 @@ describe("Codex app-server endpoint parsing", () => {
       expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
       expect(JSON.stringify(events)).not.toContain("/private/store/path");
       expect(JSON.stringify(events)).not.toContain("/home/runner/work");
+      expect(JSON.stringify(events)).not.toContain("C:\\Users");
+      expect(JSON.stringify(events)).not.toContain("\\\\server\\share");
       expect(JSON.stringify(events)).not.toContain("sk-live");
+      const longProcessEvent = events
+        .filter((event): event is Extract<CodexAppServerEvent, { type: "process" }> =>
+          event.type === "process"
+        )
+        .find((event) => event.message.startsWith("Reading context"));
+      expect(longProcessEvent).toEqual({
+        message: expect.stringMatching(/\.\.\.$/),
+        type: "process",
+      });
+      expect(longProcessEvent?.message.length).toBeLessThanOrEqual(240);
     } finally {
       await server.close();
     }
@@ -1463,7 +1475,7 @@ function handleClientMessage(
       }
       sendJson(socket, { id, result: { threadId: "thread-1" } });
       break;
-    case "turn/start":
+    case "turn/start": {
       const activeThreadId = isRecord(value.params) &&
           typeof value.params.threadId === "string"
         ? value.params.threadId
@@ -1559,6 +1571,30 @@ function handleClientMessage(
         sendJson(socket, {
           method: "item/process",
           params: {
+            message: "Inspecting C:\\Users\\me\\.codex\\auth.json",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Inspecting \\\\server\\share\\secret.txt",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: `Reading ${"context ".repeat(80)}`,
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
             message: "Loaded sk-live-123 from environment",
             threadId: activeThreadId,
             turnId: "turn-1",
@@ -1615,6 +1651,7 @@ function handleClientMessage(
         },
       });
       break;
+    }
     case "turn/interrupt":
       sendJson(socket, { id, result: {} });
       break;

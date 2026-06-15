@@ -14,6 +14,7 @@ type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
 const appendQueuesByPath = new Map<string, Promise<void>>();
 const nextEventNumbersByPath = new Map<string, number>();
 const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
+const MAX_SAFE_PROCESS_TEXT_LENGTH = 240;
 
 export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -160,11 +161,134 @@ async function countExistingStreamEvents(path: string): Promise<number> {
 function projectSafeStreamEvent<TData>(
   event: PsychiatristStreamEventInput<TData>,
 ): PsychiatristStreamEventInput<TData> | undefined {
-  if (event.type !== "psychiatrist.process.delta") {
-    return event;
+  switch (event.type) {
+    case "psychiatrist.turn.started":
+    case "psychiatrist.regenerate.started": {
+      const status = readStringField(event.data, "status");
+      const pairId = readStringField(event.data, "pair_id");
+      const userPrompt = readStringField(event.data, "user_prompt");
+      return {
+        ...event,
+        data: omitUndefined({
+          pair_id: pairId,
+          status: status ?? "running",
+          user_prompt: userPrompt,
+        }) as TData,
+      };
+    }
+    case "psychiatrist.process.delta": {
+      const text = readProcessText(event.data);
+      if (text === undefined) {
+        return undefined;
+      }
+      return {
+        ...event,
+        data: { text } as TData,
+      };
+    }
+    case "psychiatrist.answer.delta": {
+      const text = readStringField(event.data, "text");
+      if (text === undefined) {
+        return undefined;
+      }
+      return {
+        ...event,
+        data: { text } as TData,
+      };
+    }
+    case "psychiatrist.answer.completed":
+    case "psychiatrist.regenerate.completed": {
+      const pairId = readStringField(event.data, "pair_id");
+      if (pairId === undefined) {
+        return undefined;
+      }
+      const text = readStringField(event.data, "text");
+      const sourceCitations = readSourceCitations(event.data);
+      const warning = readSafeWarning(event.data);
+      return {
+        ...event,
+        data: omitUndefined({
+          pair_id: pairId,
+          source_citations: sourceCitations,
+          text,
+          warning,
+        }) as TData,
+      };
+    }
+    case "psychiatrist.answer.failed": {
+      const code = readStringField(event.data, "code");
+      const message = readSafeProcessText(readStringField(event.data, "message"));
+      const pairId = readStringField(event.data, "pair_id");
+      if (code === undefined) {
+        return undefined;
+      }
+      return {
+        ...event,
+        data: omitUndefined({ code, message, pair_id: pairId }) as TData,
+      };
+    }
+    case "psychiatrist.turn.canceled": {
+      const code = readStringField(event.data, "code");
+      const status = readStringField(event.data, "status");
+      const warning = readSafeWarning(event.data);
+      return {
+        ...event,
+        data: omitUndefined({
+          code: code ?? "turn_canceled",
+          status,
+          warning,
+        }) as TData,
+      };
+    }
+    case "psychiatrist.thread.stale": {
+      const code = readStringField(event.data, "code");
+      const pairId = readStringField(event.data, "pair_id");
+      const status = readStringField(event.data, "status");
+      return {
+        ...event,
+        data: omitUndefined({
+          code: code ?? "thread_stale",
+          pair_id: pairId,
+          status,
+        }) as TData,
+      };
+    }
+    case "psychiatrist.network.permission_required": {
+      const code = readStringField(event.data, "code");
+      const pairId = readStringField(event.data, "pair_id");
+      if (code === undefined || pairId === undefined) {
+        return undefined;
+      }
+      const message = readSafeProcessText(readStringField(event.data, "message"));
+      const retryAction = readStringField(event.data, "retry_action");
+      const retryMode = readStringField(event.data, "retry_mode");
+      const retryTurnId = readStringField(event.data, "retry_turn_id");
+      const userPrompt = readStringField(event.data, "user_prompt");
+      return {
+        ...event,
+        data: omitUndefined({
+          code,
+          message,
+          pair_id: pairId,
+          retry_action: retryAction,
+          retry_mode: retryMode,
+          retry_turn_id: retryTurnId,
+          user_prompt: userPrompt,
+        }) as TData,
+      };
+    }
   }
-  const text = readProcessText(event.data);
-  if (text === undefined) {
+  const _exhaustive: never = event.type;
+  void _exhaustive;
+  return undefined;
+}
+
+function readSafeProcessText(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const text = value.trim().replace(/\s+/g, " ");
+  if (text === "") {
     return undefined;
   }
   const normalized = text.toLowerCase();
@@ -179,10 +303,9 @@ function projectSafeStreamEvent<TData>(
   ) {
     return undefined;
   }
-  return {
-    ...event,
-    data: { text } as TData,
-  };
+  return text.length > MAX_SAFE_PROCESS_TEXT_LENGTH
+    ? `${text.slice(0, MAX_SAFE_PROCESS_TEXT_LENGTH - 3)}...`
+    : text;
 }
 
 function containsSensitiveProcessText(value: string): boolean {
@@ -202,8 +325,52 @@ function containsSensitiveProcessText(value: string): boolean {
       .test(value);
 }
 
+function readSafeWarning(data: unknown): { code: string; message?: string } | undefined {
+  if (!isRecord(data) || !isRecord(data.warning)) {
+    return undefined;
+  }
+  const code = readStringField(data.warning, "code");
+  if (code === undefined) {
+    return undefined;
+  }
+  return omitUndefined({
+    code,
+    message: readSafeProcessText(readStringField(data.warning, "message")),
+  });
+}
+
+function readSourceCitations(
+  data: unknown,
+): Array<{ source_id: string; title: string; url: string }> | undefined {
+  if (!isRecord(data) || !Array.isArray(data.source_citations)) {
+    return undefined;
+  }
+  const citations: Array<{ source_id: string; title: string; url: string }> = [];
+  for (const citation of data.source_citations) {
+    if (!isRecord(citation)) {
+      return undefined;
+    }
+    const sourceId = readStringField(citation, "source_id");
+    const title = readStringField(citation, "title");
+    const url = readStringField(citation, "url");
+    if (sourceId === undefined || title === undefined || url === undefined) {
+      return undefined;
+    }
+    citations.push({ source_id: sourceId, title, url });
+  }
+  return citations;
+}
+
+function omitUndefined<T extends Record<string, unknown>>(input: T): T {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as T;
+}
+
 function containsAbsolutePath(value: string): boolean {
-  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value);
+  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
+    /(^|[\s("'`])[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
+    /(^|[\s("'`])\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
 }
 
 function publishStreamEvent(event: PsychiatristStreamEvent): void {
@@ -217,7 +384,13 @@ function publishStreamEvent(event: PsychiatristStreamEvent): void {
 }
 
 function readProcessText(data: unknown): string | undefined {
-  return isRecord(data) && typeof data.text === "string" ? data.text : undefined;
+  return readSafeProcessText(readStringField(data, "text"));
+}
+
+function readStringField(value: unknown, key: string): string | undefined {
+  return isRecord(value) && typeof value[key] === "string"
+    ? value[key]
+    : undefined;
 }
 
 function validateSafeId(id: string): void {

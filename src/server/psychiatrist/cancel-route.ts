@@ -17,6 +17,7 @@ import {
 
 export function createCancelPsychiatristTurnHandler(input: {
   activeTurns?: ActivePsychiatristTurnRegistry;
+  appendStreamEvent?: typeof appendPsychiatristStreamEvent;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
 } = {}) {
   return async function cancelPsychiatristTurn(event: APIEvent): Promise<Response> {
@@ -28,6 +29,7 @@ export async function handleCancelPsychiatristTurnRequest(
   event: APIEvent,
   input: {
     activeTurns?: ActivePsychiatristTurnRegistry;
+    appendStreamEvent?: typeof appendPsychiatristStreamEvent;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
   } = {},
 ): Promise<Response> {
@@ -84,27 +86,32 @@ export async function handleCancelPsychiatristTurnRequest(
       turn_id: turnId,
     }, { status: 200 });
   }
-  await appendPsychiatristStreamEvent({
-    config,
-    event: {
-      data: {
-        ...(interruptFailed
-          ? {
-            warning: {
-              code: "codex_interrupt_failed",
-              message: "Psychiatrist turn was released locally after Codex interrupt failed.",
-            },
-          }
-          : {}),
-        status: "canceled",
+  try {
+    await (input.appendStreamEvent ?? appendPsychiatristStreamEvent)({
+      config,
+      event: {
+        data: {
+          ...(interruptFailed
+            ? {
+              warning: {
+                code: "codex_interrupt_failed",
+                message: "Psychiatrist turn was released locally after Codex interrupt failed.",
+              },
+            }
+            : {}),
+          status: "canceled",
+        },
+        memoryId: active.memoryId,
+        threadId: active.threadId,
+        turnId: active.turnId,
+        type: "psychiatrist.turn.canceled",
       },
-      memoryId: active.memoryId,
-      threadId: active.threadId,
-      turnId: active.turnId,
-      type: "psychiatrist.turn.canceled",
-    },
-  });
-  activeTurns.unregister(turnId);
+    });
+  } catch {
+    // Cancel state is already persisted; stream telemetry is best-effort.
+  } finally {
+    activeTurns.unregister(turnId);
+  }
   return jsonResponse({
     ...(interruptFailed
       ? {

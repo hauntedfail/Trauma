@@ -59,6 +59,7 @@ type ResolveActiveContentHash = (input: {
 }) => Promise<string>;
 
 export function createSendPsychiatristMessageHandler(input: {
+  appendStreamEvent?: typeof appendPsychiatristStreamEvent;
   backupQueue?: MemoryBackupQueue;
   buildContext?: BuildContext;
   client?: CodexConversationClient;
@@ -76,6 +77,7 @@ export function createSendPsychiatristMessageHandler(input: {
 export async function handleSendPsychiatristMessageRequest(
   event: APIEvent,
   input: {
+    appendStreamEvent?: typeof appendPsychiatristStreamEvent;
     backupQueue?: MemoryBackupQueue;
     buildContext?: BuildContext;
     client?: CodexConversationClient;
@@ -144,7 +146,7 @@ export async function handleSendPsychiatristMessageRequest(
   if (activeContentHash !== thread.manifest.activeContentHash) {
     activePsychiatristTurns.releaseThread(threadId);
     await markPsychiatristThreadStale({ config, threadId });
-    await appendPsychiatristStreamEvent({
+    await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
       config,
       event: {
         data: { status: "stale" },
@@ -188,7 +190,7 @@ export async function handleSendPsychiatristMessageRequest(
       threadId,
       turnId,
     });
-    await appendPsychiatristStreamEvent({
+    await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
       config,
       event: {
         data: {
@@ -244,7 +246,7 @@ export async function handleSendPsychiatristMessageRequest(
         turnId,
       }).catch(() => undefined);
     }
-    await appendPsychiatristStreamEvent({
+    await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
       config,
       event: {
         data: {
@@ -400,12 +402,6 @@ async function runPsychiatristTurn(input: {
     });
   } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);
-    if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
-      return;
-    }
-    if (error instanceof PsychiatristThreadStoreError && error.code === "turn_canceled") {
-      return;
-    }
     if (assistantResponsePersisted) {
       await appendPsychiatristStreamEvent({
         config: input.config,
@@ -424,6 +420,12 @@ async function runPsychiatristTurn(input: {
           type: "psychiatrist.answer.completed",
         },
       }).catch(() => undefined);
+      return;
+    }
+    if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
+      return;
+    }
+    if (error instanceof PsychiatristThreadStoreError && error.code === "turn_canceled") {
       return;
     }
     const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
@@ -445,12 +447,23 @@ async function runPsychiatristTurn(input: {
         turnId: input.turnId,
         type: "psychiatrist.answer.failed",
       },
-    });
+    }).catch(() => undefined);
   } finally {
     activePsychiatristTurns.unregister(input.turnId);
     if (input.ownsClient) {
       await closeOwnedClient(input.client);
     }
+  }
+}
+
+async function appendBestEffortStreamEvent<TData>(
+  appendStreamEvent: typeof appendPsychiatristStreamEvent,
+  input: Parameters<typeof appendPsychiatristStreamEvent<TData>>[0],
+): Promise<void> {
+  try {
+    await appendStreamEvent(input);
+  } catch {
+    // API error responses must not expose or be replaced by stream telemetry failures.
   }
 }
 

@@ -74,11 +74,17 @@ export function applyPsychiatristStreamEvent(
     }
     if (event.type === "psychiatrist.answer.delta") {
       const text = readAnswerText(event.data) ?? "";
-      if (pair.draftTurnId === event.turnId) {
+      if (pair.draftTurnId !== undefined) {
+        if (pair.draftTurnId !== event.turnId) {
+          return pair;
+        }
         return {
           ...pair,
           draftAnswer: `${pair.draftAnswer ?? ""}${text}`,
         };
+      }
+      if (pair.turnId !== event.turnId) {
+        return pair;
       }
       return {
         ...pair,
@@ -107,7 +113,7 @@ export function applyPsychiatristStreamEvent(
           pair.draftTurnId === event.turnId
         ? pair.draftAnswer
         : undefined;
-      return withoutRegenerateDraft({
+      return withoutRegenerateDraft(withoutRetryState({
         ...pair,
         ...(answer === undefined && completedRegenerateAnswer === undefined
           ? {}
@@ -115,14 +121,16 @@ export function applyPsychiatristStreamEvent(
         citations: readSourceCitations(event.data) ?? pair.citations,
         status: "completed",
         turnId: event.turnId,
-      });
+      }));
     }
     if (event.type === "psychiatrist.turn.canceled") {
-      return withoutRegenerateDraft({
+      const keepsCompletedAnswer = pair.status === "completed" ||
+        pair.draftTurnId === event.turnId;
+      return withoutRegenerateDraft(withoutRetryState({
         ...pair,
-        status: pair.answer === "" ? "canceled" : "completed",
-        turnId: pair.answer === "" ? event.turnId : pair.draftOriginalTurnId ?? pair.turnId,
-      });
+        status: keepsCompletedAnswer ? "completed" : "canceled",
+        turnId: keepsCompletedAnswer ? pair.draftOriginalTurnId ?? pair.turnId : event.turnId,
+      }));
     }
     if (
       event.type === "psychiatrist.answer.failed" ||
@@ -131,14 +139,18 @@ export function applyPsychiatristStreamEvent(
       const retryAction = readRetryAction(event.data);
       const retryMode = readRetryMode(event.data);
       const retryTurnId = readRetryTurnId(event.data);
-      const keepCompletedAnswer = retryMode === "regenerate" || retryAction === "regenerate";
+      const keepCompletedAnswer = pair.answer !== "" && (
+        pair.draftTurnId === event.turnId ||
+        retryMode === "regenerate"
+      );
+      const nextPair = withoutRetryState(pair);
       return withoutRegenerateDraft({
-        ...pair,
+        ...nextPair,
         ...(retryAction === "allow_web_sources" ? { retryAction } : {}),
         ...(retryMode === undefined ? {} : { retryMode }),
         ...(retryTurnId === undefined ? {} : { retryTurnId }),
-        status: keepCompletedAnswer && pair.answer !== "" ? "completed" : "failed",
-        turnId: keepCompletedAnswer && pair.answer !== ""
+        status: keepCompletedAnswer ? "completed" : "failed",
+        turnId: keepCompletedAnswer
           ? pair.draftOriginalTurnId ?? pair.turnId
           : event.turnId,
       });
@@ -154,6 +166,18 @@ function withoutRegenerateDraft(
     draftAnswer: _draftAnswer,
     draftOriginalTurnId: _draftOriginalTurnId,
     draftTurnId: _draftTurnId,
+    ...visiblePair
+  } = pair;
+  return visiblePair;
+}
+
+function withoutRetryState(
+  pair: PsychiatristTranscriptPair,
+): PsychiatristTranscriptPair {
+  const {
+    retryAction: _retryAction,
+    retryMode: _retryMode,
+    retryTurnId: _retryTurnId,
     ...visiblePair
   } = pair;
   return visiblePair;

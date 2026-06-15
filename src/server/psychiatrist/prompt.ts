@@ -163,8 +163,9 @@ function renderSectionBlock(
   section: PsychiatristPromptInput["context"]["sections"][number],
   index: number,
 ): string {
+  const safeHeadingTitle = normalizeMarkdownHeadingText(section.title);
   return [
-    `## Section ${index + 1}: ${section.title}`,
+    `## Section ${index + 1}: ${safeHeadingTitle}`,
     JSON.stringify({
       anchor: section.anchor,
       end_offset: section.endOffset,
@@ -235,7 +236,7 @@ function selectRecentPairHistory(pairs: PsychiatristThreadPair[]) {
     }
     const serialized = serializePair(clippedPair);
     const length = JSON.stringify(serialized).length;
-    if (length > remaining && selected.length > 0) {
+    if (length > remaining) {
       break;
     }
     selected.unshift(serialized);
@@ -249,6 +250,14 @@ function truncateText(value: string, maxChars: number): string {
     return value;
   }
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+function normalizeMarkdownHeadingText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/#/g, "\\#")
+    .trim() || "Untitled";
 }
 
 function escapeDelimiterAttribute(value: string): string {

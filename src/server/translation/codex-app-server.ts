@@ -136,6 +136,7 @@ interface PendingRequest {
 }
 
 const DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_SAFE_PROCESS_MESSAGE_LENGTH = 240;
 
 export function parseCodexAppServerEndpoint(
   raw = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT ?? "unix://",
@@ -1824,15 +1825,20 @@ function readBooleanField(value: unknown, key: string): boolean | undefined {
 }
 
 function readSafeProcessMessage(params: unknown): string | undefined {
-  const message = readStringField(params, "message") ??
+  const rawMessage = readStringField(params, "message") ??
     readStringField(params, "summary") ??
     readStringField(params, "status");
-  if (message === undefined || message.trim() === "") {
+  if (rawMessage === undefined) {
+    return undefined;
+  }
+  const message = rawMessage.trim().replace(/\s+/g, " ");
+  if (message === "") {
     return undefined;
   }
   const normalized = message.toLowerCase();
   if (
     normalized.includes("chain of thought") ||
+    normalized.includes("chain-of-thought") ||
     normalized.includes("hidden reasoning") ||
     containsAbsolutePath(message) ||
     containsSensitiveProcessText(message) ||
@@ -1841,7 +1847,9 @@ function readSafeProcessMessage(params: unknown): string | undefined {
   ) {
     return undefined;
   }
-  return message;
+  return message.length > MAX_SAFE_PROCESS_MESSAGE_LENGTH
+    ? `${message.slice(0, MAX_SAFE_PROCESS_MESSAGE_LENGTH - 3)}...`
+    : message;
 }
 
 function containsSensitiveProcessText(value: string): boolean {
@@ -1862,7 +1870,9 @@ function containsSensitiveProcessText(value: string): boolean {
 }
 
 function containsAbsolutePath(value: string): boolean {
-  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value);
+  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
+    /(^|[\s("'`])[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
+    /(^|[\s("'`])\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

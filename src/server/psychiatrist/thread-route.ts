@@ -18,6 +18,7 @@ import {
   findLatestPsychiatristThread,
   loadPsychiatristThread,
   PsychiatristThreadStoreError,
+  reconcileInactivePsychiatristTurns,
 } from "./thread-store";
 import type {
   PsychiatristMemoryContext,
@@ -109,7 +110,14 @@ export async function handleStartPsychiatristThreadRequest(
         variantKind: context.variantKind,
       });
       if (latest !== undefined) {
-        return jsonResponse(toThreadResponse(latest), { status: 200 });
+        const thread = input.findLatestThread === undefined
+          ? await reconcileThreadForResponse({
+            config,
+            loadThread: loadPsychiatristThread,
+            thread: latest,
+          })
+          : latest;
+        return jsonResponse(toThreadResponse(thread), { status: 200 });
       }
     }
     const manifest: PsychiatristThreadManifest = {
@@ -152,14 +160,40 @@ export async function handleReadPsychiatristThreadRequest(
   }
   const config = input.config ?? loadRuntimeTraumaConfig();
   try {
-    const thread = await (input.loadThread ?? loadPsychiatristThread)({
+    const loadThread = input.loadThread ?? loadPsychiatristThread;
+    let thread = await loadThread({
       config,
       threadId,
     });
+    if (input.loadThread === undefined) {
+      thread = await reconcileThreadForResponse({ config, loadThread, thread });
+    }
     return jsonResponse(toThreadResponse(thread), { status: 200 });
   } catch (error) {
     return formatPsychiatristThreadError(error);
   }
+}
+
+async function reconcileThreadForResponse(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  loadThread: LoadThread;
+  thread: {
+    manifest: PsychiatristThreadManifest;
+    pairs: PsychiatristThreadPair[];
+  };
+}): Promise<{
+  manifest: PsychiatristThreadManifest;
+  pairs: PsychiatristThreadPair[];
+}> {
+  const activeTurn = activePsychiatristTurns.getByThreadId(input.thread.manifest.threadId);
+  const changed = await reconcileInactivePsychiatristTurns({
+    activeTurnIds: activeTurn === undefined ? [] : [activeTurn.turnId],
+    config: input.config,
+    threadId: input.thread.manifest.threadId,
+  });
+  return changed
+    ? input.loadThread({ config: input.config, threadId: input.thread.manifest.threadId })
+    : input.thread;
 }
 
 async function parseThreadPayload(request: Request): Promise<ThreadPayload> {

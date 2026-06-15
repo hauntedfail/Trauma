@@ -372,6 +372,91 @@ describe("Psychiatrist thread store", () => {
     });
   });
 
+  it("does not overwrite failed turns when completion arrives late", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-failed-complete-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "Needs current sources?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await expect(
+      markPsychiatristTurnCompleted({
+        codexThreadId: "codex-thread-late",
+        codexTurnId: "codex-turn-late",
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      }),
+    ).resolves.toBe("failed");
+
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      safe_error: { code: "network_permission_required" },
+      status: "failed",
+    });
+  });
+
+  it("does not overwrite canceled turns when completion arrives late", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-metadata-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "Stop this.",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnCanceled({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    await expect(
+      markPsychiatristTurnCompleted({
+        codexThreadId: "codex-thread-late",
+        codexTurnId: "codex-turn-late",
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      }),
+    ).resolves.toBe("canceled");
+
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      safe_error: { code: "turn_stopped" },
+      status: "canceled",
+    });
+  });
+
   it("rejects late assistant completions for canceled message turns", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-"));
     await createPsychiatristThread({
@@ -565,6 +650,7 @@ describe("Psychiatrist thread store", () => {
       pairId: PAIR_ID,
       threadId: THREAD_ID,
     });
+    await delay(5);
     await markPsychiatristRegenerateFailed({
       config: { storePath },
       error: {
@@ -605,6 +691,73 @@ describe("Psychiatrist thread store", () => {
       assistant: expect.objectContaining({ content: "Approved regenerated answer." }),
       status: "completed",
       turnId: approvedRegenerateTurnId,
+    });
+    expect(loaded.pairs[0]).not.toHaveProperty("retryAction");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryMode");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryTurnId");
+  });
+
+  it("does not rehydrate regenerate web-source retries after a later terminal regenerate fails differently", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-terminal-regenerate-retry-"));
+    const deniedRegenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    const laterRegenerateTurnId = "019e8a00-0000-7000-8000-000000000006";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await delay(5);
+    await markPsychiatristRegenerateFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: deniedRegenerateTurnId,
+    });
+
+    await expect(loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID })).resolves.toMatchObject({
+      pairs: [
+        expect.objectContaining({
+          retryAction: "allow_web_sources",
+          retryMode: "regenerate",
+          retryTurnId: deniedRegenerateTurnId,
+        }),
+      ],
+    });
+
+    await delay(5);
+    await markPsychiatristRegenerateFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "app_server_unavailable",
+        message: "Codex app-server is unavailable.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: laterRegenerateTurnId,
+    });
+
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      assistant: expect.objectContaining({ content: "Original answer." }),
+      status: "completed",
+      turnId: TURN_ID,
     });
     expect(loaded.pairs[0]).not.toHaveProperty("retryAction");
     expect(loaded.pairs[0]).not.toHaveProperty("retryMode");
@@ -744,4 +897,8 @@ function contextSnapshot(): PsychiatristContextSnapshotManifest {
     userPrompt: "What is the risk?",
     variantKind: "source",
   };
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

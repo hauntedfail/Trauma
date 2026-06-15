@@ -658,6 +658,38 @@ describe("PsychiatristDock", () => {
     });
   });
 
+  it("keeps canceled first-answer turns canceled after streamed answer deltas", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-canceled",
+        status: "pending",
+        turn_id: "turn-canceled",
+        user_prompt: {
+          content: "What happens if I stop this?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const withDelta = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-canceled", text: "Partial answer" },
+      turnId: "turn-canceled",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    const canceled = applyPsychiatristStreamEvent(withDelta, streamEvent({
+      data: { pair_id: "pair-canceled" },
+      turnId: "turn-canceled",
+      type: "psychiatrist.turn.canceled",
+    }));
+
+    expect(canceled[0]).toMatchObject({
+      answer: "Partial answer",
+      status: "canceled",
+      turnId: "turn-canceled",
+    });
+  });
+
   it("keeps completed regenerate answers visible for regenerate web-source retries", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
@@ -740,7 +772,6 @@ describe("PsychiatristDock", () => {
         code: "timeout",
         message: "Psychiatrist could not finish. Retry when ready.",
         pair_id: "pair-regenerate",
-        retry_mode: "regenerate",
       },
       turnId: "turn-regenerate",
       type: "psychiatrist.answer.failed",
@@ -752,6 +783,125 @@ describe("PsychiatristDock", () => {
       turnId: "turn-original",
     });
     expect(failed[0]).not.toHaveProperty("draftAnswer");
+  });
+
+  it("keeps completed regenerate answers visible after stopped regenerate streams", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Old answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-regenerate",
+        status: "completed",
+        turn_id: "turn-original",
+        user_prompt: {
+          content: "Retry this?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const regenerating = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-regenerate" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.started",
+    }));
+    const withDelta = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: { pair_id: "pair-regenerate", text: "Partial replacement." },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    const stopped = applyPsychiatristStreamEvent(withDelta, streamEvent({
+      data: { pair_id: "pair-regenerate" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.turn.canceled",
+    }));
+
+    expect(stopped[0]).toMatchObject({
+      answer: "Old answer.",
+      status: "completed",
+      turnId: "turn-original",
+    });
+    expect(stopped[0]).not.toHaveProperty("draftAnswer");
+  });
+
+  it("ignores stale regenerate deltas for completed pairs", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Canonical answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-regenerate",
+        status: "completed",
+        turn_id: "turn-original",
+        user_prompt: {
+          content: "Retry this?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const withStaleDelta = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-regenerate", text: "Stale draft." },
+      turnId: "turn-stale-regenerate",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    expect(withStaleDelta[0]).toMatchObject({
+      answer: "Canonical answer.",
+      status: "completed",
+      turnId: "turn-original",
+    });
+    expect(withStaleDelta[0]).not.toHaveProperty("draftAnswer");
+  });
+
+  it("clears stale retry metadata when a regenerate completes without retry metadata", () => {
+    const transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: {
+          completed_at: "2026-06-01T00:00:00.000Z",
+          content: "Old answer.",
+          source_citations: [],
+        },
+        pair_id: "pair-regenerate",
+        retry_action: "allow_web_sources",
+        retry_mode: "regenerate",
+        retry_turn_id: "turn-retry",
+        status: "completed",
+        turn_id: "turn-original",
+        user_prompt: {
+          content: "Retry this?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const regenerating = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-regenerate" },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.started",
+    }));
+
+    const completed = applyPsychiatristStreamEvent(regenerating, streamEvent({
+      data: {
+        pair_id: "pair-regenerate",
+        text: "Approved replacement.",
+      },
+      turnId: "turn-regenerate",
+      type: "psychiatrist.regenerate.completed",
+    }));
+
+    expect(completed[0]).toMatchObject({
+      answer: "Approved replacement.",
+      status: "completed",
+      turnId: "turn-regenerate",
+    });
+    expect(completed[0]).not.toHaveProperty("retryAction");
+    expect(completed[0]).not.toHaveProperty("retryMode");
+    expect(completed[0]).not.toHaveProperty("retryTurnId");
   });
 });
 
@@ -771,6 +921,7 @@ function streamEvent(input: {
     | "psychiatrist.answer.delta"
     | "psychiatrist.answer.completed"
     | "psychiatrist.answer.failed"
+    | "psychiatrist.turn.canceled"
     | "psychiatrist.network.permission_required"
     | "psychiatrist.regenerate.started"
     | "psychiatrist.regenerate.completed";

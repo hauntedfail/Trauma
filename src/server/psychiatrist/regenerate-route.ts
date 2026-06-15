@@ -95,7 +95,11 @@ export async function handleRegeneratePsychiatristResponseRequest(
     throw error;
   });
   if (loaded instanceof PsychiatristThreadStoreError) {
-    return safeErrorResponse("pair_not_found", "Psychiatrist pair was not found.", 404);
+    return safeErrorResponse(
+      "regenerate_unavailable",
+      "Only completed Psychiatrist responses can be regenerated.",
+      409,
+    );
   }
   let turnMode: RegenerateTurnMode | undefined;
   try {
@@ -106,7 +110,11 @@ export async function handleRegeneratePsychiatristResponseRequest(
     });
   } catch (error) {
     if (error instanceof PsychiatristThreadStoreError) {
-      return safeErrorResponse("pair_not_found", "Psychiatrist pair was not found.", 404);
+      return safeErrorResponse(
+        "regenerate_unavailable",
+        "Only completed Psychiatrist responses can be regenerated.",
+        409,
+      );
     }
     throw error;
   }
@@ -460,7 +468,9 @@ async function runRegenerateTurn(input: {
           memoryId: input.loaded.manifest.memoryId,
           threadId: input.loaded.manifest.threadId,
           turnId: input.turnId,
-          type: "psychiatrist.regenerate.completed",
+          type: isAnswerRetry
+            ? "psychiatrist.answer.completed"
+            : "psychiatrist.regenerate.completed",
         },
       }).catch(() => undefined);
       return;
