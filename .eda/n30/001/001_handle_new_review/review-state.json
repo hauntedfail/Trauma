@@ -1,0 +1,163 @@
+{
+  "pr": {
+    "number": 30,
+    "url": "https://github.com/hauntedfail/Trauma/pull/30",
+    "title": "docs: plan psychiatrist workflow",
+    "baseRefName": "main",
+    "headRefName": "docs/task-24-psychiatrist-plan",
+    "headRefOid": "c4ce40fae9655f9e071beafc71896b648479b2af",
+    "worktree": "/private/tmp/trauma-pr30-review-docs",
+    "localBranch": "cc/pr30-review-docs"
+  },
+  "trigger": "handle the new review",
+  "source": "current branch PR inference via gh pr view",
+  "reviewItems": [
+    {
+      "key": "codex-3342530695",
+      "threadId": "PRRT_kwDOSYaxA86Ge_Ju",
+      "databaseId": 3342530695,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3342530695",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Scope message sends to the active memory",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3342530705",
+      "threadId": "PRRT_kwDOSYaxA86Ge_J1",
+      "databaseId": 3342530705,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3342530705",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Replay turn events for late EventSource connections",
+      "isOutdated": true,
+      "isResolved": false,
+      "classification": "already_fixed"
+    },
+    {
+      "key": "codex-3342530710",
+      "threadId": "PRRT_kwDOSYaxA86Ge_J5",
+      "databaseId": 3342530710,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3342530710",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Do not persist ephemeral Codex thread ids",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343447066",
+      "threadId": "PRRT_kwDOSYaxA86GhiRu",
+      "databaseId": 3343447066,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343447066",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Add a retry target for approved web-source turns",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343447071",
+      "threadId": "PRRT_kwDOSYaxA86GhiRx",
+      "databaseId": 3343447071,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343447071",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Include policy version in thread freshness",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343447075",
+      "threadId": "PRRT_kwDOSYaxA86GhiR0",
+      "databaseId": 3343447075,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343447075",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/02-memory-context-and-prompt-contract.md",
+      "title": "Treat stored pair history as untrusted prompt data",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343447081",
+      "threadId": "PRRT_kwDOSYaxA86GhiR5",
+      "databaseId": 3343447081,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343447081",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/01-codex-conversation-adapter.md",
+      "title": "Separate app-server turn ids from public turn ids",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343523476",
+      "threadId": "PRRT_kwDOSYaxA86GhwF5",
+      "databaseId": 3343523476,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343523476",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/05-safety-freshness-and-errors.md",
+      "title": "Allow server writes for required thread artifacts",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343523485",
+      "threadId": "PRRT_kwDOSYaxA86GhwF_",
+      "databaseId": 3343523485,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343523485",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/08-streaming-continuity-regenerate-backup.md",
+      "title": "Allow Regenerate to use its stored context",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343523491",
+      "threadId": "PRRT_kwDOSYaxA86GhwGE",
+      "databaseId": 3343523491,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343523491",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Close the replay-to-live SSE handoff gap",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "codex-3343523495",
+      "threadId": "PRRT_kwDOSYaxA86GhwGG",
+      "databaseId": 3343523495,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#discussion_r3343523495",
+      "author": "chatgpt-codex-connector",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/03-thread-storage-api-and-streaming-events.md",
+      "title": "Write response artifacts before completing the pair",
+      "isOutdated": false,
+      "isResolved": false,
+      "classification": "must_fix"
+    },
+    {
+      "key": "coderabbit-4412440990",
+      "reviewId": 4412440990,
+      "url": "https://github.com/hauntedfail/Trauma/pull/30#pullrequestreview-4412440990",
+      "author": "coderabbitai[bot]",
+      "path": "docs/workflows/task-24-psychiatrist-assistant/07-psychiatrist-skill-and-runtime-policy.md",
+      "title": "Make the permission-to-runtime mapping explicit to prevent contract drift",
+      "classification": "must_fix"
+    }
+  ],
+  "statusChecks": [
+    {
+      "context": "CodeRabbit",
+      "state": "SUCCESS"
+    }
+  ]
+}

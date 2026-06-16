@@ -24,7 +24,8 @@ browser-visible errors, and turn lifecycle edge cases.
 Stale context:
 
 - Recompute the active content hash before every turn.
-- If the hash differs from the thread manifest hash, stop before calling Codex.
+- If the hash or prompt policy version differs from the thread manifest, stop
+  before calling Codex.
 - Mark `THREAD.json` stale and emit or return `thread_stale` with action
   `refresh_thread`.
 - The dock automatically creates or resumes a fresh thread and lets the user
@@ -44,8 +45,13 @@ Runtime boundary:
   tools, local filesystem browsing, project-root access, or memory-store access.
 - The prompt includes the same boundary, but the adapter test must also prove
   the app-server payload does not expose those capabilities.
-- TRAUMA server code may write only `THREAD.json`, `PAIRS.jsonl`, and
-  `turns/{turnId}.json` under the active memory thread directory.
+- TRAUMA server code may write only required Psychiatrist thread artifacts under
+  the active memory thread directory: `THREAD.json`, `THREAD.md`,
+  `PAIRS.jsonl`, `pairs/{pairId}/PROMPT.md`,
+  `pairs/{pairId}/CONTEXT.json`, `pairs/{pairId}/RESPONSE.md`,
+  `turns/{turnId}.json`, and `streams/{turnId}.jsonl`. It must not write
+  canonical memory content, translated content, SQLite transcript rows,
+  taxonomy, settings, or app-server runtime files.
 
 Network boundary:
 
@@ -54,6 +60,12 @@ Network boundary:
   it for the current turn or retry.
 - If network is denied and current web sources are required, return
   `network_permission_required` without attempting network access.
+- A user-approved retry for `network_permission_required` must target the same
+  pair explicitly with `retry_pair_id` and `retry_turn_id`. The route must
+  require those fields only for an approved same-pair retry, not for a normal
+  first approved send, and must reject retries that omit or mismatch the
+  original `thread_id`, `pair_id`, `turn_id`, accepted prompt, memory id, or
+  variant identity.
 - If network is approved, store safe source citation metadata on the pair and do
   not expose raw fetch payloads, credentials, or app-server transport details.
 
@@ -102,6 +114,10 @@ Regenerate integrity:
 - Regenerate is allowed only for a completed pair.
 - Regenerate uses the stored prompt and stored context snapshot for that pair,
   not the current textarea value and not a new memory context.
+- Regenerate may proceed even when the current memory content hash has changed
+  after the original answer, because it uses stored prompt/context provenance.
+  It still rejects missing pairs, cross-memory pairs, non-completed pairs, and
+  pairs lacking `PROMPT.md` or `CONTEXT.json`.
 - Regenerate keeps the same `thread_id` and `pair_id`; it creates only a new
   `turn_id`.
 - Regenerate overwrites `pairs/{pairId}/RESPONSE.md` and rewrites `THREAD.md`
@@ -124,8 +140,9 @@ Safe UI errors:
   for this answer.
 - `turn_stopped` records explicit user Stop.
 - `regenerate_unavailable` says the response cannot be regenerated because the
-  pair is no longer completed, no longer belongs to the active memory, or lacks
-  stored prompt/context provenance.
+  pair is missing, no longer completed, belongs to a different memory, or lacks
+  stored prompt/context provenance. It must not describe current-memory content
+  changes as a regenerate blocker when stored provenance exists.
 - Unknown errors use a generic message and log details server-side only.
 
 ## Tests
@@ -133,6 +150,8 @@ Safe UI errors:
 Add or extend tests for:
 
 - Stale hash blocks Codex execution.
+- Prompt policy version mismatch marks the thread stale and blocks Codex
+  execution.
 - Oversized user message returns `400 invalid_request`.
 - Oversized memory uses deterministic section selection.
 - Prompt-injection text remains inside untrusted section delimiters.
@@ -152,9 +171,15 @@ Add or extend tests for:
   or web-source metadata.
 - User-approved network turns persist safe source citation metadata on the
   matching pair.
+- Approved same-pair retry after `network_permission_required` requires
+  concrete `retry_pair_id` and `retry_turn_id` values; omitted or mismatched
+  retry fields are rejected before Codex execution, while a normal first
+  approved send does not require retry fields.
 - Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
-  provenance, overwrites the existing response Markdown artifact, and enqueues
-  backup with reason `psychiatrist_response_regenerate`.
+  provenance even if current memory content changed, overwrites the existing
+  response Markdown artifact, rejects only missing/cross-memory/non-completed/
+  lacking-provenance cases, and enqueues backup with reason
+  `psychiatrist_response_regenerate`.
 
 Run:
 

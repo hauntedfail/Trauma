@@ -70,6 +70,8 @@ Implementation rules:
 - Add `PSYCHIATRIST_PROMPT_POLICY_VERSION`, for example
   `"psychiatrist-memory-pairs-v1"`.
 - Store the policy version in `THREAD.json` and in each `turns/{turnId}.json`.
+- Thread resume/freshness checks compare `PSYCHIATRIST_PROMPT_POLICY_VERSION`
+  together with memory id, variant identity, and content hash.
 - `buildPsychiatristPrompt()` includes the skill-derived policy text before
   memory context and pair history.
 - `buildPsychiatristPrompt()` includes a regenerate marker only when the server
@@ -81,6 +83,29 @@ Implementation rules:
   `networkAccess` is disabled.
 - Thread artifact writes remain TRAUMA server responsibilities after route
   validation and Codex output validation.
+
+## Permission To Runtime Mapping
+
+This table is normative. Routes, prompt construction, app-server adapter input,
+pair metadata, and tests must use the same mapping.
+
+| UI/API state | `web_source_permission` | `web_source_policy` in prompt/pair | `networkAccess` passed to app-server | Runtime expectation |
+| --- | --- | --- | --- | --- |
+| Default send, denied retry, or omitted field | `"deny"` or omitted | `{ "allowed": false, "reason": "default_denied" }` | `"disabled"` | Psychiatrist must answer from memory/thread context or ask for permission with `network_permission_required`; no network-enabled app-server payload is allowed. |
+| Approved same-pair retry after `network_permission_required` | `"allow_for_this_turn"` with `retry_pair_id` and `retry_turn_id` | `{ "allowed": true, "reason": "user_approved_for_turn" }` | `"user_approved_web_sources"` | Network may be used only for source lookup required by the memory context plus the same prompt; completed output stores safe citations on the same pair. |
+| Approved first send from an explicit per-turn UI approval | `"allow_for_this_turn"` | `{ "allowed": true, "reason": "user_approved_for_turn" }` | `"user_approved_web_sources"` | Network may be used only for this turn and never becomes a thread, memory, or global default. |
+| Regenerate with no new approval | `"deny"` or omitted | Stored/updated policy is default denied for the regenerate turn | `"disabled"` | Regenerate uses stored prompt/context and no network. |
+| Regenerate with explicit per-turn approval | `"allow_for_this_turn"` | `{ "allowed": true, "reason": "user_approved_for_turn" }` for the regenerate turn | `"user_approved_web_sources"` | Regenerate still targets the same pair and stored context; network use is limited to required source lookup and cited results. |
+
+An `"allow_for_this_turn"` request is invalid unless the UI action represents an
+explicit current-turn user approval. For a retry after
+`network_permission_required`, the message send request must include
+`retry_pair_id` and `retry_turn_id` for the original same-pair retry target.
+The server validates those fields against the original `thread_id`, `pair_id`,
+`turn_id`, accepted prompt, memory id, and variant identity so it completes the
+same pair instead of appending a new one. A first send with explicit per-turn
+approval is also allowed, but it is not a retry and does not require
+`retry_pair_id` or `retry_turn_id`.
 
 ## Pair And Network Flow
 
@@ -98,8 +123,9 @@ Default send:
 Approved retry:
 
 1. UI asks the user to approve web search/source lookup for this answer.
-2. UI retries the same prompt or pair with
-   `web_source_permission: "allow_for_this_turn"`.
+2. UI retries the same pair with
+   `web_source_permission: "allow_for_this_turn"`, `retry_pair_id`, and
+   `retry_turn_id`.
 3. Server records `web_source_policy.reason = "user_approved_for_turn"`.
 4. App-server runtime may use network for web-source lookup only.
 5. Completed pair revision stores safe citation metadata, not raw fetched
@@ -158,6 +184,8 @@ describe("psychiatrist skill policy", () => {
 Extend `tests/server/psychiatrist/prompt.test.ts`:
 
 - Prompt includes `PSYCHIATRIST_PROMPT_POLICY_VERSION`.
+- Prompt policy version participates in thread freshness tests for
+  `resume_latest` and send routes.
 - Prompt mirrors the skill rules for memory scope, pair model, untrusted memory,
   visible process updates, no hidden chain-of-thought, no medical role, no
   writes, no shell/file access, explicit Stop, Regenerate from stored context,
@@ -167,6 +195,15 @@ Extend `tests/server/psychiatrist/prompt.test.ts`:
 - Prompt with `webSourcePolicy.allowed = true` says web sources are allowed only
   when memory context plus the user prompt requires them and citations are
   required.
+- Prompt and route tests assert the permission-to-runtime mapping table: denied
+  routes produce `web_source_policy.reason = "default_denied"` and
+  `networkAccess = "disabled"`; approved routes produce
+  `web_source_policy.reason = "user_approved_for_turn"` and
+  `networkAccess = "user_approved_web_sources"` only for that turn. Same-pair
+  approved retries after `network_permission_required` require `retry_pair_id`
+  and `retry_turn_id`, reject omitted or mismatched values, and validate the
+  original thread, pair, turn, accepted prompt, memory id, and variant identity;
+  normal first approved sends do not require retry fields.
 
 Extend `tests/server/translation/codex-app-server.test.ts`:
 
@@ -175,6 +212,8 @@ Extend `tests/server/translation/codex-app-server.test.ts`:
 - Psychiatrist turn payload keeps network disabled by default.
 - Psychiatrist turn payload can enable network only when
   `networkAccess = "user_approved_web_sources"`.
+- Approved network retry tests use `retry_pair_id` and `retry_turn_id` to prove
+  the same pair is targeted explicitly and no unrelated pair is created.
 
 Run:
 

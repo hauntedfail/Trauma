@@ -26,17 +26,20 @@ export interface CodexConversationTurnInput {
   onEvent?: (event: CodexAppServerEvent) => void;
   reasoningEffort?: CodexReasoningEffort | null;
   sandboxPolicy?: CodexSandboxPolicy;
-  threadId?: string;
+  appServerThreadId?: string;
 }
 
 export interface CodexConversationTurnResult {
   outputText: string;
-  threadId: string;
-  turnId: string;
+  appServerThreadId: string;
+  appServerTurnId: string;
 }
 
 export interface CodexConversationClient {
-  cancelTurn(input: { threadId: string; turnId: string }): Promise<void>;
+  cancelTurn(input: {
+    appServerThreadId: string;
+    appServerTurnId: string;
+  }): Promise<void>;
   close?: () => Promise<void> | void;
   probe(): Promise<void>;
   runConversationTurn(
@@ -51,8 +54,14 @@ Rules:
   `CodexConversationClient`.
 - `runConversationTurn()` sends `initialize` and `initialized` before any
   app-server request, exactly like translation.
-- If `threadId` is absent, it starts an ephemeral thread before `turn/start`.
-- If `threadId` is present, it reuses that thread and starts only a new turn.
+- If `appServerThreadId` is absent, it starts an ephemeral app-server thread
+  before `turn/start`.
+- If `appServerThreadId` is present, it reuses that app-server thread and
+  starts only a new app-server turn.
+- Adapter-facing `appServerThreadId` and `appServerTurnId` are distinct from
+  TRAUMA's durable `thread_id` and `turn_id`. They are transient runtime handles
+  for cancel/reuse during the current server process and must not become
+  durable manifest identity.
 - `cwdPurpose: "psychiatrist"` uses a job-scoped empty runtime directory under
   the same runtime root pattern as translation, never the project root or memory
   store root.
@@ -67,9 +76,10 @@ Rules:
 - When network remains disabled and the app-server schema can express network
   denial, send that field. If the schema cannot express it, omit network-capable
   tools and document the minimum-privilege payload before implementation.
-- TRAUMA server code, not the app-server runtime, writes `THREAD.json`,
-  `PAIRS.jsonl`, and `turns/{turnId}.json` after validating route and context
-  state.
+- TRAUMA server code, not the app-server runtime, writes thread artifacts and
+  stream artifacts under the owning memory's `threads/` subtree after
+  validating route, memory identity, variant identity, prompt policy version,
+  and context state.
 - The selected `model` and `reasoningEffort` pass through using the same stable
   app-server field names as translation.
 - Final answer text comes from completed app-server item content, not streamed
@@ -87,6 +97,7 @@ Rules:
 1. Add failing tests in `tests/server/translation/codex-app-server.test.ts`.
    Cover new thread creation, existing thread reuse, event forwarding, final
    text extraction, safe process-event forwarding, hidden-reasoning filtering,
+   app-server id naming that does not collide with TRAUMA `thread_id`/`turn_id`,
    model/effort pass-through, cancellation, denied shell/file policy, disabled
    network default, and the explicit user-approved network flag.
 

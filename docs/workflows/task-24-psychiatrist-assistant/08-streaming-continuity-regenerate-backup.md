@@ -75,7 +75,10 @@ Thread create/read responses include:
 
 The event route must:
 
-- Replay stored `streams/{turnId}.jsonl` rows before subscribing to live events.
+- Replay stored `streams/{turnId}.jsonl` rows and hand off to live events with
+  no gap. Implement this by subscribing before replay and de-duplicating by
+  `event_id`, or by using an equivalent atomic cursor protocol that cannot miss
+  events appended during replay.
 - Support `Last-Event-ID` and `?after_event_id=...`.
 - Close after replay when the turn is already terminal.
 - Continue the server turn when a browser EventSource disconnects.
@@ -94,13 +97,18 @@ content-type: application/json
 Rules:
 
 - Reject non-completed pairs with `409 regenerate_unavailable`.
-- Reject stale, missing, or cross-memory pairs.
+- Reject missing pairs, cross-memory pairs, and pairs lacking stored
+  `PROMPT.md`/`CONTEXT.json` provenance.
+- Do not reject solely because the current memory content changed after the
+  original answer. Regenerate uses the stored prompt and stored context snapshot
+  for the same pair.
 - Load `PROMPT.md` and `CONTEXT.json` for the same `pair_id`.
 - Create a new `turn_id` for the regenerate attempt.
 - Keep the existing `thread_id`, `pair_id`, and `RESPONSE.md` path.
 - Stream through the normal event route.
-- On completion, overwrite `RESPONSE.md`, rewrite `THREAD.md`, append a
-  `regenerated_completed` pair revision, and enqueue backup.
+- On completion, write or recoverably stage `RESPONSE.md` and `THREAD.md`
+  before appending the canonical `regenerated_completed` pair revision, then
+  append the terminal stream event and enqueue backup.
 
 ## UI Contract
 
@@ -113,6 +121,8 @@ Running state:
 - Returning to the same memory or reloading the page resumes the latest matching
   thread and reconnects to `active_turn.event_url`.
 - The UI replays stored process and answer events, then continues live.
+- Replay-to-live event handling de-duplicates by `event_id` so overlap from a
+  subscribe-before-replay implementation does not duplicate visible rows.
 
 Process stream rendering:
 
@@ -190,11 +200,15 @@ Server tests:
   events with increasing `event_id`.
 - Event route replays stored events after browser reload.
 - Event route resumes after `Last-Event-ID`.
+- Event route has no replay-to-live gap and de-duplicates replay/live overlap by
+  `event_id`.
 - EventSource disconnect does not cancel the running turn.
 - Cancel route is called only by explicit Stop and appends `turn_stopped`.
 - Hidden chain-of-thought and raw app-server payloads are filtered from process
   stream storage.
-- Regenerate rejects non-completed pairs.
+- Regenerate rejects missing, cross-memory, non-completed, and
+  lacking-provenance pairs, but does not reject a completed pair solely because
+  current memory content changed.
 - Regenerate keeps `thread_id` and `pair_id`, creates a new `turn_id`, uses
   stored `PROMPT.md` and `CONTEXT.json`, and overwrites `RESPONSE.md`.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
