@@ -118,7 +118,8 @@ Default send:
    server appends a completed revision for the same pair.
 5. If current web sources are required, Psychiatrist returns a safe
    `network_permission_required` answer/event and the pair remains without an
-   `assistant_response`.
+   `assistant_response`. This is a terminal waiting-for-approval status for the
+   pair, not running `pending` and not ordinary failed/canceled.
 
 Approved retry:
 

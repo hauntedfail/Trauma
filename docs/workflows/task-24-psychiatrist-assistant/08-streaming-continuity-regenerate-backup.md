@@ -16,7 +16,8 @@ same-pair Regenerate with git-backed Markdown overwrite.
 - Modify: `src/server/psychiatrist/threads.ts`
 - Create: `src/server/psychiatrist/stream-store.ts`
 - Create: `src/server/psychiatrist/regenerate-route.ts`
-- Create: `src/routes/api/psychiatrist-pairs/[pairId]/regenerate.ts`
+- Create:
+  `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/pairs/[pairId]/regenerate.ts`
 - Modify: `src/components/reader/PsychiatristDock.tsx`
 - Modify: `src/components/reader/psychiatrist-requests.ts`
 - Modify: `src/components/reader/psychiatrist-types.ts`
@@ -56,7 +57,10 @@ Rules:
   It does not create a new pair, new thread, or new Markdown response path.
 - `pairs/{pairId}/CONTEXT.json` stores enough prompt/context provenance to
   regenerate from the same context: memory variant, content hash, prompt policy
-  version, selected section anchors, selected section hashes, and source URL.
+  version, selected section anchors, selected section hashes, selected Markdown
+  text, and source URL. If an implementation stores exact rendered prompt input
+  instead of selected Markdown text, that input must be sufficient to
+  reconstruct the original Codex input after memory edits.
 
 ## API And Event Contract
 
@@ -86,10 +90,11 @@ The event route must:
 Regenerate route:
 
 ```http
-POST /api/psychiatrist-pairs/:pairId/regenerate
+POST /api/memories/:memoryId/psychiatrist/threads/:threadId/pairs/:pairId/regenerate
 content-type: application/json
 
 {
+  "lang_code": "ja-JP",
   "web_source_permission": "deny"
 }
 ```
@@ -99,6 +104,10 @@ Rules:
 - Reject non-completed pairs with `409 regenerate_unavailable`.
 - Reject missing pairs, cross-memory pairs, and pairs lacking stored
   `PROMPT.md`/`CONTEXT.json` provenance.
+- Reject cross-thread, cross-pair, and cross-variant requests. The route is
+  scoped by active `memoryId`, `threadId`, `pairId`, and active variant
+  identity; translated-reader requests must carry the active `lang_code`, while
+  source-reader requests omit it.
 - Do not reject solely because the current memory content changed after the
   original answer. Regenerate uses the stored prompt and stored context snapshot
   for the same pair.
@@ -133,11 +142,17 @@ Process stream rendering:
 Regenerate:
 
 - Render a Regenerate button on each completed assistant response.
-- Clicking Regenerate calls `regeneratePsychiatristResponse({ pairId })`.
+- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the active
+  `memoryId`, active `threadId`, existing `pairId`, and active `langCode` when
+  present.
 - The UI streams the regenerated answer into the same pair row.
 - On first new answer delta, replace the visible previous answer for that pair.
 - If Regenerate fails or is stopped, keep the previous completed answer visible
   and show the safe failure/stopped state.
+- If Regenerate reaches `network_permission_required`, keep the previous
+  completed answer visible and show a waiting-for-approval state for the same
+  pair. Approval retries the same scoped regenerate route, not a new message or
+  global pair route.
 
 ## Backup Contract
 
@@ -211,6 +226,11 @@ Server tests:
   current memory content changed.
 - Regenerate keeps `thread_id` and `pair_id`, creates a new `turn_id`, uses
   stored `PROMPT.md` and `CONTEXT.json`, and overwrites `RESPONSE.md`.
+- Regenerate route tests use the memory/thread/pair scoped path and reject
+  cross-thread, cross-pair, and cross-variant requests.
+- Regenerate provenance tests prove `CONTEXT.json` contains selected Markdown
+  text or exact rendered prompt input sufficient to reconstruct the original
+  Codex input after memory edits.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
   `psychiatrist_response_regenerate`.
 - Backup formatting maps `psychiatrist_response_regenerate` to
@@ -226,6 +246,8 @@ Component tests:
 - Regenerate button appears only on completed assistant responses.
 - Regenerate calls the regenerate route with the existing `pairId`.
 - Failed Regenerate leaves the previous completed response visible.
+- Stopped or network-permission-required Regenerate leaves the previous
+  completed response visible and overlays the latest attempt status.
 
 E2E tests:
 

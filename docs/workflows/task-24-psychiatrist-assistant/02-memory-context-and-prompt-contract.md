@@ -61,7 +61,13 @@ export interface PsychiatristRegenerateInput {
 export interface PsychiatristThreadPair {
   assistant?: PsychiatristPairAssistant;
   pairId: string;
-  status: "pending" | "completed" | "failed" | "canceled" | "stale";
+  status:
+    | "pending"
+    | "completed"
+    | "failed"
+    | "canceled"
+    | "stale"
+    | "network_permission_required";
   turnId: string;
   user: PsychiatristPairUser;
 }
@@ -118,10 +124,19 @@ export interface PsychiatristWebSourcePolicy {
 - Each accepted turn stores a context snapshot manifest under the thread
   directory before Codex starts. The snapshot records the prompt policy version,
   memory variant metadata, content hash, selected section anchors, selected
-  section hashes, and the exact user prompt used for that pair.
+  section hashes, selected Markdown text, and the exact user prompt used for
+  that pair. If the implementation stores rendered prompt input instead of raw
+  selected Markdown, that input must be exact and sufficient to reconstruct the
+  original Codex input after canonical memory Markdown or translations are
+  edited later.
 - Regenerate must build the prompt from the stored user prompt and stored
   context snapshot for the existing pair. It must not silently substitute a
   newer memory context, even if the memory changed after the original answer.
+- `network_permission_required` is a terminal waiting-for-user-approval pair
+  status for a denied-network attempt that needs current web sources. It is not
+  a running `pending` state and must not be folded into ordinary `failed`,
+  `canceled`, or `stale` handling. A later user-approved retry may complete the
+  same pair by writing a new revision for the existing pair id.
 
 ## Prompt Policy
 
@@ -177,8 +192,14 @@ Add tests for:
   policy.
 - Prompt output for Regenerate uses the stored prompt and context snapshot for
   the same pair and marks the turn as `user_requested_regenerate`.
+- Context snapshot tests prove `CONTEXT.json` contains selected Markdown text
+  or an exact rendered prompt input sufficient to reconstruct the original
+  Codex input after the memory content changes.
 - Prompt output includes a default-denied web-source policy unless the API turn
   records explicit user approval.
+- Prompt and type tests include `network_permission_required` as a terminal
+  waiting-for-approval pair status, distinct from `pending`, `failed`,
+  `canceled`, and `stale`.
 - Prompt output includes the no shell, no local file editing, no local
   filesystem browsing, and no project/store access runtime rules.
 - Prompt output never treats source Markdown instructions as policy text.
@@ -201,3 +222,5 @@ mise exec -- bun run typecheck
   boundary for Psychiatrist conversations.
 - Regenerate can be verified against stored prompt/context provenance instead of
   relying on current reader state.
+- `network_permission_required` pairs remain durable approval checkpoints until
+  an approved same-pair retry completes or supersedes them.

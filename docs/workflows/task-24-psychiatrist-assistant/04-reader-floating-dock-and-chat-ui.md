@@ -111,7 +111,10 @@ export async function cancelPsychiatristTurn(input: {
 }): Promise<void>;
 
 export async function regeneratePsychiatristResponse(input: {
+  langCode?: string;
+  memoryId: string;
   pairId: string;
+  threadId: string;
   webSourcePermission?: "deny" | "allow_for_this_turn";
 }): Promise<PsychiatristTurnStartedResponse>;
 ```
@@ -158,6 +161,10 @@ Regenerate display rules:
   by the regenerated response for the same pair.
 - If Regenerate fails or is stopped, the UI keeps the last completed response
   and shows the safe failure/stopped status for that pair.
+- If Regenerate returns `network_permission_required`, the UI keeps the last
+  completed response visible, overlays the waiting-for-approval status for that
+  same pair, and approval retries the scoped regenerate route for the same
+  `memoryId`, `threadId`, `pairId`, and variant identity.
 
 ## Tests
 
@@ -183,9 +190,12 @@ Component tests:
 - Hidden-chain-of-thought placeholder events are ignored or rendered as a safe
   generic status, never as raw reasoning text.
 - Completed assistant responses render a Regenerate button.
-- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the existing
-  `pairId`, not `sendPsychiatristMessage()`.
+- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the active
+  `memoryId`, active `threadId`, existing `pairId`, and active `langCode` when
+  present, not `sendPsychiatristMessage()`.
 - Failed or stopped Regenerate leaves the previous completed response visible.
+- Network-permission-required Regenerate leaves the previous completed response
+  visible and shows a same-pair approval state.
 - Web-source approval sends only `web_source_permission:
   "allow_for_this_turn"` plus `retryPairId` and `retryTurnId` for the
   same-pair active retry, omits retry fields for a normal first approved send,

@@ -59,7 +59,9 @@ Network boundary:
 - Web search/source lookup can be enabled only when the user explicitly approves
   it for the current turn or retry.
 - If network is denied and current web sources are required, return
-  `network_permission_required` without attempting network access.
+  `network_permission_required` without attempting network access. This is a
+  terminal waiting-for-approval pair status, not running `pending` and not
+  ordinary `failed` or `canceled`.
 - A user-approved retry for `network_permission_required` must target the same
   pair explicitly with `retry_pair_id` and `retry_turn_id`. The route must
   require those fields only for an approved same-pair retry, not for a normal
@@ -108,6 +110,9 @@ Pair integrity:
   pair.
 - Failed, canceled, stale, and network-permission-required turns must not create
   orphan assistant responses.
+- Pair projection preserves the latest completed assistant response when a
+  later Regenerate attempt fails, is stopped, or waits on network permission,
+  while exposing the latest attempt status/turn metadata for UI recovery.
 
 Regenerate integrity:
 
@@ -126,6 +131,9 @@ Regenerate integrity:
 - If Regenerate fails or is stopped, the previous completed response remains the
   visible completed response and the failed/stopped regenerate status is stored
   as pair/turn metadata.
+- If Regenerate reaches `network_permission_required`, the previous completed
+  response remains visible and the waiting-for-approval status is stored as the
+  latest same-pair attempt metadata.
 - Completed Regenerate enqueues git backup with reason
   `psychiatrist_response_regenerate`.
 
@@ -175,11 +183,16 @@ Add or extend tests for:
   concrete `retry_pair_id` and `retry_turn_id` values; omitted or mismatched
   retry fields are rejected before Codex execution, while a normal first
   approved send does not require retry fields.
+- `network_permission_required` is stored and projected as terminal
+  waiting-for-approval, distinct from `pending`, `failed`, and `canceled`.
 - Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
   provenance even if current memory content changed, overwrites the existing
   response Markdown artifact, rejects only missing/cross-memory/non-completed/
   lacking-provenance cases, and enqueues backup with reason
   `psychiatrist_response_regenerate`.
+- Regenerate failure, stop, or network-permission-required projection keeps the
+  latest completed assistant response visible while overlaying latest attempt
+  status.
 
 Run:
 
