@@ -29,7 +29,8 @@ for SSE fan-out, cancellation, and app-server turn ids.
 - Create:
   `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/pairs/[pairId]/regenerate.ts`
 - Create: `src/routes/api/psychiatrist-turns/[turnId]/events.ts`
-- Create: `src/routes/api/psychiatrist-turns/[turnId]/cancel.ts`
+- Create:
+  `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/turns/[turnId]/cancel.ts`
 - Test: `tests/server/psychiatrist/api-routes.test.ts`
 - Test: `tests/server/psychiatrist/events.test.ts`
 - Test: `tests/server/psychiatrist/thread-store.test.ts`
@@ -95,8 +96,10 @@ Rules:
   that pair. Regenerate overwrites this same file; it does not create a new
   response file, pair, or thread.
 - `turns/{turnId}.json` stores turn status, prompt policy version,
-  started/completed/canceled/failed timestamps, safe error code/action, and
-  transient Codex `appServerThreadId`/`appServerTurnId` when known.
+  started/completed/canceled/failed timestamps, and safe error code/action. It
+  must not store Codex `appServerThreadId` or `appServerTurnId`; those
+  app-server handles are transient in-memory active-turn state only and are
+  discarded after completion, failure, cancellation, or server restart.
 - `streams/{turnId}.jsonl` stores durable, user-visible stream events for that
   turn: answer deltas, safe process/reasoning events, status events, stop
   acknowledgment, failure events, and completion events. It must not contain
@@ -285,8 +288,23 @@ chain-of-thought or raw app-server notifications.
 Cancel turn:
 
 ```http
-POST /api/psychiatrist-turns/:turnId/cancel
+POST /api/memories/:memoryId/psychiatrist/threads/:threadId/turns/:turnId/cancel
+content-type: application/json
+
+{
+  "lang_code": "ja-JP",
+  "pair_id": "019f..."
+}
 ```
+
+For a source reader, omit `lang_code`. For a translated reader, the body must
+carry the active translated variant identity with `lang_code`. The cancel route
+validates the URL `memoryId`, URL `threadId`, body `pair_id`, URL `turnId`, and
+active variant identity against the thread manifest and the in-memory active
+turn record before calling app-server `turn/interrupt`. Cross-memory,
+cross-thread, cross-pair, cross-variant, stale-active-turn, completed, failed,
+or already-canceled requests return a safe error and must not interrupt
+app-server state.
 
 Regenerate response:
 
@@ -326,7 +344,10 @@ rejected before any prompt is built.
 - Threads persist until explicitly deleted by a future workflow. This workflow
   does not add a thread deletion UI.
 - In-memory active-turn records exist only while a turn is running so SSE and
-  cancellation can find the current Codex app-server turn ids.
+  cancellation can find the current Codex app-server turn ids. They are keyed
+  by TRAUMA `memoryId`, `threadId`, `pairId`, `turnId`, and active variant
+  identity, and they are the only place `appServerThreadId` and
+  `appServerTurnId` may live.
 - Durable stream records in `streams/{turnId}.jsonl` are the browser replay
   source. A closed EventSource, panel close, route change, memory switch, or
   browser reload must not cancel the server turn.
@@ -352,10 +373,12 @@ rejected before any prompt is built.
   completion, and enqueues git backup for the changed thread artifacts.
 - The server never stores an assistant response without the user prompt in the
   same pair.
-- Stop is explicit. `POST /api/psychiatrist-turns/:turnId/cancel` is called
-  only when the user presses Stop. Stop appends a stopped stream event, calls
-  app-server `turn/interrupt` when possible, marks the turn stopped/canceled,
-  rewrites `THREAD.md`, and leaves the pair without an assistant response.
+- Stop is explicit. The scoped cancel route is called only when the user
+  presses Stop. Stop first validates the active memory, thread, pair, turn, and
+  variant identity against the in-memory active-turn record; only then may it
+  append a stopped stream event, call app-server `turn/interrupt` when
+  possible, mark the turn stopped/canceled, rewrite `THREAD.md`, and leave the
+  pair without an assistant response.
 - If network is denied and Psychiatrist determines that a current web source is
   required, it appends a terminal waiting-for-approval
   `network_permission_required` pair revision with
@@ -466,7 +489,12 @@ Cover:
 - Closing the UI, navigating to another memory, and reloading the browser do not
   call the cancel route and do not interrupt the server turn.
 - Cancel route calls `cancelTurn()` with the transient Codex
-  `appServerThreadId` and `appServerTurnId` only after explicit Stop.
+  `appServerThreadId` and `appServerTurnId` from the in-memory active-turn
+  record only after explicit Stop and only after validating matching
+  `memoryId`, `threadId`, `pairId`, `turnId`, and active variant identity.
+- Cancel route rejects cross-memory, cross-thread, cross-pair, cross-variant,
+  stale-active-turn, completed, failed, and already-canceled requests before
+  calling app-server interruption.
 - Stop appends `turn_stopped`, leaves no `assistant_response`, and preserves the
   stored stream replay.
 - Regenerate route rejects missing, cross-memory, non-completed, or

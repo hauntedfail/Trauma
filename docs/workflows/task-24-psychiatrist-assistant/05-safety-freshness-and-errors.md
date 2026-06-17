@@ -62,6 +62,11 @@ Network boundary:
   `network_permission_required` without attempting network access. This is a
   terminal waiting-for-approval pair status, not running `pending` and not
   ordinary `failed` or `canceled`.
+- Server control flow for `network_permission_required` comes from the typed
+  conversation adapter result
+  `status: "network_permission_required"` with
+  `networkPermissionRequest.reason = "current_web_sources_required"`, not from
+  matching words in assistant `outputText`.
 - A user-approved retry for `network_permission_required` must target the same
   pair explicitly with `retry_pair_id` and `retry_turn_id`. The route must
   require those fields only for an approved same-pair retry, not for a normal
@@ -91,7 +96,11 @@ Context bounds:
 Turn lifecycle:
 
 - A canceled turn calls app-server `turn/interrupt` when thread and turn ids are
-  known.
+  known in the in-memory active-turn record.
+- The cancel route is scoped by active `memoryId`, `threadId`, `pairId`,
+  `turnId`, and variant identity. It rejects cross-memory, cross-thread,
+  cross-pair, cross-variant, stale-active-turn, completed, failed, and
+  already-canceled requests before calling app-server interruption.
 - Cancellation updates `turns/{turnId}.json`, marks the pair `canceled`, and
   writes no `assistant_response`.
 - The browser calls cancellation only for an explicit Stop click.
@@ -164,6 +173,10 @@ Add or extend tests for:
 - Oversized memory uses deterministic section selection.
 - Prompt-injection text remains inside untrusted section delimiters.
 - Cancel route interrupts when thread and turn ids are known.
+- Cancel route requires the active memory, thread, pair, turn, and variant
+  identity and rejects cross-memory, cross-thread, cross-pair, cross-variant,
+  stale-active-turn, completed, failed, and already-canceled attempts before
+  app-server interruption.
 - Cancel route is not called on panel close, route unmount, memory navigation,
   or browser reload.
 - UI refreshes a stale thread and preserves the unsent user prompt.
@@ -185,6 +198,8 @@ Add or extend tests for:
   approved send does not require retry fields.
 - `network_permission_required` is stored and projected as terminal
   waiting-for-approval, distinct from `pending`, `failed`, and `canceled`.
+- `network_permission_required` storage is driven by the typed adapter result
+  rather than parsing natural-language output.
 - Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
   provenance even if current memory content changed, overwrites the existing
   response Markdown artifact, rejects only missing/cross-memory/non-completed/

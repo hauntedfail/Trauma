@@ -1,4 +1,5 @@
 .superpowers/
+.eda/
 node_modules/
 .vinxi/
 .output/

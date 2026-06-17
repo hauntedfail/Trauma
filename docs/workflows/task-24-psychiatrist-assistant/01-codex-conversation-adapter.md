@@ -30,9 +30,14 @@ export interface CodexConversationTurnInput {
 }
 
 export interface CodexConversationTurnResult {
-  outputText: string;
+  status: "completed" | "network_permission_required";
+  outputText?: string;
   appServerThreadId: string;
   appServerTurnId: string;
+  networkPermissionRequest?: {
+    reason: "current_web_sources_required";
+    message: string;
+  };
 }
 
 export interface CodexConversationClient {
@@ -76,6 +81,14 @@ Rules:
 - When network remains disabled and the app-server schema can express network
   denial, send that field. If the schema cannot express it, omit network-capable
   tools and document the minimum-privilege payload before implementation.
+- When a denied-network Psychiatrist turn determines that current web sources
+  are required, the adapter returns
+  `status: "network_permission_required"` with
+  `networkPermissionRequest.reason = "current_web_sources_required"`. TRAUMA
+  server code must use this typed result to persist
+  `network_permission_required`; it must not parse natural-language
+  `outputText` as control flow. Completed turns return
+  `status: "completed"` with final `outputText`.
 - TRAUMA server code, not the app-server runtime, writes thread artifacts and
   stream artifacts under the owning memory's `threads/` subtree after
   validating route, memory identity, variant identity, prompt policy version,
@@ -99,7 +112,9 @@ Rules:
    text extraction, safe process-event forwarding, hidden-reasoning filtering,
    app-server id naming that does not collide with TRAUMA `thread_id`/`turn_id`,
    model/effort pass-through, cancellation, denied shell/file policy, disabled
-   network default, and the explicit user-approved network flag.
+   network default, typed `network_permission_required` result handling that
+   does not depend on parsing `outputText`, and the explicit user-approved
+   network flag.
 
 2. Extract or reuse the existing private request helpers so translation and
    conversation turns share initialization, request timeout, model field names,

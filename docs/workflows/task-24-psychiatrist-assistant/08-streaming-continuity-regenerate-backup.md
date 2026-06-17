@@ -125,6 +125,11 @@ Running state:
 
 - Submit becomes Stop while a turn is running.
 - Stop is the only user action that calls the cancel route.
+- Stop sends the active `memoryId`, `threadId`, `pairId`, `turnId`, and
+  `langCode` when present. The cancel route validates those fields against the
+  in-memory active-turn record and rejects cross-memory, cross-thread,
+  cross-pair, cross-variant, stale, completed, failed, or already-canceled
+  attempts before app-server interruption.
 - Panel close, Escape, route navigation, memory switching, and browser reload do
   not call cancel.
 - Returning to the same memory or reloading the page resumes the latest matching
@@ -219,6 +224,8 @@ Server tests:
   `event_id`.
 - EventSource disconnect does not cancel the running turn.
 - Cancel route is called only by explicit Stop and appends `turn_stopped`.
+- Cancel route rejects mismatched memory, thread, pair, turn, or variant
+  identity before app-server interruption.
 - Hidden chain-of-thought and raw app-server payloads are filtered from process
   stream storage.
 - Regenerate rejects missing, cross-memory, non-completed, and
@@ -240,6 +247,7 @@ Component tests:
 
 - Running state changes submit to Stop.
 - Stop click calls cancel exactly once.
+- Stop click calls cancel with active memory/thread/pair/turn/variant identity.
 - Panel close, Escape, route unmount, and remount do not call cancel.
 - Mount with `active_turn` reconnects to the event URL.
 - Stream replay renders process and answer rows before live deltas.

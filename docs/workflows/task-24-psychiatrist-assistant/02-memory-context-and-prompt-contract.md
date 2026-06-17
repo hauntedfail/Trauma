@@ -137,6 +137,12 @@ export interface PsychiatristWebSourcePolicy {
   a running `pending` state and must not be folded into ordinary `failed`,
   `canceled`, or `stale` handling. A later user-approved retry may complete the
   same pair by writing a new revision for the existing pair id.
+- The server enters `network_permission_required` only from a typed
+  `CodexConversationTurnResult.status = "network_permission_required"` result
+  with `networkPermissionRequest.reason = "current_web_sources_required"`.
+  Prompt text may ask the user for permission, but route/storage code must not
+  inspect natural-language `outputText` to decide whether a turn needs network
+  approval.
 
 ## Prompt Policy
 
@@ -203,6 +209,8 @@ Add tests for:
 - Prompt and type tests include `network_permission_required` as a terminal
   waiting-for-approval pair status, distinct from `pending`, `failed`,
   `canceled`, and `stale`.
+- Prompt and route tests prove denied-network approval checkpoints come from
+  the typed conversation result, not from parsing assistant prose.
 - Prompt tests prove `network_permission_required` pair history includes the
   original user prompt only as clearly delimited untrusted transcript data,
   marks the pair as awaiting user-approved web-source access, and does not

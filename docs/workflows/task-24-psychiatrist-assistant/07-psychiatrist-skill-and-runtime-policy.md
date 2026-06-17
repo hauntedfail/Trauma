@@ -107,6 +107,13 @@ same pair instead of appending a new one. A first send with explicit per-turn
 approval is also allowed, but it is not a retry and does not require
 `retry_pair_id` or `retry_turn_id`.
 
+When a denied-network turn requires current web sources, route/storage code must
+observe a typed conversation result with
+`status: "network_permission_required"` and
+`networkPermissionRequest.reason = "current_web_sources_required"`. The server
+must not infer the approval checkpoint by parsing prompt prose, assistant
+`outputText`, or visible process text.
+
 ## Pair And Network Flow
 
 Default send:
@@ -136,9 +143,15 @@ Stop flow:
 
 1. UI shows Stop while the turn is running.
 2. User clicks Stop.
-3. Server calls app-server interruption when possible.
-4. Server appends a stopped stream event and marks the turn stopped/canceled.
-5. No assistant response is written for that stopped attempt.
+3. UI sends the active `memoryId`, `threadId`, `pairId`, `turnId`, and
+   `langCode` when present.
+4. Server validates that identity against the in-memory active-turn record and
+   rejects cross-memory, cross-thread, cross-pair, cross-variant, stale,
+   completed, failed, or already-canceled attempts before app-server
+   interruption.
+5. Server calls app-server interruption when possible.
+6. Server appends a stopped stream event and marks the turn stopped/canceled.
+7. No assistant response is written for that stopped attempt.
 
 Regenerate flow:
 
@@ -205,6 +218,8 @@ Extend `tests/server/psychiatrist/prompt.test.ts`:
   and `retry_turn_id`, reject omitted or mismatched values, and validate the
   original thread, pair, turn, accepted prompt, memory id, and variant identity;
   normal first approved sends do not require retry fields.
+- Route tests assert `network_permission_required` is driven by the typed
+  conversation result, not by parsing assistant text.
 
 Extend `tests/server/translation/codex-app-server.test.ts`:
 

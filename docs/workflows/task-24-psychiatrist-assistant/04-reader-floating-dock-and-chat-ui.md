@@ -107,6 +107,10 @@ export async function sendPsychiatristMessage(input: {
 }): Promise<PsychiatristTurnStartedResponse>;
 
 export async function cancelPsychiatristTurn(input: {
+  langCode?: string;
+  memoryId: string;
+  pairId: string;
+  threadId: string;
   turnId: string;
 }): Promise<void>;
 
@@ -133,10 +137,12 @@ The thread API returns stored pairs. `PsychiatristDock` converts them into
 display rows without losing the pair relationship so retry, cancel, and stale
 status actions can target the correct `pairId` and `turnId`.
 
-Every send carries the active reader identity: `memoryId`, optional `langCode`
-for translated readers, and `threadId`. If the reader switches memory or
-translation variant while the component has stale state, the server rejects the
-send before context building and the dock refreshes the active thread.
+Every send and cancel carries the active reader identity: `memoryId`, optional
+`langCode` for translated readers, and `threadId`. Cancel also carries the
+active `pairId` and `turnId`; the client must not call a turnId-only Stop
+helper. If the reader switches memory or translation variant while the
+component has stale state, the server rejects the action before context
+building or app-server interruption and the dock refreshes the active thread.
 
 `retryPairId` and `retryTurnId` are sent only when the UI is approving a
 same-pair retry after `network_permission_required`. A normal first send with
@@ -178,10 +184,14 @@ Component tests:
 - Empty prompt does not call the message route.
 - Enter sends and Shift+Enter keeps a newline.
 - Running state replaces the submit button with Stop.
-- Stop calls `cancelPsychiatristTurn()` exactly once and only after explicit
-  click.
+- Stop calls `cancelPsychiatristTurn()` with active `memoryId`, `threadId`,
+  `pairId`, `turnId`, and `langCode` when present exactly once and only after
+  explicit click.
 - Closing the panel, pressing Escape, unmounting the reader, switching memory,
   and remounting do not call `cancelPsychiatristTurn()`.
+- Stale Stop state for a different memory, thread, pair, turn, or translated
+  variant is rejected before app-server interruption, and the dock refreshes
+  the active thread.
 - Opening the dock loads stored thread pairs returned by the thread API and
   renders completed pairs as user/assistant rows.
 - Opening a thread with `active_turn` reconnects to its event URL and replays
