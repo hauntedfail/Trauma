@@ -183,11 +183,14 @@ Completed first answers enqueue:
 ```ts
 await backupQueue.enqueue({
   contentPaths: [
+    threadManifestRelativePath,
     threadMarkdownRelativePath,
+    pairRevisionLogRelativePath,
     pairPromptRelativePath,
     pairContextRelativePath,
     pairResponseRelativePath,
-    pairRevisionLogRelativePath,
+    turnStatusRelativePath,
+    turnStreamRelativePath,
   ],
   memoryId,
   reason: "psychiatrist_thread_update",
@@ -199,14 +202,25 @@ Completed Regenerate enqueues:
 ```ts
 await backupQueue.enqueue({
   contentPaths: [
+    threadManifestRelativePath,
     threadMarkdownRelativePath,
-    pairResponseRelativePath,
     pairRevisionLogRelativePath,
+    pairPromptRelativePath,
+    pairContextRelativePath,
+    pairResponseRelativePath,
+    turnStatusRelativePath,
+    turnStreamRelativePath,
   ],
   memoryId,
   reason: "psychiatrist_response_regenerate",
 });
 ```
+
+The relative path variables above represent the durable thread artifacts needed
+to restore the completed operation: `THREAD.json`, `THREAD.md`, `PAIRS.jsonl`,
+`pairs/{pairId}/PROMPT.md`, `pairs/{pairId}/CONTEXT.json`,
+`pairs/{pairId}/RESPONSE.md`, `turns/{turnId}.json`, and
+`streams/{turnId}.jsonl` when a stream file was written for that turn.
 
 Backup enqueue failure must return a safe warning and must not discard the
 completed response. The existing backup failsafe UI remains responsible for

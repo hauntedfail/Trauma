@@ -179,8 +179,8 @@ Out of scope for this branch:
 | Order | Subtask | Weight | Purpose |
 | --- | --- | --- | --- |
 | 24.1 | [Codex conversation adapter](01-codex-conversation-adapter.md) | M | Add a generic, fakeable app-server turn interface without breaking translation. |
-| 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Add the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary. |
 | 24.2 | [Memory context and prompt contract](02-memory-context-and-prompt-contract.md) | M | Build the server-side memory context snapshot and locked-down Psychiatrist prompt. |
+| 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Extend the 24.2 prompt/context scaffolding with the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary before downstream route, storage, and UI consumers rely on it. |
 | 24.3 | [Thread storage, API, and streaming events](03-thread-storage-api-and-streaming-events.md) | L | Create memory-local pair storage, message/event routes, and short-lived active-turn state. |
 | 24.4 | [Reader floating dock and chat UI](04-reader-floating-dock-and-chat-ui.md) | L | Render the iOS-style home bar, animated panel, input, transcript, and client state. |
 | 24.5 | [Safety, freshness, and error handling](05-safety-freshness-and-errors.md) | M | Harden stale-context checks, prompt-injection boundaries, cancel/retry, and safe messages. |

@@ -248,7 +248,8 @@ For an approved retry after `network_permission_required`, both fields are
 required and must identify the original pair and turn being retried. The server
 validates that `retry_pair_id` and `retry_turn_id` belong to the same
 `thread_id`, accepted prompt, memory id, active variant identity, and
-network-required pending pair before enabling network access; mismatches return
+stored terminal `network_permission_required` revision/status for the original
+pair and turn before enabling network access; mismatches return
 `400 invalid_request` and do not create an unrelated pair.
 
 Stream turn events:
