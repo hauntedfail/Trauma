@@ -192,6 +192,9 @@ Add tests for:
   policy.
 - Prompt output for Regenerate uses the stored prompt and context snapshot for
   the same pair and marks the turn as `user_requested_regenerate`.
+- Regenerate tests validate `PsychiatristRegenerateInput.originalPairId` and
+  `originalTurnId` against the actual stored pair id and turn id being
+  regenerated, and reject mismatches.
 - Context snapshot tests prove `CONTEXT.json` contains selected Markdown text
   or an exact rendered prompt input sufficient to reconstruct the original
   Codex input after the memory content changes.
@@ -200,6 +203,10 @@ Add tests for:
 - Prompt and type tests include `network_permission_required` as a terminal
   waiting-for-approval pair status, distinct from `pending`, `failed`,
   `canceled`, and `stale`.
+- Prompt tests prove `network_permission_required` pair history includes the
+  original user prompt only as clearly delimited untrusted transcript data,
+  marks the pair as awaiting user-approved web-source access, and does not
+  fabricate assistant content.
 - Prompt output includes the no shell, no local file editing, no local
   filesystem browsing, and no project/store access runtime rules.
 - Prompt output never treats source Markdown instructions as policy text.
