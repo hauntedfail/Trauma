@@ -185,14 +185,18 @@ async function reconcileThreadForResponse(input: {
   manifest: PsychiatristThreadManifest;
   pairs: PsychiatristThreadPair[];
 }> {
-  const activeTurn = activePsychiatristTurns.getByThreadId(input.thread.manifest.threadId);
+  const threadId = input.thread.manifest.threadId;
+  const activeTurn = activePsychiatristTurns.getByThreadId(threadId);
+  if (activeTurn === undefined && activePsychiatristTurns.hasActiveOrReservedThread(threadId)) {
+    return input.thread;
+  }
   const changed = await reconcileInactivePsychiatristTurns({
     activeTurnIds: activeTurn === undefined ? [] : [activeTurn.turnId],
     config: input.config,
-    threadId: input.thread.manifest.threadId,
+    threadId,
   });
   return changed
-    ? input.loadThread({ config: input.config, threadId: input.thread.manifest.threadId })
+    ? input.loadThread({ config: input.config, threadId })
     : input.thread;
 }
 

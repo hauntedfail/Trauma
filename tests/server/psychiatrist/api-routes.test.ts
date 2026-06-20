@@ -15,6 +15,7 @@ import {
 } from "../../../src/server/psychiatrist/stream-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import {
+  appendPendingPair,
   createPsychiatristThread,
   loadPsychiatristThread,
   markPsychiatristThreadStale,
@@ -303,6 +304,59 @@ describe("Psychiatrist thread API routes", () => {
       safe_error: { code: "turn_interrupted" },
       status: "failed",
     });
+  });
+
+  it("defers pending-turn reconciliation while a thread is reserved", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-reserved-read-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    expect(activePsychiatristTurns.reserveThread(THREAD_ID)).toBe(true);
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: {
+        ...context(),
+        contextSnapshotId: "snapshot-1",
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+        selectedSectionAnchors: [],
+        selectedSectionHashes: [],
+        userPrompt: "This turn is still being registered.",
+      },
+      pairId: PAIR_ID,
+      prompt: "This turn is still being registered.",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    const readResponse = await createReadPsychiatristThreadHandler({
+      config: { storePath },
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(readResponse.status).toBe(200);
+    await expect(readResponse.json()).resolves.toMatchObject({
+      active_turn: null,
+      pairs: [
+        {
+          pair_id: PAIR_ID,
+          status: "pending",
+          turn_id: TURN_ID,
+        },
+      ],
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "pending",
+        turnId: TURN_ID,
+      }),
+    ]);
   });
 
   it("reconciles unreachable pending turns before returning a resumed latest thread", async () => {
