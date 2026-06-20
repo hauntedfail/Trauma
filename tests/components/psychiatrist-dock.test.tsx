@@ -587,7 +587,7 @@ describe("PsychiatristDock", () => {
     expect(networkRequired[0]?.turnId).toBe("turn-network");
   });
 
-  it("keeps streamed web-source-required turns failed even after deltas", () => {
+  it("clears partial answers from first-answer web-source-required turns while preserving retry metadata", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
         assistant_response: undefined,
@@ -610,19 +610,25 @@ describe("PsychiatristDock", () => {
       data: {
         code: "network_permission_required",
         message: "Allow web-source access to answer this request.",
+        retry_action: "allow_web_sources",
+        retry_mode: "first_answer",
+        retry_turn_id: "turn-network",
       },
       turnId: "turn-network",
       type: "psychiatrist.network.permission_required",
     }));
 
     expect(networkRequired[0]).toMatchObject({
-      answer: "I need current",
+      answer: "",
+      retryAction: "allow_web_sources",
+      retryMode: "first_answer",
+      retryTurnId: "turn-network",
       status: "failed",
       turnId: "turn-network",
     });
   });
 
-  it("keeps fresh failed turns failed after streamed answer deltas", () => {
+  it("clears partial answers from failed first-answer turns", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
         assistant_response: undefined,
@@ -652,13 +658,13 @@ describe("PsychiatristDock", () => {
     }));
 
     expect(failed[0]).toMatchObject({
-      answer: "Partial answer",
+      answer: "",
       status: "failed",
       turnId: "turn-failed",
     });
   });
 
-  it("keeps canceled first-answer turns canceled after streamed answer deltas", () => {
+  it("clears partial answers from canceled first-answer turns", () => {
     const transcript = toPsychiatristTranscriptPairs([
       {
         assistant_response: undefined,
@@ -684,7 +690,7 @@ describe("PsychiatristDock", () => {
     }));
 
     expect(canceled[0]).toMatchObject({
-      answer: "Partial answer",
+      answer: "",
       status: "canceled",
       turnId: "turn-canceled",
     });

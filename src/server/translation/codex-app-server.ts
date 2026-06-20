@@ -411,9 +411,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         completed.unsubscribe();
         throw error;
       }
-      turnId = readTurnStartResponseTurnId(turn);
-      if (turnId !== undefined) {
-        input.onEvent?.({ type: "turn.started", turnId });
+      const responseTurnId = readTurnStartResponseTurnId(turn);
+      if (responseTurnId !== undefined) {
+        turnId = responseTurnId;
+        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
       }
       const immediateOutput = readFinalTextTurnOutput(turn);
       if (immediateOutput !== undefined && turnId !== undefined) {
@@ -539,9 +540,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         completed.unsubscribe();
         throw error;
       }
-      turnId = readTurnStartResponseTurnId(turn);
-      if (turnId !== undefined) {
-        input.onEvent?.({ type: "turn.started", turnId });
+      const responseTurnId = readTurnStartResponseTurnId(turn);
+      if (responseTurnId !== undefined) {
+        turnId = responseTurnId;
+        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
       }
       const immediateOutput = readFinalOutput(turn);
       if (immediateOutput !== undefined) {

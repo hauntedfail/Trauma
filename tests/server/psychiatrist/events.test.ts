@@ -244,7 +244,7 @@ describe("Psychiatrist stream store", () => {
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
   });
 
-  it("filters Windows and UNC process paths and bounds persisted process text", async () => {
+  it("filters Windows, UNC, and credential-bearing home-relative process paths", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-process-bound-"));
 
     await expect(
@@ -264,6 +264,18 @@ describe("Psychiatrist stream store", () => {
         config: { storePath },
         event: {
           data: { text: "Inspecting \\\\server\\share\\secret.txt" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Checking ~/.codex/auth.json before requesting access." },
           memoryId: MEMORY_ID,
           threadId: THREAD_ID,
           turnId: TURN_ID,
@@ -292,6 +304,7 @@ describe("Psychiatrist stream store", () => {
     expect(data).toMatchObject({ text: expect.stringMatching(/\.\.\.$/) });
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
     expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
+    expect(JSON.stringify(replay)).not.toContain("~/.codex/auth.json");
     expect((data as { text: string }).text.length).toBeLessThanOrEqual(240);
   });
 

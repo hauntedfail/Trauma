@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -2511,6 +2511,93 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it.each([
+    {
+      name: "missing sections",
+      mutate: (snapshot: Record<string, unknown>) => {
+        delete snapshot.sections;
+      },
+    },
+    {
+      name: "empty sections",
+      mutate: (snapshot: Record<string, unknown>) => {
+        snapshot.sections = [];
+      },
+    },
+    {
+      name: "blank source_url",
+      mutate: (snapshot: Record<string, unknown>) => {
+        snapshot.source_url = "  ";
+      },
+    },
+    {
+      name: "blank title",
+      mutate: (snapshot: Record<string, unknown>) => {
+        snapshot.title = "";
+      },
+    },
+  ])("uses regenerate_unavailable when stored context has $name", async ({ mutate }) => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-context-invalid-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What changed?", web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const contextPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "CONTEXT.json",
+    );
+    const snapshot = parseJsonRecord(await readFile(contextPath, "utf8"));
+    mutate(snapshot);
+    await writeFile(contextPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    const regenerateClient = new FakeConversationClient("must not run");
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      client: regenerateClient,
+      config: config(storePath),
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "regenerate_unavailable",
+    });
+    expect(regenerateClient.inputs).toEqual([]);
+  });
+
   it("rejects regenerate when the thread manifest is stale", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-stale-"));
     await createPsychiatristThread({
@@ -2686,6 +2773,14 @@ function createApiEvent(request: Request, params: Record<string, string>): APIEv
     locals: {},
     nativeEvent: {},
   } as unknown as APIEvent;
+}
+
+function parseJsonRecord(content: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(content);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Expected JSON record.");
+  }
+  return value as Record<string, unknown>;
 }
 
 function manifest(): PsychiatristThreadManifest {

@@ -128,6 +128,7 @@ export function applyPsychiatristStreamEvent(
         pair.draftTurnId === event.turnId;
       return withoutRegenerateDraft(withoutRetryState({
         ...pair,
+        ...(keepsCompletedAnswer ? {} : { answer: "" }),
         status: keepsCompletedAnswer ? "completed" : "canceled",
         turnId: keepsCompletedAnswer ? pair.draftOriginalTurnId ?? pair.turnId : event.turnId,
       }));
@@ -149,6 +150,7 @@ export function applyPsychiatristStreamEvent(
         ...(retryAction === "allow_web_sources" ? { retryAction } : {}),
         ...(retryMode === undefined ? {} : { retryMode }),
         ...(retryTurnId === undefined ? {} : { retryTurnId }),
+        ...(keepCompletedAnswer ? {} : { answer: "" }),
         status: keepCompletedAnswer ? "completed" : "failed",
         turnId: keepCompletedAnswer
           ? pair.draftOriginalTurnId ?? pair.turnId

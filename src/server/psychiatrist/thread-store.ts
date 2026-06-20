@@ -587,6 +587,9 @@ export async function loadPsychiatristPairRegeneration(input: {
   const contextSnapshot = parseContextSnapshot(
     JSON.parse(await readFile(contextPath, "utf8")),
   );
+  if (thread.manifest.status !== "stale" && pair.assistant !== undefined) {
+    validateCompletedPairContextSnapshot(contextSnapshot);
+  }
   return {
     contextSnapshot,
     manifest: thread.manifest,
@@ -816,6 +819,20 @@ function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManife
     userPrompt: readRequiredString(value, "user_prompt"),
     variantKind: readRequiredString(value, "variant_kind") as "source" | "translation",
   };
+}
+
+function validateCompletedPairContextSnapshot(
+  contextSnapshot: PsychiatristContextSnapshotManifest,
+): void {
+  if (contextSnapshot.sections.length === 0) {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Invalid sections.");
+  }
+  if (contextSnapshot.sourceUrl.trim() === "") {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Invalid source_url.");
+  }
+  if (contextSnapshot.title.trim() === "") {
+    throw new PsychiatristThreadStoreError("pair_not_found", "Invalid title.");
+  }
 }
 
 function serializeThreadManifest(manifest: PsychiatristThreadManifest) {

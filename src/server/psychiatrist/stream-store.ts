@@ -297,6 +297,7 @@ function readSafeProcessText(value: string | undefined): string | undefined {
     normalized.includes("chain of thought") ||
     normalized.includes("hidden reasoning") ||
     containsAbsolutePath(text) ||
+    containsSensitiveHomeRelativePath(text) ||
     containsSensitiveProcessText(text) ||
     normalized.includes("credential") ||
     normalized.includes("token")
@@ -371,6 +372,22 @@ function containsAbsolutePath(value: string): boolean {
   return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
     /(^|[\s("'`])[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
     /(^|[\s("'`])\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
+}
+
+function containsSensitiveHomeRelativePath(value: string): boolean {
+  const matches = value.matchAll(/(^|[\s("'`])~[\\/][^\s)"'`]*/g);
+  for (const match of matches) {
+    const path = match[0].trim().replace(/^["'(`]+/, "").toLowerCase();
+    if (
+      /(?:^|[\\/])(?:auth|credential|credentials|secret|secrets|password|passwd|token|tokens)(?:\.json|\.env|\.txt|\.pem|\.key)?(?:$|[\\/])/
+        .test(path) ||
+      /(?:^|[\\/])(?:api[_-]?key|access[_-]?key|private[_-]?key)(?:\.json|\.env|\.txt|\.pem|\.key)?(?:$|[\\/])/
+        .test(path)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function publishStreamEvent(event: PsychiatristStreamEvent): void {

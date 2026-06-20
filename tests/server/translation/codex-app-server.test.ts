@@ -103,6 +103,41 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("keeps a notification-derived translation turn id when the turn/start response omits it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-notified-translation-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      omitTurnStartResponseTurnId: true,
+      sendStaleTurnNotificationsAfterTurnStarted: true,
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      const output = await client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => events.push(event),
+        prompt: "translate chunk",
+      });
+
+      expect(output).toMatchObject({
+        translated_markdown: "翻訳本文",
+      });
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("keeps focused protocol fixtures in the app-server wire envelope shape", async () => {
     const fixtureText = await readFile(
       new URL(
@@ -830,6 +865,49 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("keeps a notification-derived conversation turn id when the turn/start response omits it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-notified-conversation-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Fresh answer.",
+      omitTurnStartResponseTurnId: true,
+      sendStaleTurnNotificationsAfterTurnStarted: true,
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Follow up",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-1",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Fresh answer.",
+        turnId: "turn-1",
+      });
+
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
+      expect(events).not.toContainEqual({
+        message: "Reading stale context.",
+        type: "process",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("classifies reachable app-server gated-field rejections as protocol errors", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-protocol-"));
     tempRoots.push(root);
@@ -1528,7 +1606,30 @@ function handleClientMessage(
           },
         });
       }
-      sendJson(socket, { id, result: { turnId: "turn-1" } });
+      if (options.sendTurnStartedBeforeTurnStartResponse === true) {
+        sendJson(socket, {
+          method: "turn/started",
+          params: { threadId: activeThreadId, turnId: "turn-1" },
+        });
+      }
+      if (options.sendStaleTurnNotificationsAfterTurnStarted === true) {
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "old-turn", delta: "stale delta" },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading stale context.",
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+      }
+      sendJson(socket, {
+        id,
+        result: options.omitTurnStartResponseTurnId === true ? {} : { turnId: "turn-1" },
+      });
       if (options.closeAfterTurnStart === true) {
         socket.end();
         break;
@@ -1670,6 +1771,7 @@ interface FakeAppServerOptions {
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
+  omitTurnStartResponseTurnId?: boolean;
   receivedMessages?: CapturedClientMessage[];
   rejectConversationThreadIdOnce?: string;
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
@@ -1680,6 +1782,8 @@ interface FakeAppServerOptions {
   sendPingBeforeAccountReadResponse?: boolean;
   sendMalformedJsonAfterInitialize?: boolean;
   sendStaleConversationNotificationsBeforeTurnStart?: boolean;
+  sendStaleTurnNotificationsAfterTurnStarted?: boolean;
+  sendTurnStartedBeforeTurnStartResponse?: boolean;
 }
 
 interface CapturedClientMessage {
