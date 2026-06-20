@@ -24,7 +24,8 @@ browser-visible errors, and turn lifecycle edge cases.
 Stale context:
 
 - Recompute the active content hash before every turn.
-- If the hash differs from the thread manifest hash, stop before calling Codex.
+- If the hash or prompt policy version differs from the thread manifest, stop
+  before calling Codex.
 - Mark `THREAD.json` stale and emit or return `thread_stale` with action
   `refresh_thread`.
 - The dock automatically creates or resumes a fresh thread and lets the user
@@ -44,8 +45,13 @@ Runtime boundary:
   tools, local filesystem browsing, project-root access, or memory-store access.
 - The prompt includes the same boundary, but the adapter test must also prove
   the app-server payload does not expose those capabilities.
-- TRAUMA server code may write only `THREAD.json`, `PAIRS.jsonl`, and
-  `turns/{turnId}.json` under the active memory thread directory.
+- TRAUMA server code may write only required Psychiatrist thread artifacts under
+  the active memory thread directory: `THREAD.json`, `THREAD.md`,
+  `PAIRS.jsonl`, `pairs/{pairId}/PROMPT.md`,
+  `pairs/{pairId}/CONTEXT.json`, `pairs/{pairId}/RESPONSE.md`,
+  `turns/{turnId}.json`, and `streams/{turnId}.jsonl`. It must not write
+  canonical memory content, translated content, SQLite transcript rows,
+  taxonomy, settings, or app-server runtime files.
 
 Network boundary:
 
@@ -53,12 +59,25 @@ Network boundary:
 - Web search/source lookup can be enabled only when the user explicitly approves
   it for the current turn or retry.
 - If network is denied and current web sources are required, return
-  `network_permission_required` without attempting network access.
+  `network_permission_required` without attempting network access. This is a
+  terminal waiting-for-approval pair status, not running `pending` and not
+  ordinary `failed` or `canceled`.
 - This must be enforced by a server-observable branch. Do not rely only on
   prompt instructions telling Psychiatrist to ask the user. The tests must use
   a fake app-server or adapter signal that represents "current web source
   required" and assert that TRAUMA returns/emits `network_permission_required`
   while app-server network access remains disabled.
+- Server control flow for `network_permission_required` comes from the typed
+  conversation adapter result
+  `status: "network_permission_required"` with
+  `networkPermissionRequest.reason = "current_web_sources_required"`, not from
+  matching words in assistant `outputText`.
+- A user-approved retry for `network_permission_required` must target the same
+  pair explicitly with `retry_pair_id` and `retry_turn_id`. The route must
+  require those fields only for an approved same-pair retry, not for a normal
+  first approved send, and must reject retries that omit or mismatch the
+  original `thread_id`, `pair_id`, `turn_id`, accepted prompt, memory id, or
+  variant identity.
 - If network is approved, store safe source citation metadata on the pair and do
   not expose raw fetch payloads, credentials, or app-server transport details.
   The pair revision must also store the per-turn `web_source_policy` object so
@@ -85,7 +104,11 @@ Context bounds:
 Turn lifecycle:
 
 - A canceled turn calls app-server `turn/interrupt` when thread and turn ids are
-  known.
+  known in the in-memory active-turn record.
+- The cancel route is scoped by active `memoryId`, `threadId`, `pairId`,
+  `turnId`, and variant identity. It rejects cross-memory, cross-thread,
+  cross-pair, cross-variant, stale-active-turn, completed, failed, and
+  already-canceled requests before calling app-server interruption.
 - Cancellation updates `turns/{turnId}.json`, marks the pair `canceled`, and
   writes no `assistant_response`.
 - The browser calls cancellation only for an explicit Stop click.
@@ -104,6 +127,9 @@ Pair integrity:
   pair.
 - Failed, canceled, stale, and network-permission-required turns must not create
   orphan assistant responses.
+- Pair projection preserves the latest completed assistant response when a
+  later Regenerate attempt fails, is stopped, or waits on network permission,
+  while exposing the latest attempt status/turn metadata for UI recovery.
 
 Regenerate integrity:
 
@@ -115,6 +141,10 @@ Regenerate integrity:
   and policy version needed to rebuild the same prompt context. Regenerate must
   not substitute an empty context, blank metadata, or freshly selected current
   memory sections.
+- Regenerate may proceed even when the current memory content hash has changed
+  after the original answer, because it uses stored prompt/context provenance.
+  It still rejects missing pairs, cross-memory pairs, non-completed pairs, and
+  pairs lacking `PROMPT.md` or `CONTEXT.json`.
 - Regenerate keeps the same `thread_id` and `pair_id`; it creates only a new
   `turn_id`.
 - Regenerate overwrites `pairs/{pairId}/RESPONSE.md` and rewrites `THREAD.md`
@@ -125,8 +155,12 @@ Regenerate integrity:
   as pair/turn metadata.
 - The reducer that loads display pairs must therefore prefer the latest
   completed response when the newest revision for the same `pair_id` is a
-  failed or canceled Regenerate attempt. A failed/stopped Regenerate must not
-  make the pair look like a normal failed first answer on reload.
+  failed, canceled, stopped, or network-permission-required Regenerate attempt.
+  A failed/stopped/waiting Regenerate must not make the pair look like a normal
+  failed first answer on reload.
+- If Regenerate reaches `network_permission_required`, the previous completed
+  response remains visible and the waiting-for-approval status is stored as the
+  latest same-pair attempt metadata.
 - Completed Regenerate enqueues git backup with reason
   `psychiatrist_response_regenerate`.
 
@@ -141,8 +175,9 @@ Safe UI errors:
   for this answer.
 - `turn_stopped` records explicit user Stop.
 - `regenerate_unavailable` says the response cannot be regenerated because the
-  pair is no longer completed, no longer belongs to the active memory, or lacks
-  stored prompt/context provenance.
+  pair is missing, no longer completed, belongs to a different memory, or lacks
+  stored prompt/context provenance. It must not describe current-memory content
+  changes as a regenerate blocker when stored provenance exists.
 - Unknown errors use a generic message and log details server-side only.
 
 ## Tests
@@ -150,10 +185,16 @@ Safe UI errors:
 Add or extend tests for:
 
 - Stale hash blocks Codex execution.
+- Prompt policy version mismatch marks the thread stale and blocks Codex
+  execution.
 - Oversized user message returns `400 invalid_request`.
 - Oversized memory uses deterministic section selection.
 - Prompt-injection text remains inside untrusted section delimiters.
 - Cancel route interrupts when thread and turn ids are known.
+- Cancel route requires the active memory, thread, pair, turn, and variant
+  identity and rejects cross-memory, cross-thread, cross-pair, cross-variant,
+  stale-active-turn, completed, failed, and already-canceled attempts before
+  app-server interruption.
 - Cancel route is not called on panel close, route unmount, memory navigation,
   or browser reload.
 - UI refreshes a stale thread and preserves the unsent user prompt.
@@ -169,12 +210,22 @@ Add or extend tests for:
   or web-source metadata.
 - User-approved network turns persist safe source citation metadata on the
   matching pair.
+- Approved same-pair retry after `network_permission_required` requires
+  concrete `retry_pair_id` and `retry_turn_id` values; omitted or mismatched
+  retry fields are rejected before Codex execution, while a normal first
+  approved send does not require retry fields.
+- `network_permission_required` is stored and projected as terminal
+  waiting-for-approval, distinct from `pending`, `failed`, and `canceled`.
+- `network_permission_required` storage is driven by the typed adapter result
+  rather than parsing natural-language output.
 - Regenerate preserves `thread_id` and `pair_id`, uses stored prompt/context
-  provenance with non-empty stored section Markdown, overwrites the existing
-  response Markdown artifact, and enqueues backup with reason
-  `psychiatrist_response_regenerate`.
-- Failed and canceled Regenerate attempts leave the previous completed response
-  visible after a fresh `loadPsychiatristThread()` call.
+  provenance with non-empty stored section Markdown even if current memory
+  content changed, overwrites the existing response Markdown artifact, rejects
+  only missing/cross-memory/non-completed/lacking-provenance cases, and enqueues
+  backup with reason `psychiatrist_response_regenerate`.
+- Regenerate failure, stop, cancellation, or network-permission-required
+  projection keeps the latest completed assistant response visible after a
+  fresh `loadPsychiatristThread()` call while overlaying latest attempt status.
 
 Run:
 

@@ -16,7 +16,8 @@ same-pair Regenerate with git-backed Markdown overwrite.
 - Modify: `src/server/psychiatrist/threads.ts`
 - Create: `src/server/psychiatrist/stream-store.ts`
 - Create: `src/server/psychiatrist/regenerate-route.ts`
-- Create: `src/routes/api/psychiatrist-pairs/[pairId]/regenerate.ts`
+- Create:
+  `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/pairs/[pairId]/regenerate.ts`
 - Modify: `src/components/reader/PsychiatristDock.tsx`
 - Modify: `src/components/reader/psychiatrist-requests.ts`
 - Modify: `src/components/reader/psychiatrist-types.ts`
@@ -56,11 +57,14 @@ Rules:
   It does not create a new pair, new thread, or new Markdown response path.
 - `pairs/{pairId}/CONTEXT.json` stores enough prompt/context provenance to
   regenerate from the same context: memory variant, content hash, prompt policy
-  version, selected section anchors, selected section hashes, and source URL.
-  It must include the selected section Markdown payloads themselves: order,
-  anchor, heading, normalized Markdown text, and hash for each selected
-  section. Regenerate tests must fail if the rebuilt prompt uses `sections: []`
-  or blank title/source URL metadata.
+  version, selected section anchors, selected section hashes, selected Markdown
+  text, and source URL. It must include the selected section Markdown payloads
+  themselves: order, anchor, heading, normalized Markdown text, and hash for
+  each selected section. If an implementation stores exact rendered prompt input
+  instead of selected Markdown text, that input must be sufficient to
+  reconstruct the original Codex input after memory edits. Regenerate tests must
+  fail if the rebuilt prompt uses `sections: []` or blank title/source URL
+  metadata.
 
 ## API And Event Contract
 
@@ -79,7 +83,10 @@ Thread create/read responses include:
 
 The event route must:
 
-- Replay stored `streams/{turnId}.jsonl` rows before subscribing to live events.
+- Replay stored `streams/{turnId}.jsonl` rows and hand off to live events with
+  no gap. Implement this by subscribing before replay and de-duplicating by
+  `event_id`, or by using an equivalent atomic cursor protocol that cannot miss
+  events appended during replay.
 - Support `Last-Event-ID` and `?after_event_id=...`.
 - Close after replay when the turn is already terminal.
 - Continue the server turn when a browser EventSource disconnects.
@@ -87,10 +94,11 @@ The event route must:
 Regenerate route:
 
 ```http
-POST /api/psychiatrist-pairs/:pairId/regenerate
+POST /api/memories/:memoryId/psychiatrist/threads/:threadId/pairs/:pairId/regenerate
 content-type: application/json
 
 {
+  "lang_code": "ja-JP",
   "web_source_permission": "deny"
 }
 ```
@@ -98,7 +106,15 @@ content-type: application/json
 Rules:
 
 - Reject non-completed pairs with `409 regenerate_unavailable`.
-- Reject stale, missing, or cross-memory pairs.
+- Reject missing pairs, cross-memory pairs, and pairs lacking stored
+  `PROMPT.md`/`CONTEXT.json` provenance.
+- Reject cross-thread, cross-pair, and cross-variant requests. The route is
+  scoped by active `memoryId`, `threadId`, `pairId`, and active variant
+  identity; translated-reader requests must carry the active `lang_code`, while
+  source-reader requests omit it.
+- Do not reject solely because the current memory content changed after the
+  original answer. Regenerate uses the stored prompt and stored context snapshot
+  for the same pair.
 - Load `PROMPT.md` and `CONTEXT.json` for the same `pair_id`.
 - Rebuild the Regenerate prompt from `PROMPT.md` plus the section Markdown and
   metadata stored in `CONTEXT.json`. Do not reread current memory content to
@@ -107,8 +123,9 @@ Rules:
 - Create a new `turn_id` for the regenerate attempt.
 - Keep the existing `thread_id`, `pair_id`, and `RESPONSE.md` path.
 - Stream through the normal event route.
-- On completion, overwrite `RESPONSE.md`, rewrite `THREAD.md`, append a
-  `regenerated_completed` pair revision, and enqueue backup.
+- On completion, write or recoverably stage `RESPONSE.md` and `THREAD.md`
+  before appending the canonical `regenerated_completed` pair revision, then
+  append the terminal stream event and enqueue backup.
 - On failure or Stop, append safe failed/stopped metadata for the new
   regenerate `turn_id` without overwriting `RESPONSE.md` and without changing
   the loaded pair's visible completed assistant response. Reloading the thread
@@ -121,11 +138,18 @@ Running state:
 
 - Submit becomes Stop while a turn is running.
 - Stop is the only user action that calls the cancel route.
+- Stop sends the active `memoryId`, `threadId`, `pairId`, `turnId`, and
+  `langCode` when present. The cancel route validates those fields against the
+  in-memory active-turn record and rejects cross-memory, cross-thread,
+  cross-pair, cross-variant, stale, completed, failed, or already-canceled
+  attempts before app-server interruption.
 - Panel close, Escape, route navigation, memory switching, and browser reload do
   not call cancel.
 - Returning to the same memory or reloading the page resumes the latest matching
   thread and reconnects to `active_turn.event_url`.
 - The UI replays stored process and answer events, then continues live.
+- Replay-to-live event handling de-duplicates by `event_id` so overlap from a
+  subscribe-before-replay implementation does not duplicate visible rows.
 
 Process stream rendering:
 
@@ -136,7 +160,9 @@ Process stream rendering:
 Regenerate:
 
 - Render a Regenerate button on each completed assistant response.
-- Clicking Regenerate calls `regeneratePsychiatristResponse({ pairId })`.
+- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the active
+  `memoryId`, active `threadId`, existing `pairId`, and active `langCode` when
+  present.
 - The UI streams the regenerated answer into the same pair row.
 - On first new answer delta, replace the visible previous answer for that pair.
 - If Regenerate fails or is stopped, keep the previous completed answer visible
@@ -144,6 +170,10 @@ Regenerate:
 - This rule must hold both in the live transcript reducer and after a fresh
   thread reload from storage. Component tests alone are not sufficient; server
   storage tests must cover the reload case.
+- If Regenerate reaches `network_permission_required`, keep the previous
+  completed answer visible and show a waiting-for-approval state for the same
+  pair. Approval retries the same scoped regenerate route, not a new message or
+  global pair route.
 
 ## Backup Contract
 
@@ -169,11 +199,14 @@ Completed first answers enqueue:
 ```ts
 await backupQueue.enqueue({
   contentPaths: [
+    threadManifestRelativePath,
     threadMarkdownRelativePath,
+    pairRevisionLogRelativePath,
     pairPromptRelativePath,
     pairContextRelativePath,
     pairResponseRelativePath,
-    pairRevisionLogRelativePath,
+    turnStatusRelativePath,
+    turnStreamRelativePath,
   ],
   memoryId,
   reason: "psychiatrist_thread_update",
@@ -185,14 +218,25 @@ Completed Regenerate enqueues:
 ```ts
 await backupQueue.enqueue({
   contentPaths: [
+    threadManifestRelativePath,
     threadMarkdownRelativePath,
-    pairResponseRelativePath,
     pairRevisionLogRelativePath,
+    pairPromptRelativePath,
+    pairContextRelativePath,
+    pairResponseRelativePath,
+    turnStatusRelativePath,
+    turnStreamRelativePath,
   ],
   memoryId,
   reason: "psychiatrist_response_regenerate",
 });
 ```
+
+The relative path variables above represent the durable thread artifacts needed
+to restore the completed operation: `THREAD.json`, `THREAD.md`, `PAIRS.jsonl`,
+`pairs/{pairId}/PROMPT.md`, `pairs/{pairId}/CONTEXT.json`,
+`pairs/{pairId}/RESPONSE.md`, `turns/{turnId}.json`, and
+`streams/{turnId}.jsonl` when a stream file was written for that turn.
 
 Backup enqueue failure must return a safe warning and must not discard the
 completed response. The existing backup failsafe UI remains responsible for
@@ -210,16 +254,27 @@ Server tests:
   events with increasing `event_id`.
 - Event route replays stored events after browser reload.
 - Event route resumes after `Last-Event-ID`.
+- Event route has no replay-to-live gap and de-duplicates replay/live overlap by
+  `event_id`.
 - EventSource disconnect does not cancel the running turn.
 - Cancel route is called only by explicit Stop and appends `turn_stopped`.
+- Cancel route rejects mismatched memory, thread, pair, turn, or variant
+  identity before app-server interruption.
 - Hidden chain-of-thought and raw app-server payloads are filtered from process
   stream storage.
-- Regenerate rejects non-completed pairs.
+- Regenerate rejects missing, cross-memory, non-completed, and
+  lacking-provenance pairs, but does not reject a completed pair solely because
+  current memory content changed.
 - Regenerate keeps `thread_id` and `pair_id`, creates a new `turn_id`, uses
   stored `PROMPT.md` and `CONTEXT.json`, and overwrites `RESPONSE.md`.
 - Regenerate prompt reconstruction includes non-empty stored section Markdown
   and original source metadata from `CONTEXT.json`; the test must inspect the
   fake app-server input and fail if it contains an empty context.
+- Regenerate route tests use the memory/thread/pair scoped path and reject
+  cross-thread, cross-pair, and cross-variant requests.
+- Regenerate provenance tests prove `CONTEXT.json` contains selected Markdown
+  text or exact rendered prompt input sufficient to reconstruct the original
+  Codex input after memory edits.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
   `psychiatrist_response_regenerate`.
 - Failed Regenerate attempts do not overwrite `RESPONSE.md`; a fresh thread
@@ -238,15 +293,16 @@ Component tests:
 
 - Running state changes submit to Stop.
 - Stop click calls cancel exactly once.
+- Stop click calls cancel with active memory/thread/pair/turn/variant identity.
 - Panel close, Escape, route unmount, and remount do not call cancel.
 - Mount with `active_turn` reconnects to the event URL.
 - Stream replay renders process and answer rows before live deltas.
 - Regenerate button appears only on completed assistant responses.
 - Regenerate calls the regenerate route with the existing `pairId`.
 - Failed Regenerate leaves the previous completed response visible.
-- Failed/stopped Regenerate remains visible as a safe status while preserving
-  the previous completed answer after the component receives server state from a
-  fresh thread load.
+- Failed, stopped, or network-permission-required Regenerate remains visible as
+  a safe status while preserving the previous completed answer after the
+  component receives server state from a fresh thread load.
 
 E2E tests:
 

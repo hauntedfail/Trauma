@@ -54,8 +54,9 @@ Expanded state:
   `pairId`, and replaces the displayed response with the regenerated stream.
 - If the server returns `network_permission_required`, show a compact
   per-turn approval action for web search/source lookup. Approval retries the
-  same prompt with `web_source_permission: "allow_for_this_turn"`; denial leaves
-  network disabled.
+  same pair with `web_source_permission: "allow_for_this_turn"`, the original
+  `retry_pair_id`, and the original `retry_turn_id`; denial leaves network
+  disabled.
 - Escape closes the panel and returns focus to the home-bar trigger.
 - Closing the panel does not discard the transcript for the current reader
   thread.
@@ -96,17 +97,28 @@ export async function createPsychiatristThread(input: {
 
 export async function sendPsychiatristMessage(input: {
   clientMessageId: string;
+  langCode?: string;
   message: string;
+  memoryId: string;
+  retryPairId?: string;
+  retryTurnId?: string;
   threadId: string;
   webSourcePermission?: "deny" | "allow_for_this_turn";
 }): Promise<PsychiatristTurnStartedResponse>;
 
 export async function cancelPsychiatristTurn(input: {
+  langCode?: string;
+  memoryId: string;
+  pairId: string;
+  threadId: string;
   turnId: string;
 }): Promise<void>;
 
 export async function regeneratePsychiatristResponse(input: {
+  langCode?: string;
+  memoryId: string;
   pairId: string;
+  threadId: string;
   webSourcePermission?: "deny" | "allow_for_this_turn";
 }): Promise<PsychiatristTurnStartedResponse>;
 ```
@@ -125,6 +137,21 @@ The thread API returns stored pairs. `PsychiatristDock` converts them into
 display rows without losing the pair relationship so retry, cancel, and stale
 status actions can target the correct `pairId` and `turnId`.
 
+Every send and cancel carries the active reader identity: `memoryId`, optional
+`langCode` for translated readers, and `threadId`. Cancel also carries the
+active `pairId` and `turnId`; the client must not call a turnId-only Stop
+helper. If the reader switches memory or translation variant while the
+component has stale state, the server rejects the action before context
+building or app-server interruption and the dock refreshes the active thread.
+
+`retryPairId` and `retryTurnId` are sent only when the UI is approving a
+same-pair retry after `network_permission_required`. A normal first send with
+explicit web-source approval omits both fields. When the approval action is a
+retry, `sendPsychiatristMessage()` maps `retryPairId` to `retry_pair_id` and
+`retryTurnId` to `retry_turn_id`; the route rejects the request if either field
+is missing or does not match the original thread, pair, turn, accepted prompt,
+memory id, and active variant identity.
+
 If the thread response contains `active_turn`, `PsychiatristDock` immediately
 sets the submit button to Stop and reconnects to the active event URL. It must
 not create a new thread or resend the prompt just because the component mounted
@@ -140,6 +167,10 @@ Regenerate display rules:
   by the regenerated response for the same pair.
 - If Regenerate fails or is stopped, the UI keeps the last completed response
   and shows the safe failure/stopped status for that pair.
+- If Regenerate returns `network_permission_required`, the UI keeps the last
+  completed response visible, overlays the waiting-for-approval status for that
+  same pair, and approval retries the scoped regenerate route for the same
+  `memoryId`, `threadId`, `pairId`, and variant identity.
 
 ## Tests
 
@@ -153,10 +184,14 @@ Component tests:
 - Empty prompt does not call the message route.
 - Enter sends and Shift+Enter keeps a newline.
 - Running state replaces the submit button with Stop.
-- Stop calls `cancelPsychiatristTurn()` exactly once and only after explicit
-  click.
+- Stop calls `cancelPsychiatristTurn()` with active `memoryId`, `threadId`,
+  `pairId`, `turnId`, and `langCode` when present exactly once and only after
+  explicit click.
 - Closing the panel, pressing Escape, unmounting the reader, switching memory,
   and remounting do not call `cancelPsychiatristTurn()`.
+- Stale Stop state for a different memory, thread, pair, turn, or translated
+  variant is rejected before app-server interruption, and the dock refreshes
+  the active thread.
 - Opening the dock loads stored thread pairs returned by the thread API and
   renders completed pairs as user/assistant rows.
 - Opening a thread with `active_turn` reconnects to its event URL and replays
@@ -165,12 +200,16 @@ Component tests:
 - Hidden-chain-of-thought placeholder events are ignored or rendered as a safe
   generic status, never as raw reasoning text.
 - Completed assistant responses render a Regenerate button.
-- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the existing
-  `pairId`, not `sendPsychiatristMessage()`.
+- Clicking Regenerate calls `regeneratePsychiatristResponse()` with the active
+  `memoryId`, active `threadId`, existing `pairId`, and active `langCode` when
+  present, not `sendPsychiatristMessage()`.
 - Failed or stopped Regenerate leaves the previous completed response visible.
+- Network-permission-required Regenerate leaves the previous completed response
+  visible and shows a same-pair approval state.
 - Web-source approval sends only `web_source_permission:
-  "allow_for_this_turn"` for the active retry and never persists a global
-  network preference.
+  "allow_for_this_turn"` plus `retryPairId` and `retryTurnId` for the
+  same-pair active retry, omits retry fields for a normal first approved send,
+  and never persists a global network preference.
 
 E2E tests:
 
@@ -189,7 +228,7 @@ E2E tests:
 - Regenerate reruns a completed response for the same `pairId` and shows the
   replacement response without adding a new pair row.
 - A fake network-required response keeps network disabled until the user
-  approves the per-turn web-source retry action.
+  approves the per-turn web-source retry action for the same pair.
 - Mobile viewport keeps the panel within the viewport and above bottom chrome.
 
 Run:
