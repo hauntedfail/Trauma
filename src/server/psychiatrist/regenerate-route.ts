@@ -148,7 +148,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
     if (activeContentHash !== loaded.manifest.activeContentHash) {
       activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
       await markPsychiatristThreadStale({ config, threadId: loaded.manifest.threadId });
-      await appendPsychiatristStreamEvent({
+      await appendBestEffortStreamEvent({
         config,
         event: {
           data: { pair_id: pairId, status: "stale" },
@@ -344,7 +344,7 @@ async function runRegenerateTurn(input: {
         message: "Allow web-source access to answer this request.",
       };
       if (isAnswerRetry) {
-        await markPsychiatristTurnFailed({
+        const terminalStatus = await markPsychiatristTurnFailed({
           codexThreadId: result.threadId,
           codexTurnId: result.turnId,
           config: input.config,
@@ -353,14 +353,20 @@ async function runRegenerateTurn(input: {
           threadId: input.loaded.manifest.threadId,
           turnId: input.turnId,
         });
+        if (terminalStatus !== "failed") {
+          return;
+        }
       } else {
-        await markPsychiatristRegenerateFailed({
+        const terminalStatus = await markPsychiatristRegenerateFailed({
           config: input.config,
           error: safeError,
           pairId: input.pairId,
           threadId: input.loaded.manifest.threadId,
           turnId: input.turnId,
         });
+        if (terminalStatus !== "failed") {
+          return;
+        }
       }
       await appendPsychiatristStreamEvent({
         config: input.config,
@@ -387,7 +393,7 @@ async function runRegenerateTurn(input: {
     const appendAssistant = isAnswerRetry
       ? appendRetriedAssistantResponse
       : appendRegeneratedAssistantResponse;
-    await appendAssistant({
+    const appendResult = await appendAssistant({
       assistantResponse: result.outputText,
       citations: sourceCitations,
       config: input.config,
@@ -397,6 +403,9 @@ async function runRegenerateTurn(input: {
       webSourcePolicy: input.webSourcePolicy,
     });
     assistantResponsePersisted = true;
+    if (appendResult.warning === "post_save_finalization_failed") {
+      throw new Error("THREAD.md rewrite failed after saving the assistant response.");
+    }
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -418,6 +427,8 @@ async function runRegenerateTurn(input: {
           : []),
         input.loaded.paths.pairResponseRelativePath,
         input.loaded.paths.pairRevisionLogRelativePath,
+        turnRecordRelativePath(input.loaded.manifest.memoryId, input.loaded.manifest.threadId, input.turnId),
+        turnStreamRelativePath(input.loaded.manifest.memoryId, input.loaded.manifest.threadId, input.turnId),
       ],
       memoryId: input.loaded.manifest.memoryId,
       reason: "psychiatrist_response_regenerate",
@@ -481,7 +492,7 @@ async function runRegenerateTurn(input: {
       isAnswerRetry ? "Psychiatrist answer failed." : "Psychiatrist regenerate failed.",
     );
     if (isAnswerRetry) {
-      await markPsychiatristTurnFailed({
+      const terminalStatus = await markPsychiatristTurnFailed({
         codexThreadId: active?.codexThreadId,
         codexTurnId: active?.codexTurnId,
         config: input.config,
@@ -490,14 +501,20 @@ async function runRegenerateTurn(input: {
         threadId: input.loaded.manifest.threadId,
         turnId: input.turnId,
       });
+      if (terminalStatus !== "failed") {
+        return;
+      }
     } else {
-      await markPsychiatristRegenerateFailed({
+      const terminalStatus = await markPsychiatristRegenerateFailed({
         config: input.config,
         error: safeError,
         pairId: input.pairId,
         threadId: input.loaded.manifest.threadId,
         turnId: input.turnId,
       });
+      if (terminalStatus !== "failed") {
+        return;
+      }
     }
     await appendPsychiatristStreamEvent({
       config: input.config,
@@ -550,6 +567,24 @@ async function closeOwnedClient(client: CodexConversationClient): Promise<void> 
   } catch {
     // A close failure must not rewrite the persisted turn outcome.
   }
+}
+
+async function appendBestEffortStreamEvent<TData>(
+  input: Parameters<typeof appendPsychiatristStreamEvent<TData>>[0],
+): Promise<void> {
+  try {
+    await appendPsychiatristStreamEvent(input);
+  } catch {
+    // API error responses must not expose or be replaced by stream telemetry failures.
+  }
+}
+
+function turnRecordRelativePath(memoryId: string, threadId: string, turnId: string): string {
+  return `memories/${memoryId}/threads/${threadId}/turns/${turnId}.json`;
+}
+
+function turnStreamRelativePath(memoryId: string, threadId: string, turnId: string): string {
+  return `memories/${memoryId}/threads/${threadId}/streams/${turnId}.jsonl`;
 }
 
 async function persistCodexEvent(input: {

@@ -237,8 +237,9 @@ export async function handleSendPsychiatristMessageRequest(
     activePsychiatristTurns.unregister(turnId);
     activePsychiatristTurns.releaseThread(threadId);
     const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
+    let terminalStatus: Awaited<ReturnType<typeof markPsychiatristTurnFailed>> | undefined;
     if (pendingPairPersisted) {
-      await markPsychiatristTurnFailed({
+      terminalStatus = await markPsychiatristTurnFailed({
         config,
         error: safeError,
         pairId,
@@ -246,20 +247,22 @@ export async function handleSendPsychiatristMessageRequest(
         turnId,
       }).catch(() => undefined);
     }
-    await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
-      config,
-      event: {
-        data: {
-          code: safeError.code,
-          message: safeError.message,
-          pair_id: pairId,
+    if (!pendingPairPersisted || terminalStatus === "failed") {
+      await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
+        config,
+        event: {
+          data: {
+            code: safeError.code,
+            message: safeError.message,
+            pair_id: pairId,
+          },
+          memoryId: thread.manifest.memoryId,
+          threadId,
+          turnId,
+          type: "psychiatrist.answer.failed",
         },
-        memoryId: thread.manifest.memoryId,
-        threadId,
-        turnId,
-        type: "psychiatrist.answer.failed",
-      },
-    });
+      });
+    }
     return formatMessageError(error);
   }
 }
@@ -327,7 +330,7 @@ async function runPsychiatristTurn(input: {
         code: "network_permission_required",
         message: "Allow web-source access to answer this request.",
       };
-      await markPsychiatristTurnFailed({
+      const terminalStatus = await markPsychiatristTurnFailed({
         codexThreadId: result.threadId,
         codexTurnId: result.turnId,
         config: input.config,
@@ -336,6 +339,9 @@ async function runPsychiatristTurn(input: {
         threadId: input.threadId,
         turnId: input.turnId,
       });
+      if (terminalStatus !== "failed") {
+        return;
+      }
       await appendPsychiatristStreamEvent({
         config: input.config,
         event: {
@@ -358,7 +364,7 @@ async function runPsychiatristTurn(input: {
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
-    await appendAssistantResponse({
+    const appendResult = await appendAssistantResponse({
       assistantResponse: result.outputText,
       citations: sourceCitations,
       config: input.config,
@@ -367,6 +373,9 @@ async function runPsychiatristTurn(input: {
       webSourcePolicy: input.webSourcePolicy,
     });
     assistantResponsePersisted = true;
+    if (appendResult.warning === "post_save_finalization_failed") {
+      throw new Error("THREAD.md rewrite failed after saving the assistant response.");
+    }
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -429,7 +438,7 @@ async function runPsychiatristTurn(input: {
       return;
     }
     const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
-    await markPsychiatristTurnFailed({
+    const terminalStatus = await markPsychiatristTurnFailed({
       codexThreadId: active?.codexThreadId,
       codexTurnId: active?.codexTurnId,
       config: input.config,
@@ -438,6 +447,9 @@ async function runPsychiatristTurn(input: {
       threadId: input.threadId,
       turnId: input.turnId,
     });
+    if (terminalStatus !== "failed") {
+      return;
+    }
     await appendPsychiatristStreamEvent({
       config: input.config,
       event: {
@@ -480,6 +492,7 @@ async function enqueueCompletedAnswerBackup(input: {
   pairId: string;
   thread: { manifest: PsychiatristThreadManifest };
   threadId: string;
+  turnId: string;
 }): Promise<void> {
   await input.backupQueue.enqueue({
     contentPaths: [
@@ -489,6 +502,8 @@ async function enqueueCompletedAnswerBackup(input: {
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/CONTEXT.json`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/pairs/${input.pairId}/RESPONSE.md`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/PAIRS.jsonl`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/turns/${input.turnId}.json`,
+      `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/streams/${input.turnId}.jsonl`,
     ],
     memoryId: input.thread.manifest.memoryId,
     reason: "psychiatrist_thread_update",

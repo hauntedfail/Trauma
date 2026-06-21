@@ -138,6 +138,15 @@ describe("PsychiatristDock", () => {
     });
   });
 
+  it("maps app-server unavailable psychiatrist request errors to an actionable message", () => {
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
+      code: "app_server_unavailable",
+      message: "Codex app-server is unavailable.",
+      responseStatus: 500,
+    }))).toBe("Start the Codex app-server, then retry Psychiatrist.");
+  });
+
   it("passes translated reader language when creating a thread", async () => {
     const requests: Request[] = [];
     await createPsychiatristThread({

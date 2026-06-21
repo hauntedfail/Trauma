@@ -107,6 +107,7 @@ export async function handleStartPsychiatristThreadRequest(
         config,
         langCode: context.langCode,
         memoryId: context.memoryId,
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
         variantKind: context.variantKind,
       });
       if (latest !== undefined) {

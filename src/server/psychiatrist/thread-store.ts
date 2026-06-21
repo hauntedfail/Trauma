@@ -17,6 +17,10 @@ const UUID_V7_PATTERN =
 const threadMutationQueues = new Map<string, Promise<void>>();
 
 export type PsychiatristTurnTerminalStatus = "canceled" | "completed" | "failed";
+export interface PsychiatristCompletedPairAppendResult {
+  status: "completed";
+  warning?: "post_save_finalization_failed";
+}
 
 interface PairRevisionRow {
   assistant_response?: string;
@@ -150,8 +154,8 @@ export async function appendAssistantResponse(input: {
   pairId: string;
   threadId: string;
   webSourcePolicy?: PairRevisionRow["web_source_policy"];
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristCompletedPairAppendResult> {
+  return await withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -205,7 +209,7 @@ export async function appendAssistantResponse(input: {
       user_prompt: pending.user.content,
       web_source_policy: input.webSourcePolicy,
     });
-    await rewriteThreadMarkdown(input.config, loaded.manifest);
+    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
   });
 }
 
@@ -217,8 +221,8 @@ export async function appendRegeneratedAssistantResponse(input: {
   threadId: string;
   turnId: string;
   webSourcePolicy?: PairRevisionRow["web_source_policy"];
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristCompletedPairAppendResult> {
+  return await withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -255,7 +259,7 @@ export async function appendRegeneratedAssistantResponse(input: {
       user_prompt: existing.user.content,
       web_source_policy: input.webSourcePolicy,
     });
-    await rewriteThreadMarkdown(input.config, loaded.manifest);
+    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
   });
 }
 
@@ -267,8 +271,8 @@ export async function appendRetriedAssistantResponse(input: {
   threadId: string;
   turnId: string;
   webSourcePolicy?: PairRevisionRow["web_source_policy"];
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristCompletedPairAppendResult> {
+  return await withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -304,7 +308,7 @@ export async function appendRetriedAssistantResponse(input: {
       user_prompt: existing.user.content,
       web_source_policy: input.webSourcePolicy,
     });
-    await rewriteThreadMarkdown(input.config, loaded.manifest);
+    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
   });
 }
 
@@ -456,8 +460,8 @@ export async function markPsychiatristTurnFailed(input: {
   pairId: string;
   threadId: string;
   turnId: string;
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristTurnTerminalStatus> {
+  return await withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -470,8 +474,9 @@ export async function markPsychiatristTurnFailed(input: {
       );
     }
     const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-    if (readTerminalTurnStatus(existingTurn?.status) !== undefined) {
-      return;
+    const terminalStatus = readTerminalTurnStatus(existingTurn?.status);
+    if (terminalStatus !== undefined) {
+      return terminalStatus;
     }
     const now = new Date().toISOString();
     if (existing.assistant === undefined) {
@@ -498,6 +503,7 @@ export async function markPsychiatristTurnFailed(input: {
       turn_id: input.turnId,
     });
     await rewriteThreadMarkdown(input.config, loaded.manifest);
+    return "failed";
   });
 }
 
@@ -511,8 +517,8 @@ export async function markPsychiatristRegenerateFailed(input: {
   pairId: string;
   threadId: string;
   turnId: string;
-}): Promise<void> {
-  await withThreadMutationLock(input.config, input.threadId, async () => {
+}): Promise<PsychiatristTurnTerminalStatus> {
+  return await withThreadMutationLock(input.config, input.threadId, async () => {
     const loaded = await loadPsychiatristThread({
       config: input.config,
       threadId: input.threadId,
@@ -527,8 +533,9 @@ export async function markPsychiatristRegenerateFailed(input: {
       );
     }
     const existingTurn = await readTurnRecord(input.config, loaded.manifest, input.turnId);
-    if (readTerminalTurnStatus(existingTurn?.status) !== undefined) {
-      return;
+    const terminalStatus = readTerminalTurnStatus(existingTurn?.status);
+    if (terminalStatus !== undefined) {
+      return terminalStatus;
     }
     await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
       failed_at: new Date().toISOString(),
@@ -540,6 +547,7 @@ export async function markPsychiatristRegenerateFailed(input: {
       thread_id: input.threadId,
       turn_id: input.turnId,
     });
+    return "failed";
   });
 }
 
@@ -733,6 +741,7 @@ export async function findLatestPsychiatristThread(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   langCode?: string;
   memoryId: string;
+  policyVersion: string;
   variantKind: PsychiatristThreadManifest["variantKind"];
 }): Promise<{
   manifest: PsychiatristThreadManifest;
@@ -751,6 +760,7 @@ export async function findLatestPsychiatristThread(input: {
         manifest.activeContentHash === input.activeContentHash &&
         manifest.variantKind === input.variantKind &&
         manifest.langCode === input.langCode &&
+        manifest.policyVersion === input.policyVersion &&
         manifest.status !== "stale"
       ) {
         matches.push(manifest);
@@ -1152,6 +1162,18 @@ async function rewriteThreadMarkdown(
     join(threadDirectory(config, manifest), "THREAD.md"),
     renderThreadMarkdown(reducePairRows(rows)),
   );
+}
+
+async function rewriteThreadMarkdownAfterSavedPair(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+): Promise<PsychiatristCompletedPairAppendResult> {
+  try {
+    await rewriteThreadMarkdown(config, manifest);
+    return { status: "completed" };
+  } catch {
+    return { status: "completed", warning: "post_save_finalization_failed" };
+  }
 }
 
 function renderThreadMarkdown(pairs: PsychiatristThreadPair[]): string {

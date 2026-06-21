@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -181,6 +181,35 @@ describe("Psychiatrist thread API routes", () => {
       memory_id: MEMORY_ID,
       thread_id: THREAD_ID,
       variant_kind: "source",
+    });
+  });
+
+  it("does not resume a latest thread from an older prompt policy version", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-resume-policy-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({ policyVersion: "psychiatrist-memory-pairs-old" }),
+    });
+    const handler = createStartPsychiatristThreadHandler({
+      buildContext: async () => context(),
+      config: { storePath },
+      generateId: () => THREAD_ID_2,
+      now: () => new Date("2026-06-01T00:00:01.000Z"),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads`, {
+          body: JSON.stringify({ resume_latest: true }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID },
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      thread_id: THREAD_ID_2,
     });
   });
 
@@ -645,6 +674,8 @@ describe("Psychiatrist thread API routes", () => {
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/CONTEXT.json`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/turns/${TURN_ID}.json`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/streams/${TURN_ID}.jsonl`,
         ],
         memoryId: MEMORY_ID,
         reason: "psychiatrist_thread_update",
@@ -1524,6 +1555,56 @@ describe("Psychiatrist thread API routes", () => {
     ]);
   });
 
+  it("does not emit failed events when a canceled turn wins before a later runtime failure", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-wins-failure-"));
+    const client = new ControlledFailingConversationClient();
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    const start = await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Stop before failure." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    expect(start.status).toBe(202);
+    await waitFor(() => activePsychiatristTurns.getByTurnId(TURN_ID) !== undefined);
+    const cancelHandler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+    const canceled = await cancelHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+    expect(canceled.status).toBe(202);
+
+    client.fail();
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.turn.started",
+      "psychiatrist.turn.canceled",
+    ]);
+  });
+
   it("does not cancel or emit canceled events for already completed turns", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-completed-"));
     await createPsychiatristThread({
@@ -1931,6 +2012,8 @@ describe("Psychiatrist thread API routes", () => {
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/turns/${regenerateTurnId}.json`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/streams/${regenerateTurnId}.jsonl`,
         ],
         memoryId: MEMORY_ID,
         reason: "psychiatrist_response_regenerate",
@@ -1987,6 +2070,78 @@ describe("Psychiatrist thread API routes", () => {
       thread_id: THREAD_ID,
       turn_id: regenerateTurnId,
     });
+  });
+
+  it("does not emit failed events when a canceled regenerate wins before a later runtime failure", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-cancel-wins-failure-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Regenerate later." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const regenerateTurnId = EXTRA_TURN_IDS[0]!;
+    const client = new ControlledFailingConversationClient();
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      client,
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+    const started = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+    expect(started.status).toBe(202);
+    await waitFor(() => activePsychiatristTurns.getByTurnId(regenerateTurnId) !== undefined);
+    const cancelHandler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+    const canceled = await cancelHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${regenerateTurnId}/cancel`, {
+          method: "POST",
+        }),
+        { turnId: regenerateTurnId },
+      ),
+    );
+    expect(canceled.status).toBe(202);
+
+    client.fail();
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.regenerate.started",
+      "psychiatrist.turn.canceled",
+    ]);
   });
 
   it("starts approved first-answer retries from a fresh Codex thread", async () => {
@@ -2776,6 +2931,63 @@ describe("Psychiatrist thread API routes", () => {
     );
   });
 
+  it("keeps regenerate stale preflight responses when stale stream telemetry cannot be appended", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-stale-stream-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Use the old snapshot." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const regenerateTurnId = EXTRA_TURN_IDS[0]!;
+    await mkdir(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "streams", `${regenerateTurnId}.jsonl`),
+      { recursive: true },
+    );
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      client: new FakeConversationClient("must not overwrite"),
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+      resolveActiveContentHash: async () => "sha256:changed-content",
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      action: "refresh_thread",
+      code: "thread_stale",
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.manifest.status).toBe("stale");
+  });
+
   it("retries transient waitFor predicate errors until the condition passes", async () => {
     let attempts = 0;
 
@@ -2837,7 +3049,7 @@ function parseJsonRecord(content: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function manifest(): PsychiatristThreadManifest {
+function manifest(input: Partial<PsychiatristThreadManifest> = {}): PsychiatristThreadManifest {
   return {
     activeContentHash: "sha256:context",
     createdAt: "2026-06-01T00:00:00.000Z",
@@ -2848,6 +3060,7 @@ function manifest(): PsychiatristThreadManifest {
     threadId: THREAD_ID,
     updatedAt: "2026-06-01T00:00:00.000Z",
     variantKind: "source",
+    ...input,
   };
 }
 
@@ -2942,6 +3155,33 @@ class FailingConversationClient implements CodexConversationClient {
     input.onEvent?.({ type: "thread.started", threadId: "codex-thread-1" });
     input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
     throw new Error("raw failure with /private/tmp/store and token");
+  }
+}
+
+class ControlledFailingConversationClient implements CodexConversationClient {
+  private failTurn: (() => void) | undefined;
+
+  async cancelTurn(): Promise<void> {
+    return undefined;
+  }
+
+  fail(): void {
+    this.failTurn?.();
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    input.onEvent?.({ type: "thread.started", threadId: "codex-thread-1" });
+    input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
+    await new Promise<void>((resolve) => {
+      this.failTurn = resolve;
+    });
+    throw new Error("runtime failed after cancellation");
   }
 }
 

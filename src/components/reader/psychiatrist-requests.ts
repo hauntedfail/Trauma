@@ -37,6 +37,8 @@ export function getPsychiatristErrorMessage(error: unknown): string {
       return "Set up Codex auth before using Psychiatrist.";
     case "setup_required":
       return "Codex app-server must be available before using Psychiatrist.";
+    case "app_server_unavailable":
+      return "Start the Codex app-server, then retry Psychiatrist.";
     case "usage_limit":
     case "timeout":
     case "stream_disconnected":

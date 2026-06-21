@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -252,6 +252,46 @@ describe("Psychiatrist thread store", () => {
         "utf8",
       ),
     ).resolves.toContain("The saved answer must remain visible.");
+  });
+
+  it("reports post-save warnings when THREAD.md rewrite fails after a completed pair append", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-post-save-rewrite-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const threadMarkdownPath = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md");
+    await rm(threadMarkdownPath);
+    await mkdir(threadMarkdownPath);
+
+    await expect(appendAssistantResponse({
+      assistantResponse: "The saved answer must not be failed.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    })).resolves.toEqual({
+      status: "completed",
+      warning: "post_save_finalization_failed",
+    });
+
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed"]);
+    expect(rows[1]).toMatchObject({
+      assistant_response: "The saved answer must not be failed.",
+      status: "completed",
+    });
   });
 
   it("does not overwrite completed turns when Stop arrives after completion", async () => {
@@ -843,6 +883,7 @@ describe("Psychiatrist thread store", () => {
       config: { storePath },
       langCode: undefined,
       memoryId: MEMORY_ID,
+      policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       variantKind: "source",
     })).resolves.toMatchObject({
       manifest: expect.objectContaining({
@@ -850,6 +891,26 @@ describe("Psychiatrist thread store", () => {
       }),
       pairs: [],
     });
+  });
+
+  it("does not reuse latest threads from an older prompt policy version", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-latest-policy-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        policyVersion: "psychiatrist-memory-pairs-old",
+        threadId: THREAD_ID,
+      }),
+    });
+
+    await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:source",
+      config: { storePath },
+      langCode: undefined,
+      memoryId: MEMORY_ID,
+      policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+      variantKind: "source",
+    })).resolves.toBeUndefined();
   });
 });
 
