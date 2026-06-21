@@ -473,7 +473,7 @@ Cover:
   pair revisions in `PAIRS.jsonl` in chronological order.
 - Pair ids used in route paths and `pairs/{pairId}/` paths are generated opaque
   UUID v7 values; tests reject slugged, composite, hash-derived, or
-  memory-title derived pair ids.
+  memory-title-derived pair ids.
 - Failed and canceled turns update `turns/{turnId}.json` and append a failed or
   canceled pair revision without writing an `assistant_response`.
 - `network_permission_required` updates `turns/{turnId}.json`, appends a

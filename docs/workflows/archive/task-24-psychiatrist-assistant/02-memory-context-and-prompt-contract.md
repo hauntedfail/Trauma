@@ -95,6 +95,11 @@ export interface PsychiatristWebSourcePolicy {
 }
 ```
 
+`PsychiatristRegenerateInput.reason` is intentionally single-valued today. It
+records the current user-initiated Regenerate path as an explicit audit
+discriminator, leaving room for future regenerate or retry reasons without
+accepting arbitrary caller-supplied text.
+
 ## Context Builder Rules
 
 - Source readers load `{storePath}/memories/{memoryId}/CONTENT.md` through the
