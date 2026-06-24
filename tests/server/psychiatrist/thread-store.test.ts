@@ -17,6 +17,8 @@ import {
   markPsychiatristTurnCompleted,
   markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
+  reconcileInactivePsychiatristTurns,
+  recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import type {
@@ -856,6 +858,113 @@ describe("Psychiatrist thread store", () => {
       active_content_hash: "sha256:source",
       status: "stale",
       thread_id: THREAD_ID,
+    });
+  });
+
+  it("marks orphaned non-terminal regenerate turns interrupted without changing completed pair revisions", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-reconcile-regenerate-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Completed before restart.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCompleted({
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await appendRegeneratedAssistantResponse({
+      assistantResponse: "Completed regenerated answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    await markPsychiatristTurnCompleted({
+      codexThreadId: "codex-thread-2",
+      codexTurnId: "codex-turn-2",
+      config: { storePath },
+      pairId: PAIR_ID,
+      regenerateFromTurnId: TURN_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    const abandonedChainedRegenerateTurnId = "019e8a00-0000-7000-8000-000000000006";
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: PAIR_ID,
+      regenerateFromTurnId: regenerateTurnId,
+      threadId: THREAD_ID,
+      turnId: abandonedChainedRegenerateTurnId,
+    });
+
+    await expect(
+      reconcileInactivePsychiatristTurns({
+        activeTurnIds: [],
+        config: { storePath },
+        threadId: THREAD_ID,
+      }),
+    ).resolves.toBe(true);
+
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({
+          content: "Completed regenerated answer.",
+        }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: regenerateTurnId,
+      }),
+    ]);
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed", "completed"]);
+    await expect(
+      readFile(
+        join(
+          storePath,
+          "memories",
+          MEMORY_ID,
+          "threads",
+          THREAD_ID,
+          "turns",
+          `${abandonedChainedRegenerateTurnId}.json`,
+        ),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      failed_at: expect.any(String),
+      pair_id: PAIR_ID,
+      regenerate_from_turn_id: regenerateTurnId,
+      safe_error: {
+        action: "retry",
+        code: "turn_interrupted",
+        message: "Psychiatrist turn was interrupted before completion.",
+      },
+      status: "failed",
+      turn_id: abandonedChainedRegenerateTurnId,
     });
   });
 

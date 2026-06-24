@@ -15,6 +15,8 @@ import {
 } from "../../../src/server/psychiatrist/stream-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import {
+  appendAssistantResponse,
+  appendRegeneratedAssistantResponse,
   appendPendingPair,
   createPsychiatristThread,
   loadPsychiatristThread,
@@ -1078,6 +1080,89 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(replay)).not.toContain(storePath);
   });
 
+  it("keeps a completed answer and enqueues backup when THREAD.md refresh fails after save", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-thread-refresh-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const backupEnqueues: unknown[] = [];
+    const handler = createSendPsychiatristMessageHandler({
+      appendAssistantResponse: async (input) => {
+        await appendAssistantResponse(input);
+        return { status: "completed", warning: "post_save_finalization_failed" };
+      },
+      backupQueue: {
+        enqueue: async (input) => {
+          backupEnqueues.push(input);
+          return { backupStatus: "queued" };
+        },
+      },
+      client: new FakeConversationClient("Completed despite THREAD refresh failure."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What is the answer?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      const replay = await loadPsychiatristStreamReplay({
+        config: { storePath },
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+      });
+      return loaded.pairs[0]?.assistant?.content === "Completed despite THREAD refresh failure." &&
+        replay.some((event) => event.type === "psychiatrist.answer.completed") &&
+        backupEnqueues.length === 1;
+    });
+    await expect(
+      readFile(join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`), "utf8")
+        .then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      completed_at: expect.any(String),
+      status: "completed",
+      turn_id: TURN_ID,
+    });
+    expect(backupEnqueues).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/turns/${TURN_ID}.json`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/streams/${TURN_ID}.jsonl`,
+        ]),
+        memoryId: MEMORY_ID,
+        reason: "psychiatrist_thread_update",
+      }),
+    ]);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          warning: {
+            code: "post_save_finalization_failed",
+            message: "Psychiatrist answer was saved, but THREAD.md could not be refreshed.",
+          },
+        }),
+        type: "psychiatrist.answer.completed",
+      }),
+    );
+    expect(JSON.stringify(replay)).not.toContain(storePath);
+  });
+
   it("marks accepted prompts failed without writing an assistant response when Codex fails", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-failed-"));
     await createPsychiatristThread({
@@ -2010,6 +2095,8 @@ describe("Psychiatrist thread API routes", () => {
         contentPaths: [
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.json`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/PROMPT.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/CONTEXT.json`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/pairs/${PAIR_ID}/RESPONSE.md`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/PAIRS.jsonl`,
           `memories/${MEMORY_ID}/threads/${THREAD_ID}/turns/${regenerateTurnId}.json`,
@@ -2308,6 +2395,114 @@ describe("Psychiatrist thread API routes", () => {
       }),
     );
     expect(JSON.stringify(replay)).not.toContain("backup unavailable");
+    expect(JSON.stringify(replay)).not.toContain(storePath);
+  });
+
+  it("keeps regenerated answers completed and enqueues backup when THREAD.md refresh fails after save", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-thread-refresh-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What changed?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const backupEnqueues: unknown[] = [];
+    const regenerateTurnId = EXTRA_TURN_IDS[0]!;
+    const regenerateHandler = createRegeneratePsychiatristResponseHandler({
+      appendRegeneratedAssistantResponse: async (input) => {
+        await appendRegeneratedAssistantResponse(input);
+        return { status: "completed", warning: "post_save_finalization_failed" };
+      },
+      backupQueue: {
+        enqueue: async (input) => {
+          backupEnqueues.push(input);
+          return { backupStatus: "queued" };
+        },
+      },
+      client: new FakeConversationClient("Regenerated despite THREAD refresh failure."),
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const response = await regenerateHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      const replay = await loadPsychiatristStreamReplay({
+        config: { storePath },
+        threadId: THREAD_ID,
+        turnId: regenerateTurnId,
+      });
+      return loaded.pairs[0]?.assistant?.content === "Regenerated despite THREAD refresh failure." &&
+        replay.some((event) => event.type === "psychiatrist.regenerate.completed") &&
+        backupEnqueues.length === 1;
+    });
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${regenerateTurnId}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      completed_at: expect.any(String),
+      regenerate_from_turn_id: TURN_ID,
+      status: "completed",
+      turn_id: regenerateTurnId,
+    });
+    expect(backupEnqueues).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/THREAD.md`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/turns/${regenerateTurnId}.json`,
+          `memories/${MEMORY_ID}/threads/${THREAD_ID}/streams/${regenerateTurnId}.jsonl`,
+        ]),
+        memoryId: MEMORY_ID,
+        reason: "psychiatrist_response_regenerate",
+      }),
+    ]);
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    expect(replay).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          warning: {
+            code: "post_save_finalization_failed",
+            message: "Psychiatrist answer was saved, but THREAD.md could not be refreshed.",
+          },
+        }),
+        type: "psychiatrist.regenerate.completed",
+      }),
+    );
     expect(JSON.stringify(replay)).not.toContain(storePath);
   });
 

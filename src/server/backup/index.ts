@@ -325,6 +325,14 @@ function getPsychiatristRetryContentPaths(
       `${threadBase}/THREAD.md`,
       `${threadBase}/PAIRS.jsonl`,
     );
+    const turnIds = readFileStemNames(resolve(threadsRoot, threadId, "turns"), ".json");
+    for (const turnId of turnIds) {
+      paths.push(`${threadBase}/turns/${turnId}.json`);
+    }
+    const streamIds = readFileStemNames(resolve(threadsRoot, threadId, "streams"), ".jsonl");
+    for (const streamId of streamIds) {
+      paths.push(`${threadBase}/streams/${streamId}.jsonl`);
+    }
     const pairIds = readDirectoryNames(resolve(threadsRoot, threadId, "pairs"));
     for (const pairId of pairIds) {
       const pairBase = `${threadBase}/pairs/${pairId}`;
@@ -336,6 +344,20 @@ function getPsychiatristRetryContentPaths(
     }
   }
   return paths;
+}
+
+function readFileStemNames(path: string, extension: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+      .map((entry) => entry.name.slice(0, -extension.length))
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function readDirectoryNames(path: string): string[] {

@@ -54,6 +54,8 @@ type ResolveRegenerateActiveContentHash = (input: {
 }) => Promise<string>;
 
 export function createRegeneratePsychiatristResponseHandler(input: {
+  appendRegeneratedAssistantResponse?: typeof appendRegeneratedAssistantResponse;
+  appendRetriedAssistantResponse?: typeof appendRetriedAssistantResponse;
   backupQueue?: MemoryBackupQueue;
   client?: CodexConversationClient;
   config?: ResolvedTraumaConfig;
@@ -69,6 +71,8 @@ export function createRegeneratePsychiatristResponseHandler(input: {
 export async function handleRegeneratePsychiatristResponseRequest(
   event: APIEvent,
   input: {
+    appendRegeneratedAssistantResponse?: typeof appendRegeneratedAssistantResponse;
+    appendRetriedAssistantResponse?: typeof appendRetriedAssistantResponse;
     backupQueue?: MemoryBackupQueue;
     client?: CodexConversationClient;
     config?: ResolvedTraumaConfig;
@@ -204,6 +208,10 @@ export async function handleRegeneratePsychiatristResponseRequest(
       turnId,
     });
     void runRegenerateTurn({
+      appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
+        appendRegeneratedAssistantResponse,
+      appendRetriedAssistantResponse: input.appendRetriedAssistantResponse ??
+        appendRetriedAssistantResponse,
       backupQueue: input.backupQueue ?? getMemoryBackupQueue(config),
       client,
       config,
@@ -258,6 +266,8 @@ async function resolveRegenerateTurnMode(input: {
 }
 
 async function runRegenerateTurn(input: {
+  appendRegeneratedAssistantResponse: typeof appendRegeneratedAssistantResponse;
+  appendRetriedAssistantResponse: typeof appendRetriedAssistantResponse;
   backupQueue: MemoryBackupQueue;
   client: CodexConversationClient;
   config: ResolvedTraumaConfig;
@@ -391,8 +401,8 @@ async function runRegenerateTurn(input: {
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
     const appendAssistant = isAnswerRetry
-      ? appendRetriedAssistantResponse
-      : appendRegeneratedAssistantResponse;
+      ? input.appendRetriedAssistantResponse
+      : input.appendRegeneratedAssistantResponse;
     const appendResult = await appendAssistant({
       assistantResponse: result.outputText,
       citations: sourceCitations,
@@ -403,9 +413,12 @@ async function runRegenerateTurn(input: {
       webSourcePolicy: input.webSourcePolicy,
     });
     assistantResponsePersisted = true;
-    if (appendResult.warning === "post_save_finalization_failed") {
-      throw new Error("THREAD.md rewrite failed after saving the assistant response.");
-    }
+    const postSaveWarning = appendResult.warning === "post_save_finalization_failed"
+      ? {
+        code: "post_save_finalization_failed",
+        message: "Psychiatrist answer was saved, but THREAD.md could not be refreshed.",
+      }
+      : undefined;
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -419,12 +432,8 @@ async function runRegenerateTurn(input: {
       contentPaths: [
         input.loaded.paths.threadManifestRelativePath,
         input.loaded.paths.threadMarkdownRelativePath,
-        ...(isAnswerRetry
-          ? [
-            input.loaded.paths.pairPromptRelativePath,
-            input.loaded.paths.pairContextRelativePath,
-          ]
-          : []),
+        input.loaded.paths.pairPromptRelativePath,
+        input.loaded.paths.pairContextRelativePath,
         input.loaded.paths.pairResponseRelativePath,
         input.loaded.paths.pairRevisionLogRelativePath,
         turnRecordRelativePath(input.loaded.manifest.memoryId, input.loaded.manifest.threadId, input.turnId),
@@ -440,7 +449,11 @@ async function runRegenerateTurn(input: {
       config: input.config,
       event: {
         data: {
-          ...(backupWarning === undefined ? {} : { warning: backupWarning }),
+          ...(
+            postSaveWarning === undefined && backupWarning === undefined
+              ? {}
+              : { warning: postSaveWarning ?? backupWarning }
+          ),
           pair_id: input.pairId,
           source_citations: sourceCitations.map((citation) => ({
             source_id: citation.sourceId,

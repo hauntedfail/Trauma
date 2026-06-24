@@ -658,6 +658,28 @@ describe("git memory backup queue", () => {
           ),
           { recursive: true },
         );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+          ),
+          { recursive: true },
+        );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+          ),
+          { recursive: true },
+        );
         writeFileSync(
           join(
             config.storePath,
@@ -688,6 +710,34 @@ describe("git memory backup queue", () => {
             "threads",
             "019e8a00-0000-7000-8000-000000000001",
             "PAIRS.jsonl",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+            "019e8a00-0000-7000-8000-000000000003.json",
+          ),
+          JSON.stringify({
+            pair_id: "019e8a00-0000-7000-8000-000000000002",
+            status: "completed",
+            turn_id: "019e8a00-0000-7000-8000-000000000003",
+          }) + "\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+            "019e8a00-0000-7000-8000-000000000003.jsonl",
           ),
           "{}\\n",
         );
@@ -878,6 +928,8 @@ describe("git memory backup queue", () => {
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.json",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/PAIRS.jsonl",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/turns/019e8a00-0000-7000-8000-000000000003.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/streams/019e8a00-0000-7000-8000-000000000003.jsonl",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/PROMPT.md",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/CONTEXT.json",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md",

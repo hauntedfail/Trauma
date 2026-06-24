@@ -163,18 +163,18 @@ function renderSectionBlock(
   section: PsychiatristPromptInput["context"]["sections"][number],
   index: number,
 ): string {
-  const safeHeadingTitle = normalizeMarkdownHeadingText(section.title);
   return [
-    `## Section ${index + 1}: ${safeHeadingTitle}`,
-    JSON.stringify({
+    `## Section ${index + 1}`,
+    `<memory_section_untrusted anchor="${escapeDelimiterAttribute(section.anchor)}">`,
+    escapeUntrustedMemoryMarkdown(JSON.stringify({
       anchor: section.anchor,
       end_offset: section.endOffset,
+      index: index + 1,
       level: section.level,
       path: section.path,
       start_offset: section.startOffset,
       title: section.title,
-    }),
-    `<memory_section_untrusted anchor="${escapeDelimiterAttribute(section.anchor)}">`,
+    })),
     escapeUntrustedMemoryMarkdown(section.markdown),
     "</memory_section_untrusted>",
     "",
@@ -252,14 +252,6 @@ function truncateText(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
 }
 
-function normalizeMarkdownHeadingText(value: string): string {
-  return value
-    .replace(/[\r\n]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/#/g, "\\#")
-    .trim() || "Untitled";
-}
-
 function escapeDelimiterAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -269,5 +261,7 @@ function escapeUntrustedMemoryMarkdown(markdown: string): string {
     .replace(/<memory_section_untrusted\b[^>]*>/gi, (match) =>
       match.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     )
-    .replace(/<\/memory_section_untrusted>/gi, "&lt;/memory_section_untrusted&gt;");
+    .replace(/<\/memory_section_untrusted\s*>/gi, (match) =>
+      match.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    );
 }

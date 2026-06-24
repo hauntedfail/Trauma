@@ -25,7 +25,7 @@ import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
 import {
-  appendAssistantResponse,
+  appendAssistantResponse as appendAssistantResponseToStore,
   appendPendingPair,
   loadPsychiatristThread,
   markPsychiatristTurnCompleted,
@@ -44,6 +44,7 @@ import type {
 
 export const PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4_000;
 type BuildContext = typeof buildPsychiatristMemoryContext;
+type AppendAssistantResponse = typeof appendAssistantResponseToStore;
 type MessagePayload =
   | {
       ok: true;
@@ -59,6 +60,7 @@ type ResolveActiveContentHash = (input: {
 }) => Promise<string>;
 
 export function createSendPsychiatristMessageHandler(input: {
+  appendAssistantResponse?: AppendAssistantResponse;
   appendStreamEvent?: typeof appendPsychiatristStreamEvent;
   backupQueue?: MemoryBackupQueue;
   buildContext?: BuildContext;
@@ -77,6 +79,7 @@ export function createSendPsychiatristMessageHandler(input: {
 export async function handleSendPsychiatristMessageRequest(
   event: APIEvent,
   input: {
+    appendAssistantResponse?: AppendAssistantResponse;
     appendStreamEvent?: typeof appendPsychiatristStreamEvent;
     backupQueue?: MemoryBackupQueue;
     buildContext?: BuildContext;
@@ -218,6 +221,7 @@ export async function handleSendPsychiatristMessageRequest(
       turnId,
     });
     void runPsychiatristTurn({
+      appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
       config,
@@ -268,6 +272,7 @@ export async function handleSendPsychiatristMessageRequest(
 }
 
 async function runPsychiatristTurn(input: {
+  appendAssistantResponse: AppendAssistantResponse;
   backupQueue: MemoryBackupQueue;
   client: CodexConversationClient;
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -364,7 +369,7 @@ async function runPsychiatristTurn(input: {
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
-    const appendResult = await appendAssistantResponse({
+    const appendResult = await input.appendAssistantResponse({
       assistantResponse: result.outputText,
       citations: sourceCitations,
       config: input.config,
@@ -373,9 +378,12 @@ async function runPsychiatristTurn(input: {
       webSourcePolicy: input.webSourcePolicy,
     });
     assistantResponsePersisted = true;
-    if (appendResult.warning === "post_save_finalization_failed") {
-      throw new Error("THREAD.md rewrite failed after saving the assistant response.");
-    }
+    const postSaveWarning = appendResult.warning === "post_save_finalization_failed"
+      ? {
+        code: "post_save_finalization_failed",
+        message: "Psychiatrist answer was saved, but THREAD.md could not be refreshed.",
+      }
+      : undefined;
     await markPsychiatristTurnCompleted({
       codexThreadId: result.threadId,
       codexTurnId: result.turnId,
@@ -394,7 +402,11 @@ async function runPsychiatristTurn(input: {
       config: input.config,
       event: {
         data: {
-          ...(backupWarning === undefined ? {} : { warning: backupWarning }),
+          ...(
+            postSaveWarning === undefined && backupWarning === undefined
+              ? {}
+              : { warning: postSaveWarning ?? backupWarning }
+          ),
           pair_id: input.pairId,
           source_citations: sourceCitations.map((citation) => ({
             source_id: citation.sourceId,
