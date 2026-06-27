@@ -15,6 +15,7 @@ const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const threadMutationQueues = new Map<string, Promise<void>>();
+let updateThreadManifestFailureForTests: (() => Promise<never>) | undefined;
 
 export type PsychiatristTurnTerminalStatus = "canceled" | "completed" | "failed";
 export interface PsychiatristCompletedPairAppendResult {
@@ -53,6 +54,10 @@ export class PsychiatristThreadStoreError extends Error {
     super(message);
     this.name = "PsychiatristThreadStoreError";
   }
+}
+
+export function failNextThreadManifestUpdateForTests(failure: () => Promise<never>): void {
+  updateThreadManifestFailureForTests = failure;
 }
 
 export async function createPsychiatristThread(input: {
@@ -238,8 +243,8 @@ export async function appendRegeneratedAssistantResponse(input: {
 
     const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
     await mkdir(pairDirectoryPath, { recursive: true });
-    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
-    await appendPairRevision(input.config, loaded.manifest, {
+    const responsePath = join(pairDirectoryPath, "RESPONSE.md");
+    const row: PairRevisionRow = {
       assistant_response: input.assistantResponse,
       created_at: existing.user.createdAt,
       pair_id: input.pairId,
@@ -258,8 +263,20 @@ export async function appendRegeneratedAssistantResponse(input: {
       updated_at: new Date().toISOString(),
       user_prompt: existing.user.content,
       web_source_policy: input.webSourcePolicy,
+    };
+    await replaceResponseWhileAppendingRevisionRow(responsePath, input.assistantResponse, async () => {
+      await appendPairRevisionRow(input.config, loaded.manifest, row);
     });
-    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    let warning: PsychiatristCompletedPairAppendResult["warning"];
+    try {
+      await updateThreadManifest(input.config, loaded.manifest, {
+        updatedAt: row.updated_at,
+      });
+    } catch {
+      warning = "post_save_finalization_failed";
+    }
+    const rewriteResult = await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    return { status: "completed", warning: warning ?? rewriteResult.warning };
   });
 }
 
@@ -1148,14 +1165,37 @@ async function appendPairRevision(
   manifest: PsychiatristThreadManifest,
   row: PairRevisionRow,
 ): Promise<void> {
+  await appendPairRevisionRow(config, manifest, row);
+  await updateThreadManifest(config, manifest, {
+    updatedAt: row.updated_at,
+  });
+}
+
+async function appendPairRevisionRow(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+  row: PairRevisionRow,
+): Promise<void> {
   await appendFile(
     join(threadDirectory(config, manifest), "PAIRS.jsonl"),
     `${JSON.stringify(row)}\n`,
     "utf8",
   );
-  await updateThreadManifest(config, manifest, {
-    updatedAt: row.updated_at,
-  });
+}
+
+async function replaceResponseWhileAppendingRevisionRow(
+  responsePath: string,
+  assistantResponse: string,
+  appendRevisionRow: () => Promise<void>,
+): Promise<void> {
+  const previousResponse = await readFile(responsePath, "utf8");
+  await writeFileAtomic(responsePath, assistantResponse);
+  try {
+    await appendRevisionRow();
+  } catch (error) {
+    await writeFileAtomic(responsePath, previousResponse);
+    throw error;
+  }
 }
 
 async function updateThreadManifest(
@@ -1163,6 +1203,11 @@ async function updateThreadManifest(
   manifest: PsychiatristThreadManifest,
   patch: Partial<Pick<PsychiatristThreadManifest, "codexThreadId" | "status" | "updatedAt">>,
 ): Promise<void> {
+  const testFailure = updateThreadManifestFailureForTests;
+  updateThreadManifestFailureForTests = undefined;
+  if (testFailure !== undefined) {
+    await testFailure();
+  }
   const updated = {
     ...manifest,
     ...patch,

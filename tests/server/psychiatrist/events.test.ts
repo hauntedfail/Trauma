@@ -283,6 +283,30 @@ describe("Psychiatrist stream store", () => {
         },
       }),
     ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Checking ~/.ssh/id_rsa before requesting access." },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Checking ~/.ssh/id_ed25519.pub before requesting access." },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
     await appendPsychiatristStreamEvent({
       config: { storePath },
       event: {
@@ -305,6 +329,8 @@ describe("Psychiatrist stream store", () => {
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
     expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
     expect(JSON.stringify(replay)).not.toContain("~/.codex/auth.json");
+    expect(JSON.stringify(replay)).not.toContain("~/.ssh/id_rsa");
+    expect(JSON.stringify(replay)).not.toContain("~/.ssh/id_ed25519");
     expect((data as { text: string }).text.length).toBeLessThanOrEqual(240);
   });
 

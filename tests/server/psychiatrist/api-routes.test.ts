@@ -2159,6 +2159,113 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("excludes later Q/A pairs when regenerating an older completed pair", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-history-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const priorPairId = PAIR_ID;
+    const priorTurnId = TURN_ID;
+    const targetPairId = EXTRA_TURN_IDS[0]!;
+    const targetTurnId = EXTRA_TURN_IDS[1]!;
+    const laterPairId = "019e8a00-0000-7000-8000-000000000008";
+    const laterTurnId = "019e8a00-0000-7000-8000-000000000009";
+    const priorHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Prior answer for history."),
+      config: { storePath },
+      generateId: createIdGenerator([priorPairId, priorTurnId]),
+    });
+    await priorHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Prior question for history." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const targetHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original target answer."),
+      config: { storePath },
+      generateId: createIdGenerator([targetPairId, targetTurnId]),
+    });
+    await targetHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Target question to regenerate." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs.some((pair) =>
+        pair.pairId === targetPairId && pair.status === "completed"
+      ) && activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const laterHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Later answer must be hidden."),
+      config: { storePath },
+      generateId: createIdGenerator([laterPairId, laterTurnId]),
+    });
+    await laterHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Later question must be hidden." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs.some((pair) =>
+        pair.pairId === laterPairId && pair.status === "completed"
+      ) && activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000010";
+    const regenerateClient = new FakeConversationClient("Regenerated target answer.");
+    const regenerateHandler = createRegeneratePsychiatristResponseHandler({
+      client: regenerateClient,
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const response = await regenerateHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${targetPairId}/regenerate`, {
+          body: JSON.stringify({ web_source_permission: "deny" }),
+          method: "POST",
+        }),
+        { pairId: targetPairId },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => regenerateClient.inputs.length === 1);
+    const regeneratePrompt = String(regenerateClient.inputs[0]?.input);
+    expect(regeneratePrompt).toContain("Prior question for history.");
+    expect(regeneratePrompt).toContain("Prior answer for history.");
+    expect(regeneratePrompt).toContain("Target question to regenerate.");
+    expect(regeneratePrompt).not.toContain("Original target answer.");
+    expect(regeneratePrompt).not.toContain("Later question must be hidden.");
+    expect(regeneratePrompt).not.toContain("Later answer must be hidden.");
+  });
+
   it("does not emit failed events when a canceled regenerate wins before a later runtime failure", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-cancel-wins-failure-"));
     await createPsychiatristThread({

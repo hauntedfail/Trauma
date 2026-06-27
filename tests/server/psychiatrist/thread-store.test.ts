@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import {
   appendPendingPair,
   appendRegeneratedAssistantResponse,
   createPsychiatristThread,
+  failNextThreadManifestUpdateForTests,
   findLatestPsychiatristThread,
   loadPsychiatristThread,
   markPsychiatristRegenerateFailed,
@@ -619,6 +620,150 @@ describe("Psychiatrist thread store", () => {
         "utf8",
       ),
     ).resolves.toBe("Original answer.");
+  });
+
+  it("restores the previous response when regenerate fails before recording the completed revision", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-append-fail-"));
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    const pairRevisionLogPath = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl");
+    await chmod(pairRevisionLogPath, 0o444);
+
+    try {
+      await expect(
+        appendRegeneratedAssistantResponse({
+          assistantResponse: "Uncommitted regenerated answer.",
+          citations: [],
+          config: { storePath },
+          pairId: PAIR_ID,
+          threadId: THREAD_ID,
+          turnId: regenerateTurnId,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await chmod(pairRevisionLogPath, 0o644);
+    }
+
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await expect(readFile(responsePath, "utf8")).resolves.toBe("Original answer.");
+    const rows = await readFile(pairRevisionLogPath, "utf8").then((content) =>
+      content.trim().split("\n").map((line) => JSON.parse(line)),
+    );
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed"]);
+    expect(rows[1]).toMatchObject({
+      assistant_response: "Original answer.",
+      status: "completed",
+      turn_id: TURN_ID,
+    });
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        assistant: expect.objectContaining({ content: "Original answer." }),
+        pairId: PAIR_ID,
+        status: "completed",
+        turnId: TURN_ID,
+      }),
+    ]);
+  });
+
+  it("keeps the regenerated response when manifest update fails after recording the completed revision", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-manifest-fail-"));
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    failNextThreadManifestUpdateForTests(async () => {
+      throw new Error("Manifest update failed after pair row append.");
+    });
+
+    await expect(
+      appendRegeneratedAssistantResponse({
+        assistantResponse: "Recorded regenerated answer.",
+        citations: [],
+        config: { storePath },
+        pairId: PAIR_ID,
+        threadId: THREAD_ID,
+        turnId: regenerateTurnId,
+      }),
+    ).resolves.toEqual({
+      status: "completed",
+      warning: "post_save_finalization_failed",
+    });
+
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await expect(readFile(responsePath, "utf8")).resolves.toBe("Recorded regenerated answer.");
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "completed", "completed"]);
+    expect(rows[2]).toMatchObject({
+      assistant_response: "Recorded regenerated answer.",
+      regenerated_from_turn_id: TURN_ID,
+      status: "completed",
+      turn_id: regenerateTurnId,
+    });
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md"),
+        "utf8",
+      ),
+    ).resolves.toContain("Recorded regenerated answer.");
   });
 
   it("does not overwrite canceled regenerate turns when failure arrives late", async () => {

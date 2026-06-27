@@ -663,7 +663,9 @@ function withoutCurrentAssistant(
   pairs: PsychiatristThreadPair[],
   pairId: string,
 ): PsychiatristThreadPair[] {
-  return pairs.map((pair) =>
+  const targetIndex = pairs.findIndex((pair) => pair.pairId === pairId);
+  const historyPairs = targetIndex === -1 ? pairs : pairs.slice(0, targetIndex + 1);
+  return historyPairs.map((pair) =>
     pair.pairId === pairId
       ? { ...pair, assistant: undefined, status: "pending" }
       : pair

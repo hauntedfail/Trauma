@@ -298,6 +298,7 @@ function readSafeProcessText(value: string | undefined): string | undefined {
     normalized.includes("hidden reasoning") ||
     containsAbsolutePath(text) ||
     containsSensitiveHomeRelativePath(text) ||
+    containsPrivateKeyFilename(text) ||
     containsSensitiveProcessText(text) ||
     normalized.includes("credential") ||
     normalized.includes("token")
@@ -386,8 +387,17 @@ function containsSensitiveHomeRelativePath(value: string): boolean {
     ) {
       return true;
     }
+    if (containsPrivateKeyFilename(path)) {
+      return true;
+    }
   }
   return false;
+}
+
+function containsPrivateKeyFilename(value: string): boolean {
+  return /(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)(?:$|[.\s)"'`\\/])/.test(value) ||
+    /(?:^|[\\/])[^\\/]*private[_-]?key(?:\.(?:pem|key|txt))?(?:$|[.\s)"'`\\/])/
+      .test(value.toLowerCase());
 }
 
 function publishStreamEvent(event: PsychiatristStreamEvent): void {
