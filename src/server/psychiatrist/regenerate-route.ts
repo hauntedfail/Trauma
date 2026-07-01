@@ -20,6 +20,12 @@ import {
 import { activePsychiatristTurns } from "./active-turns";
 import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
+import {
+  isRecord,
+  readPsychiatristJsonBody,
+  readPsychiatristRequestScope,
+  type PsychiatristRequestScope,
+} from "./request";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
@@ -42,9 +48,10 @@ import type {
 type RegeneratePayload =
   | {
       ok: true;
+      scope: PsychiatristRequestScope;
       webSourcePermission: "deny" | "allow_for_this_turn";
     }
-  | { ok: false; message: string };
+  | { ok: false; message: string; status: number };
 
 type RegenerateTurnMode = "answer_retry" | "regenerate";
 
@@ -87,7 +94,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
   }
   const payload = await parseRegeneratePayload(event.request);
   if (!payload.ok) {
-    return safeErrorResponse("invalid_request", payload.message, 400);
+    return safeErrorResponse("invalid_request", payload.message, payload.status);
   }
 
   const config = input.config ?? loadRuntimeTraumaConfig();
@@ -99,6 +106,13 @@ export async function handleRegeneratePsychiatristResponseRequest(
     throw error;
   });
   if (loaded instanceof PsychiatristThreadStoreError) {
+    return safeErrorResponse(
+      "regenerate_unavailable",
+      "Only completed Psychiatrist responses can be regenerated.",
+      409,
+    );
+  }
+  if (!matchesManifestScope(payload.scope, loaded.manifest)) {
     return safeErrorResponse(
       "regenerate_unavailable",
       "Only completed Psychiatrist responses can be regenerated.",
@@ -202,10 +216,12 @@ export async function handleRegeneratePsychiatristResponseRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
+      ...(loaded.manifest.langCode === undefined ? {} : { langCode: loaded.manifest.langCode }),
       memoryId: loaded.manifest.memoryId,
       pairId,
       threadId: loaded.manifest.threadId,
       turnId,
+      variantKind: loaded.manifest.variantKind,
     });
     void runRegenerateTurn({
       appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
@@ -304,7 +320,7 @@ async function runRegenerateTurn(input: {
         },
         contextSnapshotId: input.loaded.contextSnapshot.contextSnapshotId,
         pairs: isAnswerRetry
-          ? input.loaded.thread.pairs.filter((candidate) => candidate.pairId !== input.pairId)
+          ? beforeCurrentPair(input.loaded.thread.pairs, input.pairId)
           : withoutCurrentAssistant(input.loaded.thread.pairs, input.pairId),
         ...(isAnswerRetry
           ? {}
@@ -634,14 +650,17 @@ async function persistCodexEvent(input: {
 }
 
 async function parseRegeneratePayload(request: Request): Promise<RegeneratePayload> {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await request.text());
-  } catch {
-    return { ok: false, message: "request body must be JSON." };
+  const body = await readPsychiatristJsonBody(request);
+  if (!body.ok) {
+    return { ok: false, message: body.message, status: body.status };
   }
+  const payload = body.payload;
   if (!isRecord(payload)) {
-    return { ok: false, message: "request body must be an object." };
+    return { ok: false, message: "request body must be an object.", status: 400 };
+  }
+  const scope = readPsychiatristRequestScope(payload);
+  if (!scope.ok) {
+    return { ok: false, message: scope.message, status: 400 };
   }
   const webSourcePermission =
     typeof payload.web_source_permission === "string"
@@ -654,9 +673,30 @@ async function parseRegeneratePayload(request: Request): Promise<RegeneratePaylo
     return {
       ok: false,
       message: "web_source_permission must be deny or allow_for_this_turn.",
+      status: 400,
     };
   }
-  return { ok: true, webSourcePermission };
+  return { ok: true, scope: scope.scope, webSourcePermission };
+}
+
+function matchesManifestScope(
+  scope: PsychiatristRequestScope,
+  manifest: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>["manifest"],
+): boolean {
+  return scope.memoryId === manifest.memoryId &&
+    scope.threadId === manifest.threadId &&
+    scope.variantKind === manifest.variantKind &&
+    scope.langCode === manifest.langCode;
+}
+
+function beforeCurrentPair(
+  pairs: PsychiatristThreadPair[],
+  pairId: string,
+): PsychiatristThreadPair[] {
+  const targetIndex = pairs.findIndex((pair) => pair.pairId === pairId);
+  return targetIndex === -1
+    ? pairs.filter((pair) => pair.pairId !== pairId)
+    : pairs.slice(0, targetIndex);
 }
 
 function withoutCurrentAssistant(
@@ -770,8 +810,4 @@ function generateUuidV7Like(): string {
       .padStart(2, "0")}${randomHex.slice(5, 7)}`,
     randomHex.slice(7, 19).padEnd(12, "0"),
   ].join("-");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

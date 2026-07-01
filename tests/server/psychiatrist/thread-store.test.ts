@@ -8,6 +8,7 @@ import {
   PsychiatristThreadStoreError,
   appendAssistantResponse,
   appendPendingPair,
+  appendRetriedAssistantResponse,
   appendRegeneratedAssistantResponse,
   createPsychiatristThread,
   failNextThreadManifestUpdateForTests,
@@ -157,7 +158,7 @@ describe("Psychiatrist thread store", () => {
     expect(manifestJson.updated_at).not.toBe("2026-06-01T00:00:00.000Z");
   });
 
-  it("persists Codex thread ids on the thread manifest when turns complete", async () => {
+  it("keeps Codex app-server ids out of durable thread manifests and turn records", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-codex-thread-id-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -185,15 +186,151 @@ describe("Psychiatrist thread store", () => {
       config: { storePath },
       threadId: THREAD_ID,
     });
-    expect(loaded.manifest.codexThreadId).toBe("codex-thread-1");
+    expect("codexThreadId" in loaded.manifest).toBe(false);
     await expect(
       readFile(
         join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.json"),
         "utf8",
       ).then((content) => JSON.parse(content)),
-    ).resolves.toMatchObject({
-      codex_thread_id: "codex-thread-1",
+    ).resolves.not.toHaveProperty("codex_thread_id");
+    const turnRecord = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${TURN_ID}.json`),
+      "utf8",
+    ).then((content) => JSON.parse(content));
+    expect(turnRecord).not.toHaveProperty("codex_thread_id");
+    expect(turnRecord).not.toHaveProperty("codex_turn_id");
+  });
+
+  it("removes first-answer response artifacts when completed revision append fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-first-answer-append-fail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
     });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const pairRevisionLogPath = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl");
+    await chmod(pairRevisionLogPath, 0o444);
+
+    try {
+      await expect(
+        appendAssistantResponse({
+          assistantResponse: "Uncommitted first answer.",
+          citations: [],
+          config: { storePath },
+          pairId: PAIR_ID,
+          threadId: THREAD_ID,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await chmod(pairRevisionLogPath, 0o644);
+    }
+
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await expect(readFile(responsePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const rows = await readFile(pairRevisionLogPath, "utf8").then((content) =>
+      content.trim().split("\n").map((line) => JSON.parse(line)),
+    );
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending"]);
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "pending",
+        turnId: TURN_ID,
+      }),
+    ]);
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
+  });
+
+  it("removes retried first-answer response artifacts when completed revision append fails", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-retry-answer-append-fail-"));
+    const retryTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "Needs current sources?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const pairRevisionLogPath = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl");
+    await chmod(pairRevisionLogPath, 0o444);
+
+    try {
+      await expect(
+        appendRetriedAssistantResponse({
+          assistantResponse: "Uncommitted approved answer.",
+          citations: [],
+          config: { storePath },
+          pairId: PAIR_ID,
+          threadId: THREAD_ID,
+          turnId: retryTurnId,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await chmod(pairRevisionLogPath, 0o644);
+    }
+
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await expect(readFile(responsePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const rows = await readFile(pairRevisionLogPath, "utf8").then((content) =>
+      content.trim().split("\n").map((line) => JSON.parse(line)),
+    );
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "failed"]);
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: PAIR_ID,
+        status: "failed",
+      }),
+    ]);
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
   });
 
   it("does not hide a saved assistant answer when a later turn finalization fails", async () => {

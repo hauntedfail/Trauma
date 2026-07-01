@@ -41,6 +41,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   >([]);
   const [prompt, setPrompt] = createSignal("");
   const [isRunning, setIsRunning] = createSignal(false);
+  const [runningPairId, setRunningPairId] = createSignal("");
   const [runningTurnId, setRunningTurnId] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
@@ -61,6 +62,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     disconnectPsychiatristStream?.();
     disconnectPsychiatristStream = undefined;
     setIsRunning(false);
+    setRunningPairId("");
     setRunningTurnId("");
   };
   const clearWebSourceRetryState = () => {
@@ -104,6 +106,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (nextThread.active_turn !== null) {
         clearWebSourceRetryState();
         setIsRunning(true);
+        setRunningPairId(nextThread.active_turn.pair_id);
         setRunningTurnId(nextThread.active_turn.turn_id);
         disconnectPsychiatristStream?.();
         disconnectPsychiatristStream = connectPsychiatristStream(
@@ -135,7 +138,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
-        clientMessageId: crypto.randomUUID(),
         message,
         threadId: currentThread.thread_id,
         webSourcePermission,
@@ -153,6 +155,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         },
       ]);
       setPrompt("");
+      setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
       disconnectPsychiatristStream?.();
       disconnectPsychiatristStream = connectPsychiatristStream(
@@ -196,12 +199,22 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const handleStop = async () => {
     const turnId = runningTurnId();
-    if (turnId === "") {
+    const pairId = runningPairId();
+    const currentThread = thread();
+    if (turnId === "" || pairId === "" || currentThread === undefined) {
       return;
     }
     try {
-      await cancelPsychiatristTurn({ turnId });
+      await cancelPsychiatristTurn({
+        langCode: currentThread.lang_code,
+        memoryId: currentThread.memory_id,
+        pairId,
+        threadId: currentThread.thread_id,
+        turnId,
+        variantKind: currentThread.variant_kind,
+      });
       setIsRunning(false);
+      setRunningPairId("");
     } catch (error) {
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
@@ -216,14 +229,23 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     pairId: string,
     webSourcePermission: "deny" | "allow_for_this_turn",
   ) => {
+    const currentThread = thread();
+    if (currentThread === undefined) {
+      return;
+    }
     setIsRunning(true);
     setErrorMessage("");
     clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
+        langCode: currentThread.lang_code,
+        memoryId: currentThread.memory_id,
         pairId,
+        threadId: currentThread.thread_id,
+        variantKind: currentThread.variant_kind,
         webSourcePermission,
       });
+      setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
       disconnectPsychiatristStream?.();
       disconnectPsychiatristStream = connectPsychiatristStream(
@@ -273,6 +295,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       event.type === "psychiatrist.turn.canceled"
     ) {
       setIsRunning(false);
+      setRunningPairId("");
       setRunningTurnId("");
       if (event.type === "psychiatrist.answer.failed") {
         setErrorMessage(getStreamErrorMessage(event.data));

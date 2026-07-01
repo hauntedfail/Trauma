@@ -9,6 +9,13 @@ type BrowserFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+interface PsychiatristRequestScopeInput {
+  langCode: string | null;
+  memoryId: string;
+  threadId: string;
+  variantKind: "source" | "translation";
+}
+
 export class PsychiatristRequestError extends Error {
   action: string;
   code: string;
@@ -81,7 +88,6 @@ export async function createPsychiatristThread(input: {
 }
 
 export async function sendPsychiatristMessage(input: {
-  clientMessageId: string;
   fetch?: BrowserFetch;
   message: string;
   threadId: string;
@@ -89,7 +95,6 @@ export async function sendPsychiatristMessage(input: {
 }): Promise<PsychiatristTurnStartedResponse> {
   return requestJson<PsychiatristTurnStartedResponse>({
     body: {
-      client_message_id: input.clientMessageId,
       message: input.message,
       web_source_permission: input.webSourcePermission ?? "deny",
     },
@@ -99,24 +104,36 @@ export async function sendPsychiatristMessage(input: {
   });
 }
 
-export async function cancelPsychiatristTurn(input: {
+export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInput & {
   fetch?: BrowserFetch;
+  pairId: string;
   turnId: string;
 }): Promise<void> {
   await requestJson<unknown>({
+    body: {
+      lang_code: input.langCode,
+      memory_id: input.memoryId,
+      pair_id: input.pairId,
+      thread_id: input.threadId,
+      variant_kind: input.variantKind,
+    },
     fetch: input.fetch,
     method: "POST",
     path: `/api/psychiatrist-turns/${encodeURIComponent(input.turnId)}/cancel`,
   });
 }
 
-export async function regeneratePsychiatristResponse(input: {
+export async function regeneratePsychiatristResponse(input: PsychiatristRequestScopeInput & {
   fetch?: BrowserFetch;
   pairId: string;
   webSourcePermission?: PsychiatristWebSourcePermission;
 }): Promise<PsychiatristTurnStartedResponse> {
   return requestJson<PsychiatristTurnStartedResponse>({
     body: {
+      lang_code: input.langCode,
+      memory_id: input.memoryId,
+      thread_id: input.threadId,
+      variant_kind: input.variantKind,
       web_source_permission: input.webSourcePermission ?? "deny",
     },
     fetch: input.fetch,

@@ -9,6 +9,10 @@ import { initializeDatabase } from "../db";
 import { jsonResponse } from "../http/json";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "./prompt";
 import {
+  isRecord,
+  readPsychiatristJsonBody,
+} from "./request";
+import {
   buildPsychiatristMemoryContext,
   PsychiatristContextError,
 } from "./context";
@@ -33,7 +37,7 @@ type LoadThread = typeof loadPsychiatristThread;
 
 type ThreadPayload =
   | { ok: true; langCode?: string; resumeLatest: boolean }
-  | { ok: false; message: string };
+  | { ok: false; message: string; status: number };
 
 export function createStartPsychiatristThreadHandler(input: {
   buildContext?: BuildContext;
@@ -74,7 +78,7 @@ export async function handleStartPsychiatristThreadRequest(
   }
   const payload = await parseThreadPayload(event.request);
   if (!payload.ok) {
-    return safeErrorResponse("invalid_request", payload.message, 400);
+    return safeErrorResponse("invalid_request", payload.message, payload.status);
   }
 
   const config = input.config ?? loadRuntimeTraumaConfig();
@@ -202,24 +206,23 @@ async function reconcileThreadForResponse(input: {
 }
 
 async function parseThreadPayload(request: Request): Promise<ThreadPayload> {
-  const rawBody = await request.text();
-  if (rawBody.trim() === "") {
+  const body = await readPsychiatristJsonBody(request, { allowEmpty: true });
+  if (!body.ok) {
+    return { ok: false, message: body.message, status: body.status };
+  }
+  if (body.payload === undefined) {
     return { ok: true, resumeLatest: true };
   }
-  let payload: unknown;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return { ok: false, message: "request body must be JSON." };
-  }
+  const payload = body.payload;
   if (!isRecord(payload)) {
-    return { ok: false, message: "request body must be an object." };
+    return { ok: false, message: "request body must be an object.", status: 400 };
   }
   const allowedKeys = new Set(["lang_code", "resume_latest"]);
   if (!Object.keys(payload).every((key) => allowedKeys.has(key))) {
     return {
       ok: false,
       message: "request body must contain only lang_code and resume_latest.",
+      status: 400,
     };
   }
   let langCode: string | undefined;
@@ -228,6 +231,7 @@ async function parseThreadPayload(request: Request): Promise<ThreadPayload> {
       return {
         ok: false,
         message: "lang_code must be a non-empty string when provided.",
+        status: 400,
       };
     }
     langCode = payload.lang_code.trim();
@@ -238,6 +242,7 @@ async function parseThreadPayload(request: Request): Promise<ThreadPayload> {
       return {
         ok: false,
         message: "resume_latest must be a boolean when provided.",
+        status: 400,
       };
     }
     resumeLatest = payload.resume_latest;
@@ -331,10 +336,6 @@ function safeErrorResponse(
     },
     { status },
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function generateUuidV7Like(): string {

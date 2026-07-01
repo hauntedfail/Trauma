@@ -21,6 +21,10 @@ import {
 import { createSha256ContentHash } from "../translation/hash";
 import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
+import {
+  isRecord,
+  readPsychiatristJsonBody,
+} from "./request";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
@@ -51,7 +55,7 @@ type MessagePayload =
       message: string;
       webSourcePermission: "deny" | "allow_for_this_turn";
     }
-  | { ok: false; message: string };
+  | { ok: false; message: string; status: number };
 
 type ResolveActiveContentHash = (input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -97,7 +101,7 @@ export async function handleSendPsychiatristMessageRequest(
   }
   const payload = await parseMessagePayload(event.request);
   if (!payload.ok) {
-    return safeErrorResponse("invalid_request", payload.message, 400);
+    return safeErrorResponse("invalid_request", payload.message, payload.status);
   }
   if (!activePsychiatristTurns.reserveThread(threadId)) {
     return safeErrorResponse(
@@ -212,13 +216,12 @@ export async function handleSendPsychiatristMessageRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
-      ...(thread.manifest.codexThreadId === undefined
-        ? {}
-        : { codexThreadId: thread.manifest.codexThreadId }),
+      ...(thread.manifest.langCode === undefined ? {} : { langCode: thread.manifest.langCode }),
       memoryId: thread.manifest.memoryId,
       pairId,
       threadId,
       turnId,
+      variantKind: thread.manifest.variantKind,
     });
     void runPsychiatristTurn({
       appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
@@ -326,7 +329,6 @@ async function runPsychiatristTurn(input: {
           }),
         );
       },
-      threadId: input.thread.manifest.codexThreadId,
     });
     await eventWriteChain;
     if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {
@@ -531,21 +533,20 @@ function resolveBackupQueue(
 }
 
 async function parseMessagePayload(request: Request): Promise<MessagePayload> {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await request.text());
-  } catch {
-    return { ok: false, message: "request body must be JSON." };
+  const body = await readPsychiatristJsonBody(request);
+  if (!body.ok) {
+    return { ok: false, message: body.message, status: body.status };
   }
+  const payload = body.payload;
   if (!isRecord(payload)) {
-    return { ok: false, message: "request body must be an object." };
+    return { ok: false, message: "request body must be an object.", status: 400 };
   }
   if (typeof payload.message !== "string" || payload.message.trim() === "") {
-    return { ok: false, message: "message must be a non-empty string." };
+    return { ok: false, message: "message must be a non-empty string.", status: 400 };
   }
   const message = payload.message.trim();
   if (message.length > PSYCHIATRIST_MAX_USER_MESSAGE_CHARS) {
-    return { ok: false, message: "message must be 4000 characters or fewer." };
+    return { ok: false, message: "message must be 4000 characters or fewer.", status: 400 };
   }
   const webSourcePermission =
     typeof payload.web_source_permission === "string"
@@ -558,6 +559,7 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
     return {
       ok: false,
       message: "web_source_permission must be deny or allow_for_this_turn.",
+      status: 400,
     };
   }
   return { ok: true, message, webSourcePermission };
@@ -807,8 +809,4 @@ function generateUuidV7Like(): string {
       .padStart(2, "0")}${randomHex.slice(5, 7)}`,
     randomHex.slice(7, 19).padEnd(12, "0"),
   ].join("-");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

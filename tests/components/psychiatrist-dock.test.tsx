@@ -191,13 +191,27 @@ describe("PsychiatristDock", () => {
     };
 
     await sendPsychiatristMessage({
-      clientMessageId: "local-1",
       fetch,
       message: "What is the risk?",
       threadId: "thread-reader",
     });
-    await cancelPsychiatristTurn({ fetch, turnId: "turn-reader" });
-    await regeneratePsychiatristResponse({ fetch, pairId: "pair-reader" });
+    await cancelPsychiatristTurn({
+      fetch,
+      langCode: null,
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      turnId: "turn-reader",
+      variantKind: "source",
+    });
+    await regeneratePsychiatristResponse({
+      fetch,
+      langCode: null,
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      variantKind: "source",
+    });
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/psychiatrist-threads/thread-reader/messages", "POST"],
@@ -205,11 +219,21 @@ describe("PsychiatristDock", () => {
       ["http://localhost/api/psychiatrist-pairs/pair-reader/regenerate", "POST"],
     ]);
     await expect(requests[0]?.json()).resolves.toEqual({
-      client_message_id: "local-1",
       message: "What is the risk?",
       web_source_permission: "deny",
     });
+    await expect(requests[1]?.json()).resolves.toEqual({
+      lang_code: null,
+      memory_id: "memory-reader",
+      pair_id: "pair-reader",
+      thread_id: "thread-reader",
+      variant_kind: "source",
+    });
     await expect(requests[2]?.json()).resolves.toEqual({
+      lang_code: null,
+      memory_id: "memory-reader",
+      thread_id: "thread-reader",
+      variant_kind: "source",
       web_source_permission: "deny",
     });
   });
@@ -226,7 +250,6 @@ describe("PsychiatristDock", () => {
 
   it("preserves structured stale-thread errors for reader recovery", async () => {
     await expect(sendPsychiatristMessage({
-      clientMessageId: "local-1",
       fetch: async () => new Response(JSON.stringify({
         action: "refresh_thread",
         code: "thread_stale",

@@ -483,6 +483,52 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("rejects cross-origin and non-JSON state-changing requests before work starts", async () => {
+    const messageClient = new FakeConversationClient("must not run");
+    const messageHandler = createSendPsychiatristMessageHandler({
+      client: messageClient,
+      config: { storePath: "/tmp/store" },
+    });
+    const crossOriginMessage = await messageHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: "message=csrf",
+          headers: {
+            "content-type": "text/plain",
+            origin: "https://evil.example",
+          },
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    const sameOriginTextMessage = await messageHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: "message=csrf",
+          headers: {
+            "content-type": "text/plain",
+            origin: "http://localhost",
+          },
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(crossOriginMessage.status).toBe(403);
+    await expect(crossOriginMessage.json()).resolves.toMatchObject({
+      code: "invalid_request",
+      message: "same-origin request is required.",
+    });
+    expect(sameOriginTextMessage.status).toBe(415);
+    await expect(sameOriginTextMessage.json()).resolves.toMatchObject({
+      code: "invalid_request",
+      message: "content-type must be application/json.",
+    });
+    expect(messageClient.inputs).toEqual([]);
+  });
+
   it("reads a stored thread as safe JSON", async () => {
     const handler = createReadPsychiatristThreadHandler({
       config: { storePath: "/private/tmp/secret-store" },
@@ -583,7 +629,6 @@ describe("Psychiatrist thread API routes", () => {
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
           body: JSON.stringify({
-            client_message_id: "local-1",
             message: "What is the risk?",
             web_source_permission: "deny",
           }),
@@ -882,7 +927,7 @@ describe("Psychiatrist thread API routes", () => {
     const retryResponse = await retryHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          body: regenerateBody({ webSourcePermission: "allow_for_this_turn" }),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -951,7 +996,7 @@ describe("Psychiatrist thread API routes", () => {
     const retryResponse = await retryHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          body: regenerateBody({ webSourcePermission: "allow_for_this_turn" }),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -1593,6 +1638,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1670,6 +1716,7 @@ describe("Psychiatrist thread API routes", () => {
     const canceled = await cancelHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1733,6 +1780,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1795,6 +1843,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1815,13 +1864,20 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
-  it("seeds stored Codex thread ids so reused turns can be canceled", async () => {
-    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-reused-codex-"));
-    const client = new TurnOnlyCancelTrackingClient();
+  it("ignores legacy stored Codex thread ids and cancels only the active runtime turn", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-legacy-codex-"));
+    const client = new CancelTrackingClient();
     await createPsychiatristThread({
       config: { storePath },
-      manifest: { ...manifest(), codexThreadId: "codex-thread-existing" },
+      manifest: manifest(),
     });
+    const manifestPath = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.json");
+    const manifestJson = JSON.parse(await readFile(manifestPath, "utf8"));
+    await writeFile(
+      manifestPath,
+      JSON.stringify({ ...manifestJson, codex_thread_id: "codex-thread-legacy" }, null, 2),
+      "utf8",
+    );
     const sendHandler = createSendPsychiatristMessageHandler({
       client,
       config: { storePath },
@@ -1847,6 +1903,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1855,7 +1912,7 @@ describe("Psychiatrist thread API routes", () => {
 
     expect(response.status).toBe(202);
     expect(client.cancelCalls).toEqual([
-      { threadId: "codex-thread-existing", turnId: "codex-turn-1" },
+      { threadId: "codex-thread-1", turnId: "codex-turn-1" },
     ]);
   });
 
@@ -1891,6 +1948,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1966,6 +2024,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -1984,6 +2043,46 @@ describe("Psychiatrist thread API routes", () => {
       status: "canceled",
       turnId: TURN_ID,
     });
+  });
+
+  it("rejects cancel requests whose body scope does not match the active turn", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-scope-"));
+    const client = new CancelTrackingClient();
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    activePsychiatristTurns.register({
+      client,
+      codexThreadId: "codex-thread-1",
+      codexTurnId: "codex-turn-1",
+      memoryId: MEMORY_ID,
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const handler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: cancelBody({ threadId: THREAD_ID_2 }),
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "turn_scope_mismatch",
+      status: "error",
+    });
+    expect(client.cancelCalls).toEqual([]);
+    expect(activePsychiatristTurns.getByTurnId(TURN_ID)).toBeDefined();
   });
 
   it("regenerates a completed pair by reusing prompt context and overwriting the response artifact", async () => {
@@ -2033,7 +2132,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2159,6 +2258,58 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("rejects regenerate requests whose body scope does not match the stored pair", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-scope-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const sendHandler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What changed?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const regenerateClient = new FakeConversationClient("must not run");
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      client: regenerateClient,
+      config: config(storePath),
+      generateId: createIdGenerator([EXTRA_TURN_IDS[0]!]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: regenerateBody({ threadId: THREAD_ID_2 }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "regenerate_unavailable",
+      status: "error",
+    });
+    expect(regenerateClient.inputs).toEqual([]);
+  });
+
   it("excludes later Q/A pairs when regenerating an older completed pair", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-history-"));
     await createPsychiatristThread({
@@ -2248,7 +2399,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${targetPairId}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: targetPairId },
@@ -2264,6 +2415,111 @@ describe("Psychiatrist thread API routes", () => {
     expect(regeneratePrompt).not.toContain("Original target answer.");
     expect(regeneratePrompt).not.toContain("Later question must be hidden.");
     expect(regeneratePrompt).not.toContain("Later answer must be hidden.");
+  });
+
+  it("excludes later Q/A pairs when retrying an older failed first answer", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-answer-retry-history-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const priorPairId = PAIR_ID;
+    const priorTurnId = TURN_ID;
+    const failedPairId = EXTRA_TURN_IDS[0]!;
+    const failedTurnId = EXTRA_TURN_IDS[1]!;
+    const laterPairId = "019e8a00-0000-7000-8000-000000000008";
+    const laterTurnId = "019e8a00-0000-7000-8000-000000000009";
+    await createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Prior answer before failed retry."),
+      config: { storePath },
+      generateId: createIdGenerator([priorPairId, priorTurnId]),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Prior question before failed retry." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    await createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new WebSourceRequiredClient(),
+      config: { storePath },
+      generateId: createIdGenerator([failedPairId, failedTurnId]),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({
+            message: "Failed question to retry.",
+            web_source_permission: "deny",
+          }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs.some((pair) =>
+        pair.pairId === failedPairId && pair.status === "failed"
+      ) && activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    await createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Later answer must be hidden from retry."),
+      config: { storePath },
+      generateId: createIdGenerator([laterPairId, laterTurnId]),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Later question must be hidden from retry." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs.some((pair) =>
+        pair.pairId === laterPairId && pair.status === "completed"
+      ) && activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+    const retryTurnId = "019e8a00-0000-7000-8000-000000000010";
+    const retryClient = new FakeConversationClient("Approved retry answer.");
+    const retryHandler = createRegeneratePsychiatristResponseHandler({
+      client: retryClient,
+      config: config(storePath),
+      generateId: createIdGenerator([retryTurnId]),
+      resolveActiveContentHash: async () => "sha256:context",
+    });
+
+    const response = await retryHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${failedPairId}/regenerate`, {
+          body: regenerateBody({
+            webSourcePermission: "allow_for_this_turn",
+          }),
+          method: "POST",
+        }),
+        { pairId: failedPairId },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => retryClient.inputs.length === 1);
+    const retryPrompt = String(retryClient.inputs[0]?.input);
+    expect(retryPrompt).toContain("Prior question before failed retry.");
+    expect(retryPrompt).toContain("Prior answer before failed retry.");
+    expect(retryPrompt).toContain("Failed question to retry.");
+    expect(retryPrompt).not.toContain("Later question must be hidden from retry.");
+    expect(retryPrompt).not.toContain("Later answer must be hidden from retry.");
   });
 
   it("does not emit failed events when a canceled regenerate wins before a later runtime failure", async () => {
@@ -2303,7 +2559,7 @@ describe("Psychiatrist thread API routes", () => {
     const started = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2318,6 +2574,7 @@ describe("Psychiatrist thread API routes", () => {
     const canceled = await cancelHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${regenerateTurnId}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: regenerateTurnId },
@@ -2389,7 +2646,7 @@ describe("Psychiatrist thread API routes", () => {
       return loaded.pairs.some((pair) => pair.pairId === failedPairId && pair.status === "failed") &&
         activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
     });
-    expect(networkClient.inputs[0]?.threadId).toBe("codex-thread-1");
+    expect(networkClient.inputs[0]?.threadId).toBeUndefined();
 
     const retryTurnId = "019e8a00-0000-7000-8000-000000000007";
     const retryClient = new FakeConversationClient("Approved source answer.");
@@ -2403,7 +2660,7 @@ describe("Psychiatrist thread API routes", () => {
     const retryResponse = await retryHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${failedPairId}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          body: regenerateBody({ webSourcePermission: "allow_for_this_turn" }),
           method: "POST",
         }),
         { pairId: failedPairId },
@@ -2461,7 +2718,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2553,7 +2810,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2650,7 +2907,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2712,7 +2969,7 @@ describe("Psychiatrist thread API routes", () => {
     const approvedResponse = await approvedRegenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "allow_for_this_turn" }),
+          body: regenerateBody({ webSourcePermission: "allow_for_this_turn" }),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2784,7 +3041,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2895,6 +3152,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await cancelHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${regenerateTurnId}/cancel`, {
+          body: cancelBody(),
           method: "POST",
         }),
         { turnId: regenerateTurnId },
@@ -2982,7 +3240,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3009,7 +3267,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3095,7 +3353,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3146,7 +3404,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3199,7 +3457,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3274,7 +3532,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: JSON.stringify({ web_source_permission: "deny" }),
+          body: regenerateBody(),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -3334,6 +3592,9 @@ function context(
 }
 
 function createApiEvent(request: Request, params: Record<string, string>): APIEvent {
+  if (request.body !== null && !request.headers.has("content-type")) {
+    request.headers.set("content-type", "application/json");
+  }
   return {
     request,
     params,
@@ -3349,6 +3610,38 @@ function parseJsonRecord(content: string): Record<string, unknown> {
     throw new Error("Expected JSON record.");
   }
   return value as Record<string, unknown>;
+}
+
+function regenerateBody(input: {
+  langCode?: string | null;
+  memoryId?: string;
+  threadId?: string;
+  variantKind?: "source" | "translation";
+  webSourcePermission?: "deny" | "allow_for_this_turn";
+} = {}): string {
+  return JSON.stringify({
+    lang_code: input.langCode ?? null,
+    memory_id: input.memoryId ?? MEMORY_ID,
+    thread_id: input.threadId ?? THREAD_ID,
+    variant_kind: input.variantKind ?? "source",
+    web_source_permission: input.webSourcePermission ?? "deny",
+  });
+}
+
+function cancelBody(input: {
+  langCode?: string | null;
+  memoryId?: string;
+  pairId?: string;
+  threadId?: string;
+  variantKind?: "source" | "translation";
+} = {}): string {
+  return JSON.stringify({
+    lang_code: input.langCode ?? null,
+    memory_id: input.memoryId ?? MEMORY_ID,
+    pair_id: input.pairId ?? PAIR_ID,
+    thread_id: input.threadId ?? THREAD_ID,
+    variant_kind: input.variantKind ?? "source",
+  });
 }
 
 function manifest(input: Partial<PsychiatristThreadManifest> = {}): PsychiatristThreadManifest {
@@ -3574,28 +3867,6 @@ class NoCodexIdsCancelTrackingClient implements CodexConversationClient {
     return {
       outputText: "",
       threadId: "codex-thread-1",
-      turnId: "codex-turn-1",
-    };
-  }
-}
-
-class TurnOnlyCancelTrackingClient implements CodexConversationClient {
-  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
-
-  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
-    this.cancelCalls.push(input);
-  }
-
-  async probe(): Promise<void> {
-    return undefined;
-  }
-
-  async runConversationTurn(input: CodexConversationTurnInput) {
-    input.onEvent?.({ type: "turn.started", turnId: "codex-turn-1" });
-    await new Promise(() => undefined);
-    return {
-      outputText: "",
-      threadId: "codex-thread-existing",
       turnId: "codex-turn-1",
     };
   }

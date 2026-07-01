@@ -73,7 +73,6 @@ export interface PsychiatristWebSourcePolicy {
 
 export interface PsychiatristThreadManifest {
   activeContentHash: string;
-  codexThreadId?: string;
   createdAt: string;
   langCode?: string;
   memoryId: string;

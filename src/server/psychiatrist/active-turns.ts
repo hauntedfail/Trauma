@@ -4,10 +4,12 @@ export interface ActivePsychiatristTurn {
   client: CodexConversationClient;
   codexThreadId?: string;
   codexTurnId?: string;
+  langCode?: string;
   memoryId: string;
   pairId: string;
   threadId: string;
   turnId: string;
+  variantKind?: "source" | "translation";
 }
 
 export class ActivePsychiatristTurnRegistry {

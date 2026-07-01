@@ -8,12 +8,23 @@ import { jsonResponse } from "../http/json";
 import {
   activePsychiatristTurns,
   type ActivePsychiatristTurnRegistry,
+  type ActivePsychiatristTurn,
 } from "./active-turns";
+import {
+  isRecord,
+  readPsychiatristJsonBody,
+  readPsychiatristRequestScope,
+  type PsychiatristRequestScope,
+} from "./request";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   loadPsychiatristTurnTerminalStatus,
   markPsychiatristTurnCanceled,
 } from "./thread-store";
+
+type CancelPayload =
+  | (PsychiatristRequestScope & { ok: true; pairId: string })
+  | { ok: false; message: string; status: number };
 
 export function createCancelPsychiatristTurnHandler(input: {
   activeTurns?: ActivePsychiatristTurnRegistry;
@@ -37,10 +48,21 @@ export async function handleCancelPsychiatristTurnRequest(
   if (turnId === undefined || turnId === "") {
     return safeErrorResponse("invalid_request", "turnId must be a non-empty string.", 400);
   }
+  const payload = await parseCancelPayload(event.request);
+  if (!payload.ok) {
+    return safeErrorResponse("invalid_request", payload.message, payload.status);
+  }
   const activeTurns = input.activeTurns ?? activePsychiatristTurns;
   const active = activeTurns.getByTurnId(turnId);
   if (active === undefined) {
     return safeErrorResponse("thread_not_found", "Active Psychiatrist turn was not found.", 404);
+  }
+  if (!matchesActiveTurnScope(payload, active)) {
+    return safeErrorResponse(
+      "turn_scope_mismatch",
+      "Active Psychiatrist turn does not match the requested reader scope.",
+      409,
+    );
   }
   if (active.codexThreadId === undefined || active.codexTurnId === undefined) {
     return safeErrorResponse(
@@ -124,6 +146,42 @@ export async function handleCancelPsychiatristTurnRequest(
     status: "canceled",
     turn_id: turnId,
   }, { status: 202 });
+}
+
+async function parseCancelPayload(request: Request): Promise<CancelPayload> {
+  const body = await readPsychiatristJsonBody(request);
+  if (!body.ok) {
+    return { ok: false, message: body.message, status: body.status };
+  }
+  if (!isRecord(body.payload)) {
+    return { ok: false, message: "request body must be an object.", status: 400 };
+  }
+  const scope = readPsychiatristRequestScope(body.payload);
+  if (!scope.ok) {
+    return { ok: false, message: scope.message, status: 400 };
+  }
+  const pairId = typeof body.payload.pair_id === "string" && body.payload.pair_id.trim() !== ""
+    ? body.payload.pair_id.trim()
+    : undefined;
+  if (pairId === undefined) {
+    return { ok: false, message: "pair_id must be a non-empty string.", status: 400 };
+  }
+  return { ok: true, pairId, ...scope.scope };
+}
+
+function matchesActiveTurnScope(
+  payload: Extract<CancelPayload, { ok: true }>,
+  active: ActivePsychiatristTurn,
+): boolean {
+  return payload.memoryId === active.memoryId &&
+    payload.threadId === active.threadId &&
+    payload.pairId === active.pairId &&
+    (
+      active.variantKind === undefined
+        ? true
+        : payload.variantKind === active.variantKind &&
+          payload.langCode === active.langCode
+    );
 }
 
 function safeErrorResponse(

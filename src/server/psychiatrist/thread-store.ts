@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -185,7 +185,6 @@ export async function appendAssistantResponse(input: {
 
     const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
     await mkdir(pairDirectoryPath, { recursive: true });
-    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
     const responsePath = posix.join(
       "memories",
       loaded.manifest.memoryId,
@@ -195,7 +194,7 @@ export async function appendAssistantResponse(input: {
       input.pairId,
       "RESPONSE.md",
     );
-    await appendPairRevision(input.config, loaded.manifest, {
+    const row: PairRevisionRow = {
       assistant_response: input.assistantResponse,
       created_at: pending.user.createdAt,
       pair_id: input.pairId,
@@ -213,8 +212,24 @@ export async function appendAssistantResponse(input: {
       updated_at: new Date().toISOString(),
       user_prompt: pending.user.content,
       web_source_policy: input.webSourcePolicy,
-    });
-    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    };
+    await writeNewResponseWhileAppendingRevisionRow(
+      join(pairDirectoryPath, "RESPONSE.md"),
+      input.assistantResponse,
+      async () => {
+        await appendPairRevisionRow(input.config, loaded.manifest, row);
+      },
+    );
+    let warning: PsychiatristCompletedPairAppendResult["warning"];
+    try {
+      await updateThreadManifest(input.config, loaded.manifest, {
+        updatedAt: row.updated_at,
+      });
+    } catch {
+      warning = "post_save_finalization_failed";
+    }
+    const rewriteResult = await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    return { status: "completed", warning: warning ?? rewriteResult.warning };
   });
 }
 
@@ -305,8 +320,7 @@ export async function appendRetriedAssistantResponse(input: {
 
     const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
     await mkdir(pairDirectoryPath, { recursive: true });
-    await writeFileAtomic(join(pairDirectoryPath, "RESPONSE.md"), input.assistantResponse);
-    await appendPairRevision(input.config, loaded.manifest, {
+    const row: PairRevisionRow = {
       assistant_response: input.assistantResponse,
       created_at: existing.user.createdAt,
       pair_id: input.pairId,
@@ -324,8 +338,24 @@ export async function appendRetriedAssistantResponse(input: {
       updated_at: new Date().toISOString(),
       user_prompt: existing.user.content,
       web_source_policy: input.webSourcePolicy,
-    });
-    return await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    };
+    await writeNewResponseWhileAppendingRevisionRow(
+      join(pairDirectoryPath, "RESPONSE.md"),
+      input.assistantResponse,
+      async () => {
+        await appendPairRevisionRow(input.config, loaded.manifest, row);
+      },
+    );
+    let warning: PsychiatristCompletedPairAppendResult["warning"];
+    try {
+      await updateThreadManifest(input.config, loaded.manifest, {
+        updatedAt: row.updated_at,
+      });
+    } catch {
+      warning = "post_save_finalization_failed";
+    }
+    const rewriteResult = await rewriteThreadMarkdownAfterSavedPair(input.config, loaded.manifest);
+    return { status: "completed", warning: warning ?? rewriteResult.warning };
   });
 }
 
@@ -372,8 +402,6 @@ export async function markPsychiatristTurnCanceled(input: {
     }
     await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
       canceled_at: now,
-      codex_thread_id: input.codexThreadId,
-      codex_turn_id: input.codexTurnId,
       pair_id: input.pairId,
       policy_version: loaded.manifest.policyVersion,
       regenerate_from_turn_id: existing.assistant === undefined ? undefined : existing.turnId,
@@ -445,8 +473,6 @@ export async function markPsychiatristTurnCompleted(input: {
     }
     await writeJsonAtomic(turnPath, {
       ...existing,
-      codex_thread_id: input.codexThreadId,
-      codex_turn_id: input.codexTurnId,
       completed_at: new Date().toISOString(),
       pair_id: input.pairId,
       policy_version: loaded.manifest.policyVersion,
@@ -456,11 +482,6 @@ export async function markPsychiatristTurnCompleted(input: {
       thread_id: input.threadId,
       turn_id: input.turnId,
     });
-    if (input.codexThreadId !== undefined) {
-      await updateThreadManifest(input.config, loaded.manifest, {
-        codexThreadId: input.codexThreadId,
-      });
-    }
     return "completed";
   });
 }
@@ -509,8 +530,6 @@ export async function markPsychiatristTurnFailed(input: {
       });
     }
     await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-      codex_thread_id: input.codexThreadId,
-      codex_turn_id: input.codexTurnId,
       failed_at: now,
       pair_id: input.pairId,
       policy_version: loaded.manifest.policyVersion,
@@ -900,7 +919,6 @@ function validateCompletedPairContextSnapshot(
 function serializeThreadManifest(manifest: PsychiatristThreadManifest) {
   return {
     active_content_hash: manifest.activeContentHash,
-    codex_thread_id: manifest.codexThreadId,
     created_at: manifest.createdAt,
     lang_code: manifest.langCode,
     memory_id: manifest.memoryId,
@@ -920,7 +938,6 @@ function parseThreadManifest(value: unknown): PsychiatristThreadManifest {
   }
   return {
     activeContentHash: readRequiredString(value, "active_content_hash"),
-    codexThreadId: readOptionalString(value, "codex_thread_id"),
     createdAt: readRequiredString(value, "created_at"),
     langCode: readOptionalString(value, "lang_code"),
     memoryId: readRequiredString(value, "memory_id"),
@@ -1198,10 +1215,24 @@ async function replaceResponseWhileAppendingRevisionRow(
   }
 }
 
+async function writeNewResponseWhileAppendingRevisionRow(
+  responsePath: string,
+  assistantResponse: string,
+  appendRevisionRow: () => Promise<void>,
+): Promise<void> {
+  await writeFileAtomic(responsePath, assistantResponse);
+  try {
+    await appendRevisionRow();
+  } catch (error) {
+    await rm(responsePath, { force: true });
+    throw error;
+  }
+}
+
 async function updateThreadManifest(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   manifest: PsychiatristThreadManifest,
-  patch: Partial<Pick<PsychiatristThreadManifest, "codexThreadId" | "status" | "updatedAt">>,
+  patch: Partial<Pick<PsychiatristThreadManifest, "status" | "updatedAt">>,
 ): Promise<void> {
   const testFailure = updateThreadManifestFailureForTests;
   updateThreadManifestFailureForTests = undefined;
