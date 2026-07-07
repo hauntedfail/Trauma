@@ -11,7 +11,17 @@ import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
 } from "../../../src/server/psychiatrist/stream-store";
-import type { PsychiatristStreamEvent } from "../../../src/server/psychiatrist/types";
+import {
+  appendPendingPair,
+  createPsychiatristThread,
+  loadPsychiatristThread,
+} from "../../../src/server/psychiatrist/thread-store";
+import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
+import type {
+  PsychiatristContextSnapshotManifest,
+  PsychiatristStreamEvent,
+  PsychiatristThreadManifest,
+} from "../../../src/server/psychiatrist/types";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
@@ -341,6 +351,30 @@ describe("Psychiatrist stream store", () => {
       appendPsychiatristStreamEvent({
         config: { storePath },
         event: {
+          data: { text: "Working cwd=/tmp" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Working root=/workspace" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
           data: { text: "Working cwd:/workspace/app" },
           memoryId: MEMORY_ID,
           threadId: THREAD_ID,
@@ -416,6 +450,8 @@ describe("Psychiatrist stream store", () => {
       { status: "running" },
       { code: "thread_stale", status: "reading the active memory context" },
     ]);
+    expect(JSON.stringify(replay)).not.toContain("/tmp");
+    expect(JSON.stringify(replay)).not.toContain("/workspace");
     expect(JSON.stringify(replay)).not.toContain("/workspace/app");
     expect(JSON.stringify(replay)).not.toContain("/Users/example");
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
@@ -473,6 +509,167 @@ describe("Psychiatrist stream store", () => {
     expect(text).not.toContain("psychiatrist.turn.started");
     expect(text).toContain("event: psychiatrist.answer.delta");
     expect(text).toContain("event: psychiatrist.answer.completed");
+  });
+
+  it("replays only the latest terminal event when a later warning completion exists", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-terminal-replay-"));
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    const firstTerminal = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { pair_id: "pair-1", text: "Saved before backup." },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.completed",
+      },
+    });
+    const warningTerminal = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: {
+          pair_id: "pair-1",
+          text: "Saved with warning.",
+          warning: {
+            code: "backup_enqueue_failed",
+            message: "Psychiatrist answer was saved, but backup enqueue failed.",
+          },
+        },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.completed",
+      },
+    });
+    expect(firstTerminal).toBeDefined();
+    expect(warningTerminal).toBeDefined();
+    if (firstTerminal === undefined) {
+      throw new Error("Expected first terminal stream event to persist.");
+    }
+    if (warningTerminal === undefined) {
+      throw new Error("Expected warning terminal stream event to persist.");
+    }
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+    });
+
+    const fullReplay = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const afterFirstTerminalReplay = await handler(
+      createApiEvent(
+        new Request(
+          `http://localhost/api/psychiatrist-turns/${TURN_ID}/events?after_event_id=${firstTerminal.eventId}`,
+        ),
+        { turnId: TURN_ID },
+      ),
+    );
+    const afterWarningTerminalReplay = await handler(
+      createApiEvent(
+        new Request(
+          `http://localhost/api/psychiatrist-turns/${TURN_ID}/events?after_event_id=${warningTerminal.eventId}`,
+        ),
+        { turnId: TURN_ID },
+      ),
+    );
+    const fullText = await fullReplay.text();
+    const afterFirstText = await afterFirstTerminalReplay.text();
+    const afterWarningText = await afterWarningTerminalReplay.text();
+
+    expect(fullReplay.status).toBe(200);
+    expect(afterFirstTerminalReplay.status).toBe(200);
+    expect(afterWarningTerminalReplay.status).toBe(200);
+    expect(fullText).not.toContain("Saved before backup.");
+    expect(fullText).toContain("Saved with warning.");
+    expect(fullText).toContain("backup_enqueue_failed");
+    expect(afterFirstText).not.toContain("Saved before backup.");
+    expect(afterFirstText).toContain("Saved with warning.");
+    expect(afterFirstText).toContain("backup_enqueue_failed");
+    expect(afterWarningText).not.toContain("Saved before backup.");
+    expect(afterWarningText).not.toContain("Saved with warning.");
+    expect(afterWarningText).not.toContain("backup_enqueue_failed");
+  });
+
+  it("reconciles inactive non-terminal replay before returning non-live SSE", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-reconcile-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    const partial = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Partial answer" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+    expect(partial).toBeDefined();
+    if (partial === undefined) {
+      throw new Error("Expected partial stream event to persist.");
+    }
+    activePsychiatristTurns.unregister(TURN_ID);
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`, {
+          headers: {
+            "Last-Event-ID": partial.eventId,
+          },
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+    const text = await response.text();
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("event: psychiatrist.turn.started");
+    expect(text).not.toContain("event: psychiatrist.answer.delta");
+    expect(text).toContain("event: psychiatrist.answer.failed");
+    expect(text).toContain("\"code\":\"turn_interrupted\"");
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: "019e8a00-0000-7000-8000-000000000002",
+        status: "failed",
+        turnId: TURN_ID,
+      }),
+    ]);
   });
 
   it("streams live events after replay while the turn remains active", async () => {
@@ -713,5 +910,51 @@ function streamEvent(
     timestamp: 1,
     turnId: TURN_ID,
     type,
+  };
+}
+
+function manifest(
+  input: Partial<PsychiatristThreadManifest> = {},
+): PsychiatristThreadManifest {
+  return {
+    activeContentHash: "sha256:source",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    memoryId: MEMORY_ID,
+    policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+    sourceHash: "sha256:source",
+    status: "ready",
+    threadId: THREAD_ID,
+    updatedAt: "2026-06-01T00:00:00.000Z",
+    variantKind: "source",
+    ...input,
+  };
+}
+
+function contextSnapshot(): PsychiatristContextSnapshotManifest {
+  return {
+    categories: [],
+    contentHash: "sha256:source",
+    contextSnapshotId: "snapshot-1",
+    memoryId: MEMORY_ID,
+    policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+    relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
+    selectedSectionAnchors: ["risk"],
+    selectedSectionHashes: ["sha256:section"],
+    sections: [
+      {
+        anchor: "risk",
+        endOffset: 18,
+        level: 2,
+        markdown: "## Risk\n\nNo rollback.",
+        path: "1",
+        startOffset: 0,
+        title: "Risk",
+      },
+    ],
+    sourceUrl: "https://example.com/memory",
+    tags: [],
+    title: "Memory",
+    userPrompt: "What is the risk?",
+    variantKind: "source",
   };
 }

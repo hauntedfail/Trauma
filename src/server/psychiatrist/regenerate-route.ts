@@ -27,7 +27,10 @@ import {
   type PsychiatristRequestScope,
 } from "./request";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
-import { appendPsychiatristStreamEvent } from "./stream-store";
+import {
+  appendPsychiatristStreamEvent,
+  publishPsychiatristStreamEvent,
+} from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
   appendRetriedAssistantResponse,
@@ -444,6 +447,29 @@ async function runRegenerateTurn(input: {
       threadId: input.loaded.manifest.threadId,
       turnId: input.turnId,
     });
+    const completedEventInput = {
+      data: {
+        ...(postSaveWarning === undefined ? {} : { warning: postSaveWarning }),
+        pair_id: input.pairId,
+        source_citations: sourceCitations.map((citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        })),
+        text: result.outputText,
+      },
+      memoryId: input.loaded.manifest.memoryId,
+      threadId: input.loaded.manifest.threadId,
+      turnId: input.turnId,
+      type: isAnswerRetry
+        ? "psychiatrist.answer.completed" as const
+        : "psychiatrist.regenerate.completed" as const,
+    };
+    const completedEvent = await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: completedEventInput,
+      publish: false,
+    });
     const backupWarning = await input.backupQueue.enqueue({
       contentPaths: [
         input.loaded.paths.threadManifestRelativePath,
@@ -461,31 +487,20 @@ async function runRegenerateTurn(input: {
       code: "backup_enqueue_failed",
       message: "Psychiatrist answer was saved, but backup enqueue failed.",
     }));
-    await appendPsychiatristStreamEvent({
-      config: input.config,
-      event: {
-        data: {
-          ...(
-            postSaveWarning === undefined && backupWarning === undefined
-              ? {}
-              : { warning: postSaveWarning ?? backupWarning }
-          ),
-          pair_id: input.pairId,
-          source_citations: sourceCitations.map((citation) => ({
-            source_id: citation.sourceId,
-            title: citation.title,
-            url: citation.url,
-          })),
-          text: result.outputText,
+    if (postSaveWarning === undefined && backupWarning !== undefined) {
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          ...completedEventInput,
+          data: {
+            ...completedEventInput.data,
+            warning: backupWarning,
+          },
         },
-        memoryId: input.loaded.manifest.memoryId,
-        threadId: input.loaded.manifest.threadId,
-        turnId: input.turnId,
-        type: isAnswerRetry
-          ? "psychiatrist.answer.completed"
-          : "psychiatrist.regenerate.completed",
-      },
-    });
+      });
+    } else if (completedEvent !== undefined) {
+      publishPsychiatristStreamEvent(completedEvent);
+    }
   } catch (error) {
     if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
       return;

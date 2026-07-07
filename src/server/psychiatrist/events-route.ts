@@ -9,6 +9,11 @@ import {
   loadPsychiatristStreamReplay,
   subscribePsychiatristStream,
 } from "./stream-store";
+import {
+  loadPsychiatristTurnSafeError,
+  loadPsychiatristTurnTerminalStatus,
+  reconcileInactivePsychiatristTurns,
+} from "./thread-store";
 import type { PsychiatristStreamEvent } from "./types";
 
 type LoadPsychiatristStreamReplay = typeof loadPsychiatristStreamReplay;
@@ -46,9 +51,10 @@ export async function handlePsychiatristTurnEventsRequest(
   const isLiveTurn = activePsychiatristTurns.getByTurnId(turnId) !== undefined;
   const body = isLiveTurn
     ? createLiveEventStream({ afterEventId, config, loadReplay, subscribe, turnId })
-    : (await loadReplay({
+    : (await loadInactiveReplay({
       afterEventId,
       config,
+      loadReplay,
       turnId,
     })).map(encodePsychiatristServerSentEvent).join("");
   return new Response(body, {
@@ -59,6 +65,94 @@ export async function handlePsychiatristTurnEventsRequest(
       "x-accel-buffering": "no",
     },
     status: 200,
+  });
+}
+
+async function loadInactiveReplay(input: {
+  afterEventId?: string;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  loadReplay: LoadPsychiatristStreamReplay;
+  turnId: string;
+}): Promise<PsychiatristStreamEvent[]> {
+  const fullReplay = await input.loadReplay({
+    config: input.config,
+    turnId: input.turnId,
+  });
+  if (fullReplay.length === 0 || fullReplay.some(isTerminalEvent)) {
+    return filterReplayAfterEventId(fullReplay, input.afterEventId);
+  }
+  const memoryId = fullReplay[0]?.memoryId;
+  const threadId = fullReplay[0]?.threadId;
+  if (memoryId === undefined || threadId === undefined) {
+    return filterReplayAfterEventId(fullReplay, input.afterEventId);
+  }
+  await reconcileInactivePsychiatristTurns({
+    activeTurnIds: [],
+    config: input.config,
+    threadId,
+  });
+  const reconciledFullReplay = await input.loadReplay({
+    config: input.config,
+    threadId,
+    turnId: input.turnId,
+  });
+  if (reconciledFullReplay.some(isTerminalEvent)) {
+    return filterReplayAfterEventId(reconciledFullReplay, input.afterEventId);
+  }
+  const terminalStatus = await loadPsychiatristTurnTerminalStatus({
+    config: input.config,
+    threadId,
+    turnId: input.turnId,
+  });
+  const filteredReplay = filterReplayAfterEventId(reconciledFullReplay, input.afterEventId);
+  if (terminalStatus !== "failed") {
+    return filteredReplay;
+  }
+  const safeError = await loadPsychiatristTurnSafeError({
+    config: input.config,
+    threadId,
+    turnId: input.turnId,
+  });
+  const syntheticEventId = nextReplayEventId(reconciledFullReplay);
+  if (input.afterEventId !== undefined && syntheticEventId <= input.afterEventId) {
+    return filteredReplay;
+  }
+  return [
+    ...filteredReplay,
+    {
+      data: {
+        code: safeError?.code ?? "turn_interrupted",
+      },
+      eventId: syntheticEventId,
+      memoryId: reconciledFullReplay[0]?.memoryId ?? memoryId,
+      threadId,
+      timestamp: Date.now(),
+      turnId: input.turnId,
+      type: "psychiatrist.answer.failed",
+    },
+  ];
+}
+
+function filterReplayAfterEventId(
+  replay: PsychiatristStreamEvent[],
+  afterEventId: string | undefined,
+): PsychiatristStreamEvent[] {
+  const normalizedReplay = normalizeReplayTerminalEvents(replay);
+  if (afterEventId === undefined) {
+    return normalizedReplay;
+  }
+  return normalizedReplay.filter((event) => event.eventId > afterEventId);
+}
+
+function normalizeReplayTerminalEvents(
+  replay: PsychiatristStreamEvent[],
+): PsychiatristStreamEvent[] {
+  const lastTerminalEventId = replay.findLast(isTerminalEvent)?.eventId;
+  if (lastTerminalEventId === undefined) {
+    return replay;
+  }
+  return replay.filter((event) => {
+    return !isTerminalEvent(event) || event.eventId === lastTerminalEventId;
   });
 }
 
@@ -115,6 +209,7 @@ function createLiveEventStream(input: {
         unsubscribe?.();
         throw error;
       }
+      replay = normalizeReplayTerminalEvents(replay);
       for (const event of replay) {
         enqueueNow(event);
         if (closed) {
@@ -133,6 +228,12 @@ function createLiveEventStream(input: {
       unsubscribe?.();
     },
   });
+}
+
+function nextReplayEventId(replay: PsychiatristStreamEvent[]): string {
+  const lastEventId = replay.at(-1)?.eventId;
+  const lastEventNumber = lastEventId === undefined ? 0 : Number.parseInt(lastEventId, 10);
+  return String(Number.isFinite(lastEventNumber) ? lastEventNumber + 1 : 1).padStart(12, "0");
 }
 
 export function encodePsychiatristServerSentEvent(

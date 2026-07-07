@@ -19,6 +19,7 @@ const MAX_SAFE_PROCESS_TEXT_LENGTH = 240;
 export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   event: PsychiatristStreamEventInput<TData>;
+  publish?: false;
 }): Promise<PsychiatristStreamEvent<TData> | undefined> {
   const projectedInput = projectSafeStreamEvent(input.event);
   if (projectedInput === undefined) {
@@ -38,7 +39,9 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
     nextEventNumbersByPath.set(path, eventNumber + 1);
-    publishStreamEvent(event);
+    if (input.publish !== false) {
+      publishStreamEvent(event);
+    }
     written = event;
   });
   const tracked = next.catch(() => undefined);
@@ -51,6 +54,10 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
       appendQueuesByPath.delete(path);
     }
   }
+}
+
+export function publishPsychiatristStreamEvent(event: PsychiatristStreamEvent): void {
+  publishStreamEvent(event);
 }
 
 export function subscribePsychiatristStream(input: {
@@ -370,7 +377,7 @@ function omitUndefined<T extends Record<string, unknown>>(input: T): T {
 }
 
 function containsAbsolutePath(value: string): boolean {
-  return /(^|[\s("'`:=])\s*\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
+  return /(^|[\s("'`:=])\s*\/(?!\/)[A-Za-z0-9._-]+(?:\/[^\s)"'`]*)?/.test(value) ||
     /(^|[\s("'`:=])\s*[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
     /(^|[\s("'`:=])\s*\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
 }

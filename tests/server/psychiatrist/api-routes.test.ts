@@ -649,9 +649,16 @@ describe("Psychiatrist thread API routes", () => {
     });
     const client = new FakeConversationClient("The memory says rollback is missing.");
     const backupEnqueues: unknown[] = [];
+    const enqueueReplayTypes: string[][] = [];
     const handler = createSendPsychiatristMessageHandler({
       backupQueue: {
         enqueue: async (input) => {
+          const replay = await loadPsychiatristStreamReplay({
+            config: { storePath },
+            threadId: THREAD_ID,
+            turnId: TURN_ID,
+          });
+          enqueueReplayTypes.push(replay.map((event) => event.type));
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
         },
@@ -762,6 +769,9 @@ describe("Psychiatrist thread API routes", () => {
       source_citations: [],
       text: "The memory says rollback is missing.",
     });
+    expect(enqueueReplayTypes).toContainEqual(
+      expect.arrayContaining(["psychiatrist.answer.completed"]),
+    );
     expect(backupEnqueues).toEqual([
       {
         contentPaths: [
@@ -2274,11 +2284,18 @@ describe("Psychiatrist thread API routes", () => {
     });
 
     const backupEnqueues: unknown[] = [];
+    const enqueueReplayTypes: string[][] = [];
     const regenerateTurnId = "019e8a00-0000-7000-8000-000000000004";
     const regenerateClient = new FakeConversationClient("Regenerated answer.");
     const regenerateHandler = createRegeneratePsychiatristResponseHandler({
       backupQueue: {
         enqueue: async (input) => {
+          const replay = await loadPsychiatristStreamReplay({
+            config: { storePath },
+            threadId: THREAD_ID,
+            turnId: regenerateTurnId,
+          });
+          enqueueReplayTypes.push(replay.map((event) => event.type));
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
         },
@@ -2384,6 +2401,9 @@ describe("Psychiatrist thread API routes", () => {
       pair_id: PAIR_ID,
       text: "Regenerated answer.",
     });
+    expect(enqueueReplayTypes).toContainEqual(
+      expect.arrayContaining(["psychiatrist.regenerate.completed"]),
+    );
     await expect(
       readFile(
         join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),

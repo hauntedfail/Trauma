@@ -27,7 +27,10 @@ import {
   readPsychiatristJsonBody,
 } from "./request";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
-import { appendPsychiatristStreamEvent } from "./stream-store";
+import {
+  appendPsychiatristStreamEvent,
+  publishPsychiatristStreamEvent,
+} from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
 import {
   appendAssistantResponse as appendAssistantResponseToStore,
@@ -397,35 +400,47 @@ async function runPsychiatristTurn(input: {
       threadId: input.threadId,
       turnId: input.turnId,
     });
+    const completedEventInput = {
+      data: {
+        ...(postSaveWarning === undefined ? {} : { warning: postSaveWarning }),
+        pair_id: input.pairId,
+        source_citations: sourceCitations.map((citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        })),
+        text: result.outputText,
+      },
+      memoryId: input.thread.manifest.memoryId,
+      threadId: input.threadId,
+      turnId: input.turnId,
+      type: "psychiatrist.answer.completed" as const,
+    };
+    const completedEvent = await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: completedEventInput,
+      publish: false,
+    });
     const backupWarning = await enqueueCompletedAnswerBackup(input)
       .then(() => undefined)
       .catch(() => ({
         code: "backup_enqueue_failed",
         message: "Psychiatrist answer was saved, but backup enqueue failed.",
       }));
-    await appendPsychiatristStreamEvent({
-      config: input.config,
-      event: {
-        data: {
-          ...(
-            postSaveWarning === undefined && backupWarning === undefined
-              ? {}
-              : { warning: postSaveWarning ?? backupWarning }
-          ),
-          pair_id: input.pairId,
-          source_citations: sourceCitations.map((citation) => ({
-            source_id: citation.sourceId,
-            title: citation.title,
-            url: citation.url,
-          })),
-          text: result.outputText,
+    if (postSaveWarning === undefined && backupWarning !== undefined) {
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          ...completedEventInput,
+          data: {
+            ...completedEventInput.data,
+            warning: backupWarning,
+          },
         },
-        memoryId: input.thread.manifest.memoryId,
-        threadId: input.threadId,
-        turnId: input.turnId,
-        type: "psychiatrist.answer.completed",
-      },
-    });
+      });
+    } else if (completedEvent !== undefined) {
+      publishPsychiatristStreamEvent(completedEvent);
+    }
   } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);
     if (assistantResponsePersisted) {
