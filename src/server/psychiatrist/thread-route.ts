@@ -107,12 +107,10 @@ export async function handleStartPsychiatristThreadRequest(
     const now = (input.now?.() ?? new Date()).toISOString();
     if (payload.resumeLatest) {
       const latest = await (input.findLatestThread ?? findLatestPsychiatristThread)({
-        activeContentHash: context.contentHash,
         config,
-        langCode: context.langCode,
         memoryId: context.memoryId,
         policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
-        variantKind: context.variantKind,
+        sourceHash: context.sourceHash,
       });
       if (latest !== undefined) {
         const thread = input.findLatestThread === undefined
@@ -126,19 +124,15 @@ export async function handleStartPsychiatristThreadRequest(
       }
     }
     const manifest: PsychiatristThreadManifest = {
-      activeContentHash: context.contentHash,
+      activeContentHash: context.sourceHash,
       createdAt: now,
-      ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
       memoryId: context.memoryId,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       sourceHash: context.sourceHash,
       status: "ready",
       threadId: input.generateId?.() ?? generateUuidV7Like(),
-      ...(context.variantKind === "translation"
-        ? { translationOutputHash: context.contentHash }
-        : {}),
       updatedAt: now,
-      variantKind: context.variantKind,
+      variantKind: "source",
     };
     await (input.createThread ?? createPsychiatristThread)({
       config,

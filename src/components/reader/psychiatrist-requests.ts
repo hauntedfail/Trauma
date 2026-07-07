@@ -10,10 +10,8 @@ type BrowserFetch = (
 ) => Promise<Response>;
 
 interface PsychiatristRequestScopeInput {
-  langCode: string | null;
   memoryId: string;
   threadId: string;
-  variantKind: "source" | "translation";
 }
 
 export class PsychiatristRequestError extends Error {
@@ -89,15 +87,20 @@ export async function createPsychiatristThread(input: {
 
 export async function sendPsychiatristMessage(input: {
   fetch?: BrowserFetch;
+  langCode?: string | null;
   message: string;
   threadId: string;
   webSourcePermission?: PsychiatristWebSourcePermission;
 }): Promise<PsychiatristTurnStartedResponse> {
+  const body: Record<string, unknown> = {
+    message: input.message,
+    web_source_permission: input.webSourcePermission ?? "deny",
+  };
+  if (input.langCode !== undefined && input.langCode !== null) {
+    body.lang_code = input.langCode;
+  }
   return requestJson<PsychiatristTurnStartedResponse>({
-    body: {
-      message: input.message,
-      web_source_permission: input.webSourcePermission ?? "deny",
-    },
+    body,
     fetch: input.fetch,
     method: "POST",
     path: `/api/psychiatrist-threads/${encodeURIComponent(input.threadId)}/messages`,
@@ -111,11 +114,9 @@ export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInpu
 }): Promise<void> {
   await requestJson<unknown>({
     body: {
-      lang_code: input.langCode,
       memory_id: input.memoryId,
       pair_id: input.pairId,
       thread_id: input.threadId,
-      variant_kind: input.variantKind,
     },
     fetch: input.fetch,
     method: "POST",
@@ -130,10 +131,8 @@ export async function regeneratePsychiatristResponse(input: PsychiatristRequestS
 }): Promise<PsychiatristTurnStartedResponse> {
   return requestJson<PsychiatristTurnStartedResponse>({
     body: {
-      lang_code: input.langCode,
       memory_id: input.memoryId,
       thread_id: input.threadId,
-      variant_kind: input.variantKind,
       web_source_permission: input.webSourcePermission ?? "deny",
     },
     fetch: input.fetch,

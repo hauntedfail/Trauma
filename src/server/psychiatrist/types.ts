@@ -9,6 +9,7 @@ export interface PsychiatristMemoryContext {
   sourceUrl: string;
   tags: string[];
   title: string;
+  translationOutputHash?: string;
   variantKind: "source" | "translation";
 }
 

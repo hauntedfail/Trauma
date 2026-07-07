@@ -46,7 +46,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
-  let loadedReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
+  let loadedReaderThreadKey = readReaderThreadKey(props.memoryId);
 
   const pairs = () => transcriptPairs();
   const openDock = () => {
@@ -90,14 +90,14 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     clearWebSourceRetryState();
   };
   const loadThread = async () => {
-    const requestedReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
+    const requestedReaderThreadKey = readReaderThreadKey(props.memoryId);
     try {
       const nextThread = await createPsychiatristThread({
         langCode: props.langCode,
         memoryId: props.memoryId,
         resumeLatest: true,
       });
-      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
+      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId)) {
         return;
       }
       const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
@@ -118,7 +118,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         syncPersistedWebSourceRetryState(nextPairs);
       }
     } catch (error) {
-      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId, props.langCode)) {
+      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId)) {
         return;
       }
       setErrorMessage(getPsychiatristErrorMessage(error));
@@ -138,6 +138,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
+        langCode: props.langCode,
         message,
         threadId: currentThread.thread_id,
         webSourcePermission,
@@ -206,12 +207,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     }
     try {
       await cancelPsychiatristTurn({
-        langCode: currentThread.lang_code,
         memoryId: currentThread.memory_id,
         pairId,
         threadId: currentThread.thread_id,
         turnId,
-        variantKind: currentThread.variant_kind,
       });
       setIsRunning(false);
       setRunningPairId("");
@@ -238,11 +237,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
-        langCode: currentThread.lang_code,
         memoryId: currentThread.memory_id,
         pairId,
         threadId: currentThread.thread_id,
-        variantKind: currentThread.variant_kind,
         webSourcePermission,
       });
       setRunningPairId(started.pair_id);
@@ -309,7 +306,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
 
   createEffect(() => {
-    const nextReaderThreadKey = readReaderThreadKey(props.memoryId, props.langCode);
+    const nextReaderThreadKey = readReaderThreadKey(props.memoryId);
     if (nextReaderThreadKey === loadedReaderThreadKey) {
       return;
     }
@@ -499,8 +496,8 @@ function connectPsychiatristStream(
   return () => eventSource.close();
 }
 
-function readReaderThreadKey(memoryId: string, langCode: string | undefined): string {
-  return `${memoryId}\n${langCode ?? ""}`;
+function readReaderThreadKey(memoryId: string): string {
+  return memoryId;
 }
 
 function findPromptForStreamEvent(

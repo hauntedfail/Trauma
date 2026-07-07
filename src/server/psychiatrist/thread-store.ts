@@ -808,12 +808,10 @@ export async function loadPsychiatristThread(input: {
 }
 
 export async function findLatestPsychiatristThread(input: {
-  activeContentHash: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
-  langCode?: string;
   memoryId: string;
   policyVersion: string;
-  variantKind: PsychiatristThreadManifest["variantKind"];
+  sourceHash: string;
 }): Promise<{
   manifest: PsychiatristThreadManifest;
   pairs: PsychiatristThreadPair[];
@@ -828,9 +826,7 @@ export async function findLatestPsychiatristThread(input: {
       const manifest = parseThreadManifest(raw);
       if (
         manifest.memoryId === input.memoryId &&
-        manifest.activeContentHash === input.activeContentHash &&
-        manifest.variantKind === input.variantKind &&
-        manifest.langCode === input.langCode &&
+        manifest.sourceHash === input.sourceHash &&
         manifest.policyVersion === input.policyVersion &&
         manifest.status !== "stale"
       ) {

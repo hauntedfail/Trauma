@@ -97,9 +97,10 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("disconnectPsychiatristStream = undefined");
   });
 
-  it("resets loaded psychiatrist state when the active reader memory changes", () => {
+  it("resets loaded psychiatrist state only when the active reader memory changes", () => {
     expect(dockSource).toContain("createEffect");
-    expect(dockSource).toContain("readReaderThreadKey(props.memoryId, props.langCode)");
+    expect(dockSource).toContain("readReaderThreadKey(props.memoryId)");
+    expect(dockSource).not.toContain("readReaderThreadKey(props.memoryId, props.langCode)");
     expect(dockSource).toContain("resetThreadStateForMemoryChange");
     expect(dockSource).toContain("if (isOpen())");
     expect(dockSource).toContain("void loadThread()");
@@ -192,25 +193,22 @@ describe("PsychiatristDock", () => {
 
     await sendPsychiatristMessage({
       fetch,
+      langCode: "ja-JP",
       message: "What is the risk?",
       threadId: "thread-reader",
     });
     await cancelPsychiatristTurn({
       fetch,
-      langCode: null,
       memoryId: "memory-reader",
       pairId: "pair-reader",
       threadId: "thread-reader",
       turnId: "turn-reader",
-      variantKind: "source",
     });
     await regeneratePsychiatristResponse({
       fetch,
-      langCode: null,
       memoryId: "memory-reader",
       pairId: "pair-reader",
       threadId: "thread-reader",
-      variantKind: "source",
     });
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
@@ -219,21 +217,18 @@ describe("PsychiatristDock", () => {
       ["http://localhost/api/psychiatrist-pairs/pair-reader/regenerate", "POST"],
     ]);
     await expect(requests[0]?.json()).resolves.toEqual({
+      lang_code: "ja-JP",
       message: "What is the risk?",
       web_source_permission: "deny",
     });
     await expect(requests[1]?.json()).resolves.toEqual({
-      lang_code: null,
       memory_id: "memory-reader",
       pair_id: "pair-reader",
       thread_id: "thread-reader",
-      variant_kind: "source",
     });
     await expect(requests[2]?.json()).resolves.toEqual({
-      lang_code: null,
       memory_id: "memory-reader",
       thread_id: "thread-reader",
-      variant_kind: "source",
       web_source_permission: "deny",
     });
   });

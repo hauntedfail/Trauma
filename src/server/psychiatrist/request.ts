@@ -4,7 +4,7 @@ export interface PsychiatristRequestScope {
   langCode?: string;
   memoryId: string;
   threadId: string;
-  variantKind: "source" | "translation";
+  variantKind?: "source" | "translation";
 }
 
 export type PsychiatristJsonBodyResult =
@@ -78,8 +78,13 @@ export function readPsychiatristRequestScope(
   if (threadId === undefined) {
     return { ok: false, message: "thread_id must be a non-empty string." };
   }
-  const variantKind = readRequiredString(payload, "variant_kind");
-  if (variantKind !== "source" && variantKind !== "translation") {
+  const variantKind = readOptionalNullableString(payload, "variant_kind");
+  if (
+    variantKind === "invalid" ||
+    variantKind !== undefined &&
+    variantKind !== "source" &&
+    variantKind !== "translation"
+  ) {
     return { ok: false, message: "variant_kind must be source or translation." };
   }
   const langCode = readOptionalNullableString(payload, "lang_code");
@@ -92,8 +97,21 @@ export function readPsychiatristRequestScope(
       ...(langCode === undefined ? {} : { langCode }),
       memoryId,
       threadId,
-      variantKind,
+      ...(variantKind === undefined ? {} : { variantKind }),
     },
+  };
+}
+
+export function readOptionalPsychiatristLangCode(
+  payload: Record<string, unknown>,
+): { ok: true; langCode?: string } | { ok: false; message: string } {
+  const langCode = readOptionalNullableString(payload, "lang_code");
+  if (langCode === "invalid") {
+    return { ok: false, message: "lang_code must be a non-empty string or null." };
+  }
+  return {
+    ok: true,
+    ...(langCode === undefined ? {} : { langCode }),
   };
 }
 

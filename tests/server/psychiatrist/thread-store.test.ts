@@ -1250,7 +1250,7 @@ describe("Psychiatrist thread store", () => {
     });
   });
 
-  it("finds the latest ready thread matching memory variant and content hash", async () => {
+  it("finds the latest ready thread matching the memory source hash across reader variants", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-latest-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -1270,12 +1270,10 @@ describe("Psychiatrist thread store", () => {
     });
 
     await expect(findLatestPsychiatristThread({
-      activeContentHash: "sha256:source",
       config: { storePath },
-      langCode: undefined,
       memoryId: MEMORY_ID,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
-      variantKind: "source",
+      sourceHash: "sha256:source",
     })).resolves.toMatchObject({
       manifest: expect.objectContaining({
         threadId: THREAD_ID_2,
@@ -1295,12 +1293,10 @@ describe("Psychiatrist thread store", () => {
     });
 
     await expect(findLatestPsychiatristThread({
-      activeContentHash: "sha256:source",
       config: { storePath },
-      langCode: undefined,
       memoryId: MEMORY_ID,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
-      variantKind: "source",
+      sourceHash: "sha256:source",
     })).resolves.toBeUndefined();
   });
 });

@@ -175,13 +175,7 @@ function matchesActiveTurnScope(
 ): boolean {
   return payload.memoryId === active.memoryId &&
     payload.threadId === active.threadId &&
-    payload.pairId === active.pairId &&
-    (
-      active.variantKind === undefined
-        ? true
-        : payload.variantKind === active.variantKind &&
-          payload.langCode === active.langCode
-    );
+    payload.pairId === active.pairId;
 }
 
 function safeErrorResponse(

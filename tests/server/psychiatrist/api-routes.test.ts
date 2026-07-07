@@ -105,7 +105,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
   });
 
-  it("creates a translated thread with lang code in the manifest and response", async () => {
+  it("creates a memory thread from a translated reader without language-scoping the session", async () => {
     const created: unknown[] = [];
     const handler = createStartPsychiatristThreadHandler({
       buildContext: async (input) => {
@@ -138,20 +138,20 @@ describe("Psychiatrist thread API routes", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
-      content_hash: "sha256:translated",
-      lang_code: "ja-JP",
+      content_hash: "sha256:source",
+      lang_code: null,
       thread_id: THREAD_ID,
-      variant_kind: "translation",
+      variant_kind: "source",
     });
     expect(created).toEqual([
       expect.objectContaining({
-        activeContentHash: "sha256:translated",
-        langCode: "ja-JP",
+        activeContentHash: "sha256:source",
         sourceHash: "sha256:source",
-        translationOutputHash: "sha256:translated",
-        variantKind: "translation",
+        variantKind: "source",
       }),
     ]);
+    expect(created[0]).not.toHaveProperty("langCode");
+    expect(created[0]).not.toHaveProperty("translationOutputHash");
   });
 
   it("resumes the latest matching thread when requested", async () => {
@@ -184,6 +184,56 @@ describe("Psychiatrist thread API routes", () => {
       thread_id: THREAD_ID,
       variant_kind: "source",
     });
+  });
+
+  it("resumes the memory thread when a translated reader opens the same memory", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-resume-translated-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        activeContentHash: "sha256:source",
+        sourceHash: "sha256:source",
+        variantKind: "source",
+      }),
+    });
+    const created: unknown[] = [];
+    const handler = createStartPsychiatristThreadHandler({
+      buildContext: async (input) => {
+        expect(input.langCode).toBe("ja-JP");
+        return context({
+          contentHash: "sha256:translated-ja",
+          langCode: "ja-JP",
+          relativePath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+          sourceHash: "sha256:source",
+          translationOutputHash: "sha256:translated-ja",
+          variantKind: "translation",
+        });
+      },
+      config: { storePath },
+      createThread: async (input) => {
+        created.push(input.manifest);
+        await createPsychiatristThread(input);
+      },
+      generateId: () => THREAD_ID_2,
+      now: () => new Date("2026-06-01T00:00:01.000Z"),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads`, {
+          body: JSON.stringify({ lang_code: "ja-JP", resume_latest: true }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      memory_id: MEMORY_ID,
+      thread_id: THREAD_ID,
+    });
+    expect(created).toEqual([]);
   });
 
   it("does not resume a latest thread from an older prompt policy version", async () => {
@@ -757,6 +807,82 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(replay)).not.toContain("/private/");
   });
 
+  it("uses the current translated reader context for a new turn in a shared memory thread", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-translated-context-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        activeContentHash: "sha256:source",
+        sourceHash: "sha256:source",
+        variantKind: "source",
+      }),
+    });
+    const client = new FakeConversationClient("Answer from translated context.");
+    const handler = createSendPsychiatristMessageHandler({
+      buildContext: async (input) => {
+        expect(input.langCode).toBe("ja-JP");
+        return context({
+          contentHash: "sha256:translated-ja",
+          langCode: "ja-JP",
+          relativePath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+          sections: [
+            {
+              anchor: "translated",
+              endOffset: 19,
+              level: 1,
+              markdown: "Translated markdown",
+              path: "document",
+              startOffset: 0,
+              title: "Translated",
+            },
+          ],
+          sourceHash: "sha256:source",
+          translationOutputHash: "sha256:translated-ja",
+          variantKind: "translation",
+        });
+      },
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({
+            lang_code: "ja-JP",
+            message: "Explain this translated page.",
+            web_source_permission: "deny",
+          }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => client.inputs.length === 1);
+    expect(String(client.inputs[0]?.input)).toContain("Translated markdown");
+    await waitFor(async () => {
+      const contextRecord = await readFile(
+        join(
+          storePath,
+          "memories",
+          MEMORY_ID,
+          "threads",
+          THREAD_ID,
+          "pairs",
+          PAIR_ID,
+          "CONTEXT.json",
+        ),
+        "utf8",
+      ).then(parseJsonRecord);
+      return contextRecord.lang_code === "ja-JP" &&
+        contextRecord.variant_kind === "translation" &&
+        contextRecord.translation_output_hash === "sha256:translated-ja";
+    });
+  });
+
   it("maps user-approved web source permission to a network-enabled turn", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-web-"));
     await createPsychiatristThread({
@@ -1317,7 +1443,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(replay)).not.toContain("What is current?");
   });
 
-  it("marks stale threads when the loaded context hash changed", async () => {
+  it("marks stale threads when the loaded source hash changed", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-context-stale-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -1325,7 +1451,10 @@ describe("Psychiatrist thread API routes", () => {
     });
     const client = new FakeConversationClient("must not run");
     const handler = createSendPsychiatristMessageHandler({
-      buildContext: async () => context({ contentHash: "sha256:changed" }),
+      buildContext: async () => context({
+        contentHash: "sha256:changed",
+        sourceHash: "sha256:changed",
+      }),
       client,
       config: { storePath },
       generateId: createIdGenerator([PAIR_ID, TURN_ID]),
@@ -1638,7 +1767,11 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
-          body: cancelBody(),
+          body: JSON.stringify({
+            memory_id: MEMORY_ID,
+            pair_id: PAIR_ID,
+            thread_id: THREAD_ID,
+          }),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -2085,6 +2218,33 @@ describe("Psychiatrist thread API routes", () => {
     expect(activePsychiatristTurns.getByTurnId(TURN_ID)).toBeDefined();
   });
 
+  it("rejects malformed legacy cancel scope fields", async () => {
+    const handler = createCancelPsychiatristTurnHandler({
+      activeTurns: activePsychiatristTurns,
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
+          body: JSON.stringify({
+            memory_id: MEMORY_ID,
+            pair_id: PAIR_ID,
+            thread_id: THREAD_ID,
+            variant_kind: "",
+          }),
+          method: "POST",
+        }),
+        { turnId: TURN_ID },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "invalid_request",
+      message: "variant_kind must be source or translation.",
+    });
+  });
+
   it("regenerates a completed pair by reusing prompt context and overwriting the response artifact", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-"));
     await createPsychiatristThread({
@@ -2132,7 +2292,11 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerateHandler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: regenerateBody(),
+          body: JSON.stringify({
+            memory_id: MEMORY_ID,
+            thread_id: THREAD_ID,
+            web_source_permission: "deny",
+          }),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2308,6 +2472,32 @@ describe("Psychiatrist thread API routes", () => {
       status: "error",
     });
     expect(regenerateClient.inputs).toEqual([]);
+  });
+
+  it("rejects malformed legacy regenerate scope fields", async () => {
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      config: config("/tmp/store"),
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: JSON.stringify({
+            memory_id: MEMORY_ID,
+            thread_id: THREAD_ID,
+            variant_kind: "translated",
+          }),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "invalid_request",
+      message: "variant_kind must be source or translation.",
+    });
   });
 
   it("excludes later Q/A pairs when regenerating an older completed pair", async () => {

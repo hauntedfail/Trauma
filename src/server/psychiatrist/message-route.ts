@@ -23,6 +23,7 @@ import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./cont
 import { buildPsychiatristPrompt } from "./prompt";
 import {
   isRecord,
+  readOptionalPsychiatristLangCode,
   readPsychiatristJsonBody,
 } from "./request";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
@@ -52,6 +53,7 @@ type AppendAssistantResponse = typeof appendAssistantResponseToStore;
 type MessagePayload =
   | {
       ok: true;
+      langCode?: string;
       message: string;
       webSourcePermission: "deny" | "allow_for_this_turn";
     }
@@ -137,6 +139,7 @@ export async function handleSendPsychiatristMessageRequest(
     context = await resolveTurnContext({
       buildContext: input.buildContext,
       config,
+      langCode: payload.langCode,
       manifest: thread.manifest,
     });
     const resolveActiveContentHash = input.resolveActiveContentHash ??
@@ -216,12 +219,12 @@ export async function handleSendPsychiatristMessageRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
-      ...(thread.manifest.langCode === undefined ? {} : { langCode: thread.manifest.langCode }),
+      ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
       memoryId: thread.manifest.memoryId,
       pairId,
       threadId,
       turnId,
-      variantKind: thread.manifest.variantKind,
+      variantKind: context.variantKind,
     });
     void runPsychiatristTurn({
       appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
@@ -548,6 +551,10 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
   if (message.length > PSYCHIATRIST_MAX_USER_MESSAGE_CHARS) {
     return { ok: false, message: "message must be 4000 characters or fewer.", status: 400 };
   }
+  const langCodeResult = readOptionalPsychiatristLangCode(payload);
+  if (!langCodeResult.ok) {
+    return { ok: false, message: langCodeResult.message, status: 400 };
+  }
   const webSourcePermission =
     typeof payload.web_source_permission === "string"
       ? payload.web_source_permission
@@ -562,7 +569,12 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
       status: 400,
     };
   }
-  return { ok: true, message, webSourcePermission };
+  return {
+    ok: true,
+    ...(langCodeResult.langCode === undefined ? {} : { langCode: langCodeResult.langCode }),
+    message,
+    webSourcePermission,
+  };
 }
 
 function createContextSnapshot(input: {
@@ -575,9 +587,9 @@ function createContextSnapshot(input: {
     categories: input.context.categories,
     contentHash: input.context.contentHash,
     contextSnapshotId: input.pairId,
-    ...(input.manifest.langCode === undefined
+    ...(input.context.langCode === undefined
       ? {}
-      : { langCode: input.manifest.langCode }),
+      : { langCode: input.context.langCode }),
     memoryId: input.manifest.memoryId,
     policyVersion: input.manifest.policyVersion,
     relativePath: input.context.relativePath,
@@ -589,23 +601,24 @@ function createContextSnapshot(input: {
     sourceUrl: input.context.sourceUrl,
     tags: input.context.tags,
     title: input.context.title,
-    ...(input.manifest.translationOutputHash === undefined
+    ...(input.context.translationOutputHash === undefined
       ? {}
-      : { translationOutputHash: input.manifest.translationOutputHash }),
+      : { translationOutputHash: input.context.translationOutputHash }),
     userPrompt: input.prompt,
-    variantKind: input.manifest.variantKind,
+    variantKind: input.context.variantKind,
   };
 }
 
 async function resolveTurnContext(input: {
   buildContext?: BuildContext;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  langCode?: string;
   manifest: PsychiatristThreadManifest;
 }): Promise<PsychiatristMemoryContext> {
   if (input.buildContext !== undefined) {
     return await input.buildContext({
       config: input.config,
-      langCode: input.manifest.langCode,
+      langCode: input.langCode,
       memoryId: input.manifest.memoryId,
       memoryRepository: undefined as never,
       translationRepository: undefined as never,
@@ -618,7 +631,7 @@ async function resolveTurnContext(input: {
   try {
     return await buildPsychiatristMemoryContext({
       config: input.config,
-      langCode: input.manifest.langCode,
+      langCode: input.langCode,
       memoryId: input.manifest.memoryId,
       memoryRepository: connection.repositories.memories,
       translationRepository: connection.repositories.translations,
@@ -760,7 +773,7 @@ async function defaultResolveActiveContentHash(input: {
   context: PsychiatristMemoryContext;
   manifest: PsychiatristThreadManifest;
 }): Promise<string> {
-  return input.context.contentHash;
+  return input.context.sourceHash;
 }
 
 function safeErrorResponse(

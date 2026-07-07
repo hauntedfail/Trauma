@@ -216,12 +216,12 @@ export async function handleRegeneratePsychiatristResponseRequest(
     const client = input.client ?? new CodexAppServerClient();
     activePsychiatristTurns.register({
       client,
-      ...(loaded.manifest.langCode === undefined ? {} : { langCode: loaded.manifest.langCode }),
+      ...(loaded.contextSnapshot.langCode === undefined ? {} : { langCode: loaded.contextSnapshot.langCode }),
       memoryId: loaded.manifest.memoryId,
       pairId,
       threadId: loaded.manifest.threadId,
       turnId,
-      variantKind: loaded.manifest.variantKind,
+      variantKind: loaded.contextSnapshot.variantKind,
     });
     void runRegenerateTurn({
       appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
@@ -573,18 +573,18 @@ async function defaultResolveRegenerateActiveContentHash(input: {
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
 }): Promise<string> {
   if (!("backup" in input.config)) {
-    return input.loaded.contextSnapshot.contentHash;
+    return input.loaded.manifest.sourceHash;
   }
   const connection = initializeDatabase(input.config as ResolvedTraumaConfig);
   try {
     const context = await buildPsychiatristMemoryContext({
       config: input.config,
-      langCode: input.loaded.manifest.langCode,
+      langCode: input.loaded.contextSnapshot.langCode,
       memoryId: input.loaded.manifest.memoryId,
       memoryRepository: connection.repositories.memories,
       translationRepository: connection.repositories.translations,
     });
-    return context.contentHash;
+    return context.sourceHash;
   } finally {
     connection.close();
   }
@@ -684,9 +684,7 @@ function matchesManifestScope(
   manifest: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>["manifest"],
 ): boolean {
   return scope.memoryId === manifest.memoryId &&
-    scope.threadId === manifest.threadId &&
-    scope.variantKind === manifest.variantKind &&
-    scope.langCode === manifest.langCode;
+    scope.threadId === manifest.threadId;
 }
 
 function beforeCurrentPair(

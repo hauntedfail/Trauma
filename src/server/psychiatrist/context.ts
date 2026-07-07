@@ -65,6 +65,7 @@ export async function buildPsychiatristMemoryContext(input: {
     sourceUrl: memory.url,
     tags: memory.memoryTags.map(({ tag }) => tag.name),
     title: memory.title,
+    ...(input.langCode === undefined ? {} : { translationOutputHash: loaded.contentHash }),
     variantKind: input.langCode === undefined ? "source" : "translation",
   };
 }
