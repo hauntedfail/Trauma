@@ -164,7 +164,7 @@ function projectSafeStreamEvent<TData>(
   switch (event.type) {
     case "psychiatrist.turn.started":
     case "psychiatrist.regenerate.started": {
-      const status = readStringField(event.data, "status");
+      const status = readSafeProcessText(readStringField(event.data, "status"));
       const pairId = readStringField(event.data, "pair_id");
       const userPrompt = readStringField(event.data, "user_prompt");
       return {
@@ -229,7 +229,7 @@ function projectSafeStreamEvent<TData>(
     }
     case "psychiatrist.turn.canceled": {
       const code = readStringField(event.data, "code");
-      const status = readStringField(event.data, "status");
+      const status = readSafeProcessText(readStringField(event.data, "status"));
       const warning = readSafeWarning(event.data);
       return {
         ...event,
@@ -243,7 +243,7 @@ function projectSafeStreamEvent<TData>(
     case "psychiatrist.thread.stale": {
       const code = readStringField(event.data, "code");
       const pairId = readStringField(event.data, "pair_id");
-      const status = readStringField(event.data, "status");
+      const status = readSafeProcessText(readStringField(event.data, "status"));
       return {
         ...event,
         data: omitUndefined({
@@ -370,9 +370,9 @@ function omitUndefined<T extends Record<string, unknown>>(input: T): T {
 }
 
 function containsAbsolutePath(value: string): boolean {
-  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
-    /(^|[\s("'`])[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
-    /(^|[\s("'`])\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
+  return /(^|[\s("'`:=])\s*\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
+    /(^|[\s("'`:=])\s*[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
+    /(^|[\s("'`:=])\s*\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
 }
 
 function containsSensitiveHomeRelativePath(value: string): boolean {

@@ -334,6 +334,94 @@ describe("Psychiatrist stream store", () => {
     expect((data as { text: string }).text.length).toBeLessThanOrEqual(240);
   });
 
+  it("filters key-value formatted absolute paths from process and status text", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-kv-paths-"));
+
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Working cwd:/workspace/app" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Working path=/Users/example/.codex/auth.json" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Working cwd=C:\\Users\\me\\.codex\\auth.json" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Working share=\\\\server\\share\\auth.json" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running in cwd=/Users/example/.codex/auth.json" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "reading the active memory context" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.thread.stale",
+      },
+    });
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay).toHaveLength(2);
+    expect(replay.map((event) => event.data)).toEqual([
+      { status: "running" },
+      { code: "thread_stale", status: "reading the active memory context" },
+    ]);
+    expect(JSON.stringify(replay)).not.toContain("/workspace/app");
+    expect(JSON.stringify(replay)).not.toContain("/Users/example");
+    expect(JSON.stringify(replay)).not.toContain("C:\\Users");
+    expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
+  });
+
   it("replays persisted SSE events after the requested event id", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-"));
     await appendPsychiatristStreamEvent({
