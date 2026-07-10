@@ -27,6 +27,7 @@ import {
   createStartPsychiatristThreadHandler,
 } from "../../../src/server/psychiatrist/thread-route";
 import { PsychiatristContextError } from "../../../src/server/psychiatrist/context";
+import { createSha256ContentHash } from "../../../src/server/translation/hash";
 import type {
   PsychiatristMemoryContext,
   PsychiatristSourceCitation,
@@ -891,6 +892,104 @@ describe("Psychiatrist thread API routes", () => {
         contextRecord.variant_kind === "translation" &&
         contextRecord.translation_output_hash === "sha256:translated-ja";
     });
+  });
+
+  it("persists only prompt-selected context sections for a new turn snapshot", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-selected-context-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const client = new FakeConversationClient("The selected context answers this.");
+    const selectedMarkdown = "## Risk\n\nRollback is missing.";
+    const handler = createSendPsychiatristMessageHandler({
+      buildContext: async () => context({
+        sections: [
+          {
+            anchor: "appendix",
+            endOffset: 90_000,
+            level: 2,
+            markdown: `## Appendix\n\n${"irrelevant ".repeat(10_000)}`,
+            path: "1.1",
+            startOffset: 0,
+            title: "Appendix",
+          },
+          {
+            anchor: "risk",
+            endOffset: 90_200,
+            level: 2,
+            markdown: selectedMarkdown,
+            path: "1.2",
+            startOffset: 90_001,
+            title: "Risk",
+          },
+        ],
+      }),
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({
+            message: "What is the risk?",
+            web_source_permission: "deny",
+          }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(async () => {
+      const contextRecord = await readFile(
+        join(
+          storePath,
+          "memories",
+          MEMORY_ID,
+          "threads",
+          THREAD_ID,
+          "pairs",
+          PAIR_ID,
+          "CONTEXT.json",
+        ),
+        "utf8",
+      ).then(parseJsonRecord);
+      return Array.isArray(contextRecord.sections);
+    });
+    const sentPrompt = String(client.inputs[0]?.input);
+    expect(sentPrompt).toContain('"title":"Risk"');
+    expect(sentPrompt).not.toContain('"title":"Appendix"');
+
+    const contextRecord = await readFile(
+      join(
+        storePath,
+        "memories",
+        MEMORY_ID,
+        "threads",
+        THREAD_ID,
+        "pairs",
+        PAIR_ID,
+        "CONTEXT.json",
+      ),
+      "utf8",
+    ).then(parseJsonRecord);
+    expect(contextRecord.selected_section_anchors).toEqual(["risk"]);
+    expect(contextRecord.selected_section_hashes).toEqual([
+      createSha256ContentHash(selectedMarkdown),
+    ]);
+    expect(contextRecord.sections).toEqual([
+      expect.objectContaining({
+        anchor: "risk",
+        markdown: selectedMarkdown,
+        title: "Risk",
+      }),
+    ]);
+    expect(JSON.stringify(contextRecord)).not.toContain("Appendix");
+    expect(JSON.stringify(contextRecord)).not.toContain("irrelevant irrelevant");
   });
 
   it("maps user-approved web source permission to a network-enabled turn", async () => {

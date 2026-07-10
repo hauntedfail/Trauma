@@ -597,6 +597,75 @@ describe("Psychiatrist thread store", () => {
     });
   });
 
+  it("reconciles abandoned approved first-answer retry turns without appending duplicate pair revisions", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-abandoned-answer-retry-"));
+    const approvedRetryTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "Needs current sources?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await markPsychiatristTurnFailed({
+      config: { storePath },
+      error: {
+        action: "retry",
+        code: "network_permission_required",
+        message: "Web sources need approval.",
+      },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: approvedRetryTurnId,
+    });
+
+    await expect(
+      reconcileInactivePsychiatristTurns({
+        activeTurnIds: [],
+        config: { storePath },
+        threadId: THREAD_ID,
+      }),
+    ).resolves.toBe(true);
+
+    const rows = await readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
+      "utf8",
+    ).then((content) => content.trim().split("\n").map((line) => JSON.parse(line)));
+    expect(rows.map((row) => row.revision_kind)).toEqual(["pending", "failed"]);
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${approvedRetryTurnId}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      failed_at: expect.any(String),
+      pair_id: PAIR_ID,
+      safe_error: {
+        action: "retry",
+        code: "turn_interrupted",
+        message: "Psychiatrist turn was interrupted before completion.",
+      },
+      status: "failed",
+      turn_id: approvedRetryTurnId,
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      pairId: PAIR_ID,
+      status: "failed",
+    });
+    expect(loaded.pairs[0]).not.toHaveProperty("retryAction");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryMode");
+    expect(loaded.pairs[0]).not.toHaveProperty("retryTurnId");
+  });
+
   it("does not overwrite canceled turns when completion arrives late", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-canceled-complete-metadata-"));
     await createPsychiatristThread({ config: { storePath }, manifest: manifest() });

@@ -745,6 +745,29 @@ export async function reconcileInactivePsychiatristTurns(input: {
       changed = true;
     }
     const terminalTurns = await readTerminalTurns(input.config, loaded.manifest);
+    for (const turn of await readNonTerminalFirstAnswerRetryTurns(input.config, loaded.manifest)) {
+      if (activeTurnIds.has(turn.turnId)) {
+        continue;
+      }
+      const pair = loaded.pairs.find((candidate) => candidate.pairId === turn.pairId);
+      if (pair === undefined || pair.assistant !== undefined || pair.status !== "failed") {
+        continue;
+      }
+      await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${turn.turnId}.json`), {
+        failed_at: now,
+        pair_id: turn.pairId,
+        policy_version: loaded.manifest.policyVersion,
+        safe_error: {
+          action: "retry",
+          code: "turn_interrupted",
+          message: "Psychiatrist turn was interrupted before completion.",
+        },
+        status: "failed",
+        thread_id: input.threadId,
+        turn_id: turn.turnId,
+      });
+      changed = true;
+    }
     for (const turn of await readNonTerminalRegenerateTurns(input.config, loaded.manifest)) {
       if (activeTurnIds.has(turn.turnId) || interruptedRegenerateTurnIds.has(turn.turnId)) {
         continue;
@@ -1117,6 +1140,42 @@ async function readTerminalTurns(
           readOptionalString(raw, "updated_at") ??
           "",
       });
+    }
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+  return turns;
+}
+
+async function readNonTerminalFirstAnswerRetryTurns(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  manifest: PsychiatristThreadManifest,
+): Promise<Array<{
+  pairId: string;
+  turnId: string;
+}>> {
+  const turnsDirectory = join(threadDirectory(config, manifest), "turns");
+  const glob = new Bun.Glob("*.json");
+  const turns: Array<{
+    pairId: string;
+    turnId: string;
+  }> = [];
+  try {
+    for await (const relativePath of glob.scan({ cwd: turnsDirectory })) {
+      const raw = JSON.parse(await readFile(join(turnsDirectory, relativePath), "utf8"));
+      if (!isRecord(raw) || readTerminalTurnStatus(raw.status) !== undefined) {
+        continue;
+      }
+      const pairId = readOptionalString(raw, "pair_id");
+      const regenerateFromTurnId = readOptionalString(raw, "regenerate_from_turn_id");
+      const turnId = readOptionalString(raw, "turn_id");
+      if (pairId === undefined || regenerateFromTurnId !== undefined || turnId === undefined) {
+        continue;
+      }
+      turns.push({ pairId, turnId });
     }
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {

@@ -15,6 +15,7 @@ import {
   appendPendingPair,
   createPsychiatristThread,
   loadPsychiatristThread,
+  recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import type {
@@ -29,7 +30,7 @@ const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 
 describe("Psychiatrist stream store", () => {
   afterEach(() => {
-    activePsychiatristTurns.unregister(TURN_ID);
+    activePsychiatristTurns.clear();
   });
 
   it("persists replayable stream events in turn-local order", async () => {
@@ -335,13 +336,14 @@ describe("Psychiatrist stream store", () => {
     });
     expect(replay).toHaveLength(1);
     const data = replay[0]?.data;
-    expect(data).toMatchObject({ text: expect.stringMatching(/\.\.\.$/) });
+    const text = isTextData(data) ? data.text : undefined;
+    expect(text).toEqual(expect.stringMatching(/\.\.\.$/));
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
     expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
     expect(JSON.stringify(replay)).not.toContain("~/.codex/auth.json");
     expect(JSON.stringify(replay)).not.toContain("~/.ssh/id_rsa");
     expect(JSON.stringify(replay)).not.toContain("~/.ssh/id_ed25519");
-    expect((data as { text: string }).text.length).toBeLessThanOrEqual(240);
+    expect(text?.length).toBeLessThanOrEqual(240);
   });
 
   it("filters key-value formatted absolute paths from process and status text", async () => {
@@ -456,6 +458,107 @@ describe("Psychiatrist stream store", () => {
     expect(JSON.stringify(replay)).not.toContain("/Users/example");
     expect(JSON.stringify(replay)).not.toContain("C:\\Users");
     expect(JSON.stringify(replay)).not.toContain("\\\\server\\share");
+  });
+
+  it("filters local endpoints from process and status text", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-local-endpoint-"));
+
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Connected to http://127.0.0.1:63921/session" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Connected to unix:///tmp/app-server.sock" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Connected to ws://127.0.0.1:63921/events" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Connected to wss://localhost:63921/events" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "Connected to http://[::1]:63921/session" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.process.delta",
+        },
+      }),
+    ).resolves.toBeUndefined();
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "using http://localhost:5540/events" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Reading the active memory context." },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.process.delta",
+      },
+    });
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.data)).toEqual([
+      { status: "running" },
+      { text: "Reading the active memory context." },
+    ]);
+    expect(JSON.stringify(replay)).not.toContain("127.0.0.1");
+    expect(JSON.stringify(replay)).not.toContain("unix://");
+    expect(JSON.stringify(replay)).not.toContain("localhost");
+    expect(JSON.stringify(replay)).not.toContain("[::1]");
+    expect(JSON.stringify(replay)).not.toContain("ws://");
+    expect(JSON.stringify(replay)).not.toContain("wss://");
   });
 
   it("replays persisted SSE events after the requested event id", async () => {
@@ -670,6 +773,113 @@ describe("Psychiatrist stream store", () => {
         turnId: TURN_ID,
       }),
     ]);
+  });
+
+  it("keeps the current same-thread turn active when replaying an old inactive stream", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-active-thread-"));
+    const currentPairId = "019e8a00-0000-7000-8000-000000000005";
+    const currentTurnId = "019e8a00-0000-7000-8000-000000000006";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      prompt: "Old question?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: {
+        ...contextSnapshot(),
+        contextSnapshotId: "snapshot-2",
+        userPrompt: "Current question?",
+      },
+      pairId: currentPairId,
+      prompt: "Current question?",
+      threadId: THREAD_ID,
+      turnId: currentTurnId,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: currentPairId,
+      threadId: THREAD_ID,
+      turnId: currentTurnId,
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Old partial answer" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: currentTurnId,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: currentPairId,
+      threadId: THREAD_ID,
+      turnId: currentTurnId,
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const text = await response.text();
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+
+    expect(response.status).toBe(200);
+    expect(text).toContain("event: psychiatrist.answer.failed");
+    expect(loaded.pairs).toEqual([
+      expect.objectContaining({
+        pairId: "019e8a00-0000-7000-8000-000000000002",
+        status: "failed",
+        turnId: TURN_ID,
+      }),
+      expect.objectContaining({
+        pairId: currentPairId,
+        status: "pending",
+        turnId: currentTurnId,
+      }),
+    ]);
+    await expect(
+      readFile(
+        join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${currentTurnId}.json`),
+        "utf8",
+      ).then((content) => JSON.parse(content)),
+    ).resolves.toMatchObject({
+      status: "started",
+      turn_id: currentTurnId,
+    });
   });
 
   it("streams live events after replay while the turn remains active", async () => {
@@ -911,6 +1121,13 @@ function streamEvent(
     turnId: TURN_ID,
     type,
   };
+}
+
+function isTextData(data: unknown): data is { text: string } {
+  return typeof data === "object" &&
+    data !== null &&
+    "text" in data &&
+    typeof data.text === "string";
 }
 
 function manifest(

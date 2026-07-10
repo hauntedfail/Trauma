@@ -20,7 +20,7 @@ import {
 } from "../translation/codex-app-server";
 import { createSha256ContentHash } from "../translation/hash";
 import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
-import { buildPsychiatristPrompt } from "./prompt";
+import { buildPsychiatristPrompt, selectPsychiatristPromptContext } from "./prompt";
 import {
   isRecord,
   readOptionalPsychiatristLangCode,
@@ -175,16 +175,24 @@ export async function handleSendPsychiatristMessageRequest(
       409,
     );
   }
-  const contextSnapshot = createContextSnapshot({
-    context,
-    manifest: thread.manifest,
-    pairId,
-    prompt: payload.message,
-  });
   const webSourcePolicy: PsychiatristWebSourcePolicy =
     payload.webSourcePermission === "allow_for_this_turn"
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
+  const selectedContext = selectPsychiatristPromptContext({
+    context,
+    contextSnapshotId: pairId,
+    pairs: thread.pairs,
+    threadId,
+    userMessage: payload.message,
+    webSourcePolicy,
+  });
+  const contextSnapshot = createContextSnapshot({
+    context: selectedContext,
+    manifest: thread.manifest,
+    pairId,
+    prompt: payload.message,
+  });
 
   let pendingPairPersisted = false;
   try {
@@ -234,7 +242,7 @@ export async function handleSendPsychiatristMessageRequest(
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
       config,
-      context,
+      context: selectedContext,
       pairId,
       payload,
       thread,

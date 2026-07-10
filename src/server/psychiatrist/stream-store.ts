@@ -305,6 +305,7 @@ function readSafeProcessText(value: string | undefined): string | undefined {
     normalized.includes("hidden reasoning") ||
     containsAbsolutePath(text) ||
     containsSensitiveHomeRelativePath(text) ||
+    containsLocalEndpoint(text) ||
     containsPrivateKeyFilename(text) ||
     containsSensitiveProcessText(text) ||
     normalized.includes("credential") ||
@@ -380,6 +381,11 @@ function containsAbsolutePath(value: string): boolean {
   return /(^|[\s("'`:=])\s*\/(?!\/)[A-Za-z0-9._-]+(?:\/[^\s)"'`]*)?/.test(value) ||
     /(^|[\s("'`:=])\s*[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
     /(^|[\s("'`:=])\s*\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
+}
+
+function containsLocalEndpoint(value: string): boolean {
+  return /\b(?:(?:https?|wss?):\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1|0\.0\.0\.0)(?::\d+)?(?:[/?#][^\s)"'`]*)?|unix:\/\/[^\s)"'`]+)/i
+    .test(value);
 }
 
 function containsSensitiveHomeRelativePath(value: string): boolean {

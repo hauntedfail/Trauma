@@ -86,8 +86,9 @@ async function loadInactiveReplay(input: {
   if (memoryId === undefined || threadId === undefined) {
     return filterReplayAfterEventId(fullReplay, input.afterEventId);
   }
+  const activeThreadTurn = activePsychiatristTurns.getByThreadId(threadId);
   await reconcileInactivePsychiatristTurns({
-    activeTurnIds: [],
+    activeTurnIds: activeThreadTurn === undefined ? [] : [activeThreadTurn.turnId],
     config: input.config,
     threadId,
   });
