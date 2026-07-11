@@ -58,9 +58,13 @@ Rules:
 - `pairs/{pairId}/CONTEXT.json` stores enough prompt/context provenance to
   regenerate from the same context: memory variant, content hash, prompt policy
   version, selected section anchors, selected section hashes, selected Markdown
-  text, and source URL. If an implementation stores exact rendered prompt input
+  text, and source URL. It must include the selected section Markdown payloads
+  themselves: order, anchor, heading, normalized Markdown text, and hash for
+  each selected section. If an implementation stores exact rendered prompt input
   instead of selected Markdown text, that input must be sufficient to
-  reconstruct the original Codex input after memory edits.
+  reconstruct the original Codex input after memory edits. Regenerate tests must
+  fail if the rebuilt prompt uses `sections: []` or blank title/source URL
+  metadata.
 
 ## API And Event Contract
 
@@ -112,12 +116,21 @@ Rules:
   original answer. Regenerate uses the stored prompt and stored context snapshot
   for the same pair.
 - Load `PROMPT.md` and `CONTEXT.json` for the same `pair_id`.
+- Rebuild the Regenerate prompt from `PROMPT.md` plus the section Markdown and
+  metadata stored in `CONTEXT.json`. Do not reread current memory content to
+  select new sections, and do not pass empty section arrays or blank source
+  metadata to the prompt builder.
 - Create a new `turn_id` for the regenerate attempt.
 - Keep the existing `thread_id`, `pair_id`, and `RESPONSE.md` path.
 - Stream through the normal event route.
 - On completion, write or recoverably stage `RESPONSE.md` and `THREAD.md`
   before appending the canonical `regenerated_completed` pair revision, then
   append the terminal stream event and enqueue backup.
+- On failure or Stop, append safe failed/stopped metadata for the new
+  regenerate `turn_id` without overwriting `RESPONSE.md` and without changing
+  the loaded pair's visible completed assistant response. Reloading the thread
+  after that failed/stopped Regenerate must still show the previous completed
+  answer.
 
 ## UI Contract
 
@@ -154,6 +167,9 @@ Regenerate:
 - On first new answer delta, replace the visible previous answer for that pair.
 - If Regenerate fails or is stopped, keep the previous completed answer visible
   and show the safe failure/stopped state.
+- This rule must hold both in the live transcript reducer and after a fresh
+  thread reload from storage. Component tests alone are not sufficient; server
+  storage tests must cover the reload case.
 - If Regenerate reaches `network_permission_required`, keep the previous
   completed answer visible and show a waiting-for-approval state for the same
   pair. Approval retries the same scoped regenerate route, not a new message or
@@ -225,6 +241,10 @@ to restore the completed operation: `THREAD.json`, `THREAD.md`, `PAIRS.jsonl`,
 Backup enqueue failure must return a safe warning and must not discard the
 completed response. The existing backup failsafe UI remains responsible for
 global backup alerts.
+Tests must inject a backup queue failure and assert both outcomes: the
+completed response remains in `RESPONSE.md`/`PAIRS.jsonl`, and the API or
+terminal stream exposes a safe warning that contains no store path, prompt, or
+raw app-server details.
 
 ## Tests
 
@@ -247,6 +267,9 @@ Server tests:
   current memory content changed.
 - Regenerate keeps `thread_id` and `pair_id`, creates a new `turn_id`, uses
   stored `PROMPT.md` and `CONTEXT.json`, and overwrites `RESPONSE.md`.
+- Regenerate prompt reconstruction includes non-empty stored section Markdown
+  and original source metadata from `CONTEXT.json`; the test must inspect the
+  fake app-server input and fail if it contains an empty context.
 - Regenerate route tests use the memory/thread/pair scoped path and reject
   cross-thread, cross-pair, and cross-variant requests.
 - Regenerate provenance tests prove `CONTEXT.json` contains selected Markdown
@@ -254,6 +277,15 @@ Server tests:
   Codex input after memory edits.
 - Completed Regenerate rewrites `THREAD.md` and enqueues backup reason
   `psychiatrist_response_regenerate`.
+- Failed Regenerate attempts do not overwrite `RESPONSE.md`; a fresh thread
+  load still exposes the previous completed assistant response for the same
+  `pair_id`.
+- Stopped Regenerate attempts have separate coverage from failed Regenerate:
+  explicit Stop must append safe stopped metadata for the new regenerate
+  `turn_id`, must not append a pair revision that hides the previous completed
+  assistant response, must not overwrite `pairs/{pairId}/RESPONSE.md`, and a
+  fresh thread load must still expose the previous completed assistant response
+  for the same `pair_id`.
 - Backup formatting maps `psychiatrist_response_regenerate` to
   `regenerated psychiatrist response`.
 
@@ -268,8 +300,9 @@ Component tests:
 - Regenerate button appears only on completed assistant responses.
 - Regenerate calls the regenerate route with the existing `pairId`.
 - Failed Regenerate leaves the previous completed response visible.
-- Stopped or network-permission-required Regenerate leaves the previous
-  completed response visible and overlays the latest attempt status.
+- Failed, stopped, or network-permission-required Regenerate remains visible as
+  a safe status while preserving the previous completed answer after the
+  component receives server state from a fresh thread load.
 
 E2E tests:
 
@@ -279,6 +312,31 @@ E2E tests:
   `turn_id`.
 - Stop cancels only after explicit Stop click.
 - Regenerate overwrites the same response artifact and does not add a new pair.
+- A failed fake Regenerate leaves the previous completed response visible after
+  browser reload.
+- A stopped fake Regenerate is a separate browser case: click Regenerate on a
+  completed answer, click Stop before any replacement answer delta is committed,
+  reload the page, reopen the Psychiatrist dock, and verify the previous
+  completed response remains visible for the same pair.
+
+## Interruption Recovery Audit
+
+If implementation is resumed after an interruption, rate limit, context
+compaction, or worker handoff, treat these as independent completion checks
+before marking 24.8 complete:
+
+- Confirm failed Regenerate coverage exists in server storage/API tests and in
+  `e2e/reader.spec.ts`.
+- Confirm stopped Regenerate coverage exists in server storage/API tests and in
+  `e2e/reader.spec.ts`; failed Regenerate coverage does not satisfy this item.
+- Confirm the stopped Regenerate server path preserves the reduced loaded pair:
+  no canceled/stopped pair revision may replace an already completed assistant
+  response during `reducePairRows()` or equivalent pair loading.
+- Confirm stopped Regenerate writes terminal turn metadata with a safe stopped
+  status and safe error, but leaves `pairs/{pairId}/RESPONSE.md` byte-for-byte as
+  the previous completed answer.
+- Confirm browser reload evidence after stopped Regenerate, not only live
+  reducer evidence before reload.
 
 Run:
 

@@ -21,7 +21,6 @@ architecture, reference, quality, or operations docs.
 | 13 | [Markdown reader library decision](task-13-markdown-reader-library-decision.md) | Reader library spike, ADR, dependency direction | TODO after archived Task 10 baseline |
 | 14 | [Markdown reader refactor](task-14-markdown-reader-refactor.md) | Reader pipeline decomposition and behavior-preserving refactor | TODO after Task 13 |
 | 15 | [Refactor wave integration](task-15-refactor-wave-integration.md) | Cross-task verification and workflow/docs synchronization | TODO after Tasks 11-14 |
-| 24 | [Psychiatrist memory assistant](task-24-psychiatrist-assistant/README.md) | Reader-only memory-scoped assistant using Codex app-server turns, pair-managed memory-local thread storage, durable stream replay, skill-governed runtime policy, Stop/Regenerate UI, and a floating chat dock | Ready for `feat/psychiatrist` |
 
 ## Current Audit Notes
 
@@ -39,17 +38,9 @@ architecture, reference, quality, or operations docs.
   particular, `scripts/check-docs-health.ts`, `docs:check`,
   `.github/workflows/docs-health.yml`, `docs/references/reader-pipeline-decision.md`,
   and the Task 14 split reader modules are not present on `main`.
-- Task 24 is a planning-only workflow for the next implementation branch. It
-  introduces `Psychiatrist` as TRAUMA product language for a memory-scoped,
-  reader-only assistant that reuses backend-only Codex app-server integration
-  without reopening Brilliant translation storage or stitching behavior.
-  Durable chat history is stored as user-prompt/assistant-response pairs under
-  each memory's `threads/` subtree, and the assistant policy is governed by a
-  future repo-local `psychiatrist` skill with no shell/file access and
-  user-approved network access only. Running turns preserve user-visible
-  process/answer streams across navigation and reload; Regenerate overwrites the
-  existing pair response Markdown and enqueues git backup with regenerate action
-  text.
+- Task 24 is archived. Current Psychiatrist behavior is represented by the
+  code, `.agents/skills/psychiatrist/SKILL.md`, architecture/reference docs,
+  and focused server/component/browser verification.
 
 ## Archived Workflows
 
@@ -66,6 +57,7 @@ document instead of reviving the old execution plan.
 | Task 21: Popover and translation UI fixes | [archive/task-21-popover-and-translation-ui-fixes/README.md](archive/task-21-popover-and-translation-ui-fixes/README.md) | Popover and translation UI repair work is represented by current code and tests. |
 | Task 22: Vim-like memory browse keybindings | [archive/task-22-vim-like-key-bindings.md](archive/task-22-vim-like-key-bindings.md) | Browse keybinding work is no longer an active implementation workflow. |
 | Task 23: Reader TOC reading-progress | [archive/task-23-reader-toc-reading-progress/README.md](archive/task-23-reader-toc-reading-progress/README.md) | Reader TOC progress behavior has moved from active workflow to historical record. |
+| Task 24: Psychiatrist memory assistant | [archive/task-24-psychiatrist-assistant/README.md](archive/task-24-psychiatrist-assistant/README.md) | Psychiatrist is represented by current code, repo-local skill policy, semantic docs, and tests. |
 
 ## Worker Rules
 

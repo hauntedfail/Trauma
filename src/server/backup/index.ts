@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -31,7 +32,9 @@ export type BackupTriggerReason =
   | "memory_creation"
   | "flashback_update"
   | "memory_deletion"
-  | "translation_update";
+  | "translation_update"
+  | "psychiatrist_thread_update"
+  | "psychiatrist_response_regenerate";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -302,9 +305,73 @@ async function getRetryContentPaths(
       }),
     );
   }
+  paths.push(...getPsychiatristRetryContentPaths(config, backup.id));
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
+}
+
+function getPsychiatristRetryContentPaths(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  memoryId: string,
+): string[] {
+  const threadsRoot = resolve(config.storePath, "memories", memoryId, "threads");
+  const threadIds = readDirectoryNames(threadsRoot);
+  const paths: string[] = [];
+  for (const threadId of threadIds) {
+    const threadBase = `memories/${memoryId}/threads/${threadId}`;
+    paths.push(
+      `${threadBase}/THREAD.json`,
+      `${threadBase}/THREAD.md`,
+      `${threadBase}/PAIRS.jsonl`,
+    );
+    const turnIds = readFileStemNames(resolve(threadsRoot, threadId, "turns"), ".json");
+    for (const turnId of turnIds) {
+      paths.push(`${threadBase}/turns/${turnId}.json`);
+    }
+    const streamIds = readFileStemNames(resolve(threadsRoot, threadId, "streams"), ".jsonl");
+    for (const streamId of streamIds) {
+      paths.push(`${threadBase}/streams/${streamId}.jsonl`);
+    }
+    const pairIds = readDirectoryNames(resolve(threadsRoot, threadId, "pairs"));
+    for (const pairId of pairIds) {
+      const pairBase = `${threadBase}/pairs/${pairId}`;
+      paths.push(
+        `${pairBase}/PROMPT.md`,
+        `${pairBase}/CONTEXT.json`,
+        `${pairBase}/RESPONSE.md`,
+      );
+    }
+  }
+  return paths;
+}
+
+function readFileStemNames(path: string, extension: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+      .map((entry) => entry.name.slice(0, -extension.length))
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function readDirectoryNames(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function validateRetryContentPath(
@@ -594,6 +661,10 @@ function formatBackupAction(reason: BackupTriggerReason): string {
       return "deleted memory";
     case "translation_update":
       return "updated translation";
+    case "psychiatrist_thread_update":
+      return "updated psychiatrist thread";
+    case "psychiatrist_response_regenerate":
+      return "regenerated psychiatrist response";
   }
 }
 

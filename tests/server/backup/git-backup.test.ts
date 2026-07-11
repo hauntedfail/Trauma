@@ -207,6 +207,8 @@ describe("git backup runner", () => {
     const contentPath = `memories/${memoryId}/CONTENT.md`;
     const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
     const translationPath = `memories/${memoryId}/ja-JP/CONTENT.md`;
+    const psychiatristThreadPath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md`;
+    const psychiatristResponsePath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md`;
     await mkdir(join(storePath, "memories", memoryId), { recursive: true });
     initializeGitRepository(projectPath);
     const config = createConfig({
@@ -246,6 +248,39 @@ describe("git backup runner", () => {
       }),
     });
 
+    await mkdir(join(storePath, "memories", memoryId, "threads", "019e8a00-0000-7000-8000-000000000001"), {
+      recursive: true,
+    });
+    await writeFile(join(storePath, psychiatristThreadPath), "# Psychiatrist Thread", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristThreadPath],
+        reason: "psychiatrist_thread_update",
+      }),
+    });
+
+    await mkdir(
+      join(
+        storePath,
+        "memories",
+        memoryId,
+        "threads",
+        "019e8a00-0000-7000-8000-000000000001",
+        "pairs",
+        "019e8a00-0000-7000-8000-000000000002",
+      ),
+      { recursive: true },
+    );
+    await writeFile(join(storePath, psychiatristResponsePath), "Regenerated", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristResponsePath],
+        reason: "psychiatrist_response_regenerate",
+      }),
+    });
+
     await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
     await runGitBackupJob({
       config,
@@ -258,6 +293,8 @@ describe("git backup runner", () => {
     expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
       .toEqual([
         `backup deleted memory ${memoryId}`,
+        `backup regenerated psychiatrist response ${memoryId}`,
+        `backup updated psychiatrist thread ${memoryId}`,
         `backup updated translation ${memoryId}`,
         `backup updated flashbacks ${memoryId}`,
         `backup created memory ${memoryId}`,
@@ -609,6 +646,140 @@ describe("git memory backup queue", () => {
           join(config.storePath, "memories", ids.failed, "ja-JP", "FLASHBACKS.json"),
           JSON.stringify({ version: 2, memoryId: ids.failed, flashbacks: [] }, null, 2) + "\\n",
         );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+          ),
+          { recursive: true },
+        );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+          ),
+          { recursive: true },
+        );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+          ),
+          { recursive: true },
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "THREAD.json",
+          ),
+          JSON.stringify({ thread_id: "019e8a00-0000-7000-8000-000000000001" }) + "\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "THREAD.md",
+          ),
+          "# Psychiatrist Thread\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "PAIRS.jsonl",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+            "019e8a00-0000-7000-8000-000000000003.json",
+          ),
+          JSON.stringify({
+            pair_id: "019e8a00-0000-7000-8000-000000000002",
+            status: "completed",
+            turn_id: "019e8a00-0000-7000-8000-000000000003",
+          }) + "\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+            "019e8a00-0000-7000-8000-000000000003.jsonl",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "PROMPT.md",
+          ),
+          "What changed?\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "CONTEXT.json",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "RESPONSE.md",
+          ),
+          "Answer.\\n",
+        );
         unlinkSync(join(config.storePath, "memories", ids.failed, "FLASHBACKS.json"));
         execFileSync(
           "git",
@@ -754,6 +925,14 @@ describe("git memory backup queue", () => {
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/CONTENT.md",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/TRANSLATION_MAP.json",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/FLASHBACKS.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/PAIRS.jsonl",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/turns/019e8a00-0000-7000-8000-000000000003.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/streams/019e8a00-0000-7000-8000-000000000003.jsonl",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/PROMPT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/CONTEXT.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md",
         ],
       },
       {

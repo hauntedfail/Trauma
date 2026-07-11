@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import net from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  type CodexAppServerEvent,
   CodexAppServerClient,
   CodexAppServerError,
   parseCodexAppServerEndpoint,
@@ -97,6 +98,41 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContain("turn.started");
       expect(events).toContain("delta");
       expect(events).toContain("item.completed");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps a notification-derived translation turn id when the turn/start response omits it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-notified-translation-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      omitTurnStartResponseTurnId: true,
+      sendStaleTurnNotificationsAfterTurnStarted: true,
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      const output = await client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => events.push(event),
+        prompt: "translate chunk",
+      });
+
+      expect(output).toMatchObject({
+        translated_markdown: "翻訳本文",
+      });
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
     } finally {
       await server.close();
     }
@@ -248,12 +284,16 @@ describe("Codex app-server endpoint parsing", () => {
         socketPath,
       });
 
-      await expect(
-        client.translateChunk({
+      let caught: unknown;
+      try {
+        await client.translateChunk({
           chunk: createChunk(),
           prompt: "translate chunk",
-        }),
-      ).rejects.toMatchObject({
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
         code: "turn_interrupted",
       });
     } finally {
@@ -450,6 +490,419 @@ describe("Codex app-server endpoint parsing", () => {
       });
       expect(turnStart.params).not.toHaveProperty("reasoningEffort");
       expect(turnStart.params).not.toHaveProperty("reasoning_effort");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("runs a new Psychiatrist conversation turn with locked-down defaults", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "The memory says this project is file-backed.",
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      const result = await client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "What does the memory say?",
+        onEvent: (event) => events.push(event),
+      });
+
+      expect(result).toEqual({
+        outputText: "The memory says this project is file-backed.",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "thread/start",
+        "turn/start",
+      ]);
+      const threadStart = findCapturedRequest(receivedMessages, "thread/start");
+      expect(threadStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        ephemeral: true,
+        sandbox: "read-only",
+        threadSource: "user",
+      });
+      expect(JSON.stringify(threadStart.params)).not.toContain(process.cwd());
+      expect(JSON.stringify(threadStart.params)).not.toContain("memories/");
+
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        input: [{ type: "text", text: "What does the memory say?", text_elements: [] }],
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        threadId: "thread-1",
+      });
+      expect(JSON.stringify(turnStart.params).toLowerCase()).not.toContain("shell");
+      expect(JSON.stringify(turnStart.params).toLowerCase()).not.toContain("fileedit");
+      expect(events).toContainEqual({ type: "thread.started", threadId: "thread-1" });
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reuses an existing Psychiatrist thread and enables network only after explicit approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-reuse-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Cited answer.",
+      receivedMessages,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Use the approved source.",
+          model: "gpt-5.5",
+          networkAccess: "user_approved_web_sources",
+          reasoningEffort: "high",
+          threadId: "thread-existing",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Cited answer.",
+        threadId: "thread-existing",
+        turnId: "turn-1",
+      });
+
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "turn/start",
+      ]);
+      const turnStart = findCapturedRequest(receivedMessages, "turn/start");
+      expect(turnStart.params).toMatchObject({
+        effort: "high",
+        model: "gpt-5.5",
+        sandboxPolicy: { type: "readOnly", networkAccess: true },
+        threadId: "thread-existing",
+      });
+      await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("falls back to a fresh Psychiatrist thread when a stored ephemeral thread is gone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-stale-thread-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const runtimeRoot = join(root, "runtime");
+    process.env.TRAUMA_CODEX_RUNTIME_DIR = runtimeRoot;
+    const receivedMethods: string[] = [];
+    const receivedMessages: CapturedClientMessage[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Recovered on a fresh thread.",
+      receivedMessages,
+      rejectConversationThreadIdOnce: "thread-expired",
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Continue from local pair history.",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-expired",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Recovered on a fresh thread.",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+
+      expect(receivedMethods).toEqual([
+        "initialize",
+        "initialized",
+        "account/read",
+        "turn/start",
+        "thread/start",
+        "turn/start",
+      ]);
+      const turnStarts = receivedMessages.filter((message) => message.method === "turn/start");
+      expect(turnStarts.map((message) =>
+        isRecord(message.params) ? message.params.threadId : undefined
+      )).toEqual(["thread-expired", "thread-1"]);
+      expect(events).toContainEqual({ type: "thread.started", threadId: "thread-1" });
+      await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("uses assistant text instead of later process text in final conversation items", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-final-items-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalOutput: { text: "Internal final output.", type: "process" },
+      conversationFinalItems: [
+        { id: "assistant-1", text: "Assistant answer.", type: "agentMessage" },
+        { id: "process-1", text: "Internal tool output.", type: "process" },
+      ],
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "What is the answer?",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Assistant answer.",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("preserves source citations returned by Psychiatrist conversation turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-citations-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Cited answer.",
+      conversationSourceCitations: [
+        {
+          sourceId: "codex-source-1",
+          title: "Release notes",
+          url: "https://example.com/releases",
+        },
+      ],
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Use approved sources.",
+          networkAccess: "user_approved_web_sources",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Cited answer.",
+        sourceCitations: [
+          {
+            sourceId: "codex-source-1",
+            title: "Release notes",
+            url: "https://example.com/releases",
+          },
+        ],
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("surfaces web-source-required signals returned by Psychiatrist conversation turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-web-required-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Current source access is required.",
+      conversationWebSourceRequired: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Need current sources?",
+          networkAccess: "disabled",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Current source access is required.",
+        webSourceRequired: true,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("forwards safe Psychiatrist process events while filtering hidden reasoning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-events-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Final answer.",
+      sendConversationProcessEvents: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "Explain this.",
+        onEvent: (event) => events.push(event),
+      });
+
+      expect(events).toContainEqual({ type: "delta", text: "visible delta" });
+      expect(events).toContainEqual({
+        message: "Reading the active memory context.",
+        type: "process",
+      });
+      expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
+      expect(JSON.stringify(events)).not.toContain("/private/store/path");
+      expect(JSON.stringify(events)).not.toContain("/home/runner/work");
+      expect(JSON.stringify(events)).not.toContain("C:\\Users");
+      expect(JSON.stringify(events)).not.toContain("\\\\server\\share");
+      expect(JSON.stringify(events)).not.toContain("sk-live");
+      const longProcessEvent = events
+        .filter((event): event is Extract<CodexAppServerEvent, { type: "process" }> =>
+          event.type === "process"
+        )
+        .find((event) => event.message.startsWith("Reading context"));
+      expect(longProcessEvent).toEqual({
+        message: expect.stringMatching(/\.\.\.$/),
+        type: "process",
+      });
+      expect(longProcessEvent?.message.length).toBeLessThanOrEqual(240);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("ignores stale reused-thread notifications until the current turn id is known", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-stale-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Fresh answer.",
+      sendStaleConversationNotificationsBeforeTurnStart: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Follow up",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-1",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Fresh answer.",
+        turnId: "turn-1",
+      });
+
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
+      expect(events).not.toContainEqual({
+        message: "Reading stale context.",
+        type: "process",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps a notification-derived conversation turn id when the turn/start response omits it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-notified-conversation-turn-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const receivedMethods: string[] = [];
+    const server = await startFakeAppServer(socketPath, receivedMethods, {
+      conversationFinalText: "Fresh answer.",
+      omitTurnStartResponseTurnId: true,
+      sendStaleTurnNotificationsAfterTurnStarted: true,
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(
+        client.runConversationTurn({
+          cwdPurpose: "psychiatrist",
+          input: "Follow up",
+          onEvent: (event) => events.push(event),
+          threadId: "thread-1",
+        }),
+      ).resolves.toMatchObject({
+        outputText: "Fresh answer.",
+        turnId: "turn-1",
+      });
+
+      expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
+      expect(events).toContainEqual({ type: "delta", text: "翻訳" });
+      expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
+      expect(events).not.toContainEqual({
+        message: "Reading stale context.",
+        type: "process",
+      });
     } finally {
       await server.close();
     }
@@ -1100,7 +1553,25 @@ function handleClientMessage(
       }
       sendJson(socket, { id, result: { threadId: "thread-1" } });
       break;
-    case "turn/start":
+    case "turn/start": {
+      const activeThreadId = isRecord(value.params) &&
+          typeof value.params.threadId === "string"
+        ? value.params.threadId
+        : "thread-1";
+      if (
+        options.rejectConversationThreadIdOnce !== undefined &&
+        activeThreadId === options.rejectConversationThreadIdOnce
+      ) {
+        options.rejectConversationThreadIdOnce = undefined;
+        sendJson(socket, {
+          id,
+          error: {
+            code: -32004,
+            message: `Thread ${activeThreadId} was not found`,
+          },
+        });
+        break;
+      }
       if (
         options.rejectOutputSchemaOnce === true &&
         isRecord(value.params) &&
@@ -1113,49 +1584,175 @@ function handleClientMessage(
         });
         break;
       }
-      sendJson(socket, { id, result: { turnId: "turn-1" } });
+      if (options.sendStaleConversationNotificationsBeforeTurnStart === true) {
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "old-turn", delta: "stale delta" },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading stale context.",
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+        sendJson(socket, {
+          method: "turn/completed",
+          params: {
+            item: { text: "Stale answer.", type: "agentMessage" },
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+      }
+      if (options.sendTurnStartedBeforeTurnStartResponse === true) {
+        sendJson(socket, {
+          method: "turn/started",
+          params: { threadId: activeThreadId, turnId: "turn-1" },
+        });
+      }
+      if (options.sendStaleTurnNotificationsAfterTurnStarted === true) {
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "old-turn", delta: "stale delta" },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading stale context.",
+            threadId: activeThreadId,
+            turnId: "old-turn",
+          },
+        });
+      }
+      sendJson(socket, {
+        id,
+        result: options.omitTurnStartResponseTurnId === true ? {} : { turnId: "turn-1" },
+      });
       if (options.closeAfterTurnStart === true) {
         socket.end();
         break;
       }
       if (options.sendInterruptedTurnCompletion === true) {
+        setTimeout(() => {
+          sendJson(socket, {
+            method: "turn/completed",
+            params: {
+              reason: "interrupted",
+              status: "interrupted",
+              threadId: activeThreadId,
+              turnId: "turn-1",
+            },
+          });
+        }, 0);
+        break;
+      }
+      sendJson(socket, {
+        method: "turn/started",
+        params: { threadId: activeThreadId, turnId: "turn-1" },
+      });
+      if (options.sendConversationProcessEvents === true) {
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Reading the active memory context.",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Inspecting /home/runner/work/trauma/store",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Inspecting C:\\Users\\me\\.codex\\auth.json",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Inspecting \\\\server\\share\\secret.txt",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: `Reading ${"context ".repeat(80)}`,
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "Loaded sk-live-123 from environment",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/reasoning",
+          params: {
+            message: "hidden chain of thought from /private/store/path",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/agentMessage/delta",
+          params: { threadId: activeThreadId, turnId: "turn-1", delta: "visible delta" },
+        });
+      }
+      sendJson(socket, {
+        method: "item/agentMessage/delta",
+        params: { threadId: activeThreadId, turnId: "turn-1", delta: "翻訳" },
+      });
+      if (options.conversationFinalItems !== undefined) {
         sendJson(socket, {
           method: "turn/completed",
           params: {
-            reason: "interrupted",
-            status: "interrupted",
-            threadId: "thread-1",
+            ...(options.conversationFinalOutput === undefined
+              ? {}
+              : { finalOutput: options.conversationFinalOutput }),
+            items: options.conversationFinalItems,
+            threadId: activeThreadId,
             turnId: "turn-1",
           },
         });
         break;
       }
       sendJson(socket, {
-        method: "turn/started",
-        params: { threadId: "thread-1", turnId: "turn-1" },
-      });
-      sendJson(socket, {
-        method: "item/agentMessage/delta",
-        params: { threadId: "thread-1", turnId: "turn-1", delta: "翻訳" },
-      });
-      sendJson(socket, {
         method: "item/completed",
         params: {
-          threadId: "thread-1",
+          threadId: activeThreadId,
           turnId: "turn-1",
           item: {
             id: "item-1",
-            text: JSON.stringify({
+            sourceCitations: options.conversationSourceCitations,
+            text: options.conversationFinalText ?? JSON.stringify({
               chunk_index: 0,
               segments: [{ id: "s000001", translated_text: "翻訳本文" }],
               translated_markdown: "翻訳本文",
               warnings: [],
             }),
             type: "agentMessage",
+            webSourceRequired: options.conversationWebSourceRequired,
           },
         },
       });
       break;
+    }
     case "turn/interrupt":
       sendJson(socket, { id, result: {} });
       break;
@@ -1166,16 +1763,27 @@ interface FakeAppServerOptions {
   accountReadResponse?: unknown;
   authNotificationsAfterLogin?: boolean;
   closeAfterTurnStart?: boolean;
+  conversationFinalOutput?: unknown;
+  conversationFinalText?: string;
+  conversationFinalItems?: unknown[];
+  conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+  conversationWebSourceRequired?: boolean;
   controlFrames?: string[];
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
+  omitTurnStartResponseTurnId?: boolean;
   receivedMessages?: CapturedClientMessage[];
+  rejectConversationThreadIdOnce?: string;
   rejectThreadStartWithExperimentalCapabilityError?: boolean;
   rejectOutputSchemaOnce?: boolean;
   sendCloseBeforeAccountReadResponse?: boolean;
+  sendConversationProcessEvents?: boolean;
   sendInterruptedTurnCompletion?: boolean;
   sendPingBeforeAccountReadResponse?: boolean;
   sendMalformedJsonAfterInitialize?: boolean;
+  sendStaleConversationNotificationsBeforeTurnStart?: boolean;
+  sendStaleTurnNotificationsAfterTurnStarted?: boolean;
+  sendTurnStartedBeforeTurnStartResponse?: boolean;
 }
 
 interface CapturedClientMessage {

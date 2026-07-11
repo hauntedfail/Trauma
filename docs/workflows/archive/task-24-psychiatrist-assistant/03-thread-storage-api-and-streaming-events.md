@@ -89,9 +89,16 @@ Rules:
 - `pairs/{pairId}/CONTEXT.json` stores prompt policy version, memory variant,
   content hash, selected context section anchors, selected context section
   hashes, selected Markdown text, and other provenance needed to regenerate from
-  the same context. If the implementation stores rendered prompt input instead
-  of selected Markdown text, it must be exact and sufficient to reconstruct the
-  original Codex input after the memory is edited later.
+  the same context. It must also store enough immutable section data to rebuild
+  the exact prompt context without reading the current memory content again. At
+  minimum this means each selected section's anchor, heading, normalized
+  Markdown text, section hash, and order index, plus the source URL/title
+  metadata used in the original prompt. If the implementation stores exact
+  rendered prompt input instead of selected Markdown text, that input must be
+  sufficient to reconstruct the original Codex input after the memory is edited
+  later. Storing only hashes or anchors is insufficient because Regenerate must
+  answer from the original accepted context, not from an empty section list or
+  newly selected current memory content.
 - `pairs/{pairId}/RESPONSE.md` stores the latest completed response Markdown for
   that pair. Regenerate overwrites this same file; it does not create a new
   response file, pair, or thread.
@@ -392,7 +399,8 @@ rejected before any prompt is built.
   identity so permission completes the same pair instead of creating an
   unrelated pair.
 - Regenerate is available only for a completed pair. It reuses the existing
-  `pair_id`, stored `PROMPT.md`, and stored `CONTEXT.json`; creates a new
+  `pair_id`, stored `PROMPT.md`, and stored `CONTEXT.json`; reconstructs the
+  prompt from the section Markdown stored in `CONTEXT.json`; creates a new
   `turn_id`; streams through `streams/{turnId}.jsonl`; overwrites
   `pairs/{pairId}/RESPONSE.md`; rewrites `THREAD.md`; appends a
   `regenerated_completed` pair revision; and enqueues git backup with reason
@@ -508,17 +516,31 @@ Cover:
 - Regenerate route is memory/thread/variant scoped at
   `/api/memories/:memoryId/psychiatrist/threads/:threadId/pairs/:pairId/regenerate`
   and rejects cross-memory, cross-thread, cross-pair, and cross-variant input.
-- Regenerate provenance tests prove `CONTEXT.json` contains selected Markdown
-  text or an exact rendered prompt input sufficient to reconstruct the original
-  Codex input after canonical memory edits.
+- Regenerate provenance tests prove `CONTEXT.json` contains non-empty selected
+  Markdown text or an exact rendered prompt input sufficient to reconstruct the
+  original Codex input after canonical memory edits. Tests must inspect the
+  fake app-server input and fail if the rebuilt prompt uses `sections: []`,
+  blank title, or blank source URL.
 - Completed Regenerate rewrites `THREAD.md`, appends a regenerated pair
   revision, and enqueues backup with reason
   `psychiatrist_response_regenerate`.
+- Failed or canceled Regenerate attempts append turn metadata for the new
+  `turn_id` without replacing the latest completed display state for the pair.
+  On reload, `loadPsychiatristThread()` must still return the previous
+  completed `assistant_response` for that `pair_id`, plus safe regenerate
+  failure/stopped status when the UI needs to show it.
 - Backup enqueue failures for Psychiatrist thread artifacts are reported as a
   safe warning and do not discard the completed response.
 - Denied network turns do not send a network-enabled app-server payload.
+- If network is denied and the assistant or adapter determines current web
+  sources are required, the server must persist and emit
+  `psychiatrist.network.permission_required`, return safe error code
+  `network_permission_required`, and must not call app-server with network
+  enabled for that turn.
 - User-approved web-source turns record `web_source_policy` and safe source
-  citation metadata on the pair.
+  citation metadata on the pair. Tests must read `PAIRS.jsonl` and assert
+  `web_source_policy.reason = "user_approved_for_turn"` for the approved
+  turn, not only source citations in the browser response.
 - Network-required approved retry tests send concrete `retry_pair_id` and
   `retry_turn_id` values, require them when
   `web_source_permission = "allow_for_this_turn"` is retrying

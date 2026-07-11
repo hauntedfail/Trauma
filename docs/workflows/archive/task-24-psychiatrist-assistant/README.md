@@ -184,8 +184,23 @@ Out of scope for this branch:
 | 24.3 | [Thread storage, API, and streaming events](03-thread-storage-api-and-streaming-events.md) | L | Create memory-local pair storage, message/event routes, and short-lived active-turn state. |
 | 24.4 | [Reader floating dock and chat UI](04-reader-floating-dock-and-chat-ui.md) | L | Render the iOS-style home bar, animated panel, input, transcript, and client state. |
 | 24.5 | [Safety, freshness, and error handling](05-safety-freshness-and-errors.md) | M | Harden stale-context checks, prompt-injection boundaries, cancel/retry, and safe messages. |
-| 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
 | 24.6 | [Docs, browser verification, and handoff](06-docs-browser-verification-handoff.md) | M | Update semantic docs, run focused and full verification, and prepare PR evidence. |
+| 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
+| 24.9 | [Completion audit](09-completion-audit.md) | M | Map the workflow exec-plan to current implementation evidence and confirm no missing requirements remain. |
+| 24.10 | [Review-driven contract hardening](10-review-driven-contract-hardening/README.md) | XL | Reopen the completion audit after PR review, deduplicate repeated feedback, and repair the file-scoped contracts behind the fragile fixes. |
+
+## 24.10 Reopened Audit
+
+24.9 is historical evidence for the implementation state that existed when that
+audit was written. Later PR review found unresolved correctness and security
+contract gaps, so completion must proceed through the 24.10 index instead of
+adding ad hoc patches to this parent file.
+
+The 24.10 parent is intentionally an index. Each child workflow owns the
+smallest practical file set, names the implementation method, names the tests
+that must fail first, and states when the work should split again before coding.
+Implementation agents should read only this parent, the 24.10 index, their
+assigned child workflow, and the target files named by that child workflow.
 
 ## Implementation Rules
 
@@ -249,6 +264,47 @@ capture:
 - One Regenerate action that overwrites the same response Markdown artifact,
   keeps the same pair/thread ids, and enqueues git backup with regenerate action
   text.
+- One failed Regenerate action that keeps the previous completed response
+  visible after reload.
+- One stopped Regenerate action, verified separately from the failed Regenerate
+  case, that keeps the previous completed response visible after explicit Stop
+  and browser reload.
 - One stale-thread recovery after the memory content hash changes.
 - One network-denied turn that does not attempt web access and one
   user-approved web-source turn that records safe source metadata with the pair.
+
+## Completion Audit Rules
+
+Before declaring Task 24 complete, perform a plan-to-implementation audit
+against every subtask acceptance criterion and every verification bullet above.
+The audit must distinguish three states:
+
+- `Satisfied`: current code, tests, docs, or browser evidence directly proves
+  the requirement.
+- `Mapped`: the plan names an example file, but the implemented coverage lives
+  in another focused file. Record the actual file and test name. Example:
+  requirements that mention `tests/server/psychiatrist/threads.test.ts` may be
+  satisfied by route/thread-store tests only if the audit maps each required
+  thread behavior to the concrete test that covers it.
+- `Missing`: no current implementation or evidence proves the requirement.
+  Do not mark the task complete until the missing item is implemented, or until
+  this workflow is explicitly updated with a narrower accepted scope.
+
+Generic command success is not enough for `Satisfied`. In particular,
+`bun run test:e2e e2e/reader.spec.ts` only satisfies the browser requirements
+when that spec or a recorded browser run proves the Psychiatrist-specific
+running-turn, reload, Stop, Regenerate, failed/stopped Regenerate,
+network-required, and web-source-approved cases listed above. If the existing
+reader E2E suite only exercises non-Psychiatrist reader behavior, the
+Psychiatrist browser items remain `Missing`.
+
+Failed Regenerate and stopped Regenerate are separate audit rows. A failed
+Regenerate test that preserves the previous completed answer does not satisfy
+the stopped Regenerate requirement. The stopped case must prove explicit Stop
+for a regenerate `turn_id`, preservation of the prior `RESPONSE.md`, no loaded
+pair regression after storage reduction, and browser reload evidence.
+
+The final PR handoff must include the audit matrix or a concise equivalent
+mapping. Any `Mapped` item must name the actual file/test or browser evidence.
+Any `Missing` item must remain open in the PR summary and must not be described
+as implemented.

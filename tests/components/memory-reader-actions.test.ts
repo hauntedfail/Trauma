@@ -102,6 +102,39 @@ describe("memory reader actions", () => {
     expect(html).not.toContain("#global");
   });
 
+  it("renders the reader-only Psychiatrist dock outside markdown content", () => {
+    const html = renderReader(readyResult);
+    const dockIndex = html.indexOf('data-psychiatrist-dock="collapsed"');
+    const contentIndex = html.indexOf("data-reader-content");
+
+    expect(dockIndex).toBeGreaterThan(-1);
+    expect(contentIndex).toBeGreaterThan(-1);
+    expect(dockIndex).toBeLessThan(contentIndex);
+    expect(html).toContain('aria-label="Open Psychiatrist"');
+  });
+
+  it("passes translated reader language into the Psychiatrist dock", () => {
+    const html = renderReader({
+      ...readyResult,
+      content: {
+        ...readyResult.content,
+        langCode: "ja-JP",
+      },
+    });
+
+    expect(html).toContain('data-psychiatrist-lang-code="ja-JP"');
+  });
+
+  it("does not render Psychiatrist for non-ready reader states", () => {
+    const html = renderReader({
+      status: "not_found",
+      message: "Missing memory.",
+    } satisfies ReaderMemoryResult);
+
+    expect(html).not.toContain("Open Psychiatrist");
+    expect(html).not.toContain("data-psychiatrist-dock");
+  });
+
   it("renders the reader title before taxonomy without hiding the body h1", () => {
     const html = renderReader({
       ...readyResult,

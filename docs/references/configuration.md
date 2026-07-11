@@ -130,12 +130,13 @@ database path, dev smoke tuning, fixture mode, or browser import origin/size
 limits, should be set explicitly in the shell or CI job that needs them. They
 are intentionally not part of `.env.example`.
 
-## Codex App-Server Translation Environment
+## Codex App-Server Environment
 
-Brilliant translation is optional and uses a separately running Codex
-app-server. TRAUMA does not start or supervise that process.
+Brilliant translation and Psychiatrist are optional backend-only consumers of a
+separately running Codex app-server. TRAUMA does not start or supervise that
+process.
 
-Use the Codex app-server Unix listener when enabling translation:
+Use the Codex app-server Unix listener when enabling these features:
 
 ```bash
 codex app-server --listen unix://
@@ -148,3 +149,9 @@ For `unix://`, TRAUMA connects to Codex's default app-server control socket at
 different socket path. Loopback WebSocket endpoints are not supported. `http://`,
 `https://`, `ws://`, and `stdio://` are rejected because they are not Brilliant
 wire-protocol transports.
+
+Psychiatrist does not add shell, local file editing, project-root, or
+memory-store filesystem access configuration. Psychiatrist app-server turns use
+the same backend transport boundary and deny network access by default. Web
+source lookup is per turn and may be enabled only after the user explicitly
+approves source lookup for that answer.
