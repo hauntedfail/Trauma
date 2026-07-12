@@ -700,14 +700,21 @@ export async function loadPsychiatristTurnTerminalStatus(input: {
 export async function reconcileInactivePsychiatristTurns(input: {
   activeTurnIds: string[];
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId?: string;
   threadId: string;
 }): Promise<boolean> {
   const activeTurnIds = new Set(input.activeTurnIds);
   return withThreadMutationLock(input.config, input.threadId, async () => {
-    const loaded = await loadPsychiatristThread({
-      config: input.config,
-      threadId: input.threadId,
-    });
+    const loaded = input.memoryId === undefined
+      ? await loadPsychiatristThread({
+        config: input.config,
+        threadId: input.threadId,
+      })
+      : await loadPsychiatristThreadForMemory({
+        config: input.config,
+        memoryId: input.memoryId,
+        threadId: input.threadId,
+      });
     let changed = false;
     const now = new Date().toISOString();
     const interruptedRegenerateTurnIds = new Set<string>();
@@ -817,6 +824,34 @@ export async function loadPsychiatristThread(input: {
 }> {
   validateSafeId(input.threadId);
   const manifest = await findThreadManifest(input.config, input.threadId);
+  if (manifest === undefined) {
+    throw new PsychiatristThreadStoreError(
+      "thread_not_found",
+      "Psychiatrist thread was not found.",
+    );
+  }
+  const rows = await readPairRevisionRows(input.config, manifest);
+  return {
+    manifest,
+    pairs: await hydratePairRetryActions(input.config, manifest, reducePairRows(rows)),
+  };
+}
+
+export async function loadPsychiatristThreadForMemory(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId: string;
+  threadId: string;
+}): Promise<{
+  manifest: PsychiatristThreadManifest;
+  pairs: PsychiatristThreadPair[];
+}> {
+  validateSafeId(input.memoryId);
+  validateSafeId(input.threadId);
+  const manifest = await findThreadManifestForMemory(
+    input.config,
+    input.memoryId,
+    input.threadId,
+  );
   if (manifest === undefined) {
     throw new PsychiatristThreadStoreError(
       "thread_not_found",
@@ -986,6 +1021,32 @@ async function findThreadManifest(
     return parseThreadManifest(raw);
   }
   return undefined;
+}
+
+async function findThreadManifestForMemory(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  memoryId: string,
+  threadId: string,
+): Promise<PsychiatristThreadManifest | undefined> {
+  const path = join(
+    resolve(config.storePath),
+    "memories",
+    memoryId,
+    "threads",
+    threadId,
+    "THREAD.json",
+  );
+  try {
+    const manifest = parseThreadManifest(JSON.parse(await readFile(path, "utf8")));
+    return manifest.memoryId === memoryId && manifest.threadId === threadId
+      ? manifest
+      : undefined;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function readPairRevisionRows(

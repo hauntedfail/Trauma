@@ -41,6 +41,7 @@ import type {
 } from "../../../src/server/translation/codex-app-server";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
+const MEMORY_ID_2 = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f002";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
 const THREAD_ID_2 = "019e8a00-0000-7000-8000-000000000006";
 const PAIR_ID = "019e8a00-0000-7000-8000-000000000002";
@@ -312,8 +313,10 @@ describe("Psychiatrist thread API routes", () => {
     });
     const read = await readHandler(
       createApiEvent(
-        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
-        { threadId: THREAD_ID },
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
     );
 
@@ -361,8 +364,10 @@ describe("Psychiatrist thread API routes", () => {
       config: { storePath },
     })(
       createApiEvent(
-        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
-        { threadId: THREAD_ID },
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
     );
 
@@ -415,8 +420,10 @@ describe("Psychiatrist thread API routes", () => {
       config: { storePath },
     })(
       createApiEvent(
-        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
-        { threadId: THREAD_ID },
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
     );
 
@@ -583,37 +590,43 @@ describe("Psychiatrist thread API routes", () => {
   it("reads a stored thread as safe JSON", async () => {
     const handler = createReadPsychiatristThreadHandler({
       config: { storePath: "/private/tmp/secret-store" },
-      loadThread: async () => ({
-        manifest: {
-          activeContentHash: "sha256:context",
-          createdAt: "2026-06-01T00:00:00.000Z",
-          memoryId: MEMORY_ID,
-          policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
-          sourceHash: "sha256:source",
-          status: "ready",
-          threadId: THREAD_ID,
-          updatedAt: "2026-06-01T00:00:00.000Z",
-          variantKind: "source",
-        },
-        pairs: [
-          {
-            assistant: undefined,
-            pairId: PAIR_ID,
-            status: "pending",
-            turnId: TURN_ID,
-            user: {
-              content: "What is next?",
-              createdAt: "2026-06-01T00:00:01.000Z",
-            },
+      loadThread: async (input) => {
+        expect(input.memoryId).toBe(MEMORY_ID);
+        expect(input.threadId).toBe(THREAD_ID);
+        return {
+          manifest: {
+            activeContentHash: "sha256:context",
+            createdAt: "2026-06-01T00:00:00.000Z",
+            memoryId: MEMORY_ID,
+            policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+            sourceHash: "sha256:source",
+            status: "ready",
+            threadId: THREAD_ID,
+            updatedAt: "2026-06-01T00:00:00.000Z",
+            variantKind: "source",
           },
-        ],
-      }),
+          pairs: [
+            {
+              assistant: undefined,
+              pairId: PAIR_ID,
+              status: "pending",
+              turnId: TURN_ID,
+              user: {
+                content: "What is next?",
+                createdAt: "2026-06-01T00:00:01.000Z",
+              },
+            },
+          ],
+        };
+      },
     });
 
     const response = await handler(
       createApiEvent(
-        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
-        { threadId: THREAD_ID },
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
     );
 
@@ -640,6 +653,34 @@ describe("Psychiatrist thread API routes", () => {
       variant_kind: "source",
     });
     expect(JSON.stringify(body)).not.toContain("/private/tmp/secret-store");
+  });
+
+  it("does not discover a thread owned by another memory", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-scoped-read-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({ memoryId: MEMORY_ID_2 }),
+    });
+    const handler = createReadPsychiatristThreadHandler({
+      config: { storePath },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      action: "open_reader",
+      code: "thread_not_found",
+      message: "Psychiatrist thread was not found.",
+      status: "error",
+    });
   });
 
   it("sends a message, persists the pair, and records replayable stream events", async () => {
@@ -1114,8 +1155,10 @@ describe("Psychiatrist thread API routes", () => {
       config: { storePath },
     })(
       createApiEvent(
-        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}`),
-        { threadId: THREAD_ID },
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
     );
     expect(threadResponse.status).toBe(200);

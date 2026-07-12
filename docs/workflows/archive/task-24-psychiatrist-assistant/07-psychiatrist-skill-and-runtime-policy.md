@@ -83,6 +83,9 @@ Implementation rules:
   `networkAccess` is disabled.
 - Thread artifact writes remain TRAUMA server responsibilities after route
   validation and Codex output validation.
+- Required thread-artifact backup enqueue remains server-owned and grants the
+  app-server no SQLite or backup capabilities. Only the built-in queue performs
+  its existing backup status, timestamp, and error bookkeeping.
 
 ## Permission To Runtime Mapping
 
@@ -113,6 +116,15 @@ observe a typed conversation result with
 `networkPermissionRequest.reason = "current_web_sources_required"`. The server
 must not infer the approval checkpoint by parsing prompt prose, assistant
 `outputText`, or visible process text.
+
+## Sequencing Boundary
+
+24.7 runs before the message and Regenerate routes are created in 24.3 and 24.8.
+This subtask therefore verifies the policy through the repo-local skill, prompt
+builder, shared types, and app-server adapter only. Route-specific projections
+and request-mapping assertions belong to 24.3 after the message route exists,
+with safety and same-pair retry assertions added by the later safety and
+Regenerate subtasks after their routes exist.
 
 ## Pair And Network Flow
 
@@ -209,17 +221,14 @@ Extend `tests/server/psychiatrist/prompt.test.ts`:
 - Prompt with `webSourcePolicy.allowed = true` says web sources are allowed only
   when memory context plus the user prompt requires them and citations are
   required.
-- Prompt and route tests assert the permission-to-runtime mapping table: denied
-  routes produce `web_source_policy.reason = "default_denied"` and
-  `networkAccess = "disabled"`; approved routes produce
-  `web_source_policy.reason = "user_approved_for_turn"` and
-  `networkAccess = "user_approved_web_sources"` only for that turn. Same-pair
-  approved retries after `network_permission_required` require `retry_pair_id`
-  and `retry_turn_id`, reject omitted or mismatched values, and validate the
-  original thread, pair, turn, accepted prompt, memory id, and variant identity;
-  normal first approved sends do not require retry fields.
-- Route tests assert `network_permission_required` is driven by the typed
-  conversation result, not by parsing assistant text.
+- Prompt tests assert denied policy uses
+  `web_source_policy.reason = "default_denied"` and approved policy uses
+  `web_source_policy.reason = "user_approved_for_turn"` only for the current
+  turn.
+- Route tests are deferred until their owning route and safety subtasks. Those
+  tests must assert the corresponding `networkAccess` mapping, same-pair retry
+  identity checks, and typed `network_permission_required` result handling
+  without parsing assistant text.
 
 Extend `tests/server/translation/codex-app-server.test.ts`:
 

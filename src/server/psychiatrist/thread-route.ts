@@ -21,6 +21,7 @@ import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
   loadPsychiatristThread,
+  loadPsychiatristThreadForMemory,
   PsychiatristThreadStoreError,
   reconcileInactivePsychiatristTurns,
 } from "./thread-store";
@@ -33,7 +34,7 @@ import type {
 type BuildContext = typeof buildPsychiatristMemoryContext;
 type CreateThread = typeof createPsychiatristThread;
 type FindLatestThread = typeof findLatestPsychiatristThread;
-type LoadThread = typeof loadPsychiatristThread;
+type LoadThreadForMemory = typeof loadPsychiatristThreadForMemory;
 
 type ThreadPayload =
   | { ok: true; langCode?: string; resumeLatest: boolean }
@@ -54,7 +55,7 @@ export function createStartPsychiatristThreadHandler(input: {
 
 export function createReadPsychiatristThreadHandler(input: {
   config?: Pick<ResolvedTraumaConfig, "storePath">;
-  loadThread?: LoadThread;
+  loadThread?: LoadThreadForMemory;
 } = {}) {
   return async function readPsychiatristThread(event: APIEvent): Promise<Response> {
     return handleReadPsychiatristThreadRequest(event, input);
@@ -116,7 +117,10 @@ export async function handleStartPsychiatristThreadRequest(
         const thread = input.findLatestThread === undefined
           ? await reconcileThreadForResponse({
             config,
-            loadThread: loadPsychiatristThread,
+            reloadThread: () => loadPsychiatristThread({
+              config,
+              threadId: latest.manifest.threadId,
+            }),
             thread: latest,
           })
           : latest;
@@ -150,22 +154,32 @@ export async function handleReadPsychiatristThreadRequest(
   event: APIEvent,
   input: {
     config?: Pick<ResolvedTraumaConfig, "storePath">;
-    loadThread?: LoadThread;
+    loadThread?: LoadThreadForMemory;
   } = {},
 ): Promise<Response> {
+  const memoryId = event.params.memoryId?.trim();
+  if (memoryId === undefined || memoryId === "") {
+    return safeErrorResponse("invalid_request", "memoryId must be a non-empty string.", 400);
+  }
   const threadId = event.params.threadId?.trim();
   if (threadId === undefined || threadId === "") {
     return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
   }
   const config = input.config ?? loadRuntimeTraumaConfig();
   try {
-    const loadThread = input.loadThread ?? loadPsychiatristThread;
+    const loadThread = input.loadThread ?? loadPsychiatristThreadForMemory;
     let thread = await loadThread({
       config,
+      memoryId,
       threadId,
     });
     if (input.loadThread === undefined) {
-      thread = await reconcileThreadForResponse({ config, loadThread, thread });
+      thread = await reconcileThreadForResponse({
+        config,
+        memoryId,
+        reloadThread: () => loadThread({ config, memoryId, threadId }),
+        thread,
+      });
     }
     return jsonResponse(toThreadResponse(thread), { status: 200 });
   } catch (error) {
@@ -175,7 +189,11 @@ export async function handleReadPsychiatristThreadRequest(
 
 async function reconcileThreadForResponse(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
-  loadThread: LoadThread;
+  memoryId?: string;
+  reloadThread: () => Promise<{
+    manifest: PsychiatristThreadManifest;
+    pairs: PsychiatristThreadPair[];
+  }>;
   thread: {
     manifest: PsychiatristThreadManifest;
     pairs: PsychiatristThreadPair[];
@@ -192,10 +210,11 @@ async function reconcileThreadForResponse(input: {
   const changed = await reconcileInactivePsychiatristTurns({
     activeTurnIds: activeTurn === undefined ? [] : [activeTurn.turnId],
     config: input.config,
+    ...(input.memoryId === undefined ? {} : { memoryId: input.memoryId }),
     threadId,
   });
   return changed
-    ? input.loadThread({ config: input.config, threadId })
+    ? input.reloadThread()
     : input.thread;
 }
 

@@ -23,7 +23,8 @@ for SSE fan-out, cancellation, and app-server turn ids.
 - Create: `src/server/psychiatrist/events-route.ts`
 - Create: `src/server/psychiatrist/cancel-route.ts`
 - Create: `src/routes/api/memories/[memoryId]/psychiatrist/threads.ts`
-- Create: `src/routes/api/psychiatrist-threads/[threadId].ts`
+- Create:
+  `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId].ts`
 - Create:
   `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/messages.ts`
 - Create:
@@ -189,15 +190,18 @@ Successful response:
 Read thread:
 
 ```http
-GET /api/psychiatrist-threads/:threadId
+GET /api/memories/:memoryId/psychiatrist/threads/:threadId
 ```
 
 This returns the safe thread manifest and stored pairs for a thread that still
-belongs to an existing memory and active variant. The API may project pairs into
-message bubbles for UI convenience, but the storage source of truth remains the
-pair row. If a turn is still running, the response includes `active_turn` with
-the same `pair_id`, `turn_id`, `status`, and `event_url` so the browser can
-resume streaming after route navigation or reload.
+belongs to the requested existing memory and active variant. The lookup resolves
+the requested memory directory directly and verifies both manifest ids; it does
+not scan other memories by thread id. A missing or cross-memory thread returns
+the same safe `thread_not_found` response. The API may project pairs into message
+bubbles for UI convenience, but the storage source of truth remains the pair
+row. If a turn is still running, the response includes `active_turn` with the
+same `pair_id`, `turn_id`, `status`, and `event_url` so the browser can resume
+streaming after route navigation or reload.
 
 Send message:
 

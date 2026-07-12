@@ -100,8 +100,10 @@ Out of scope for this branch:
 - Archive-wide or cross-memory assistant thread history.
 - Global assistant surfaces on browse, flashbacks, settings, or shell routes.
 - Vector search, embedding indexes, or archive-wide retrieval.
-- Letting Psychiatrist modify memories, tags, categories, flashbacks, moments,
-  translations, files, settings, or git backup state.
+- Direct Psychiatrist domain writes to memories, tags, categories, flashbacks,
+  moments, translations, files, settings, or git backup configuration. Required
+  thread-artifact backup enqueue remains server-owned and is limited to the
+  built-in queue's existing bookkeeping.
 - Creating new threads or pairs for Regenerate. Regenerate updates the existing
   pair/thread artifacts only.
 - Shell execution, local file editing, or local filesystem browsing from inside
@@ -155,10 +157,15 @@ Out of scope for this branch:
   their existing behavior when the chat input is not focused.
 - `prefers-reduced-motion: reduce` disables transform-heavy expansion and keeps
   open/close transitions usable.
-- Asking Psychiatrist may write only thread artifacts under the active memory's
-  `threads/` subtree. It must not modify canonical `CONTENT.md`, translated
-  `CONTENT.md`, Flashbacks, Moments, taxonomy, SQLite rows, settings rows, or
-  translation jobs.
+- Psychiatrist domain data may be written only as thread artifacts under the
+  active memory's `threads/` subtree. It must not modify canonical `CONTENT.md`,
+  translated `CONTENT.md`, Flashbacks, Moments, taxonomy, SQLite domain rows,
+  settings rows, or translation jobs.
+- Enqueuing the required built-in git backup is the only SQLite bookkeeping
+  exception: the existing queue may update only backup status, timestamps, and
+  error bookkeeping on the owning memory row. These queue-owned fields must not
+  contain Psychiatrist transcripts, prompts, answers, or other Psychiatrist
+  domain data.
 - Regenerate may overwrite only the existing response Markdown artifact and the
   thread Markdown projection for the same pair/thread. It must enqueue git
   backup for those thread artifacts with a regenerate-specific backup reason.
@@ -180,7 +187,7 @@ Out of scope for this branch:
 | --- | --- | --- | --- |
 | 24.1 | [Codex conversation adapter](01-codex-conversation-adapter.md) | M | Add a generic, fakeable app-server turn interface without breaking translation. |
 | 24.2 | [Memory context and prompt contract](02-memory-context-and-prompt-contract.md) | M | Build the server-side memory context snapshot and locked-down Psychiatrist prompt. |
-| 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Extend the 24.2 prompt/context scaffolding with the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and user-approved network boundary before downstream route, storage, and UI consumers rely on it. |
+| 24.7 | [Psychiatrist skill and runtime policy](07-psychiatrist-skill-and-runtime-policy.md) | M | Extend the 24.2 prompt/context scaffolding with the policy skill, deterministic prompt provenance, no-shell/no-file runtime contract, and adapter-level user-approved network boundary before downstream route, storage, and UI consumers rely on it. |
 | 24.3 | [Thread storage, API, and streaming events](03-thread-storage-api-and-streaming-events.md) | L | Create memory-local pair storage, message/event routes, and short-lived active-turn state. |
 | 24.4 | [Reader floating dock and chat UI](04-reader-floating-dock-and-chat-ui.md) | L | Render the iOS-style home bar, animated panel, input, transcript, and client state. |
 | 24.5 | [Safety, freshness, and error handling](05-safety-freshness-and-errors.md) | M | Harden stale-context checks, prompt-injection boundaries, cancel/retry, and safe messages. |
@@ -188,6 +195,11 @@ Out of scope for this branch:
 | 24.8 | [Streaming continuity, Stop, Regenerate, and backup](08-streaming-continuity-regenerate-backup.md) | L | Persist visible process streams, resume running turns after navigation/reload, add Stop and Regenerate semantics, and back up regenerated Markdown artifacts. |
 | 24.9 | [Completion audit](09-completion-audit.md) | M | Map the workflow exec-plan to current implementation evidence and confirm no missing requirements remain. |
 | 24.10 | [Review-driven contract hardening](10-review-driven-contract-hardening/README.md) | XL | Reopen the completion audit after PR review, deduplicate repeated feedback, and repair the file-scoped contracts behind the fragile fixes. |
+
+Because 24.7 runs before the message and Regenerate routes are created in 24.3
+and 24.8, it verifies only the skill, prompt, type, and app-server adapter policy
+available at that stage. Route-specific mapping assertions are deferred to 24.3
+and the later safety and retry subtasks after the relevant routes exist.
 
 ## 24.10 Reopened Audit
 
