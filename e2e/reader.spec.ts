@@ -490,6 +490,101 @@ test("keeps a terminal psychiatrist turn final when its pending Stop request lat
     .toBeEnabled();
 });
 
+test("adopts a canonical successor after a successful canceled response", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    activeTurnAfterCancel: {
+      pairId: "pair-e2e-successor",
+      turnId: "turn-e2e-successor",
+    },
+    cancelResults: ["canceled"],
+    sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Cancel only the old turn.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
+  await expect.poll(async () => page.evaluate(() =>
+    ((window as unknown as { __psychiatristEventSourceUrls?: string[] })
+      .__psychiatristEventSourceUrls ?? [])
+      .some((url) => url.includes("turn-e2e-successor"))
+  )).toBe(true);
+});
+
+test("becomes idle when a rejected cancel response persisted cancellation", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    canonicalizeRejectedCancel: true,
+    rejectNextCancel: true,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("The server may cancel despite the response.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect.poll(() => mock.threadRequests).toBeGreaterThan(1);
+});
+
+test("restores the exact old active turn after an ambiguous cancel failure", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    rejectNextCancel: true,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Keep running if canonical state says so.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect.poll(() => mock.threadRequests).toBeGreaterThan(1);
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
+  await expect(page.getByRole("paragraph").filter({
+    hasText: "Psychiatrist could not finish. Retry when ready.",
+  })).toBeVisible();
+});
+
+test("keeps canceled Stop non-repeatable until failed reconciliation is retried", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    cancelResults: ["canceled"],
+    threadFailureRequests: [2],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Retry canonical reconciliation.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
+  await page.getByRole("button", { name: "Retry thread load" }).click();
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+});
+
 test("adopts a different canonical active turn after the stopped turn completed", async ({
   page,
 }) => {
@@ -1005,6 +1100,7 @@ async function installPsychiatristMock(
   input: {
     activeTurnAfterCancel?: { pairId: string; turnId: string };
     cancelResults?: Array<"canceled" | "completed" | "failed">;
+    canonicalizeRejectedCancel?: boolean;
     deferNextCancel?: boolean;
     deferNextRegenerate?: boolean;
     deferNextSend?: boolean;
@@ -1271,7 +1367,7 @@ async function installPsychiatristMock(
         state.releaseCancel = resolve;
       });
     }
-    if (input.rejectNextCancel === true) {
+    if (input.rejectNextCancel === true && input.canonicalizeRejectedCancel !== true) {
       await route.fulfill({
         contentType: "application/json",
         status: 500,
@@ -1283,6 +1379,12 @@ async function installPsychiatristMock(
         }),
       });
       return;
+    }
+    if (cancelStatus === "canceled" && activeTurn !== null) {
+      const canceledTurnId = activeTurn.turn_id;
+      pairs = pairs.map((pair) =>
+        pair.turn_id === canceledTurnId ? { ...pair, status: "canceled" } : pair
+      );
     }
     activeTurn = input.activeTurnAfterCancel === undefined
       ? null
@@ -1307,6 +1409,19 @@ async function installPsychiatristMock(
           },
         },
       ];
+    }
+    if (input.rejectNextCancel === true) {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({
+          action: "retry",
+          code: "timeout",
+          message: "Cancel timed out after the turn became terminal.",
+          status: "error",
+        }),
+      });
+      return;
     }
     await route.fulfill({
       contentType: "application/json",

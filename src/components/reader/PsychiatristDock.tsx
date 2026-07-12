@@ -47,6 +47,9 @@ interface StreamGeneration extends ThreadRequestGeneration {
 
 type PsychiatristThreadLoadState = "idle" | "loading" | "ready" | "error";
 type PsychiatristTurnPhase = "idle" | "starting" | "running" | "stopping";
+type PendingStopReconciliation =
+  | { kind: "terminal"; status: "canceled" | "completed" | "failed" }
+  | { errorMessage: string; kind: "ambiguous" };
 
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
@@ -70,7 +73,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   let isDisposed = false;
   let readerGeneration = 0;
   let streamGeneration = 0;
-  let pendingStopTerminalStatus: "completed" | "failed" | undefined;
+  let pendingStopReconciliation: PendingStopReconciliation | undefined;
   let loadedReaderThreadKey = readPsychiatristReaderGenerationIdentity(
     props.memoryId,
     props.langCode,
@@ -161,7 +164,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const resetThreadStateForMemoryChange = () => {
     clearRunningTurnState();
-    pendingStopTerminalStatus = undefined;
+    pendingStopReconciliation = undefined;
     setThread(undefined);
     setThreadLoadState("idle");
     setTranscriptPairs([]);
@@ -233,6 +236,56 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setLiveStatusMessage(message);
       return false;
     }
+  };
+  const reconcilePendingStop = async (input: {
+    pairId: string;
+    readerRequest: ReaderRequestGeneration;
+    turnId: string;
+  }) => {
+    const reconciliation = pendingStopReconciliation;
+    if (reconciliation === undefined) {
+      return;
+    }
+    const reloaded = await loadThread({ preserveTurnPhase: true });
+    if (
+      !reloaded ||
+      pendingStopReconciliation !== reconciliation ||
+      !isCurrentReaderRequestGeneration(input.readerRequest) ||
+      !isCurrentThreadResponse(reloaded) ||
+      runningPairId() !== input.pairId ||
+      runningTurnId() !== input.turnId
+    ) {
+      return;
+    }
+    pendingStopReconciliation = undefined;
+    const activeTurn = reloaded.active_turn;
+    if (
+      activeTurn !== null &&
+      (
+        activeTurn.pair_id !== input.pairId ||
+        activeTurn.turn_id !== input.turnId
+      )
+    ) {
+      adoptRunningTurn(reloaded);
+      return;
+    }
+    if (activeTurn !== null && reconciliation.kind === "ambiguous") {
+      adoptRunningTurn(reloaded);
+      setErrorMessage(reconciliation.errorMessage);
+      setLiveStatusMessage(reconciliation.errorMessage);
+      return;
+    }
+    if (
+      reconciliation.kind === "terminal" &&
+      webSourceRetryPrompt() === ""
+    ) {
+      setLiveStatusMessage(reconciliation.status === "canceled"
+        ? "Psychiatrist turn stopped."
+        : reconciliation.status === "completed"
+        ? "Psychiatrist response completed."
+        : "Psychiatrist response failed.");
+    }
+    clearRunningTurnState();
   };
   const submitPrompt = async (
     webSourcePermission: "deny" | "allow_for_this_turn" = "deny",
@@ -386,38 +439,13 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           turnId,
           type: "psychiatrist.turn.canceled",
         }));
-        setLiveStatusMessage("Psychiatrist turn stopped.");
-        clearRunningTurnState();
-        return;
       }
-      pendingStopTerminalStatus = result.status;
-      const reloaded = await loadThread({ preserveTurnPhase: true });
-      if (
-        !reloaded ||
-        !isCurrentReaderRequestGeneration(request) ||
-        !isCurrentThreadResponse(reloaded) ||
-        runningPairId() !== pairId ||
-        runningTurnId() !== turnId
-      ) {
-        return;
-      }
-      pendingStopTerminalStatus = undefined;
-      if (
-        reloaded.active_turn !== null &&
-        (
-          reloaded.active_turn.pair_id !== pairId ||
-          reloaded.active_turn.turn_id !== turnId
-        )
-      ) {
-        adoptRunningTurn(reloaded);
-        return;
-      }
-      if (webSourceRetryPrompt() === "") {
-        setLiveStatusMessage(result.status === "completed"
-          ? "Psychiatrist response completed."
-          : "Psychiatrist response failed.");
-      }
-      clearRunningTurnState();
+      pendingStopReconciliation = { kind: "terminal", status: result.status };
+      await reconcilePendingStop({
+        pairId,
+        readerRequest: request,
+        turnId,
+      });
     } catch (error) {
       if (
         !isCurrentThreadRequestGeneration(request) ||
@@ -428,9 +456,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         return;
       }
       const errorText = getPsychiatristErrorMessage(error);
-      setTurnPhase("running");
-      setErrorMessage(errorText);
-      setLiveStatusMessage(errorText);
+      pendingStopReconciliation = {
+        errorMessage: errorText,
+        kind: "ambiguous",
+      };
+      await reconcilePendingStop({
+        pairId,
+        readerRequest: request,
+        turnId,
+      });
     }
   };
   const regeneratePair = async (pair: PsychiatristTranscriptPair) => {
@@ -507,41 +541,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (threadLoadState() === "loading") {
       return;
     }
-    if (turnPhase() !== "stopping" || pendingStopTerminalStatus === undefined) {
+    if (turnPhase() !== "stopping" || pendingStopReconciliation === undefined) {
       await loadThread();
       return;
     }
     const pairId = runningPairId();
     const turnId = runningTurnId();
     const request = captureReaderRequestGeneration();
-    const terminalStatus = pendingStopTerminalStatus;
-    const reloaded = await loadThread({ preserveTurnPhase: true });
-    if (
-      !reloaded ||
-      !isCurrentReaderRequestGeneration(request) ||
-      !isCurrentThreadResponse(reloaded) ||
-      runningPairId() !== pairId ||
-      runningTurnId() !== turnId
-    ) {
-      return;
-    }
-    pendingStopTerminalStatus = undefined;
-    if (
-      reloaded.active_turn !== null &&
-      (
-        reloaded.active_turn.pair_id !== pairId ||
-        reloaded.active_turn.turn_id !== turnId
-      )
-    ) {
-      adoptRunningTurn(reloaded);
-      return;
-    }
-    if (webSourceRetryPrompt() === "") {
-      setLiveStatusMessage(terminalStatus === "completed"
-        ? "Psychiatrist response completed."
-        : "Psychiatrist response failed.");
-    }
-    clearRunningTurnState();
+    await reconcilePendingStop({
+      pairId,
+      readerRequest: request,
+      turnId,
+    });
   };
   const handleKeyDown = (event: KeyboardEvent) => {
     if (!isOpen()) {
@@ -602,6 +613,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       } else if (event.type === "psychiatrist.turn.canceled") {
         setLiveStatusMessage("Psychiatrist turn stopped.");
       }
+      pendingStopReconciliation = undefined;
       clearRunningTurnState();
     }
   };
