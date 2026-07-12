@@ -372,8 +372,116 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
   expect(eventSourceUrls.some((url) => url.includes("turn-e2e-running"))).toBe(true);
 
   await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByText("Partial answer from the memory")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
   expect(mock.cancelRequests).toBe(1);
+});
+
+test("reloads the canonical psychiatrist thread when completion wins the Stop race", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    cancelResults: ["completed"],
+    deferNextCancel: true,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Finish while Stop races.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+
+  const stopClick = page.getByRole("button", { name: "Stop" }).click();
+
+  await expect.poll(() => mock.releaseCancel !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
+  mock.releaseCancel?.();
+  await stopClick;
+
+  await expect(page.getByText("Canonical answer completed before cancellation."))
+    .toBeVisible();
+  await expect(page.getByText("Partial answer from the memory")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+  expect(mock.threadRequests).toBeGreaterThan(1);
+});
+
+test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, { deferNextSend: true });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Wait for identifiers.");
+  const sendClick = page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("button", { name: "Starting…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  await expect.poll(() => mock.releaseSend !== undefined).toBe(true);
+  mock.releaseSend?.();
+  await sendClick;
+  await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+});
+
+test("keeps psychiatrist actions disabled until thread loading succeeds and can retry", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, { threadFailures: 1 });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Retry thread load" })).toBeVisible();
+  await expect(page.getByRole("status"))
+    .toContainText("Start the Codex app-server, then retry Psychiatrist.");
+
+  await page.getByRole("button", { name: "Retry thread load" }).click();
+
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+  await expect(page.getByRole("button", { name: "Retry thread load" })).toHaveCount(0);
+});
+
+test("native-disables every Regenerate action while a psychiatrist turn is busy", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const secondPair = {
+    ...completedPsychiatristPair("Second completed answer."),
+    pair_id: "pair-e2e-second",
+    turn_id: "turn-e2e-second",
+  };
+  const mock = await installPsychiatristMock(page, {
+    deferNextRegenerate: true,
+    initialPairs: [
+      completedPsychiatristPair("First completed answer."),
+      secondPair,
+    ],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const regenerateButtons = page.getByRole("button", { name: "Regenerate" });
+  await expect(regenerateButtons).toHaveCount(2);
+  const regenerateClick = regenerateButtons.first().click();
+
+  await expect.poll(() => mock.releaseRegenerate !== undefined).toBe(true);
+  await expect(regenerateButtons.nth(0)).toBeDisabled();
+  await expect(regenerateButtons.nth(1)).toBeDisabled();
+  mock.releaseRegenerate?.();
+  await regenerateClick;
 });
 
 test("keeps a newer psychiatrist turn running when the stopped stream delivers a late terminal event", async ({
@@ -521,7 +629,9 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   mock.failNextRegenerate = true;
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible();
   await page.getByRole("button", { name: "Regenerate" }).click();
-  await expect(page.getByText("Psychiatrist could not finish. Retry when ready."))
+  await expect(page.getByRole("paragraph").filter({
+    hasText: "Psychiatrist could not finish. Retry when ready.",
+  }))
     .toBeVisible();
 
   mock.stopNextRegenerate = true;
@@ -559,7 +669,9 @@ test("requires per-turn psychiatrist web-source approval before recording source
   await page.locator("textarea").fill("Use current web sources for this memory.");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByText("Allow web search/source lookup for this answer to continue."))
+  await expect(page.getByRole("paragraph").filter({
+    hasText: "Allow web search/source lookup for this answer to continue.",
+  }))
     .toBeVisible();
   await expect(page.getByRole("button", { name: "Allow web sources for this turn" }))
     .toBeVisible();
@@ -607,6 +719,9 @@ interface PsychiatristMockState {
     pairId: string;
     web_source_permission: string;
   }>;
+  releaseCancel?: () => void;
+  releaseRegenerate?: () => void;
+  releaseSend?: () => void;
   startedRequests: Array<{
     message: string;
     web_source_permission: string;
@@ -642,8 +757,13 @@ interface PsychiatristPairFixture {
 async function installPsychiatristMock(
   page: Page,
   input: {
+    cancelResults?: Array<"canceled" | "completed" | "failed">;
+    deferNextCancel?: boolean;
+    deferNextRegenerate?: boolean;
+    deferNextSend?: boolean;
     initialPairs?: PsychiatristPairFixture[];
     sendTurns?: Array<{ pairId: string; turnId: string }>;
+    threadFailures?: number;
   } = {},
 ): Promise<PsychiatristMockState> {
   await page.addInitScript(installFakeEventSourceInBrowser, psychiatristEventFramesByTurn());
@@ -660,10 +780,26 @@ async function installPsychiatristMock(
   };
   let activeTurn: { pair_id: string; turn_id: string } | null = null;
   let acceptedSendCount = 0;
+  let cancelCount = 0;
   let pairs = [...(input.initialPairs ?? [])];
+  let remainingThreadFailures = input.threadFailures ?? 0;
 
   await page.route(`**/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`, async (route) => {
     state.threadRequests += 1;
+    if (remainingThreadFailures > 0) {
+      remainingThreadFailures -= 1;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 503,
+        body: JSON.stringify({
+          action: "retry",
+          code: "app_server_unavailable",
+          message: "Psychiatrist thread loading failed.",
+          status: "error",
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -753,6 +889,12 @@ async function installPsychiatristMock(
       },
     ];
 
+    if (input.deferNextSend === true && state.releaseSend === undefined) {
+      await new Promise<void>((resolve) => {
+        state.releaseSend = resolve;
+      });
+    }
+
     await route.fulfill({
       contentType: "application/json",
       status: 202,
@@ -806,6 +948,11 @@ async function installPsychiatristMock(
       response_path: `pairs/${pairId}/RESPONSE.md`,
       thread_id: "thread-e2e",
     };
+    if (input.deferNextRegenerate === true && state.releaseRegenerate === undefined) {
+      await new Promise<void>((resolve) => {
+        state.releaseRegenerate = resolve;
+      });
+    }
     await route.fulfill({
       contentType: "application/json",
       status: 202,
@@ -815,6 +962,9 @@ async function installPsychiatristMock(
 
   await page.route("**/psychiatrist/threads/thread-e2e/turns/*/cancel", async (route) => {
     state.cancelRequests += 1;
+    const turnId = route.request().url().match(/\/turns\/([^/]+)\/cancel/)?.[1] ?? "";
+    const cancelStatus = input.cancelResults?.[cancelCount] ?? "canceled";
+    cancelCount += 1;
     if (activeTurn?.turn_id === "turn-e2e-regenerate-stopped") {
       pairs = pairs.map((pair) =>
         pair.pair_id === "pair-e2e"
@@ -822,8 +972,42 @@ async function installPsychiatristMock(
           : pair
       );
     }
+    if (cancelStatus === "completed" && activeTurn !== null) {
+      const completedPairId = activeTurn.pair_id;
+      pairs = pairs.map((pair) =>
+        pair.pair_id === completedPairId
+          ? {
+              ...pair,
+              assistant_response: {
+                completed_at: "2026-06-03T00:00:03.000Z",
+                content: "Canonical answer completed before cancellation.",
+                source_citations: [],
+              },
+              status: "completed",
+            }
+          : pair
+      );
+    }
+    if (cancelStatus === "failed" && activeTurn !== null) {
+      const failedPairId = activeTurn.pair_id;
+      pairs = pairs.map((pair) =>
+        pair.pair_id === failedPairId ? { ...pair, status: "failed" } : pair
+      );
+    }
+    if (input.deferNextCancel === true && state.releaseCancel === undefined) {
+      await new Promise<void>((resolve) => {
+        state.releaseCancel = resolve;
+      });
+    }
     activeTurn = null;
-    await route.fulfill({ status: 204 });
+    await route.fulfill({
+      contentType: "application/json",
+      status: cancelStatus === "canceled" ? 202 : 200,
+      body: JSON.stringify({
+        status: cancelStatus,
+        turn_id: turnId,
+      }),
+    });
   });
 
   await page.route("**/psychiatrist/threads/thread-e2e/turns/*/events*", async (route) => {

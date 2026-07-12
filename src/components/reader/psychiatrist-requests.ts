@@ -1,4 +1,5 @@
 import type {
+  PsychiatristCancelResult,
   PsychiatristThreadResponse,
   PsychiatristTurnStartedResponse,
   PsychiatristWebSourcePermission,
@@ -118,8 +119,8 @@ export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInpu
   fetch?: BrowserFetch;
   pairId: string;
   turnId: string;
-}): Promise<void> {
-  await requestJson<unknown>({
+}): Promise<PsychiatristCancelResult> {
+  const value = await requestJson<unknown>({
     body: {
       lang_code: input.langCode ?? null,
       memory_id: input.memoryId,
@@ -132,6 +133,15 @@ export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInpu
     path: scopedThreadPath(input) +
       `/turns/${encodeURIComponent(input.turnId)}/cancel`,
   });
+  if (!isPsychiatristCancelResult(value) || value.turn_id !== input.turnId) {
+    throw new PsychiatristRequestError({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist cancel response was invalid.",
+      responseStatus: 200,
+    });
+  }
+  return value;
 }
 
 export async function regeneratePsychiatristResponse(input: PsychiatristRequestScopeInput & {
@@ -203,4 +213,24 @@ async function readRequestError(response: Response): Promise<PsychiatristRequest
       responseStatus: response.status,
     });
   }
+}
+
+function isPsychiatristCancelResult(value: unknown): value is PsychiatristCancelResult {
+  if (!isRecord(value) ||
+    (value.status !== "canceled" && value.status !== "completed" && value.status !== "failed") ||
+    typeof value.turn_id !== "string" ||
+    value.turn_id === ""
+  ) {
+    return false;
+  }
+  if (value.warning === undefined) {
+    return true;
+  }
+  return isRecord(value.warning) &&
+    typeof value.warning.code === "string" &&
+    typeof value.warning.message === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -215,7 +215,10 @@ describe("PsychiatristDock", () => {
     const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push(new Request(new URL(String(input), "http://localhost"), init));
       if (String(input).includes("/cancel")) {
-        return new Response(null, { status: 204 });
+        return jsonResponse({
+          status: "canceled",
+          turn_id: "turn-reader",
+        });
       }
       return jsonResponse({
         event_url: "/api/memories/memory-reader/psychiatrist/threads/thread-reader/turns/turn-reader/events?variant_kind=translation&lang_code=ja-JP",
@@ -235,7 +238,7 @@ describe("PsychiatristDock", () => {
       threadId: "thread-reader",
       variantKind: "translation",
     });
-    await cancelPsychiatristTurn({
+    const canceled = await cancelPsychiatristTurn({
       fetch,
       memoryId: "memory-reader",
       pairId: "pair-reader",
@@ -249,6 +252,11 @@ describe("PsychiatristDock", () => {
       pairId: "pair-reader",
       threadId: "thread-reader",
       variantKind: "translation",
+    });
+
+    expect(canceled).toEqual({
+      status: "canceled",
+      turn_id: "turn-reader",
     });
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
@@ -277,6 +285,62 @@ describe("PsychiatristDock", () => {
       web_source_permission: "deny",
     });
   });
+
+  it("rejects malformed successful cancel payloads at the browser boundary", async () => {
+    await expect(cancelPsychiatristTurn({
+      fetch: async () => jsonResponse({
+        status: "canceling",
+        turn_id: "turn-reader",
+      }),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      turnId: "turn-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      code: "request_failed",
+      name: "PsychiatristRequestError",
+      responseStatus: 200,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects a cancel result for a different turn generation", async () => {
+    await expect(cancelPsychiatristTurn({
+      fetch: async () => jsonResponse({
+        status: "canceled",
+        turn_id: "turn-stale",
+      }),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      turnId: "turn-current",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      code: "request_failed",
+      name: "PsychiatristRequestError",
+      responseStatus: 200,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it.each(["canceled", "completed", "failed"] as const)(
+    "accepts a typed %s cancel result for the requested turn",
+    async (status) => {
+      await expect(cancelPsychiatristTurn({
+        fetch: async () => jsonResponse({
+          status,
+          turn_id: "turn-reader",
+        }),
+        memoryId: "memory-reader",
+        pairId: "pair-reader",
+        threadId: "thread-reader",
+        turnId: "turn-reader",
+        variantKind: "source",
+      })).resolves.toEqual({
+        status,
+        turn_id: "turn-reader",
+      });
+    },
+  );
 
   it("creates a running transcript pair immediately after a send starts", () => {
     const sendIndex = dockSource.indexOf("const started = await sendPsychiatristMessage");
@@ -371,7 +435,7 @@ describe("PsychiatristDock", () => {
     const regenerateRefreshIndex = dockSource.indexOf("await loadThread()", regenerateStaleIndex);
     const stopIndex = dockSource.indexOf("const handleStop = async () =>");
     const stopCatchIndex = dockSource.indexOf("catch (error)", stopIndex);
-    const stopErrorIndex = dockSource.indexOf("setErrorMessage(getPsychiatristErrorMessage(error))", stopCatchIndex);
+    const stopErrorIndex = dockSource.indexOf("const errorText = getPsychiatristErrorMessage(error)", stopCatchIndex);
 
     expect(regenerateIndex).toBeGreaterThan(-1);
     expect(regenerateStaleIndex).toBeGreaterThan(regenerateIndex);
@@ -384,11 +448,44 @@ describe("PsychiatristDock", () => {
   it("surfaces safe messages from streamed answer failures", () => {
     const streamIndex = dockSource.indexOf("const handleStreamEvent = (");
     const failedIndex = dockSource.indexOf("event.type === \"psychiatrist.answer.failed\"", streamIndex);
-    const errorIndex = dockSource.indexOf("setErrorMessage(getStreamErrorMessage(event.data))", failedIndex);
+    const errorIndex = dockSource.indexOf("const errorText = getStreamErrorMessage(event.data)", failedIndex);
 
     expect(streamIndex).toBeGreaterThan(-1);
     expect(failedIndex).toBeGreaterThan(streamIndex);
     expect(errorIndex).toBeGreaterThan(failedIndex);
+  });
+
+  it("models thread readiness and turn phases explicitly", () => {
+    expect(dockSource).toContain(
+      'type PsychiatristThreadLoadState = "idle" | "loading" | "ready" | "error"',
+    );
+    expect(dockSource).toContain(
+      'type PsychiatristTurnPhase = "idle" | "starting" | "running" | "stopping"',
+    );
+    expect(dockSource).toContain('setTurnPhase("starting")');
+    expect(dockSource).toContain('setTurnPhase("running")');
+    expect(dockSource).toContain('setTurnPhase("stopping")');
+    expect(dockSource).toContain('threadLoadState() !== "ready" || isBusy()');
+    expect(dockSource).toContain("Retry thread load");
+  });
+
+  it("keeps asynchronous status scoped to one atomic live region", () => {
+    expect(dockSource).toContain('aria-live="polite"');
+    expect(dockSource).toContain('aria-atomic="true"');
+    expect(dockSource).toContain('role="status"');
+    expect(dockSource).toContain("{liveStatusMessage()}");
+    expect(dockSource).not.toContain("setLiveStatusMessage(processText)");
+    expect(dockSource).not.toContain("setLiveStatusMessage(response())");
+  });
+
+  it("native-disables Regenerate while any turn phase is busy", () => {
+    const regenerateIndex = dockSource.indexOf(">\n                          Regenerate\n");
+    const buttonIndex = dockSource.lastIndexOf("<button", regenerateIndex);
+    const disabledIndex = dockSource.indexOf("disabled={isBusy()}", buttonIndex);
+
+    expect(regenerateIndex).toBeGreaterThan(-1);
+    expect(disabledIndex).toBeGreaterThan(buttonIndex);
+    expect(disabledIndex).toBeLessThan(regenerateIndex);
   });
 
   it("closes EventSource connections on lifecycle cleanup without canceling turns", () => {

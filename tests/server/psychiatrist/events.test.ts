@@ -12,9 +12,12 @@ import {
   loadPsychiatristStreamReplay,
 } from "../../../src/server/psychiatrist/stream-store";
 import {
+  appendAssistantResponse,
   appendPendingPair,
   createPsychiatristThread,
   loadPsychiatristThread,
+  markPsychiatristTurnCanceled,
+  markPsychiatristTurnCompleted,
   recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -911,6 +914,200 @@ describe("Psychiatrist stream store", () => {
         turnId: TURN_ID,
       }),
     ]);
+  });
+
+  it("reconciles an inactive first answer when its directly owned replay is empty", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-empty-answer-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    const response = await createPsychiatristTurnEventsHandler({ config: { storePath } })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const text = await response.text();
+
+    expect(text).toContain("event: psychiatrist.answer.failed");
+    expect(text).toContain('"code":"turn_interrupted"');
+    await expect(loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID }))
+      .resolves.toMatchObject({
+        pairs: [expect.objectContaining({ status: "failed", turnId: TURN_ID })],
+      });
+  });
+
+  it("repairs a completed first answer when its directly owned replay is empty", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-empty-completed-"));
+    const pairId = "019e8a00-0000-7000-8000-000000000002";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Recovered answer.",
+      citations: [],
+      config: { storePath },
+      pairId,
+      threadId: THREAD_ID,
+    });
+
+    const response = await createPsychiatristTurnEventsHandler({ config: { storePath } })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const text = await response.text();
+
+    expect(text).toContain("event: psychiatrist.answer.completed");
+    expect(text).toContain("Recovered answer.");
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.filter((event) => event.type === "psychiatrist.answer.completed"))
+      .toHaveLength(1);
+  });
+
+  it("reconciles an inactive Regenerate when its replay is empty and preserves the prior response", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-empty-regenerate-"));
+    const pairId = "019e8a00-0000-7000-8000-000000000002";
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Keep this prior answer.",
+      citations: [],
+      config: { storePath },
+      pairId,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCompleted({
+      config: { storePath },
+      pairId,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId,
+      regenerateFromTurnId: TURN_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+
+    const response = await createPsychiatristTurnEventsHandler({ config: { storePath } })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${regenerateTurnId}/events`),
+        { turnId: regenerateTurnId },
+      ),
+    );
+    const text = await response.text();
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+
+    expect(text).toContain("event: psychiatrist.answer.failed");
+    expect(text).toContain('"code":"turn_interrupted"');
+    expect(loaded.pairs[0]).toMatchObject({
+      assistant: expect.objectContaining({ content: "Keep this prior answer." }),
+      status: "completed",
+      turnId: TURN_ID,
+    });
+  });
+
+  it("repairs one canceled terminal over a non-empty replay and preserves Last-Event-ID", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-canceled-repair-"));
+    const pairId = "019e8a00-0000-7000-8000-000000000002";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId,
+      prompt: "Stop this answer.",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const started = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { pair_id: pairId, status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Partial answer" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+    await markPsychiatristTurnCanceled({
+      config: { storePath },
+      pairId,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(started).toBeDefined();
+
+    const handler = createPsychiatristTurnEventsHandler({ config: { storePath } });
+    const first = await handler(createApiEvent(
+      new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`, {
+        headers: { "Last-Event-ID": started!.eventId },
+      }),
+      { turnId: TURN_ID },
+    ));
+    const second = await handler(createApiEvent(
+      new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+      { turnId: TURN_ID },
+    ));
+    const firstText = await first.text();
+    const secondText = await second.text();
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    expect(firstText).not.toContain("event: psychiatrist.turn.started");
+    expect(firstText).toContain("event: psychiatrist.answer.delta");
+    expect(firstText).toContain("event: psychiatrist.turn.canceled");
+    expect(secondText.match(/event: psychiatrist\.turn\.canceled/g)).toHaveLength(1);
+    expect(replay.filter((event) => event.type === "psychiatrist.turn.canceled"))
+      .toHaveLength(1);
   });
 
   it("keeps the current same-thread turn active when replaying an old inactive stream", async () => {

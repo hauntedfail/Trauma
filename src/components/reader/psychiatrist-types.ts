@@ -49,6 +49,15 @@ export interface PsychiatristTurnStartedResponse {
   turn_id: string;
 }
 
+export interface PsychiatristCancelResult {
+  status: "canceled" | "completed" | "failed";
+  turn_id: string;
+  warning?: {
+    code: string;
+    message: string;
+  };
+}
+
 export type PsychiatristStreamEventType =
   | "psychiatrist.turn.started"
   | "psychiatrist.process.delta"

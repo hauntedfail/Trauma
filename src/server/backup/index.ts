@@ -55,9 +55,14 @@ export interface EnqueueMemoryBackupResult {
   backupStatus: Extract<BackupStatus, "pending" | "queued" | "disabled">;
 }
 
+export type MemoryBackupEnqueueFinalizer = (
+  result: EnqueueMemoryBackupResult,
+) => Promise<void>;
+
 export interface MemoryBackupQueue {
   enqueue: (
     input: EnqueueMemoryBackupInput,
+    finalizer?: MemoryBackupEnqueueFinalizer,
   ) => Promise<EnqueueMemoryBackupResult>;
 }
 
@@ -91,7 +96,11 @@ const gitQueueByConfigKey = new Map<string, GitMemoryBackupQueue>();
 
 export function createNoopMemoryBackupQueue(): DurableMemoryBackupQueue {
   return {
-    enqueue: async () => ({ backupStatus: "pending" }),
+    enqueue: async (_input, finalizer) => {
+      const result = { backupStatus: "pending" } as const;
+      await finalizer?.(result);
+      return result;
+    },
     persistIntent: async () => ({ backupStatus: "pending" }),
   };
 }
@@ -127,7 +136,8 @@ export function createGitMemoryBackupQueue(
   const pendingJobs: MemoryBackupJob[] = [];
   const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
   const runningJobsByMemoryId = new Map<string, MemoryBackupJob>();
-  const memoryIdsWithDurableIntent = new Set<string>();
+  const durableIntentCountsByMemoryId = new Map<string, number>();
+  const enqueueTransitionsByMemoryId = new Map<string, number>();
   let worker: Promise<void> | undefined;
   let schedulingSuspensions = 0;
 
@@ -150,7 +160,7 @@ export function createGitMemoryBackupQueue(
   }
 
   async function processJobs() {
-    while (pendingJobs.length > 0) {
+    while (pendingJobs.length > 0 && schedulingSuspensions === 0) {
       const job = pendingJobs.shift();
       if (job === undefined) {
         continue;
@@ -169,7 +179,13 @@ export function createGitMemoryBackupQueue(
   async function processJob(job: MemoryBackupJob) {
     try {
       await runJob({ config: input.config, job });
-      if (memoryIdsWithDurableIntent.has(job.memoryId)) {
+      if (hasCount(enqueueTransitionsByMemoryId, job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "queued",
+          lastBackupError: null,
+        });
+      } else if (hasCount(durableIntentCountsByMemoryId, job.memoryId)) {
         await updateBackupStatus({
           memoryId: job.memoryId,
           backupStatus: "pending",
@@ -225,9 +241,12 @@ export function createGitMemoryBackupQueue(
 
   async function enqueue(
     enqueueInput: EnqueueMemoryBackupInput,
+    finalizer?: MemoryBackupEnqueueFinalizer,
   ): Promise<EnqueueMemoryBackupResult> {
     if (!input.config.backup.git.enabled) {
-      return { backupStatus: "disabled" };
+      const result = { backupStatus: "disabled" } as const;
+      await finalizer?.(result);
+      return result;
     }
 
     const job = normalizeBackupJob(enqueueInput);
@@ -236,50 +255,48 @@ export function createGitMemoryBackupQueue(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
-    if (pendingJob !== undefined) {
-      mergeBackupJobs(pendingJob, job);
+    const claimedDurableIntent = decrementCount(
+      durableIntentCountsByMemoryId,
+      job.memoryId,
+    );
+    incrementCount(enqueueTransitionsByMemoryId, job.memoryId);
+    if (finalizer !== undefined) {
+      schedulingSuspensions += 1;
+    }
+    let queuedStatePersisted = false;
+    try {
       await updateBackupStatus({
         memoryId: job.memoryId,
         backupStatus: "queued",
         lastBackupError: null,
       });
-      memoryIdsWithDurableIntent.delete(job.memoryId);
-      return { backupStatus: "queued" };
-    }
-    const runningJob = runningJobsByMemoryId.get(job.memoryId);
-    if (
-      runningJob !== undefined &&
-      job.contentPaths.every((contentPath) => runningJob.contentPaths.includes(contentPath))
-    ) {
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "queued",
-        lastBackupError: null,
-      });
-      memoryIdsWithDurableIntent.delete(job.memoryId);
-      return { backupStatus: "queued" };
-    }
+      queuedStatePersisted = true;
+      const result = { backupStatus: "queued" } as const;
+      await finalizer?.(result);
 
-    await updateBackupStatus({
-      memoryId: job.memoryId,
-      backupStatus: "queued",
-      lastBackupError: null,
-    });
-    const concurrentlyPendingJob = pendingJobsByMemoryId.get(job.memoryId);
-    if (concurrentlyPendingJob !== undefined) {
-      mergeBackupJobs(concurrentlyPendingJob, job);
-      memoryIdsWithDurableIntent.delete(job.memoryId);
-      return { backupStatus: "queued" };
-    }
-
-    pendingJobs.push(job);
-    pendingJobsByMemoryId.set(job.memoryId, job);
-    memoryIdsWithDurableIntent.delete(job.memoryId);
-    if (schedulingSuspensions === 0) {
+      const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
+      if (pendingJob === undefined) {
+        pendingJobs.push(job);
+        pendingJobsByMemoryId.set(job.memoryId, job);
+      } else {
+        mergeBackupJobs(pendingJob, job);
+      }
       scheduleWorker();
+      return result;
+    } catch (error) {
+      if (claimedDurableIntent || queuedStatePersisted) {
+        incrementCount(durableIntentCountsByMemoryId, job.memoryId);
+      }
+      throw error;
+    } finally {
+      decrementCount(enqueueTransitionsByMemoryId, job.memoryId);
+      if (finalizer !== undefined) {
+        schedulingSuspensions -= 1;
+        if (pendingJobs.length > 0) {
+          scheduleWorker();
+        }
+      }
     }
-    return { backupStatus: "queued" };
   }
 
   async function persistIntent(
@@ -294,7 +311,7 @@ export function createGitMemoryBackupQueue(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    memoryIdsWithDurableIntent.add(job.memoryId);
+    incrementCount(durableIntentCountsByMemoryId, job.memoryId);
     try {
       await updateBackupStatus({
         memoryId: job.memoryId,
@@ -302,7 +319,7 @@ export function createGitMemoryBackupQueue(
         lastBackupError: null,
       });
     } catch (error) {
-      memoryIdsWithDurableIntent.delete(job.memoryId);
+      decrementCount(durableIntentCountsByMemoryId, job.memoryId);
       throw error;
     }
     return { backupStatus: "pending" };
@@ -578,6 +595,27 @@ function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
   }
   existing.contentPaths = [...contentPaths];
   existing.reason = incoming.reason;
+}
+
+function hasCount(counts: Map<string, number>, key: string) {
+  return (counts.get(key) ?? 0) > 0;
+}
+
+function incrementCount(counts: Map<string, number>, key: string) {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function decrementCount(counts: Map<string, number>, key: string) {
+  const count = counts.get(key) ?? 0;
+  if (count <= 0) {
+    return false;
+  }
+  if (count === 1) {
+    counts.delete(key);
+  } else {
+    counts.set(key, count - 1);
+  }
+  return true;
 }
 
 async function pushGitBackup(config: ResolvedTraumaConfig) {

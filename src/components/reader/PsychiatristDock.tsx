@@ -45,6 +45,9 @@ interface StreamGeneration extends ThreadRequestGeneration {
   turnId: string;
 }
 
+type PsychiatristThreadLoadState = "idle" | "loading" | "ready" | "error";
+type PsychiatristTurnPhase = "idle" | "starting" | "running" | "stopping";
+
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
@@ -55,25 +58,32 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     PsychiatristTranscriptPair[]
   >([]);
   const [prompt, setPrompt] = createSignal("");
-  const [isRunning, setIsRunning] = createSignal(false);
+  const [threadLoadState, setThreadLoadState] =
+    createSignal<PsychiatristThreadLoadState>("idle");
+  const [turnPhase, setTurnPhase] = createSignal<PsychiatristTurnPhase>("idle");
   const [runningPairId, setRunningPairId] = createSignal("");
   const [runningTurnId, setRunningTurnId] = createSignal("");
   const [errorMessage, setErrorMessage] = createSignal("");
+  const [liveStatusMessage, setLiveStatusMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
   let isDisposed = false;
   let readerGeneration = 0;
   let streamGeneration = 0;
+  let pendingStopTerminalStatus: "completed" | "failed" | undefined;
   let loadedReaderThreadKey = readPsychiatristReaderGenerationIdentity(
     props.memoryId,
     props.langCode,
   );
 
   const pairs = () => transcriptPairs();
+  const isBusy = () => turnPhase() !== "idle";
   const openDock = () => {
     const request = captureReaderRequestGeneration();
     setIsOpen(true);
-    void loadThread();
+    if (threadLoadState() === "idle") {
+      void loadThread();
+    }
     queueMicrotask(() => {
       if (isCurrentReaderRequestGeneration(request)) {
         inputRef?.focus();
@@ -91,7 +101,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const clearRunningTurnState = () => {
     disconnectCurrentStream();
-    setIsRunning(false);
+    setTurnPhase("idle");
     setRunningPairId("");
     setRunningTurnId("");
   };
@@ -139,17 +149,24 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setWebSourceRetryPrompt(retryPair.userPrompt);
     setWebSourceRetryPairId(retryPair.pairId);
     setErrorMessage("Allow web search/source lookup for this answer to continue.");
+    setLiveStatusMessage("Allow web search/source lookup for this answer to continue.");
   };
   const resetThreadStateForMemoryChange = () => {
     clearRunningTurnState();
+    pendingStopTerminalStatus = undefined;
     setThread(undefined);
+    setThreadLoadState("idle");
     setTranscriptPairs([]);
     setPrompt("");
     setErrorMessage("");
+    setLiveStatusMessage("");
     clearWebSourceRetryState();
   };
-  const loadThread = async () => {
+  const loadThread = async (options: { preserveTurnPhase?: boolean } = {}) => {
     const request = captureReaderRequestGeneration();
+    setThreadLoadState("loading");
+    setErrorMessage("");
+    setLiveStatusMessage("Loading Psychiatrist thread.");
     try {
       const nextThread = await createPsychiatristThread({
         langCode: props.langCode,
@@ -169,11 +186,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
       setThread(nextThread);
       setTranscriptPairs(nextPairs);
-      if (nextThread.active_turn !== null) {
+      setThreadLoadState("ready");
+      if (options.preserveTurnPhase === true) {
+        syncPersistedWebSourceRetryState(nextPairs);
+      } else if (nextThread.active_turn !== null) {
         clearWebSourceRetryState();
-        setIsRunning(true);
+        setTurnPhase("running");
         setRunningPairId(nextThread.active_turn.pair_id);
         setRunningTurnId(nextThread.active_turn.turn_id);
+        setLiveStatusMessage("Psychiatrist turn running.");
         connectRunningStream(
           nextThread.active_turn.event_url,
           nextThread,
@@ -181,13 +202,19 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         );
       } else {
         clearRunningTurnState();
+        setLiveStatusMessage("Psychiatrist thread ready.");
         syncPersistedWebSourceRetryState(nextPairs);
       }
+      return true;
     } catch (error) {
       if (!isCurrentReaderRequestGeneration(request)) {
-        return;
+        return false;
       }
-      setErrorMessage(getPsychiatristErrorMessage(error));
+      const message = getPsychiatristErrorMessage(error);
+      setThreadLoadState("error");
+      setErrorMessage(message);
+      setLiveStatusMessage(message);
+      return false;
     }
   };
   const submitPrompt = async (
@@ -196,12 +223,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   ) => {
     const message = (promptOverride ?? prompt()).trim();
     const currentThread = thread();
-    if (message === "" || currentThread === undefined || isRunning()) {
+    if (
+      message === "" ||
+      currentThread === undefined ||
+      threadLoadState() !== "ready" ||
+      isBusy()
+    ) {
       return;
     }
     const request = captureThreadRequestGeneration(currentThread);
-    setIsRunning(true);
+    setTurnPhase("starting");
     setErrorMessage("");
+    setLiveStatusMessage("Starting Psychiatrist turn.");
     clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
@@ -215,7 +248,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
-      setIsRunning(true);
+      setTurnPhase("running");
       setTranscriptPairs((current) => [
         ...current,
         {
@@ -231,6 +264,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setPrompt("");
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
+      setLiveStatusMessage("Psychiatrist turn running.");
       connectRunningStream(
         started.event_url,
         currentThread,
@@ -240,7 +274,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
-      setIsRunning(false);
+      setTurnPhase("idle");
       if (
         error instanceof PsychiatristRequestError &&
         error.code === "thread_stale" &&
@@ -251,6 +285,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           return;
         }
         setErrorMessage("Psychiatrist thread was refreshed. Send again.");
+        setLiveStatusMessage("Psychiatrist thread was refreshed. Send again.");
         queueMicrotask(() => {
           if (isCurrentReaderRequestGeneration(request)) {
             inputRef?.focus();
@@ -265,7 +300,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setWebSourceRetryPrompt(message);
         setWebSourceRetryPairId("");
       }
-      setErrorMessage(getPsychiatristErrorMessage(error));
+      const errorText = getPsychiatristErrorMessage(error);
+      setErrorMessage(errorText);
+      setLiveStatusMessage(errorText);
     }
   };
   const approveWebSourcesForTurn = async () => {
@@ -285,12 +322,20 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     const turnId = runningTurnId();
     const pairId = runningPairId();
     const currentThread = thread();
-    if (turnId === "" || pairId === "" || currentThread === undefined) {
+    if (
+      turnPhase() !== "running" ||
+      turnId === "" ||
+      pairId === "" ||
+      currentThread === undefined
+    ) {
       return;
     }
     const request = captureThreadRequestGeneration(currentThread);
+    setTurnPhase("stopping");
+    setErrorMessage("");
+    setLiveStatusMessage("Stopping Psychiatrist turn.");
     try {
-      await cancelPsychiatristTurn({
+      const result = await cancelPsychiatristTurn({
         langCode: currentThread.lang_code,
         memoryId: currentThread.memory_id,
         pairId,
@@ -305,16 +350,49 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       ) {
         return;
       }
+      if (result.status === "canceled") {
+        setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, {
+          data: { pair_id: pairId, status: "canceled" },
+          eventId: `cancel:${turnId}`,
+          memoryId: currentThread.memory_id,
+          threadId: currentThread.thread_id,
+          timestamp: Date.now(),
+          turnId,
+          type: "psychiatrist.turn.canceled",
+        }));
+        setLiveStatusMessage("Psychiatrist turn stopped.");
+        clearRunningTurnState();
+        return;
+      }
+      pendingStopTerminalStatus = result.status;
+      const reloaded = await loadThread({ preserveTurnPhase: true });
+      if (
+        !reloaded ||
+        !isCurrentThreadRequestGeneration(request) ||
+        runningPairId() !== pairId ||
+        runningTurnId() !== turnId
+      ) {
+        return;
+      }
+      pendingStopTerminalStatus = undefined;
+      if (webSourceRetryPrompt() === "") {
+        setLiveStatusMessage(result.status === "completed"
+          ? "Psychiatrist response completed."
+          : "Psychiatrist response failed.");
+      }
       clearRunningTurnState();
     } catch (error) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
-      setErrorMessage(getPsychiatristErrorMessage(error));
+      const errorText = getPsychiatristErrorMessage(error);
+      setTurnPhase("running");
+      setErrorMessage(errorText);
+      setLiveStatusMessage(errorText);
     }
   };
   const regeneratePair = async (pair: PsychiatristTranscriptPair) => {
-    if (pair.status !== "completed" || isRunning()) {
+    if (pair.status !== "completed" || isBusy()) {
       return;
     }
     await regeneratePairById(pair.pairId, "deny");
@@ -328,8 +406,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       return;
     }
     const request = captureThreadRequestGeneration(currentThread);
-    setIsRunning(true);
+    setTurnPhase("starting");
     setErrorMessage("");
+    setLiveStatusMessage("Starting Psychiatrist regeneration.");
     clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
@@ -343,9 +422,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
-      setIsRunning(true);
+      setTurnPhase("running");
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
+      setLiveStatusMessage("Psychiatrist turn running.");
       connectRunningStream(
         started.event_url,
         currentThread,
@@ -355,7 +435,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
-      setIsRunning(false);
+      setTurnPhase("idle");
       if (
         error instanceof PsychiatristRequestError &&
         error.code === "thread_stale" &&
@@ -366,10 +446,36 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           return;
         }
         setErrorMessage("Psychiatrist thread was refreshed. Regenerate again.");
+        setLiveStatusMessage("Psychiatrist thread was refreshed. Regenerate again.");
         return;
       }
-      setErrorMessage(getPsychiatristErrorMessage(error));
+      const errorText = getPsychiatristErrorMessage(error);
+      setErrorMessage(errorText);
+      setLiveStatusMessage(errorText);
     }
+  };
+  const retryThreadLoad = async () => {
+    if (threadLoadState() === "loading") {
+      return;
+    }
+    if (turnPhase() !== "stopping" || pendingStopTerminalStatus === undefined) {
+      await loadThread();
+      return;
+    }
+    const pairId = runningPairId();
+    const turnId = runningTurnId();
+    const terminalStatus = pendingStopTerminalStatus;
+    const reloaded = await loadThread({ preserveTurnPhase: true });
+    if (!reloaded || runningPairId() !== pairId || runningTurnId() !== turnId) {
+      return;
+    }
+    pendingStopTerminalStatus = undefined;
+    if (webSourceRetryPrompt() === "") {
+      setLiveStatusMessage(terminalStatus === "completed"
+        ? "Psychiatrist response completed."
+        : "Psychiatrist response failed.");
+    }
+    clearRunningTurnState();
   };
   const handleKeyDown = (event: KeyboardEvent) => {
     if (!isOpen()) {
@@ -411,18 +517,29 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       event.type === "psychiatrist.network.permission_required" ||
       event.type === "psychiatrist.turn.canceled"
     ) {
-      disconnectCurrentStream();
-      setIsRunning(false);
-      setRunningPairId("");
-      setRunningTurnId("");
       if (event.type === "psychiatrist.answer.failed") {
-        setErrorMessage(getStreamErrorMessage(event.data));
+        const errorText = getStreamErrorMessage(event.data);
+        setErrorMessage(errorText);
+        setLiveStatusMessage(errorText);
       }
       if (event.type === "psychiatrist.network.permission_required" && retryPrompt !== "") {
         setWebSourceRetryPrompt(retryPrompt);
         setWebSourceRetryPairId(retryPairId);
         setErrorMessage("Allow web search/source lookup for this answer to continue.");
+        setLiveStatusMessage("Allow web search/source lookup for this answer to continue.");
       }
+      if (turnPhase() === "stopping") {
+        return;
+      }
+      if (
+        event.type === "psychiatrist.answer.completed" ||
+        event.type === "psychiatrist.regenerate.completed"
+      ) {
+        setLiveStatusMessage("Psychiatrist response completed.");
+      } else if (event.type === "psychiatrist.turn.canceled") {
+        setLiveStatusMessage("Psychiatrist turn stopped.");
+      }
+      clearRunningTurnState();
     }
   };
   const connectRunningStream = (
@@ -500,7 +617,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               Close
             </button>
           </header>
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            class="sr-only"
+            role="status"
+          >
+            {liveStatusMessage()}
+          </p>
           <div class="grid gap-2 overflow-y-auto pr-1 text-sm" data-psychiatrist-transcript>
+            <Show when={threadLoadState() === "loading"}>
+              <p class="text-trauma-text-secondary">Loading Psychiatrist thread…</p>
+            </Show>
             <Show when={pairs().length > 0} fallback={<p class="text-trauma-text-secondary">No messages yet.</p>}>
               <For each={pairs()}>
                 {(pair) => (
@@ -543,7 +671,8 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                       <Show when={pair.status === "completed"}>
                         <button
                           type="button"
-                          class="mt-2 rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                          class="mt-2 rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev disabled:opacity-60"
+                          disabled={isBusy()}
                           onClick={() => void regeneratePair(pair)}
                         >
                           Regenerate
@@ -567,7 +696,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               id="psychiatrist-prompt"
               ref={inputRef}
               class="max-h-28 min-h-16 resize-y rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2 text-sm text-trauma-text-primary"
-              disabled={isRunning()}
+              disabled={threadLoadState() !== "ready" || isBusy()}
               onInput={(event) => setPrompt(event.currentTarget.value)}
               value={prompt()}
             />
@@ -578,24 +707,45 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                   <button
                     type="button"
                     class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                    disabled={threadLoadState() !== "ready" || isBusy()}
                     onClick={() => void approveWebSourcesForTurn()}
                   >
                     Allow web sources for this turn
                   </button>
                 </Show>
+                <Show when={threadLoadState() === "error"}>
+                  <button
+                    type="button"
+                    class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                    onClick={() => void retryThreadLoad()}
+                  >
+                    Retry thread load
+                  </button>
+                </Show>
               </div>
             </Show>
             <button
-              type={isRunning() ? "button" : "submit"}
+              type={turnPhase() === "idle" ? "submit" : "button"}
               class="justify-self-end rounded-md bg-trauma-accent px-3 py-2 text-sm font-medium text-trauma-accent-ink hover:bg-trauma-accent-hover disabled:opacity-60"
-              disabled={!isRunning() && prompt().trim() === ""}
+              disabled={
+                threadLoadState() !== "ready" ||
+                turnPhase() === "starting" ||
+                turnPhase() === "stopping" ||
+                (turnPhase() === "idle" && prompt().trim() === "")
+              }
               onClick={() => {
-                if (isRunning()) {
+                if (turnPhase() === "running") {
                   void handleStop();
                 }
               }}
             >
-              {isRunning() ? "Stop" : "Send"}
+              {turnPhase() === "starting"
+                ? "Starting…"
+                : turnPhase() === "running"
+                ? "Stop"
+                : turnPhase() === "stopping"
+                ? "Stopping…"
+                : "Send"}
             </button>
           </form>
         </section>

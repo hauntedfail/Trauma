@@ -711,6 +711,7 @@ async function repairCompletedPairArtifacts(input: {
   activeTurnIds: ReadonlySet<string>;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   manifest: PsychiatristThreadManifest;
+  targetTurnId?: string;
 }): Promise<boolean> {
   const rows = await readPairRevisionRows(input.config, input.manifest);
   const latestRowsByPairId = new Map<string, PairRevisionRow>();
@@ -724,6 +725,7 @@ async function repairCompletedPairArtifacts(input: {
       row.revision_kind !== "completed" ||
       row.status !== "completed" ||
       row.assistant_response === undefined ||
+      (input.targetTurnId !== undefined && row.turn_id !== input.targetTurnId) ||
       input.activeTurnIds.has(row.turn_id)
     ) {
       continue;
@@ -804,10 +806,54 @@ async function repairCompletedPairArtifacts(input: {
   return changed;
 }
 
+async function repairCanceledTurnReplays(input: {
+  activeTurnIds: ReadonlySet<string>;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  manifest: PsychiatristThreadManifest;
+  targetTurnId?: string;
+}): Promise<boolean> {
+  let changed = false;
+  for (const turn of await readTerminalTurns(input.config, input.manifest)) {
+    if (
+      turn.status !== "canceled" ||
+      input.activeTurnIds.has(turn.turnId) ||
+      (input.targetTurnId !== undefined && turn.turnId !== input.targetTurnId)
+    ) {
+      continue;
+    }
+    const replay = await loadPsychiatristStreamReplay({
+      config: input.config,
+      memoryId: input.manifest.memoryId,
+      threadId: input.manifest.threadId,
+      turnId: turn.turnId,
+    });
+    if (replay.some(isTerminalStreamEvent)) {
+      continue;
+    }
+    await appendPsychiatristStreamEvent({
+      config: input.config,
+      event: {
+        data: {
+          code: turn.safeErrorCode ?? "turn_canceled",
+          status: "canceled",
+        },
+        memoryId: input.manifest.memoryId,
+        threadId: input.manifest.threadId,
+        turnId: turn.turnId,
+        type: "psychiatrist.turn.canceled",
+      },
+      publish: false,
+    });
+    changed = true;
+  }
+  return changed;
+}
+
 export async function reconcileInactivePsychiatristTurns(input: {
   activeTurnIds: string[];
   config: Pick<ResolvedTraumaConfig, "storePath">;
   memoryId?: string;
+  targetTurnId?: string;
   threadId: string;
 }): Promise<boolean> {
   const activeTurnIds = new Set(input.activeTurnIds);
@@ -826,11 +872,22 @@ export async function reconcileInactivePsychiatristTurns(input: {
       activeTurnIds,
       config: input.config,
       manifest: loaded.manifest,
+      targetTurnId: input.targetTurnId,
     });
+    changed = await repairCanceledTurnReplays({
+      activeTurnIds,
+      config: input.config,
+      manifest: loaded.manifest,
+      targetTurnId: input.targetTurnId,
+    }) || changed;
     const now = new Date().toISOString();
     const interruptedRegenerateTurnIds = new Set<string>();
     for (const pair of loaded.pairs) {
-      if (pair.status !== "pending" || activeTurnIds.has(pair.turnId)) {
+      if (
+        pair.status !== "pending" ||
+        activeTurnIds.has(pair.turnId) ||
+        (input.targetTurnId !== undefined && pair.turnId !== input.targetTurnId)
+      ) {
         continue;
       }
       const existingTurn = await readTurnRecord(input.config, loaded.manifest, pair.turnId);
@@ -864,7 +921,10 @@ export async function reconcileInactivePsychiatristTurns(input: {
     }
     const terminalTurns = await readTerminalTurns(input.config, loaded.manifest);
     for (const turn of await readNonTerminalFirstAnswerRetryTurns(input.config, loaded.manifest)) {
-      if (activeTurnIds.has(turn.turnId)) {
+      if (
+        activeTurnIds.has(turn.turnId) ||
+        (input.targetTurnId !== undefined && turn.turnId !== input.targetTurnId)
+      ) {
         continue;
       }
       const pair = loaded.pairs.find((candidate) => candidate.pairId === turn.pairId);
@@ -887,7 +947,11 @@ export async function reconcileInactivePsychiatristTurns(input: {
       changed = true;
     }
     for (const turn of await readNonTerminalRegenerateTurns(input.config, loaded.manifest)) {
-      if (activeTurnIds.has(turn.turnId) || interruptedRegenerateTurnIds.has(turn.turnId)) {
+      if (
+        activeTurnIds.has(turn.turnId) ||
+        interruptedRegenerateTurnIds.has(turn.turnId) ||
+        (input.targetTurnId !== undefined && turn.turnId !== input.targetTurnId)
+      ) {
         continue;
       }
       const pair = loaded.pairs.find((candidate) => candidate.pairId === turn.pairId);
@@ -1456,6 +1520,14 @@ function readTerminalTurnStatus(
   return status === "canceled" || status === "completed" || status === "failed"
     ? status
     : undefined;
+}
+
+function isTerminalStreamEvent(event: { type: string }): boolean {
+  return event.type === "psychiatrist.answer.completed" ||
+    event.type === "psychiatrist.regenerate.completed" ||
+    event.type === "psychiatrist.answer.failed" ||
+    event.type === "psychiatrist.network.permission_required" ||
+    event.type === "psychiatrist.turn.canceled";
 }
 
 async function appendPairRevision(

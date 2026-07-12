@@ -39,10 +39,7 @@ import {
   PSYCHIATRIST_RUNTIME_ISOLATION_ERROR,
 } from "./runtime-isolation";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
-import {
-  appendPsychiatristStreamEvent,
-  publishPsychiatristStreamEvent,
-} from "./stream-store";
+import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
 import {
   appendAssistantResponse as appendAssistantResponseToStore,
@@ -470,30 +467,37 @@ async function runPsychiatristTurn(input: {
       turnId: input.turnId,
       type: "psychiatrist.answer.completed" as const,
     };
-    const completedEvent = await appendPsychiatristStreamEvent({
-      config: input.config,
-      event: completedEventInput,
-      publish: false,
-    });
-    const backupWarning = await input.backupQueue.enqueue(backupJob)
-      .then(() => undefined)
-      .catch(() => ({
+    let terminalFinalizerFailed = false;
+    const backupWarning = await input.backupQueue.enqueue(backupJob, async () => {
+      try {
+        await appendPsychiatristStreamEvent({
+          config: input.config,
+          event: completedEventInput,
+        });
+      } catch (error) {
+        terminalFinalizerFailed = true;
+        throw error;
+      }
+    }).then(() => undefined).catch((error) => {
+      if (terminalFinalizerFailed) {
+        throw error;
+      }
+      return {
         code: "backup_enqueue_failed",
         message: "Psychiatrist answer was saved, but backup enqueue failed.",
-      }));
-    if (postSaveWarning === undefined && backupWarning !== undefined) {
+      } as const;
+    });
+    if (backupWarning !== undefined) {
       await appendPsychiatristStreamEvent({
         config: input.config,
         event: {
           ...completedEventInput,
           data: {
             ...completedEventInput.data,
-            warning: backupWarning,
+            warning: postSaveWarning ?? backupWarning,
           },
         },
       });
-    } else if (completedEvent !== undefined) {
-      publishPsychiatristStreamEvent(completedEvent);
     }
   } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);

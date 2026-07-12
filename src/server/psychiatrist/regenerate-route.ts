@@ -10,7 +10,6 @@ import {
   loadRuntimeTraumaConfig,
   type ResolvedTraumaConfig,
 } from "../config";
-import { initializeDatabase } from "../db";
 import { jsonResponse } from "../http/json";
 import {
   CodexAppServerClient,
@@ -19,8 +18,10 @@ import {
   type CodexConversationClient,
 } from "../translation/codex-app-server";
 import { activePsychiatristTurns } from "./active-turns";
-import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
-import { buildPsychiatristPrompt } from "./prompt";
+import {
+  buildPsychiatristPrompt,
+  PSYCHIATRIST_PROMPT_POLICY_VERSION,
+} from "./prompt";
 import {
   matchesPsychiatristVariantScope,
   psychiatristTurnEventsUrl,
@@ -34,10 +35,7 @@ import {
   PSYCHIATRIST_RUNTIME_ISOLATION_ERROR,
 } from "./runtime-isolation";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
-import {
-  appendPsychiatristStreamEvent,
-  publishPsychiatristStreamEvent,
-} from "./stream-store";
+import { appendPsychiatristStreamEvent } from "./stream-store";
 import {
   appendRegeneratedAssistantResponse,
   appendRetriedAssistantResponse,
@@ -65,11 +63,6 @@ type RegeneratePayload =
 
 type RegenerateTurnMode = "answer_retry" | "regenerate";
 
-type ResolveRegenerateActiveContentHash = (input: {
-  config: Pick<ResolvedTraumaConfig, "storePath">;
-  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
-}) => Promise<string>;
-
 export function createRegeneratePsychiatristResponseHandler(input: {
   appendRegeneratedAssistantResponse?: typeof appendRegeneratedAssistantResponse;
   appendRetriedAssistantResponse?: typeof appendRetriedAssistantResponse;
@@ -78,7 +71,6 @@ export function createRegeneratePsychiatristResponseHandler(input: {
   config?: ResolvedTraumaConfig;
   generateId?: () => string;
   loadPair?: typeof loadPsychiatristPairRegeneration;
-  resolveActiveContentHash?: ResolveRegenerateActiveContentHash;
 } = {}) {
   return async function regeneratePsychiatristResponse(event: APIEvent): Promise<Response> {
     return handleRegeneratePsychiatristResponseRequest(event, input);
@@ -95,7 +87,6 @@ export async function handleRegeneratePsychiatristResponseRequest(
     config?: ResolvedTraumaConfig;
     generateId?: () => string;
     loadPair?: typeof loadPsychiatristPairRegeneration;
-    resolveActiveContentHash?: ResolveRegenerateActiveContentHash;
   } = {},
 ): Promise<Response> {
   const memoryId = event.params.memoryId?.trim();
@@ -155,6 +146,25 @@ export async function handleRegeneratePsychiatristResponseRequest(
       409,
     );
   }
+  if (loaded.manifest.status === "stale") {
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
+  if (loaded.manifest.policyVersion !== PSYCHIATRIST_PROMPT_POLICY_VERSION) {
+    await markPsychiatristThreadStale({
+      config,
+      memoryId: loaded.manifest.memoryId,
+      threadId: loaded.manifest.threadId,
+    });
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
   let turnMode: RegenerateTurnMode | undefined;
   try {
     turnMode = await resolveRegenerateTurnMode({
@@ -179,13 +189,6 @@ export async function handleRegeneratePsychiatristResponseRequest(
       409,
     );
   }
-  if (loaded.manifest.status === "stale") {
-    return safeErrorResponse(
-      "thread_stale",
-      "Psychiatrist thread is stale. Refresh the thread and retry.",
-      409,
-    );
-  }
   if (!activePsychiatristTurns.reserveThread(loaded.manifest.threadId)) {
     return safeErrorResponse(
       "turn_conflict",
@@ -195,37 +198,6 @@ export async function handleRegeneratePsychiatristResponseRequest(
   }
 
   const turnId = input.generateId?.() ?? generateUuidV7Like();
-  try {
-    const resolveActiveContentHash = input.resolveActiveContentHash ??
-      defaultResolveRegenerateActiveContentHash;
-    const activeContentHash = await resolveActiveContentHash({ config, loaded });
-    if (activeContentHash !== loaded.manifest.activeContentHash) {
-      activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
-      await markPsychiatristThreadStale({
-        config,
-        memoryId: loaded.manifest.memoryId,
-        threadId: loaded.manifest.threadId,
-      });
-      await appendBestEffortStreamEvent({
-        config,
-        event: {
-          data: { pair_id: pairId, status: "stale" },
-          memoryId: loaded.manifest.memoryId,
-          threadId: loaded.manifest.threadId,
-          turnId,
-          type: "psychiatrist.thread.stale",
-        },
-      });
-      return safeErrorResponse(
-        "thread_stale",
-        "Psychiatrist thread is stale. Refresh the thread and retry.",
-        409,
-      );
-    }
-  } catch (error) {
-    activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
-    return formatRegeneratePreflightError(error);
-  }
   const webSourcePolicy: PsychiatristWebSourcePolicy =
     payload.webSourcePermission === "allow_for_this_turn"
       ? { allowed: true, reason: "user_approved_for_turn" }
@@ -511,29 +483,37 @@ async function runRegenerateTurn(input: {
         ? "psychiatrist.answer.completed" as const
         : "psychiatrist.regenerate.completed" as const,
     };
-    const completedEvent = await appendPsychiatristStreamEvent({
-      config: input.config,
-      event: completedEventInput,
-      publish: false,
+    let terminalFinalizerFailed = false;
+    const backupWarning = await input.backupQueue.enqueue(backupJob, async () => {
+      try {
+        await appendPsychiatristStreamEvent({
+          config: input.config,
+          event: completedEventInput,
+        });
+      } catch (error) {
+        terminalFinalizerFailed = true;
+        throw error;
+      }
+    }).then(() => undefined).catch((error) => {
+      if (terminalFinalizerFailed) {
+        throw error;
+      }
+      return {
+        code: "backup_enqueue_failed",
+        message: "Psychiatrist answer was saved, but backup enqueue failed.",
+      } as const;
     });
-    const backupWarning = await input.backupQueue.enqueue(backupJob)
-      .then(() => undefined).catch(() => ({
-      code: "backup_enqueue_failed",
-      message: "Psychiatrist answer was saved, but backup enqueue failed.",
-    }));
-    if (postSaveWarning === undefined && backupWarning !== undefined) {
+    if (backupWarning !== undefined) {
       await appendPsychiatristStreamEvent({
         config: input.config,
         event: {
           ...completedEventInput,
           data: {
             ...completedEventInput.data,
-            warning: backupWarning,
+            warning: postSaveWarning ?? backupWarning,
           },
         },
       });
-    } else if (completedEvent !== undefined) {
-      publishPsychiatristStreamEvent(completedEvent);
     }
   } catch (error) {
     if (error instanceof CodexAppServerError && error.code === "turn_interrupted") {
@@ -645,43 +625,11 @@ function regeneratedAnswerBackupInput(input: {
   };
 }
 
-async function defaultResolveRegenerateActiveContentHash(input: {
-  config: Pick<ResolvedTraumaConfig, "storePath">;
-  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
-}): Promise<string> {
-  if (!("backup" in input.config)) {
-    return input.loaded.manifest.activeContentHash;
-  }
-  const connection = initializeDatabase(input.config as ResolvedTraumaConfig);
-  try {
-    const context = await buildPsychiatristMemoryContext({
-      config: input.config,
-      langCode: input.loaded.contextSnapshot.langCode,
-      memoryId: input.loaded.manifest.memoryId,
-      memoryRepository: connection.repositories.memories,
-      translationRepository: connection.repositories.translations,
-    });
-    return context.contentHash;
-  } finally {
-    connection.close();
-  }
-}
-
 async function closeOwnedClient(client: CodexConversationClient): Promise<void> {
   try {
     await client.close?.();
   } catch {
     // A close failure must not rewrite the persisted turn outcome.
-  }
-}
-
-async function appendBestEffortStreamEvent<TData>(
-  input: Parameters<typeof appendPsychiatristStreamEvent<TData>>[0],
-): Promise<void> {
-  try {
-    await appendPsychiatristStreamEvent(input);
-  } catch {
-    // API error responses must not expose or be replaced by stream telemetry failures.
   }
 }
 
@@ -818,23 +766,6 @@ function safeErrorAction(code: string): "allow_web_sources" | "open_reader" | "r
     return "allow_web_sources";
   }
   return "retry";
-}
-
-function formatRegeneratePreflightError(error: unknown): Response {
-  if (error instanceof PsychiatristContextError) {
-    return safeErrorResponse(
-      error.code,
-      error.code === "missing_memory"
-        ? "Memory was not found."
-        : "Psychiatrist context is unavailable for this memory.",
-      error.code === "missing_memory" ? 404 : 409,
-    );
-  }
-  return safeErrorResponse(
-    error instanceof CodexAppServerError ? error.code : "unknown",
-    "Psychiatrist regenerate request failed.",
-    500,
-  );
 }
 
 function toSafeCodexError(error: unknown, fallbackMessage: string): {
