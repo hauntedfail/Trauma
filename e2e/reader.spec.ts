@@ -1,3 +1,5 @@
+import { createServer, type Server, type ServerResponse } from "node:http";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { runBunFixtureScript } from "./bun-fixture";
@@ -325,6 +327,50 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
   ).toBeVisible();
 });
 
+test("streams named psychiatrist events through the browser EventSource transport", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const turnId = "turn-e2e-real-sse";
+  const pairId = "pair-e2e-real-sse";
+  const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
+  try {
+    await installPsychiatristMock(page, {
+      eventUrlForTurn: () => transport.eventUrl,
+      sendTurns: [{ pairId, turnId }],
+      useFakeEventSource: false,
+    });
+
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await waitForReaderReady(page);
+    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await page.locator("textarea").fill("Exercise the real SSE transport.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect.poll(() => transport.requestedUrls.length).toBe(1);
+    const requestedUrl = new URL(transport.requestedUrls[0]!, transport.origin);
+    expect(requestedUrl.pathname).toBe(
+      `/api/memories/${READER_MEMORY_ID}/psychiatrist/threads/thread-e2e` +
+        `/turns/${turnId}/events`,
+    );
+    expect(requestedUrl.searchParams.get("variant_kind")).toBe("source");
+    await expect(page.getByText("Real SSE process update.")).toBeVisible();
+    await expect(page.getByText("Real SSE partial answer.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(transport.clientClosed()).toBe(false);
+
+    transport.sendTerminal();
+
+    await expect(page.getByText("Real SSE terminal answer.")).toBeVisible();
+    await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+      .toBeEnabled();
+    await expect.poll(() => transport.clientClosed()).toBe(true);
+  } finally {
+    await transport.close();
+  }
+});
+
 test("keeps a running psychiatrist turn alive across navigation, reload, and explicit Stop", async ({
   page,
 }) => {
@@ -370,7 +416,6 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
       .__psychiatristEventSourceUrls ?? [])
   );
   expect(eventSourceUrls.some((url) => url.includes("turn-e2e-running"))).toBe(true);
-
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByText("Partial answer from the memory")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
@@ -407,6 +452,71 @@ test("reloads the canonical psychiatrist thread when completion wins the Stop ra
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
     .toBeEnabled();
   expect(mock.threadRequests).toBeGreaterThan(1);
+});
+
+test("keeps a terminal psychiatrist turn final when its pending Stop request later fails", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    deferNextCancel: true,
+    rejectNextCancel: true,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Finish before Stop returns.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+
+  const stopClick = page.getByRole("button", { name: "Stop" }).click();
+  await expect.poll(() => mock.releaseCancel !== undefined).toBe(true);
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      source_citations: [],
+      text: "Terminal answer won the Stop race.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.completed",
+  });
+  mock.releaseCancel?.();
+  await stopClick;
+
+  await expect(page.getByText("Terminal answer won the Stop race.")).toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+});
+
+test("adopts a different canonical active turn after the stopped turn completed", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    activeTurnAfterCancel: {
+      pairId: "pair-e2e-running",
+      turnId: "turn-e2e-canonical-active",
+    },
+    cancelResults: ["completed"],
+    sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Stop the old turn only.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+  await page.getByRole("button", { name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+  await expect.poll(async () => page.evaluate(() =>
+    ((window as unknown as { __psychiatristEventSourceUrls?: string[] })
+      .__psychiatristEventSourceUrls ?? [])
+      .some((url) => url.includes("turn-e2e-canonical-active"))
+  )).toBe(true);
 });
 
 test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
@@ -694,6 +804,45 @@ test("requires per-turn psychiatrist web-source approval before recording source
   });
 });
 
+test("retains persisted web-source approval after an ambiguous Regenerate failure", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const retryPair = {
+    ...completedPsychiatristPair("Answer awaiting approved sources."),
+    retry_action: "allow_web_sources" as const,
+    retry_mode: "regenerate" as const,
+    retry_turn_id: "turn-e2e-retry",
+  };
+  const mock = await installPsychiatristMock(page, {
+    initialPairs: [retryPair],
+    threadFailureRequests: [2],
+  });
+  mock.failNextRegenerate = true;
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const approval = page.getByRole("button", {
+    name: "Allow web sources for this turn",
+  });
+  await expect(approval).toBeVisible();
+
+  await approval.click();
+
+  await expect(approval).toBeVisible();
+  await expect(approval).toBeDisabled();
+  await page.getByRole("button", { name: "Retry thread load" }).click();
+  await expect(approval).toBeEnabled();
+  await approval.click();
+  await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
+  expect(mock.regenerateRequests).toEqual([
+    { pairId: "pair-e2e", web_source_permission: "allow_for_this_turn" },
+    { pairId: "pair-e2e", web_source_permission: "allow_for_this_turn" },
+  ]);
+  expect(mock.threadRequests).toBeGreaterThan(1);
+});
+
 interface PsychiatristMockState {
   approvedWebSourceEvidence?: {
     source_citations: Array<{
@@ -707,7 +856,6 @@ interface PsychiatristMockState {
     };
   };
   cancelRequests: number;
-  eventTurnRequests: string[];
   failNextRegenerate: boolean;
   networkEnabledBeforeApproval: boolean;
   pairRevisionEvidence?: {
@@ -746,6 +894,9 @@ interface PsychiatristPairFixture {
     }>;
   };
   pair_id: string;
+  retry_action?: "allow_web_sources";
+  retry_mode?: "first_answer" | "regenerate";
+  retry_turn_id?: string;
   status: "pending" | "completed" | "failed" | "canceled" | "stale";
   turn_id: string;
   user_prompt: {
@@ -757,20 +908,26 @@ interface PsychiatristPairFixture {
 async function installPsychiatristMock(
   page: Page,
   input: {
+    activeTurnAfterCancel?: { pairId: string; turnId: string };
     cancelResults?: Array<"canceled" | "completed" | "failed">;
     deferNextCancel?: boolean;
     deferNextRegenerate?: boolean;
     deferNextSend?: boolean;
+    eventUrlForTurn?: (turnId: string) => string;
     initialPairs?: PsychiatristPairFixture[];
+    rejectNextCancel?: boolean;
     sendTurns?: Array<{ pairId: string; turnId: string }>;
+    threadFailureRequests?: number[];
     threadFailures?: number;
+    useFakeEventSource?: boolean;
   } = {},
 ): Promise<PsychiatristMockState> {
-  await page.addInitScript(installFakeEventSourceInBrowser, psychiatristEventFramesByTurn());
+  if (input.useFakeEventSource !== false) {
+    await page.addInitScript(installFakeEventSourceInBrowser, psychiatristEventFramesByTurn());
+  }
 
   const state: PsychiatristMockState = {
     cancelRequests: 0,
-    eventTurnRequests: [],
     failNextRegenerate: false,
     networkEnabledBeforeApproval: false,
     regenerateRequests: [],
@@ -786,8 +943,14 @@ async function installPsychiatristMock(
 
   await page.route(`**/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`, async (route) => {
     state.threadRequests += 1;
-    if (remainingThreadFailures > 0) {
-      remainingThreadFailures -= 1;
+    const consumesRemainingFailure = remainingThreadFailures > 0;
+    if (
+      consumesRemainingFailure ||
+      input.threadFailureRequests?.includes(state.threadRequests) === true
+    ) {
+      if (consumesRemainingFailure) {
+        remainingThreadFailures -= 1;
+      }
       await route.fulfill({
         contentType: "application/json",
         status: 503,
@@ -898,7 +1061,11 @@ async function installPsychiatristMock(
     await route.fulfill({
       contentType: "application/json",
       status: 202,
-      body: JSON.stringify(startedResponse(activeTurn.pair_id, activeTurn.turn_id)),
+      body: JSON.stringify(startedResponse(
+        activeTurn.pair_id,
+        activeTurn.turn_id,
+        input.eventUrlForTurn?.(activeTurn.turn_id),
+      )),
     });
     },
   );
@@ -958,6 +1125,14 @@ async function installPsychiatristMock(
       status: 202,
       body: JSON.stringify(startedResponse(pairId, activeTurn.turn_id)),
     });
+    if (activeTurn.turn_id === "turn-e2e-regenerate") {
+      activeTurn = null;
+      pairs = pairs.map((pair) =>
+        pair.pair_id === pairId
+          ? completedPsychiatristPair("Regenerated answer from the same pair.")
+          : pair
+      );
+    }
   });
 
   await page.route("**/psychiatrist/threads/thread-e2e/turns/*/cancel", async (route) => {
@@ -999,7 +1174,42 @@ async function installPsychiatristMock(
         state.releaseCancel = resolve;
       });
     }
-    activeTurn = null;
+    if (input.rejectNextCancel === true) {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({
+          action: "retry",
+          code: "timeout",
+          message: "Cancel timed out after the turn became terminal.",
+          status: "error",
+        }),
+      });
+      return;
+    }
+    activeTurn = input.activeTurnAfterCancel === undefined
+      ? null
+      : {
+          pair_id: input.activeTurnAfterCancel.pairId,
+          turn_id: input.activeTurnAfterCancel.turnId,
+        };
+    if (
+      activeTurn !== null &&
+      !pairs.some((pair) => pair.pair_id === activeTurn?.pair_id)
+    ) {
+      pairs = [
+        ...pairs,
+        {
+          pair_id: activeTurn.pair_id,
+          status: "pending",
+          turn_id: activeTurn.turn_id,
+          user_prompt: {
+            content: "Canonical successor turn.",
+            created_at: "2026-06-03T00:00:04.000Z",
+          },
+        },
+      ];
+    }
     await route.fulfill({
       contentType: "application/json",
       status: cancelStatus === "canceled" ? 202 : 200,
@@ -1008,40 +1218,6 @@ async function installPsychiatristMock(
         turn_id: turnId,
       }),
     });
-  });
-
-  await page.route("**/psychiatrist/threads/thread-e2e/turns/*/events*", async (route) => {
-    const turnId = route.request().url().match(/\/turns\/([^/]+)\/events/)?.[1] ??
-      "";
-    state.eventTurnRequests.push(turnId);
-    await route.fulfill({
-      contentType: "text/event-stream",
-      body: psychiatristSse(turnId),
-    });
-    if (turnId === "turn-e2e-regenerate") {
-      activeTurn = null;
-      pairs = pairs.map((pair) =>
-        pair.pair_id === "pair-e2e"
-          ? completedPsychiatristPair("Regenerated answer from the same pair.")
-          : pair
-      );
-    }
-    if (turnId === "turn-e2e-web") {
-      activeTurn = null;
-      pairs = pairs.map((pair) =>
-        pair.pair_id === "pair-e2e-web"
-          ? {
-              ...pair,
-              assistant_response: {
-                completed_at: "2026-06-03T00:00:02.000Z",
-                content: "Approved answer with cited source.",
-                source_citations: state.approvedWebSourceEvidence?.source_citations ?? [],
-              },
-              status: "completed",
-            }
-          : pair
-      );
-    }
   });
 
   return state;
@@ -1165,11 +1341,12 @@ function completedPsychiatristPair(content: string): PsychiatristPairFixture {
   };
 }
 
-function startedResponse(pairId: string, turnId: string) {
+function startedResponse(pairId: string, turnId: string, eventUrl?: string) {
+  const resolvedEventUrl = eventUrl ?? psychiatristEventUrl(turnId);
   return {
-    event_url: psychiatristEventUrl(turnId),
+    event_url: resolvedEventUrl,
     pair_id: pairId,
-    replay_url: psychiatristEventUrl(turnId),
+    replay_url: resolvedEventUrl,
     status: "started",
     thread_id: "thread-e2e",
     turn_id: turnId,
@@ -1274,12 +1451,109 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
   };
 }
 
-function psychiatristSse(turnId: string): string {
-  const framesByTurn = psychiatristEventFramesByTurn();
-  const frames = framesByTurn[turnId] ?? framesByTurn.default ?? [];
-  return frames
-    .map((frame) => sseEvent(frame.type, turnId, frame.eventId, frame.data))
-    .join("");
+interface ControlledPsychiatristSseTransport {
+  clientClosed: () => boolean;
+  close: () => Promise<void>;
+  eventUrl: string;
+  origin: string;
+  requestedUrls: string[];
+  sendTerminal: () => void;
+}
+
+async function createControlledPsychiatristSseTransport(input: {
+  pairId: string;
+  turnId: string;
+}): Promise<ControlledPsychiatristSseTransport> {
+  let activeResponse: ServerResponse | undefined;
+  let clientClosed = false;
+  const requestedUrls: string[] = [];
+  const server: Server = createServer((request, response) => {
+    requestedUrls.push(request.url ?? "");
+    activeResponse = response;
+    response.on("close", () => {
+      clientClosed = true;
+    });
+    response.writeHead(200, {
+      "access-control-allow-origin": "*",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "content-type": "text/event-stream",
+    });
+    response.flushHeaders();
+    response.write(sseEvent(
+      "psychiatrist.turn.started",
+      input.turnId,
+      "real-001",
+      {
+        pair_id: input.pairId,
+        user_prompt: "Exercise the real SSE transport.",
+      },
+    ));
+    response.write(sseEvent(
+      "psychiatrist.process.delta",
+      input.turnId,
+      "real-002",
+      { pair_id: input.pairId, text: "Real SSE process update." },
+    ));
+    response.write(sseEvent(
+      "psychiatrist.answer.delta",
+      input.turnId,
+      "real-003",
+      { pair_id: input.pairId, text: "Real SSE partial answer." },
+    ));
+  });
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: Error) => reject(error);
+    server.once("error", handleError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", handleError);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new Error("Controlled Psychiatrist SSE server did not bind a TCP port.");
+  }
+  const origin = `http://127.0.0.1:${address.port}`;
+  const eventPath = `/api/memories/${READER_MEMORY_ID}/psychiatrist/threads/thread-e2e` +
+    `/turns/${input.turnId}/events?variant_kind=source`;
+  return {
+    clientClosed: () => clientClosed,
+    close: async () => {
+      activeResponse?.destroy();
+      if (!server.listening) {
+        return;
+      }
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) {
+            resolve();
+          } else {
+            reject(error);
+          }
+        });
+      });
+    },
+    eventUrl: origin + eventPath,
+    origin,
+    requestedUrls,
+    sendTerminal: () => {
+      if (activeResponse === undefined || clientClosed) {
+        throw new Error("Controlled Psychiatrist SSE response is not open.");
+      }
+      activeResponse.write(sseEvent(
+        "psychiatrist.answer.completed",
+        input.turnId,
+        "real-004",
+        {
+          pair_id: input.pairId,
+          source_citations: [],
+          text: "Real SSE terminal answer.",
+        },
+      ));
+    },
+  };
 }
 
 function sseEvent(

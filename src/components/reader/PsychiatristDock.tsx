@@ -162,6 +162,23 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setLiveStatusMessage("");
     clearWebSourceRetryState();
   };
+  const adoptRunningTurn = (nextThread: PsychiatristThreadResponse) => {
+    const activeTurn = nextThread.active_turn;
+    if (activeTurn === null) {
+      return false;
+    }
+    clearWebSourceRetryState();
+    setTurnPhase("running");
+    setRunningPairId(activeTurn.pair_id);
+    setRunningTurnId(activeTurn.turn_id);
+    setLiveStatusMessage("Psychiatrist turn running.");
+    connectRunningStream(
+      activeTurn.event_url,
+      nextThread,
+      activeTurn.turn_id,
+    );
+    return true;
+  };
   const loadThread = async (options: { preserveTurnPhase?: boolean } = {}) => {
     const request = captureReaderRequestGeneration();
     setThreadLoadState("loading");
@@ -190,22 +207,13 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (options.preserveTurnPhase === true) {
         syncPersistedWebSourceRetryState(nextPairs);
       } else if (nextThread.active_turn !== null) {
-        clearWebSourceRetryState();
-        setTurnPhase("running");
-        setRunningPairId(nextThread.active_turn.pair_id);
-        setRunningTurnId(nextThread.active_turn.turn_id);
-        setLiveStatusMessage("Psychiatrist turn running.");
-        connectRunningStream(
-          nextThread.active_turn.event_url,
-          nextThread,
-          nextThread.active_turn.turn_id,
-        );
+        adoptRunningTurn(nextThread);
       } else {
         clearRunningTurnState();
         setLiveStatusMessage("Psychiatrist thread ready.");
         syncPersistedWebSourceRetryState(nextPairs);
       }
-      return true;
+      return nextThread;
     } catch (error) {
       if (!isCurrentReaderRequestGeneration(request)) {
         return false;
@@ -235,7 +243,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setTurnPhase("starting");
     setErrorMessage("");
     setLiveStatusMessage("Starting Psychiatrist turn.");
-    clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
         langCode: currentThread.lang_code,
@@ -248,6 +255,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
+      clearWebSourceRetryState();
       setTurnPhase("running");
       setTranscriptPairs((current) => [
         ...current,
@@ -301,6 +309,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setWebSourceRetryPairId("");
       }
       const errorText = getPsychiatristErrorMessage(error);
+      if (webSourcePermission === "allow_for_this_turn") {
+        const reloaded = await loadThread();
+        if (!reloaded || !isCurrentThreadRequestGeneration(request)) {
+          return;
+        }
+        if (turnPhase() === "running") {
+          return;
+        }
+      }
       setErrorMessage(errorText);
       setLiveStatusMessage(errorText);
     }
@@ -375,6 +392,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         return;
       }
       pendingStopTerminalStatus = undefined;
+      if (
+        reloaded.active_turn !== null &&
+        (
+          reloaded.active_turn.pair_id !== pairId ||
+          reloaded.active_turn.turn_id !== turnId
+        )
+      ) {
+        adoptRunningTurn(reloaded);
+        return;
+      }
       if (webSourceRetryPrompt() === "") {
         setLiveStatusMessage(result.status === "completed"
           ? "Psychiatrist response completed."
@@ -382,7 +409,12 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       }
       clearRunningTurnState();
     } catch (error) {
-      if (!isCurrentThreadRequestGeneration(request)) {
+      if (
+        !isCurrentThreadRequestGeneration(request) ||
+        turnPhase() !== "stopping" ||
+        runningPairId() !== pairId ||
+        runningTurnId() !== turnId
+      ) {
         return;
       }
       const errorText = getPsychiatristErrorMessage(error);
@@ -409,7 +441,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setTurnPhase("starting");
     setErrorMessage("");
     setLiveStatusMessage("Starting Psychiatrist regeneration.");
-    clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
         langCode: currentThread.lang_code,
@@ -422,6 +453,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       if (!isCurrentThreadRequestGeneration(request)) {
         return;
       }
+      clearWebSourceRetryState();
       setTurnPhase("running");
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
@@ -450,6 +482,13 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         return;
       }
       const errorText = getPsychiatristErrorMessage(error);
+      const reloaded = await loadThread();
+      if (!reloaded || !isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
+      if (turnPhase() === "running") {
+        return;
+      }
       setErrorMessage(errorText);
       setLiveStatusMessage(errorText);
     }
@@ -470,6 +509,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       return;
     }
     pendingStopTerminalStatus = undefined;
+    if (
+      reloaded.active_turn !== null &&
+      (
+        reloaded.active_turn.pair_id !== pairId ||
+        reloaded.active_turn.turn_id !== turnId
+      )
+    ) {
+      adoptRunningTurn(reloaded);
+      return;
+    }
     if (webSourceRetryPrompt() === "") {
       setLiveStatusMessage(terminalStatus === "completed"
         ? "Psychiatrist response completed."
@@ -527,9 +576,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setWebSourceRetryPairId(retryPairId);
         setErrorMessage("Allow web search/source lookup for this answer to continue.");
         setLiveStatusMessage("Allow web search/source lookup for this answer to continue.");
-      }
-      if (turnPhase() === "stopping") {
-        return;
       }
       if (
         event.type === "psychiatrist.answer.completed" ||
