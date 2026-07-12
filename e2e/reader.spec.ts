@@ -1459,6 +1459,7 @@ function readMomentAnchors(): string[] {
           { readonly: true },
         );
         try {
+          database.exec("PRAGMA busy_timeout = 5000");
           const rows = database
             .query("select section_anchor from moments order by created_at asc")
             .all();
