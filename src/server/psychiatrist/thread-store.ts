@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -10,6 +10,11 @@ import type {
   PsychiatristThreadManifest,
   PsychiatristThreadPair,
 } from "./types";
+import { appendJsonlRow, readJsonlRows } from "./jsonl";
+import {
+  appendPsychiatristStreamEvent,
+  loadPsychiatristStreamReplay,
+} from "./stream-store";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -589,7 +594,9 @@ export async function markPsychiatristRegenerateFailed(input: {
 
 export async function loadPsychiatristPairRegeneration(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId: string;
   pairId: string;
+  threadId: string;
 }): Promise<{
   contextSnapshot: PsychiatristContextSnapshotManifest;
   manifest: PsychiatristThreadManifest;
@@ -609,24 +616,21 @@ export async function loadPsychiatristPairRegeneration(input: {
   };
 }> {
   validateSafeId(input.pairId);
-  const root = join(resolve(input.config.storePath), "memories");
-  const glob = new Bun.Glob(`*/threads/*/pairs/${input.pairId}/PROMPT.md`);
-  const relativePromptPath = glob.scanSync({ cwd: root }).next().value;
-  if (typeof relativePromptPath !== "string") {
-    throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
-  }
-  const parts = relativePromptPath.split("/");
-  const memoryId = parts[0];
-  const threadId = parts[2];
-  if (memoryId === undefined || threadId === undefined) {
-    throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
-  }
-  const thread = await loadPsychiatristThread({ config: input.config, threadId });
+  validateSafeId(input.memoryId);
+  validateSafeId(input.threadId);
+  const thread = await loadPsychiatristThreadForMemory({
+    config: input.config,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
+  });
   const pair = thread.pairs.find((candidate) => candidate.pairId === input.pairId);
   if (pair === undefined) {
     throw new PsychiatristThreadStoreError("pair_not_found", "Psychiatrist pair was not found.");
   }
-  const prompt = await readFile(join(root, relativePromptPath), "utf8");
+  const prompt = await readFile(
+    join(pairDirectory(input.config, thread.manifest, input.pairId), "PROMPT.md"),
+    "utf8",
+  );
   const contextPath = join(pairDirectory(input.config, thread.manifest, input.pairId), "CONTEXT.json");
   const contextSnapshot = parseContextSnapshot(
     JSON.parse(await readFile(contextPath, "utf8")),
@@ -653,12 +657,15 @@ export async function loadPsychiatristPairRegeneration(input: {
 
 export async function loadPsychiatristTurnSafeError(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId?: string;
   threadId: string;
   turnId: string;
 }): Promise<{ code: string } | undefined> {
   validateSafeId(input.threadId);
   validateSafeId(input.turnId);
-  const manifest = await findThreadManifest(input.config, input.threadId);
+  const manifest = input.memoryId === undefined
+    ? await findThreadManifest(input.config, input.threadId)
+    : await findThreadManifestForMemory(input.config, input.memoryId, input.threadId);
   if (manifest === undefined) {
     throw new PsychiatristThreadStoreError(
       "thread_not_found",
@@ -672,12 +679,15 @@ export async function loadPsychiatristTurnSafeError(input: {
 
 export async function loadPsychiatristTurnTerminalStatus(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId?: string;
   threadId: string;
   turnId: string;
 }): Promise<PsychiatristTurnTerminalStatus | undefined> {
   validateSafeId(input.threadId);
   validateSafeId(input.turnId);
-  const manifest = await findThreadManifest(input.config, input.threadId);
+  const manifest = input.memoryId === undefined
+    ? await findThreadManifest(input.config, input.threadId)
+    : await findThreadManifestForMemory(input.config, input.memoryId, input.threadId);
   if (manifest === undefined) {
     throw new PsychiatristThreadStoreError(
       "thread_not_found",
@@ -695,6 +705,103 @@ export async function loadPsychiatristTurnTerminalStatus(input: {
     return "completed";
   }
   return readTerminalTurnStatus(pair?.status);
+}
+
+async function repairCompletedPairArtifacts(input: {
+  activeTurnIds: ReadonlySet<string>;
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  manifest: PsychiatristThreadManifest;
+}): Promise<boolean> {
+  const rows = await readPairRevisionRows(input.config, input.manifest);
+  const latestRowsByPairId = new Map<string, PairRevisionRow>();
+  for (const row of rows) {
+    latestRowsByPairId.set(row.pair_id, row);
+  }
+  let changed = false;
+  let latestCompletedAt = input.manifest.updatedAt;
+  for (const row of latestRowsByPairId.values()) {
+    if (
+      row.revision_kind !== "completed" ||
+      row.status !== "completed" ||
+      row.assistant_response === undefined ||
+      input.activeTurnIds.has(row.turn_id)
+    ) {
+      continue;
+    }
+    const existingTurn = await readTurnRecord(input.config, input.manifest, row.turn_id);
+    if (
+      existingTurn?.status !== "completed" ||
+      existingTurn.pair_id !== row.pair_id ||
+      existingTurn.regenerate_from_turn_id !== row.regenerated_from_turn_id
+    ) {
+      await writeJsonAtomic(
+        join(threadDirectory(input.config, input.manifest), "turns", `${row.turn_id}.json`),
+        {
+          ...existingTurn,
+          canceled_at: undefined,
+          completed_at: row.updated_at,
+          failed_at: undefined,
+          pair_id: row.pair_id,
+          policy_version: input.manifest.policyVersion,
+          regenerate_from_turn_id: row.regenerated_from_turn_id,
+          safe_error: undefined,
+          started_at: typeof existingTurn?.started_at === "string"
+            ? existingTurn.started_at
+            : row.created_at,
+          status: "completed",
+          thread_id: input.manifest.threadId,
+          turn_id: row.turn_id,
+        },
+      );
+      changed = true;
+    }
+    const terminalType = row.regenerated_from_turn_id === undefined
+      ? "psychiatrist.answer.completed" as const
+      : "psychiatrist.regenerate.completed" as const;
+    const replay = await loadPsychiatristStreamReplay({
+      config: input.config,
+      memoryId: input.manifest.memoryId,
+      threadId: input.manifest.threadId,
+      turnId: row.turn_id,
+    });
+    const hasCompletionReplay = replay.some((event) =>
+      event.type === terminalType &&
+      isRecord(event.data) &&
+      event.data.pair_id === row.pair_id
+    );
+    if (!hasCompletionReplay) {
+      await appendPsychiatristStreamEvent({
+        config: input.config,
+        event: {
+          data: {
+            pair_id: row.pair_id,
+            source_citations: (row.source_citations ?? []).map((citation) => ({
+              source_id: citation.source_id,
+              title: citation.title,
+              url: citation.url,
+            })),
+            text: row.assistant_response,
+          },
+          memoryId: input.manifest.memoryId,
+          threadId: input.manifest.threadId,
+          turnId: row.turn_id,
+          type: terminalType,
+        },
+        publish: false,
+      });
+      changed = true;
+    }
+    if (row.updated_at > latestCompletedAt) {
+      latestCompletedAt = row.updated_at;
+    }
+  }
+  if (changed) {
+    await updateThreadManifest(input.config, input.manifest, {
+      updatedAt: latestCompletedAt,
+    });
+    await rewriteThreadMarkdown(input.config, input.manifest);
+  }
+  return changed;
 }
 
 export async function reconcileInactivePsychiatristTurns(input: {
@@ -715,7 +822,11 @@ export async function reconcileInactivePsychiatristTurns(input: {
         memoryId: input.memoryId,
         threadId: input.threadId,
       });
-    let changed = false;
+    let changed = await repairCompletedPairArtifacts({
+      activeTurnIds,
+      config: input.config,
+      manifest: loaded.manifest,
+    });
     const now = new Date().toISOString();
     const interruptedRegenerateTurnIds = new Set<string>();
     for (const pair of loaded.pairs) {
@@ -815,6 +926,56 @@ export async function reconcileInactivePsychiatristTurns(input: {
   });
 }
 
+export async function recoverCompletedPsychiatristArtifactsForMemory(input: {
+  activeTurnIds?: string[];
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId: string;
+}): Promise<number> {
+  validateSafeId(input.memoryId);
+  const threadsRoot = join(resolve(input.config.storePath), "memories", input.memoryId, "threads");
+  let entries;
+  try {
+    entries = await readdir(threadsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+  const activeTurnIds = new Set(input.activeTurnIds ?? []);
+  let repairedThreads = 0;
+  for (const entry of entries.filter((candidate) => candidate.isDirectory())) {
+    const threadId = entry.name;
+    if (!UUID_V7_PATTERN.test(threadId)) {
+      continue;
+    }
+    let repaired: boolean;
+    try {
+      repaired = await withThreadMutationLock(input.config, threadId, async () => {
+        const loaded = await loadPsychiatristThreadForMemory({
+          config: input.config,
+          memoryId: input.memoryId,
+          threadId,
+        });
+        return repairCompletedPairArtifacts({
+          activeTurnIds,
+          config: input.config,
+          manifest: loaded.manifest,
+        });
+      });
+    } catch (error) {
+      if (error instanceof PsychiatristThreadStoreError && error.code === "thread_not_found") {
+        continue;
+      }
+      throw error;
+    }
+    if (repaired) {
+      repairedThreads += 1;
+    }
+  }
+  return repairedThreads;
+}
+
 export async function loadPsychiatristThread(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   threadId: string;
@@ -866,10 +1027,14 @@ export async function loadPsychiatristThreadForMemory(input: {
 }
 
 export async function findLatestPsychiatristThread(input: {
+  activeContentHash: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  langCode?: string;
   memoryId: string;
   policyVersion: string;
   sourceHash: string;
+  translationOutputHash?: string;
+  variantKind: "source" | "translation";
 }): Promise<{
   manifest: PsychiatristThreadManifest;
   pairs: PsychiatristThreadPair[];
@@ -884,7 +1049,11 @@ export async function findLatestPsychiatristThread(input: {
       const manifest = parseThreadManifest(raw);
       if (
         manifest.memoryId === input.memoryId &&
+        manifest.activeContentHash === input.activeContentHash &&
         manifest.sourceHash === input.sourceHash &&
+        manifest.variantKind === input.variantKind &&
+        manifest.langCode === input.langCode &&
+        manifest.translationOutputHash === input.translationOutputHash &&
         manifest.policyVersion === input.policyVersion &&
         manifest.status !== "stale"
       ) {
@@ -916,12 +1085,19 @@ export async function findLatestPsychiatristThread(input: {
 
 export async function markPsychiatristThreadStale(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId?: string;
   threadId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
+  const loaded = input.memoryId === undefined
+    ? await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    })
+    : await loadPsychiatristThreadForMemory({
+      config: input.config,
+      memoryId: input.memoryId,
+      threadId: input.threadId,
+    });
   await writeJsonAtomic(
     join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
     serializeThreadManifest({
@@ -1054,18 +1230,7 @@ async function readPairRevisionRows(
   manifest: PsychiatristThreadManifest,
 ): Promise<PairRevisionRow[]> {
   const path = join(threadDirectory(config, manifest), "PAIRS.jsonl");
-  let content: string;
-  try {
-    content = await readFile(path, "utf8");
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-  return content.trim() === ""
-    ? []
-    : content.trim().split("\n").map((line) => JSON.parse(line) as PairRevisionRow);
+  return readJsonlRows<PairRevisionRow>(path);
 }
 
 function reducePairRows(rows: PairRevisionRow[]): PsychiatristThreadPair[] {
@@ -1309,11 +1474,7 @@ async function appendPairRevisionRow(
   manifest: PsychiatristThreadManifest,
   row: PairRevisionRow,
 ): Promise<void> {
-  await appendFile(
-    join(threadDirectory(config, manifest), "PAIRS.jsonl"),
-    `${JSON.stringify(row)}\n`,
-    "utf8",
-  );
+  await appendJsonlRow(join(threadDirectory(config, manifest), "PAIRS.jsonl"), row);
 }
 
 async function replaceResponseWhileAppendingRevisionRow(

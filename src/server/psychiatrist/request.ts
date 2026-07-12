@@ -1,3 +1,5 @@
+import type { PsychiatristThreadManifest } from "./types";
+
 export const MAX_PSYCHIATRIST_JSON_BODY_BYTES = 16_384;
 
 export interface PsychiatristRequestScope {
@@ -6,6 +8,11 @@ export interface PsychiatristRequestScope {
   threadId: string;
   variantKind?: "source" | "translation";
 }
+
+export type PsychiatristVariantScope = Pick<
+  PsychiatristRequestScope,
+  "langCode" | "variantKind"
+>;
 
 export type PsychiatristJsonBodyResult =
   | { ok: true; payload: unknown }
@@ -113,6 +120,47 @@ export function readOptionalPsychiatristLangCode(
     ok: true,
     ...(langCode === undefined ? {} : { langCode }),
   };
+}
+
+export function readOptionalPsychiatristVariantKind(
+  payload: Record<string, unknown>,
+): { ok: true; variantKind?: "source" | "translation" } | { ok: false; message: string } {
+  const variantKind = readOptionalNullableString(payload, "variant_kind");
+  if (
+    variantKind === "invalid" ||
+    variantKind !== undefined && variantKind !== "source" && variantKind !== "translation"
+  ) {
+    return { ok: false, message: "variant_kind must be source or translation." };
+  }
+  return {
+    ok: true,
+    ...(variantKind === undefined ? {} : { variantKind }),
+  };
+}
+
+export function matchesPsychiatristVariantScope(
+  scope: PsychiatristVariantScope,
+  manifest: Pick<PsychiatristThreadManifest, "langCode" | "variantKind">,
+): boolean {
+  const variantKind = scope.variantKind ??
+    (scope.langCode === undefined ? "source" : "translation");
+  return variantKind === manifest.variantKind && scope.langCode === manifest.langCode;
+}
+
+export function psychiatristTurnEventsUrl(input: {
+  langCode?: string;
+  memoryId: string;
+  threadId: string;
+  turnId: string;
+  variantKind: "source" | "translation";
+}): string {
+  const query = new URLSearchParams({ variant_kind: input.variantKind });
+  if (input.langCode !== undefined) {
+    query.set("lang_code", input.langCode);
+  }
+  return `/api/memories/${encodeURIComponent(input.memoryId)}` +
+    `/psychiatrist/threads/${encodeURIComponent(input.threadId)}` +
+    `/turns/${encodeURIComponent(input.turnId)}/events?${query.toString()}`;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

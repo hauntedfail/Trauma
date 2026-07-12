@@ -76,13 +76,15 @@ Thread create/read responses include:
     "pair_id": "019f...",
     "turn_id": "019f...",
     "status": "running",
-    "event_url": "/api/psychiatrist-turns/019f.../events"
+    "event_url": "/api/memories/019e.../psychiatrist/threads/019f.../turns/019f.../events?variant_kind=translation&lang_code=ja-JP"
   }
 }
 ```
 
 The event route must:
 
+- Resolve the memory/thread stream path directly and verify the active variant
+  query before replay or reconciliation; it must not scan other memories.
 - Replay stored `streams/{turnId}.jsonl` rows and hand off to live events with
   no gap. Implement this by subscribing before replay and de-duplicating by
   `event_id`, or by using an equivalent atomic cursor protocol that cannot miss
@@ -99,6 +101,9 @@ content-type: application/json
 
 {
   "lang_code": "ja-JP",
+  "memory_id": "019e...",
+  "thread_id": "019f...",
+  "variant_kind": "translation",
   "web_source_permission": "deny"
 }
 ```

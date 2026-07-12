@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,7 @@ import type {
 } from "../../../src/server/psychiatrist/types";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
+const MEMORY_ID_2 = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f002";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
 
@@ -77,6 +78,7 @@ describe("Psychiatrist stream store", () => {
     ]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -89,6 +91,7 @@ describe("Psychiatrist stream store", () => {
     const afterFirst = await loadPsychiatristStreamReplay({
       afterEventId: "000000000001",
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -118,6 +121,7 @@ describe("Psychiatrist stream store", () => {
 
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -129,6 +133,106 @@ describe("Psychiatrist stream store", () => {
       "000000000005",
       "000000000006",
     ]);
+  });
+
+  it("recovers a torn final stream fragment before appending the next monotonic event", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-torn-tail-"));
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    const streamPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "streams",
+      `${TURN_ID}.jsonl`,
+    );
+    const completePrefix = await readFile(streamPath, "utf8");
+    await appendFile(streamPath, '{"eventId":"000000000002"', "utf8");
+
+    await expect(loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    })).resolves.toEqual([
+      expect.objectContaining({ eventId: "000000000001" }),
+    ]);
+
+    const appended = await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Recovered stream." },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    });
+    expect(appended?.eventId).toBe("000000000002");
+    await expect(loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    })).resolves.toEqual([
+      expect.objectContaining({ eventId: "000000000001" }),
+      expect.objectContaining({ eventId: "000000000002" }),
+    ]);
+    const repairedJsonl = await readFile(streamPath, "utf8");
+    expect(repairedJsonl.endsWith("\n")).toBe(true);
+    expect(repairedJsonl.startsWith(completePrefix)).toBe(true);
+    expect(repairedJsonl.trim().split("\n").map((line) => JSON.parse(line))).toHaveLength(2);
+  });
+
+  it("rejects corruption in a complete newline-terminated stream row", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-corrupt-row-"));
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    const streamPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "streams",
+      `${TURN_ID}.jsonl`,
+    );
+    await appendFile(streamPath, "not-json\n", "utf8");
+
+    await expect(loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    })).rejects.toThrow(SyntaxError);
+    await expect(appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "Must not append." },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+    })).rejects.toThrow(SyntaxError);
   });
 
   it("filters unsafe process events before writing JSONL replay", async () => {
@@ -207,6 +311,7 @@ describe("Psychiatrist stream store", () => {
 
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -246,6 +351,7 @@ describe("Psychiatrist stream store", () => {
     expect(unknown).toBeUndefined();
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -331,6 +437,7 @@ describe("Psychiatrist stream store", () => {
 
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -444,6 +551,7 @@ describe("Psychiatrist stream store", () => {
 
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -546,6 +654,7 @@ describe("Psychiatrist stream store", () => {
 
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -612,6 +721,35 @@ describe("Psychiatrist stream store", () => {
     expect(text).not.toContain("psychiatrist.turn.started");
     expect(text).toContain("event: psychiatrist.answer.delta");
     expect(text).toContain("event: psychiatrist.answer.completed");
+  });
+
+  it("rejects cross-memory and cross-variant replay before loading a stream", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-scope-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const replayCalls: unknown[] = [];
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+      loadReplay: async (input) => {
+        replayCalls.push(input);
+        return [];
+      },
+    });
+
+    const crossMemory = await handler(createApiEvent(
+      new Request("http://localhost/events?variant_kind=source"),
+      { memoryId: MEMORY_ID_2, threadId: THREAD_ID, turnId: TURN_ID },
+    ));
+    const crossVariant = await handler(createApiEvent(
+      new Request("http://localhost/events?variant_kind=translation&lang_code=ja-JP"),
+      { memoryId: MEMORY_ID, threadId: THREAD_ID, turnId: TURN_ID },
+    ));
+
+    expect(crossMemory.status).toBe(404);
+    expect(crossVariant.status).toBe(404);
+    expect(replayCalls).toEqual([]);
   });
 
   it("replays only the latest terminal event when a later warning completion exists", async () => {
@@ -1100,7 +1238,7 @@ async function readChunk(
 function createApiEvent(request: Request, params: Record<string, string>): APIEvent {
   return {
     request,
-    params,
+    params: { memoryId: MEMORY_ID, threadId: THREAD_ID, ...params },
     response: new Response(),
     locals: {},
     nativeEvent: {},

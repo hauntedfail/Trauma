@@ -30,6 +30,21 @@ interface PsychiatristDockProps {
   memoryId: string;
 }
 
+interface ReaderRequestGeneration {
+  readerGeneration: number;
+  readerIdentity: string;
+}
+
+interface ThreadRequestGeneration extends ReaderRequestGeneration {
+  threadIdentity: string;
+}
+
+interface StreamGeneration extends ThreadRequestGeneration {
+  streamGeneration: number;
+  threadId: string;
+  turnId: string;
+}
+
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
@@ -46,24 +61,68 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
-  let loadedReaderThreadKey = readReaderThreadKey(props.memoryId);
+  let isDisposed = false;
+  let readerGeneration = 0;
+  let streamGeneration = 0;
+  let loadedReaderThreadKey = readPsychiatristReaderGenerationIdentity(
+    props.memoryId,
+    props.langCode,
+  );
 
   const pairs = () => transcriptPairs();
   const openDock = () => {
+    const request = captureReaderRequestGeneration();
     setIsOpen(true);
     void loadThread();
-    queueMicrotask(() => inputRef?.focus());
+    queueMicrotask(() => {
+      if (isCurrentReaderRequestGeneration(request)) {
+        inputRef?.focus();
+      }
+    });
   };
   const closeDock = () => {
     setIsOpen(false);
     triggerRef?.focus();
   };
-  const clearRunningTurnState = () => {
+  const disconnectCurrentStream = () => {
+    streamGeneration += 1;
     disconnectPsychiatristStream?.();
     disconnectPsychiatristStream = undefined;
+  };
+  const clearRunningTurnState = () => {
+    disconnectCurrentStream();
     setIsRunning(false);
     setRunningPairId("");
     setRunningTurnId("");
+  };
+  const captureReaderRequestGeneration = (): ReaderRequestGeneration => ({
+    readerGeneration,
+    readerIdentity: readPsychiatristReaderGenerationIdentity(
+      props.memoryId,
+      props.langCode,
+    ),
+  });
+  const isCurrentReaderRequestGeneration = (
+    request: ReaderRequestGeneration,
+  ): boolean => !isDisposed &&
+    request.readerGeneration === readerGeneration &&
+    request.readerIdentity === readPsychiatristReaderGenerationIdentity(
+      props.memoryId,
+      props.langCode,
+    );
+  const captureThreadRequestGeneration = (
+    currentThread: PsychiatristThreadResponse,
+  ): ThreadRequestGeneration => ({
+    ...captureReaderRequestGeneration(),
+    threadIdentity: readPsychiatristThreadIdentity(currentThread),
+  });
+  const isCurrentThreadRequestGeneration = (
+    request: ThreadRequestGeneration,
+  ): boolean => {
+    const currentThread = thread();
+    return isCurrentReaderRequestGeneration(request) &&
+      currentThread !== undefined &&
+      request.threadIdentity === readPsychiatristThreadIdentity(currentThread);
   };
   const clearWebSourceRetryState = () => {
     setWebSourceRetryPrompt("");
@@ -90,14 +149,21 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     clearWebSourceRetryState();
   };
   const loadThread = async () => {
-    const requestedReaderThreadKey = readReaderThreadKey(props.memoryId);
+    const request = captureReaderRequestGeneration();
     try {
       const nextThread = await createPsychiatristThread({
         langCode: props.langCode,
         memoryId: props.memoryId,
         resumeLatest: true,
       });
-      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId)) {
+      if (
+        !isCurrentReaderRequestGeneration(request) ||
+        request.readerIdentity !== readPsychiatristReaderGenerationIdentity(
+          nextThread.memory_id,
+          nextThread.lang_code ?? undefined,
+          nextThread.variant_kind,
+        )
+      ) {
         return;
       }
       const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
@@ -108,17 +174,17 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setIsRunning(true);
         setRunningPairId(nextThread.active_turn.pair_id);
         setRunningTurnId(nextThread.active_turn.turn_id);
-        disconnectPsychiatristStream?.();
-        disconnectPsychiatristStream = connectPsychiatristStream(
+        connectRunningStream(
           nextThread.active_turn.event_url,
-          handleStreamEvent,
+          nextThread,
+          nextThread.active_turn.turn_id,
         );
       } else {
         clearRunningTurnState();
         syncPersistedWebSourceRetryState(nextPairs);
       }
     } catch (error) {
-      if (requestedReaderThreadKey !== readReaderThreadKey(props.memoryId)) {
+      if (!isCurrentReaderRequestGeneration(request)) {
         return;
       }
       setErrorMessage(getPsychiatristErrorMessage(error));
@@ -133,16 +199,23 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (message === "" || currentThread === undefined || isRunning()) {
       return;
     }
+    const request = captureThreadRequestGeneration(currentThread);
     setIsRunning(true);
     setErrorMessage("");
     clearWebSourceRetryState();
     try {
       const started = await sendPsychiatristMessage({
-        langCode: props.langCode,
+        langCode: currentThread.lang_code,
+        memoryId: currentThread.memory_id,
         message,
         threadId: currentThread.thread_id,
+        variantKind: currentThread.variant_kind,
         webSourcePermission,
       });
+      if (!isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
+      setIsRunning(true);
       setTranscriptPairs((current) => [
         ...current,
         {
@@ -158,12 +231,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setPrompt("");
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
-      disconnectPsychiatristStream?.();
-      disconnectPsychiatristStream = connectPsychiatristStream(
+      connectRunningStream(
         started.event_url,
-        handleStreamEvent,
+        currentThread,
+        started.turn_id,
       );
     } catch (error) {
+      if (!isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
       setIsRunning(false);
       if (
         error instanceof PsychiatristRequestError &&
@@ -171,8 +247,15 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         error.action === "refresh_thread"
       ) {
         await loadThread();
+        if (!isCurrentReaderRequestGeneration(request)) {
+          return;
+        }
         setErrorMessage("Psychiatrist thread was refreshed. Send again.");
-        queueMicrotask(() => inputRef?.focus());
+        queueMicrotask(() => {
+          if (isCurrentReaderRequestGeneration(request)) {
+            inputRef?.focus();
+          }
+        });
         return;
       }
       if (
@@ -205,16 +288,28 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (turnId === "" || pairId === "" || currentThread === undefined) {
       return;
     }
+    const request = captureThreadRequestGeneration(currentThread);
     try {
       await cancelPsychiatristTurn({
+        langCode: currentThread.lang_code,
         memoryId: currentThread.memory_id,
         pairId,
         threadId: currentThread.thread_id,
         turnId,
+        variantKind: currentThread.variant_kind,
       });
-      setIsRunning(false);
-      setRunningPairId("");
+      if (
+        !isCurrentThreadRequestGeneration(request) ||
+        runningPairId() !== pairId ||
+        runningTurnId() !== turnId
+      ) {
+        return;
+      }
+      clearRunningTurnState();
     } catch (error) {
+      if (!isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
       setErrorMessage(getPsychiatristErrorMessage(error));
     }
   };
@@ -232,24 +327,34 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (currentThread === undefined) {
       return;
     }
+    const request = captureThreadRequestGeneration(currentThread);
     setIsRunning(true);
     setErrorMessage("");
     clearWebSourceRetryState();
     try {
       const started = await regeneratePsychiatristResponse({
+        langCode: currentThread.lang_code,
         memoryId: currentThread.memory_id,
         pairId,
         threadId: currentThread.thread_id,
+        variantKind: currentThread.variant_kind,
         webSourcePermission,
       });
+      if (!isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
+      setIsRunning(true);
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
-      disconnectPsychiatristStream?.();
-      disconnectPsychiatristStream = connectPsychiatristStream(
+      connectRunningStream(
         started.event_url,
-        handleStreamEvent,
+        currentThread,
+        started.turn_id,
       );
     } catch (error) {
+      if (!isCurrentThreadRequestGeneration(request)) {
+        return;
+      }
       setIsRunning(false);
       if (
         error instanceof PsychiatristRequestError &&
@@ -257,6 +362,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         error.action === "refresh_thread"
       ) {
         await loadThread();
+        if (!isCurrentReaderRequestGeneration(request)) {
+          return;
+        }
         setErrorMessage("Psychiatrist thread was refreshed. Regenerate again.");
         return;
       }
@@ -276,7 +384,19 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       void submitPrompt();
     }
   };
-  const handleStreamEvent = (event: PsychiatristStreamEvent) => {
+  const handleStreamEvent = (
+    event: PsychiatristStreamEvent,
+    currentStream: StreamGeneration,
+  ) => {
+    if (
+      !isCurrentThreadRequestGeneration(currentStream) ||
+      currentStream.streamGeneration !== streamGeneration ||
+      currentStream.threadId !== event.threadId ||
+      currentStream.turnId !== event.turnId ||
+      currentStream.turnId !== runningTurnId()
+    ) {
+      return;
+    }
     const retryPrompt = event.type === "psychiatrist.network.permission_required"
       ? findPromptForStreamEvent(transcriptPairs(), event)
       : "";
@@ -291,6 +411,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       event.type === "psychiatrist.network.permission_required" ||
       event.type === "psychiatrist.turn.canceled"
     ) {
+      disconnectCurrentStream();
       setIsRunning(false);
       setRunningPairId("");
       setRunningTurnId("");
@@ -304,12 +425,33 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       }
     }
   };
+  const connectRunningStream = (
+    eventUrl: string,
+    currentThread: PsychiatristThreadResponse,
+    turnId: string,
+  ) => {
+    disconnectCurrentStream();
+    const currentStream: StreamGeneration = {
+      ...captureThreadRequestGeneration(currentThread),
+      streamGeneration,
+      threadId: currentThread.thread_id,
+      turnId,
+    };
+    disconnectPsychiatristStream = connectPsychiatristStream(
+      eventUrl,
+      (event) => handleStreamEvent(event, currentStream),
+    );
+  };
 
   createEffect(() => {
-    const nextReaderThreadKey = readReaderThreadKey(props.memoryId);
+    const nextReaderThreadKey = readPsychiatristReaderGenerationIdentity(
+      props.memoryId,
+      props.langCode,
+    );
     if (nextReaderThreadKey === loadedReaderThreadKey) {
       return;
     }
+    readerGeneration += 1;
     loadedReaderThreadKey = nextReaderThreadKey;
     resetThreadStateForMemoryChange();
     if (isOpen()) {
@@ -320,14 +462,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
+      isDisposed = true;
+      readerGeneration += 1;
       document.removeEventListener("keydown", handleKeyDown);
-      disconnectPsychiatristStream?.();
+      disconnectCurrentStream();
     });
   });
 
   return (
     <div
-      class="trauma-psychiatrist-dock fixed inset-x-0 bottom-4 z-[60] mx-auto grid w-[min(100%-1.5rem,26rem)] justify-items-center px-3 sm:bottom-6"
+      class="trauma-psychiatrist-dock fixed inset-x-0 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-[60] mx-auto grid w-[min(100%-1.5rem,26rem)] justify-items-center px-3 min-[721px]:bottom-6"
       data-psychiatrist-lang-code={props.langCode}
     >
       <style>{psychiatristDockStyles}</style>
@@ -418,7 +562,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               void submitPrompt();
             }}
           >
+            <label class="sr-only" for="psychiatrist-prompt">Message Psychiatrist</label>
             <textarea
+              id="psychiatrist-prompt"
               ref={inputRef}
               class="max-h-28 min-h-16 resize-y rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2 text-sm text-trauma-text-primary"
               disabled={isRunning()}
@@ -496,8 +642,24 @@ function connectPsychiatristStream(
   return () => eventSource.close();
 }
 
-function readReaderThreadKey(memoryId: string): string {
-  return memoryId;
+export function readPsychiatristReaderGenerationIdentity(
+  memoryId: string,
+  langCode: string | undefined,
+  variantKind: "source" | "translation" = langCode === undefined
+    ? "source"
+    : "translation",
+): string {
+  return `${memoryId}\u0000${variantKind}\u0000${langCode ?? ""}`;
+}
+
+function readPsychiatristThreadIdentity(
+  currentThread: PsychiatristThreadResponse,
+): string {
+  return `${readPsychiatristReaderGenerationIdentity(
+    currentThread.memory_id,
+    currentThread.lang_code ?? undefined,
+    currentThread.variant_kind,
+  )}\u0000${currentThread.thread_id}`;
 }
 
 function findPromptForStreamEvent(

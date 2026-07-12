@@ -5,6 +5,7 @@ import {
   type ResolvedTraumaConfig,
 } from "../config";
 import { activePsychiatristTurns } from "./active-turns";
+import { matchesPsychiatristVariantScope } from "./request";
 import {
   loadPsychiatristStreamReplay,
   subscribePsychiatristStream,
@@ -12,6 +13,7 @@ import {
 import {
   loadPsychiatristTurnSafeError,
   loadPsychiatristTurnTerminalStatus,
+  loadPsychiatristThreadForMemory,
   reconcileInactivePsychiatristTurns,
 } from "./thread-store";
 import type { PsychiatristStreamEvent } from "./types";
@@ -37,24 +39,69 @@ export async function handlePsychiatristTurnEventsRequest(
     subscribe?: SubscribePsychiatristStream;
   } = {},
 ): Promise<Response> {
+  const memoryId = event.params.memoryId?.trim();
+  if (memoryId === undefined || memoryId === "") {
+    return new Response("memoryId must be a non-empty string", { status: 400 });
+  }
+  const threadId = event.params.threadId?.trim();
+  if (threadId === undefined || threadId === "") {
+    return new Response("threadId must be a non-empty string", { status: 400 });
+  }
   const turnId = event.params.turnId?.trim();
   if (turnId === undefined || turnId === "") {
     return new Response("turnId must be a non-empty string", { status: 400 });
   }
+  const url = new URL(event.request.url);
   const afterEventId =
-    new URL(event.request.url).searchParams.get("after_event_id") ??
+    url.searchParams.get("after_event_id") ??
     event.request.headers.get("Last-Event-ID") ??
     undefined;
   const config = input.config ?? loadRuntimeTraumaConfig();
+  const variantKind = url.searchParams.get("variant_kind");
+  const langCode = url.searchParams.get("lang_code") ?? undefined;
+  if (
+    variantKind !== null &&
+    variantKind !== "source" &&
+    variantKind !== "translation"
+  ) {
+    return new Response("variant_kind must be source or translation", { status: 400 });
+  }
+  if (variantKind !== null || langCode !== undefined) {
+    const thread = await loadPsychiatristThreadForMemory({
+      config,
+      memoryId,
+      threadId,
+    }).catch(() => undefined);
+    if (
+      thread === undefined ||
+      !matchesPsychiatristVariantScope({
+        ...(langCode === undefined ? {} : { langCode }),
+        ...(variantKind === null ? {} : { variantKind }),
+      }, thread.manifest)
+    ) {
+      return new Response("Psychiatrist turn was not found", { status: 404 });
+    }
+  }
   const loadReplay = input.loadReplay ?? loadPsychiatristStreamReplay;
   const subscribe = input.subscribe ?? subscribePsychiatristStream;
-  const isLiveTurn = activePsychiatristTurns.getByTurnId(turnId) !== undefined;
+  const activeTurn = activePsychiatristTurns.getByTurnId(turnId);
+  const isLiveTurn = activeTurn?.memoryId === memoryId && activeTurn.threadId === threadId;
   const body = isLiveTurn
-    ? createLiveEventStream({ afterEventId, config, loadReplay, subscribe, turnId })
+    ? createLiveEventStream({
+      afterEventId,
+      config,
+      loadReplay,
+      memoryId,
+      subscribe,
+      threadId,
+      turnId,
+    })
     : (await loadInactiveReplay({
       afterEventId,
       config,
       loadReplay,
+      memoryId,
+      threadId,
       turnId,
     })).map(encodePsychiatristServerSentEvent).join("");
   return new Response(body, {
@@ -72,29 +119,35 @@ async function loadInactiveReplay(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   loadReplay: LoadPsychiatristStreamReplay;
+  memoryId: string;
+  threadId: string;
   turnId: string;
 }): Promise<PsychiatristStreamEvent[]> {
   const fullReplay = await input.loadReplay({
     config: input.config,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
     turnId: input.turnId,
   });
+  if (fullReplay.some((event) =>
+    event.memoryId !== input.memoryId || event.threadId !== input.threadId
+  )) {
+    return [];
+  }
   if (fullReplay.length === 0 || fullReplay.some(isTerminalEvent)) {
     return filterReplayAfterEventId(fullReplay, input.afterEventId);
   }
-  const memoryId = fullReplay[0]?.memoryId;
-  const threadId = fullReplay[0]?.threadId;
-  if (memoryId === undefined || threadId === undefined) {
-    return filterReplayAfterEventId(fullReplay, input.afterEventId);
-  }
-  const activeThreadTurn = activePsychiatristTurns.getByThreadId(threadId);
+  const activeThreadTurn = activePsychiatristTurns.getByThreadId(input.threadId);
   await reconcileInactivePsychiatristTurns({
     activeTurnIds: activeThreadTurn === undefined ? [] : [activeThreadTurn.turnId],
     config: input.config,
-    threadId,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
   });
   const reconciledFullReplay = await input.loadReplay({
     config: input.config,
-    threadId,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
     turnId: input.turnId,
   });
   if (reconciledFullReplay.some(isTerminalEvent)) {
@@ -102,7 +155,8 @@ async function loadInactiveReplay(input: {
   }
   const terminalStatus = await loadPsychiatristTurnTerminalStatus({
     config: input.config,
-    threadId,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
     turnId: input.turnId,
   });
   const filteredReplay = filterReplayAfterEventId(reconciledFullReplay, input.afterEventId);
@@ -111,7 +165,8 @@ async function loadInactiveReplay(input: {
   }
   const safeError = await loadPsychiatristTurnSafeError({
     config: input.config,
-    threadId,
+    memoryId: input.memoryId,
+    threadId: input.threadId,
     turnId: input.turnId,
   });
   const syntheticEventId = nextReplayEventId(reconciledFullReplay);
@@ -125,8 +180,8 @@ async function loadInactiveReplay(input: {
         code: safeError?.code ?? "turn_interrupted",
       },
       eventId: syntheticEventId,
-      memoryId: reconciledFullReplay[0]?.memoryId ?? memoryId,
-      threadId,
+      memoryId: input.memoryId,
+      threadId: input.threadId,
       timestamp: Date.now(),
       turnId: input.turnId,
       type: "psychiatrist.answer.failed",
@@ -161,7 +216,9 @@ function createLiveEventStream(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   loadReplay: LoadPsychiatristStreamReplay;
+  memoryId: string;
   subscribe: SubscribePsychiatristStream;
+  threadId: string;
   turnId: string;
 }): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -203,6 +260,8 @@ function createLiveEventStream(input: {
         replay = await input.loadReplay({
           afterEventId: input.afterEventId,
           config: input.config,
+          memoryId: input.memoryId,
+          threadId: input.threadId,
           turnId: input.turnId,
         });
       } catch (error) {

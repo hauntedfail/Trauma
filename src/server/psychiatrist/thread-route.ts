@@ -10,6 +10,8 @@ import { jsonResponse } from "../http/json";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "./prompt";
 import {
   isRecord,
+  matchesPsychiatristVariantScope,
+  psychiatristTurnEventsUrl,
   readPsychiatristJsonBody,
 } from "./request";
 import {
@@ -108,10 +110,16 @@ export async function handleStartPsychiatristThreadRequest(
     const now = (input.now?.() ?? new Date()).toISOString();
     if (payload.resumeLatest) {
       const latest = await (input.findLatestThread ?? findLatestPsychiatristThread)({
+        activeContentHash: context.contentHash,
         config,
+        ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
         memoryId: context.memoryId,
         policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
         sourceHash: context.sourceHash,
+        ...(context.translationOutputHash === undefined
+          ? {}
+          : { translationOutputHash: context.translationOutputHash }),
+        variantKind: context.variantKind,
       });
       if (latest !== undefined) {
         const thread = input.findLatestThread === undefined
@@ -128,15 +136,19 @@ export async function handleStartPsychiatristThreadRequest(
       }
     }
     const manifest: PsychiatristThreadManifest = {
-      activeContentHash: context.sourceHash,
+      activeContentHash: context.contentHash,
       createdAt: now,
+      ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
       memoryId: context.memoryId,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       sourceHash: context.sourceHash,
       status: "ready",
       threadId: input.generateId?.() ?? generateUuidV7Like(),
+      ...(context.translationOutputHash === undefined
+        ? {}
+        : { translationOutputHash: context.translationOutputHash }),
       updatedAt: now,
-      variantKind: "source",
+      variantKind: context.variantKind,
     };
     await (input.createThread ?? createPsychiatristThread)({
       config,
@@ -165,6 +177,16 @@ export async function handleReadPsychiatristThreadRequest(
   if (threadId === undefined || threadId === "") {
     return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
   }
+  const url = new URL(event.request.url);
+  const variantKind = url.searchParams.get("variant_kind");
+  const langCode = url.searchParams.get("lang_code") ?? undefined;
+  if (variantKind !== "source" && variantKind !== "translation") {
+    return safeErrorResponse(
+      "invalid_request",
+      "variant_kind must be source or translation.",
+      400,
+    );
+  }
   const config = input.config ?? loadRuntimeTraumaConfig();
   try {
     const loadThread = input.loadThread ?? loadPsychiatristThreadForMemory;
@@ -173,6 +195,16 @@ export async function handleReadPsychiatristThreadRequest(
       memoryId,
       threadId,
     });
+    if (!matchesPsychiatristVariantScope({
+      ...(langCode === undefined ? {} : { langCode }),
+      variantKind,
+    }, thread.manifest)) {
+      return safeErrorResponse(
+        "thread_not_found",
+        "Psychiatrist thread was not found.",
+        404,
+      );
+    }
     if (input.loadThread === undefined) {
       thread = await reconcileThreadForResponse({
         config,
@@ -272,7 +304,13 @@ function toThreadResponse(input: {
     active_turn: activeTurn === undefined
       ? null
       : {
-        event_url: `/api/psychiatrist-turns/${activeTurn.turnId}/events`,
+        event_url: psychiatristTurnEventsUrl({
+          ...(input.manifest.langCode === undefined ? {} : { langCode: input.manifest.langCode }),
+          memoryId: input.manifest.memoryId,
+          threadId: input.manifest.threadId,
+          turnId: activeTurn.turnId,
+          variantKind: input.manifest.variantKind,
+        }),
         pair_id: activeTurn.pairId,
         status: "running",
         turn_id: activeTurn.turnId,

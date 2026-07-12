@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,10 @@ import {
   recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
+import {
+  appendPsychiatristStreamEvent,
+  loadPsychiatristStreamReplay,
+} from "../../../src/server/psychiatrist/stream-store";
 import type {
   PsychiatristContextSnapshotManifest,
   PsychiatristThreadManifest,
@@ -86,7 +90,6 @@ describe("Psychiatrist thread store", () => {
       pairId: PAIR_ID,
       threadId: THREAD_ID,
     });
-
     const pairsJsonl = await readFile(
       join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
       "utf8",
@@ -156,6 +159,88 @@ describe("Psychiatrist thread store", () => {
       ),
     );
     expect(manifestJson.updated_at).not.toBe("2026-06-01T00:00:00.000Z");
+  });
+
+  it("recovers a torn final pair revision before appending the next row", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-pairs-torn-tail-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const pairsPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "PAIRS.jsonl",
+    );
+    const completePrefix = await readFile(pairsPath, "utf8");
+    await appendFile(pairsPath, `{"pair_id":"${PAIR_ID}"`, "utf8");
+
+    await expect(loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toMatchObject({
+      pairs: [expect.objectContaining({ pairId: PAIR_ID, status: "pending" })],
+    });
+    await appendAssistantResponse({
+      assistantResponse: "The journal recovered.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+
+    await expect(loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toMatchObject({
+      pairs: [expect.objectContaining({ pairId: PAIR_ID, status: "completed" })],
+    });
+    const repairedJsonl = await readFile(pairsPath, "utf8");
+    expect(repairedJsonl.endsWith("\n")).toBe(true);
+    expect(repairedJsonl.startsWith(completePrefix)).toBe(true);
+    expect(repairedJsonl.trim().split("\n").map((line) => JSON.parse(line))).toHaveLength(2);
+  });
+
+  it("rejects interior corruption in pair revision history", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-pairs-corrupt-row-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const pairsPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "PAIRS.jsonl",
+    );
+    const validRow = await readFile(pairsPath, "utf8");
+    await appendFile(pairsPath, `not-json\n${validRow}`, "utf8");
+
+    await expect(loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).rejects.toThrow(SyntaxError);
   });
 
   it("keeps Codex app-server ids out of durable thread manifests and turn records", async () => {
@@ -664,6 +749,168 @@ describe("Psychiatrist thread store", () => {
     expect(loaded.pairs[0]).not.toHaveProperty("retryAction");
     expect(loaded.pairs[0]).not.toHaveProperty("retryMode");
     expect(loaded.pairs[0]).not.toHaveProperty("retryTurnId");
+  });
+
+  it("repairs a completed first-answer revision after a crash before turn and replay finalization", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-completed-answer-recovery-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { pair_id: PAIR_ID, status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.turn.started",
+      },
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Recovered first answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await writeFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md"),
+      "# stale projection\n",
+      "utf8",
+    );
+
+    await expect(reconcileInactivePsychiatristTurns({
+      activeTurnIds: [],
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toBe(true);
+
+    await expect(readTurn(storePath, TURN_ID)).resolves.toMatchObject({
+      completed_at: expect.any(String),
+      pair_id: PAIR_ID,
+      status: "completed",
+      turn_id: TURN_ID,
+    });
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.turn.started",
+      "psychiatrist.answer.completed",
+    ]);
+    expect(replay.at(-1)?.data).toMatchObject({
+      pair_id: PAIR_ID,
+      text: "Recovered first answer.",
+    });
+    await expect(loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID }))
+      .resolves.toMatchObject({
+        pairs: [expect.objectContaining({ status: "completed", turnId: TURN_ID })],
+      });
+    await expect(readFile(
+      join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "THREAD.md"),
+      "utf8",
+    )).resolves.toContain("Recovered first answer.");
+  });
+
+  it("repairs a completed regenerate revision instead of marking its started turn failed", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-completed-regenerate-recovery-"));
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000005";
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is the risk?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "Original answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    await markPsychiatristTurnCompleted({
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await recordPsychiatristTurnStarted({
+      config: { storePath },
+      pairId: PAIR_ID,
+      regenerateFromTurnId: TURN_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { pair_id: PAIR_ID, status: "running" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: regenerateTurnId,
+        type: "psychiatrist.regenerate.started",
+      },
+    });
+    await appendRegeneratedAssistantResponse({
+      assistantResponse: "Recovered regenerated answer.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+
+    await expect(reconcileInactivePsychiatristTurns({
+      activeTurnIds: [],
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toBe(true);
+
+    await expect(readTurn(storePath, regenerateTurnId)).resolves.toMatchObject({
+      completed_at: expect.any(String),
+      pair_id: PAIR_ID,
+      regenerate_from_turn_id: TURN_ID,
+      status: "completed",
+      turn_id: regenerateTurnId,
+    });
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    expect(replay.map((event) => event.type)).toEqual([
+      "psychiatrist.regenerate.started",
+      "psychiatrist.regenerate.completed",
+    ]);
+    expect(replay.at(-1)?.data).toMatchObject({
+      pair_id: PAIR_ID,
+      text: "Recovered regenerated answer.",
+    });
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      assistant: expect.objectContaining({ content: "Recovered regenerated answer." }),
+      status: "completed",
+      turnId: regenerateTurnId,
+    });
   });
 
   it("does not overwrite canceled turns when completion arrives late", async () => {
@@ -1319,7 +1566,7 @@ describe("Psychiatrist thread store", () => {
     });
   });
 
-  it("finds the latest ready thread matching the memory source hash across reader variants", async () => {
+  it("finds the latest ready thread matching the exact source reader variant", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-latest-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -1339,16 +1586,78 @@ describe("Psychiatrist thread store", () => {
     });
 
     await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:source",
       config: { storePath },
       memoryId: MEMORY_ID,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       sourceHash: "sha256:source",
+      variantKind: "source",
     })).resolves.toMatchObject({
       manifest: expect.objectContaining({
         threadId: THREAD_ID_2,
       }),
       pairs: [],
     });
+  });
+
+  it("resumes translated threads only for the exact language and output hash", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-latest-translation-"));
+    const frenchThreadId = "019e8a00-0000-7000-8000-000000000007";
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        activeContentHash: "sha256:translated-ja",
+        langCode: "ja-JP",
+        threadId: THREAD_ID_2,
+        translationOutputHash: "sha256:translated-ja",
+        variantKind: "translation",
+      }),
+    });
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({
+        activeContentHash: "sha256:translated-fr",
+        langCode: "fr-FR",
+        threadId: frenchThreadId,
+        translationOutputHash: "sha256:translated-fr",
+        variantKind: "translation",
+      }),
+    });
+
+    await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:translated-ja",
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+      policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+      sourceHash: "sha256:source",
+      translationOutputHash: "sha256:translated-ja",
+      variantKind: "translation",
+    })).resolves.toMatchObject({ manifest: expect.objectContaining({ threadId: THREAD_ID_2 }) });
+    await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:translated-fr",
+      config: { storePath },
+      langCode: "fr-FR",
+      memoryId: MEMORY_ID,
+      policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+      sourceHash: "sha256:source",
+      translationOutputHash: "sha256:translated-fr",
+      variantKind: "translation",
+    })).resolves.toMatchObject({ manifest: expect.objectContaining({ threadId: frenchThreadId }) });
+    await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:translated-ja-new",
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+      policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+      sourceHash: "sha256:source",
+      translationOutputHash: "sha256:translated-ja-new",
+      variantKind: "translation",
+    })).resolves.toBeUndefined();
   });
 
   it("does not reuse latest threads from an older prompt policy version", async () => {
@@ -1362,10 +1671,12 @@ describe("Psychiatrist thread store", () => {
     });
 
     await expect(findLatestPsychiatristThread({
+      activeContentHash: "sha256:source",
       config: { storePath },
       memoryId: MEMORY_ID,
       policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
       sourceHash: "sha256:source",
+      variantKind: "source",
     })).resolves.toBeUndefined();
   });
 });
@@ -1414,6 +1725,13 @@ function contextSnapshot(): PsychiatristContextSnapshotManifest {
     userPrompt: "What is the risk?",
     variantKind: "source",
   };
+}
+
+async function readTurn(storePath: string, turnId: string): Promise<unknown> {
+  return JSON.parse(await readFile(
+    join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "turns", `${turnId}.json`),
+    "utf8",
+  ));
 }
 
 async function delay(milliseconds: number): Promise<void> {

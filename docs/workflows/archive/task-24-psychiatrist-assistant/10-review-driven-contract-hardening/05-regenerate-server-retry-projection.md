@@ -81,7 +81,7 @@ Add tests that fail on the current implementation:
 
 - Completed pair returns normally before regenerate.
 - Regenerate with denied web access records `network_permission_required`.
-- Fresh `GET /api/psychiatrist-threads/:threadId` after reload returns the
+- Fresh `GET /api/memories/:memoryId/psychiatrist/threads/:threadId?variant_kind=...` after reload returns the
   same completed answer plus `retry_action`, `retry_mode: "regenerate"`, and
   the regenerate `retry_turn_id`.
 - Regenerate with denied web access followed by an approved successful

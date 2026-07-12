@@ -29,7 +29,8 @@ for SSE fan-out, cancellation, and app-server turn ids.
   `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/messages.ts`
 - Create:
   `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/pairs/[pairId]/regenerate.ts`
-- Create: `src/routes/api/psychiatrist-turns/[turnId]/events.ts`
+- Create:
+  `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/turns/[turnId]/events.ts`
 - Create:
   `src/routes/api/memories/[memoryId]/psychiatrist/threads/[threadId]/turns/[turnId]/cancel.ts`
 - Test: `tests/server/psychiatrist/api-routes.test.ts`
@@ -167,7 +168,7 @@ Successful response:
     "pair_id": "019f...",
     "turn_id": "019f...",
     "status": "running",
-    "event_url": "/api/psychiatrist-turns/019f.../events"
+    "event_url": "/api/memories/019e.../psychiatrist/threads/019f.../turns/019f.../events?variant_kind=translation&lang_code=ja-JP"
   },
   "pairs": [
     {
@@ -190,13 +191,14 @@ Successful response:
 Read thread:
 
 ```http
-GET /api/memories/:memoryId/psychiatrist/threads/:threadId
+GET /api/memories/:memoryId/psychiatrist/threads/:threadId?variant_kind=translation&lang_code=ja-JP
 ```
 
 This returns the safe thread manifest and stored pairs for a thread that still
 belongs to the requested existing memory and active variant. The lookup resolves
 the requested memory directory directly and verifies both manifest ids; it does
-not scan other memories by thread id. A missing or cross-memory thread returns
+not scan other memories by thread id. `variant_kind` is required; translated
+reads also carry `lang_code`. A missing, cross-memory, or cross-variant thread returns
 the same safe `thread_not_found` response. The API may project pairs into message
 bubbles for UI convenience, but the storage source of truth remains the pair
 row. If a turn is still running, the response includes `active_turn` with the
@@ -213,6 +215,7 @@ content-type: application/json
   "client_message_id": "local-1",
   "lang_code": "ja-JP",
   "message": "What does this memory say about the deployment risk?",
+  "variant_kind": "translation",
   "web_source_permission": "deny"
 }
 ```
@@ -246,8 +249,8 @@ Response:
   "pair_id": "019f...",
   "turn_id": "019f...",
   "thread_id": "019f...",
-  "event_url": "/api/psychiatrist-turns/019f.../events",
-  "replay_url": "/api/psychiatrist-turns/019f.../events"
+  "event_url": "/api/memories/019e.../psychiatrist/threads/019f.../turns/019f.../events?variant_kind=translation&lang_code=ja-JP",
+  "replay_url": "/api/memories/019e.../psychiatrist/threads/019f.../turns/019f.../events?variant_kind=translation&lang_code=ja-JP"
 }
 ```
 
@@ -266,7 +269,7 @@ pair and turn before enabling network access; mismatches return
 Stream turn events:
 
 ```http
-GET /api/psychiatrist-turns/:turnId/events
+GET /api/memories/:memoryId/psychiatrist/threads/:threadId/turns/:turnId/events?variant_kind=translation&lang_code=ja-JP
 accept: text/event-stream
 ```
 
@@ -284,7 +287,10 @@ Event names:
 - `psychiatrist.regenerate.completed`
 
 Each event has a monotonically increasing `event_id` within the turn. The event
-route must have a no-gap replay-to-live handoff. It may register the live
+route resolves the memory/thread stream path directly, verifies the query
+variant against `THREAD.json`, and rejects cross-memory or cross-variant calls
+before replay or reconciliation. It must have a no-gap replay-to-live handoff.
+It may register the live
 subscription before replay and de-duplicate by `event_id`, or use an equivalent
 atomic cursor protocol that captures the replay high-water mark and subscribes
 without losing events written concurrently. If the request includes
@@ -305,7 +311,10 @@ content-type: application/json
 
 {
   "lang_code": "ja-JP",
-  "pair_id": "019f..."
+  "memory_id": "019e...",
+  "pair_id": "019f...",
+  "thread_id": "019f...",
+  "variant_kind": "translation"
 }
 ```
 
@@ -326,6 +335,9 @@ content-type: application/json
 
 {
   "lang_code": "ja-JP",
+  "memory_id": "019e...",
+  "thread_id": "019f...",
+  "variant_kind": "translation",
   "web_source_permission": "deny"
 }
 ```
@@ -338,7 +350,7 @@ Response:
   "pair_id": "019f...",
   "turn_id": "019f...",
   "thread_id": "019f...",
-  "event_url": "/api/psychiatrist-turns/019f.../events"
+  "event_url": "/api/memories/019e.../psychiatrist/threads/019f.../turns/019f.../events?variant_kind=translation&lang_code=ja-JP"
 }
 ```
 

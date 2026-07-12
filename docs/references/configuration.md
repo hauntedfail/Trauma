@@ -150,8 +150,26 @@ different socket path. Loopback WebSocket endpoints are not supported. `http://`
 `https://`, `ws://`, and `stdio://` are rejected because they are not Brilliant
 wire-protocol transports.
 
-Psychiatrist does not add shell, local file editing, project-root, or
-memory-store filesystem access configuration. Psychiatrist app-server turns use
-the same backend transport boundary and deny network access by default. Web
-source lookup is per turn and may be enabled only after the user explicitly
-approves source lookup for that answer.
+Psychiatrist production turns require a separately enforced runtime boundary.
+Codex `sandboxPolicy: readOnly` prevents writes, but it does not remove shell or
+file-read capabilities and is not sufficient isolation for untrusted memory and
+transcript content. The external boundary must make the user's home directory,
+the application project, and the memory store unreadable to the app-server
+runtime. If egress is available, it must be constrained to public HTTP(S)
+destinations and must still be enabled by TRAUMA only after the user approves
+web sources for that turn.
+
+After independently enforcing that boundary, the operator must make this exact
+assertion in the TRAUMA server environment:
+
+```bash
+TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
+```
+
+Without the exact assertion, message and Regenerate routes fail with
+`runtime_isolation_required` before reserving a turn or writing thread
+artifacts. The variable is only an operator-controlled fail-closed gate. It does
+not create, inspect, or verify a sandbox, and it must not be set until the
+app-server process or container is actually isolated. Translation does not use
+this Psychiatrist-specific gate.

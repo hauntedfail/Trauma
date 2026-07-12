@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
+import { appendJsonlRow, readJsonlRows } from "./jsonl";
 import type {
   PsychiatristStreamEvent,
   PsychiatristStreamEventInput,
@@ -37,7 +38,7 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
       timestamp: Date.now(),
     } satisfies PsychiatristStreamEvent<TData>;
     await mkdir(dirname(path), { recursive: true });
-    await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+    await appendJsonlRow(path, event);
     nextEventNumbersByPath.set(path, eventNumber + 1);
     if (input.publish !== false) {
       publishStreamEvent(event);
@@ -82,29 +83,18 @@ export function subscribePsychiatristStream(input: {
 export async function loadPsychiatristStreamReplay(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
-  threadId?: string;
+  memoryId: string;
+  threadId: string;
   turnId: string;
 }): Promise<PsychiatristStreamEvent[]> {
-  if (input.threadId !== undefined) {
-    validateSafeId(input.threadId);
-  }
+  validateSafeId(input.memoryId);
+  validateSafeId(input.threadId);
   validateSafeId(input.turnId);
-  const path = findStreamPath(input.config, input.threadId, input.turnId);
+  const path = findStreamPath(input.config, input.memoryId, input.threadId, input.turnId);
   if (path === undefined) {
     return [];
   }
-  let content: string;
-  try {
-    content = await readFile(path, "utf8");
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-  const events = content.trim() === ""
-    ? []
-    : content.trim().split("\n").map((line) => JSON.parse(line) as PsychiatristStreamEvent);
+  const events = await readJsonlRows<PsychiatristStreamEvent>(path);
   if (input.afterEventId === undefined) {
     return events;
   }
@@ -131,38 +121,24 @@ function streamPath(
 
 function findStreamPath(
   config: Pick<ResolvedTraumaConfig, "storePath">,
-  threadId: string | undefined,
+  memoryId: string,
+  threadId: string,
   turnId: string,
 ): string | undefined {
-  const root = join(resolve(config.storePath), "memories");
-  if (!existsSync(root)) {
-    return undefined;
-  }
-  const glob = new Bun.Glob(
-    threadId === undefined
-      ? `*/threads/*/streams/${turnId}.jsonl`
-      : `*/threads/${threadId}/streams/${turnId}.jsonl`,
+  const directPath = join(
+    resolve(config.storePath),
+    "memories",
+    memoryId,
+    "threads",
+    threadId,
+    "streams",
+    `${turnId}.jsonl`,
   );
-  const match = glob.scanSync({ cwd: root }).next().value;
-  return typeof match === "string" ? join(root, match) : undefined;
+  return existsSync(directPath) ? directPath : undefined;
 }
 
 async function countExistingStreamEvents(path: string): Promise<number> {
-  let content: string;
-  try {
-    content = await readFile(path, "utf8");
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return 0;
-    }
-    throw error;
-  }
-  if (content.trim() === "") {
-    return 0;
-  }
-  return content.endsWith("\n")
-    ? content.split("\n").length - 1
-    : content.split("\n").length;
+  return (await readJsonlRows<PsychiatristStreamEvent>(path)).length;
 }
 
 function projectSafeStreamEvent<TData>(

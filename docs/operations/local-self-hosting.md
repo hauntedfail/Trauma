@@ -87,3 +87,28 @@ should be deployed behind local access controls, private networking, or a
 reverse proxy policy if exposed.
 
 Future public/team operation requires a separate auth design.
+
+## Psychiatrist Runtime Isolation
+
+Do not enable production Psychiatrist turns against an app-server that can read
+the host user's home directory, the TRAUMA application project, or the memory
+store. Codex `readOnly` sandbox policy blocks writes but still allows host reads,
+so an empty working directory and prompt policy are not an isolation boundary.
+
+Run the app-server under an independently enforced process or container policy
+that exposes none of those host roots. Constrain any app-server egress to public
+HTTP(S) destinations; keep private, loopback, link-local, filesystem, and other
+protocol destinations unavailable. TRAUMA continues to deny network by default
+and requests it only for a user-approved web-source turn.
+
+Only after that external policy is active, start TRAUMA with:
+
+```bash
+TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
+TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run start
+```
+
+This assertion tells TRAUMA that the operator has supplied the boundary; it
+does not create or validate the boundary itself. If it is absent or has any
+other value, production message and Regenerate requests fail closed with
+`runtime_isolation_required` and do not start a turn.

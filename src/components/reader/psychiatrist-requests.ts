@@ -10,8 +10,10 @@ type BrowserFetch = (
 ) => Promise<Response>;
 
 interface PsychiatristRequestScopeInput {
+  langCode?: string | null;
   memoryId: string;
   threadId: string;
+  variantKind: "source" | "translation";
 }
 
 export class PsychiatristRequestError extends Error {
@@ -42,6 +44,8 @@ export function getPsychiatristErrorMessage(error: unknown): string {
       return "Set up Codex auth before using Psychiatrist.";
     case "setup_required":
       return "Codex app-server must be available before using Psychiatrist.";
+    case "runtime_isolation_required":
+      return "Configure the required isolated Codex runtime before using Psychiatrist.";
     case "app_server_unavailable":
       return "Start the Codex app-server, then retry Psychiatrist.";
     case "usage_limit":
@@ -88,12 +92,15 @@ export async function createPsychiatristThread(input: {
 export async function sendPsychiatristMessage(input: {
   fetch?: BrowserFetch;
   langCode?: string | null;
+  memoryId: string;
   message: string;
   threadId: string;
+  variantKind: "source" | "translation";
   webSourcePermission?: PsychiatristWebSourcePermission;
 }): Promise<PsychiatristTurnStartedResponse> {
   const body: Record<string, unknown> = {
     message: input.message,
+    variant_kind: input.variantKind,
     web_source_permission: input.webSourcePermission ?? "deny",
   };
   if (input.langCode !== undefined && input.langCode !== null) {
@@ -103,7 +110,7 @@ export async function sendPsychiatristMessage(input: {
     body,
     fetch: input.fetch,
     method: "POST",
-    path: `/api/psychiatrist-threads/${encodeURIComponent(input.threadId)}/messages`,
+    path: scopedThreadPath(input) + "/messages",
   });
 }
 
@@ -114,13 +121,16 @@ export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInpu
 }): Promise<void> {
   await requestJson<unknown>({
     body: {
+      lang_code: input.langCode ?? null,
       memory_id: input.memoryId,
       pair_id: input.pairId,
       thread_id: input.threadId,
+      variant_kind: input.variantKind,
     },
     fetch: input.fetch,
     method: "POST",
-    path: `/api/psychiatrist-turns/${encodeURIComponent(input.turnId)}/cancel`,
+    path: scopedThreadPath(input) +
+      `/turns/${encodeURIComponent(input.turnId)}/cancel`,
   });
 }
 
@@ -131,14 +141,22 @@ export async function regeneratePsychiatristResponse(input: PsychiatristRequestS
 }): Promise<PsychiatristTurnStartedResponse> {
   return requestJson<PsychiatristTurnStartedResponse>({
     body: {
+      lang_code: input.langCode ?? null,
       memory_id: input.memoryId,
       thread_id: input.threadId,
+      variant_kind: input.variantKind,
       web_source_permission: input.webSourcePermission ?? "deny",
     },
     fetch: input.fetch,
     method: "POST",
-    path: `/api/psychiatrist-pairs/${encodeURIComponent(input.pairId)}/regenerate`,
+    path: scopedThreadPath(input) +
+      `/pairs/${encodeURIComponent(input.pairId)}/regenerate`,
   });
+}
+
+function scopedThreadPath(input: PsychiatristRequestScopeInput): string {
+  return `/api/memories/${encodeURIComponent(input.memoryId)}` +
+    `/psychiatrist/threads/${encodeURIComponent(input.threadId)}`;
 }
 
 async function requestJson<T>(input: {

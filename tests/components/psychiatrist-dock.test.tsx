@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   findPersistedWebSourceRetryPair,
   PsychiatristDock,
+  readPsychiatristReaderGenerationIdentity,
 } from "../../src/components/reader/PsychiatristDock";
 import {
   cancelPsychiatristTurn,
@@ -36,6 +37,20 @@ describe("PsychiatristDock", () => {
     expect(html).toContain('aria-label="Open Psychiatrist"');
     expect(html).toContain('data-psychiatrist-dock="collapsed"');
     expect(html).not.toContain("Ask questions about this memory");
+  });
+
+  it("clears phone primary tabs through the shell breakpoint without moving larger layouts", () => {
+    expect(dockSource).toContain(
+      "bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))]",
+    );
+    expect(dockSource).toContain("min-[721px]:bottom-6");
+    expect(dockSource).not.toContain("sm:bottom-6");
+  });
+
+  it("gives the prompt textarea a stable accessible label", () => {
+    expect(dockSource).toContain('for="psychiatrist-prompt"');
+    expect(dockSource).toContain(">Message Psychiatrist</label>");
+    expect(dockSource).toContain('id="psychiatrist-prompt"');
   });
 
   it("keeps the dock source wired for keyboard close, stop, regenerate, and reduced motion", () => {
@@ -97,13 +112,34 @@ describe("PsychiatristDock", () => {
     expect(dockSource).toContain("disconnectPsychiatristStream = undefined");
   });
 
-  it("resets loaded psychiatrist state only when the active reader memory changes", () => {
+  it("resets loaded psychiatrist state when the reader generation identity changes", () => {
     expect(dockSource).toContain("createEffect");
-    expect(dockSource).toContain("readReaderThreadKey(props.memoryId)");
-    expect(dockSource).not.toContain("readReaderThreadKey(props.memoryId, props.langCode)");
+    expect(dockSource).toContain("readPsychiatristReaderGenerationIdentity(");
     expect(dockSource).toContain("resetThreadStateForMemoryChange");
     expect(dockSource).toContain("if (isOpen())");
     expect(dockSource).toContain("void loadThread()");
+  });
+
+  it("distinguishes memory, language, and variant in reader generation identity", () => {
+    const source = readPsychiatristReaderGenerationIdentity(
+      "memory-reader",
+      undefined,
+    );
+    const translated = readPsychiatristReaderGenerationIdentity(
+      "memory-reader",
+      "ja-JP",
+    );
+
+    expect(source).not.toBe(translated);
+    expect(translated).not.toBe(readPsychiatristReaderGenerationIdentity(
+      "memory-reader",
+      "ja-JP",
+      "source",
+    ));
+    expect(translated).not.toBe(readPsychiatristReaderGenerationIdentity(
+      "memory-other",
+      "ja-JP",
+    ));
   });
 
   it("scopes Enter submit handling to the prompt textarea", () => {
@@ -182,9 +218,9 @@ describe("PsychiatristDock", () => {
         return new Response(null, { status: 204 });
       }
       return jsonResponse({
-        event_url: "/api/psychiatrist-turns/turn-reader/events",
+        event_url: "/api/memories/memory-reader/psychiatrist/threads/thread-reader/turns/turn-reader/events?variant_kind=translation&lang_code=ja-JP",
         pair_id: "pair-reader",
-        replay_url: "/api/psychiatrist-turns/turn-reader/events",
+        replay_url: "/api/memories/memory-reader/psychiatrist/threads/thread-reader/turns/turn-reader/events?variant_kind=translation&lang_code=ja-JP",
         status: "started",
         thread_id: "thread-reader",
         turn_id: "turn-reader",
@@ -194,8 +230,10 @@ describe("PsychiatristDock", () => {
     await sendPsychiatristMessage({
       fetch,
       langCode: "ja-JP",
+      memoryId: "memory-reader",
       message: "What is the risk?",
       threadId: "thread-reader",
+      variantKind: "translation",
     });
     await cancelPsychiatristTurn({
       fetch,
@@ -203,32 +241,39 @@ describe("PsychiatristDock", () => {
       pairId: "pair-reader",
       threadId: "thread-reader",
       turnId: "turn-reader",
+      variantKind: "translation",
     });
     await regeneratePsychiatristResponse({
       fetch,
       memoryId: "memory-reader",
       pairId: "pair-reader",
       threadId: "thread-reader",
+      variantKind: "translation",
     });
 
     expect(requests.map((request) => [request.url, request.method])).toEqual([
-      ["http://localhost/api/psychiatrist-threads/thread-reader/messages", "POST"],
-      ["http://localhost/api/psychiatrist-turns/turn-reader/cancel", "POST"],
-      ["http://localhost/api/psychiatrist-pairs/pair-reader/regenerate", "POST"],
+      ["http://localhost/api/memories/memory-reader/psychiatrist/threads/thread-reader/messages", "POST"],
+      ["http://localhost/api/memories/memory-reader/psychiatrist/threads/thread-reader/turns/turn-reader/cancel", "POST"],
+      ["http://localhost/api/memories/memory-reader/psychiatrist/threads/thread-reader/pairs/pair-reader/regenerate", "POST"],
     ]);
     await expect(requests[0]?.json()).resolves.toEqual({
       lang_code: "ja-JP",
       message: "What is the risk?",
+      variant_kind: "translation",
       web_source_permission: "deny",
     });
     await expect(requests[1]?.json()).resolves.toEqual({
+      lang_code: null,
       memory_id: "memory-reader",
       pair_id: "pair-reader",
       thread_id: "thread-reader",
+      variant_kind: "translation",
     });
     await expect(requests[2]?.json()).resolves.toEqual({
+      lang_code: null,
       memory_id: "memory-reader",
       thread_id: "thread-reader",
+      variant_kind: "translation",
       web_source_permission: "deny",
     });
   });
@@ -254,8 +299,10 @@ describe("PsychiatristDock", () => {
         status: 409,
         headers: { "content-type": "application/json" },
       }),
+      memoryId: "memory-reader",
       message: "What changed?",
       threadId: "thread-reader",
+      variantKind: "source",
     })).rejects.toMatchObject({
       action: "refresh_thread",
       code: "thread_stale",
@@ -272,6 +319,12 @@ describe("PsychiatristDock", () => {
       message: "raw auth path /Users/example/.codex/auth.json",
       responseStatus: 401,
     }))).toBe("Set up Codex auth before using Psychiatrist.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
+      code: "runtime_isolation_required",
+      message: "raw isolation details /Users/example/project",
+      responseStatus: 503,
+    }))).toBe("Configure the required isolated Codex runtime before using Psychiatrist.");
     expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
       action: "retry",
       code: "context_overflow",
@@ -329,7 +382,7 @@ describe("PsychiatristDock", () => {
   });
 
   it("surfaces safe messages from streamed answer failures", () => {
-    const streamIndex = dockSource.indexOf("const handleStreamEvent = (event: PsychiatristStreamEvent) =>");
+    const streamIndex = dockSource.indexOf("const handleStreamEvent = (");
     const failedIndex = dockSource.indexOf("event.type === \"psychiatrist.answer.failed\"", streamIndex);
     const errorIndex = dockSource.indexOf("setErrorMessage(getStreamErrorMessage(event.data))", failedIndex);
 

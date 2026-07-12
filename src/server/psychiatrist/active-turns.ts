@@ -29,6 +29,12 @@ export class ActivePsychiatristTurnRegistry {
     return this.byTurnId.get(turnId);
   }
 
+  getTurnIdsForMemory(memoryId: string): string[] {
+    return [...this.byTurnId.values()]
+      .filter((turn) => turn.memoryId === memoryId)
+      .map((turn) => turn.turnId);
+  }
+
   reserveThread(threadId: string): boolean {
     if (this.hasActiveOrReservedThread(threadId)) {
       return false;

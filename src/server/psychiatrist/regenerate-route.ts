@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 
 import {
   getMemoryBackupQueue,
-  type MemoryBackupQueue,
+  type DurableMemoryBackupQueue,
+  type EnqueueMemoryBackupInput,
 } from "../backup";
 import {
   loadRuntimeTraumaConfig,
@@ -21,11 +22,17 @@ import { activePsychiatristTurns } from "./active-turns";
 import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
 import { buildPsychiatristPrompt } from "./prompt";
 import {
+  matchesPsychiatristVariantScope,
+  psychiatristTurnEventsUrl,
   isRecord,
   readPsychiatristJsonBody,
   readPsychiatristRequestScope,
   type PsychiatristRequestScope,
 } from "./request";
+import {
+  isPsychiatristRuntimeIsolationReady,
+  PSYCHIATRIST_RUNTIME_ISOLATION_ERROR,
+} from "./runtime-isolation";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import {
   appendPsychiatristStreamEvent,
@@ -66,7 +73,7 @@ type ResolveRegenerateActiveContentHash = (input: {
 export function createRegeneratePsychiatristResponseHandler(input: {
   appendRegeneratedAssistantResponse?: typeof appendRegeneratedAssistantResponse;
   appendRetriedAssistantResponse?: typeof appendRetriedAssistantResponse;
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   client?: CodexConversationClient;
   config?: ResolvedTraumaConfig;
   generateId?: () => string;
@@ -83,7 +90,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
   input: {
     appendRegeneratedAssistantResponse?: typeof appendRegeneratedAssistantResponse;
     appendRetriedAssistantResponse?: typeof appendRetriedAssistantResponse;
-    backupQueue?: MemoryBackupQueue;
+    backupQueue?: DurableMemoryBackupQueue;
     client?: CodexConversationClient;
     config?: ResolvedTraumaConfig;
     generateId?: () => string;
@@ -91,6 +98,14 @@ export async function handleRegeneratePsychiatristResponseRequest(
     resolveActiveContentHash?: ResolveRegenerateActiveContentHash;
   } = {},
 ): Promise<Response> {
+  const memoryId = event.params.memoryId?.trim();
+  if (memoryId === undefined || memoryId === "") {
+    return safeErrorResponse("invalid_request", "memoryId must be a non-empty string.", 400);
+  }
+  const threadId = event.params.threadId?.trim();
+  if (threadId === undefined || threadId === "") {
+    return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
+  }
   const pairId = event.params.pairId?.trim();
   if (pairId === undefined || pairId === "") {
     return safeErrorResponse("invalid_request", "pairId must be a non-empty string.", 400);
@@ -99,10 +114,28 @@ export async function handleRegeneratePsychiatristResponseRequest(
   if (!payload.ok) {
     return safeErrorResponse("invalid_request", payload.message, payload.status);
   }
+  if (
+    !isPsychiatristRuntimeIsolationReady({
+      hasInjectedClient: input.client !== undefined,
+    })
+  ) {
+    return safeErrorResponse(
+      PSYCHIATRIST_RUNTIME_ISOLATION_ERROR.code,
+      PSYCHIATRIST_RUNTIME_ISOLATION_ERROR.message,
+      503,
+    );
+  }
 
   const config = input.config ?? loadRuntimeTraumaConfig();
   const loadPair = input.loadPair ?? loadPsychiatristPairRegeneration;
-  const loaded = await loadPair({ config, pairId }).catch((error: unknown) => {
+  if (payload.scope.memoryId !== memoryId || payload.scope.threadId !== threadId) {
+    return safeErrorResponse(
+      "regenerate_unavailable",
+      "Only completed Psychiatrist responses can be regenerated.",
+      409,
+    );
+  }
+  const loaded = await loadPair({ config, memoryId, pairId, threadId }).catch((error: unknown) => {
     if (error instanceof PsychiatristThreadStoreError) {
       return error;
     }
@@ -168,7 +201,11 @@ export async function handleRegeneratePsychiatristResponseRequest(
     const activeContentHash = await resolveActiveContentHash({ config, loaded });
     if (activeContentHash !== loaded.manifest.activeContentHash) {
       activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
-      await markPsychiatristThreadStale({ config, threadId: loaded.manifest.threadId });
+      await markPsychiatristThreadStale({
+        config,
+        memoryId: loaded.manifest.memoryId,
+        threadId: loaded.manifest.threadId,
+      });
       await appendBestEffortStreamEvent({
         config,
         event: {
@@ -250,7 +287,13 @@ export async function handleRegeneratePsychiatristResponseRequest(
     );
   }
 
-  const eventUrl = `/api/psychiatrist-turns/${turnId}/events`;
+  const eventUrl = psychiatristTurnEventsUrl({
+    ...(loaded.manifest.langCode === undefined ? {} : { langCode: loaded.manifest.langCode }),
+    memoryId: loaded.manifest.memoryId,
+    threadId: loaded.manifest.threadId,
+    turnId,
+    variantKind: loaded.manifest.variantKind,
+  });
   return jsonResponse({
     event_url: eventUrl,
     pair_id: pairId,
@@ -278,6 +321,7 @@ async function resolveRegenerateTurnMode(input: {
   }
   const safeError = await loadPsychiatristTurnSafeError({
     config: input.config,
+    memoryId: input.loaded.manifest.memoryId,
     threadId: input.loaded.manifest.threadId,
     turnId: input.loaded.pair.turnId,
   });
@@ -287,7 +331,7 @@ async function resolveRegenerateTurnMode(input: {
 async function runRegenerateTurn(input: {
   appendRegeneratedAssistantResponse: typeof appendRegeneratedAssistantResponse;
   appendRetriedAssistantResponse: typeof appendRetriedAssistantResponse;
-  backupQueue: MemoryBackupQueue;
+  backupQueue: DurableMemoryBackupQueue;
   client: CodexConversationClient;
   config: ResolvedTraumaConfig;
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
@@ -419,6 +463,8 @@ async function runRegenerateTurn(input: {
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
+    const backupJob = regeneratedAnswerBackupInput(input);
+    await input.backupQueue.persistIntent(backupJob);
     const appendAssistant = isAnswerRetry
       ? input.appendRetriedAssistantResponse
       : input.appendRegeneratedAssistantResponse;
@@ -470,20 +516,8 @@ async function runRegenerateTurn(input: {
       event: completedEventInput,
       publish: false,
     });
-    const backupWarning = await input.backupQueue.enqueue({
-      contentPaths: [
-        input.loaded.paths.threadManifestRelativePath,
-        input.loaded.paths.threadMarkdownRelativePath,
-        input.loaded.paths.pairPromptRelativePath,
-        input.loaded.paths.pairContextRelativePath,
-        input.loaded.paths.pairResponseRelativePath,
-        input.loaded.paths.pairRevisionLogRelativePath,
-        turnRecordRelativePath(input.loaded.manifest.memoryId, input.loaded.manifest.threadId, input.turnId),
-        turnStreamRelativePath(input.loaded.manifest.memoryId, input.loaded.manifest.threadId, input.turnId),
-      ],
-      memoryId: input.loaded.manifest.memoryId,
-      reason: "psychiatrist_response_regenerate",
-    }).then(() => undefined).catch(() => ({
+    const backupWarning = await input.backupQueue.enqueue(backupJob)
+      .then(() => undefined).catch(() => ({
       code: "backup_enqueue_failed",
       message: "Psychiatrist answer was saved, but backup enqueue failed.",
     }));
@@ -583,12 +617,40 @@ async function runRegenerateTurn(input: {
   }
 }
 
+function regeneratedAnswerBackupInput(input: {
+  loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+  turnId: string;
+}): EnqueueMemoryBackupInput {
+  return {
+    contentPaths: [
+      input.loaded.paths.threadManifestRelativePath,
+      input.loaded.paths.threadMarkdownRelativePath,
+      input.loaded.paths.pairPromptRelativePath,
+      input.loaded.paths.pairContextRelativePath,
+      input.loaded.paths.pairResponseRelativePath,
+      input.loaded.paths.pairRevisionLogRelativePath,
+      turnRecordRelativePath(
+        input.loaded.manifest.memoryId,
+        input.loaded.manifest.threadId,
+        input.turnId,
+      ),
+      turnStreamRelativePath(
+        input.loaded.manifest.memoryId,
+        input.loaded.manifest.threadId,
+        input.turnId,
+      ),
+    ],
+    memoryId: input.loaded.manifest.memoryId,
+    reason: "psychiatrist_response_regenerate",
+  };
+}
+
 async function defaultResolveRegenerateActiveContentHash(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
 }): Promise<string> {
   if (!("backup" in input.config)) {
-    return input.loaded.manifest.sourceHash;
+    return input.loaded.manifest.activeContentHash;
   }
   const connection = initializeDatabase(input.config as ResolvedTraumaConfig);
   try {
@@ -599,7 +661,7 @@ async function defaultResolveRegenerateActiveContentHash(input: {
       memoryRepository: connection.repositories.memories,
       translationRepository: connection.repositories.translations,
     });
-    return context.sourceHash;
+    return context.contentHash;
   } finally {
     connection.close();
   }
@@ -699,7 +761,8 @@ function matchesManifestScope(
   manifest: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>["manifest"],
 ): boolean {
   return scope.memoryId === manifest.memoryId &&
-    scope.threadId === manifest.threadId;
+    scope.threadId === manifest.threadId &&
+    matchesPsychiatristVariantScope(scope, manifest);
 }
 
 function beforeCurrentPair(

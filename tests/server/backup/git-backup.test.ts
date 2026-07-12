@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +14,14 @@ import {
 } from "../../../src/server/backup";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
+import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
+import { loadPsychiatristStreamReplay } from "../../../src/server/psychiatrist/stream-store";
+import {
+  appendAssistantResponse,
+  appendPendingPair,
+  createPsychiatristThread,
+  recordPsychiatristTurnStarted,
+} from "../../../src/server/psychiatrist/thread-store";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
 const capturedAt = "2026-05-09T08:00:00.000Z";
@@ -467,6 +475,177 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("recovers a durable intent after simulated process loss without running an incomplete job", async () => {
+    const root = await makeRoot("trauma-git-backup-intent-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(projectPath, { recursive: true });
+    initializeGitRepository(projectPath);
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Durable intent\n", "utf8");
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/durable-intent",
+        title: "Durable intent",
+        description: null,
+        faviconUrl: null,
+        contentPath,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "success",
+        lastBackupAt: new Date(capturedAt),
+        lastBackupError: null,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      connection.close();
+    }
+
+    const processedBeforeRestart: MemoryBackupJob[] = [];
+    const abandonedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedBeforeRestart.push(job);
+      },
+    });
+    await abandonedQueue.persistIntent({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const threadId = "019e8a00-0000-7000-8000-000000000001";
+    const pairId = "019e8a00-0000-7000-8000-000000000002";
+    const turnId = "019e8a00-0000-7000-8000-000000000003";
+    await createPsychiatristThread({
+      config,
+      manifest: {
+        activeContentHash: "sha256:source",
+        createdAt: capturedAt,
+        memoryId,
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+        sourceHash: "sha256:source",
+        status: "ready",
+        threadId,
+        updatedAt: capturedAt,
+        variantKind: "source",
+      },
+    });
+    await appendPendingPair({
+      config,
+      contextSnapshot: {
+        categories: [],
+        contentHash: "sha256:source",
+        contextSnapshotId: pairId,
+        memoryId,
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+        relativePath: contentPath,
+        selectedSectionAnchors: [],
+        selectedSectionHashes: [],
+        sections: [],
+        sourceUrl: "https://example.com/durable-intent",
+        tags: [],
+        title: "Durable intent",
+        userPrompt: "What survives?",
+        variantKind: "source",
+      },
+      pairId,
+      prompt: "What survives?",
+      threadId,
+      turnId,
+    });
+    await recordPsychiatristTurnStarted({
+      config,
+      pairId,
+      threadId,
+      turnId,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "This completed answer survives process loss.",
+      citations: [],
+      config,
+      pairId,
+      threadId,
+    });
+
+    const pendingConnection = initializeDatabase(config);
+    try {
+      await expect(pendingConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "pending" });
+    } finally {
+      pendingConnection.close();
+    }
+    expect(processedBeforeRestart).toEqual([]);
+
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    await expect(restartedQueue.retryEligibleBackups()).resolves.toBe(1);
+    await restartedQueue.drain();
+
+    expect(processedAfterRestart).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([
+          contentPath,
+          `memories/${memoryId}/threads/${threadId}/THREAD.json`,
+          `memories/${memoryId}/threads/${threadId}/THREAD.md`,
+          `memories/${memoryId}/threads/${threadId}/PAIRS.jsonl`,
+          `memories/${memoryId}/threads/${threadId}/pairs/${pairId}/RESPONSE.md`,
+          `memories/${memoryId}/threads/${threadId}/turns/${turnId}.json`,
+          `memories/${memoryId}/threads/${threadId}/streams/${turnId}.jsonl`,
+        ]),
+        memoryId,
+      }),
+    ]);
+    await expect(readFile(
+      join(storePath, "memories", memoryId, "threads", threadId, "turns", `${turnId}.json`),
+      "utf8",
+    ).then((content) => JSON.parse(content))).resolves.toMatchObject({
+      pair_id: pairId,
+      status: "completed",
+      turn_id: turnId,
+    });
+    await expect(loadPsychiatristStreamReplay({
+      config,
+      memoryId,
+      threadId,
+      turnId,
+    })).resolves.toContainEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        pair_id: pairId,
+        text: "This completed answer survives process loss.",
+      }),
+      type: "psychiatrist.answer.completed",
+    }));
+    const completedConnection = initializeDatabase(config);
+    try {
+      await expect(completedConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "success" });
+    } finally {
+      completedConnection.close();
+    }
+  });
+
   it("rejects asynchronous memory deletion jobs", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");

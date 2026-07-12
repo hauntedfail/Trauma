@@ -12,6 +12,7 @@ import {
 } from "./active-turns";
 import {
   isRecord,
+  matchesPsychiatristVariantScope,
   readPsychiatristJsonBody,
   readPsychiatristRequestScope,
   type PsychiatristRequestScope,
@@ -44,6 +45,14 @@ export async function handleCancelPsychiatristTurnRequest(
     config?: Pick<ResolvedTraumaConfig, "storePath">;
   } = {},
 ): Promise<Response> {
+  const memoryId = event.params.memoryId?.trim();
+  if (memoryId === undefined || memoryId === "") {
+    return safeErrorResponse("invalid_request", "memoryId must be a non-empty string.", 400);
+  }
+  const threadId = event.params.threadId?.trim();
+  if (threadId === undefined || threadId === "") {
+    return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
+  }
   const turnId = event.params.turnId?.trim();
   if (turnId === undefined || turnId === "") {
     return safeErrorResponse("invalid_request", "turnId must be a non-empty string.", 400);
@@ -51,6 +60,13 @@ export async function handleCancelPsychiatristTurnRequest(
   const payload = await parseCancelPayload(event.request);
   if (!payload.ok) {
     return safeErrorResponse("invalid_request", payload.message, payload.status);
+  }
+  if (payload.memoryId !== memoryId || payload.threadId !== threadId) {
+    return safeErrorResponse(
+      "turn_scope_mismatch",
+      "Active Psychiatrist turn does not match the requested reader scope.",
+      409,
+    );
   }
   const activeTurns = input.activeTurns ?? activePsychiatristTurns;
   const active = activeTurns.getByTurnId(turnId);
@@ -74,6 +90,7 @@ export async function handleCancelPsychiatristTurnRequest(
   const config = input.config ?? loadRuntimeTraumaConfig();
   const terminalStatus = await loadPsychiatristTurnTerminalStatus({
     config,
+    memoryId: active.memoryId,
     threadId: active.threadId,
     turnId: active.turnId,
   });
@@ -175,7 +192,11 @@ function matchesActiveTurnScope(
 ): boolean {
   return payload.memoryId === active.memoryId &&
     payload.threadId === active.threadId &&
-    payload.pairId === active.pairId;
+    payload.pairId === active.pairId &&
+    matchesPsychiatristVariantScope(payload, {
+      ...(active.langCode === undefined ? {} : { langCode: active.langCode }),
+      variantKind: active.variantKind ?? "source",
+    });
 }
 
 function safeErrorResponse(

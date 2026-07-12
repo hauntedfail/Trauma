@@ -15,6 +15,10 @@ import {
 } from "../../../src/server/psychiatrist/stream-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
 import {
+  PSYCHIATRIST_RUNTIME_ISOLATION_ASSERTION,
+  PSYCHIATRIST_RUNTIME_ISOLATION_ENV,
+} from "../../../src/server/psychiatrist/runtime-isolation";
+import {
   appendAssistantResponse,
   appendRegeneratedAssistantResponse,
   appendPendingPair,
@@ -107,7 +111,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
   });
 
-  it("creates a memory thread from a translated reader without language-scoping the session", async () => {
+  it("creates a translation-scoped thread from the active translated reader", async () => {
     const created: unknown[] = [];
     const handler = createStartPsychiatristThreadHandler({
       buildContext: async (input) => {
@@ -140,20 +144,19 @@ describe("Psychiatrist thread API routes", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
-      content_hash: "sha256:source",
-      lang_code: null,
+      content_hash: "sha256:translated",
+      lang_code: "ja-JP",
       thread_id: THREAD_ID,
-      variant_kind: "source",
+      variant_kind: "translation",
     });
     expect(created).toEqual([
       expect.objectContaining({
-        activeContentHash: "sha256:source",
+        activeContentHash: "sha256:translated",
+        langCode: "ja-JP",
         sourceHash: "sha256:source",
-        variantKind: "source",
+        variantKind: "translation",
       }),
     ]);
-    expect(created[0]).not.toHaveProperty("langCode");
-    expect(created[0]).not.toHaveProperty("translationOutputHash");
   });
 
   it("resumes the latest matching thread when requested", async () => {
@@ -188,7 +191,7 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
-  it("resumes the memory thread when a translated reader opens the same memory", async () => {
+  it("does not resume a source thread for a translated reader of the same memory", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-resume-translated-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -230,12 +233,24 @@ describe("Psychiatrist thread API routes", () => {
       ),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
+      content_hash: "sha256:translated-ja",
+      lang_code: "ja-JP",
       memory_id: MEMORY_ID,
-      thread_id: THREAD_ID,
+      thread_id: THREAD_ID_2,
+      variant_kind: "translation",
     });
-    expect(created).toEqual([]);
+    expect(created).toEqual([
+      expect.objectContaining({
+        activeContentHash: "sha256:translated-ja",
+        langCode: "ja-JP",
+        sourceHash: "sha256:source",
+        threadId: THREAD_ID_2,
+        translationOutputHash: "sha256:translated-ja",
+        variantKind: "translation",
+      }),
+    ]);
   });
 
   it("does not resume a latest thread from an older prompt policy version", async () => {
@@ -300,7 +315,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(resumed.status).toBe(200);
     await expect(resumed.json()).resolves.toMatchObject({
       active_turn: {
-        event_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+        event_url: psychiatristEventsUrl(TURN_ID),
         pair_id: PAIR_ID,
         status: "running",
         turn_id: TURN_ID,
@@ -314,7 +329,7 @@ describe("Psychiatrist thread API routes", () => {
     const read = await readHandler(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -323,7 +338,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(read.status).toBe(200);
     await expect(read.json()).resolves.toMatchObject({
       active_turn: {
-        event_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+        event_url: psychiatristEventsUrl(TURN_ID),
         pair_id: PAIR_ID,
         status: "running",
         turn_id: TURN_ID,
@@ -365,7 +380,7 @@ describe("Psychiatrist thread API routes", () => {
     })(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -421,7 +436,7 @@ describe("Psychiatrist thread API routes", () => {
     })(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -624,7 +639,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -668,7 +683,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -683,6 +698,63 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("rejects cross-memory and cross-variant messages before any turn side effect", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-scope-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const client = new FakeConversationClient("must not run");
+    const backupEnqueues: unknown[] = [];
+    const handler = createSendPsychiatristMessageHandler({
+      backupQueue: {
+        enqueue: async (input) => {
+          backupEnqueues.push(input);
+          return { backupStatus: "queued" };
+        },
+        persistIntent: async () => ({ backupStatus: "pending" }),
+      },
+      client,
+      config: { storePath },
+    });
+
+    const crossMemory = await handler(
+      createApiEvent(
+        new Request("http://localhost/cross-memory/messages", {
+          body: JSON.stringify({ message: "Wrong memory", variant_kind: "source" }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID_2, threadId: THREAD_ID },
+      ),
+    );
+    const crossVariant = await handler(
+      createApiEvent(
+        new Request("http://localhost/cross-variant/messages", {
+          body: JSON.stringify({
+            lang_code: "ja-JP",
+            message: "Wrong variant",
+            variant_kind: "translation",
+          }),
+          method: "POST",
+        }),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
+      ),
+    );
+
+    expect(crossMemory.status).toBe(404);
+    expect(crossVariant.status).toBe(409);
+    await expect(crossVariant.json()).resolves.toMatchObject({
+      code: "thread_scope_mismatch",
+    });
+    expect(client.inputs).toEqual([]);
+    expect(backupEnqueues).toEqual([]);
+    expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
+    await expect(loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toMatchObject({ pairs: [] });
+  });
+
   it("sends a message, persists the pair, and records replayable stream events", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-"));
     await createPsychiatristThread({
@@ -692,17 +764,36 @@ describe("Psychiatrist thread API routes", () => {
     const client = new FakeConversationClient("The memory says rollback is missing.");
     const backupEnqueues: unknown[] = [];
     const enqueueReplayTypes: string[][] = [];
+    const intentStates: Array<{ pairStatus: string | undefined; terminalVisible: boolean }> = [];
     const handler = createSendPsychiatristMessageHandler({
       backupQueue: {
         enqueue: async (input) => {
           const replay = await loadPsychiatristStreamReplay({
             config: { storePath },
+            memoryId: MEMORY_ID,
             threadId: THREAD_ID,
             turnId: TURN_ID,
           });
           enqueueReplayTypes.push(replay.map((event) => event.type));
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
+        },
+        persistIntent: async () => {
+          const loaded = await loadPsychiatristThread({
+            config: { storePath },
+            threadId: THREAD_ID,
+          });
+          const replay = await loadPsychiatristStreamReplay({
+            config: { storePath },
+            memoryId: MEMORY_ID,
+            threadId: THREAD_ID,
+            turnId: TURN_ID,
+          });
+          intentStates.push({
+            pairStatus: loaded.pairs[0]?.status,
+            terminalVisible: replay.some((event) => event.type === "psychiatrist.answer.completed"),
+          });
+          return { backupStatus: "pending" };
         },
       },
       buildContext: async () => context({
@@ -739,9 +830,9 @@ describe("Psychiatrist thread API routes", () => {
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      event_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+      event_url: psychiatristEventsUrl(TURN_ID),
       pair_id: PAIR_ID,
-      replay_url: `/api/psychiatrist-turns/${TURN_ID}/events`,
+      replay_url: psychiatristEventsUrl(TURN_ID),
       status: "started",
       thread_id: THREAD_ID,
       turn_id: TURN_ID,
@@ -759,6 +850,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -792,6 +884,7 @@ describe("Psychiatrist thread API routes", () => {
     ).resolves.toBe("The memory says rollback is missing.");
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -814,6 +907,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(enqueueReplayTypes).toContainEqual(
       expect.arrayContaining(["psychiatrist.answer.completed"]),
     );
+    expect(intentStates).toEqual([{ pairStatus: "pending", terminalVisible: false }]);
     expect(backupEnqueues).toEqual([
       {
         contentPaths: [
@@ -859,14 +953,16 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(replay)).not.toContain("/private/");
   });
 
-  it("uses the current translated reader context for a new turn in a shared memory thread", async () => {
+  it("uses the current translated reader context for a translation-scoped thread", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-translated-context-"));
     await createPsychiatristThread({
       config: { storePath },
       manifest: manifest({
-        activeContentHash: "sha256:source",
+        activeContentHash: "sha256:translated-ja",
+        langCode: "ja-JP",
         sourceHash: "sha256:source",
-        variantKind: "source",
+        translationOutputHash: "sha256:translated-ja",
+        variantKind: "translation",
       }),
     });
     const client = new FakeConversationClient("Answer from translated context.");
@@ -904,6 +1000,7 @@ describe("Psychiatrist thread API routes", () => {
           body: JSON.stringify({
             lang_code: "ja-JP",
             message: "Explain this translated page.",
+            variant_kind: "translation",
             web_source_permission: "deny",
           }),
           method: "POST",
@@ -1134,6 +1231,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1156,7 +1254,7 @@ describe("Psychiatrist thread API routes", () => {
     })(
       createApiEvent(
         new Request(
-          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}`,
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
         ),
         { memoryId: MEMORY_ID, threadId: THREAD_ID },
       ),
@@ -1176,6 +1274,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -1316,6 +1415,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: retryTurnId,
     });
@@ -1346,6 +1446,7 @@ describe("Psychiatrist thread API routes", () => {
         enqueue: async () => {
           throw new Error("backup unavailable");
         },
+        persistIntent: async () => ({ backupStatus: "pending" }),
       },
       client: new FakeConversationClient("Completed despite backup failure."),
       config: { storePath },
@@ -1367,6 +1468,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1385,6 +1487,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -1420,6 +1523,7 @@ describe("Psychiatrist thread API routes", () => {
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
         },
+        persistIntent: async () => ({ backupStatus: "pending" }),
       },
       client: new FakeConversationClient("Completed despite THREAD refresh failure."),
       config: { storePath },
@@ -1441,6 +1545,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1469,6 +1574,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -1512,6 +1618,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1586,6 +1693,7 @@ describe("Psychiatrist thread API routes", () => {
     expect(loaded.pairs).toEqual([]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -1672,14 +1780,17 @@ describe("Psychiatrist thread API routes", () => {
     expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
   });
 
-  it("marks persisted pending messages failed when client setup fails", async () => {
+  it("continues to client setup when production runtime isolation is asserted", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-client-setup-"));
     await createPsychiatristThread({
       config: { storePath },
       manifest: manifest(),
     });
     const previousEndpoint = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+    const previousIsolation = process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
     process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "https://localhost:1234";
+    process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] =
+      PSYCHIATRIST_RUNTIME_ISOLATION_ASSERTION;
     try {
       const handler = createSendPsychiatristMessageHandler({
         buildContext: async () => context(),
@@ -1711,6 +1822,7 @@ describe("Psychiatrist thread API routes", () => {
       ]);
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1743,6 +1855,94 @@ describe("Psychiatrist thread API routes", () => {
       } else {
         process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = previousEndpoint;
       }
+      if (previousIsolation === undefined) {
+        delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+      } else {
+        process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] = previousIsolation;
+      }
+    }
+  });
+
+  it("fails closed before a production message turn when runtime isolation is unasserted", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-isolation-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const previousEndpoint = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+    const previousIsolation = process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+    process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "https://localhost:1234";
+    delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+    try {
+      const handler = createSendPsychiatristMessageHandler({
+        buildContext: async () => context(),
+        config: { storePath },
+        generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+      });
+
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+            body: JSON.stringify({ message: "What is current?" }),
+            method: "POST",
+          }),
+          { threadId: THREAD_ID },
+        ),
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        action: "retry",
+        code: "runtime_isolation_required",
+        message: "Psychiatrist requires an externally isolated Codex runtime.",
+        status: "error",
+      });
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      expect(loaded.pairs).toEqual([]);
+      expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
+    } finally {
+      if (previousEndpoint === undefined) {
+        delete process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+      } else {
+        process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = previousEndpoint;
+      }
+      if (previousIsolation === undefined) {
+        delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+      } else {
+        process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] = previousIsolation;
+      }
+    }
+  });
+
+  it("fails closed before a production Regenerate lookup when runtime isolation is unasserted", async () => {
+    const previousIsolation = process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+    delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+    try {
+      const handler = createRegeneratePsychiatristResponseHandler();
+
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+            body: regenerateBody(),
+            method: "POST",
+          }),
+          { pairId: PAIR_ID },
+        ),
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        action: "retry",
+        code: "runtime_isolation_required",
+        message: "Psychiatrist requires an externally isolated Codex runtime.",
+        status: "error",
+      });
+    } finally {
+      if (previousIsolation === undefined) {
+        delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+      } else {
+        process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] = previousIsolation;
+      }
     }
   });
 
@@ -1753,7 +1953,10 @@ describe("Psychiatrist thread API routes", () => {
       manifest: manifest(),
     });
     const previousEndpoint = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
+    const previousIsolation = process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
     process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = "https://localhost:1234";
+    process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] =
+      PSYCHIATRIST_RUNTIME_ISOLATION_ASSERTION;
     try {
       const handler = createSendPsychiatristMessageHandler({
         appendStreamEvent: async (input) => {
@@ -1791,6 +1994,7 @@ describe("Psychiatrist thread API routes", () => {
       });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -1801,6 +2005,11 @@ describe("Psychiatrist thread API routes", () => {
         delete process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT;
       } else {
         process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT = previousEndpoint;
+      }
+      if (previousIsolation === undefined) {
+        delete process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV];
+      } else {
+        process.env[PSYCHIATRIST_RUNTIME_ISOLATION_ENV] = previousIsolation;
       }
     }
   });
@@ -1962,6 +2171,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -2013,6 +2223,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -2088,6 +2299,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -2258,6 +2470,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: TURN_ID,
     });
@@ -2330,7 +2543,7 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
-  it("rejects cancel requests whose body scope does not match the active turn", async () => {
+  it("rejects cancel requests whose variant scope does not match the active turn", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-cancel-scope-"));
     const client = new CancelTrackingClient();
     await createPsychiatristThread({
@@ -2354,7 +2567,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await handler(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/cancel`, {
-          body: cancelBody({ threadId: THREAD_ID_2 }),
+          body: cancelBody({ langCode: "ja-JP", variantKind: "translation" }),
           method: "POST",
         }),
         { turnId: TURN_ID },
@@ -2427,6 +2640,10 @@ describe("Psychiatrist thread API routes", () => {
 
     const backupEnqueues: unknown[] = [];
     const enqueueReplayTypes: string[][] = [];
+    const regenerateIntentStates: Array<{
+      response: string;
+      terminalVisible: boolean;
+    }> = [];
     const regenerateTurnId = "019e8a00-0000-7000-8000-000000000004";
     const regenerateClient = new FakeConversationClient("Regenerated answer.");
     const regenerateHandler = createRegeneratePsychiatristResponseHandler({
@@ -2434,12 +2651,40 @@ describe("Psychiatrist thread API routes", () => {
         enqueue: async (input) => {
           const replay = await loadPsychiatristStreamReplay({
             config: { storePath },
+            memoryId: MEMORY_ID,
             threadId: THREAD_ID,
             turnId: regenerateTurnId,
           });
           enqueueReplayTypes.push(replay.map((event) => event.type));
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
+        },
+        persistIntent: async () => {
+          const replay = await loadPsychiatristStreamReplay({
+            config: { storePath },
+            memoryId: MEMORY_ID,
+            threadId: THREAD_ID,
+            turnId: regenerateTurnId,
+          });
+          regenerateIntentStates.push({
+            response: await readFile(
+              join(
+                storePath,
+                "memories",
+                MEMORY_ID,
+                "threads",
+                THREAD_ID,
+                "pairs",
+                PAIR_ID,
+                "RESPONSE.md",
+              ),
+              "utf8",
+            ),
+            terminalVisible: replay.some((event) =>
+              event.type === "psychiatrist.regenerate.completed"
+            ),
+          });
+          return { backupStatus: "pending" };
         },
       },
       client: regenerateClient,
@@ -2464,9 +2709,9 @@ describe("Psychiatrist thread API routes", () => {
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      event_url: `/api/psychiatrist-turns/${regenerateTurnId}/events`,
+      event_url: psychiatristEventsUrl(regenerateTurnId),
       pair_id: PAIR_ID,
-      replay_url: `/api/psychiatrist-turns/${regenerateTurnId}/events`,
+      replay_url: psychiatristEventsUrl(regenerateTurnId),
       status: "started",
       thread_id: THREAD_ID,
       turn_id: regenerateTurnId,
@@ -2530,6 +2775,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -2546,6 +2792,10 @@ describe("Psychiatrist thread API routes", () => {
     expect(enqueueReplayTypes).toContainEqual(
       expect.arrayContaining(["psychiatrist.regenerate.completed"]),
     );
+    expect(regenerateIntentStates).toEqual([{
+      response: "Original answer.",
+      terminalVisible: false,
+    }]);
     await expect(
       readFile(
         join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID, "PAIRS.jsonl"),
@@ -2584,7 +2834,7 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
-  it("rejects regenerate requests whose body scope does not match the stored pair", async () => {
+  it("rejects regenerate requests whose variant scope does not match the stored pair", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-scope-"));
     await createPsychiatristThread({
       config: { storePath },
@@ -2610,6 +2860,7 @@ describe("Psychiatrist thread API routes", () => {
       return loaded.pairs[0]?.status === "completed" &&
         activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
     });
+    const before = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     const regenerateClient = new FakeConversationClient("must not run");
     const regenerate = createRegeneratePsychiatristResponseHandler({
       client: regenerateClient,
@@ -2621,7 +2872,7 @@ describe("Psychiatrist thread API routes", () => {
     const response = await regenerate(
       createApiEvent(
         new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
-          body: regenerateBody({ threadId: THREAD_ID_2 }),
+          body: regenerateBody({ langCode: "ja-JP", variantKind: "translation" }),
           method: "POST",
         }),
         { pairId: PAIR_ID },
@@ -2634,6 +2885,10 @@ describe("Psychiatrist thread API routes", () => {
       status: "error",
     });
     expect(regenerateClient.inputs).toEqual([]);
+    await expect(loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    })).resolves.toEqual(before);
   });
 
   it("rejects malformed legacy regenerate scope fields", async () => {
@@ -2938,6 +3193,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -3060,6 +3316,7 @@ describe("Psychiatrist thread API routes", () => {
         enqueue: async () => {
           throw new Error("backup unavailable");
         },
+        persistIntent: async () => ({ backupStatus: "pending" }),
       },
       client: new FakeConversationClient("Regenerated despite backup failure."),
       config: config(storePath),
@@ -3082,6 +3339,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: regenerateTurnId,
       });
@@ -3096,6 +3354,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -3152,6 +3411,7 @@ describe("Psychiatrist thread API routes", () => {
           backupEnqueues.push(input);
           return { backupStatus: "queued" };
         },
+        persistIntent: async () => ({ backupStatus: "pending" }),
       },
       client: new FakeConversationClient("Regenerated despite THREAD refresh failure."),
       config: config(storePath),
@@ -3174,6 +3434,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: regenerateTurnId,
       });
@@ -3205,6 +3466,7 @@ describe("Psychiatrist thread API routes", () => {
     ]);
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -3270,6 +3532,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: regenerateTurnId,
       });
@@ -3292,6 +3555,7 @@ describe("Psychiatrist thread API routes", () => {
     ).resolves.toBe("Original answer.");
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -3374,6 +3638,7 @@ describe("Psychiatrist thread API routes", () => {
       const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -3404,6 +3669,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: regenerateTurnId,
       });
@@ -3479,6 +3745,7 @@ describe("Psychiatrist thread API routes", () => {
     await waitFor(async () => {
       const replay = await loadPsychiatristStreamReplay({
         config: { storePath },
+        memoryId: MEMORY_ID,
         threadId: THREAD_ID,
         turnId: TURN_ID,
       });
@@ -3832,6 +4099,7 @@ describe("Psychiatrist thread API routes", () => {
     });
     const replay = await loadPsychiatristStreamReplay({
       config: { storePath },
+      memoryId: MEMORY_ID,
       threadId: THREAD_ID,
       turnId: regenerateTurnId,
     });
@@ -3949,11 +4217,16 @@ function createApiEvent(request: Request, params: Record<string, string>): APIEv
   }
   return {
     request,
-    params,
+    params: { memoryId: MEMORY_ID, threadId: THREAD_ID, ...params },
     response: new Response(),
     locals: {},
     nativeEvent: {},
   } as unknown as APIEvent;
+}
+
+function psychiatristEventsUrl(turnId: string): string {
+  return `/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}` +
+    `/turns/${turnId}/events?variant_kind=source`;
 }
 
 function parseJsonRecord(content: string): Record<string, unknown> {

@@ -22,6 +22,8 @@ import {
   getSourceFlashbackMetadataExportPath,
   getTranslatedFlashbackMetadataExportPath,
 } from "../flashbacks/export";
+import { activePsychiatristTurns } from "../psychiatrist/active-turns";
+import { recoverCompletedPsychiatristArtifactsForMemory } from "../psychiatrist/thread-store";
 import { isSupportedLanguageCode } from "../translation/languages";
 import { resolveTranslatedMemoryProjectionPath } from "../translation/paths";
 
@@ -59,7 +61,13 @@ export interface MemoryBackupQueue {
   ) => Promise<EnqueueMemoryBackupResult>;
 }
 
-export interface GitMemoryBackupQueue extends MemoryBackupQueue {
+export interface DurableMemoryBackupQueue extends MemoryBackupQueue {
+  persistIntent: (
+    input: EnqueueMemoryBackupInput,
+  ) => Promise<EnqueueMemoryBackupResult>;
+}
+
+export interface GitMemoryBackupQueue extends DurableMemoryBackupQueue {
   drain: () => Promise<void>;
   retryEligibleBackups: () => Promise<number>;
 }
@@ -81,15 +89,16 @@ export interface CreateGitMemoryBackupQueueInput {
 const execFileAsync = promisify(execFile);
 const gitQueueByConfigKey = new Map<string, GitMemoryBackupQueue>();
 
-export function createNoopMemoryBackupQueue(): MemoryBackupQueue {
+export function createNoopMemoryBackupQueue(): DurableMemoryBackupQueue {
   return {
     enqueue: async () => ({ backupStatus: "pending" }),
+    persistIntent: async () => ({ backupStatus: "pending" }),
   };
 }
 
 export function getMemoryBackupQueue(
   config: ResolvedTraumaConfig,
-): MemoryBackupQueue {
+): DurableMemoryBackupQueue {
   if (!config.backup.git.enabled) {
     return createNoopMemoryBackupQueue();
   }
@@ -117,11 +126,13 @@ export function createGitMemoryBackupQueue(
   const now = input.now ?? (() => new Date());
   const pendingJobs: MemoryBackupJob[] = [];
   const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
-  const runningMemoryIds = new Set<string>();
+  const runningJobsByMemoryId = new Map<string, MemoryBackupJob>();
+  const memoryIdsWithDurableIntent = new Set<string>();
   let worker: Promise<void> | undefined;
+  let schedulingSuspensions = 0;
 
   function scheduleWorker() {
-    if (worker !== undefined) {
+    if (worker !== undefined || schedulingSuspensions > 0) {
       return;
     }
 
@@ -145,30 +156,39 @@ export function createGitMemoryBackupQueue(
         continue;
       }
       pendingJobsByMemoryId.delete(job.memoryId);
-      runningMemoryIds.add(job.memoryId);
+      runningJobsByMemoryId.set(job.memoryId, job);
 
       try {
         await processJob(job);
       } finally {
-        runningMemoryIds.delete(job.memoryId);
+        runningJobsByMemoryId.delete(job.memoryId);
       }
     }
   }
 
   async function processJob(job: MemoryBackupJob) {
     try {
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "queued",
-        lastBackupError: null,
-      });
       await runJob({ config: input.config, job });
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "success",
-        lastBackupAt: now(),
-        lastBackupError: null,
-      });
+      if (memoryIdsWithDurableIntent.has(job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+      } else if (pendingJobsByMemoryId.has(job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "queued",
+          lastBackupError: null,
+        });
+      } else {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "success",
+          lastBackupAt: now(),
+          lastBackupError: null,
+        });
+      }
     } catch (error) {
       try {
         await updateBackupStatus({
@@ -219,17 +239,78 @@ export function createGitMemoryBackupQueue(
     const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
     if (pendingJob !== undefined) {
       mergeBackupJobs(pendingJob, job);
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "queued",
+        lastBackupError: null,
+      });
+      memoryIdsWithDurableIntent.delete(job.memoryId);
+      return { backupStatus: "queued" };
+    }
+    const runningJob = runningJobsByMemoryId.get(job.memoryId);
+    if (
+      runningJob !== undefined &&
+      job.contentPaths.every((contentPath) => runningJob.contentPaths.includes(contentPath))
+    ) {
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "queued",
+        lastBackupError: null,
+      });
+      memoryIdsWithDurableIntent.delete(job.memoryId);
+      return { backupStatus: "queued" };
+    }
+
+    await updateBackupStatus({
+      memoryId: job.memoryId,
+      backupStatus: "queued",
+      lastBackupError: null,
+    });
+    const concurrentlyPendingJob = pendingJobsByMemoryId.get(job.memoryId);
+    if (concurrentlyPendingJob !== undefined) {
+      mergeBackupJobs(concurrentlyPendingJob, job);
+      memoryIdsWithDurableIntent.delete(job.memoryId);
       return { backupStatus: "queued" };
     }
 
     pendingJobs.push(job);
     pendingJobsByMemoryId.set(job.memoryId, job);
-    scheduleWorker();
+    memoryIdsWithDurableIntent.delete(job.memoryId);
+    if (schedulingSuspensions === 0) {
+      scheduleWorker();
+    }
     return { backupStatus: "queued" };
+  }
+
+  async function persistIntent(
+    intentInput: EnqueueMemoryBackupInput,
+  ): Promise<EnqueueMemoryBackupResult> {
+    if (!input.config.backup.git.enabled) {
+      return { backupStatus: "disabled" };
+    }
+    const job = normalizeBackupJob(intentInput);
+    if (job.reason === "memory_deletion") {
+      throw new GitBackupError(
+        "memory deletion backups must run synchronously before deleting the memory row",
+      );
+    }
+    memoryIdsWithDurableIntent.add(job.memoryId);
+    try {
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "pending",
+        lastBackupError: null,
+      });
+    } catch (error) {
+      memoryIdsWithDurableIntent.delete(job.memoryId);
+      throw error;
+    }
+    return { backupStatus: "pending" };
   }
 
   return {
     enqueue,
+    persistIntent,
     drain: async () => {
       while (worker !== undefined) {
         await worker;
@@ -249,23 +330,31 @@ export function createGitMemoryBackupQueue(
         const backups =
           await connection.repositories.memories.listBackupsEligibleForRetry();
         let enqueued = 0;
-        for (const backup of backups) {
-          if (
-            pendingJobsByMemoryId.has(backup.id) ||
-            runningMemoryIds.has(backup.id)
-          ) {
-            continue;
+        schedulingSuspensions += 1;
+        try {
+          for (const backup of backups) {
+            if (
+              pendingJobsByMemoryId.has(backup.id) ||
+              runningJobsByMemoryId.has(backup.id)
+            ) {
+              continue;
+            }
+            await enqueue({
+              memoryId: backup.id,
+              contentPaths: await getRetryContentPaths(
+                input.config,
+                backup,
+                connection.repositories.translations,
+              ),
+              reason: "memory_creation",
+            });
+            enqueued += 1;
           }
-          await enqueue({
-            memoryId: backup.id,
-            contentPaths: await getRetryContentPaths(
-              input.config,
-              backup,
-              connection.repositories.translations,
-            ),
-            reason: "memory_creation",
-          });
-          enqueued += 1;
+        } finally {
+          schedulingSuspensions -= 1;
+          if (pendingJobs.length > 0) {
+            scheduleWorker();
+          }
         }
         return enqueued;
       } finally {
@@ -280,6 +369,11 @@ async function getRetryContentPaths(
   backup: { id: string; contentPath: string },
   translations: TranslationRepository,
 ): Promise<string[]> {
+  await recoverCompletedPsychiatristArtifactsForMemory({
+    activeTurnIds: activePsychiatristTurns.getTurnIdsForMemory(backup.id),
+    config,
+    memoryId: backup.id,
+  });
   const paths = [
     backup.contentPath,
     getSourceFlashbackMetadataExportPath(backup.id),

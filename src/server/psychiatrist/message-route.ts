@@ -4,7 +4,8 @@ import { randomBytes } from "node:crypto";
 import {
   createNoopMemoryBackupQueue,
   getMemoryBackupQueue,
-  type MemoryBackupQueue,
+  type DurableMemoryBackupQueue,
+  type EnqueueMemoryBackupInput,
 } from "../backup";
 import {
   loadRuntimeTraumaConfig,
@@ -23,9 +24,16 @@ import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./cont
 import { buildPsychiatristPrompt, selectPsychiatristPromptContext } from "./prompt";
 import {
   isRecord,
+  matchesPsychiatristVariantScope,
+  psychiatristTurnEventsUrl,
   readOptionalPsychiatristLangCode,
+  readOptionalPsychiatristVariantKind,
   readPsychiatristJsonBody,
 } from "./request";
+import {
+  isPsychiatristRuntimeIsolationReady,
+  PSYCHIATRIST_RUNTIME_ISOLATION_ERROR,
+} from "./runtime-isolation";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import {
   appendPsychiatristStreamEvent,
@@ -35,7 +43,7 @@ import { activePsychiatristTurns } from "./active-turns";
 import {
   appendAssistantResponse as appendAssistantResponseToStore,
   appendPendingPair,
-  loadPsychiatristThread,
+  loadPsychiatristThreadForMemory,
   markPsychiatristTurnCompleted,
   markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
@@ -58,6 +66,7 @@ type MessagePayload =
       ok: true;
       langCode?: string;
       message: string;
+      variantKind?: "source" | "translation";
       webSourcePermission: "deny" | "allow_for_this_turn";
     }
   | { ok: false; message: string; status: number };
@@ -71,12 +80,12 @@ type ResolveActiveContentHash = (input: {
 export function createSendPsychiatristMessageHandler(input: {
   appendAssistantResponse?: AppendAssistantResponse;
   appendStreamEvent?: typeof appendPsychiatristStreamEvent;
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   buildContext?: BuildContext;
   client?: CodexConversationClient;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   generateId?: () => string;
-  loadThread?: typeof loadPsychiatristThread;
+  loadThread?: typeof loadPsychiatristThreadForMemory;
   now?: () => Date;
   resolveActiveContentHash?: ResolveActiveContentHash;
 } = {}) {
@@ -90,16 +99,20 @@ export async function handleSendPsychiatristMessageRequest(
   input: {
     appendAssistantResponse?: AppendAssistantResponse;
     appendStreamEvent?: typeof appendPsychiatristStreamEvent;
-    backupQueue?: MemoryBackupQueue;
+    backupQueue?: DurableMemoryBackupQueue;
     buildContext?: BuildContext;
     client?: CodexConversationClient;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
     generateId?: () => string;
-    loadThread?: typeof loadPsychiatristThread;
+    loadThread?: typeof loadPsychiatristThreadForMemory;
     now?: () => Date;
     resolveActiveContentHash?: ResolveActiveContentHash;
   } = {},
 ): Promise<Response> {
+  const memoryId = event.params.memoryId?.trim();
+  if (memoryId === undefined || memoryId === "") {
+    return safeErrorResponse("invalid_request", "memoryId must be a non-empty string.", 400);
+  }
   const threadId = event.params.threadId?.trim();
   if (threadId === undefined || threadId === "") {
     return safeErrorResponse("invalid_request", "threadId must be a non-empty string.", 400);
@@ -108,28 +121,43 @@ export async function handleSendPsychiatristMessageRequest(
   if (!payload.ok) {
     return safeErrorResponse("invalid_request", payload.message, payload.status);
   }
+  if (
+    !isPsychiatristRuntimeIsolationReady({
+      hasInjectedClient: input.client !== undefined,
+    })
+  ) {
+    return safeErrorResponse(
+      PSYCHIATRIST_RUNTIME_ISOLATION_ERROR.code,
+      PSYCHIATRIST_RUNTIME_ISOLATION_ERROR.message,
+      503,
+    );
+  }
+  const config = input.config ?? loadRuntimeTraumaConfig();
+  const loadThread = input.loadThread ?? loadPsychiatristThreadForMemory;
+  let thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
+  try {
+    thread = await loadThread({ config, memoryId, threadId });
+  } catch (error) {
+    return formatMessageError(error);
+  }
+  if (!matchesPsychiatristVariantScope(payload, thread.manifest)) {
+    return safeErrorResponse(
+      "thread_scope_mismatch",
+      "Psychiatrist thread does not match the active reader variant.",
+      409,
+    );
+  }
+  if (thread.manifest.status === "stale") {
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
   if (!activePsychiatristTurns.reserveThread(threadId)) {
     return safeErrorResponse(
       "turn_conflict",
       "A Psychiatrist turn is already running for this thread.",
-      409,
-    );
-  }
-
-  const config = input.config ?? loadRuntimeTraumaConfig();
-  const loadThread = input.loadThread ?? loadPsychiatristThread;
-  let thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
-  try {
-    thread = await loadThread({ config, threadId });
-  } catch (error) {
-    activePsychiatristTurns.releaseThread(threadId);
-    return formatMessageError(error);
-  }
-  if (thread.manifest.status === "stale") {
-    activePsychiatristTurns.releaseThread(threadId);
-    return safeErrorResponse(
-      "thread_stale",
-      "Psychiatrist thread is stale. Refresh the thread and retry.",
       409,
     );
   }
@@ -158,7 +186,7 @@ export async function handleSendPsychiatristMessageRequest(
   }
   if (activeContentHash !== thread.manifest.activeContentHash) {
     activePsychiatristTurns.releaseThread(threadId);
-    await markPsychiatristThreadStale({ config, threadId });
+    await markPsychiatristThreadStale({ config, memoryId, threadId });
     await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
       config,
       event: {
@@ -251,7 +279,11 @@ export async function handleSendPsychiatristMessageRequest(
       webSourcePolicy,
       ownsClient,
     });
-    return jsonResponse(toStartedResponse({ pairId, threadId, turnId }), {
+    return jsonResponse(toStartedResponse({
+      manifest: thread.manifest,
+      pairId,
+      turnId,
+    }), {
       status: 202,
     });
   } catch (error) {
@@ -290,7 +322,7 @@ export async function handleSendPsychiatristMessageRequest(
 
 async function runPsychiatristTurn(input: {
   appendAssistantResponse: AppendAssistantResponse;
-  backupQueue: MemoryBackupQueue;
+  backupQueue: DurableMemoryBackupQueue;
   client: CodexConversationClient;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   context: PsychiatristMemoryContext;
@@ -385,6 +417,8 @@ async function runPsychiatristTurn(input: {
     }
     const sourceCitations = sanitizePsychiatristSourceCitations(result.sourceCitations);
     completedAnswerText = result.outputText;
+    const backupJob = completedAnswerBackupInput(input);
+    await input.backupQueue.persistIntent(backupJob);
     const appendResult = await input.appendAssistantResponse({
       assistantResponse: result.outputText,
       citations: sourceCitations,
@@ -429,7 +463,7 @@ async function runPsychiatristTurn(input: {
       event: completedEventInput,
       publish: false,
     });
-    const backupWarning = await enqueueCompletedAnswerBackup(input)
+    const backupWarning = await input.backupQueue.enqueue(backupJob)
       .then(() => undefined)
       .catch(() => ({
         code: "backup_enqueue_failed",
@@ -527,14 +561,13 @@ async function closeOwnedClient(client: CodexConversationClient): Promise<void> 
   }
 }
 
-async function enqueueCompletedAnswerBackup(input: {
-  backupQueue: MemoryBackupQueue;
+function completedAnswerBackupInput(input: {
   pairId: string;
   thread: { manifest: PsychiatristThreadManifest };
   threadId: string;
   turnId: string;
-}): Promise<void> {
-  await input.backupQueue.enqueue({
+}): EnqueueMemoryBackupInput {
+  return {
     contentPaths: [
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/THREAD.json`,
       `memories/${input.thread.manifest.memoryId}/threads/${input.threadId}/THREAD.md`,
@@ -547,12 +580,12 @@ async function enqueueCompletedAnswerBackup(input: {
     ],
     memoryId: input.thread.manifest.memoryId,
     reason: "psychiatrist_thread_update",
-  });
+  };
 }
 
 function resolveBackupQueue(
   config: Pick<ResolvedTraumaConfig, "storePath">,
-): MemoryBackupQueue {
+): DurableMemoryBackupQueue {
   return "backup" in config
     ? getMemoryBackupQueue(config as ResolvedTraumaConfig)
     : createNoopMemoryBackupQueue();
@@ -578,6 +611,10 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
   if (!langCodeResult.ok) {
     return { ok: false, message: langCodeResult.message, status: 400 };
   }
+  const variantKindResult = readOptionalPsychiatristVariantKind(payload);
+  if (!variantKindResult.ok) {
+    return { ok: false, message: variantKindResult.message, status: 400 };
+  }
   const webSourcePermission =
     typeof payload.web_source_permission === "string"
       ? payload.web_source_permission
@@ -596,6 +633,9 @@ async function parseMessagePayload(request: Request): Promise<MessagePayload> {
     ok: true,
     ...(langCodeResult.langCode === undefined ? {} : { langCode: langCodeResult.langCode }),
     message,
+    ...(variantKindResult.variantKind === undefined
+      ? {}
+      : { variantKind: variantKindResult.variantKind }),
     webSourcePermission,
   };
 }
@@ -678,6 +718,9 @@ function fallbackManifestContext(
     sourceUrl: "",
     tags: [],
     title: "",
+    ...(manifest.translationOutputHash === undefined
+      ? {}
+      : { translationOutputHash: manifest.translationOutputHash }),
     variantKind: manifest.variantKind,
   };
 }
@@ -716,17 +759,23 @@ async function persistCodexEvent(input: {
 }
 
 function toStartedResponse(input: {
+  manifest: PsychiatristThreadManifest;
   pairId: string;
-  threadId: string;
   turnId: string;
 }) {
-  const eventUrl = `/api/psychiatrist-turns/${input.turnId}/events`;
+  const eventUrl = psychiatristTurnEventsUrl({
+    ...(input.manifest.langCode === undefined ? {} : { langCode: input.manifest.langCode }),
+    memoryId: input.manifest.memoryId,
+    threadId: input.manifest.threadId,
+    turnId: input.turnId,
+    variantKind: input.manifest.variantKind,
+  });
   return {
     event_url: eventUrl,
     pair_id: input.pairId,
     replay_url: eventUrl,
     status: "started",
-    thread_id: input.threadId,
+    thread_id: input.manifest.threadId,
     turn_id: input.turnId,
   };
 }
@@ -796,7 +845,7 @@ async function defaultResolveActiveContentHash(input: {
   context: PsychiatristMemoryContext;
   manifest: PsychiatristThreadManifest;
 }): Promise<string> {
-  return input.context.sourceHash;
+  return input.context.contentHash;
 }
 
 function safeErrorResponse(
