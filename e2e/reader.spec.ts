@@ -519,6 +519,101 @@ test("adopts a different canonical active turn after the stopped turn completed"
   )).toBe(true);
 });
 
+test("clears stopping when Stop reload resumes a different idle thread", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    cancelResults: ["completed"],
+    sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
+    threadIdAfterCancel: "thread-e2e-next",
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Finish on the old thread.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { name: "Stopping…" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+});
+
+test("adopts a successor active turn from a different Stop-reload thread", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    activeTurnAfterCancel: {
+      pairId: "pair-e2e-successor",
+      turnId: "turn-e2e-successor",
+    },
+    cancelResults: ["completed"],
+    sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
+    threadIdAfterCancel: "thread-e2e-next",
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Adopt the successor thread turn.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
+  await expect.poll(async () => page.evaluate(() =>
+    ((window as unknown as { __psychiatristEventSourceUrls?: string[] })
+      .__psychiatristEventSourceUrls ?? [])
+      .some((url) =>
+        url.includes("/threads/thread-e2e-next/") &&
+        url.includes("turn-e2e-successor")
+      )
+  )).toBe(true);
+});
+
+test("does not carry a historical web-source retry into a successor active turn", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const historicalRetryPair = {
+    ...completedPsychiatristPair("Historical answer requiring sources."),
+    pair_id: "pair-e2e-historical",
+    retry_action: "allow_web_sources" as const,
+    retry_mode: "regenerate" as const,
+    retry_turn_id: "turn-e2e-historical-retry",
+    turn_id: "turn-e2e-historical",
+  };
+  const mock = await installPsychiatristMock(page, {
+    activeTurnAfterCancel: {
+      pairId: "pair-e2e-successor",
+      turnId: "turn-e2e-successor",
+    },
+    cancelResults: ["completed"],
+    initialPairs: [historicalRetryPair],
+    sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
+    threadIdAfterCancel: "thread-e2e-next",
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await page.locator("textarea").fill("Run the successor without stale approval UI.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { exact: true, name: "Stop" }).click();
+
+  await expect.poll(() => mock.threadRequests).toBeGreaterThan(1);
+  await expect(page.getByRole("button", {
+    name: "Allow web sources for this turn",
+  })).toHaveCount(0);
+  await expect(page.getByRole("paragraph").filter({
+    hasText: "Allow web search/source lookup for this answer to continue.",
+  })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
+});
+
 test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
   page,
 }) => {
@@ -919,6 +1014,7 @@ async function installPsychiatristMock(
     sendTurns?: Array<{ pairId: string; turnId: string }>;
     threadFailureRequests?: number[];
     threadFailures?: number;
+    threadIdAfterCancel?: string;
     useFakeEventSource?: boolean;
   } = {},
 ): Promise<PsychiatristMockState> {
@@ -938,6 +1034,7 @@ async function installPsychiatristMock(
   let activeTurn: { pair_id: string; turn_id: string } | null = null;
   let acceptedSendCount = 0;
   let cancelCount = 0;
+  let currentThreadId = "thread-e2e";
   let pairs = [...(input.initialPairs ?? [])];
   let remainingThreadFailures = input.threadFailures ?? 0;
 
@@ -969,7 +1066,7 @@ async function installPsychiatristMock(
         active_turn: activeTurn === null
           ? null
           : {
-              event_url: psychiatristEventUrl(activeTurn.turn_id),
+              event_url: psychiatristEventUrl(activeTurn.turn_id, currentThreadId),
               pair_id: activeTurn.pair_id,
               status: "running",
               turn_id: activeTurn.turn_id,
@@ -979,7 +1076,7 @@ async function installPsychiatristMock(
         memory_id: READER_MEMORY_ID,
         pairs,
         status: activeTurn === null ? "ready" : "running",
-        thread_id: "thread-e2e",
+        thread_id: currentThreadId,
         variant_kind: "source",
       }),
     });
@@ -1193,6 +1290,7 @@ async function installPsychiatristMock(
           pair_id: input.activeTurnAfterCancel.pairId,
           turn_id: input.activeTurnAfterCancel.turnId,
         };
+    currentThreadId = input.threadIdAfterCancel ?? currentThreadId;
     if (
       activeTurn !== null &&
       !pairs.some((pair) => pair.pair_id === activeTurn?.pair_id)
@@ -1353,8 +1451,8 @@ function startedResponse(pairId: string, turnId: string, eventUrl?: string) {
   };
 }
 
-function psychiatristEventUrl(turnId: string): string {
-  return `/api/memories/${READER_MEMORY_ID}/psychiatrist/threads/thread-e2e` +
+function psychiatristEventUrl(turnId: string, threadId = "thread-e2e"): string {
+  return `/api/memories/${READER_MEMORY_ID}/psychiatrist/threads/${threadId}` +
     `/turns/${turnId}/events?variant_kind=source`;
 }
 

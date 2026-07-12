@@ -134,6 +134,14 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       currentThread !== undefined &&
       request.threadIdentity === readPsychiatristThreadIdentity(currentThread);
   };
+  const isCurrentThreadResponse = (
+    nextThread: PsychiatristThreadResponse,
+  ): boolean => {
+    const currentThread = thread();
+    return currentThread !== undefined &&
+      readPsychiatristThreadIdentity(currentThread) ===
+        readPsychiatristThreadIdentity(nextThread);
+  };
   const clearWebSourceRetryState = () => {
     setWebSourceRetryPrompt("");
     setWebSourceRetryPairId("");
@@ -168,6 +176,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       return false;
     }
     clearWebSourceRetryState();
+    setErrorMessage("");
     setTurnPhase("running");
     setRunningPairId(activeTurn.pair_id);
     setRunningTurnId(activeTurn.turn_id);
@@ -385,7 +394,8 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       const reloaded = await loadThread({ preserveTurnPhase: true });
       if (
         !reloaded ||
-        !isCurrentThreadRequestGeneration(request) ||
+        !isCurrentReaderRequestGeneration(request) ||
+        !isCurrentThreadResponse(reloaded) ||
         runningPairId() !== pairId ||
         runningTurnId() !== turnId
       ) {
@@ -503,9 +513,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     }
     const pairId = runningPairId();
     const turnId = runningTurnId();
+    const request = captureReaderRequestGeneration();
     const terminalStatus = pendingStopTerminalStatus;
     const reloaded = await loadThread({ preserveTurnPhase: true });
-    if (!reloaded || runningPairId() !== pairId || runningTurnId() !== turnId) {
+    if (
+      !reloaded ||
+      !isCurrentReaderRequestGeneration(request) ||
+      !isCurrentThreadResponse(reloaded) ||
+      runningPairId() !== pairId ||
+      runningTurnId() !== turnId
+    ) {
       return;
     }
     pendingStopTerminalStatus = undefined;
