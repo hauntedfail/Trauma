@@ -1534,6 +1534,230 @@ describe("git memory backup queue", () => {
     }
   });
 
+  it("restores pending intent after a standalone finalizer failure and retries it after restart", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-restart-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    initializeGitRepository(projectPath);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      stampConnection.close();
+    }
+    const processedBeforeRestart: MemoryBackupJob[] = [];
+    const abandonedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedBeforeRestart.push(job);
+      },
+    });
+
+    await expect(abandonedQueue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await abandonedQueue.drain();
+
+    expect(processedBeforeRestart).toEqual([]);
+    const pendingConnection = initializeDatabase(config);
+    try {
+      await expect(pendingConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+    } finally {
+      pendingConnection.close();
+    }
+
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    await expect(restartedQueue.retryEligibleBackups()).resolves.toBe(1);
+    await restartedQueue.drain();
+
+    expect(processedAfterRestart).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([contentPath]),
+        memoryId,
+      }),
+    ]);
+    const successConnection = initializeDatabase(config);
+    try {
+      await expect(successConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "success",
+          lastBackupError: null,
+        });
+    } finally {
+      successConnection.close();
+    }
+  });
+
+  it("merges failed finalizer intent into a later different-path enqueue", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-merge-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const failedPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const laterPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await seedBackupQueueMemory({
+      config,
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+    });
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({
+          ...job,
+          contentPaths: [...job.contentPaths],
+        });
+      },
+    });
+
+    await expect(queue.enqueue({
+      contentPaths: [failedPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await queue.enqueue({
+      contentPaths: [laterPath],
+      memoryId,
+      reason: "flashback_update",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [failedPath, laterPath],
+      memoryId,
+      reason: "flashback_update",
+    }]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "success",
+          lastBackupError: null,
+        });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("retains sequential durable intents in trigger order with the newest reason", async () => {
+    const root = await makeRoot("trauma-git-backup-sequential-intents-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const firstPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const secondPath = `memories/${memoryId}/threads/thread-1/pairs/pair-1/RESPONSE.md`;
+    await seedBackupQueueMemory({
+      config,
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+    });
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({ ...job, contentPaths: [...job.contentPaths] });
+      },
+    });
+
+    await queue.persistIntent({
+      contentPaths: [firstPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    await queue.persistIntent({
+      contentPaths: [secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    });
+    await queue.enqueue({
+      contentPaths: [secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [firstPath, secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    }]);
+  });
+
+  it("preserves the finalizer error when pending-status recovery fails", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-recovery-error-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    const statusTransitions: string[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                statusTransitions.push(statusInput.backupStatus);
+                if (statusInput.backupStatus === "pending") {
+                  throw new Error("pending status recovery failed");
+                }
+                return connection.repositories.memories.updateBackupStatus(
+                  statusInput,
+                );
+              },
+            },
+          },
+        };
+      },
+      runJob: async () => {
+        throw new Error("worker must not start");
+      },
+    });
+
+    await expect(queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await queue.drain();
+
+    expect(statusTransitions).toEqual(["queued", "pending"]);
+  });
+
   it("keeps the last successful backup timestamp when a later backup fails", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(

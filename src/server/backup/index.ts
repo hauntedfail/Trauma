@@ -136,7 +136,7 @@ export function createGitMemoryBackupQueue(
   const pendingJobs: MemoryBackupJob[] = [];
   const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
   const runningJobsByMemoryId = new Map<string, MemoryBackupJob>();
-  const durableIntentCountsByMemoryId = new Map<string, number>();
+  const durableIntentJobsByMemoryId = new Map<string, MemoryBackupJob>();
   const enqueueTransitionsByMemoryId = new Map<string, number>();
   let worker: Promise<void> | undefined;
   let schedulingSuspensions = 0;
@@ -185,7 +185,7 @@ export function createGitMemoryBackupQueue(
           backupStatus: "queued",
           lastBackupError: null,
         });
-      } else if (hasCount(durableIntentCountsByMemoryId, job.memoryId)) {
+      } else if (durableIntentJobsByMemoryId.has(job.memoryId)) {
         await updateBackupStatus({
           memoryId: job.memoryId,
           backupStatus: "pending",
@@ -249,16 +249,18 @@ export function createGitMemoryBackupQueue(
       return result;
     }
 
-    const job = normalizeBackupJob(enqueueInput);
+    let job = normalizeBackupJob(enqueueInput);
     if (job.reason === "memory_deletion") {
       throw new GitBackupError(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    const claimedDurableIntent = decrementCount(
-      durableIntentCountsByMemoryId,
-      job.memoryId,
-    );
+    const durableIntentJob = durableIntentJobsByMemoryId.get(job.memoryId);
+    if (durableIntentJob !== undefined) {
+      durableIntentJobsByMemoryId.delete(job.memoryId);
+      mergeBackupJobs(durableIntentJob, job);
+      job = durableIntentJob;
+    }
     incrementCount(enqueueTransitionsByMemoryId, job.memoryId);
     if (finalizer !== undefined) {
       schedulingSuspensions += 1;
@@ -284,8 +286,30 @@ export function createGitMemoryBackupQueue(
       scheduleWorker();
       return result;
     } catch (error) {
-      if (claimedDurableIntent || queuedStatePersisted) {
-        incrementCount(durableIntentCountsByMemoryId, job.memoryId);
+      if (durableIntentJob !== undefined || queuedStatePersisted) {
+        const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
+        if (retainedJob === undefined) {
+          durableIntentJobsByMemoryId.set(job.memoryId, job);
+        } else {
+          mergeBackupJobs(job, retainedJob);
+          durableIntentJobsByMemoryId.set(job.memoryId, job);
+        }
+      }
+      if (
+        queuedStatePersisted &&
+        !pendingJobsByMemoryId.has(job.memoryId) &&
+        !runningJobsByMemoryId.has(job.memoryId)
+      ) {
+        try {
+          await updateBackupStatus({
+            memoryId: job.memoryId,
+            backupStatus: "pending",
+            lastBackupError: null,
+          });
+        } catch {
+          // Preserve the finalizer failure. The durable intent remains retained
+          // in memory even when the compensating status update is unavailable.
+        }
       }
       throw error;
     } finally {
@@ -311,16 +335,16 @@ export function createGitMemoryBackupQueue(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    incrementCount(durableIntentCountsByMemoryId, job.memoryId);
-    try {
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "pending",
-        lastBackupError: null,
-      });
-    } catch (error) {
-      decrementCount(durableIntentCountsByMemoryId, job.memoryId);
-      throw error;
+    await updateBackupStatus({
+      memoryId: job.memoryId,
+      backupStatus: "pending",
+      lastBackupError: null,
+    });
+    const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
+    if (retainedJob === undefined) {
+      durableIntentJobsByMemoryId.set(job.memoryId, job);
+    } else {
+      mergeBackupJobs(retainedJob, job);
     }
     return { backupStatus: "pending" };
   }
@@ -583,7 +607,7 @@ function normalizeBackupJob(input: EnqueueMemoryBackupInput): MemoryBackupJob {
 
   return {
     memoryId: input.memoryId,
-    contentPaths,
+    contentPaths: [...contentPaths],
     reason: input.reason ?? "memory_creation",
   };
 }
