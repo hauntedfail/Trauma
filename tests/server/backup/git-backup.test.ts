@@ -1710,6 +1710,232 @@ describe("git memory backup queue", () => {
     }]);
   });
 
+  it("keeps a persisted intent pending when an active job finishes before persistence returns", async () => {
+    const root = await makeRoot("trauma-git-backup-persist-transition-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const newPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await seedBackupQueueMemory({ config, contentPath });
+    initializeGitRepository(projectPath);
+    await writeFile(join(storePath, contentPath), "# Persist transition\n", "utf8");
+    git(projectPath, ["add", "--", `store/${contentPath}`]);
+    git(projectPath, ["commit", "-m", "seed persisted content"]);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      stampConnection.close();
+    }
+
+    let releaseActiveRun: () => void = () => {};
+    const activeRunGate = new Promise<void>((resolve) => {
+      releaseActiveRun = resolve;
+    });
+    let markActiveRunStarted: () => void = () => {};
+    const activeRunStarted = new Promise<void>((resolve) => {
+      markActiveRunStarted = resolve;
+    });
+    let releasePersistStatus: () => void = () => {};
+    const persistStatusGate = new Promise<void>((resolve) => {
+      releasePersistStatus = resolve;
+    });
+    let markPersistStatusWritten: () => void = () => {};
+    const persistStatusWritten = new Promise<void>((resolve) => {
+      markPersistStatusWritten = resolve;
+    });
+    let markWorkerStatusWritten: () => void = () => {};
+    const workerStatusWritten = new Promise<void>((resolve) => {
+      markWorkerStatusWritten = resolve;
+    });
+    let suspendedFirstPendingWrite = false;
+    const statusTransitions: string[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                const result = await connection.repositories.memories
+                  .updateBackupStatus(statusInput);
+                statusTransitions.push(statusInput.backupStatus);
+                if (
+                  statusInput.backupStatus === "pending" &&
+                  !suspendedFirstPendingWrite
+                ) {
+                  suspendedFirstPendingWrite = true;
+                  markPersistStatusWritten();
+                  await persistStatusGate;
+                } else if (
+                  suspendedFirstPendingWrite &&
+                  (statusInput.backupStatus === "pending" ||
+                    statusInput.backupStatus === "success")
+                ) {
+                  markWorkerStatusWritten();
+                }
+                return result;
+              },
+            },
+          },
+        };
+      },
+      runJob: async () => {
+        markActiveRunStarted();
+        await activeRunGate;
+      },
+    });
+
+    await queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "memory_creation",
+    });
+    await activeRunStarted;
+    const persistPromise = queue.persistIntent({
+      contentPaths: [newPath],
+      memoryId,
+      reason: "flashback_update",
+    });
+    await persistStatusWritten;
+    releaseActiveRun();
+    await workerStatusWritten;
+    releasePersistStatus();
+    await persistPromise;
+    await queue.drain();
+
+    const beforeRestartConnection = initializeDatabase(config);
+    let statusBeforeRestart: string | undefined;
+    try {
+      statusBeforeRestart = (
+        await beforeRestartConnection.repositories.memories.findById(memoryId)
+      )?.backupStatus;
+    } finally {
+      beforeRestartConnection.close();
+    }
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    const retryCount = await restartedQueue.retryEligibleBackups();
+    await restartedQueue.drain();
+
+    expect({
+      processedAfterRestart,
+      retryCount,
+      statusBeforeRestart,
+      statusTransitions,
+    }).toEqual({
+      processedAfterRestart: [expect.objectContaining({
+        contentPaths: expect.arrayContaining([contentPath, newPath]),
+        memoryId,
+      })],
+      retryCount: 1,
+      statusBeforeRestart: "pending",
+      statusTransitions: ["queued", "pending", "pending"],
+    });
+  });
+
+  it("does not discard a concurrent durable intent when another persistence fails", async () => {
+    const root = await makeRoot("trauma-git-backup-persist-failure-isolation-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const retainedPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const failedPath = `memories/${memoryId}/FLASHBACKS.json`;
+    const laterPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath: laterPath });
+    let releaseFailedPersist: () => void = () => {};
+    const failedPersistGate = new Promise<void>((resolve) => {
+      releaseFailedPersist = resolve;
+    });
+    let markFailedPersistStarted: () => void = () => {};
+    const failedPersistStarted = new Promise<void>((resolve) => {
+      markFailedPersistStarted = resolve;
+    });
+    let pendingWrites = 0;
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                if (statusInput.backupStatus === "pending") {
+                  pendingWrites += 1;
+                  if (pendingWrites === 1) {
+                    markFailedPersistStarted();
+                    await failedPersistGate;
+                    throw new Error("persist status failed");
+                  }
+                }
+                return connection.repositories.memories.updateBackupStatus(
+                  statusInput,
+                );
+              },
+            },
+          },
+        };
+      },
+      runJob: async ({ job }) => {
+        processed.push({ ...job, contentPaths: [...job.contentPaths] });
+      },
+    });
+
+    const failedPersist = queue.persistIntent({
+      contentPaths: [failedPath],
+      memoryId,
+      reason: "flashback_update",
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await failedPersistStarted;
+    await queue.persistIntent({
+      contentPaths: [retainedPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    releaseFailedPersist();
+    await expect(failedPersist).resolves.toEqual(expect.objectContaining({
+      message: "persist status failed",
+    }));
+    await queue.enqueue({
+      contentPaths: [laterPath],
+      memoryId,
+      reason: "memory_creation",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [retainedPath, laterPath],
+      memoryId,
+      reason: "memory_creation",
+    }]);
+  });
+
   it("preserves the finalizer error when pending-status recovery fails", async () => {
     const root = await makeRoot("trauma-git-backup-finalizer-recovery-error-");
     const projectPath = join(root, "project");

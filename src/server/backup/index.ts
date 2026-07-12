@@ -137,6 +137,10 @@ export function createGitMemoryBackupQueue(
   const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
   const runningJobsByMemoryId = new Map<string, MemoryBackupJob>();
   const durableIntentJobsByMemoryId = new Map<string, MemoryBackupJob>();
+  const persistIntentTransitionsByMemoryId = new Map<
+    string,
+    Set<MemoryBackupJob>
+  >();
   const enqueueTransitionsByMemoryId = new Map<string, number>();
   let worker: Promise<void> | undefined;
   let schedulingSuspensions = 0;
@@ -179,7 +183,16 @@ export function createGitMemoryBackupQueue(
   async function processJob(job: MemoryBackupJob) {
     try {
       await runJob({ config: input.config, job });
-      if (hasCount(enqueueTransitionsByMemoryId, job.memoryId)) {
+      if (hasPersistIntentTransition(
+        persistIntentTransitionsByMemoryId,
+        job.memoryId,
+      )) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+      } else if (hasCount(enqueueTransitionsByMemoryId, job.memoryId)) {
         await updateBackupStatus({
           memoryId: job.memoryId,
           backupStatus: "queued",
@@ -335,16 +348,29 @@ export function createGitMemoryBackupQueue(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    await updateBackupStatus({
-      memoryId: job.memoryId,
-      backupStatus: "pending",
-      lastBackupError: null,
-    });
-    const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
-    if (retainedJob === undefined) {
-      durableIntentJobsByMemoryId.set(job.memoryId, job);
-    } else {
-      mergeBackupJobs(retainedJob, job);
+    let transitions = persistIntentTransitionsByMemoryId.get(job.memoryId);
+    if (transitions === undefined) {
+      transitions = new Set<MemoryBackupJob>();
+      persistIntentTransitionsByMemoryId.set(job.memoryId, transitions);
+    }
+    transitions.add(job);
+    try {
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "pending",
+        lastBackupError: null,
+      });
+      const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
+      if (retainedJob === undefined) {
+        durableIntentJobsByMemoryId.set(job.memoryId, job);
+      } else {
+        mergeBackupJobs(retainedJob, job);
+      }
+    } finally {
+      transitions.delete(job);
+      if (transitions.size === 0) {
+        persistIntentTransitionsByMemoryId.delete(job.memoryId);
+      }
     }
     return { backupStatus: "pending" };
   }
@@ -619,6 +645,13 @@ function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
   }
   existing.contentPaths = [...contentPaths];
   existing.reason = incoming.reason;
+}
+
+function hasPersistIntentTransition(
+  transitionsByMemoryId: Map<string, Set<MemoryBackupJob>>,
+  memoryId: string,
+) {
+  return (transitionsByMemoryId.get(memoryId)?.size ?? 0) > 0;
 }
 
 function hasCount(counts: Map<string, number>, key: string) {
