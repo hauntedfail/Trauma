@@ -1703,6 +1703,94 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(replay)).not.toContain("What is current?");
   });
 
+  it("rejects an older prompt-policy thread before accepting any turn side effects", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-policy-stale-"));
+    const threadDirectory = join(storePath, "memories", MEMORY_ID, "threads", THREAD_ID);
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest({ policyVersion: "psychiatrist-memory-pairs-old" }),
+    });
+    const threadMarkdownBefore = await readFile(join(threadDirectory, "THREAD.md"), "utf8");
+    const calls: string[] = [];
+    const client = new FakeConversationClient("must not run");
+    const handler = createSendPsychiatristMessageHandler({
+      appendAssistantResponse: async () => {
+        calls.push("append assistant response");
+        return { status: "completed" };
+      },
+      appendStreamEvent: async () => {
+        calls.push("append stream event");
+        return undefined;
+      },
+      backupQueue: {
+        enqueue: async () => {
+          calls.push("enqueue backup");
+          return { backupStatus: "queued" };
+        },
+        persistIntent: async () => {
+          calls.push("persist backup intent");
+          return { backupStatus: "pending" };
+        },
+      },
+      buildContext: async () => {
+        calls.push("build context");
+        return context();
+      },
+      client,
+      config: { storePath },
+      generateId: () => {
+        calls.push("generate id");
+        return PAIR_ID;
+      },
+      resolveActiveContentHash: async () => {
+        calls.push("resolve active content hash");
+        return "sha256:context";
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Use the current policy." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      action: "refresh_thread",
+      code: "thread_stale",
+      message: "Psychiatrist thread is stale. Refresh the thread and retry.",
+      status: "error",
+    });
+    expect(calls).toEqual([]);
+    expect(client.inputs).toEqual([]);
+    expect(activePsychiatristTurns.hasActiveOrReservedThread(THREAD_ID)).toBe(false);
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.manifest).toMatchObject({
+      policyVersion: "psychiatrist-memory-pairs-old",
+      status: "stale",
+    });
+    expect(loaded.pairs).toEqual([]);
+    await expect(readFile(join(threadDirectory, "THREAD.md"), "utf8")).resolves.toBe(
+      threadMarkdownBefore,
+    );
+    await expect(readFile(join(threadDirectory, "PAIRS.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      readFile(join(threadDirectory, "pairs", PAIR_ID, "CONTEXT.json"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(threadDirectory, "turns", `${TURN_ID}.json`), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(threadDirectory, "streams", `${TURN_ID}.jsonl`), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("marks stale threads when the loaded source hash changed", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-context-stale-"));
     await createPsychiatristThread({

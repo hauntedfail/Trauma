@@ -776,7 +776,7 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
-  it("forwards safe Psychiatrist process events while filtering hidden reasoning", async () => {
+  it("forwards only allowlisted structured Psychiatrist process states as fixed text", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-psychiatrist-events-"));
     tempRoots.push(root);
     const socketPath = join(root, "app-server.sock");
@@ -800,26 +800,29 @@ describe("Codex app-server endpoint parsing", () => {
       });
 
       expect(events).toContainEqual({ type: "delta", text: "visible delta" });
-      expect(events).toContainEqual({
-        message: "Reading the active memory context.",
-        type: "process",
-      });
+      expect(events.filter((event) => event.type === "process")).toEqual([
+        {
+          message: "Reading the active memory context.",
+          type: "process",
+        },
+        {
+          message: "Searching approved web sources.",
+          type: "process",
+        },
+        {
+          message: "Preparing the response.",
+          type: "process",
+        },
+      ]);
+      expect(JSON.stringify(events)).not.toContain("raw article source");
+      expect(JSON.stringify(events)).not.toContain("backend payload");
+      expect(JSON.stringify(events)).not.toContain("benign arbitrary process text");
       expect(JSON.stringify(events)).not.toContain("hidden chain of thought");
       expect(JSON.stringify(events)).not.toContain("/private/store/path");
       expect(JSON.stringify(events)).not.toContain("/home/runner/work");
       expect(JSON.stringify(events)).not.toContain("C:\\Users");
       expect(JSON.stringify(events)).not.toContain("\\\\server\\share");
       expect(JSON.stringify(events)).not.toContain("sk-live");
-      const longProcessEvent = events
-        .filter((event): event is Extract<CodexAppServerEvent, { type: "process" }> =>
-          event.type === "process"
-        )
-        .find((event) => event.message.startsWith("Reading context"));
-      expect(longProcessEvent).toEqual({
-        message: expect.stringMatching(/\.\.\.$/),
-        type: "process",
-      });
-      expect(longProcessEvent?.message.length).toBeLessThanOrEqual(240);
     } finally {
       await server.close();
     }
@@ -857,7 +860,7 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContainEqual({ type: "delta", text: "翻訳" });
       expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
       expect(events).not.toContainEqual({
-        message: "Reading stale context.",
+        message: "Reading the active memory context.",
         type: "process",
       });
     } finally {
@@ -900,7 +903,7 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContainEqual({ type: "delta", text: "翻訳" });
       expect(events).not.toContainEqual({ type: "delta", text: "stale delta" });
       expect(events).not.toContainEqual({
-        message: "Reading stale context.",
+        message: "Reading the active memory context.",
         type: "process",
       });
     } finally {
@@ -1592,7 +1595,8 @@ function handleClientMessage(
         sendJson(socket, {
           method: "item/process",
           params: {
-            message: "Reading stale context.",
+            kind: "memory_context",
+            status: "started",
             threadId: activeThreadId,
             turnId: "old-turn",
           },
@@ -1620,7 +1624,8 @@ function handleClientMessage(
         sendJson(socket, {
           method: "item/process",
           params: {
-            message: "Reading stale context.",
+            kind: "memory_context",
+            status: "started",
             threadId: activeThreadId,
             turnId: "old-turn",
           },
@@ -1656,7 +1661,96 @@ function handleClientMessage(
         sendJson(socket, {
           method: "item/process",
           params: {
-            message: "Reading the active memory context.",
+            kind: "memory_context",
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "web_search",
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "response",
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "memory_context",
+            message: "raw article source",
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "response",
+            payload: { source: "raw article source" },
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "unknown_process",
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "response",
+            status: "backend payload",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            message: "benign arbitrary process text",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            summary: '{"result":"backend payload"}',
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            status: "started",
+            threadId: activeThreadId,
+            turnId: "turn-1",
+          },
+        });
+        sendJson(socket, {
+          method: "item/process",
+          params: {
+            kind: "response",
             threadId: activeThreadId,
             turnId: "turn-1",
           },

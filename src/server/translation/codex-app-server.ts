@@ -136,7 +136,13 @@ interface PendingRequest {
 }
 
 const DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 120_000;
-const MAX_SAFE_PROCESS_MESSAGE_LENGTH = 240;
+const SAFE_PROCESS_PARAM_FIELDS = new Set([
+  "kind",
+  "status",
+  "threadId",
+  "turn",
+  "turnId",
+]);
 
 export function parseCodexAppServerEndpoint(
   raw = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT ?? "unix://",
@@ -1827,54 +1833,39 @@ function readBooleanField(value: unknown, key: string): boolean | undefined {
 }
 
 function readSafeProcessMessage(params: unknown): string | undefined {
-  const rawMessage = readStringField(params, "message") ??
-    readStringField(params, "summary") ??
-    readStringField(params, "status");
-  if (rawMessage === undefined) {
+  if (!isExactProcessParams(params)) {
     return undefined;
   }
-  const message = rawMessage.trim().replace(/\s+/g, " ");
-  if (message === "") {
+  const kind = readStringField(params, "kind");
+  const status = readStringField(params, "status");
+  if (status !== "started") {
     return undefined;
   }
-  const normalized = message.toLowerCase();
+  switch (kind) {
+    case "memory_context":
+      return "Reading the active memory context.";
+    case "web_search":
+      return "Searching approved web sources.";
+    case "response":
+      return "Preparing the response.";
+    default:
+      return undefined;
+  }
+}
+
+function isExactProcessParams(value: unknown): value is Record<string, unknown> {
   if (
-    normalized.includes("chain of thought") ||
-    normalized.includes("chain-of-thought") ||
-    normalized.includes("hidden reasoning") ||
-    containsAbsolutePath(message) ||
-    containsSensitiveProcessText(message) ||
-    normalized.includes("credential") ||
-    normalized.includes("token")
+    !isRecord(value) ||
+    Object.keys(value).some((field) => !SAFE_PROCESS_PARAM_FIELDS.has(field))
   ) {
-    return undefined;
+    return false;
   }
-  return message.length > MAX_SAFE_PROCESS_MESSAGE_LENGTH
-    ? `${message.slice(0, MAX_SAFE_PROCESS_MESSAGE_LENGTH - 3)}...`
-    : message;
-}
-
-function containsSensitiveProcessText(value: string): boolean {
-  const normalized = value.toLowerCase();
-  return normalized.includes("secret") ||
-    normalized.includes("password") ||
-    normalized.includes("passphrase") ||
-    normalized.includes("private key") ||
-    normalized.includes("api key") ||
-    normalized.includes("apikey") ||
-    normalized.includes("access key") ||
-    normalized.includes("authorization") ||
-    /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/i.test(value) ||
-    /\b(?:sk|pk|rk|sess)-[A-Za-z0-9_-]{8,}\b/i.test(value) ||
-    /\b(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{12,}\b/i.test(value) ||
-    /\b(?:secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|bearer)\b\s*[:=]\s*\S+/i
-      .test(value);
-}
-
-function containsAbsolutePath(value: string): boolean {
-  return /(^|[\s("'`])\/(?:[A-Za-z0-9._-]+\/)+[^\s)"'`]*/.test(value) ||
-    /(^|[\s("'`])[A-Za-z]:[\\/](?:[^\s)"'`]+[\\/]?)+/.test(value) ||
-    /(^|[\s("'`])\\\\[^\\/\s)"'`]+[\\/][^\s)"'`]+/.test(value);
+  if (!("turn" in value)) {
+    return true;
+  }
+  return isRecord(value.turn) &&
+    Object.keys(value.turn).every((field) => field === "id") &&
+    typeof value.turn.id === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

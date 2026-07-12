@@ -21,7 +21,11 @@ import {
 } from "../translation/codex-app-server";
 import { createSha256ContentHash } from "../translation/hash";
 import { buildPsychiatristMemoryContext, PsychiatristContextError } from "./context";
-import { buildPsychiatristPrompt, selectPsychiatristPromptContext } from "./prompt";
+import {
+  buildPsychiatristPrompt,
+  PSYCHIATRIST_PROMPT_POLICY_VERSION,
+  selectPsychiatristPromptContext,
+} from "./prompt";
 import {
   isRecord,
   matchesPsychiatristVariantScope,
@@ -148,6 +152,14 @@ export async function handleSendPsychiatristMessageRequest(
     );
   }
   if (thread.manifest.status === "stale") {
+    return safeErrorResponse(
+      "thread_stale",
+      "Psychiatrist thread is stale. Refresh the thread and retry.",
+      409,
+    );
+  }
+  if (thread.manifest.policyVersion !== PSYCHIATRIST_PROMPT_POLICY_VERSION) {
+    await markPsychiatristThreadStale({ config, memoryId, threadId });
     return safeErrorResponse(
       "thread_stale",
       "Psychiatrist thread is stale. Refresh the thread and retry.",
