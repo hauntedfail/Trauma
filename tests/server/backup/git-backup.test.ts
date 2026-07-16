@@ -2453,6 +2453,12 @@ function createJob(input: {
 
 function initializeGitRepository(projectPath: string) {
   git(projectPath, ["init", "--initial-branch=main"]);
+  git(projectPath, ["config", "commit.gpgSign", "false"]);
+  git(projectPath, [
+    "config",
+    "core.hooksPath",
+    join(projectPath, ".git", "trauma-test-hooks"),
+  ]);
   git(projectPath, ["config", "user.name", "Trauma Tests"]);
   git(projectPath, ["config", "user.email", "trauma@example.invalid"]);
 }
