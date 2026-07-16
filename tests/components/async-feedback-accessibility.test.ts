@@ -34,4 +34,40 @@ describe("async action feedback accessibility", () => {
     expect(successMessageStart).toBeGreaterThan(-1);
     expect(successMessageSource).toContain('role="status"');
   });
+
+  it("announces terminal reader and Psychiatrist failures assertively", () => {
+    const readerSource = readSource("src/components/reader/MemoryReader.tsx");
+    const psychiatristSource = readSource(
+      "src/components/reader/PsychiatristDock.tsx",
+    );
+
+    expect(readerSource).toContain(
+      'role={progress().status === "failed" ? "alert" : "status"}',
+    );
+    expect(readerSource).toContain(
+      'aria-live={progress().status === "failed" ? "assertive" : "polite"}',
+    );
+    expect(readerSource).toContain(
+      '<Show when={errorMessage()}>',
+    );
+    expect(readerSource).toContain('role="alert"');
+    expect(psychiatristSource).toContain(
+      '<Show when={errorMessage() === ""}>',
+    );
+    expect(psychiatristSource).toContain('role="alert"');
+  });
+
+  it("announces Codex catalog failures assertively", () => {
+    const source = readSource("src/components/settings/SettingsPage.tsx");
+    const catalogErrorStart = source.indexOf(
+      "<Show when={codexCatalogError()}>",
+    );
+    const catalogErrorSource = source.slice(
+      catalogErrorStart,
+      source.indexOf("</Show>", catalogErrorStart) + "</Show>".length,
+    );
+
+    expect(catalogErrorStart).toBeGreaterThan(-1);
+    expect(catalogErrorSource).toContain('role="alert"');
+  });
 });

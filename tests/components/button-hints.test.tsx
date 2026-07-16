@@ -105,7 +105,7 @@ describe("button hover hints", () => {
     expect(memoryBrowseSource).toContain("TaxonomyAddControl");
     expect(taxonomyAddControlSource).toContain("title={label()}");
     expect(addMemoryFormSource).toContain(
-      'hint={isSubmitting() ? "Saving..." : props.submitLabel}',
+      'hint={props.submission.isSubmitting() ? "Saving..." : props.submitLabel}',
     );
     expect(readerSource).toContain('title="Flashback selection"');
     expect(readerSource).toContain('title="Moment section"');

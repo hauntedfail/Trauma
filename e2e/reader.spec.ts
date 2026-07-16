@@ -54,6 +54,11 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     reasoningEffort: "high",
   });
   let translationStartCount = 0;
+  let translationDefaultsRequestCount = 0;
+  let releaseTranslationDefaults: () => void = () => undefined;
+  const translationDefaultsGate = new Promise<void>((resolve) => {
+    releaseTranslationDefaults = resolve;
+  });
   await page.route("**/api/settings/codex-models", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -101,10 +106,12 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     },
   );
   await page.route("**/api/settings/translation-codex-defaults", async (route) => {
+    translationDefaultsRequestCount += 1;
     const body = route.request().postDataJSON() as {
       model: string | null;
       reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
     };
+    await translationDefaultsGate;
     await route.fulfill({
       contentType: "application/json",
       status: 200,
@@ -161,7 +168,19 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       request.url().endsWith(`/api/memories/${READER_MEMORY_ID}/translations`) &&
       request.method() === "POST",
   );
-  await dialog.getByRole("button", { name: "Translate" }).click();
+  const translateButton = dialog.getByRole("button", { name: "Translate" });
+  await translateButton.click();
+  await expect.poll(() => translationDefaultsRequestCount).toBe(1);
+  await expect(translateButton).toBeDisabled();
+  await dialog.locator("form").evaluate((form) => {
+    form.dispatchEvent(new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await page.waitForTimeout(50);
+  expect(translationDefaultsRequestCount).toBe(1);
+  releaseTranslationDefaults();
   const [settingsRequest, request] = await Promise.all([
     defaultsRequest,
     translationRequest,
@@ -176,6 +195,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     model: "gpt-5.3",
     reasoning_effort: "medium",
   });
+  expect(translationStartCount).toBe(1);
 });
 
 test("deletes a memory from reader actions and returns to browse", async ({
@@ -556,7 +576,7 @@ test("restores the exact old active turn after an ambiguous cancel failure", asy
 
   await expect.poll(() => mock.threadRequests).toBeGreaterThan(1);
   await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Psychiatrist could not finish. Retry when ready.",
   })).toBeVisible();
 });
@@ -703,7 +723,7 @@ test("does not carry a historical web-source retry into a successor active turn"
   await expect(page.getByRole("button", {
     name: "Allow web sources for this turn",
   })).toHaveCount(0);
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Allow web search/source lookup for this answer to continue.",
   })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
@@ -743,7 +763,7 @@ test("keeps psychiatrist actions disabled until thread loading succeeds and can 
     .toBeDisabled();
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Retry thread load" })).toBeVisible();
-  await expect(page.getByRole("status"))
+  await expect(page.getByRole("alert"))
     .toContainText("Start the Codex app-server, then retry Psychiatrist.");
 
   await page.getByRole("button", { name: "Retry thread load" }).click();
@@ -929,7 +949,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   mock.failNextRegenerate = true;
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible();
   await page.getByRole("button", { name: "Regenerate" }).click();
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Psychiatrist could not finish. Retry when ready.",
   }))
     .toBeVisible();
@@ -969,7 +989,7 @@ test("requires per-turn psychiatrist web-source approval before recording source
   await page.locator("textarea").fill("Use current web sources for this memory.");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Allow web search/source lookup for this answer to continue.",
   }))
     .toBeVisible();

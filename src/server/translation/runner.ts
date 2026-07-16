@@ -13,6 +13,10 @@ import {
   type TraumaDatabaseConnection,
   type TraumaRepositories,
 } from "../db";
+import type {
+  TranslationChunkRecord,
+  TranslationJobRecord,
+} from "../db/repositories";
 import { generateMemoryId } from "../memories/id";
 import { createTranslationChunks } from "./chunker";
 import {
@@ -485,9 +489,15 @@ export async function runTranslationJob(
       memoryId: job.memoryId,
       source,
     });
+    const persistedChunks = await connection.repositories.translations
+      .getTranslationChunks(jobId);
+    assertTranslationResumeCompatible({
+      job,
+      persistedChunks,
+      runtimeChunks,
+    });
     const persistedChunksByIndex = new Map(
-      (await connection.repositories.translations.getTranslationChunks(jobId))
-        .map((chunk) => [chunk.chunkIndex, chunk] as const),
+      persistedChunks.map((chunk) => [chunk.chunkIndex, chunk] as const),
     );
     for (const chunk of runtimeChunks) {
       if (await isCancellationRequested(connection.repositories, jobId)) {
@@ -605,6 +615,49 @@ export async function runTranslationJob(
       await closeTranslationClient(client);
     }
   }
+}
+
+function assertTranslationResumeCompatible(input: {
+  job: TranslationJobRecord;
+  persistedChunks: TranslationChunkRecord[];
+  runtimeChunks: ReturnType<typeof createTranslationChunks>;
+}): void {
+  if (
+    input.job.promptPolicyVersion !== BRILLIANT_PROMPT_POLICY_VERSION ||
+    input.job.chunkerVersion !== BRILLIANT_CHUNKER_VERSION ||
+    input.job.chunkCount !== input.runtimeChunks.length ||
+    input.persistedChunks.length !== input.runtimeChunks.length
+  ) {
+    throw incompatibleTranslationResumeError();
+  }
+
+  const persistedByIndex = new Map(
+    input.persistedChunks.map((chunk) => [chunk.chunkIndex, chunk] as const),
+  );
+  for (const runtimeChunk of input.runtimeChunks) {
+    const persistedChunk = persistedByIndex.get(runtimeChunk.chunkIndex);
+    if (
+      persistedChunk === undefined ||
+      persistedChunk.status === "purged" ||
+      persistedChunk.sourceChunkHash !== runtimeChunk.sourceChunkHash ||
+      !sameStrings(persistedChunk.blockIds, runtimeChunk.blockIds)
+    ) {
+      throw incompatibleTranslationResumeError();
+    }
+  }
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length &&
+    left.every((value, index) => value === right[index]);
+}
+
+function incompatibleTranslationResumeError(): TranslationApiError {
+  return new TranslationApiError(
+    "translation_unavailable",
+    "Translation job is incompatible with the current translation runtime.",
+    "start_fresh_translation",
+  );
 }
 
 function scheduleRecoverableActiveJob(

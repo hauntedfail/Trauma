@@ -11,6 +11,7 @@ import {
   submitCodexTranslationDefaults,
   submitReadCodexModels,
   pollCodexAuthSetup,
+  submitCancelCodexAuthSetup,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
   submitReadCodexAuth,
@@ -53,6 +54,8 @@ describe("settings page", () => {
       }),
     );
     expect(html).toContain("SAFE-CODE");
+    expect(html).toContain("Check status");
+    expect(html).toContain("Cancel setup");
     expect(html).not.toContain("javascript:");
   });
 
@@ -323,9 +326,56 @@ describe("settings page", () => {
     ]);
   });
 
+  it("returns the last canonical auth state when polling is exhausted", async () => {
+    let reads = 0;
+    const pending = {
+      status: "login_started" as const,
+      provider: "codex" as const,
+      loginId: "login-timeout",
+      verificationUrl: "https://example.com/device",
+      userCode: "TIME-OUT",
+    };
+
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async () => {
+          reads += 1;
+          return jsonResponse(pending);
+        },
+        intervalMs: 0,
+        maxAttempts: 2,
+      }),
+    ).resolves.toEqual(pending);
+    expect(reads).toBe(2);
+  });
+
+  it("cancels pending Codex device setup through its mutation route", async () => {
+    const requests: Request[] = [];
+    await expect(
+      submitCancelCodexAuthSetup({
+        fetch: async (input, init) => {
+          requests.push(new Request(new URL(String(input), "http://localhost"), init));
+          return jsonResponse({
+            status: "canceled",
+            provider: "codex",
+            loginId: "login-1",
+          });
+        },
+      }),
+    ).resolves.toMatchObject({ status: "canceled", loginId: "login-1" });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/settings/codex-auth/device-code/cancel", "POST"],
+    ]);
+  });
+
   it("wires pending Codex auth setup to the polling helper", () => {
     expect(settingsPageSource).toContain("pollCodexAuthSetup");
     expect(settingsPageSource).toContain("refreshCodexAuthAfterLogin");
+    expect(settingsPageSource).toContain(
+      'props.initialSettings.openaiAuth.status === "login_started"',
+    );
+    expect(settingsPageSource).toContain("cancelOpenAiAuthSetup");
+    expect(settingsPageSource).toContain("refreshCodexAuthStatus");
   });
 
   it("tracks concurrent settings actions without a shared pending slot", () => {

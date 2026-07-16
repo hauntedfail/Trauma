@@ -10,7 +10,12 @@ import {
 } from "solid-js";
 
 import { AddMemoryForm } from "../memories/AddMemoryForm";
+import {
+  createAddMemorySubmissionController,
+  type AddMemorySubmissionController,
+} from "../memories/add-memory-controller";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
+import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { TraumaMark } from "../brand/TraumaMark";
 import { TaxonomyInlineCreateControl } from "../memories/TaxonomyInlineCreateControl";
 import {
@@ -30,6 +35,7 @@ import {
 import { getBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import {
   getBrowseTaxonomy,
+  revalidateBrowseMemoryWorkspace,
   revalidateBrowseTaxonomy,
 } from "../memories/browse-loader";
 import {
@@ -156,6 +162,10 @@ const phoneTabItems = [
 export function AppShell(props: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const addMemorySubmission = createAddMemorySubmissionController({
+    onBackupFailsafe: revalidateBackupFailsafeAlert,
+    onCreationSettled: () => revalidateBrowseMemoryWorkspace(),
+  });
   const [isHydrated, setIsHydrated] = createSignal(false);
   const [rightRailContent, setRightRailContent] = createSignal<
     JSX.Element | undefined
@@ -248,6 +258,7 @@ export function AppShell(props: AppShellProps) {
       <aside class={`${sideSurface} border-r border-trauma-border px-2 py-1 pb-3 max-[1040px]:row-span-2 max-[1040px]:px-2.5 max-[1040px]:py-4`} aria-label="Primary navigation">
         <NavigationContent
           activePath={activePath()}
+          addMemorySubmission={addMemorySubmission}
           brightness={brightness()}
           onSetBrightness={setBrightness}
           onSetSurface={setSurface}
@@ -298,6 +309,7 @@ export function AppShell(props: AppShellProps) {
       </aside>
       <PhoneTabBar
         activePath={activePath()}
+        addMemorySubmission={addMemorySubmission}
         brightness={brightness()}
         onSetBrightness={setBrightness}
         onSetSurface={setSurface}
@@ -383,6 +395,7 @@ function BrandHomeLink(props: {
 
 function PhoneTabBar(props: {
   activePath: string;
+  addMemorySubmission: AddMemorySubmissionController;
   brightness: BrightnessMode;
   onCreated?: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
@@ -410,6 +423,7 @@ function renderPhoneTabItem(
   item: (typeof phoneTabItems)[number],
   props: {
     activePath: string;
+    addMemorySubmission: AddMemorySubmissionController;
     brightness: BrightnessMode;
     onCreated?: () => void;
     onSetBrightness: (mode: BrightnessMode) => void;
@@ -425,6 +439,7 @@ function renderPhoneTabItem(
     case "composer":
       return (
         <AddMemoryComposerButton
+          submission={props.addMemorySubmission}
           mode="phone"
           onCreated={props.onCreated}
           popoverId="phone-add-memory-composer"
@@ -495,6 +510,7 @@ function PhoneDisabledTab(props: {
 
 function NavigationContent(props: {
   activePath: string;
+  addMemorySubmission: AddMemorySubmissionController;
   brightness: BrightnessMode;
   onNavigate?: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
@@ -538,6 +554,7 @@ function NavigationContent(props: {
         />
       </nav>
       <AddMemoryComposerButton
+        submission={props.addMemorySubmission}
         mode="rail"
         onCreated={props.onNavigate}
         popoverId="rail-add-memory-composer"
@@ -558,7 +575,7 @@ function LocalArchiveStatus() {
           Local archive <LockIcon />
         </strong>
         <small class="block truncate text-xs text-trauma-text-muted">
-          ./data/storage
+          Configured on device
         </small>
       </span>
     </div>
@@ -569,6 +586,7 @@ function AddMemoryComposerButton(props: {
   mode: "phone" | "rail";
   onCreated?: () => void;
   popoverId: string;
+  submission: AddMemorySubmissionController;
 }) {
   const isPhone = () => props.mode === "phone";
 
@@ -639,6 +657,7 @@ function AddMemoryComposerButton(props: {
           inputClass={surfaceInput}
           buttonClass={`${composerSubmitButton} w-full bg-trauma-accent text-trauma-accent-ink hover:bg-trauma-accent-hover`}
           submitLabel="Save memory"
+          submission={props.submission}
           title="Add memory"
           onCreated={() => {
             close();

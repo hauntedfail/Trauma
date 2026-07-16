@@ -180,6 +180,14 @@ export interface MomentBrowseRow {
 
 export interface MemoryRepository {
   findById: (id: string) => Promise<Memory | undefined>;
+  reserveCreationIdempotency: (input: {
+    idempotencyKey: string;
+    requestUrl: string;
+    createdAt: Date;
+  }) => Promise<
+    | { status: "reserved"; requestUrl: string }
+    | { status: "memory_id_exists" }
+  >;
   findReaderAggregateById: (
     id: string,
   ) => Promise<ReaderMemoryAggregateRow | undefined>;
@@ -755,6 +763,38 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         db.query.memories.findFirst({
           where: eq(schema.memories.id, id),
         }),
+      reserveCreationIdempotency: async (input) => {
+        return db.transaction((tx) => {
+          const reservation = tx
+            .select({ requestUrl: schema.memoryCreationIdempotency.requestUrl })
+            .from(schema.memoryCreationIdempotency)
+            .where(
+              eq(
+                schema.memoryCreationIdempotency.idempotencyKey,
+                input.idempotencyKey,
+              ),
+            )
+            .get();
+          if (reservation !== undefined) {
+            return { status: "reserved" as const, ...reservation };
+          }
+
+          const existingMemory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.idempotencyKey))
+            .get();
+          if (existingMemory !== undefined) {
+            return { status: "memory_id_exists" as const };
+          }
+
+          tx.insert(schema.memoryCreationIdempotency).values(input).run();
+          return {
+            status: "reserved" as const,
+            requestUrl: input.requestUrl,
+          };
+        });
+      },
       findReaderAggregateById: async (id) =>
         db.query.memories.findFirst({
           columns: {

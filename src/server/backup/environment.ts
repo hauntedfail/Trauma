@@ -67,7 +67,6 @@ export interface EnsureBackupEnvironmentInput {
 const execFileAsync = promisify(execFile);
 const STAMP_ID = "default";
 const ALERT_ID = "active";
-const LEGACY_REDACTED_REMOTE_IDENTITY = "redacted:migration-0016";
 
 export async function ensureBackupEnvironment(
   input: EnsureBackupEnvironmentInput,
@@ -92,8 +91,7 @@ export async function ensureBackupEnvironment(
   const gitIdentityMatches =
     stamp !== undefined &&
     stamp.gitRemote === input.config.backup.git.remote &&
-    (stamp.gitRemoteUrl === currentGitRemoteUrl ||
-      stamp.gitRemoteUrl === LEGACY_REDACTED_REMOTE_IDENTITY) &&
+    stamp.gitRemoteUrl === currentGitRemoteUrl &&
     stamp.gitBranch === input.config.backup.git.branch &&
     currentGitBranch === input.config.backup.git.branch;
 

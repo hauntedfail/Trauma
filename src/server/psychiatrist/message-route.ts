@@ -42,6 +42,7 @@ import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
 import { runDetachedPsychiatristTask } from "./detached-task";
+import { createPsychiatristEventPersistenceQueue } from "./event-persistence";
 import {
   appendAssistantResponse as appendAssistantResponseToStore,
   appendPendingPair,
@@ -277,6 +278,7 @@ export async function handleSendPsychiatristMessageRequest(
     });
     runDetachedPsychiatristTask(() => runPsychiatristTurn({
       appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
+      appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
       config,
@@ -332,6 +334,7 @@ export async function handleSendPsychiatristMessageRequest(
 
 async function runPsychiatristTurn(input: {
   appendAssistantResponse: AppendAssistantResponse;
+  appendStreamEvent: typeof appendPsychiatristStreamEvent;
   backupQueue: DurableMemoryBackupQueue;
   client: CodexConversationClient;
   config: Pick<ResolvedTraumaConfig, "storePath">;
@@ -346,6 +349,7 @@ async function runPsychiatristTurn(input: {
 }): Promise<void> {
   let assistantResponsePersisted = false;
   let completedAnswerText: string | undefined;
+  const eventWrites = createPsychiatristEventPersistenceQueue();
   try {
     const prompt = buildPsychiatristPrompt({
       context: input.context,
@@ -355,14 +359,25 @@ async function runPsychiatristTurn(input: {
       userMessage: input.payload.message,
       webSourcePolicy: input.webSourcePolicy,
     });
-    let eventWriteChain = Promise.resolve();
-    const result = await input.client.runConversationTurn({
+    const runOutcome = await Promise.resolve().then(() => input.client.runConversationTurn({
       cwdPurpose: "psychiatrist",
       input: prompt,
       networkAccess: input.webSourcePolicy.allowed
         ? "user_approved_web_sources"
         : "disabled",
       onEvent: (codexEvent) => {
+        if (!eventWrites.enqueue(() =>
+          persistCodexEvent({
+            appendStreamEvent: input.appendStreamEvent,
+            config: input.config,
+            event: codexEvent,
+            memoryId: input.thread.manifest.memoryId,
+            threadId: input.threadId,
+            turnId: input.turnId,
+          })
+        )) {
+          return;
+        }
         if (codexEvent.type === "thread.started") {
           activePsychiatristTurns.updateCodexIds({
             codexThreadId: codexEvent.threadId,
@@ -375,18 +390,22 @@ async function runPsychiatristTurn(input: {
             turnId: input.turnId,
           });
         }
-        eventWriteChain = eventWriteChain.then(() =>
-          persistCodexEvent({
-            config: input.config,
-            event: codexEvent,
-            memoryId: input.thread.manifest.memoryId,
-            threadId: input.threadId,
-            turnId: input.turnId,
-          }),
-        );
       },
-    });
-    await eventWriteChain;
+    })).then(
+      (result) => ({ result, status: "completed" as const }),
+      (error: unknown) => ({ error, status: "failed" as const }),
+    );
+    const persistenceOutcome = await eventWrites.drain().then(
+      () => ({ status: "completed" as const }),
+      (error: unknown) => ({ error, status: "failed" as const }),
+    );
+    if (runOutcome.status === "failed") {
+      throw runOutcome.error;
+    }
+    if (persistenceOutcome.status === "failed") {
+      throw persistenceOutcome.error;
+    }
+    const result = runOutcome.result;
     if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {
       const safeError = {
         action: "retry" as const,
@@ -405,7 +424,7 @@ async function runPsychiatristTurn(input: {
       if (terminalStatus !== "failed") {
         return;
       }
-      await appendPsychiatristStreamEvent({
+      await input.appendStreamEvent({
         config: input.config,
         event: {
           data: {
@@ -471,7 +490,7 @@ async function runPsychiatristTurn(input: {
     let terminalFinalizerFailed = false;
     const backupWarning = await input.backupQueue.enqueue(backupJob, async () => {
       try {
-        await appendPsychiatristStreamEvent({
+        await input.appendStreamEvent({
           config: input.config,
           event: completedEventInput,
         });
@@ -489,7 +508,7 @@ async function runPsychiatristTurn(input: {
       } as const;
     });
     if (backupWarning !== undefined) {
-      await appendPsychiatristStreamEvent({
+      await input.appendStreamEvent({
         config: input.config,
         event: {
           ...completedEventInput,
@@ -503,7 +522,7 @@ async function runPsychiatristTurn(input: {
   } catch (error) {
     const active = activePsychiatristTurns.getByTurnId(input.turnId);
     if (assistantResponsePersisted) {
-      await appendPsychiatristStreamEvent({
+      await input.appendStreamEvent({
         config: input.config,
         event: {
           data: {
@@ -541,7 +560,7 @@ async function runPsychiatristTurn(input: {
     if (terminalStatus !== "failed") {
       return;
     }
-    await appendPsychiatristStreamEvent({
+    await input.appendStreamEvent({
       config: input.config,
       event: {
         data: { code: safeError.code, message: safeError.message },
@@ -552,6 +571,7 @@ async function runPsychiatristTurn(input: {
       },
     }).catch(() => undefined);
   } finally {
+    await eventWrites.drain().catch(() => undefined);
     activePsychiatristTurns.unregister(input.turnId);
     if (input.ownsClient) {
       await closeOwnedClient(input.client);
@@ -743,6 +763,7 @@ function fallbackManifestContext(
 }
 
 async function persistCodexEvent(input: {
+  appendStreamEvent: typeof appendPsychiatristStreamEvent;
   config: Pick<ResolvedTraumaConfig, "storePath">;
   event: CodexAppServerEvent;
   memoryId: string;
@@ -750,7 +771,7 @@ async function persistCodexEvent(input: {
   turnId: string;
 }): Promise<void> {
   if (input.event.type === "process") {
-    await appendPsychiatristStreamEvent({
+    await input.appendStreamEvent({
       config: input.config,
       event: {
         data: { text: input.event.message },
@@ -762,7 +783,7 @@ async function persistCodexEvent(input: {
     });
   }
   if (input.event.type === "delta") {
-    await appendPsychiatristStreamEvent({
+    await input.appendStreamEvent({
       config: input.config,
       event: {
         data: { text: input.event.text },

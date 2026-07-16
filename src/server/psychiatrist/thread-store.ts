@@ -15,6 +15,7 @@ import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
 } from "./stream-store";
+import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -71,13 +72,27 @@ export async function createPsychiatristThread(input: {
 }): Promise<void> {
   validateSafeId(input.manifest.memoryId);
   validateSafeId(input.manifest.threadId);
-  const directory = threadDirectory(input.config, input.manifest);
-  await mkdir(directory, { recursive: true });
-  await writeJsonAtomic(
-    join(directory, "THREAD.json"),
-    serializeThreadManifest(input.manifest),
+  await withMemoryArtifactMutation(
+    {
+      memoryId: input.manifest.memoryId,
+      storePath: input.config.storePath,
+    },
+    async (reservation) => {
+      const directory = threadDirectory(input.config, input.manifest);
+      reservation.assertWritable();
+      await mkdir(directory, { recursive: true });
+      reservation.assertWritable();
+      await writeJsonAtomic(
+        join(directory, "THREAD.json"),
+        serializeThreadManifest(input.manifest),
+      );
+      reservation.assertWritable();
+      await writeFileAtomic(
+        join(directory, "THREAD.md"),
+        renderThreadMarkdown([]),
+      );
+    },
   );
-  await writeFileAtomic(join(directory, "THREAD.md"), renderThreadMarkdown([]));
 }
 
 export async function appendPendingPair(input: {
@@ -90,71 +105,77 @@ export async function appendPendingPair(input: {
 }): Promise<void> {
   validateSafeId(input.pairId);
   validateSafeId(input.turnId);
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const pairDirectoryPath = pairDirectory(
+      input.config,
+      loaded.manifest,
+      input.pairId,
+    );
+    await mkdir(pairDirectoryPath, { recursive: true });
+    const promptPath = posix.join(
+      "memories",
+      loaded.manifest.memoryId,
+      "threads",
+      input.threadId,
+      "pairs",
+      input.pairId,
+      "PROMPT.md",
+    );
+    const contextPath = posix.join(
+      "memories",
+      loaded.manifest.memoryId,
+      "threads",
+      input.threadId,
+      "pairs",
+      input.pairId,
+      "CONTEXT.json",
+    );
+    await writeFileAtomic(join(pairDirectoryPath, "PROMPT.md"), input.prompt);
+    await writeJsonAtomic(join(pairDirectoryPath, "CONTEXT.json"), {
+      categories: input.contextSnapshot.categories ?? [],
+      content_hash: input.contextSnapshot.contentHash,
+      context_snapshot_id: input.contextSnapshot.contextSnapshotId,
+      lang_code: input.contextSnapshot.langCode,
+      memory_id: input.contextSnapshot.memoryId,
+      policy_version: input.contextSnapshot.policyVersion,
+      relative_path: input.contextSnapshot.relativePath ?? "",
+      selected_section_anchors: input.contextSnapshot.selectedSectionAnchors,
+      selected_section_hashes: input.contextSnapshot.selectedSectionHashes,
+      sections: (input.contextSnapshot.sections ?? []).map((section) => ({
+        anchor: section.anchor,
+        end_offset: section.endOffset,
+        level: section.level,
+        markdown: section.markdown,
+        path: section.path,
+        start_offset: section.startOffset,
+        title: section.title,
+      })),
+      source_url: input.contextSnapshot.sourceUrl ?? "",
+      tags: input.contextSnapshot.tags ?? [],
+      title: input.contextSnapshot.title ?? "",
+      translation_output_hash: input.contextSnapshot.translationOutputHash,
+      user_prompt: input.contextSnapshot.userPrompt,
+      variant_kind: input.contextSnapshot.variantKind,
+    });
+    await appendPairRevision(input.config, loaded.manifest, {
+      context_snapshot_path: contextPath,
+      created_at: new Date().toISOString(),
+      pair_id: input.pairId,
+      revision_kind: "pending",
+      status: "pending",
+      stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: new Date().toISOString(),
+      user_prompt: input.prompt,
+    });
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
+    void promptPath;
   });
-  const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
-  await mkdir(pairDirectoryPath, { recursive: true });
-  const promptPath = posix.join(
-    "memories",
-    loaded.manifest.memoryId,
-    "threads",
-    input.threadId,
-    "pairs",
-    input.pairId,
-    "PROMPT.md",
-  );
-  const contextPath = posix.join(
-    "memories",
-    loaded.manifest.memoryId,
-    "threads",
-    input.threadId,
-    "pairs",
-    input.pairId,
-    "CONTEXT.json",
-  );
-  await writeFileAtomic(join(pairDirectoryPath, "PROMPT.md"), input.prompt);
-  await writeJsonAtomic(join(pairDirectoryPath, "CONTEXT.json"), {
-    categories: input.contextSnapshot.categories ?? [],
-    content_hash: input.contextSnapshot.contentHash,
-    context_snapshot_id: input.contextSnapshot.contextSnapshotId,
-    lang_code: input.contextSnapshot.langCode,
-    memory_id: input.contextSnapshot.memoryId,
-    policy_version: input.contextSnapshot.policyVersion,
-    relative_path: input.contextSnapshot.relativePath ?? "",
-    selected_section_anchors: input.contextSnapshot.selectedSectionAnchors,
-    selected_section_hashes: input.contextSnapshot.selectedSectionHashes,
-    sections: (input.contextSnapshot.sections ?? []).map((section) => ({
-      anchor: section.anchor,
-      end_offset: section.endOffset,
-      level: section.level,
-      markdown: section.markdown,
-      path: section.path,
-      start_offset: section.startOffset,
-      title: section.title,
-    })),
-    source_url: input.contextSnapshot.sourceUrl ?? "",
-    tags: input.contextSnapshot.tags ?? [],
-    title: input.contextSnapshot.title ?? "",
-    translation_output_hash: input.contextSnapshot.translationOutputHash,
-    user_prompt: input.contextSnapshot.userPrompt,
-    variant_kind: input.contextSnapshot.variantKind,
-  });
-  await appendPairRevision(input.config, loaded.manifest, {
-    context_snapshot_path: contextPath,
-    created_at: new Date().toISOString(),
-    pair_id: input.pairId,
-    revision_kind: "pending",
-    status: "pending",
-    stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
-    thread_id: input.threadId,
-    turn_id: input.turnId,
-    updated_at: new Date().toISOString(),
-    user_prompt: input.prompt,
-  });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
-  void promptPath;
 }
 
 export async function appendAssistantResponse(input: {
@@ -431,18 +452,20 @@ export async function recordPsychiatristTurnStarted(input: {
   threadId: string;
   turnId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-    pair_id: input.pairId,
-    policy_version: loaded.manifest.policyVersion,
-    regenerate_from_turn_id: input.regenerateFromTurnId,
-    started_at: new Date().toISOString(),
-    status: "started",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+      pair_id: input.pairId,
+      policy_version: loaded.manifest.policyVersion,
+      regenerate_from_turn_id: input.regenerateFromTurnId,
+      started_at: new Date().toISOString(),
+      status: "started",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+    });
   });
 }
 
@@ -1197,24 +1220,26 @@ export async function markPsychiatristThreadStale(input: {
   memoryId?: string;
   threadId: string;
 }): Promise<void> {
-  const loaded = input.memoryId === undefined
-    ? await loadPsychiatristThread({
-      config: input.config,
-      threadId: input.threadId,
-    })
-    : await loadPsychiatristThreadForMemory({
-      config: input.config,
-      memoryId: input.memoryId,
-      threadId: input.threadId,
-    });
-  await writeJsonAtomic(
-    join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
-    serializeThreadManifest({
-      ...loaded.manifest,
-      status: "stale",
-      updatedAt: new Date().toISOString(),
-    }),
-  );
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = input.memoryId === undefined
+      ? await loadPsychiatristThread({
+        config: input.config,
+        threadId: input.threadId,
+      })
+      : await loadPsychiatristThreadForMemory({
+        config: input.config,
+        memoryId: input.memoryId,
+        threadId: input.threadId,
+      });
+    await writeJsonAtomic(
+      join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
+      serializeThreadManifest({
+        ...loaded.manifest,
+        status: "stale",
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  });
 }
 
 function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManifest {
@@ -1702,7 +1727,20 @@ async function withThreadMutationLock<T>(
   threadMutationQueues.set(key, queued);
   await previous.catch(() => undefined);
   try {
-    return await operation();
+    const manifest = await findThreadManifest(config, threadId);
+    if (manifest === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "thread_not_found",
+        "Psychiatrist thread was not found.",
+      );
+    }
+    return await withMemoryArtifactMutation(
+      { memoryId: manifest.memoryId, storePath: config.storePath },
+      async (reservation) => {
+        reservation.assertWritable();
+        return operation();
+      },
+    );
   } finally {
     release();
     if (threadMutationQueues.get(key) === queued) {

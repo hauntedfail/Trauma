@@ -26,6 +26,26 @@ afterEach(async () => {
 const repositoryRoot = process.cwd();
 
 describe("memories API route", () => {
+  it("rejects malformed idempotency keys before configuration or filesystem work", async () => {
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": "../../arbitrary-memory",
+          },
+          body: JSON.stringify({ url: "https://example.com/article" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Idempotency-Key must be a UUID v7",
+    });
+  });
+
   it("trims padded URLs before route validation", async () => {
     const observedUrls: string[] = [];
     const result = await parseAddMemoryPayload(

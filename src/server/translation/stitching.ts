@@ -25,6 +25,10 @@ import {
   buildTranslationProjectionSpans,
   serializeTranslationProjectionSidecar,
 } from "./projection-map";
+import {
+  withMemoryArtifactMutation,
+  type MemoryArtifactMutationReservation,
+} from "../memories/mutation-reservation";
 
 export interface TranslationCommitResult {
   outputHash: string;
@@ -38,20 +42,35 @@ export interface StaleTranslationCommitResult {
   status: "stale";
 }
 
-export async function commitTranslatedContent(input: {
+type CommitTranslatedContentInput = {
   backupQueue: DurableMemoryBackupQueue;
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
   job: TranslationJobRecord;
   now?: Date;
   repository: TranslationRepository;
-}): Promise<TranslationCommitResult | StaleTranslationCommitResult> {
+};
+
+export async function commitTranslatedContent(
+  input: CommitTranslatedContentInput,
+): Promise<TranslationCommitResult | StaleTranslationCommitResult> {
+  return withMemoryArtifactMutation(
+    { memoryId: input.job.memoryId, storePath: input.config.storePath },
+    (reservation) => commitTranslatedContentReserved(input, reservation),
+  );
+}
+
+async function commitTranslatedContentReserved(
+  input: CommitTranslatedContentInput,
+  reservation: MemoryArtifactMutationReservation,
+): Promise<TranslationCommitResult | StaleTranslationCommitResult> {
   const source = await loadTranslationSourceSnapshot({
     config: input.config,
     memoryId: input.job.memoryId,
   });
   const now = input.now ?? new Date();
   if (source.sourceHash !== input.job.sourceHash) {
+    reservation.assertWritable();
     await input.repository.updateTranslationJobStatus(input.job.jobId, "stale", {
       error: {
         code: "stale_source",
@@ -85,6 +104,7 @@ export async function commitTranslatedContent(input: {
     langCode: input.job.langCode,
     memoryId: input.job.memoryId,
   });
+  reservation.assertWritable();
   await input.backupQueue.persistIntent({
     contentPaths: [
       intendedOutputPath.relativePath,
@@ -93,6 +113,7 @@ export async function commitTranslatedContent(input: {
     memoryId: input.job.memoryId,
     reason: "translation_update",
   });
+  reservation.assertWritable();
   const outputPath = await writeTranslatedContentAtomically({
     config: input.config,
     jobId: input.job.jobId,
@@ -112,6 +133,7 @@ export async function commitTranslatedContent(input: {
     outputHash,
     sourceHash: input.job.sourceHash,
   });
+  reservation.assertWritable();
   await writeFile(
     projectionPath.absolutePath,
     serializeTranslationProjectionSidecar({
@@ -125,11 +147,13 @@ export async function commitTranslatedContent(input: {
     }),
     "utf8",
   );
+  reservation.assertWritable();
   await input.repository.replaceProjectionSpansForJob(
     input.job.jobId,
     projectionSpans,
   );
 
+  reservation.assertWritable();
   await input.repository.updateTranslationJobStatus(input.job.jobId, "complete", {
     completedAt: now,
     outputHash,

@@ -11,6 +11,7 @@ export type AddMemorySubmitResult =
 
 export interface SubmitAddMemoryUrlInput {
   url: string;
+  idempotencyKey?: string;
   fetch?: AddMemoryFetch;
 }
 
@@ -41,6 +42,9 @@ export async function submitAddMemoryUrl(
       method: "POST",
       headers: {
         "content-type": "application/json",
+        ...(input.idempotencyKey === undefined
+          ? {}
+          : { "idempotency-key": input.idempotencyKey }),
       },
       body: JSON.stringify({ url }),
     });

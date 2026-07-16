@@ -9,6 +9,7 @@ import {
   BackupEnvironmentFailsafeError,
   assertBackupEnvironmentReady,
   ensureBackupEnvironment,
+  fingerprintGitRemote,
   getBackupFailsafeStatus,
   redactOperationalError,
   recordBackupPushFailureAlert,
@@ -235,7 +236,7 @@ describe("backup environment failsafe", () => {
         projectPath: config.projectPath,
         storePath: config.storePath,
         gitRemote: "origin",
-        gitRemoteUrl: previousRemoteUrl,
+        gitRemoteUrl: fingerprintGitRemote(previousRemoteUrl),
         gitBranch: "main",
         createdAt: now,
         updatedAt: now,
@@ -254,6 +255,87 @@ describe("backup environment failsafe", () => {
         previousStorePath: null,
         currentProjectPath: config.projectPath,
         currentStorePath: config.storePath,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("accepts an unchanged fingerprinted backup remote identity", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const remoteUrl = join(root, "current.git");
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, ["remote", "add", "origin", remoteUrl]);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: fingerprintGitRemote(remoteUrl),
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      })).resolves.toEqual({ ok: true });
+      await expect(
+        connection.repositories.backupEnvironment.getBackupEnvironmentStamp(),
+      ).resolves.toMatchObject({
+        gitRemoteUrl: fingerprintGitRemote(remoteUrl),
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("treats the legacy redacted remote marker as unknown and fails closed", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const remoteUrl = join(root, "current.git");
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, ["remote", "add", "origin", remoteUrl]);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: "redacted:migration-0016",
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        alert: {
+          kind: "backup_path_drift",
+          previousProjectPath: null,
+          previousStorePath: null,
+        },
+      });
+      await expect(
+        connection.repositories.backupEnvironment.getBackupEnvironmentStamp(),
+      ).resolves.toMatchObject({
+        gitRemoteUrl: "redacted:migration-0016",
       });
     } finally {
       connection.close();

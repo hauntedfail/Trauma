@@ -1,6 +1,7 @@
 import {
   access,
   chmod,
+  link,
   mkdtemp,
   open,
   readFile,
@@ -14,7 +15,9 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createFileAtomically,
   writeFileAtomically,
+  type AtomicCreateFileSystem,
   type AtomicWriteFileSystem,
 } from "../../../src/server/files/atomic-write";
 
@@ -98,6 +101,30 @@ describe("durable atomic file replacement", () => {
   });
 });
 
+describe("durable atomic file creation", () => {
+  it("syncs content before exclusive publication and the directory before success", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    const calls: string[] = [];
+    const fileSystem = createInstrumentedCreateFileSystem({ calls });
+
+    await createFileAtomically(targetPath, "content\n", { fileSystem });
+
+    expect(await readFile(targetPath, "utf8")).toBe("content\n");
+    expect(calls).toEqual([
+      "open-file",
+      "write-file",
+      "sync-file",
+      "close-file",
+      "link",
+      "open-directory",
+      "sync-directory",
+      "close-directory",
+      "remove-temporary",
+    ]);
+  });
+});
+
 async function makeRoot() {
   const root = await mkdtemp(join(tmpdir(), "trauma-atomic-write-"));
   tempDirs.push(root);
@@ -149,5 +176,52 @@ function createInstrumentedFileSystem(input: {
     },
     rm: (path, options) => rm(path, options),
     stat: (path) => import("node:fs/promises").then((module) => module.stat(path)),
+  };
+}
+
+function createInstrumentedCreateFileSystem(input: {
+  calls: string[];
+}): AtomicCreateFileSystem {
+  return {
+    link: async (source, destination) => {
+      input.calls.push("link");
+      await link(source, destination);
+    },
+    open: async (path, flags, mode) => {
+      input.calls.push("open-file");
+      const handle = await open(path, flags, mode);
+      return {
+        writeFile: async (data, options) => {
+          input.calls.push("write-file");
+          await handle.writeFile(data, options);
+        },
+        sync: async () => {
+          input.calls.push("sync-file");
+          await handle.sync();
+        },
+        close: async () => {
+          input.calls.push("close-file");
+          await handle.close();
+        },
+      };
+    },
+    openDirectory: async (path) => {
+      input.calls.push("open-directory");
+      const handle = await open(path, "r");
+      return {
+        sync: async () => {
+          input.calls.push("sync-directory");
+          await handle.sync();
+        },
+        close: async () => {
+          input.calls.push("close-directory");
+          await handle.close();
+        },
+      };
+    },
+    rm: async (path, options) => {
+      input.calls.push("remove-temporary");
+      await rm(path, options);
+    },
   };
 }

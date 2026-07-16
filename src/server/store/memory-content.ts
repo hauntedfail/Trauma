@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 
 import {
@@ -7,6 +6,10 @@ import {
   isExtractionStatus,
   type ExtractionStatus,
 } from "../memory-status";
+import {
+  createFileAtomically,
+  writeFileAtomically,
+} from "../files/atomic-write";
 
 export const MEMORY_CONTENT_FILENAME = "CONTENT.md";
 
@@ -73,6 +76,7 @@ export class MemoryContentStoreError extends Error {
     public readonly code:
       | "invalid_memory_id"
       | "content_exists"
+      | "content_cleanup_failed"
       | "missing_content"
       | "malformed_frontmatter",
   ) {
@@ -140,21 +144,27 @@ export async function writeMemoryContent(
     markdown: input.markdown,
   });
   const contentDir = dirname(resolvedPath.absolutePath);
-  const temporaryPath = join(
-    contentDir,
-    `.${MEMORY_CONTENT_FILENAME}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
-  );
-  let temporaryFileMoved = false;
-
+  const overwrite = input.overwrite ?? true;
+  await mkdir(contentDir, { recursive: true });
+  await publishMemoryContent({
+    content,
+    destination: resolvedPath,
+    overwrite,
+  });
   try {
-    await mkdir(contentDir, { recursive: true });
-    await writeFile(temporaryPath, content, "utf8");
-    await replaceFile(temporaryPath, resolvedPath, input.overwrite ?? true);
-    temporaryFileMoved = true;
-  } finally {
-    if (!temporaryFileMoved) {
-      await rm(temporaryPath, { force: true });
+    await syncMemoryDirectoryHierarchy(input.config.storePath, contentDir);
+  } catch (error) {
+    if (!overwrite) {
+      try {
+        await removeMemoryDirectoryDurably(input.config.storePath, contentDir);
+      } catch (cleanupError) {
+        throw new MemoryContentStoreError(
+          `CONTENT.md publication failed and cleanup could not be confirmed: ${formatUnknownError(cleanupError)}`,
+          "content_cleanup_failed",
+        );
+      }
     }
+    throw error;
   }
 
   return resolvedPath;
@@ -205,6 +215,10 @@ export async function deleteMemoryContent(
     recursive: true,
     force: true,
   });
+  await syncMemoryParentHierarchy(
+    input.config.storePath,
+    dirname(resolvedPath.absolutePath),
+  );
   return resolvedPath;
 }
 
@@ -408,42 +422,101 @@ function readSerializedFrontmatterValue(
   return value;
 }
 
-async function replaceFile(
-  sourcePath: string,
+async function publishMemoryContent(input: {
+  content: string;
+  overwrite: boolean;
   destination: ResolvedMemoryContentPath,
-  overwrite: boolean,
-) {
-  if (!overwrite) {
+}): Promise<void> {
+  if (!input.overwrite) {
     try {
-      await link(sourcePath, destination.absolutePath);
+      await createFileAtomically(input.destination.absolutePath, input.content);
     } catch (error) {
       if (isNodeError(error) && error.code === "EEXIST") {
         throw new MemoryContentStoreError(
-          `CONTENT.md already exists at ${destination.relativePath}`,
+          `CONTENT.md already exists at ${input.destination.relativePath}`,
           "content_exists",
         );
       }
-
       throw error;
     }
-
-    await rm(sourcePath, { force: true });
     return;
   }
 
   try {
-    await rename(sourcePath, destination.absolutePath);
+    await writeFileAtomically(input.destination.absolutePath, input.content);
   } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      try {
+        await createFileAtomically(input.destination.absolutePath, input.content);
+      } catch (createError) {
+        if (!isNodeError(createError) || createError.code !== "EEXIST") {
+          throw createError;
+        }
+        await writeFileAtomically(input.destination.absolutePath, input.content);
+      }
+      return;
+    }
     if (
       isNodeError(error) &&
       (error.code === "EEXIST" || error.code === "EPERM")
     ) {
-      await rm(destination.absolutePath, { force: true });
-      await rename(sourcePath, destination.absolutePath);
+      await rm(input.destination.absolutePath, { force: true });
+      await createFileAtomically(input.destination.absolutePath, input.content);
       return;
     }
-
     throw error;
+  }
+}
+
+async function syncMemoryDirectoryHierarchy(
+  storePath: string,
+  contentDirectory: string,
+): Promise<void> {
+  const storeRoot = resolve(storePath);
+  const directories = [
+    contentDirectory,
+    dirname(contentDirectory),
+    storeRoot,
+  ];
+  for (const directoryPath of new Set(directories)) {
+    await syncDirectoryBestEffort(directoryPath);
+  }
+}
+
+async function removeMemoryDirectoryDurably(
+  storePath: string,
+  contentDirectory: string,
+): Promise<void> {
+  await rm(contentDirectory, { recursive: true, force: true });
+  await syncMemoryParentHierarchy(storePath, contentDirectory);
+}
+
+async function syncMemoryParentHierarchy(
+  storePath: string,
+  contentDirectory: string,
+): Promise<void> {
+  const storeRoot = resolve(storePath);
+  for (const directoryPath of new Set([dirname(contentDirectory), storeRoot])) {
+    await syncDirectoryBestEffort(directoryPath);
+  }
+}
+
+async function syncDirectoryBestEffort(directoryPath: string): Promise<void> {
+  let directory;
+  try {
+    directory = await open(directoryPath, "r");
+    await directory.sync();
+  } catch (error) {
+    if (
+      !isNodeError(error) ||
+      !["EBADF", "EINVAL", "EISDIR", "ENOTSUP", "EPERM"].includes(
+        error.code ?? "",
+      )
+    ) {
+      throw error;
+    }
+  } finally {
+    await directory?.close().catch(() => undefined);
   }
 }
 
@@ -453,4 +526,8 @@ function stripLeadingBom(content: string) {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

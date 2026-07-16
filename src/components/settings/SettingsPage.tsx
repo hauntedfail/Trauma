@@ -18,7 +18,9 @@ import type { CodexReasoningEffort } from "../../server/translation/types";
 import {
   submitCodexTranslationDefaults,
   pollCodexAuthSetup,
+  submitCancelCodexAuthSetup,
   submitReadCodexModels,
+  submitReadCodexAuth,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
   submitTranslationTargetLanguage,
@@ -119,12 +121,15 @@ export function SettingsPage(props: SettingsPageProps) {
       setError(value);
     }
   };
-
-  onCleanup(() => {
+  const abortCodexAuthPolls = (): void => {
     for (const controller of authPollControllers) {
       controller.abort();
     }
     authPollControllers.clear();
+  };
+
+  onCleanup(() => {
+    abortCodexAuthPolls();
   });
 
   onMount(() => {
@@ -275,6 +280,11 @@ export function SettingsPage(props: SettingsPageProps) {
         void revalidateSettingsState();
       } else if (response.status === "error") {
         setActionError(action, response.error);
+      } else if (response.status === "login_started") {
+        setActionMessage(
+          action,
+          "Codex setup is still pending. Check status or cancel and restart.",
+        );
       } else {
         setActionMessage(action, "Codex auth setup state refreshed.");
         void revalidateSettingsState();
@@ -288,6 +298,67 @@ export function SettingsPage(props: SettingsPageProps) {
       }
     } finally {
       authPollControllers.delete(controller);
+      actionTracker.finish(action);
+    }
+  };
+
+  const refreshCodexAuthStatus = async (): Promise<void> => {
+    const action = beginAction("openai-auth-poll");
+    try {
+      const response = await submitReadCodexAuth();
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
+      setCodexAuth(response);
+      if (response.status === "enabled") {
+        setActionMessage(action, response.message);
+      } else if (response.status === "error") {
+        setActionError(action, response.error);
+      } else if (response.status === "login_started") {
+        setActionMessage(
+          action,
+          "Codex setup is still pending. Check status or cancel and restart.",
+        );
+      } else {
+        setActionMessage(action, "Codex auth setup state refreshed.");
+      }
+      void revalidateSettingsState();
+    } catch (error) {
+      setActionError(
+        action,
+        error instanceof Error ? error.message : "Failed to refresh Codex auth.",
+      );
+    } finally {
+      actionTracker.finish(action);
+    }
+  };
+
+  const cancelOpenAiAuthSetup = async (): Promise<void> => {
+    const action = beginAction("openai-auth");
+    abortCodexAuthPolls();
+    try {
+      const canceled = await submitCancelCodexAuthSetup();
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
+      const refreshed = await submitReadCodexAuth();
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
+      setCodexAuth(refreshed);
+      setActionMessage(
+        action,
+        canceled.status === "canceled"
+          ? "Codex auth setup canceled. You can start again."
+          : "No pending Codex auth setup was found. State refreshed.",
+      );
+      void revalidateSettingsState();
+    } catch (error) {
+      setActionError(
+        action,
+        error instanceof Error ? error.message : "Failed to cancel Codex auth setup.",
+      );
+    } finally {
       actionTracker.finish(action);
     }
   };
@@ -330,6 +401,12 @@ export function SettingsPage(props: SettingsPageProps) {
       actionTracker.finish(action);
     }
   };
+
+  onMount(() => {
+    if (props.initialSettings.openaiAuth.status === "login_started") {
+      void refreshCodexAuthAfterLogin();
+    }
+  });
 
   return (
     <section class={pageFrame} aria-labelledby="settings-title">
@@ -437,7 +514,7 @@ export function SettingsPage(props: SettingsPageProps) {
             </button>
           </div>
           <Show when={codexCatalogError()}>
-            {(value) => <p class={hintClass}>{value()}</p>}
+            {(value) => <p class={hintClass} role="alert">{value()}</p>}
           </Show>
         </form>
 
@@ -471,6 +548,24 @@ export function SettingsPage(props: SettingsPageProps) {
                 onClick={() => void deleteOpenAiAuth()}
               >
                 Delete auth
+              </button>
+            </Show>
+            <Show when={codexAuth().status === "login_started"}>
+              <button
+                class={secondaryButtonClass}
+                disabled={isPending("openai-auth-poll") || isPending("openai-auth")}
+                type="button"
+                onClick={() => void refreshCodexAuthStatus()}
+              >
+                Check status
+              </button>
+              <button
+                class={dangerButtonClass}
+                disabled={isPending("openai-auth")}
+                type="button"
+                onClick={() => void cancelOpenAiAuthSetup()}
+              >
+                Cancel setup
               </button>
             </Show>
           </div>

@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runBackupFailsafeCli } from "../../../scripts/trauma-backup-failsafe";
 import { loadTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
+import {
+  ensureBackupEnvironment,
+  fingerprintGitRemote,
+} from "../../../src/server/backup/environment";
 
 const tempDirs: string[] = [];
 const now = new Date("2026-05-13T00:00:00.000Z");
@@ -155,6 +159,45 @@ describe("backup failsafe CLI", () => {
         .filter(Boolean),
     ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
     expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
+  });
+
+  it("excludes operation journals and delete staging from migrated backup content", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const oldStore = join(root, "old-data/storage");
+    const canonicalPath = "memories/memory-1/CONTENT.md";
+    await mkdir(join(oldStore, "memories/memory-1"), { recursive: true });
+    await mkdir(join(oldStore, ".operations"), { recursive: true });
+    await mkdir(join(oldStore, ".delete-staging/memory-1"), { recursive: true });
+    await writeFile(join(oldStore, canonicalPath), "# Canonical\n", "utf8");
+    await writeFile(join(oldStore, ".operations/memory-1.json"), "{\"state\":\"deleting\"}\n", "utf8");
+    await writeFile(
+      join(oldStore, ".delete-staging/memory-1/CONTENT.md"),
+      "# Deleted transient content\n",
+      "utf8",
+    );
+    await seedPathDriftAlert(configPath, root);
+
+    const output = await withGitIdentity(() =>
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    );
+
+    expect(output).toContain("files: 1");
+    const config = loadTraumaConfig({ configPath });
+    await expect(readFile(join(config.storePath, canonicalPath), "utf8"))
+      .resolves.toBe("# Canonical\n");
+    await expect(readFile(join(config.storePath, ".operations/memory-1.json"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(
+      join(config.storePath, ".delete-staging/memory-1/CONTENT.md"),
+      "utf8",
+    )).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      git(config.projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
   });
 
   it("pushes migrated backup commits before clearing a path-drift alert", async () => {
@@ -335,6 +378,74 @@ describe("backup failsafe CLI", () => {
         .filter(Boolean),
     ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
     expect(git(config.projectPath, ["status", "--short"]).trim()).toBe("");
+  });
+
+  it("requires explicit recovery before replacing a legacy unknown remote identity", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root);
+    const config = loadTraumaConfig({ configPath });
+    const remoteUrl = join(root, "current.git");
+    await mkdir(join(config.storePath, "memories/memory-1"), { recursive: true });
+    await writeFile(
+      join(config.storePath, "memories/memory-1/CONTENT.md"),
+      "# Current\n",
+      "utf8",
+    );
+    await mkdir(config.projectPath, { recursive: true });
+    git(config.projectPath, ["init", "--initial-branch=main"]);
+    git(config.projectPath, ["remote", "add", "origin", remoteUrl]);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: "memory-1",
+        url: "https://example.com",
+        title: "Legacy remote",
+        description: null,
+        faviconUrl: null,
+        contentPath: "memories/memory-1/CONTENT.md",
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "pending",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: "redacted:migration-0016",
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await expect(ensureBackupEnvironment({ config, db: connection.db }))
+        .resolves.toMatchObject({ ok: false });
+      await expect(
+        connection.repositories.backupEnvironment.getBackupEnvironmentStamp(),
+      ).resolves.toMatchObject({ gitRemoteUrl: "redacted:migration-0016" });
+    } finally {
+      connection.close();
+    }
+
+    const output = await withGitIdentity(() =>
+      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    );
+
+    expect(output).toContain("APPLY: Accept current backup location");
+    const check = initializeDatabase(config);
+    try {
+      await expect(check.repositories.backupEnvironment.getBackupFailsafeAlert())
+        .resolves.toBeUndefined();
+      await expect(check.repositories.backupEnvironment.getBackupEnvironmentStamp())
+        .resolves.toMatchObject({
+          gitRemoteUrl: fingerprintGitRemote(remoteUrl),
+        });
+    } finally {
+      check.close();
+    }
   });
 
   it("does not accept current paths for repository alerts", async () => {

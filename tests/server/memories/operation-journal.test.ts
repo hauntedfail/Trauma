@@ -95,6 +95,62 @@ describe("memory operation journal recovery", () => {
     }
   });
 
+  it("keeps a creation journal when its SQLite row outlives missing canonical content", async () => {
+    const config = await createConfig(false);
+    const connection = initializeDatabase(config);
+    const contentPath = resolveMemoryContentPath(config, memoryId);
+    const journalPath = join(config.storePath, ".operations", `${memoryId}.json`);
+    try {
+      await persistMemoryCreationJournal({
+        config,
+        journal: {
+          version: 1,
+          kind: "memory_creation",
+          memory: {
+            id: memoryId,
+            url: "https://example.com/not-durable",
+            title: "Missing canonical content",
+            description: null,
+            faviconUrl: null,
+            contentPath: contentPath.relativePath,
+            extractionStatus: "success",
+            extractionError: null,
+            read: false,
+            backupStatus: "disabled",
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+        },
+      });
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/not-durable",
+        title: "Missing canonical content",
+        description: null,
+        faviconUrl: null,
+        contentPath: contentPath.relativePath,
+        extractionStatus: "success",
+        extractionError: null,
+        read: false,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(recoverInterruptedMemoryOperations({
+        config,
+        memories: connection.repositories.memories,
+      })).rejects.toThrow("canonical content is missing");
+      await expect(connection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ id: memoryId });
+      await expect(access(journalPath)).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
   it("restores staged content and a pending backup when delete crashed before row removal", async () => {
     const config = await createConfig(true);
     const connection = initializeDatabase(config);

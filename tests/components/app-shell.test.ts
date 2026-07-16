@@ -311,6 +311,8 @@ describe("refined app shell contract", () => {
     expect(statusEnd).toBeGreaterThan(statusStart);
     expect(statusSource).toContain("<div");
     expect(statusSource).toContain("Local archive");
+    expect(statusSource).toContain("Configured on device");
+    expect(statusSource).not.toContain("./data/storage");
     expect(statusSource).not.toContain("<button");
     expect(statusSource).not.toContain("KebabIcon");
     expect(statusSource).not.toContain("hover:");

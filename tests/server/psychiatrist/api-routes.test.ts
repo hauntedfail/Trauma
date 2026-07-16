@@ -1721,6 +1721,66 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("drains rejected event persistence before terminalizing a failed message turn", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-event-failed-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const client = new LateEventFailingConversationClient();
+    const deltaWrite = createDeferred<void>();
+    const writes: string[] = [];
+    let statusSeenByTerminalWrite: string | undefined;
+    const handler = createSendPsychiatristMessageHandler({
+      appendStreamEvent: async (input) => {
+        writes.push(input.event.type);
+        if (input.event.type === "psychiatrist.answer.delta") {
+          await deltaWrite.promise;
+          return undefined;
+        }
+        if (input.event.type === "psychiatrist.answer.failed") {
+          const loaded = await loadPsychiatristThread({
+            config: { storePath },
+            threadId: THREAD_ID,
+          });
+          statusSeenByTerminalWrite = loaded.pairs[0]?.status;
+        }
+        return appendPsychiatristStreamEvent(input);
+      },
+      client,
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Fail after a persisted delta." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => writes.includes("psychiatrist.answer.delta"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writes).not.toContain("psychiatrist.answer.failed");
+
+    deltaWrite.reject(new Error("stream persistence unavailable"));
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    expect(writes).toEqual([
+      "psychiatrist.turn.started",
+      "psychiatrist.answer.delta",
+      "psychiatrist.answer.failed",
+    ]);
+    expect(statusSeenByTerminalWrite).toBe("failed");
+
+    client.emitLateDelta();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writes).toHaveLength(3);
+  });
+
   it("marks stale threads and blocks Codex execution before accepting a message", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-message-stale-"));
     await createPsychiatristThread({
@@ -3917,6 +3977,94 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("drains rejected event persistence before terminalizing a failed regenerate turn", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-event-failed-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Regenerate this answer." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const regenerateTurnId = EXTRA_TURN_IDS[0]!;
+    const client = new LateEventFailingConversationClient();
+    const deltaWrite = createDeferred<void>();
+    const writes: string[] = [];
+    let statusSeenByTerminalWrite: string | undefined;
+    const handler = createRegeneratePsychiatristResponseHandler({
+      appendStreamEvent: async (input) => {
+        writes.push(input.event.type);
+        if (input.event.type === "psychiatrist.answer.delta") {
+          await deltaWrite.promise;
+          return undefined;
+        }
+        if (input.event.type === "psychiatrist.answer.failed") {
+          statusSeenByTerminalWrite = await readFile(
+            join(
+              storePath,
+              "memories",
+              MEMORY_ID,
+              "threads",
+              THREAD_ID,
+              "turns",
+              `${regenerateTurnId}.json`,
+            ),
+            "utf8",
+          ).then((content) => JSON.parse(content).status as string);
+        }
+        return appendPsychiatristStreamEvent(input);
+      },
+      client,
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: regenerateBody(),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => writes.includes("psychiatrist.answer.delta"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writes).not.toContain("psychiatrist.answer.failed");
+
+    deltaWrite.reject(new Error("stream persistence unavailable"));
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    expect(writes).toEqual([
+      "psychiatrist.regenerate.started",
+      "psychiatrist.answer.delta",
+      "psychiatrist.answer.failed",
+    ]);
+    expect(statusSeenByTerminalWrite).toBe("failed");
+
+    client.emitLateDelta();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writes).toHaveLength(3);
+  });
+
   it("keeps the previous completed answer visible when regenerate is stopped", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-stop-"));
     const regenerateTurnId = EXTRA_TURN_IDS[0]!;
@@ -4677,6 +4825,30 @@ class FailingConversationClient implements CodexConversationClient {
   }
 }
 
+class LateEventFailingConversationClient implements CodexConversationClient {
+  private onEvent: CodexConversationTurnInput["onEvent"];
+
+  async cancelTurn(): Promise<void> {
+    return undefined;
+  }
+
+  emitLateDelta(): void {
+    this.onEvent?.({ text: "late answer", type: "delta" });
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    this.onEvent = input.onEvent;
+    input.onEvent?.({ text: "partial answer", type: "delta" });
+    throw new Error("runtime failed while event persistence was pending");
+  }
+}
+
 class ControlledFailingConversationClient implements CodexConversationClient {
   private failTurn: (() => void) | undefined;
 
@@ -4816,4 +4988,18 @@ async function waitFor(
     throw new Error("condition was not met before timeout", { cause: lastError });
   }
   throw new Error("condition was not met before timeout");
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    reject = promiseReject;
+    resolve = promiseResolve;
+  });
+  return { promise, reject, resolve };
 }

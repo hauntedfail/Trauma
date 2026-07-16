@@ -17,6 +17,163 @@ afterEach(async () => {
 });
 
 describe("add memory orchestration", () => {
+  it("coalesces concurrent idempotent creates and reuses the durable row on retry", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const firstConnection = initializeDatabase(config);
+        const secondConnection = initializeDatabase(config);
+        const idempotencyKey = ${JSON.stringify(successMemoryId)};
+        let importCalls = 0;
+        const importer = {
+          importUrl: async () => {
+            importCalls += 1;
+            await Promise.resolve();
+            return {
+              status: "success",
+              url: "https://example.com/idempotent",
+              title: "Idempotent",
+              description: null,
+              faviconUrl: null,
+              markdown: "# Idempotent\\n\\nCreated once.",
+            };
+          },
+        };
+        const input = (db) => ({
+          url: "https://example.com/idempotent",
+          idempotencyKey,
+          config,
+          db,
+          importer,
+          backupQueue: {
+            enqueue: async () => {
+              throw new Error("backup should be disabled");
+            },
+          },
+          generateId: () => "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef999",
+          now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+        });
+
+        try {
+          const [first, concurrent] = await Promise.all([
+            addMemory(input(firstConnection.db)),
+            addMemory(input(secondConnection.db)),
+          ]);
+          const retried = await addMemory(input(secondConnection.db));
+          let conflictingRetry;
+          try {
+            await addMemory({
+              ...input(secondConnection.db),
+              url: "https://example.com/different",
+            });
+          } catch (error) {
+            conflictingRetry = {
+              name: error instanceof Error ? error.name : "UnknownError",
+              message: error instanceof Error ? error.message : String(error),
+            };
+          }
+          const existingMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef203";
+          await secondConnection.repositories.memories.create({
+            id: existingMemoryId,
+            url: "https://example.com/preexisting",
+            title: "Preexisting",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + existingMemoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: new Date(${JSON.stringify(capturedAt.toISOString())}),
+            updatedAt: new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+          let existingIdClaim;
+          try {
+            await addMemory({
+              ...input(secondConnection.db),
+              idempotencyKey: existingMemoryId,
+              url: "https://example.com/claim",
+            });
+          } catch (error) {
+            existingIdClaim = {
+              name: error instanceof Error ? error.name : "UnknownError",
+              message: error instanceof Error ? error.message : String(error),
+            };
+          }
+          const rows = secondConnection.sqlite
+            .prepare("select id, url from memories where id = ?")
+            .all(idempotencyKey);
+
+          const existingIdReservationCount = secondConnection.sqlite
+            .prepare("select count(*) as count from memory_creation_idempotency where idempotency_key = ?")
+            .get(existingMemoryId).count;
+
+          process.stdout.write(JSON.stringify({ first, concurrent, retried, conflictingRetry, existingIdClaim, existingIdReservationCount, rows, importCalls }));
+        } finally {
+          firstConnection.close();
+          secondConnection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const {
+      first,
+      concurrent,
+      retried,
+      conflictingRetry,
+      existingIdClaim,
+      existingIdReservationCount,
+      rows,
+      importCalls,
+    } = JSON.parse(output);
+
+    expect(first.id).toBe(successMemoryId);
+    expect(concurrent.id).toBe(successMemoryId);
+    expect(retried.id).toBe(successMemoryId);
+    expect(conflictingRetry).toEqual({
+      name: "AddMemoryIdempotencyConflictError",
+      message: "Idempotency-Key was already used for a different URL",
+    });
+    expect(existingIdClaim).toEqual({
+      name: "AddMemoryIdempotencyConflictError",
+      message: "Idempotency-Key was already used for a different URL",
+    });
+    expect(existingIdReservationCount).toBe(0);
+    expect(rows).toEqual([
+      { id: successMemoryId, url: "https://example.com/idempotent" },
+    ]);
+    expect(importCalls).toBe(1);
+  });
+
   it("creates SQLite metadata, writes markdown, and enqueues backup after successful extraction", async () => {
     const root = await makeRoot();
     const output = runBunScript(

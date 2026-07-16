@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldRevalidateBackupFailsafeAlert } from "../../src/components/memories/AddMemoryForm";
+import { shouldRevalidateBackupFailsafeAlert } from "../../src/components/memories/add-memory-controller";
 
 describe("AddMemoryForm failure policy", () => {
   it("refreshes backup failsafe state only for backup failsafe failures", () => {

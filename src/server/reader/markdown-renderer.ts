@@ -32,6 +32,8 @@ export interface RenderMemoryMarkdownOptions {
 }
 
 export const MAX_HIGHLIGHTED_CODE_LENGTH = 20_000;
+export const MAX_TOTAL_HIGHLIGHTED_CODE_LENGTH = 20_000;
+export const MAX_HIGHLIGHTED_CODE_BLOCKS = 32;
 
 export function renderMemoryMarkdown(
   markdown: string,
@@ -49,12 +51,13 @@ export function renderMemoryMarkdown(
 
 function createMarkdownIt(toc: ReaderTocEntry[]) {
   const headingPathTracker = createHeadingPathTracker();
+  const highlightCode = createCodeHighlighter();
 
   return new MarkdownIt({
     html: true,
     linkify: true,
     typographer: false,
-    highlight: (code, language) => highlightCode(code, language),
+    highlight: highlightCode,
   })
     .use(taskListPlugin)
     .use(footnote)
@@ -80,26 +83,33 @@ function createMarkdownIt(toc: ReaderTocEntry[]) {
     });
 }
 
-function highlightCode(code: string, language: string) {
-  const normalizedLanguage = language.trim();
-  const knownLanguage = normalizedLanguage !== "" &&
-    hljs.getLanguage(normalizedLanguage) !== undefined;
-  let highlighted: string;
-  if (
-    code.length > MAX_HIGHLIGHTED_CODE_LENGTH ||
-    (normalizedLanguage !== "" && !knownLanguage)
-  ) {
-    highlighted = escapeCodeHtml(code);
-  } else if (knownLanguage) {
-    highlighted = hljs.highlight(code, {
-      language: normalizedLanguage,
-      ignoreIllegals: true,
-    }).value;
-  } else {
-    highlighted = hljs.highlightAuto(code).value;
-  }
+function createCodeHighlighter() {
+  let highlightedBlockCount = 0;
+  let highlightedCodeLength = 0;
 
-  return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
+  return (code: string, language: string) => {
+    const normalizedLanguage = language.trim();
+    const knownLanguage = normalizedLanguage !== "" &&
+      hljs.getLanguage(normalizedLanguage) !== undefined;
+    const withinRenderBudget = knownLanguage &&
+      code.length <= MAX_HIGHLIGHTED_CODE_LENGTH &&
+      highlightedBlockCount < MAX_HIGHLIGHTED_CODE_BLOCKS &&
+      highlightedCodeLength + code.length <= MAX_TOTAL_HIGHLIGHTED_CODE_LENGTH;
+
+    let highlighted: string;
+    if (withinRenderBudget) {
+      highlightedBlockCount += 1;
+      highlightedCodeLength += code.length;
+      highlighted = hljs.highlight(code, {
+        language: normalizedLanguage,
+        ignoreIllegals: true,
+      }).value;
+    } else {
+      highlighted = escapeCodeHtml(code);
+    }
+
+    return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
+  };
 }
 
 function escapeCodeHtml(code: string): string {

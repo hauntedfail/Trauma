@@ -1243,6 +1243,203 @@ describe("translation runner", () => {
     }
   });
 
+  it("resumes same-version completed chunks without translating them twice", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const persistedIntents: unknown[] = [];
+    const enqueuedBackups: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        persistedIntents.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        enqueuedBackups.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000024",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let blockStitchingOnce = true;
+
+    await runTranslationJob(started.job_id, {
+      backupQueue,
+      client,
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              transitionTranslationJobStatus: async (...args) => {
+                if (
+                  blockStitchingOnce &&
+                  args[1] === "running" &&
+                  args[2] === "stitching"
+                ) {
+                  blockStitchingOnce = false;
+                  return false;
+                }
+                return translations.transitionTranslationJobStatus(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    expect(client.inputs).toHaveLength(1);
+    const interruptedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        interruptedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "running" });
+      await expect(
+        interruptedConnection.repositories.translations.getTranslationChunks(started.job_id),
+      ).resolves.toEqual([
+        expect.objectContaining({ chunkIndex: 0, status: "complete" }),
+      ]);
+    } finally {
+      interruptedConnection.close();
+    }
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    expect(client.inputs).toHaveLength(1);
+    expect(persistedIntents).toHaveLength(1);
+    expect(enqueuedBackups).toHaveLength(1);
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.toContain("華麗なソース");
+    const completedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        completedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      completedConnection.close();
+    }
+  });
+
+  it.each([
+    {
+      mismatch: "prompt policy version",
+      mutation: "update translation_jobs set prompt_policy_version = 'brilliant-old'",
+    },
+    {
+      mismatch: "chunker version",
+      mutation: "update translation_jobs set chunker_version = 'chunker-old'",
+    },
+    {
+      mismatch: "runtime chunk count",
+      mutation: "update translation_jobs set chunk_count = 2",
+    },
+    {
+      mismatch: "persisted chunk count",
+      mutation: "delete from translation_chunks",
+    },
+    {
+      mismatch: "chunk index manifest",
+      mutation: "update translation_chunks set chunk_index = 1",
+    },
+    {
+      mismatch: "block id manifest",
+      mutation: "update translation_chunks set block_ids_json = '[\"changed-block\"]'",
+    },
+    {
+      mismatch: "source chunk hash",
+      mutation: "update translation_chunks set source_chunk_hash = 'sha256:changed-chunk'",
+    },
+  ])("terminalizes a resume with incompatible $mismatch and allows a fresh job", async ({ mutation }) => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const backupCalls: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        backupCalls.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        backupCalls.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000025",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const mutationConnection = initializeDatabase(config);
+    try {
+      mutationConnection.sqlite.run(`${mutation} where job_id = '${started.job_id}'`);
+    } finally {
+      mutationConnection.close();
+    }
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    expect(client.inputs).toEqual([]);
+    expect(backupCalls).toEqual([]);
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    const failedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        failedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "start_fresh_translation",
+          code: "translation_unavailable",
+          message: "Translation job is incompatible with the current translation runtime.",
+        },
+        status: "failed",
+      });
+    } finally {
+      failedConnection.close();
+    }
+
+    await expect(startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000026",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    })).resolves.toMatchObject({
+      job_id: "019e3906-0000-7000-8000-000000000026",
+      status: "started",
+    });
+  });
+
   it("replays a committing job after an orphan output write and backs up the completed projection", async () => {
     const config = await createConfig();
     await writeSourceContent(config);

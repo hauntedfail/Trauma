@@ -883,6 +883,20 @@ test("moves focus through shared dialogs and menus and returns it to the opener"
   const deleteItem = menu.getByRole("menuitem", { name: "Delete memory" });
   const categoryItem = menu.getByRole("menuitem", { name: "Add category" });
   await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(menu).toHaveCount(0);
+  await expect(menuTrigger).toBeFocused();
+
+  await menuTrigger.click();
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(categoryItem).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(menu).toHaveCount(0);
+
+  await menuTrigger.focus();
+  await menuTrigger.click();
+  await expect(deleteItem).toBeFocused();
   await page.keyboard.press("End");
   await expect(categoryItem).toBeFocused();
   await page.keyboard.press("Home");
@@ -941,6 +955,68 @@ test("closes the add-memory composer on outside row clicks without opening memor
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
+});
+
+test("keeps a pending add-memory attempt owned across rail dismissal and phone reopen", async ({
+  page,
+}) => {
+  let releaseResponse: (() => void) | undefined;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  let requestCount = 0;
+  await page.route("**/api/memories", async (route) => {
+    requestCount += 1;
+    await responseGate;
+    await route.fulfill({
+      body: JSON.stringify({
+        memory: { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef401" },
+      }),
+      contentType: "application/json",
+      status: 201,
+    });
+  });
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const railComposer = page.getByRole("dialog", { name: "Add memory" });
+  const railUrl = railComposer.getByRole("textbox", { name: "URL" });
+  await railUrl.fill("https://example.com/pending");
+  const requestPromise = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/api/memories") && request.method() === "POST",
+  );
+  await railUrl.press("Enter");
+  const request = await requestPromise;
+  expect(request.headers()["idempotency-key"]).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(railComposer).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phoneAddMemory = page
+    .getByRole("navigation", { name: "Primary tabs" })
+    .getByRole("button", { name: "Add memory" });
+  await phoneAddMemory.click();
+  const phoneComposer = page.getByRole("dialog", { name: "Add memory" });
+  const phoneUrl = phoneComposer.getByRole("textbox", { name: "URL" });
+  await expect(phoneUrl).toHaveValue("https://example.com/pending");
+  await expect(phoneUrl).toBeDisabled();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/memories") &&
+      response.request().method() === "POST",
+  );
+  releaseResponse?.();
+  await responsePromise;
+
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(phoneComposer).toBeVisible();
+  await expect(phoneUrl).toBeEnabled();
+  await expect(phoneUrl).toHaveValue("");
+  expect(requestCount).toBe(1);
 });
 
 test("does not suppress the next normal click after an outside right-click dismissal", async ({

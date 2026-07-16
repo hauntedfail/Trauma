@@ -4,6 +4,35 @@ import { describe, expect, it, vi } from "vitest";
 import { renderMemoryMarkdown } from "../../../src/server/reader/markdown-renderer";
 
 describe("renderMemoryMarkdown", () => {
+  it("bounds syntax highlighting across an entire render", () => {
+    const highlight = vi.spyOn(hljs, "highlight");
+    const highlightAuto = vi.spyOn(hljs, "highlightAuto");
+    const codeBlock = "const value = 1;\n".repeat(700);
+
+    try {
+      const result = renderMemoryMarkdown([
+        "```ts",
+        codeBlock,
+        "```",
+        "",
+        "```ts",
+        codeBlock,
+        "```",
+        "",
+        "```",
+        "const unlabeled = true;",
+        "```",
+      ].join("\n"));
+
+      expect(highlight).toHaveBeenCalledTimes(1);
+      expect(highlightAuto).not.toHaveBeenCalled();
+      expect(result.html).toContain("const unlabeled = true;");
+    } finally {
+      highlight.mockRestore();
+      highlightAuto.mockRestore();
+    }
+  });
+
   it("renders oversized and unknown code as escaped plain text", () => {
     const highlight = vi.spyOn(hljs, "highlight");
     const highlightAuto = vi.spyOn(hljs, "highlightAuto");

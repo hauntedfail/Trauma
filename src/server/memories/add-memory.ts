@@ -11,10 +11,11 @@ import { importUrl, type ImporterResult } from "../importer";
 import type { TraumaDatabase } from "../db";
 import {
   deleteMemoryContent,
+  MemoryContentStoreError,
   resolveMemoryContentPath,
   writeMemoryContent,
 } from "../store/memory-content";
-import { generateMemoryId } from "./id";
+import { assertMemoryId, generateMemoryId } from "./id";
 import { createRepositories } from "../db/repositories";
 import {
   clearMemoryOperationJournal,
@@ -32,12 +33,77 @@ export interface AddMemoryInput {
   db: TraumaDatabase;
   importer?: MemoryImporter;
   backupQueue: MemoryBackupQueue;
+  idempotencyKey?: string;
   generateId?: () => string;
   now?: () => Date;
 }
 
-export async function addMemory(input: AddMemoryInput) {
+interface ActiveIdempotentAdd {
+  promise: ReturnType<typeof addMemoryWithId>;
+  requestUrl: string;
+}
+
+const idempotentAdds = new Map<string, ActiveIdempotentAdd>();
+
+export class AddMemoryIdempotencyConflictError extends Error {
+  constructor() {
+    super("Idempotency-Key was already used for a different URL");
+    this.name = "AddMemoryIdempotencyConflictError";
+  }
+}
+
+export function addMemory(input: AddMemoryInput) {
+  const id = input.idempotencyKey ?? (input.generateId ?? generateMemoryId)();
+  assertMemoryId(id);
+  if (input.idempotencyKey === undefined) {
+    return addMemoryWithId(input, id, false);
+  }
+
+  const reservationKey = `${input.config.databasePath}\0${id}`;
+  const active = idempotentAdds.get(reservationKey);
+  if (active !== undefined) {
+    if (active.requestUrl !== input.url) {
+      return Promise.reject(new AddMemoryIdempotencyConflictError());
+    }
+    return active.promise;
+  }
+
+  const reserved = addMemoryWithId(input, id, true).finally(() => {
+    if (idempotentAdds.get(reservationKey)?.promise === reserved) {
+      idempotentAdds.delete(reservationKey);
+    }
+  });
+  idempotentAdds.set(reservationKey, {
+    promise: reserved,
+    requestUrl: input.url,
+  });
+  return reserved;
+}
+
+async function addMemoryWithId(
+  input: AddMemoryInput,
+  id: string,
+  reuseExisting: boolean,
+) {
   const repositories = createRepositories(input.db);
+  const capturedAt = (input.now ?? (() => new Date()))();
+  if (reuseExisting) {
+    const reservation = await repositories.memories.reserveCreationIdempotency({
+      idempotencyKey: id,
+      requestUrl: input.url,
+      createdAt: capturedAt,
+    });
+    if (
+      reservation.status === "memory_id_exists" ||
+      reservation.requestUrl !== input.url
+    ) {
+      throw new AddMemoryIdempotencyConflictError();
+    }
+    const existing = await repositories.memories.findById(id);
+    if (existing !== undefined) {
+      return existing;
+    }
+  }
   await recoverInterruptedMemoryOperations({
     completeMissingDeletionBackup: async (deletion) => {
       await assertBackupEnvironmentReady({
@@ -52,13 +118,17 @@ export async function addMemory(input: AddMemoryInput) {
     config: input.config,
     memories: repositories.memories,
   });
+  if (reuseExisting) {
+    const recovered = await repositories.memories.findById(id);
+    if (recovered !== undefined) {
+      return recovered;
+    }
+  }
   await assertBackupEnvironmentReady({
     config: input.config,
     db: input.db,
   });
 
-  const id = (input.generateId ?? generateMemoryId)();
-  const capturedAt = (input.now ?? (() => new Date()))();
   const importer = input.importer ?? { importUrl };
   const imported = await importer.importUrl({ url: input.url });
   const markdown =
@@ -121,7 +191,11 @@ export async function addMemory(input: AddMemoryInput) {
     });
   } catch (error) {
     try {
-      if (contentWritten) {
+      if (
+        contentWritten ||
+        (error instanceof MemoryContentStoreError &&
+          error.code === "content_cleanup_failed")
+      ) {
         await deleteMemoryContent({
           config: { storePath: input.config.storePath },
           memoryId: id,

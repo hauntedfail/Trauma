@@ -27,6 +27,11 @@ import {
   recordBackupPushFailureAlert,
   toAlertDetails,
 } from "./environment";
+import {
+  getGitPathspecFileArgs,
+  withGitPathspecFile,
+} from "./git-pathspec";
+import { isInternalBackupStorePath } from "../store/internal-directories";
 
 export type BackupFailsafeAction =
   | "revert"
@@ -334,7 +339,10 @@ async function rewriteConfigPaths(input: {
   );
 }
 
-async function listFiles(directory: string): Promise<string[]> {
+async function listFiles(
+  directory: string,
+  relativeDirectory = "",
+): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -349,8 +357,14 @@ async function listFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of entries) {
     const child = join(directory, entry.name);
+    const relativeChild = relativeDirectory === ""
+      ? entry.name
+      : join(relativeDirectory, entry.name);
+    if (isInternalBackupStorePath(relativeChild)) {
+      continue;
+    }
     if (entry.isDirectory()) {
-      files.push(...(await listFiles(child)));
+      files.push(...(await listFiles(child, relativeChild)));
       continue;
     }
     if (entry.isFile()) {
@@ -415,24 +429,35 @@ async function commitMigratedFiles(
   const stagePaths = relativeFiles.map((file) =>
     resolveMigratedStagePath(config, file),
   );
-  await execFileAsync("git", ["add", "--", ...stagePaths], {
-    cwd: config.projectPath,
-    env: createGitCommandEnv(),
-  });
-
-  const hasStagedChanges = await hasStagedGitChanges(config.projectPath, stagePaths);
-  if (!hasStagedChanges) {
-    return;
-  }
-
-  await execFileAsync(
-    "git",
-    ["commit", "-m", "backup migrated memory content", "--", ...stagePaths],
-    {
+  await withGitPathspecFile(stagePaths, async (pathspecFile) => {
+    const pathspecArgs = getGitPathspecFileArgs(pathspecFile);
+    await execFileAsync("git", ["add", ...pathspecArgs], {
       cwd: config.projectPath,
       env: createGitCommandEnv(),
-    },
-  );
+    });
+
+    const hasStagedChanges = await hasStagedGitChanges(
+      config.projectPath,
+      stagePaths,
+    );
+    if (!hasStagedChanges) {
+      return;
+    }
+
+    await execFileAsync(
+      "git",
+      [
+        "commit",
+        "-m",
+        "backup migrated memory content",
+        ...pathspecArgs,
+      ],
+      {
+        cwd: config.projectPath,
+        env: createGitCommandEnv(),
+      },
+    );
+  });
 }
 
 async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
@@ -486,23 +511,17 @@ async function hasStagedGitChanges(
   projectPath: string,
   stagePaths: readonly string[],
 ) {
-  try {
-    await execFileAsync(
-      "git",
-      ["diff", "--cached", "--quiet", "--", ...stagePaths],
-      {
-        cwd: projectPath,
-        env: createGitCommandEnv(),
-      },
-    );
-    return false;
-  } catch (error) {
-    if (isProcessExitCode(error, 1)) {
-      return true;
-    }
-
-    throw error;
-  }
+  const result = await execFileAsync(
+    "git",
+    ["diff", "--cached", "--name-only", "-z"],
+    {
+      cwd: projectPath,
+      env: createGitCommandEnv(),
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  const stagedPaths = new Set(result.stdout.split("\0").filter(Boolean));
+  return stagePaths.some((path) => stagedPaths.has(path));
 }
 
 async function stampCurrentBackupLocation(
@@ -525,15 +544,6 @@ async function stampCurrentBackupLocation(
 }
 
 function isErrorWithCode(error: unknown, code: string) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === code
-  );
-}
-
-function isProcessExitCode(error: unknown, code: number) {
   return (
     typeof error === "object" &&
     error !== null &&

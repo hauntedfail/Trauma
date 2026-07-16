@@ -9,6 +9,7 @@ import type {
   PsychiatristStreamEventInput,
 } from "./types";
 import { BoundedCache } from "./bounded-cache";
+import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,20 +32,30 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   let written: PsychiatristStreamEvent<TData> | undefined;
   const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
   const next = previous.then(async () => {
-    const eventNumber = nextEventNumbersByPath.get(path) ??
-      await countExistingStreamEvents(path) + 1;
-    const event = {
-      ...projectedInput,
-      eventId: String(eventNumber).padStart(12, "0"),
-      timestamp: Date.now(),
-    } satisfies PsychiatristStreamEvent<TData>;
-    await mkdir(dirname(path), { recursive: true });
-    await appendJsonlRow(path, event);
-    nextEventNumbersByPath.set(path, eventNumber + 1);
-    if (input.publish !== false) {
-      publishStreamEvent(event);
-    }
-    written = event;
+    await withMemoryArtifactMutation(
+      {
+        memoryId: projectedInput.memoryId,
+        storePath: input.config.storePath,
+      },
+      async (reservation) => {
+        const eventNumber = nextEventNumbersByPath.get(path) ??
+          await countExistingStreamEvents(path) + 1;
+        const event = {
+          ...projectedInput,
+          eventId: String(eventNumber).padStart(12, "0"),
+          timestamp: Date.now(),
+        } satisfies PsychiatristStreamEvent<TData>;
+        reservation.assertWritable();
+        await mkdir(dirname(path), { recursive: true });
+        reservation.assertWritable();
+        await appendJsonlRow(path, event);
+        nextEventNumbersByPath.set(path, eventNumber + 1);
+        if (input.publish !== false) {
+          publishStreamEvent(event);
+        }
+        written = event;
+      },
+    );
   });
   const tracked = next.catch(() => undefined);
   appendQueuesByPath.set(path, tracked);

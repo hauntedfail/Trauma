@@ -129,6 +129,119 @@ describe("git backup runner", () => {
     ).toEqual([`store/${contentPath}`]);
   });
 
+  it("never stages internal operation recovery directories", async () => {
+    const root = await makeRoot("trauma-git-backup-internal-store-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const operationPath = `.operations/${memoryId}.json`;
+    const stagedDeletionPath = `.delete-staging/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await mkdir(join(storePath, ".operations"), { recursive: true });
+    await mkdir(join(storePath, ".delete-staging", memoryId), {
+      recursive: true,
+    });
+    await writeFile(join(storePath, contentPath), "# Canonical\n", "utf8");
+    await writeFile(join(storePath, operationPath), "{}\n", "utf8");
+    await writeFile(join(storePath, stagedDeletionPath), "# Staged\n", "utf8");
+    initializeGitRepository(projectPath);
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({
+        contentPaths: [contentPath, operationPath, stagedDeletionPath],
+      }),
+    });
+
+    expect(
+      git(projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`store/${contentPath}`]);
+    expect(git(projectPath, ["status", "--short"]).trim().split(/\r?\n/).sort())
+      .toEqual([
+        "?? store/.delete-staging/",
+        "?? store/.operations/",
+      ]);
+  });
+
+  it("uses bounded Git commands for a large Psychiatrist retry path set", async () => {
+    const root = await makeRoot("trauma-git-backup-scale-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const threadBase = `memories/${memoryId}/threads/scale-thread`;
+    const turnsDirectory = join(storePath, threadBase, "turns");
+    const streamsDirectory = join(storePath, threadBase, "streams");
+    await mkdir(turnsDirectory, { recursive: true });
+    await mkdir(streamsDirectory, { recursive: true });
+    initializeGitRepository(projectPath);
+
+    const itemCount = 192;
+    const addedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/turns/turn-${index.toString().padStart(4, "0")}.json`,
+    );
+    const deletedTrackedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/streams/stream-${index.toString().padStart(4, "0")}.jsonl`,
+    );
+    const missingUntrackedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/pairs/missing-${index.toString().padStart(4, "0")}/RESPONSE.md`,
+    );
+    await Promise.all(deletedTrackedPaths.map((path) =>
+      writeFile(join(storePath, path), "{}\n", "utf8")
+    ));
+    git(projectPath, ["add", "--", "store"]);
+    git(projectPath, ["commit", "-m", "seed tracked psychiatrist artifacts"]);
+    await Promise.all(deletedTrackedPaths.map((path) => rm(join(storePath, path))));
+    await Promise.all(addedPaths.map((path) =>
+      writeFile(join(storePath, path), "{}\n", "utf8")
+    ));
+
+    const commands: string[][] = [];
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({
+        contentPaths: [
+          ...addedPaths,
+          ...deletedTrackedPaths,
+          ...missingUntrackedPaths,
+        ],
+        reason: "psychiatrist_thread_update",
+      }),
+      observeGitCommand: (args) => commands.push([...args]),
+    });
+
+    expect(commands.map(([command]) => command)).toEqual([
+      "ls-files",
+      "add",
+      "diff",
+      "commit",
+    ]);
+    expect(Math.max(...commands.map((args) => args.length))).toBeLessThanOrEqual(6);
+    expect(commands.flat()).not.toContain(addedPaths[0]);
+    expect(commands.flat()).not.toContain(deletedTrackedPaths[0]);
+    expect(commands.flat()).not.toContain(missingUntrackedPaths[0]);
+
+    const committed = git(projectPath, [
+      "show",
+      "--no-renames",
+      "--name-status",
+      "--pretty=format:",
+      "HEAD",
+    ]).trim().split(/\r?\n/).filter(Boolean).sort();
+    expect(committed).toEqual([
+      ...addedPaths.map((path) => `A\tstore/${path}`),
+      ...deletedTrackedPaths.map((path) => `D\tstore/${path}`),
+    ].sort());
+    for (const path of missingUntrackedPaths) {
+      expect(committed).not.toContain(`A\tstore/${path}`);
+      expect(committed).not.toContain(`D\tstore/${path}`);
+    }
+  });
+
   it("stages deleted store content paths and creates a deletion backup commit", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");

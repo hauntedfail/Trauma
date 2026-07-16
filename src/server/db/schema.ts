@@ -106,6 +106,15 @@ export const memories = sqliteTable(
   ],
 );
 
+export const memoryCreationIdempotency = sqliteTable(
+  "memory_creation_idempotency",
+  {
+    idempotencyKey: text("idempotency_key").primaryKey(),
+    requestUrl: text("request_url").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+);
+
 export const tags = sqliteTable(
   "tags",
   {

@@ -4,6 +4,7 @@ import type { CodexReasoningEffort } from "../../server/translation/types";
 import type {
   CodexAuthDeleteResponse,
   CodexAuthStatusResponse,
+  CodexDeviceCodeCancelResponse,
   CodexDeviceCodeStartResponse,
 } from "../../server/settings/codex-auth";
 
@@ -106,18 +107,37 @@ export async function pollCodexAuthSetup(input: {
 } = {}): Promise<CodexAuthStatusResponse | undefined> {
   const intervalMs = input.intervalMs ?? 1_500;
   const maxAttempts = input.maxAttempts ?? 120;
+  let lastStatus: CodexAuthStatusResponse | undefined;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const ready = await waitForPollDelay(intervalMs, input.signal);
     if (!ready) {
       return undefined;
     }
     const status = await submitReadCodexAuth({ fetch: input.fetch });
+    lastStatus = status;
     if (status.status !== "login_started") {
       return status;
     }
   }
 
-  return undefined;
+  return lastStatus;
+}
+
+export async function submitCancelCodexAuthSetup(input: {
+  fetch?: FetchFunction;
+} = {}): Promise<CodexDeviceCodeCancelResponse> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(
+    "/api/settings/codex-auth/device-code/cancel",
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "failed to cancel Codex auth setup"),
+    );
+  }
+
+  return response.json() as Promise<CodexDeviceCodeCancelResponse>;
 }
 
 export async function submitDeleteOpenAiAuth(input: {

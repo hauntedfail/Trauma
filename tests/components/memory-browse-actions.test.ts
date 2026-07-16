@@ -32,6 +32,7 @@ const memory = {
 const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
 const searchBarSource = readFileSync("src/components/memories/MemorySearchBar.tsx", "utf8");
 const addMemoryFormSource = readFileSync("src/components/memories/AddMemoryForm.tsx", "utf8");
+const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
 
 describe("memory browse actions", () => {
   it("renders actions, read status, and attached taxonomy", () => {
@@ -402,8 +403,10 @@ describe("memory browse actions", () => {
   });
 
   it("uses global browse workspace revalidation after add-memory success", () => {
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace");
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace()");
+    expect(appShellSource).toContain("revalidateBrowseMemoryWorkspace");
+    expect(appShellSource).toContain(
+      "onCreationSettled: () => revalidateBrowseMemoryWorkspace()",
+    );
     expect(addMemoryFormSource).not.toContain("revalidateBrowseTaxonomy");
     expect(addMemoryFormSource).not.toContain("useLocation");
     expect(addMemoryFormSource).not.toContain("parseBrowseQuery(location.search)");

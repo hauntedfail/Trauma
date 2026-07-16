@@ -8,6 +8,7 @@ describe("add memory submission", () => {
 
     const result = await submitAddMemoryUrl({
       url: " https://example.com/article ",
+      idempotencyKey: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef111",
       fetch: async (input, init) => {
         requests.push(new Request(new URL(String(input), "http://localhost"), init));
 
@@ -30,10 +31,28 @@ describe("add memory submission", () => {
     expect(requests[0]?.method).toBe("POST");
     expect(Object.fromEntries(requests[0]?.headers.entries() ?? [])).toMatchObject({
       "content-type": "application/json",
+      "idempotency-key": "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef111",
     });
     expect(await requests[0]?.json()).toEqual({
       url: "https://example.com/article",
     });
+  });
+
+  it("preserves compatibility for callers without an idempotency key", async () => {
+    const requests: Request[] = [];
+
+    await submitAddMemoryUrl({
+      url: "https://example.com/legacy",
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(
+          JSON.stringify({ memory: { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef112" } }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    expect(requests[0]?.headers.has("idempotency-key")).toBe(false);
   });
 
   it("does not submit an empty URL", async () => {

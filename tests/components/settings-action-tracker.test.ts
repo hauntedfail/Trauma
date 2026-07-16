@@ -36,4 +36,15 @@ describe("createAsyncActionTracker", () => {
     tracker.finish(second);
     expect(tracker.isPending("auth")).toBe(false);
   });
+
+  it("keeps feedback generations independent across different actions", () => {
+    const tracker = createAsyncActionTracker<"language" | "auth">(
+      () => undefined,
+    );
+    const language = tracker.begin("language");
+    const auth = tracker.begin("auth");
+
+    expect(tracker.isLatestFeedback(language)).toBe(true);
+    expect(tracker.isLatestFeedback(auth)).toBe(true);
+  });
 });

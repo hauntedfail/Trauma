@@ -72,7 +72,10 @@ describe("popup shell", () => {
     expect(popupSource).toContain('event.key === "ArrowUp"');
     expect(popupSource).toContain('event.key === "Home"');
     expect(popupSource).toContain('event.key === "End"');
+    expect(popupSource).toContain('event.key !== "Tab" || !event.shiftKey');
     expect(popupSource).toContain('reason === "escape"');
+    expect(popupSource).toContain("panel.contains(event.relatedTarget)");
+    expect(popupSource).not.toContain("rootRef?.contains(event.relatedTarget)");
     expect(popupSource).toContain("<div ref={rootRef}");
     expect(popupSource).not.toContain("<span ref={rootRef}");
   });

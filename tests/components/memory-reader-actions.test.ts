@@ -615,6 +615,20 @@ describe("memory reader actions", () => {
     );
   });
 
+  it("owns one translation settings request at a time", () => {
+    expect(memoryReaderSource).toContain("translationSubmitPending");
+    expect(memoryReaderSource).toContain("translationRequestGeneration");
+    expect(memoryReaderSource).toContain(
+      "requestGeneration === translationRequestGeneration",
+    );
+    expect(memoryReaderSource).toContain(
+      "disabled={translationSubmitPending()}",
+    );
+    expect(memoryReaderSource).toContain(
+      "aria-busy={translationSubmitPending()}",
+    );
+  });
+
   it("keeps translation settings available when another target language is untranslated", () => {
     const html = renderReader({
       ...readyResult,

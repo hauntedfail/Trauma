@@ -272,6 +272,8 @@ function ReadyMemoryReader(props: {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [translationProgress, setTranslationProgress] =
     createSignal<TranslationProgressState>();
+  const [translationSubmitPending, setTranslationSubmitPending] =
+    createSignal(false);
   const [translationDialogOpen, setTranslationDialogOpen] = createSignal(false);
   const [translationDefaultLanguage, setTranslationDefaultLanguage] =
     createSignal<SupportedLanguageCode | "">(props.translationTargetLanguage ?? "");
@@ -296,6 +298,7 @@ function ReadyMemoryReader(props: {
   const [translationCatalogError, setTranslationCatalogError] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
   let translationEventSource: EventSource | undefined;
+  let translationRequestGeneration = 0;
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
   const closeSectionMenu = () => setSectionMenu(undefined);
@@ -364,6 +367,7 @@ function ReadyMemoryReader(props: {
 
   onCleanup(() => {
     readerGenerationGuard.invalidate();
+    translationRequestGeneration += 1;
     const activeTranslationEventSource = translationEventSource;
     translationEventSource = undefined;
     activeTranslationEventSource?.close();
@@ -791,6 +795,9 @@ function ReadyMemoryReader(props: {
     close: () => void,
   ): JSX.EventHandler<HTMLFormElement, SubmitEvent> => (event) => {
     event.preventDefault();
+    if (translationSubmitPending()) {
+      return;
+    }
     const langCode = translationFormLanguage();
     if (langCode === "") {
       return;
@@ -814,13 +821,19 @@ function ReadyMemoryReader(props: {
     const readerGeneration = captureReaderGeneration();
     const langCode = input.langCode;
     if (
+      translationSubmitPending() ||
       langCode === undefined ||
       !canStartTranslation(langCode) ||
       !isCurrentReaderGeneration(readerGeneration)
     ) {
       return;
     }
+    const requestGeneration = ++translationRequestGeneration;
+    const isCurrentTranslationRequest = (): boolean =>
+      requestGeneration === translationRequestGeneration &&
+      isCurrentReaderGeneration(readerGeneration);
 
+    setTranslationSubmitPending(true);
     setErrorMessage("");
     setTranslationProgress({
       eventUrl: "",
@@ -834,7 +847,7 @@ function ReadyMemoryReader(props: {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
-      if (!isCurrentReaderGeneration(readerGeneration)) {
+      if (!isCurrentTranslationRequest()) {
         return;
       }
 
@@ -850,7 +863,7 @@ function ReadyMemoryReader(props: {
         model: persistedModel,
         reasoningEffort: persistedReasoningEffort,
       });
-      if (!isCurrentReaderGeneration(readerGeneration)) {
+      if (!isCurrentTranslationRequest()) {
         return;
       }
       if (
@@ -883,7 +896,7 @@ function ReadyMemoryReader(props: {
         readerGeneration,
       );
     } catch (error) {
-      if (isCurrentReaderGeneration(readerGeneration)) {
+      if (isCurrentTranslationRequest()) {
         setTranslationProgress({
           eventUrl: "",
           jobId: "",
@@ -891,6 +904,10 @@ function ReadyMemoryReader(props: {
           preview: "",
           status: "failed",
         });
+      }
+    } finally {
+      if (requestGeneration === translationRequestGeneration) {
+        setTranslationSubmitPending(false);
       }
     }
   };
@@ -1138,9 +1155,9 @@ function ReadyMemoryReader(props: {
           <Show when={translationProgress()}>
             {(progress) => (
               <section
-                aria-live="polite"
+                aria-live={progress().status === "failed" ? "assertive" : "polite"}
                 class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev/50 px-4 py-3 text-sm font-bold text-trauma-text-secondary backdrop-blur"
-                role="status"
+                role={progress().status === "failed" ? "alert" : "status"}
               >
                 <div class="flex items-center gap-2 text-trauma-text-primary">
                   <CodexIcon size={16} />
@@ -1221,12 +1238,17 @@ function ReadyMemoryReader(props: {
                     )}
                   >
                     {({ close }) => (
-                      <form class="grid gap-3" onSubmit={submitTranslationDialog(close)}>
+                      <form
+                        aria-busy={translationSubmitPending()}
+                        class="grid gap-3"
+                        onSubmit={submitTranslationDialog(close)}
+                      >
                         <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
                           Language
                           <select
                             aria-label="Language"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormLanguage()}
                             onChange={(event) =>
                               setTranslationFormLanguage(
@@ -1249,6 +1271,7 @@ function ReadyMemoryReader(props: {
                           <select
                             aria-label="Model"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormModel()}
                             onChange={(event) =>
                               setTranslationFormModel(event.currentTarget.value)
@@ -1290,6 +1313,7 @@ function ReadyMemoryReader(props: {
                           <select
                             aria-label="Reasoning effort"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormEffort()}
                             onChange={(event) =>
                               setTranslationFormEffort(
@@ -1338,6 +1362,7 @@ function ReadyMemoryReader(props: {
                         <div class="flex justify-end gap-2">
                           <button
                             class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             type="button"
                             onClick={close}
                           >
@@ -1345,6 +1370,7 @@ function ReadyMemoryReader(props: {
                           </button>
                           <button
                             class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
+                            disabled={translationSubmitPending()}
                             type="submit"
                           >
                             Translate
@@ -1436,7 +1462,7 @@ function ReadyMemoryReader(props: {
           </Show>
           <Show when={errorMessage()}>
             {(message) => (
-              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="status">
+              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="alert">
                 {message()}
               </p>
             )}

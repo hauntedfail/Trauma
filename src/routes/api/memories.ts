@@ -7,9 +7,17 @@ import { initializeDatabase } from "~/server/db";
 import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import { validateImportUrl } from "~/server/importer";
 import { createRuntimeMemoryImporter } from "~/server/importer/runtime";
-import { addMemory } from "~/server/memories/add-memory";
+import {
+  AddMemoryIdempotencyConflictError,
+  addMemory,
+} from "~/server/memories/add-memory";
+import { isMemoryId } from "~/server/memories/id";
 
 export async function POST(event: APIEvent): Promise<Response> {
+  const idempotencyKey = readAddMemoryIdempotencyKey(event.request);
+  if (!idempotencyKey.ok) {
+    return json({ error: idempotencyKey.error }, { status: 400 });
+  }
   const importer = createRuntimeMemoryImporter();
   const payload = await parseAddMemoryPayloadInternal(event.request, {
     validateUrl: importer.validateUrl,
@@ -33,10 +41,16 @@ export async function POST(event: APIEvent): Promise<Response> {
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
       importer,
+      ...(idempotencyKey.value === undefined
+        ? {}
+        : { idempotencyKey: idempotencyKey.value }),
     });
 
     return json({ memory }, { status: 201 });
   } catch (error) {
+    if (error instanceof AddMemoryIdempotencyConflictError) {
+      return json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof BackupEnvironmentFailsafeError) {
       return json(
         {
@@ -63,6 +77,21 @@ interface ParseAddMemoryPayloadOptions {
 }
 
 const DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS = 10_000;
+
+function readAddMemoryIdempotencyKey(
+  request: Request,
+):
+  | { ok: true; value: string | undefined }
+  | { ok: false; error: string } {
+  const value = request.headers.get("idempotency-key");
+  if (value === null) {
+    return { ok: true, value: undefined };
+  }
+  if (!isMemoryId(value)) {
+    return { ok: false, error: "Idempotency-Key must be a UUID v7" };
+  }
+  return { ok: true, value };
+}
 
 export const parseAddMemoryPayload = parseAddMemoryPayloadInternal;
 

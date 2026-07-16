@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdirSync } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, opendir } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -19,6 +18,11 @@ import {
   redactOperationalError,
   recordBackupPushFailureAlert,
 } from "./environment";
+import {
+  getGitPathspecFileArgs,
+  withGitPathspecFile,
+} from "./git-pathspec";
+import { isInternalBackupStorePath } from "../store/internal-directories";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 import {
   getSourceFlashbackMetadataExportPath,
@@ -88,6 +92,7 @@ export interface GitMemoryBackupQueue extends DurableMemoryBackupQueue {
 export interface RunGitBackupJobInput {
   config: ResolvedTraumaConfig;
   job: MemoryBackupJob;
+  observeGitCommand?: (args: readonly string[]) => void;
 }
 
 export type GitBackupJobRunner = (input: RunGitBackupJobInput) => Promise<void>;
@@ -562,7 +567,12 @@ async function getRetryContentPaths(
       }),
     );
   }
-  paths.push(...getPsychiatristRetryContentPaths(config, backup.id));
+  for await (const path of iteratePsychiatristRetryContentPaths(
+    config,
+    backup.id,
+  )) {
+    paths.push(path);
+  }
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
@@ -610,64 +620,73 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function getPsychiatristRetryContentPaths(
+async function* iteratePsychiatristRetryContentPaths(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   memoryId: string,
-): string[] {
+): AsyncGenerator<string> {
   const threadsRoot = resolve(config.storePath, "memories", memoryId, "threads");
-  const threadIds = readDirectoryNames(threadsRoot);
-  const paths: string[] = [];
-  for (const threadId of threadIds) {
+  for await (const threadId of iterateDirectoryNames(threadsRoot)) {
     const threadBase = `memories/${memoryId}/threads/${threadId}`;
-    paths.push(
+    yield* [
       `${threadBase}/THREAD.json`,
       `${threadBase}/THREAD.md`,
       `${threadBase}/PAIRS.jsonl`,
-    );
-    const turnIds = readFileStemNames(resolve(threadsRoot, threadId, "turns"), ".json");
-    for (const turnId of turnIds) {
-      paths.push(`${threadBase}/turns/${turnId}.json`);
+    ];
+    for await (const turnId of iterateFileStemNames(
+      resolve(threadsRoot, threadId, "turns"),
+      ".json",
+    )) {
+      yield `${threadBase}/turns/${turnId}.json`;
     }
-    const streamIds = readFileStemNames(resolve(threadsRoot, threadId, "streams"), ".jsonl");
-    for (const streamId of streamIds) {
-      paths.push(`${threadBase}/streams/${streamId}.jsonl`);
+    for await (const streamId of iterateFileStemNames(
+      resolve(threadsRoot, threadId, "streams"),
+      ".jsonl",
+    )) {
+      yield `${threadBase}/streams/${streamId}.jsonl`;
     }
-    const pairIds = readDirectoryNames(resolve(threadsRoot, threadId, "pairs"));
-    for (const pairId of pairIds) {
+    for await (const pairId of iterateDirectoryNames(
+      resolve(threadsRoot, threadId, "pairs"),
+    )) {
       const pairBase = `${threadBase}/pairs/${pairId}`;
-      paths.push(
+      yield* [
         `${pairBase}/PROMPT.md`,
         `${pairBase}/CONTEXT.json`,
         `${pairBase}/RESPONSE.md`,
-      );
+      ];
     }
   }
-  return paths;
 }
 
-function readFileStemNames(path: string, extension: string): string[] {
+async function* iterateFileStemNames(
+  path: string,
+  extension: string,
+): AsyncGenerator<string> {
   try {
-    return readdirSync(path, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
-      .map((entry) => entry.name.slice(0, -extension.length))
-      .sort();
+    const directory = await opendir(path);
+    for await (const entry of directory) {
+      if (entry.isFile() && entry.name.endsWith(extension)) {
+        yield entry.name.slice(0, -extension.length);
+      }
+    }
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return [];
+      return;
     }
     throw error;
   }
 }
 
-function readDirectoryNames(path: string): string[] {
+async function* iterateDirectoryNames(path: string): AsyncGenerator<string> {
   try {
-    return readdirSync(path, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
+    const directory = await opendir(path);
+    for await (const entry of directory) {
+      if (entry.isDirectory()) {
+        yield entry.name;
+      }
+    }
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return [];
+      return;
     }
     throw error;
   }
@@ -699,37 +718,57 @@ export async function runGitBackupJob(
     throw new GitBackupError("git backup job must include at least one content path");
   }
 
-  const stagePaths = await resolveStagePaths(input.config, input.job.contentPaths);
+  const stagePaths = await resolveStagePaths(
+    input.config,
+    input.job.contentPaths,
+    input.observeGitCommand,
+  );
   if (stagePaths.length === 0) {
     return;
   }
 
-  await runGit(input.config.projectPath, ["add", "--", ...stagePaths]);
-  const diffResult = await runGit(input.config.projectPath, [
-    "diff",
-    "--cached",
-    "--quiet",
-    "--",
-    ...stagePaths,
-  ], [0, 1]);
-  if (diffResult.exitCode === 0) {
+  await withGitPathspecFile(stagePaths, async (pathspecFile) => {
+    const pathspecArgs = getGitPathspecFileArgs(pathspecFile);
+    await runGit(
+      input.config.projectPath,
+      ["add", ...pathspecArgs],
+      [0],
+      input.observeGitCommand,
+    );
+    const diffResult = await runGit(
+      input.config.projectPath,
+      ["diff", "--cached", "--name-only", "-z"],
+      [0],
+      input.observeGitCommand,
+    );
+    const targetedPaths = new Set(stagePaths);
+    const hasTargetedChanges = diffResult.stdout
+      .split("\0")
+      .filter(Boolean)
+      .some((path) => targetedPaths.has(path));
+    if (!hasTargetedChanges) {
+      if (input.config.backup.git.push) {
+        await pushGitBackup(input.config);
+      }
+      return;
+    }
+
+    await runGit(
+      input.config.projectPath,
+      [
+        "commit",
+        "-m",
+        formatCommitMessage(input.config.backup.git.commitMessageTemplate, input.job),
+        ...pathspecArgs,
+      ],
+      [0],
+      input.observeGitCommand,
+    );
+
     if (input.config.backup.git.push) {
       await pushGitBackup(input.config);
     }
-    return;
-  }
-
-  await runGit(input.config.projectPath, [
-    "commit",
-    "-m",
-    formatCommitMessage(input.config.backup.git.commitMessageTemplate, input.job),
-    "--",
-    ...stagePaths,
-  ]);
-
-  if (input.config.backup.git.push) {
-    await pushGitBackup(input.config);
-  }
+  });
 }
 
 export function createSerializedGitBackupRunner(
@@ -834,40 +873,83 @@ async function pushGitBackup(config: ResolvedTraumaConfig) {
 async function resolveStagePaths(
   config: ResolvedTraumaConfig,
   contentPaths: readonly string[],
+  observeGitCommand?: (args: readonly string[]) => void,
 ): Promise<string[]> {
-  const stagePaths: string[] = [];
+  const stagePaths = new Set<string>();
   for (const contentPath of contentPaths) {
     const stagePath = resolveStagePath(config, contentPath);
-    if (await shouldStagePath(config, stagePath)) {
-      stagePaths.push(stagePath);
+    if (stagePath !== null) {
+      stagePaths.add(stagePath);
     }
   }
-  return stagePaths;
+
+  const candidates = [...stagePaths];
+  const existing = new Set<string>();
+  const missing: string[] = [];
+  const accessBatchSize = 64;
+  for (let index = 0; index < candidates.length; index += accessBatchSize) {
+    const batch = candidates.slice(index, index + accessBatchSize);
+    const results = await Promise.all(batch.map(async (stagePath) => {
+      try {
+        await access(resolve(config.projectPath, stagePath));
+        return { exists: true, stagePath } as const;
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "ENOENT") {
+          throw error;
+        }
+        return { exists: false, stagePath } as const;
+      }
+    }));
+    for (const result of results) {
+      if (result.exists) {
+        existing.add(result.stagePath);
+      } else {
+        missing.push(result.stagePath);
+      }
+    }
+  }
+
+  if (missing.length === 0) {
+    return candidates;
+  }
+
+  const trackedResult = await runGit(
+    config.projectPath,
+    ["ls-files", "--no-sparse", "-z"],
+    [0],
+    observeGitCommand,
+  );
+  const trackedPaths = trackedResult.stdout.split("\0").filter(Boolean).sort();
+  const tracked = new Set(trackedPaths);
+  return candidates.filter((path) =>
+    existing.has(path) ||
+    tracked.has(path) ||
+    hasTrackedDescendant(trackedPaths, path)
+  );
 }
 
-async function shouldStagePath(
-  config: ResolvedTraumaConfig,
+function hasTrackedDescendant(
+  sortedTrackedPaths: readonly string[],
   stagePath: string,
-): Promise<boolean> {
-  try {
-    await access(resolve(config.projectPath, stagePath));
-    return true;
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "ENOENT") {
-      throw error;
+): boolean {
+  const prefix = `${stagePath}/`;
+  let low = 0;
+  let high = sortedTrackedPaths.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((sortedTrackedPaths[middle] ?? "") < prefix) {
+      low = middle + 1;
+    } else {
+      high = middle;
     }
   }
-
-  const tracked = await runGit(config.projectPath, [
-    "ls-files",
-    "--error-unmatch",
-    "--",
-    stagePath,
-  ], [0, 1]);
-  return tracked.exitCode === 0;
+  return sortedTrackedPaths[low]?.startsWith(prefix) ?? false;
 }
 
-function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {
+function resolveStagePath(
+  config: ResolvedTraumaConfig,
+  contentPath: string,
+): string | null {
   if (isAbsolute(contentPath)) {
     throw new GitBackupError(`git backup content path must be relative: ${contentPath}`);
   }
@@ -877,6 +959,13 @@ function resolveStagePath(config: ResolvedTraumaConfig, contentPath: string) {
     throw new GitBackupError(
       `git backup content path must stay under storePath: ${contentPath}`,
     );
+  }
+
+  const storeRelativePath = relative(config.storePath, absoluteContentPath)
+    .split(sep)
+    .join("/");
+  if (isInternalBackupStorePath(storeRelativePath)) {
+    return null;
   }
 
   if (!isInside(config.projectPath, absoluteContentPath)) {
@@ -897,11 +986,14 @@ async function runGit(
   cwd: string,
   args: string[],
   allowedExitCodes: readonly number[] = [0],
+  observeGitCommand?: (args: readonly string[]) => void,
 ) {
+  observeGitCommand?.(args);
   try {
     const result = await execFileAsync("git", args, {
       cwd,
       env: createGitCommandEnv(),
+      maxBuffer: 64 * 1024 * 1024,
     });
     return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {

@@ -36,6 +36,10 @@ import {
   getFlashbackMetadataExportPath,
   writeFlashbackMetadataExport,
 } from "./export";
+import {
+  withMemoryArtifactMutation,
+  type MemoryArtifactMutationReservation,
+} from "../memories/mutation-reservation";
 
 const CONTEXT_LIMIT = 80;
 
@@ -101,12 +105,16 @@ export async function toggleMemoryFlashback(
   input: ToggleMemoryFlashbackInput,
 ): Promise<ToggleMemoryFlashbackResult> {
   return withFlashbackMemoryLock(input.memoryId, () =>
-    toggleMemoryFlashbackUnlocked(input),
+    withMemoryArtifactMutation(
+      { memoryId: input.memoryId, storePath: input.config.storePath },
+      (reservation) => toggleMemoryFlashbackUnlocked(input, reservation),
+    ),
   );
 }
 
 async function toggleMemoryFlashbackUnlocked(
   input: ToggleMemoryFlashbackInput,
+  reservation: MemoryArtifactMutationReservation,
 ): Promise<ToggleMemoryFlashbackResult> {
   await assertBackupEnvironmentReady({
     config: input.config,
@@ -181,11 +189,13 @@ async function toggleMemoryFlashbackUnlocked(
     memoryId: input.memoryId,
     variant,
   });
+  reservation.assertWritable();
   await input.backupQueue.persistIntent({
     memoryId: input.memoryId,
     contentPaths: [intendedExportPath],
     reason: "flashback_update",
   });
+  reservation.assertWritable();
   await repositories.flashbacks.replaceForMemoryVariant({
     memoryId: input.memoryId,
     variant,
@@ -193,6 +203,7 @@ async function toggleMemoryFlashbackUnlocked(
   });
   let flashbackExportPath: string;
   try {
+    reservation.assertWritable();
     flashbackExportPath = await writeFlashbackMetadataExport({
       config: input.config,
       memoryId: input.memoryId,
@@ -200,6 +211,7 @@ async function toggleMemoryFlashbackUnlocked(
       flashbacks: nextFlashbacks,
     });
   } catch (error) {
+    reservation.assertWritable();
     await repositories.flashbacks.replaceForMemoryVariant({
       memoryId: input.memoryId,
       variant,
@@ -216,6 +228,7 @@ async function toggleMemoryFlashbackUnlocked(
         reason: "flashback_update",
       });
       if (enqueueResult.backupStatus === "queued") {
+        reservation.assertWritable();
         await repositories.memories.updateBackupStatus({
           id: input.memoryId,
           backupStatus: "queued",
@@ -224,11 +237,13 @@ async function toggleMemoryFlashbackUnlocked(
         });
       }
     } catch (error) {
+      reservation.assertWritable();
       await repositories.flashbacks.replaceForMemoryVariant({
         memoryId: input.memoryId,
         variant,
         flashbacks: previousFlashbacks,
       });
+      reservation.assertWritable();
       await restoreFlashbackExportSnapshot({
         config: input.config,
         snapshot: previousExport,

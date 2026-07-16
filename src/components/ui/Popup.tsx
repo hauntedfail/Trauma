@@ -128,16 +128,26 @@ export function Popup(props: PopupProps) {
           role={mode()}
           tabIndex={-1}
           onFocusOut={(event) => {
+            const panel = event.currentTarget;
             if (
               mode() === "menu" &&
               (!(event.relatedTarget instanceof Node) ||
-                rootRef?.contains(event.relatedTarget) !== true)
+                panel.contains(event.relatedTarget) !== true)
             ) {
-              closePopup(false);
+              queueMicrotask(() => {
+                if (open() && !panel.contains(document.activeElement)) {
+                  closePopup(false);
+                }
+              });
             }
           }}
           onKeyDown={(event) => {
             if (mode() === "menu") {
+              if (shouldReturnPopupMenuFocusOnBackwardTab(event)) {
+                event.preventDefault();
+                closePopup(true);
+                return;
+              }
               handlePopupMenuKeyDown(event);
             }
           }}
@@ -233,6 +243,21 @@ function handlePopupMenuKeyDown(event: KeyboardEvent): void {
   }
 
   focusPopupMenuItem(items, nextIndex);
+}
+
+function shouldReturnPopupMenuFocusOnBackwardTab(
+  event: KeyboardEvent,
+): boolean {
+  if (event.key !== "Tab" || !event.shiftKey) {
+    return false;
+  }
+
+  const panel = event.currentTarget;
+  if (!(panel instanceof HTMLDivElement)) {
+    return false;
+  }
+
+  return getPopupMenuItems(panel)[0] === document.activeElement;
 }
 
 function getPopupMenuItems(panel: HTMLDivElement): HTMLElement[] {

@@ -16,6 +16,7 @@ const MEMORY_BROWSE_PAGINATION_MIGRATION_FOLDER_MILLIS = 1779955000000;
 const SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS = 1784221790920;
 const MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS = 1784223792512;
 const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
+const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -27,6 +28,7 @@ describe("db foundation", () => {
       "flashbacks",
       "memories",
       "memoryCategories",
+      "memoryCreationIdempotency",
       "memoryTags",
       "moments",
       "openaiAuthCredentials",
@@ -262,6 +264,65 @@ describe("db foundation", () => {
     expect(readBundledMigrations()).toEqual(
       readMigrationFiles({ migrationsFolder: join(process.cwd(), "drizzle") }),
     );
+  });
+
+  it("upgrades an existing Bun SQLite database with durable creation identities", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            applyRuntimeMigrations(
+              sqlite,
+              migrations.filter(
+                (migration) => migration.folderMillis < ${MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS},
+              ),
+              "previous",
+            );
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301", "https://example.com/existing", "Existing", "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301/CONTENT.md", "success", "disabled", 1, 1);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+            sqlite.prepare("insert into memory_creation_idempotency (idempotency_key, request_url, created_at) values (?, ?, ?)")
+              .run("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef302", "https://example.com/new", 2);
+
+            process.stdout.write(JSON.stringify({
+              existingMemory: sqlite.prepare("select id from memories where id = ?")
+                .get("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301"),
+              reservation: sqlite.prepare("select idempotency_key as idempotencyKey, request_url as requestUrl from memory_creation_idempotency")
+                .get(),
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              migrationRecorded: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      existingMemory: { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301" },
+      reservation: {
+        idempotencyKey: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef302",
+        requestUrl: "https://example.com/new",
+      },
+      foreignKeyViolations: [],
+      migrationRecorded: 1,
+    });
   });
 
   it("records bundled migration rows with SQLite integer primary keys", () => {

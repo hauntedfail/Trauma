@@ -17,10 +17,12 @@ import {
   type ExtractionStatus,
 } from "../memory-status";
 import { resolveMemoryContentPath } from "../store/memory-content";
+import {
+  MEMORY_DELETE_STAGING_DIRECTORY,
+  MEMORY_OPERATION_JOURNAL_DIRECTORY,
+} from "../store/internal-directories";
 
 const OPERATION_JOURNAL_VERSION = 1;
-const OPERATIONS_DIRECTORY = ".operations";
-const DELETE_STAGING_DIRECTORY = ".delete-staging";
 
 export interface MemoryCreationJournal {
   version: 1;
@@ -78,7 +80,7 @@ export function resolveMemoryDeletionStagingPath(input: {
   uniqueSuffix?: string;
 }): { absolutePath: string; relativePath: string } {
   resolveMemoryContentPath({ storePath: input.storePath }, input.memoryId);
-  const relativePath = `${DELETE_STAGING_DIRECTORY}/${input.memoryId}-${
+  const relativePath = `${MEMORY_DELETE_STAGING_DIRECTORY}/${input.memoryId}-${
     input.uniqueSuffix ?? `${Date.now()}-${randomUUID()}`
   }`;
   return {
@@ -132,7 +134,10 @@ export async function recoverInterruptedMemoryOperations(
 async function recoverInterruptedMemoryOperationsUnlocked(
   input: MemoryOperationRecoveryInput,
 ): Promise<number> {
-  const directory = resolve(input.config.storePath, OPERATIONS_DIRECTORY);
+  const directory = resolve(
+    input.config.storePath,
+    MEMORY_OPERATION_JOURNAL_DIRECTORY,
+  );
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -175,14 +180,26 @@ async function recoverCreation(
   input: MemoryOperationRecoveryInput,
   journal: MemoryCreationJournal,
 ): Promise<void> {
-  if (await input.memories.findById(journal.memory.id) !== undefined) {
-    return;
-  }
   const content = resolveMemoryContentPath(
     { storePath: input.config.storePath },
     journal.memory.id,
   );
-  if (!(await pathExists(content.absolutePath))) {
+  const existing = await input.memories.findById(journal.memory.id);
+  const contentExists = await pathExists(content.absolutePath);
+  if (existing !== undefined) {
+    if (existing.contentPath !== journal.memory.contentPath) {
+      throw new Error(
+        "memory creation recovery found a row with a non-owning content path",
+      );
+    }
+    if (!contentExists) {
+      throw new Error(
+        "memory creation recovery found a row but canonical content is missing",
+      );
+    }
+    return;
+  }
+  if (!contentExists) {
     return;
   }
   await input.memories.create({
@@ -307,7 +324,11 @@ async function syncDirectory(path: string): Promise<void> {
 
 function resolveJournalPath(storePath: string, memoryId: string): string {
   resolveMemoryContentPath({ storePath }, memoryId);
-  return resolve(storePath, OPERATIONS_DIRECTORY, `${memoryId}.json`);
+  return resolve(
+    storePath,
+    MEMORY_OPERATION_JOURNAL_DIRECTORY,
+    `${memoryId}.json`,
+  );
 }
 
 function parseJournal(
@@ -386,7 +407,10 @@ function validateDeletionJournal(
   if (value.contentPath !== expected.relativePath) {
     throw new Error("memory deletion journal content path is not owned by its memory");
   }
-  const stagingRoot = resolve(config.storePath, DELETE_STAGING_DIRECTORY);
+  const stagingRoot = resolve(
+    config.storePath,
+    MEMORY_DELETE_STAGING_DIRECTORY,
+  );
   const stagingPath = resolve(config.storePath, value.stagingPath);
   if (!isInside(stagingRoot, stagingPath)) {
     throw new Error(

@@ -7,6 +7,7 @@ import {
   sourceFlashbackVariant,
   type FlashbackVariant,
 } from "./variant";
+import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
 
 export const FLASHBACK_METADATA_EXPORT_FILENAME = "FLASHBACKS.json";
 
@@ -57,6 +58,21 @@ export function getTranslatedFlashbackMetadataExportPath(input: {
 }
 
 export async function writeFlashbackMetadataExport(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  memoryId: string;
+  variant?: FlashbackVariant;
+  flashbacks: readonly FlashbackMetadataExportRow[];
+}): Promise<string> {
+  return withMemoryArtifactMutation(
+    { memoryId: input.memoryId, storePath: input.config.storePath },
+    async (reservation) => {
+      reservation.assertWritable();
+      return writeFlashbackMetadataExportReserved(input);
+    },
+  );
+}
+
+async function writeFlashbackMetadataExportReserved(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   memoryId: string;
   variant?: FlashbackVariant;

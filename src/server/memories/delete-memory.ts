@@ -23,6 +23,10 @@ import {
   recoverInterruptedMemoryOperations,
   resolveMemoryDeletionStagingPath,
 } from "./operation-journal";
+import {
+  withMemoryDeletionReservation,
+  type MemoryDeletionReservation,
+} from "./mutation-reservation";
 
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
@@ -53,14 +57,18 @@ type DeleteMemoryRepositories = {
   >;
 };
 
-export async function deleteMemory(input: {
+type DeleteMemoryInput = {
   backupQueue?: MemoryBackupQueue;
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
   fileSystem?: Partial<DeleteMemoryFileSystem>;
   memoryId: string;
   repositories?: DeleteMemoryRepositories;
-}): Promise<DeleteMemoryResult> {
+};
+
+export async function deleteMemory(
+  input: DeleteMemoryInput,
+): Promise<DeleteMemoryResult> {
   const databaseRepositories = createRepositories(input.db);
   await recoverInterruptedMemoryOperations({
     completeMissingDeletionBackup: async (deletion) => {
@@ -76,6 +84,21 @@ export async function deleteMemory(input: {
     config: input.config,
     memories: databaseRepositories.memories,
   });
+  return withMemoryDeletionReservation(
+    { memoryId: input.memoryId, storePath: input.config.storePath },
+    (reservation) => deleteMemoryReserved(
+      input,
+      databaseRepositories,
+      reservation,
+    ),
+  );
+}
+
+async function deleteMemoryReserved(
+  input: DeleteMemoryInput,
+  databaseRepositories: TraumaRepositories,
+  reservation: MemoryDeletionReservation,
+): Promise<DeleteMemoryResult> {
   const repositories = input.repositories ?? databaseRepositories;
   const fileSystem = {
     access,
@@ -154,6 +177,7 @@ export async function deleteMemory(input: {
   let staged = false;
   try {
     await fileSystem.mkdir(dirname(paths.stagingDir), { recursive: true });
+    reservation.assertExclusive();
     await fileSystem.rename(paths.contentDir, paths.stagingDir);
     staged = true;
   } catch (error) {
@@ -199,6 +223,7 @@ export async function deleteMemory(input: {
   }
 
   try {
+    reservation.assertExclusive();
     const deleted = await repositories.memories.deleteMemoryRecord(input.memoryId);
     if (!deleted) {
       const restoreError = staged

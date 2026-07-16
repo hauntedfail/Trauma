@@ -692,14 +692,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               Close
             </button>
           </header>
-          <p
-            aria-atomic="true"
-            aria-live="polite"
-            class="sr-only"
-            role="status"
-          >
-            {liveStatusMessage()}
-          </p>
+          <Show when={errorMessage() === ""}>
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              class="sr-only"
+              role="status"
+            >
+              {liveStatusMessage()}
+            </p>
+          </Show>
           <div class="grid gap-2 overflow-y-auto pr-1 text-sm" data-psychiatrist-transcript>
             <Show when={threadLoadState() === "loading"}>
               <p class="text-trauma-text-secondary">Loading Psychiatrist thread…</p>
@@ -777,7 +779,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
             />
             <Show when={errorMessage() !== ""}>
               <div class="grid gap-2">
-                <p class="text-xs text-trauma-danger">{errorMessage()}</p>
+                <p class="text-xs text-trauma-danger" role="alert">
+                  {errorMessage()}
+                </p>
                 <Show when={webSourceRetryPrompt() !== ""}>
                   <button
                     type="button"
