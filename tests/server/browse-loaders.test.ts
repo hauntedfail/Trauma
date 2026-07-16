@@ -689,12 +689,20 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(
-      loadBrowseMemoryPage({
-        ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
-        limit: 1,
-      }),
-    ).resolves.toMatchObject({
+    const boundedPage = await loadBrowseMemoryPage({
+      ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
+      limit: 1,
+    });
+    expect(boundedPage).toMatchObject({
+      memories: [],
+      nextCursor: expect.objectContaining({ id: expect.any(String) }),
+    });
+
+    await expect(loadBrowseMemoryPage({
+      cursor: boundedPage.nextCursor,
+      limit: 1,
+      query: parseBrowseQuery("?q=needle"),
+    })).resolves.toMatchObject({
       memories: [{ id: olderMemoryId, flashbacks: [] }],
       nextCursor: null,
     });

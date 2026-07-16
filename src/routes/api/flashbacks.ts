@@ -12,6 +12,7 @@ import {
   type FlashbackToggleOperation,
   type ToggleMemoryFlashbackResult,
 } from "~/server/flashbacks/toggle";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import {
   MemoryContentStoreError,
   parseMemoryContentFixture,
@@ -34,7 +35,7 @@ type FlashbackTogglePayloadResult =
     operation: FlashbackToggleOperation;
     selection: FlashbackSelectionInput;
   }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 const SELECTION_KEYS = [
   "text",
@@ -47,7 +48,7 @@ const SELECTION_KEYS = [
 export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseFlashbackTogglePayloadInternal(event.request);
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -170,12 +171,11 @@ export const parseFlashbackTogglePayload = parseFlashbackTogglePayloadInternal;
 async function parseFlashbackTogglePayloadInternal(
   request: Request,
 ): Promise<FlashbackTogglePayloadResult> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

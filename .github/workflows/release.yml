@@ -52,6 +52,10 @@ jobs:
         if: steps.release_tag.outputs.valid == 'true'
         run: bun install --frozen-lockfile
 
+      - name: Audit production dependencies
+        if: steps.release_tag.outputs.valid == 'true'
+        run: bun run audit
+
       - name: Run baseline verification
         if: steps.release_tag.outputs.valid == 'true'
         run: bun run verify

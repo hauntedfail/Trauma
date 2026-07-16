@@ -59,21 +59,32 @@ export async function handleTranslationJobEventsRequest(
   const heartbeatIntervalMs = input.heartbeatIntervalMs ?? 20_000;
   const readSnapshot = input.readTranslationJobSnapshot ??
     readTranslationJobSnapshot;
+  let cancelStream: (() => void) | undefined;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let unsubscribe: (() => void) | undefined;
-      const close = () => {
+      const cleanup = (): boolean => {
         if (closed) {
-          return;
+          return false;
         }
         closed = true;
         if (heartbeat !== undefined) {
           clearInterval(heartbeat);
         }
         unsubscribe?.();
+        event.request.signal.removeEventListener("abort", close);
+        return true;
+      };
+      const close = () => {
+        if (!cleanup()) {
+          return;
+        }
         controller.close();
+      };
+      cancelStream = () => {
+        cleanup();
       };
       const send = (message: string) => {
         if (closed) {
@@ -81,6 +92,12 @@ export async function handleTranslationJobEventsRequest(
         }
         controller.enqueue(encoder.encode(message));
       };
+      event.request.signal.addEventListener("abort", close, { once: true });
+      if (event.request.signal.aborted) {
+        close();
+        return;
+      }
+
       const subscription = eventBus.subscribeWithReplay(
         jobId,
         (translationEvent) => {
@@ -105,7 +122,15 @@ export async function handleTranslationJobEventsRequest(
         return;
       }
 
+      if (event.request.signal.aborted) {
+        close();
+        return;
+      }
       const refreshedSnapshot = await readSnapshot({ jobId });
+      if (closed || event.request.signal.aborted) {
+        close();
+        return;
+      }
       if (refreshedSnapshot === null) {
         close();
         return;
@@ -119,7 +144,9 @@ export async function handleTranslationJobEventsRequest(
       }
 
       heartbeat = setInterval(() => send(": keep-alive\n\n"), heartbeatIntervalMs);
-      event.request.signal.addEventListener("abort", close, { once: true });
+    },
+    cancel() {
+      cancelStream?.();
     },
   });
 

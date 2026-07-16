@@ -7,9 +7,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CODEX_WIRE_MAX_FRAME_BYTES,
+  CODEX_WIRE_MAX_MESSAGE_BYTES,
+  CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES,
   type CodexAppServerEvent,
   CodexAppServerClient,
   CodexAppServerError,
+  WebSocketFrameDecoder,
   parseCodexAppServerEndpoint,
 } from "../../../src/server/translation/codex-app-server";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
@@ -37,6 +41,35 @@ afterEach(async () => {
 });
 
 describe("Codex app-server endpoint parsing", () => {
+  it("rejects oversized WebSocket frame declarations before buffering payloads", () => {
+    const decoder = new WebSocketFrameDecoder(() => undefined);
+    const header = Buffer.alloc(10);
+    header[0] = 0x81;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(CODEX_WIRE_MAX_FRAME_BYTES + 1), 2);
+
+    expect(() => decoder.push(header)).toThrowError(
+      /WebSocket frame was too large/u,
+    );
+  });
+
+  it("caps aggregate fragmented WebSocket messages", () => {
+    const decoder = new WebSocketFrameDecoder(() => undefined);
+    const firstSize = Math.floor(CODEX_WIRE_MAX_MESSAGE_BYTES / 2) + 1;
+    const secondSize = CODEX_WIRE_MAX_MESSAGE_BYTES - firstSize + 1;
+    decoder.push(encodeServerWebSocketPayloadFrame({
+      fin: false,
+      opcode: 0x1,
+      payload: Buffer.alloc(firstSize, 0x61),
+    }));
+
+    expect(() => decoder.push(encodeServerWebSocketPayloadFrame({
+      fin: true,
+      opcode: 0x0,
+      payload: Buffer.alloc(secondSize, 0x62),
+    }))).toThrowError(/WebSocket message was too large/u);
+  });
+
   it("accepts explicitly configured Unix sockets", () => {
     expect(parseCodexAppServerEndpoint("unix:///tmp/trauma-codex.sock"))
       .toEqual({
@@ -196,6 +229,27 @@ describe("Codex app-server endpoint parsing", () => {
 
       await expect(client.checkAuth()).rejects.toMatchObject({
         code: "app_server_unavailable",
+      });
+      await waitFor(() => server.activeSocketCount() === 0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects oversized WebSocket upgrade headers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-upgrade-large-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startOversizedUpgradeHeaderServer(socketPath);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "app_server_protocol_error",
       });
       await waitFor(() => server.activeSocketCount() === 0);
     } finally {
@@ -974,6 +1028,33 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,unsafe",
+    "http://example.com/device",
+    "https://user:secret@example.com/device",
+  ])("rejects unsafe device verification URL %s", async (verificationUrl) => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-auth-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      deviceVerificationUrl: verificationUrl,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.startDeviceCodeLogin()).rejects.toMatchObject({
+        code: "app_server_unavailable",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("treats a returned account as authenticated even when OpenAI auth is required", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-account-"));
     tempRoots.push(root);
@@ -1460,6 +1541,39 @@ async function startRejectingUpgradeServer(socketPath: string): Promise<{
   };
 }
 
+async function startOversizedUpgradeHeaderServer(socketPath: string): Promise<{
+  activeSocketCount: () => number;
+  close: () => Promise<void>;
+}> {
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.once("data", () => {
+      socket.write([
+        "HTTP/1.1 101 Switching Protocols",
+        `X-Oversized: ${"a".repeat(CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES)}`,
+        "",
+        "",
+      ].join("\r\n"));
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return {
+    activeSocketCount: () => sockets.size,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
 function handleClientMessage(
   socket: net.Socket,
   receivedMethods: string[],
@@ -1510,7 +1624,8 @@ function handleClientMessage(
         result: {
           loginId: "login-1",
           userCode: "ABCD-EFGH",
-          verificationUrl: "https://example.com/device",
+          verificationUrl:
+            options.deviceVerificationUrl ?? "https://example.com/device",
         },
       });
       if (options.authNotificationsAfterLogin === true) {
@@ -1863,6 +1978,7 @@ interface FakeAppServerOptions {
   conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   conversationWebSourceRequired?: boolean;
   controlFrames?: string[];
+  deviceVerificationUrl?: string;
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
   omitTurnStartResponseTurnId?: boolean;
@@ -1977,15 +2093,39 @@ function encodeServerWebSocketFrame(input: {
   opcode: number;
   text: string;
 }): Buffer {
-  const payload = Buffer.from(input.text, "utf8");
+  return encodeServerWebSocketPayloadFrame({
+    fin: input.fin,
+    opcode: input.opcode,
+    payload: Buffer.from(input.text, "utf8"),
+  });
+}
+
+function encodeServerWebSocketPayloadFrame(input: {
+  fin: boolean;
+  opcode: number;
+  payload: Buffer;
+}): Buffer {
+  const { payload } = input;
   const first = (input.fin ? 0x80 : 0) | input.opcode;
   if (payload.length < 126) {
     return Buffer.concat([Buffer.from([first, payload.length]), payload]);
   }
-  return Buffer.concat([
-    Buffer.from([first, 126, (payload.length >> 8) & 0xff, payload.length & 0xff]),
-    payload,
-  ]);
+  if (payload.length <= 0xffff) {
+    return Buffer.concat([
+      Buffer.from([
+        first,
+        126,
+        (payload.length >> 8) & 0xff,
+        payload.length & 0xff,
+      ]),
+      payload,
+    ]);
+  }
+  const header = Buffer.alloc(10);
+  header[0] = first;
+  header[1] = 127;
+  header.writeBigUInt64BE(BigInt(payload.length), 2);
+  return Buffer.concat([header, payload]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

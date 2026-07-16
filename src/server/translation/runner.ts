@@ -18,6 +18,7 @@ import { createTranslationChunks } from "./chunker";
 import {
   CodexAppServerClient,
   CodexAppServerError,
+  safeCodexAppServerErrorMessage,
   type TranslationClient,
 } from "./codex-app-server";
 import {
@@ -276,18 +277,27 @@ export async function startTranslationJob(
     }
     let job;
     try {
-      job = await connection.repositories.translations.createTranslationJob({
-        chunkCount: chunks.length,
-        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
-        jobId,
-        langCode,
-        memoryId: input.memoryId,
-        model: selection.model,
-        now,
-        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
-        reasoningEffort: selection.reasoningEffort,
-        sourceHash: source.sourceHash,
-      });
+      job = await connection.repositories.translations.createTranslationJobWithChunks(
+        {
+          chunkCount: chunks.length,
+          chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+          jobId,
+          langCode,
+          memoryId: input.memoryId,
+          model: selection.model,
+          now,
+          promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+          reasoningEffort: selection.reasoningEffort,
+          sourceHash: source.sourceHash,
+        },
+        chunks.map((chunk) => ({
+          blockIds: chunk.blockIds,
+          chunkIndex: chunk.chunkIndex,
+          now,
+          sourceChunkHash: chunk.sourceChunkHash,
+          status: "pending",
+        })),
+      );
     } catch (error) {
       const racedActive = isTranslationActiveUniquenessError(error)
         ? await connection.repositories.translations.findActiveTranslationJob(
@@ -305,16 +315,6 @@ export async function startTranslationJob(
       assertReusableActiveJob(racedActive);
       return createActiveTranslationResult(racedActive, input.memoryId, langCode);
     }
-    await connection.repositories.translations.insertTranslationChunks(
-      jobId,
-      chunks.map((chunk) => ({
-        blockIds: chunk.blockIds,
-        chunkIndex: chunk.chunkIndex,
-        now,
-        sourceChunkHash: chunk.sourceChunkHash,
-        status: "pending",
-      })),
-    );
     translationEventBus.emit({
       data: { chunk_count: chunks.length },
       jobId,
@@ -459,13 +459,16 @@ export async function runTranslationJob(
       memoryId: job.memoryId,
       source,
     });
+    const persistedChunksByIndex = new Map(
+      (await connection.repositories.translations.getTranslationChunks(jobId))
+        .map((chunk) => [chunk.chunkIndex, chunk] as const),
+    );
     for (const chunk of runtimeChunks) {
       if (await isCancellationRequested(connection.repositories, jobId)) {
         await cancelJob(connection.repositories, job);
         return;
       }
-      const record = (await connection.repositories.translations.getTranslationChunks(jobId))
-        .find((candidate) => candidate.chunkIndex === chunk.chunkIndex);
+      const record = persistedChunksByIndex.get(chunk.chunkIndex);
       if (record?.status === "complete" || record?.status === "purged") {
         continue;
       }
@@ -1155,7 +1158,10 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
   if (error instanceof CodexAppServerError) {
     return {
       code: error.code,
-      message: error.message,
+      message: safeCodexAppServerErrorMessage(
+        error,
+        "Translation failed.",
+      ),
       action: codexErrorAction(error.code),
     };
   }
@@ -1183,7 +1189,7 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
   }
   return {
     code: "unknown",
-    message: error instanceof Error ? error.message : "Translation failed.",
+    message: "Translation failed.",
     action: "retry",
   };
 }
@@ -1217,7 +1223,7 @@ function mapStartError(error: unknown): Error {
   if (error instanceof CodexAppServerError) {
     return new TranslationApiError(
       error.code,
-      error.message,
+      safeCodexAppServerErrorMessage(error, "Translation failed."),
       codexErrorAction(error.code),
     );
   }

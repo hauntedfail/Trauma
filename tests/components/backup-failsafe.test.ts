@@ -13,14 +13,7 @@ const alert = {
   kind: "backup_path_drift",
   severity: "critical",
   message: "Backup location changed",
-  previousProjectPath: "/tmp/old-data",
-  previousStorePath: "/tmp/old-data/storage",
-  currentProjectPath: "/tmp/new-data",
-  currentStorePath: "/tmp/new-data/storage",
-  gitRemote: "origin",
-  gitRemoteUrl: null,
-  gitBranch: "main",
-  error: null,
+  availableActions: ["revert", "migrate"],
   createdAt: "2026-05-13T00:00:00.000Z",
   updatedAt: "2026-05-13T00:00:00.000Z",
 } satisfies BackupFailsafeAlertView;
@@ -32,8 +25,7 @@ describe("backup failsafe banner", () => {
     );
 
     expect(html).toContain("Backup location changed");
-    expect(html).toContain("/tmp/old-data");
-    expect(html).toContain("/tmp/new-data");
+    expect(html).not.toContain("/tmp/");
     expect(html).toContain("Revert config");
     expect(html).toContain("Migrate backup");
     expect(html).toContain("bg-red");
@@ -47,9 +39,7 @@ describe("backup failsafe banner", () => {
           ...alert,
           kind: "backup_push_failed",
           message: "Backup push failed",
-          previousProjectPath: null,
-          previousStorePath: null,
-          error: "remote unavailable",
+          availableActions: ["migrate"],
         },
       }),
     );
@@ -66,10 +56,7 @@ describe("backup failsafe banner", () => {
           ...alert,
           kind: "backup_content_inconsistent",
           message: "Backup content is inconsistent",
-          previousProjectPath: null,
-          previousStorePath: null,
-          error:
-            "successful backup content is missing or untracked: memoryId=memory-1, reason=missing_file",
+          availableActions: ["delete-missing-record"],
         },
       }),
     );
@@ -90,10 +77,7 @@ describe("backup failsafe banner", () => {
           ...alert,
           kind: "backup_content_inconsistent",
           message: "Backup content is inconsistent",
-          previousProjectPath: null,
-          previousStorePath: null,
-          error:
-            "successful backup content is missing or untracked: memoryId=memory-1, reason=untracked_file",
+          availableActions: [],
         },
       }),
     );
@@ -107,8 +91,7 @@ describe("backup failsafe banner", () => {
       createComponent(BackupFailsafeBanner, {
         alert: {
           ...alert,
-          previousProjectPath: null,
-          previousStorePath: null,
+          availableActions: ["migrate"],
         },
       }),
     );

@@ -599,6 +599,241 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
+  it("serializes concurrent Moment path creates and crossed anchor moves", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const firstConnection = initializeDatabase(config);
+        const secondConnection = initializeDatabase(config);
+
+        try {
+          firstConnection.sqlite.run("PRAGMA busy_timeout = 5000");
+          secondConnection.sqlite.run("PRAGMA busy_timeout = 5000");
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f107";
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const later = new Date("2026-05-10T02:00:00.000Z");
+          await firstConnection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/concurrent-moment",
+            title: "Concurrent Moment Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const [first, second] = await Promise.all([
+            firstConnection.repositories.moments.create({
+              id: "moment-concurrent-first",
+              memoryId,
+              sectionAnchor: "first-anchor",
+              sectionTitle: "First title",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 10,
+              contentHash: "first-hash",
+              createdAt: now,
+              updatedAt: now,
+            }),
+            secondConnection.repositories.moments.create({
+              id: "moment-concurrent-second",
+              memoryId,
+              sectionAnchor: "second-anchor",
+              sectionTitle: "Second title",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 12,
+              contentHash: "second-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+          ]);
+
+          const crossedMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f108";
+          await firstConnection.repositories.memories.create({
+            id: crossedMemoryId,
+            url: "https://example.com/crossed-moment",
+            title: "Crossed Moment Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${crossedMemoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await firstConnection.repositories.moments.create({
+            id: "moment-cross-owner-one",
+            memoryId: crossedMemoryId,
+            sectionAnchor: "cross-anchor-one",
+            sectionTitle: "Cross one",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: 0,
+            sectionEndOffset: 10,
+            contentHash: "cross-one-hash",
+            createdAt: now,
+            updatedAt: now,
+          });
+          await firstConnection.repositories.moments.create({
+            id: "moment-cross-owner-two",
+            memoryId: crossedMemoryId,
+            sectionAnchor: "cross-anchor-two",
+            sectionTitle: "Cross two",
+            sectionLevel: 2,
+            sectionPath: "2/1",
+            sectionStartOffset: 20,
+            sectionEndOffset: 30,
+            contentHash: "cross-two-hash",
+            createdAt: now,
+            updatedAt: now,
+          });
+          const [crossedFirst, crossedSecond] = await Promise.all([
+            firstConnection.repositories.moments.create({
+              id: "moment-cross-request-one",
+              memoryId: crossedMemoryId,
+              sectionAnchor: "cross-anchor-two",
+              sectionTitle: "Cross one current",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 12,
+              contentHash: "cross-one-current-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+            secondConnection.repositories.moments.create({
+              id: "moment-cross-request-two",
+              memoryId: crossedMemoryId,
+              sectionAnchor: "cross-anchor-one",
+              sectionTitle: "Cross two current",
+              sectionLevel: 2,
+              sectionPath: "2/1",
+              sectionStartOffset: 20,
+              sectionEndOffset: 32,
+              contentHash: "cross-two-current-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+          ]);
+
+          process.stdout.write(JSON.stringify({
+            first,
+            second,
+            rows: firstConnection.sqlite
+              .prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath, content_hash as contentHash from moments")
+              .all()
+              .filter((row) => row.id.startsWith("moment-concurrent")),
+            crossedFirst,
+            crossedSecond,
+            crossedRows: firstConnection.sqlite
+              .prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath, content_hash as contentHash from moments where memory_id = ? order by section_path")
+              .all(crossedMemoryId),
+          }));
+        } finally {
+          secondConnection.close();
+          firstConnection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      first: {
+        alreadyExists: false,
+        moment: {
+          id: "moment-concurrent-first",
+          sectionAnchor: "first-anchor",
+        },
+      },
+      second: {
+        alreadyExists: true,
+        moment: {
+          id: "moment-concurrent-first",
+          sectionAnchor: "second-anchor",
+          sectionTitle: "Second title",
+          sectionPath: "1/1",
+          contentHash: "second-hash",
+        },
+      },
+      rows: [
+        {
+          id: "moment-concurrent-first",
+          sectionAnchor: "second-anchor",
+          sectionTitle: "Second title",
+          sectionPath: "1/1",
+          contentHash: "second-hash",
+        },
+      ],
+      crossedFirst: {
+        alreadyExists: true,
+        moment: {
+          id: "moment-cross-owner-one",
+          sectionAnchor: "cross-anchor-two",
+          sectionPath: "1/1",
+        },
+      },
+      crossedSecond: {
+        alreadyExists: false,
+        moment: {
+          id: "moment-cross-request-two",
+          sectionAnchor: "cross-anchor-one",
+          sectionPath: "2/1",
+        },
+      },
+      crossedRows: [
+        {
+          id: "moment-cross-owner-one",
+          sectionAnchor: "cross-anchor-two",
+          sectionTitle: "Cross one current",
+          sectionPath: "1/1",
+          contentHash: "cross-one-current-hash",
+        },
+        {
+          id: "moment-cross-request-two",
+          sectionAnchor: "cross-anchor-one",
+          sectionTitle: "Cross two current",
+          sectionPath: "2/1",
+          contentHash: "cross-two-current-hash",
+        },
+      ],
+    });
+  });
+
   it("updates stale Moment anchor rows before treating them as existing", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(
@@ -845,11 +1080,12 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
-  it("uses insert-ignore semantics for duplicate Moment anchors", () => {
+  it("uses the Moment path identity inside an immediate transaction", () => {
     expect(repositorySource).toContain(".onConflictDoNothing({");
     expect(repositorySource).toContain(
-      "target: [schema.moments.memoryId, schema.moments.sectionAnchor]",
+      "target: [schema.moments.memoryId, schema.moments.sectionPath]",
     );
+    expect(repositorySource).toContain('{ behavior: "immediate" }');
   });
 
   it("keeps reader aggregates scoped to metadata and active-variant relations", () => {

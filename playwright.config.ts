@@ -19,6 +19,7 @@ export default defineConfig({
       PORT: String(port),
       TRAUMA_BROWSE_FIXTURES: "1",
       TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
+      TRAUMA_E2E_IMPORT_FIXTURES: "1",
       TRAUMA_HMR_PORT: String(hmrBasePort),
     },
     reuseExistingServer: !process.env.CI,

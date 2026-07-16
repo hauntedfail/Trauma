@@ -22,6 +22,7 @@ import {
   type BrowseQuery,
 } from "../../components/memories/browse-data";
 import { normalizeBrowseLimit } from "../browse/limits";
+import { collectFilteredCursorPage } from "../browse/filtered-page";
 
 const MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS = 20;
 
@@ -139,53 +140,24 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   repositoryInput: ListMemoryBrowsePageInput;
 }): Promise<MemoryBrowsePageResult> {
   const limit = normalizeBrowseLimit(input.repositoryInput.limit);
-  const rows: MemoryBrowsePageRow[] = [];
-  let cursor = input.repositoryInput.cursor;
-  let nextCursor: MemoryBrowsePageResult["nextCursor"] = null;
-  let rounds = 0;
-
-  while (rows.length < limit) {
-    rounds += 1;
-    const page = await input.repositories.memories.listForBrowsePage({
-      ...input.repositoryInput,
-      cursor,
-      limit: limit - rows.length,
-    });
-
-    if (page.rows.length === 0) {
-      nextCursor = null;
-      break;
-    }
-
-    rows.push(
-      ...(await filterPageRowsByRenderableFlashbacks({
+  return collectFilteredCursorPage({
+    cursor: input.repositoryInput.cursor,
+    filterRows: (rows: MemoryBrowsePageRow[]) =>
+      filterPageRowsByRenderableFlashbacks({
         config: input.config,
         query: input.query,
         repositories: input.repositories,
-        rows: page.rows,
-      })),
-    );
-
-    if (rows.length >= limit) {
-      nextCursor = page.nextCursor;
-      break;
-    }
-
-    nextCursor = page.nextCursor;
-    if (page.nextCursor === null) {
-      break;
-    }
-    if (
-      rows.length > 0 &&
-      rounds >= MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS
-    ) {
-      break;
-    }
-
-    cursor = page.nextCursor;
-  }
-
-  return { rows, nextCursor };
+        rows,
+      }),
+    limit,
+    loadPage: ({ cursor, limit: pageLimit }) =>
+      input.repositories.memories.listForBrowsePage({
+        ...input.repositoryInput,
+        cursor,
+        limit: pageLimit,
+      }),
+    maxFetchRounds: MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS,
+  });
 }
 
 function shouldApplyRenderableFlashbackBrowseFilters(query: BrowseQuery): boolean {

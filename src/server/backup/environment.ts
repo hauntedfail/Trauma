@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, readdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -20,7 +21,7 @@ export type BackupFailsafeAlertKind =
   | "backup_repository_missing"
   | "backup_push_failed";
 
-export interface BackupFailsafeAlertView {
+export interface BackupFailsafeAlertDetails {
   id: string;
   kind: BackupFailsafeAlertKind;
   severity: "critical";
@@ -37,9 +38,25 @@ export interface BackupFailsafeAlertView {
   updatedAt: string;
 }
 
+export type BackupFailsafeRecoveryAction =
+  | "revert"
+  | "migrate"
+  | "delete-missing-record";
+
+/** Browser-safe projection. Operator paths and diagnostics stay server-side. */
+export interface BackupFailsafeAlertView {
+  id: string;
+  kind: BackupFailsafeAlertKind;
+  severity: "critical";
+  message: string;
+  availableActions: BackupFailsafeRecoveryAction[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type BackupEnvironmentResult =
-  | { ok: true; alert?: BackupFailsafeAlertView }
-  | { ok: false; alert: BackupFailsafeAlertView };
+  | { ok: true; alert?: BackupFailsafeAlertDetails }
+  | { ok: false; alert: BackupFailsafeAlertDetails };
 
 export interface EnsureBackupEnvironmentInput {
   config: ResolvedTraumaConfig;
@@ -50,6 +67,7 @@ export interface EnsureBackupEnvironmentInput {
 const execFileAsync = promisify(execFile);
 const STAMP_ID = "default";
 const ALERT_ID = "active";
+const LEGACY_REDACTED_REMOTE_IDENTITY = "redacted:migration-0016";
 
 export async function ensureBackupEnvironment(
   input: EnsureBackupEnvironmentInput,
@@ -73,7 +91,8 @@ export async function ensureBackupEnvironment(
   const gitIdentityMatches =
     stamp !== undefined &&
     stamp.gitRemote === input.config.backup.git.remote &&
-    stamp.gitRemoteUrl === currentGitRemoteUrl &&
+    (stamp.gitRemoteUrl === currentGitRemoteUrl ||
+      stamp.gitRemoteUrl === LEGACY_REDACTED_REMOTE_IDENTITY) &&
     stamp.gitBranch === input.config.backup.git.branch;
 
   if (stamp === undefined && hasMemoryData) {
@@ -148,7 +167,7 @@ export async function ensureBackupEnvironment(
 
   return {
     ok: true,
-    alert: existingAlert === undefined ? undefined : toAlertView(existingAlert),
+    alert: existingAlert === undefined ? undefined : toAlertDetails(existingAlert),
   };
 }
 
@@ -157,7 +176,10 @@ export async function assertBackupEnvironmentReady(
 ): Promise<void> {
   const result = await ensureBackupEnvironment(input);
   if (!result.ok) {
-    throw new BackupEnvironmentFailsafeError(result.alert.message, result.alert);
+    throw new BackupEnvironmentFailsafeError(
+      result.alert.message,
+      toPublicAlertView(result.alert),
+    );
   }
 }
 
@@ -165,7 +187,9 @@ export async function getBackupFailsafeStatus(
   input: EnsureBackupEnvironmentInput,
 ): Promise<{ alert: BackupFailsafeAlertView | null }> {
   const result = await ensureBackupEnvironment(input);
-  return { alert: result.alert ?? null };
+  return {
+    alert: result.alert === undefined ? null : toPublicAlertView(result.alert),
+  };
 }
 
 export async function assertBackupRepositoryRoot(
@@ -206,11 +230,11 @@ export async function recordBackupPushFailureAlert(
       gitRemote: config.backup.git.remote,
       gitRemoteUrl: remoteUrl,
       gitBranch: config.backup.git.branch,
-      error,
+      error: redactOperationalError(error),
       createdAt: now,
       updatedAt: now,
     });
-    console.warn(formatPushFailureWarning(toAlertView(alert)));
+    console.warn(formatPushFailureWarning(toAlertDetails(alert)));
   });
 }
 
@@ -258,7 +282,7 @@ async function createAndReportPathAlert(input: {
     createdAt: input.now,
     updatedAt: input.now,
   });
-  const view = toAlertView(alert);
+  const view = toAlertDetails(alert);
   console.warn(formatPathDriftWarning(view, input.config.configFilePath));
   return { ok: false, alert: view };
 }
@@ -286,7 +310,7 @@ async function createAndReportRepositoryAlert(input: {
     createdAt: input.now,
     updatedAt: input.now,
   });
-  const view = toAlertView(alert);
+  const view = toAlertDetails(alert);
   console.warn(formatRepositoryWarning(view, input.config.configFilePath));
   return { ok: false, alert: view };
 }
@@ -314,7 +338,7 @@ async function createAndReportContentAlert(input: {
     createdAt: input.now,
     updatedAt: input.now,
   });
-  const view = toAlertView(alert);
+  const view = toAlertDetails(alert);
   console.warn(formatContentIntegrityWarning(view, input.config.configFilePath));
   return { ok: false, alert: view };
 }
@@ -479,7 +503,7 @@ async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
       config.backup.git.remote,
     ]);
     const remoteUrl = result.stdout.trim();
-    return remoteUrl === "" ? null : remoteUrl;
+    return remoteUrl === "" ? null : fingerprintGitRemote(remoteUrl);
   } catch {
     return null;
   }
@@ -513,7 +537,9 @@ async function withBackupConnection<T>(
   }
 }
 
-export function toAlertView(alert: BackupFailsafeAlert): BackupFailsafeAlertView {
+export function toAlertDetails(
+  alert: BackupFailsafeAlert,
+): BackupFailsafeAlertDetails {
   return {
     ...alert,
     kind: alert.kind,
@@ -523,8 +549,37 @@ export function toAlertView(alert: BackupFailsafeAlert): BackupFailsafeAlertView
   };
 }
 
+export function toPublicAlertView(
+  alert: BackupFailsafeAlertDetails,
+): BackupFailsafeAlertView {
+  const availableActions: BackupFailsafeRecoveryAction[] = [];
+  if (alert.kind === "backup_path_drift") {
+    if (
+      alert.previousProjectPath !== null &&
+      alert.previousStorePath !== null
+    ) {
+      availableActions.push("revert");
+    }
+    availableActions.push("migrate");
+  } else if (alert.kind === "backup_push_failed") {
+    availableActions.push("migrate");
+  } else if (isMissingContentAlert(alert)) {
+    availableActions.push("delete-missing-record");
+  }
+
+  return {
+    id: alert.id,
+    kind: alert.kind,
+    severity: alert.severity,
+    message: alert.message,
+    availableActions,
+    createdAt: alert.createdAt,
+    updatedAt: alert.updatedAt,
+  };
+}
+
 export function formatPathDriftWarning(
-  alert: BackupFailsafeAlertView,
+  alert: BackupFailsafeAlertDetails,
   configPath: string,
 ) {
   return [
@@ -547,7 +602,7 @@ export function formatPathDriftWarning(
 }
 
 function formatContentIntegrityWarning(
-  alert: BackupFailsafeAlertView,
+  alert: BackupFailsafeAlertDetails,
   configPath: string,
 ) {
   const lines = [
@@ -574,11 +629,14 @@ function formatContentIntegrityWarning(
   return lines.join("\n");
 }
 
-function isMissingContentAlert(alert: BackupFailsafeAlertView) {
+function isMissingContentAlert(alert: BackupFailsafeAlertDetails) {
   return alert.error?.includes("reason=missing_file") ?? false;
 }
 
-function formatRepositoryWarning(alert: BackupFailsafeAlertView, configPath: string) {
+function formatRepositoryWarning(
+  alert: BackupFailsafeAlertDetails,
+  configPath: string,
+) {
   return [
     "Backup repository is not initialized",
     "",
@@ -591,7 +649,7 @@ function formatRepositoryWarning(alert: BackupFailsafeAlertView, configPath: str
   ].join("\n");
 }
 
-function formatPushFailureWarning(alert: BackupFailsafeAlertView) {
+function formatPushFailureWarning(alert: BackupFailsafeAlertDetails) {
   return [
     "Backup push failed",
     "",
@@ -603,11 +661,25 @@ function formatPushFailureWarning(alert: BackupFailsafeAlertView) {
     "",
     "Your memory content remains committed locally. Fix the remote repository and retry backup push.",
     "",
-    alert.gitRemoteUrl === null
-      ? `git -C ${alert.currentProjectPath} remote get-url ${alert.gitRemote}`
-      : `git -C ${alert.currentProjectPath} remote set-url ${alert.gitRemote} ${alert.gitRemoteUrl}`,
-    `git -C ${alert.currentProjectPath} push ${alert.gitRemote} HEAD:${alert.gitBranch}`,
+    `git -C ${shellQuote(alert.currentProjectPath)} remote get-url ${shellQuote(alert.gitRemote)}`,
+    `git -C ${shellQuote(alert.currentProjectPath)} push ${shellQuote(alert.gitRemote)} ${shellQuote(`HEAD:${alert.gitBranch}`)}`,
   ].join("\n");
+}
+
+function fingerprintGitRemote(remoteUrl: string) {
+  return `sha256:${createHash("sha256").update(remoteUrl).digest("hex")}`;
+}
+
+export function redactOperationalError(error: string) {
+  return error
+    .slice(0, 4_096)
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1[redacted]@")
+    .replace(/\b(Bearer\s+)[^\s]+/giu, "$1[redacted]")
+    .replace(/\b(token|password|secret|authorization)=([^\s&]+)/giu, "$1=[redacted]");
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function formatDateTime(value: Date | number) {

@@ -204,10 +204,10 @@ describe("browser import API route", () => {
       error: "Backup location changed",
       backupFailsafe: {
         kind: "backup_path_drift",
-        currentProjectPath: join(root, "new-data"),
-        currentStorePath: join(root, "new-data/storage"),
+        availableActions: ["revert", "migrate"],
       },
     });
+    expect(JSON.stringify(body)).not.toContain(join(root, "new-data"));
   });
 });
 

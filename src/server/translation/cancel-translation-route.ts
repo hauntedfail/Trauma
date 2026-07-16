@@ -4,6 +4,7 @@ import { loadRuntimeTraumaConfig } from "../config";
 import { initializeDatabase, type TraumaDatabaseConnection } from "../db";
 import type { TranslationJobRecord } from "../db/repositories";
 import { formatConfigError, jsonResponse } from "../http/json";
+import { guardMutationRequest } from "../http/mutation-request";
 import {
   type EmitTranslationEventInput,
   translationEventBus,
@@ -52,6 +53,11 @@ export async function handleCancelTranslationRequest(
     openConnection?: () => CancelTranslationConnection;
   } = {},
 ): Promise<Response> {
+  const guard = guardMutationRequest(event.request);
+  if (!guard.ok) {
+    return jsonResponse({ error: guard.error }, { status: guard.status });
+  }
+
   const jobId = event.params.jobId?.trim();
   if (jobId === undefined || jobId === "") {
     return jsonResponse(

@@ -2,12 +2,13 @@ import type { APIEvent } from "@solidjs/start/server";
 
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
 
 export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseNamePayload(event.request);
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -37,15 +38,16 @@ export async function POST(event: APIEvent): Promise<Response> {
   }
 }
 
-type NamePayload = { ok: true; name: string } | { ok: false; error: string };
+type NamePayload =
+  | { ok: true; name: string }
+  | { ok: false; error: string; status?: number };
 
 async function parseNamePayload(request: Request): Promise<NamePayload> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

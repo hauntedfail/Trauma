@@ -225,6 +225,10 @@ export const moments = sqliteTable(
       table.memoryId,
       table.sectionAnchor,
     ),
+    uniqueIndex("moments_memory_section_path_unique").on(
+      table.memoryId,
+      table.sectionPath,
+    ),
     index("moments_memory_id_idx").on(table.memoryId),
     index("moments_created_at_idx").on(table.createdAt),
     check(

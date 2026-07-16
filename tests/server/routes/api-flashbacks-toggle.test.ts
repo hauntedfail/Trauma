@@ -183,10 +183,11 @@ describe("flashbacks API route", () => {
       error: "Backup location changed",
       backupFailsafe: {
         kind: "backup_path_drift",
-        currentProjectPath: config.projectPath,
-        currentStorePath: config.storePath,
+        availableActions: ["revert", "migrate"],
       },
     });
+    expect(JSON.stringify(body)).not.toContain(config.projectPath);
+    expect(JSON.stringify(body)).not.toContain(config.storePath);
     expect(await readFile(join(config.storePath, "memories", memoryId, "CONTENT.md"), "utf8"))
       .not.toContain("<mark data-flashback-id");
   });

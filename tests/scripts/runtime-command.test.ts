@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 interface PackageJson {
+  overrides?: Record<string, string>;
   scripts: Record<string, string>;
 }
 
@@ -32,6 +33,13 @@ describe("runtime command contract", () => {
   it("runs the smoke-check Vinxi child process through Bun runtime", () => {
     expect(devSmokeScript).toContain('"--bun",');
     expect(devSmokeScript).toContain('"x", "vinxi", "dev"');
+  });
+
+  it("keeps esbuild on each toolchain's compatible release line", () => {
+    expect(packageJson.overrides).not.toHaveProperty("esbuild");
+    expect(packageJson.scripts.audit).toBe(
+      "bun audit --ignore GHSA-67mh-4wv8-2f99 --ignore GHSA-g7r4-m6w7-qqqr",
+    );
   });
 
   it("documents operator-facing environment variables in .env.example", () => {

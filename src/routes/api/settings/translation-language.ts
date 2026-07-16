@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { formatConfigError, jsonResponse } from "~/server/http/json";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import {
   UnsupportedTranslationLanguageError,
   updateTranslationTargetLanguage,
@@ -8,12 +9,15 @@ import {
 
 type TranslationLanguagePayload =
   | { ok: true; language: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export async function PATCH(event: APIEvent): Promise<Response> {
   const payload = await parseTranslationLanguagePayload(event.request);
   if (!payload.ok) {
-    return jsonResponse({ error: payload.error }, { status: 400 });
+    return jsonResponse(
+      { error: payload.error },
+      { status: payload.status ?? 400 },
+    );
   }
 
   try {
@@ -36,12 +40,11 @@ export async function PATCH(event: APIEvent): Promise<Response> {
 async function parseTranslationLanguagePayload(
   request: Request,
 ): Promise<TranslationLanguagePayload> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

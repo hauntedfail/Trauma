@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { APIEvent } from "@solidjs/start/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSendPsychiatristMessageHandler } from "../../../src/server/psychiatrist/message-route";
 import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychiatrist/cancel-route";
@@ -31,6 +31,7 @@ import { initializeDatabase } from "../../../src/server/db";
 import {
   createReadPsychiatristThreadHandler,
   createStartPsychiatristThreadHandler,
+  reconcileThreadForResponse,
 } from "../../../src/server/psychiatrist/thread-route";
 import { PsychiatristContextError } from "../../../src/server/psychiatrist/context";
 import { writeMemoryContent } from "../../../src/server/store";
@@ -61,6 +62,35 @@ const EXTRA_TURN_IDS = [
 describe("Psychiatrist thread API routes", () => {
   afterEach(() => {
     activePsychiatristTurns.clear();
+  });
+
+  it("reconciles an unchanged thread generation only once", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-reconcile-cache-"));
+    const thread = { manifest: manifest(), pairs: [] };
+    const reconcile = vi.fn(async () => false);
+    const reloadThread = vi.fn(async () => thread);
+
+    await reconcileThreadForResponse(
+      { config: { storePath }, reloadThread, thread },
+      { reconcile },
+    );
+    await reconcileThreadForResponse(
+      { config: { storePath }, reloadThread, thread },
+      { reconcile },
+    );
+
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(reloadThread).not.toHaveBeenCalled();
+
+    const updatedThread = {
+      ...thread,
+      manifest: { ...thread.manifest, updatedAt: "2026-06-01T00:00:01.000Z" },
+    };
+    await reconcileThreadForResponse(
+      { config: { storePath }, reloadThread, thread: updatedThread },
+      { reconcile },
+    );
+    expect(reconcile).toHaveBeenCalledTimes(2);
   });
 
   it("creates a source thread and returns safe reader-facing JSON", async () => {

@@ -1,5 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 
 import {
   loadRuntimeTraumaConfig,
@@ -19,6 +20,7 @@ import {
   PsychiatristContextError,
 } from "./context";
 import { activePsychiatristTurns } from "./active-turns";
+import { BoundedCache } from "./bounded-cache";
 import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
@@ -37,6 +39,9 @@ type BuildContext = typeof buildPsychiatristMemoryContext;
 type CreateThread = typeof createPsychiatristThread;
 type FindLatestThread = typeof findLatestPsychiatristThread;
 type LoadThreadForMemory = typeof loadPsychiatristThreadForMemory;
+type ReconcileInactiveTurns = typeof reconcileInactivePsychiatristTurns;
+
+const reconciledThreadVersions = new BoundedCache<string, string>(256);
 
 type ThreadPayload =
   | { ok: true; langCode?: string; resumeLatest: boolean }
@@ -219,7 +224,7 @@ export async function handleReadPsychiatristThreadRequest(
   }
 }
 
-async function reconcileThreadForResponse(input: {
+export async function reconcileThreadForResponse(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   memoryId?: string;
   reloadThread: () => Promise<{
@@ -230,7 +235,9 @@ async function reconcileThreadForResponse(input: {
     manifest: PsychiatristThreadManifest;
     pairs: PsychiatristThreadPair[];
   };
-}): Promise<{
+}, options: {
+  reconcile?: ReconcileInactiveTurns;
+} = {}): Promise<{
   manifest: PsychiatristThreadManifest;
   pairs: PsychiatristThreadPair[];
 }> {
@@ -239,15 +246,54 @@ async function reconcileThreadForResponse(input: {
   if (activeTurn === undefined && activePsychiatristTurns.hasActiveOrReservedThread(threadId)) {
     return input.thread;
   }
-  const changed = await reconcileInactivePsychiatristTurns({
+  const cacheKey = `${resolve(input.config.storePath)}:${threadId}`;
+  const version = reconciliationVersion(input.thread, activeTurn?.turnId);
+  if (reconciledThreadVersions.get(cacheKey) === version) {
+    return input.thread;
+  }
+
+  const changed = await (options.reconcile ?? reconcileInactivePsychiatristTurns)({
     activeTurnIds: activeTurn === undefined ? [] : [activeTurn.turnId],
     config: input.config,
     ...(input.memoryId === undefined ? {} : { memoryId: input.memoryId }),
     threadId,
   });
-  return changed
+  const reconciled = changed
     ? input.reloadThread()
     : input.thread;
+  const result = await reconciled;
+  const currentActiveTurn = activePsychiatristTurns.getByThreadId(threadId);
+  if (
+    currentActiveTurn !== undefined ||
+    !activePsychiatristTurns.hasActiveOrReservedThread(threadId)
+  ) {
+    reconciledThreadVersions.set(
+      cacheKey,
+      reconciliationVersion(result, currentActiveTurn?.turnId),
+    );
+  }
+  return result;
+}
+
+function reconciliationVersion(
+  thread: {
+    manifest: PsychiatristThreadManifest;
+    pairs: PsychiatristThreadPair[];
+  },
+  activeTurnId: string | undefined,
+): string {
+  const pairVersions = thread.pairs.map((pair) => [
+    pair.pairId,
+    pair.turnId,
+    pair.status,
+    pair.assistant?.completedAt ?? "",
+    pair.retryTurnId ?? "",
+  ].join(":"));
+  return [
+    thread.manifest.updatedAt,
+    activeTurnId ?? "idle",
+    ...pairVersions,
+  ].join("|");
 }
 
 async function parseThreadPayload(request: Request): Promise<ThreadPayload> {

@@ -97,6 +97,10 @@ import {
   submitReadCodexModels,
 } from "../settings/settings-submit";
 import { revalidateSettingsState } from "../settings/settings-loader";
+import {
+  createReaderGenerationGuard,
+  type ReaderGenerationSnapshot,
+} from "./reader-generation";
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -213,6 +217,21 @@ function ReadyMemoryReader(props: {
   let sectionMenuRef: ReaderMenuElement;
   let sectionLongPressTimer: number | undefined;
   const navigate = props.navigate ?? useNavigate();
+  const readerGenerationGuard = createReaderGenerationGuard({
+    langCode: props.result.content.langCode,
+    memoryId: props.result.memory.id,
+  });
+  const captureReaderGeneration = (): ReaderGenerationSnapshot =>
+    readerGenerationGuard.activate({
+      langCode: props.result.content.langCode,
+      memoryId: props.result.memory.id,
+    });
+  const isCurrentReaderGeneration = (
+    snapshot: ReaderGenerationSnapshot,
+  ): boolean =>
+    readerGenerationGuard.isCurrent(snapshot) &&
+    props.result.memory.id === snapshot.memoryId &&
+    props.result.content.langCode === snapshot.langCode;
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
   const readerContent = createMemo(() =>
@@ -297,7 +316,10 @@ function ReadyMemoryReader(props: {
     }
   });
   createEffect(() => {
-    props.result.memory.id;
+    readerGenerationGuard.activate({
+      langCode: props.result.content.langCode,
+      memoryId: props.result.memory.id,
+    });
     setCategories([...props.result.memory.categories]);
     setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
@@ -306,8 +328,9 @@ function ReadyMemoryReader(props: {
     setPendingSelectionKey("");
     setErrorMessage("");
     setTranslationProgress(undefined);
-    translationEventSource?.close();
+    const activeTranslationEventSource = translationEventSource;
     translationEventSource = undefined;
+    activeTranslationEventSource?.close();
     closeReaderMenus();
   });
   createEffect(() => {
@@ -327,7 +350,10 @@ function ReadyMemoryReader(props: {
   });
 
   onCleanup(() => {
-    translationEventSource?.close();
+    readerGenerationGuard.invalidate();
+    const activeTranslationEventSource = translationEventSource;
+    translationEventSource = undefined;
+    activeTranslationEventSource?.close();
     setRightRailContent(undefined);
   });
 
@@ -404,15 +430,22 @@ function ReadyMemoryReader(props: {
   };
   const commitSelectionMenu = () => {
     const menu = selectionMenu();
-    if (menu === undefined || bodyContentRef === undefined) {
+    const container = bodyContentRef;
+    const readerGeneration = captureReaderGeneration();
+    if (
+      menu === undefined ||
+      container === undefined ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
 
     closeSelectionMenu();
     void toggleReaderSelection({
-      container: bodyContentRef,
-      langCode: props.result.content.langCode,
-      memoryId: props.result.memory.id,
+      container,
+      isCurrent: () => isCurrentReaderGeneration(readerGeneration),
+      langCode: readerGeneration.langCode,
+      memoryId: readerGeneration.memoryId,
       pendingSelectionKey: pendingSelectionKey(),
       selection: menu.selection,
       setErrorMessage,
@@ -420,8 +453,8 @@ function ReadyMemoryReader(props: {
       onFlashbacksChanged: setCurrentFlashbacks,
       onSuccess: () =>
         revalidateAfterFlashbackToggle(
-          props.result.memory.id,
-          props.result.content.langCode,
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
         ),
     });
   };
@@ -452,55 +485,131 @@ function ReadyMemoryReader(props: {
     openSelectionMenu();
   };
   const deleteMemory = async (memoryId: string): Promise<void> => {
-    await deleteReaderMemory({
-      langCode: props.result.content.langCode,
-      memoryId,
-      navigate,
-    });
+    const readerGeneration = captureReaderGeneration();
+    if (
+      memoryId !== readerGeneration.memoryId ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
+      return;
+    }
+
+    try {
+      await deleteReaderMemory({
+        isCurrent: () => isCurrentReaderGeneration(readerGeneration),
+        langCode: readerGeneration.langCode,
+        memoryId: readerGeneration.memoryId,
+        navigate: (path) => {
+          if (isCurrentReaderGeneration(readerGeneration)) {
+            navigate(path);
+          }
+        },
+        revalidate: async (deletedMemoryId, langCode) => {
+          if (
+            !isCurrentReaderGeneration(readerGeneration) ||
+            deletedMemoryId !== readerGeneration.memoryId ||
+            langCode !== readerGeneration.langCode
+          ) {
+            return;
+          }
+
+          await revalidateAfterMemoryDeletion(deletedMemoryId, langCode);
+        },
+      });
+    } catch (error) {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        throw error;
+      }
+    }
   };
   const attachCategory = async (input: {
     memoryId: string;
     name: string;
   }): Promise<void> => {
-    const category = await attachReaderCategoryByName(input);
-    setCategories((current) => mergeReaderTaxonomyItem(current, category));
-    void Promise.all([
-      revalidateBrowseMemoryWorkspace(),
-      revalidateReaderMemory(input.memoryId, props.result.content.langCode),
-    ]);
+    const readerGeneration = captureReaderGeneration();
+    if (
+      input.memoryId !== readerGeneration.memoryId ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
+      return;
+    }
+
+    try {
+      const category = await attachReaderCategoryByName({
+        memoryId: readerGeneration.memoryId,
+        name: input.name,
+      });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
+      setCategories((current) => mergeReaderTaxonomyItem(current, category));
+      void Promise.all([
+        revalidateBrowseMemoryWorkspace(),
+        revalidateReaderMemory(
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
+        ),
+      ]);
+    } catch (error) {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        throw error;
+      }
+    }
   };
   const attachTag = async (name: string): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
     setErrorMessage("");
     try {
       const tag = await attachReaderTagByName({
-        memoryId: props.result.memory.id,
+        memoryId: readerGeneration.memoryId,
         name,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setTags((current) => mergeReaderTaxonomyItem(current, tag));
       void revalidateAfterReaderTaxonomyChange(
-        props.result.memory.id,
-        props.result.content.langCode,
+        readerGeneration.memoryId,
+        readerGeneration.langCode,
       );
     } catch (error) {
-      setErrorMessage("Failed to add tag.");
-      throw error;
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage("Failed to add tag.");
+        throw error;
+      }
     }
   };
   const detachTag = async (name: string): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
     setErrorMessage("");
     try {
       const tag = await detachReaderTagByName({
-        memoryId: props.result.memory.id,
+        memoryId: readerGeneration.memoryId,
         name,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setTags((current) => current.filter((item) => item.id !== tag.id));
       void revalidateAfterReaderTaxonomyChange(
-        props.result.memory.id,
-        props.result.content.langCode,
+        readerGeneration.memoryId,
+        readerGeneration.langCode,
       );
     } catch (error) {
-      setErrorMessage("Failed to remove tag.");
-      throw error;
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage("Failed to remove tag.");
+        throw error;
+      }
     }
   };
   const isTranslatedReader = () => props.result.content.langCode !== undefined;
@@ -543,16 +652,27 @@ function ReadyMemoryReader(props: {
       ?.supportedReasoningEfforts ?? [];
   });
   const refreshTranslationCatalog = async (): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
     setTranslationCatalogError("");
     try {
       const catalog = await submitReadCodexModels();
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setTranslationCatalogModels(catalog.models);
     } catch (error) {
-      setTranslationCatalogError(
-        error instanceof Error
-          ? error.message
-          : "Codex model catalog is unavailable.",
-      );
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setTranslationCatalogError(
+          error instanceof Error
+            ? error.message
+            : "Codex model catalog is unavailable.",
+        );
+      }
     }
   };
   const handleTranslationPopoverOpenChange = (open: boolean): void => {
@@ -567,11 +687,28 @@ function ReadyMemoryReader(props: {
       void refreshTranslationCatalog();
     }
   };
-  const connectTranslationProgress = (eventUrl: string, jobId: string) => {
-    translationEventSource?.close();
+  const connectTranslationProgress = (
+    eventUrl: string,
+    jobId: string,
+    readerGeneration: ReaderGenerationSnapshot,
+  ) => {
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
+    const previousEventSource = translationEventSource;
+    translationEventSource = undefined;
+    previousEventSource?.close();
     const eventSource = new EventSource(eventUrl);
     translationEventSource = eventSource;
+    const isCurrentTranslationEventSource = (): boolean =>
+      translationEventSource === eventSource &&
+      isCurrentReaderGeneration(readerGeneration);
     const onProgress = (event: MessageEvent) => {
+      if (!isCurrentTranslationEventSource()) {
+        return;
+      }
+
       const envelope = parseTranslationEventEnvelope(event.data);
       if (envelope === undefined) {
         return;
@@ -592,14 +729,14 @@ function ReadyMemoryReader(props: {
 
       if (isCompletedTranslationEnvelope(envelope)) {
         const readerUrl = readTranslationReaderUrl(envelope);
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
         if (readerUrl !== undefined) {
           navigate(readerUrl);
         }
       } else if (isTerminalTranslationEnvelope(envelope)) {
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
       }
     };
 
@@ -607,9 +744,13 @@ function ReadyMemoryReader(props: {
       eventSource.addEventListener(eventName, onProgress);
     }
     eventSource.onerror = () => {
+      if (!isCurrentTranslationEventSource()) {
+        return;
+      }
+
       if (eventSource.readyState === EventSource.CLOSED) {
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
         setTranslationProgress({
           eventUrl,
           jobId,
@@ -652,8 +793,13 @@ function ReadyMemoryReader(props: {
     model: string | null;
     reasoningEffort: CodexReasoningEffort | null;
   }): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
     const langCode = input.langCode;
-    if (langCode === undefined || !canStartTranslation(langCode)) {
+    if (
+      langCode === undefined ||
+      !canStartTranslation(langCode) ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
 
@@ -670,6 +816,10 @@ function ReadyMemoryReader(props: {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       const persistedModel = settings.codexTranslationModel;
       const persistedReasoningEffort = settings.codexTranslationReasoningEffort;
       setTranslationDefaultLanguage(input.langCode);
@@ -678,10 +828,20 @@ function ReadyMemoryReader(props: {
       void revalidateSettingsState();
       const result = await startReaderTranslation({
         langCode,
-        memoryId: props.result.memory.id,
+        memoryId: readerGeneration.memoryId,
         model: persistedModel,
         reasoningEffort: persistedReasoningEffort,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+      if (
+        result.memory_id !== readerGeneration.memoryId ||
+        result.lang_code !== langCode
+      ) {
+        throw new Error("Translation response did not match the active reader.");
+      }
+
       if (result.status === "current") {
         setTranslationProgress(undefined);
         input.close();
@@ -699,15 +859,21 @@ function ReadyMemoryReader(props: {
         status: "running",
       });
       input.close();
-      connectTranslationProgress(result.event_url, result.job_id);
+      connectTranslationProgress(
+        result.event_url,
+        result.job_id,
+        readerGeneration,
+      );
     } catch (error) {
-      setTranslationProgress({
-        eventUrl: "",
-        jobId: "",
-        message: error instanceof Error ? error.message : "Translation failed.",
-        preview: "",
-        status: "failed",
-      });
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setTranslationProgress({
+          eventUrl: "",
+          jobId: "",
+          message: error instanceof Error ? error.message : "Translation failed.",
+          preview: "",
+          status: "failed",
+        });
+      }
     }
   };
   createEffect(() => {
@@ -772,53 +938,70 @@ function ReadyMemoryReader(props: {
   const toggleMoment = async (
     section: ReaderMomentSection,
   ): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
     const sectionKey = getReaderMomentKey(section);
-    if (pendingMomentKey().length > 0) {
+    if (
+      pendingMomentKey().length > 0 ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
 
+    const readerToc = props.result.rendered.toc;
     setErrorMessage("");
     setPendingMomentKey(sectionKey);
     try {
       const existingMoment = findReaderMomentForSection(
         moments(),
-        props.result.rendered.toc,
+        readerToc,
         section,
       );
       if (existingMoment !== undefined) {
         await deleteMomentById({ momentId: existingMoment.id });
+        if (!isCurrentReaderGeneration(readerGeneration)) {
+          return;
+        }
+
         setMoments((current) =>
           current.filter((moment) => moment.id !== existingMoment.id),
         );
         await Promise.all([
           revalidateMomentBrowseRows(),
           revalidateReaderMemory(
-            props.result.memory.id,
-            props.result.content.langCode,
+            readerGeneration.memoryId,
+            readerGeneration.langCode,
           ),
         ]);
         return;
       }
 
       const result = await createMomentForSection({
-        langCode: props.result.content.langCode,
-        memoryId: props.result.memory.id,
+        langCode: readerGeneration.langCode,
+        memoryId: readerGeneration.memoryId,
         section,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setMoments((current) =>
         mergeReaderMomentItem(current, result.moment),
       );
       await Promise.all([
         revalidateMomentBrowseRows(),
         revalidateReaderMemory(
-          props.result.memory.id,
-          props.result.content.langCode,
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
         ),
       ]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Moment failed");
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage(error instanceof Error ? error.message : "Moment failed");
+      }
     } finally {
-      setPendingMomentKey("");
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setPendingMomentKey("");
+      }
     }
   };
   const handleReaderContentClick = (event: MouseEvent) => {
@@ -1703,6 +1886,7 @@ function messageForTranslationError(
 
 export async function deleteReaderMemory(input: {
   fetch?: FetchFunction;
+  isCurrent?: () => boolean;
   langCode?: SupportedLanguageCode;
   memoryId: string;
   navigate: (path: string) => void;
@@ -1717,16 +1901,23 @@ export async function deleteReaderMemory(input: {
       fetch: input.fetch,
     });
   } catch (error) {
-    if (isBackupFailsafeMemoryActionError(error)) {
+    if (
+      isBackupFailsafeMemoryActionError(error) &&
+      (input.isCurrent?.() ?? true)
+    ) {
       void revalidateBackupFailsafeAlert();
     }
     throw error;
   }
+  if (!(input.isCurrent?.() ?? true)) {
+    return;
+  }
+
+  input.navigate("/memories");
   await (input.revalidate ?? revalidateAfterMemoryDeletion)(
     input.memoryId,
     input.langCode,
   );
-  input.navigate("/memories");
 }
 
 export async function attachReaderCategoryByName(input: {
@@ -2539,6 +2730,7 @@ function ReaderTocEntryRow(props: {
 
 async function toggleReaderSelection(input: {
   container: HTMLDivElement;
+  isCurrent: () => boolean;
   langCode?: SupportedLanguageCode;
   memoryId: string;
   onFlashbacksChanged: (flashbacks: ReaderFlashbackItem[]) => void;
@@ -2548,7 +2740,10 @@ async function toggleReaderSelection(input: {
   setErrorMessage: (message: string) => void;
   setPendingSelectionKey: (key: string) => void;
 }) {
-  if (!canStartFlashbackToggle(input.pendingSelectionKey)) {
+  if (
+    !canStartFlashbackToggle(input.pendingSelectionKey) ||
+    !input.isCurrent()
+  ) {
     return;
   }
 
@@ -2583,8 +2778,15 @@ async function toggleReaderSelection(input: {
         selection: toPayload(selection),
       }),
     });
+    if (!input.isCurrent()) {
+      return;
+    }
 
     const failure = await readFlashbackFailure(response);
+    if (!input.isCurrent()) {
+      return;
+    }
+
     if (failure !== undefined) {
       if (shouldRevalidateBackupFailsafeAfterFlashbackFailure(failure)) {
         void revalidateBackupFailsafeAlert();
@@ -2593,6 +2795,10 @@ async function toggleReaderSelection(input: {
       throw new Error(failure.message);
     }
     const payload = await readFlashbackToggleSuccess(response);
+    if (!input.isCurrent()) {
+      return;
+    }
+
     if (optimisticFlashbackId !== undefined) {
       syncOptimisticFlashbackMark({
         container: input.container,
@@ -2606,10 +2812,14 @@ async function toggleReaderSelection(input: {
     input.onFlashbacksChanged(payload.result.flashbacks);
     void Promise.resolve(input.onSuccess()).catch(() => undefined);
   } catch {
-    input.container.innerHTML = previousHtml;
-    input.setErrorMessage("Flashback failed");
+    if (input.isCurrent()) {
+      input.container.innerHTML = previousHtml;
+      input.setErrorMessage("Flashback failed");
+    }
   } finally {
-    input.setPendingSelectionKey("");
+    if (input.isCurrent()) {
+      input.setPendingSelectionKey("");
+    }
   }
 }
 

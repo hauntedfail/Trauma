@@ -183,8 +183,8 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain(
       [
         "        revalidateAfterFlashbackToggle(",
-        "          props.result.memory.id,",
-        "          props.result.content.langCode,",
+        "          readerGeneration.memoryId,",
+        "          readerGeneration.langCode,",
         "        ),",
       ].join("\n"),
     );
@@ -199,8 +199,8 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain(
       [
         "      void revalidateAfterReaderTaxonomyChange(",
-        "        props.result.memory.id,",
-        "        props.result.content.langCode,",
+        "        readerGeneration.memoryId,",
+        "        readerGeneration.langCode,",
         "      );",
       ].join("\n"),
     );
@@ -242,6 +242,21 @@ describe("memory reader actions", () => {
     expect(onErrorBody).toContain("translationEventSource = undefined");
   });
 
+  it("guards reader async continuations with the captured identity and generation", () => {
+    expect(memoryReaderSource).toContain("createReaderGenerationGuard");
+    expect(memoryReaderSource).toContain("captureReaderGeneration");
+    expect(memoryReaderSource).toContain("isCurrentReaderGeneration");
+    expect(memoryReaderSource).toContain(
+      "translationEventSource === eventSource",
+    );
+    expect(memoryReaderSource).toContain(
+      "memoryId: readerGeneration.memoryId",
+    );
+    expect(memoryReaderSource).toContain(
+      "isCurrent: () => isCurrentReaderGeneration(readerGeneration)",
+    );
+  });
+
   it("treats terminal translation snapshots as terminal SSE progress", () => {
     expect(memoryReaderSource).toContain("TERMINAL_TRANSLATION_SNAPSHOT_STATUSES");
     expect(memoryReaderSource).toContain("isCompletedTranslationEnvelope(envelope)");
@@ -275,6 +290,24 @@ describe("memory reader actions", () => {
     expect(navigations).toEqual(["/memories"]);
   });
 
+  it("navigates before deletion revalidation replaces the active reader", async () => {
+    const effects: string[] = [];
+    let current = true;
+
+    await deleteReaderMemory({
+      memoryId: "memory-reader",
+      isCurrent: () => current,
+      navigate: (path) => effects.push(`navigate:${path}`),
+      revalidate: async () => {
+        effects.push("revalidate");
+        current = false;
+      },
+      fetch: async () => new Response(null, { status: 204 }),
+    });
+
+    expect(effects).toEqual(["navigate:/memories", "revalidate"]);
+  });
+
   it("keeps the reader on the current page when delete fails", async () => {
     const navigations: string[] = [];
 
@@ -286,6 +319,30 @@ describe("memory reader actions", () => {
       }),
     ).rejects.toThrow("failed to delete memory");
 
+    expect(navigations).toEqual([]);
+  });
+
+  it("does not revalidate or navigate when deletion completes for a stale reader generation", async () => {
+    const response = createDeferred<Response>();
+    const navigations: string[] = [];
+    const revalidated: string[] = [];
+    let current = true;
+
+    const deletion = deleteReaderMemory({
+      memoryId: "memory-reader-a",
+      isCurrent: () => current,
+      navigate: (path) => navigations.push(path),
+      revalidate: async (memoryId) => {
+        revalidated.push(memoryId);
+      },
+      fetch: () => response.promise,
+    });
+
+    current = false;
+    response.resolve(new Response(null, { status: 204 }));
+    await deletion;
+
+    expect(revalidated).toEqual([]);
     expect(navigations).toEqual([]);
   });
 
@@ -666,4 +723,19 @@ function renderReader(
       },
     });
   });
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
+  };
 }

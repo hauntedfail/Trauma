@@ -9,7 +9,10 @@ import {
   runGitBackupJob,
   type MemoryBackupQueue,
 } from "../../../src/server/backup";
-import { BackupEnvironmentFailsafeError } from "../../../src/server/backup/environment";
+import {
+  BackupEnvironmentFailsafeError,
+  ensureBackupEnvironment,
+} from "../../../src/server/backup/environment";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
@@ -317,16 +320,9 @@ describe("delete memory service", () => {
     git(config.projectPath, ["remote", "add", "origin", missingRemotePath]);
     const stampConnection = initializeDatabase(config);
     try {
-      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
-        id: "default",
-        projectPath: config.projectPath,
-        storePath: config.storePath,
-        gitRemote: config.backup.git.remote,
-        gitRemoteUrl: missingRemotePath,
-        gitBranch: config.backup.git.branch,
-        createdAt: routeNow,
-        updatedAt: routeNow,
-      });
+      await expect(
+        ensureBackupEnvironment({ config, db: stampConnection.db }),
+      ).resolves.toMatchObject({ ok: true });
     } finally {
       stampConnection.close();
     }

@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
-import { SettingsPage } from "../../src/components/settings/SettingsPage";
+import {
+  SettingsPage,
+  readSafeVerificationUrl,
+} from "../../src/components/settings/SettingsPage";
 import {
   submitCodexTranslationDefaults,
   submitReadCodexModels,
@@ -21,6 +24,38 @@ const settingsPageSource = readFileSync(
 );
 
 describe("settings page", () => {
+  it("renders only credential-free HTTPS device verification links", () => {
+    expect(readSafeVerificationUrl("https://example.com/device"))
+      .toBe("https://example.com/device");
+    for (const value of [
+      "javascript:alert(1)",
+      "data:text/html,unsafe",
+      "http://example.com/device",
+      "https://user:secret@example.com/device",
+    ]) {
+      expect(readSafeVerificationUrl(value)).toBeUndefined();
+    }
+
+    const html = renderToString(() =>
+      createComponent(SettingsPage, {
+        initialSettings: {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: null,
+          codexTranslationReasoningEffort: null,
+          openaiAuth: {
+            status: "login_started",
+            provider: "codex",
+            loginId: "login-unsafe",
+            verificationUrl: "javascript:alert(1)",
+            userCode: "SAFE-CODE",
+          },
+        },
+      }),
+    );
+    expect(html).toContain("SAFE-CODE");
+    expect(html).not.toContain("javascript:");
+  });
+
   it("renders translation language options and disabled OpenAI auth controls", () => {
     const html = renderToString(() =>
       createComponent(SettingsPage, {
@@ -291,6 +326,14 @@ describe("settings page", () => {
   it("wires pending Codex auth setup to the polling helper", () => {
     expect(settingsPageSource).toContain("pollCodexAuthSetup");
     expect(settingsPageSource).toContain("refreshCodexAuthAfterLogin");
+  });
+
+  it("tracks concurrent settings actions without a shared pending slot", () => {
+    expect(settingsPageSource).toContain("createAsyncActionTracker");
+    expect(settingsPageSource).toContain("pendingActions().has(action)");
+    expect(settingsPageSource).not.toContain(
+      'const [pending, setPending] = createSignal("")',
+    );
   });
 
   it("does not delete OpenAI auth when confirmation is rejected", async () => {

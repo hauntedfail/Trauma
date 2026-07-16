@@ -18,13 +18,13 @@ import { loadTraumaConfig } from "../config";
 import { createRepositories, type TraumaDatabase } from "../db/repositories";
 import * as schema from "../db/schema";
 import { findInconsistentSuccessfulBackupContent } from "./content-integrity";
-import type { BackupFailsafeAlertView } from "./environment";
+import type { BackupFailsafeAlertDetails } from "./environment";
 import {
   clearBackupPushFailureAlert,
   ensureBackupEnvironment,
   hasConfiguredRemote,
   recordBackupPushFailureAlert,
-  toAlertView,
+  toAlertDetails,
 } from "./environment";
 
 export type BackupFailsafeAction =
@@ -302,10 +302,10 @@ async function retryRecoveredBackupPush(input: {
 
 export async function readActiveBackupFailsafeAlert(
   db: TraumaDatabase,
-): Promise<BackupFailsafeAlertView | null> {
+): Promise<BackupFailsafeAlertDetails | null> {
   const alert =
     await createRepositories(db).backupEnvironment.getBackupFailsafeAlert();
-  return alert === undefined ? null : toAlertView(alert);
+  return alert === undefined ? null : toAlertDetails(alert);
 }
 
 async function requireActiveAlert(db: TraumaDatabase) {
@@ -449,7 +449,9 @@ async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
   } catch (error) {
     const message = formatGitProcessError(error);
     await recordBackupPushFailureAlert(config, message);
-    throw new BackupFailsafeActionError(`git push failed: ${message}`);
+    throw new BackupFailsafeActionError(
+      "git push failed; see the server diagnostics for details",
+    );
   }
 }
 

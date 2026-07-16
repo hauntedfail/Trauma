@@ -222,7 +222,8 @@ function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) 
         (frame.attribs.srcdoc !== undefined ||
           !isSafeReaderIframeUrl(frame.attribs.src))) ||
       (frame.tag === "img" &&
-        resolveReaderImageUrl(frame.attribs.src, options.sourceUrl) === null) ||
+        frame.attribs.src === undefined &&
+        frame.attribs.srcset === undefined) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: createAnchorSanitizer(options.sourceUrl),
@@ -514,19 +515,24 @@ function resolveReaderImageUrl(
     return null;
   }
 
-  if (sourceUrl !== undefined) {
-    return resolveSafeImageUrl(sourceUrl, value);
-  }
+  const safeUrl = sourceUrl !== undefined
+    ? resolveSafeImageUrl(sourceUrl, value)
+    : isSafeReaderImageUrl(value)
+      ? normalizeUrl(value)
+      : null;
+  return safeUrl === null ? null : createReaderMediaProxyUrl(safeUrl);
+}
 
-  if (!isSafeReaderImageUrl(value)) {
-    return null;
-  }
-
+function normalizeUrl(value: string): string | null {
   try {
     return new URL(value).toString();
   } catch {
     return null;
   }
+}
+
+function createReaderMediaProxyUrl(url: string): string {
+  return `/api/reader-media?url=${encodeURIComponent(url)}`;
 }
 
 function isSafeSourceSetDescriptor(value: string): boolean {

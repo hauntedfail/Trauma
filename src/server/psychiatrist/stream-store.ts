@@ -8,12 +8,13 @@ import type {
   PsychiatristStreamEvent,
   PsychiatristStreamEventInput,
 } from "./types";
+import { BoundedCache } from "./bounded-cache";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
 const appendQueuesByPath = new Map<string, Promise<void>>();
-const nextEventNumbersByPath = new Map<string, number>();
+const nextEventNumbersByPath = new BoundedCache<string, number>(256);
 const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
 const MAX_SAFE_PROCESS_TEXT_LENGTH = 240;
 

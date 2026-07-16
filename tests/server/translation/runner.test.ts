@@ -23,9 +23,10 @@ import type {
   RawCodexChunkOutput,
   TranslationChunk,
 } from "../../../src/server/translation/types";
-import type {
-  TranslateChunkInput,
-  TranslationClient,
+import {
+  CodexAppServerError,
+  type TranslateChunkInput,
+  type TranslationClient,
 } from "../../../src/server/translation/codex-app-server";
 
 const tempRoots: string[] = [];
@@ -39,6 +40,49 @@ afterEach(async () => {
 });
 
 describe("translation runner", () => {
+  it("starts a job through the atomic job-and-chunks repository operation", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    let atomicCreateCalls = 0;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000021",
+        memoryId,
+        now,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                createTranslationJob: async () => {
+                  throw new Error("non-atomic job creation must not be used");
+                },
+                createTranslationJobWithChunks: async (...args) => {
+                  atomicCreateCalls += 1;
+                  return translations.createTranslationJobWithChunks(...args);
+                },
+                insertTranslationChunks: async () => {
+                  throw new Error("separate chunk insertion must not be used");
+                },
+              },
+            },
+          };
+        },
+        schedule: () => undefined,
+      }),
+    ).resolves.toMatchObject({ status: "started" });
+    expect(atomicCreateCalls).toBe(1);
+  });
+
   it("starts a job, translates chunks, commits output, and reuses current output", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -143,6 +187,53 @@ describe("translation runner", () => {
       status: "current",
       reader_url: `/memories/ja-JP/${memoryId}`,
     });
+  });
+
+  it("loads persisted chunk state once before translating a multi-chunk job", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      [
+        "# Brilliant Source",
+        ...Array.from({ length: 81 }, () => "Body."),
+      ].join("\n\n"),
+    );
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000022",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let chunkStateReads = 0;
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              getTranslationChunks: async (...args) => {
+                chunkStateReads += 1;
+                return translations.getTranslationChunks(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    expect(client.inputs).toHaveLength(2);
+    expect(chunkStateReads).toBe(2);
   });
 
   it("rejects request languages that differ from the configured target", async () => {
@@ -579,6 +670,41 @@ describe("translation runner", () => {
     expect(client.callCount).toBe(1);
   });
 
+  it("persists a safe projection of Codex failures", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const secret = "/Users/alice/.codex/auth.json token=unique-secret";
+    const client = new DiagnosticFailingTranslationClient(secret);
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000099",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const connection = initializeDatabase(config);
+    try {
+      const job = await connection.repositories.translations.getTranslationJob(
+        started.job_id,
+      );
+      expect(job).toMatchObject({
+        status: "failed",
+        error: {
+          code: "app_server_protocol_error",
+          message: "Codex app-server returned an invalid response.",
+        },
+      });
+      expect(JSON.stringify(job)).not.toContain(secret);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("feeds validation diagnostics into the next chunk retry prompt", async () => {
     const config = await createConfig();
     await writeSourceContent(
@@ -917,7 +1043,7 @@ describe("translation runner", () => {
                       ...args,
                     );
                 },
-                createTranslationJob: async () => {
+                createTranslationJobWithChunks: async () => {
                   throw new Error("UNIQUE constraint failed: translation_jobs");
                 },
               },
@@ -980,7 +1106,7 @@ describe("translation runner", () => {
                       ...args,
                     );
                 },
-                createTranslationJob: async () => {
+                createTranslationJobWithChunks: async () => {
                   throw new Error("UNIQUE constraint failed: translation_jobs");
                 },
               },
@@ -1371,6 +1497,19 @@ class EmptySegmentRetryTranslationClient implements TranslationClient {
       })),
       warnings: [],
     };
+  }
+}
+
+class DiagnosticFailingTranslationClient implements TranslationClient {
+  constructor(private readonly diagnostic: string) {}
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(): Promise<RawCodexChunkOutput> {
+    throw new CodexAppServerError(
+      "app_server_protocol_error",
+      this.diagnostic,
+    );
   }
 }
 

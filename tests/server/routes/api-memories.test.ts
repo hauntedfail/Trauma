@@ -109,10 +109,11 @@ describe("memories API route", () => {
       error: "Backup location changed",
       backupFailsafe: {
         kind: "backup_path_drift",
-        currentProjectPath: config.projectPath,
-        currentStorePath: config.storePath,
+        availableActions: ["revert", "migrate"],
       },
     });
+    expect(JSON.stringify(body)).not.toContain(config.projectPath);
+    expect(JSON.stringify(body)).not.toContain(config.storePath);
   });
 
   it("keeps POST route helpers available after Vinxi pick transform", async () => {
@@ -133,7 +134,7 @@ describe("memories API route", () => {
     });
 
     expect(transformed?.code).toContain(
-      "parseAddMemoryPayloadInternal(event.request)",
+      "parseAddMemoryPayloadInternal(event.request, {",
     );
     expect(transformed?.code).toContain(
       "async function parseAddMemoryPayloadInternal",

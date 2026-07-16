@@ -4,13 +4,18 @@ import { getMemoryBackupQueue } from "~/server/backup";
 import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import { validateImportUrl } from "~/server/importer";
+import { createRuntimeMemoryImporter } from "~/server/importer/runtime";
 import { addMemory } from "~/server/memories/add-memory";
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseAddMemoryPayloadInternal(event.request);
+  const importer = createRuntimeMemoryImporter();
+  const payload = await parseAddMemoryPayloadInternal(event.request, {
+    validateUrl: importer.validateUrl,
+  });
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -27,6 +32,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       config,
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
+      importer,
     });
 
     return json({ memory }, { status: 201 });
@@ -49,7 +55,7 @@ export async function POST(event: APIEvent): Promise<Response> {
 
 type AddMemoryPayloadResult =
   | { ok: true; url: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 interface ParseAddMemoryPayloadOptions {
   validateUrl?: (url: string) => Promise<string>;
@@ -64,12 +70,11 @@ async function parseAddMemoryPayloadInternal(
   request: Request,
   options: ParseAddMemoryPayloadOptions = {},
 ): Promise<AddMemoryPayloadResult> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

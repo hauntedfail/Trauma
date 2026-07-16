@@ -988,6 +988,10 @@ interface CodexWireConnection {
   send: (message: WireMessage) => void;
 }
 
+export const CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES = 16 * 1_024;
+export const CODEX_WIRE_MAX_FRAME_BYTES = 8 * 1_024 * 1_024;
+export const CODEX_WIRE_MAX_MESSAGE_BYTES = 8 * 1_024 * 1_024;
+
 async function openCodexWireConnection(
   endpoint: CodexAppServerEndpoint,
   onMessage: (message: WireMessage) => void,
@@ -1156,6 +1160,23 @@ function waitForWebSocketUpgrade(
       buffer = Buffer.concat([buffer, chunk]);
       const headerEnd = buffer.indexOf("\r\n\r\n");
       if (headerEnd === -1) {
+        if (buffer.length > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+          settleReject(
+            new CodexAppServerError(
+              "app_server_protocol_error",
+              "Codex app-server WebSocket upgrade headers were too large.",
+            ),
+          );
+        }
+        return;
+      }
+      if (headerEnd + 4 > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+        settleReject(
+          new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server WebSocket upgrade headers were too large.",
+          ),
+        );
         return;
       }
       const header = buffer.slice(0, headerEnd).toString("utf8");
@@ -1226,9 +1247,11 @@ function encodeClientWebSocketFrame(opcode: number, payload: Buffer): Buffer {
   return Buffer.concat([Buffer.from(header), mask, masked]);
 }
 
-class WebSocketFrameDecoder {
+export class WebSocketFrameDecoder {
   private buffer = Buffer.alloc(0);
-  private fragmentedText: Buffer[] | undefined;
+  private fragmentedText:
+    | { chunks: Buffer[]; totalBytes: number }
+    | undefined;
 
   constructor(
     private readonly onText: (text: string) => void,
@@ -1257,10 +1280,19 @@ class WebSocketFrameDecoder {
         }
         const bigLength = this.buffer.readBigUInt64BE(offset);
         if (bigLength > BigInt(Number.MAX_SAFE_INTEGER)) {
-          throw new CodexAppServerError("app_server_unavailable", "Frame too large.");
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server WebSocket frame was too large.",
+          );
         }
         length = Number(bigLength);
         offset += 8;
+      }
+      if (length > CODEX_WIRE_MAX_FRAME_BYTES) {
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket frame was too large.",
+        );
       }
       const masked = (second & 0x80) !== 0;
       const maskLength = masked ? 4 : 0;
@@ -1271,6 +1303,12 @@ class WebSocketFrameDecoder {
       offset += maskLength;
       const payload = this.buffer.slice(offset, offset + length);
       this.buffer = this.buffer.slice(offset + length);
+      if ((opcode & 0x08) !== 0 && (!fin || payload.length > 125)) {
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server sent an invalid WebSocket control frame.",
+        );
+      }
       if (opcode === 0x9) {
         this.onPing(Buffer.from(payload));
         continue;
@@ -1289,11 +1327,26 @@ class WebSocketFrameDecoder {
         }
       }
       if (opcode === 0x1 && fin) {
+        if (this.fragmentedText !== undefined) {
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server started a new message before finishing the previous one.",
+          );
+        }
         this.onText(payload.toString("utf8"));
         continue;
       }
       if (opcode === 0x1) {
-        this.fragmentedText = [Buffer.from(payload)];
+        if (this.fragmentedText !== undefined) {
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server started a new message before finishing the previous one.",
+          );
+        }
+        this.fragmentedText = {
+          chunks: [Buffer.from(payload)],
+          totalBytes: payload.length,
+        };
         continue;
       }
       if (this.fragmentedText === undefined) {
@@ -1302,9 +1355,18 @@ class WebSocketFrameDecoder {
           "Codex app-server sent an unexpected WebSocket continuation frame.",
         );
       }
-      this.fragmentedText.push(Buffer.from(payload));
+      const totalBytes = this.fragmentedText.totalBytes + payload.length;
+      if (totalBytes > CODEX_WIRE_MAX_MESSAGE_BYTES) {
+        this.fragmentedText = undefined;
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket message was too large.",
+        );
+      }
+      this.fragmentedText.chunks.push(Buffer.from(payload));
+      this.fragmentedText.totalBytes = totalBytes;
       if (fin) {
-        const text = Buffer.concat(this.fragmentedText).toString("utf8");
+        const text = Buffer.concat(this.fragmentedText.chunks).toString("utf8");
         this.fragmentedText = undefined;
         this.onText(text);
       }
@@ -1643,7 +1705,27 @@ function readDeviceCodeLogin(value: unknown): CodexDeviceCodeLogin | undefined {
   if (loginId === undefined || userCode === undefined || verificationUrl === undefined) {
     return undefined;
   }
-  return { loginId, userCode, verificationUrl };
+  const safeVerificationUrl = readCredentialFreeHttpsUrl(verificationUrl);
+  if (safeVerificationUrl === undefined) {
+    return undefined;
+  }
+  return { loginId, userCode, verificationUrl: safeVerificationUrl };
+}
+
+function readCredentialFreeHttpsUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== ""
+    ) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
@@ -1987,5 +2069,37 @@ export class CodexAppServerError extends Error {
   ) {
     super(message);
     this.name = "CodexAppServerError";
+  }
+}
+
+export function safeCodexAppServerErrorMessage(
+  error: unknown,
+  fallbackMessage = "Codex request failed.",
+): string {
+  if (!(error instanceof CodexAppServerError)) {
+    return fallbackMessage;
+  }
+  switch (error.code) {
+    case "auth_required":
+    case "setup_required":
+      return "Codex authentication is required.";
+    case "app_server_unavailable":
+      return "Codex app-server is unavailable.";
+    case "app_server_protocol_error":
+      return "Codex app-server returned an invalid response.";
+    case "usage_limit":
+      return "Codex usage limit was reached.";
+    case "context_overflow":
+      return "Codex context limit was exceeded.";
+    case "stream_disconnected":
+      return "Codex app-server disconnected.";
+    case "timeout":
+      return "Codex app-server request timed out.";
+    case "turn_interrupted":
+      return "Codex request was interrupted.";
+    case "invalid_final_output":
+      return "Codex returned invalid output.";
+    case "unknown":
+      return fallbackMessage;
   }
 }

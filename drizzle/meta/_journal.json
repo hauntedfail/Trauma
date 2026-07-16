@@ -113,6 +113,20 @@
       "when": 1779955000000,
       "tag": "0015_memory_browse_pagination",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1784221790920,
+      "tag": "0016_scrub_backup_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1784223792512,
+      "tag": "0017_skinny_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

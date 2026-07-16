@@ -2,8 +2,14 @@ import type { APIEvent } from "@solidjs/start/server";
 
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
+import { guardMutationRequest } from "~/server/http/mutation-request";
 
 export async function DELETE(event: APIEvent): Promise<Response> {
+  const guard = guardMutationRequest(event.request);
+  if (!guard.ok) {
+    return json({ error: guard.error }, { status: guard.status });
+  }
+
   const momentId = event.params.momentId?.trim();
   if (momentId === undefined || momentId === "") {
     return json({ error: "momentId must be a non-empty string" }, { status: 400 });

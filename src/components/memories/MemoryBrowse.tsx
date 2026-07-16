@@ -412,29 +412,29 @@ export function MemoryBrowse() {
             }}
           </For>
         </div>
-        <Show when={nextCursor() !== null}>
-          <div class="trauma-route-row grid gap-3 px-6 py-6 text-center">
-            <button
-              class="justify-self-center rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-wait disabled:opacity-60"
-              type="button"
-              disabled={isLoadingNextPage() || firstPageForCurrentQuery() === undefined}
-              onClick={() => void loadNextPage()}
-            >
-              {isLoadingNextPage() ? "Loading..." : "Load more"}
-            </button>
-            <Show when={loadNextPageError() !== ""}>
-              <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
-                {loadNextPageError()}
-              </p>
-            </Show>
-          </div>
-        </Show>
-        <div
-          aria-hidden="true"
-          class="h-px"
-          ref={setLoadMoreSentinel}
-        />
       </Show>
+      <Show when={nextCursor() !== null}>
+        <div class="trauma-route-row grid gap-3 px-6 py-6 text-center">
+          <button
+            class="justify-self-center rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-wait disabled:opacity-60"
+            type="button"
+            disabled={isLoadingNextPage() || firstPageForCurrentQuery() === undefined}
+            onClick={() => void loadNextPage()}
+          >
+            {isLoadingNextPage() ? "Loading..." : "Load more"}
+          </button>
+          <Show when={loadNextPageError() !== ""}>
+            <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
+              {loadNextPageError()}
+            </p>
+          </Show>
+        </div>
+      </Show>
+      <div
+        aria-hidden="true"
+        class="h-px"
+        ref={setLoadMoreSentinel}
+      />
     </section>
   );
 }

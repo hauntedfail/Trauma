@@ -37,7 +37,9 @@ export type Flashback = typeof schema.flashbacks.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
 type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 type TranslationJob = typeof schema.translationJobs.$inferSelect;
+type NewTranslationJob = typeof schema.translationJobs.$inferInsert;
 type TranslationChunk = typeof schema.translationChunks.$inferSelect;
+type NewTranslationChunk = typeof schema.translationChunks.$inferInsert;
 type TranslationProjectionSpanRow =
   typeof schema.translationProjectionSpans.$inferSelect;
 export type BackupEnvironmentStamp =
@@ -334,6 +336,10 @@ export interface TranslationRepository {
   createTranslationJob: (
     input: CreateTranslationJobInput,
   ) => Promise<TranslationJobRecord>;
+  createTranslationJobWithChunks: (
+    input: CreateTranslationJobInput,
+    chunks: InsertTranslationChunkInput[],
+  ) => Promise<TranslationJobRecord>;
   getTranslationJob: (jobId: string) => Promise<TranslationJobRecord | null>;
   findCompleteTranslationRecord: (
     memoryId: string,
@@ -522,114 +528,134 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
     moments: {
-      create: async (input) => {
-        await assertMemoryExists(db, input.memoryId, "create moment for");
-        const existingByPath = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionPath, input.sectionPath),
-          ),
-        });
-        if (existingByPath !== undefined) {
-          const updated = db.transaction((tx) => {
-            if (existingByPath.sectionAnchor !== input.sectionAnchor) {
-              const existingByAnchor = tx
-                .select()
-                .from(schema.moments)
-                .where(
-                  and(
-                    eq(schema.moments.memoryId, input.memoryId),
-                    eq(schema.moments.sectionAnchor, input.sectionAnchor),
-                  ),
-                )
-                .get();
-              if (
-                existingByAnchor !== undefined &&
-                existingByAnchor.id !== existingByPath.id
-              ) {
-                tx
-                  .delete(schema.moments)
-                  .where(eq(schema.moments.id, existingByAnchor.id))
-                  .run();
-              }
+      create: async (input) =>
+        db.transaction(
+          (tx) => {
+            const memory = tx
+              .select({ id: schema.memories.id })
+              .from(schema.memories)
+              .where(eq(schema.memories.id, input.memoryId))
+              .get();
+            if (memory === undefined) {
+              throw new MemoryRepositoryError(
+                `Cannot create moment for missing memory: ${input.memoryId}`,
+              );
             }
 
-            return tx
-              .update(schema.moments)
-              .set({
-                sectionAnchor: input.sectionAnchor,
-                sectionTitle: input.sectionTitle,
-                sectionLevel: input.sectionLevel,
-                sectionStartOffset: input.sectionStartOffset ?? null,
-                sectionEndOffset: input.sectionEndOffset ?? null,
-                contentHash: input.contentHash ?? null,
-                updatedAt: input.updatedAt,
-              })
-              .where(eq(schema.moments.id, existingByPath.id))
-              .returning()
+            const existingByPath = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionPath, input.sectionPath),
+                ),
+              )
               .get();
-          });
-          return {
-            moment: updated ?? existingByPath,
-            alreadyExists: true,
-          };
-        }
+            if (existingByPath !== undefined) {
+              if (existingByPath.sectionAnchor !== input.sectionAnchor) {
+                const existingByAnchor = tx
+                  .select()
+                  .from(schema.moments)
+                  .where(
+                    and(
+                      eq(schema.moments.memoryId, input.memoryId),
+                      eq(schema.moments.sectionAnchor, input.sectionAnchor),
+                    ),
+                  )
+                  .get();
+                if (
+                  existingByAnchor !== undefined &&
+                  existingByAnchor.id !== existingByPath.id
+                ) {
+                  tx
+                    .delete(schema.moments)
+                    .where(eq(schema.moments.id, existingByAnchor.id))
+                    .run();
+                }
+              }
 
-        const existingByAnchor = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionAnchor, input.sectionAnchor),
-          ),
-        });
-        if (existingByAnchor !== undefined) {
-          if (existingByAnchor.sectionPath === input.sectionPath) {
-            return { moment: existingByAnchor, alreadyExists: true };
-          }
+              const updated = tx
+                .update(schema.moments)
+                .set({
+                  sectionAnchor: input.sectionAnchor,
+                  sectionTitle: input.sectionTitle,
+                  sectionLevel: input.sectionLevel,
+                  sectionStartOffset: input.sectionStartOffset ?? null,
+                  sectionEndOffset: input.sectionEndOffset ?? null,
+                  contentHash: input.contentHash ?? null,
+                  updatedAt: input.updatedAt,
+                })
+                .where(eq(schema.moments.id, existingByPath.id))
+                .returning()
+                .get();
+              return {
+                moment: updated ?? existingByPath,
+                alreadyExists: true,
+              };
+            }
 
-          const updated = await db
-            .update(schema.moments)
-            .set({
-              sectionTitle: input.sectionTitle,
-              sectionLevel: input.sectionLevel,
-              sectionPath: input.sectionPath,
-              sectionStartOffset: input.sectionStartOffset ?? null,
-              sectionEndOffset: input.sectionEndOffset ?? null,
-              contentHash: input.contentHash ?? null,
-              updatedAt: input.updatedAt,
-            })
-            .where(eq(schema.moments.id, existingByAnchor.id))
-            .returning()
-            .get();
-          return {
-            moment: updated ?? existingByAnchor,
-            alreadyExists: true,
-          };
-        }
+            const existingByAnchor = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionAnchor, input.sectionAnchor),
+                ),
+              )
+              .get();
+            if (existingByAnchor !== undefined) {
+              const updated = tx
+                .update(schema.moments)
+                .set({
+                  sectionTitle: input.sectionTitle,
+                  sectionLevel: input.sectionLevel,
+                  sectionPath: input.sectionPath,
+                  sectionStartOffset: input.sectionStartOffset ?? null,
+                  sectionEndOffset: input.sectionEndOffset ?? null,
+                  contentHash: input.contentHash ?? null,
+                  updatedAt: input.updatedAt,
+                })
+                .where(eq(schema.moments.id, existingByAnchor.id))
+                .returning()
+                .get();
+              return {
+                moment: updated ?? existingByAnchor,
+                alreadyExists: true,
+              };
+            }
 
-        await db
-          .insert(schema.moments)
-          .values(input)
-          .onConflictDoNothing({
-            target: [schema.moments.memoryId, schema.moments.sectionAnchor],
-          })
-          .run();
+            tx
+              .insert(schema.moments)
+              .values(input)
+              .onConflictDoNothing({
+                target: [schema.moments.memoryId, schema.moments.sectionPath],
+              })
+              .run();
 
-        const moment = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionAnchor, input.sectionAnchor),
-          ),
-        });
-        if (moment === undefined) {
-          throw new MemoryRepositoryError(
-            `Cannot find moment after create: ${input.memoryId}#${input.sectionAnchor}`,
-          );
-        }
-        return {
-          moment,
-          alreadyExists: moment.id !== input.id,
-        };
-      },
+            const moment = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionPath, input.sectionPath),
+                ),
+              )
+              .get();
+            if (moment === undefined) {
+              throw new MemoryRepositoryError(
+                `Cannot find moment after create: ${input.memoryId}#${input.sectionPath}`,
+              );
+            }
+            return {
+              moment,
+              alreadyExists: moment.id !== input.id,
+            };
+          },
+          { behavior: "immediate" },
+        ),
       deleteById: async (momentId) => {
         const deleted = await db
           .delete(schema.moments)
@@ -1251,26 +1277,43 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         await assertMemoryExists(db, input.memoryId, "create translation for");
         const row = await db
           .insert(schema.translationJobs)
-          .values({
-            jobId: input.jobId,
-            memoryId: input.memoryId,
-            langCode: input.langCode,
-            sourceHash: input.sourceHash,
-            model: input.model,
-            reasoningEffort: input.reasoningEffort ?? null,
-            promptPolicyVersion: input.promptPolicyVersion,
-            chunkerVersion: input.chunkerVersion,
-            status: "pending",
-            chunkCount: input.chunkCount,
-            outputPath: null,
-            outputHash: null,
-            error: null,
-            completedAt: null,
-            createdAt: input.now,
-            updatedAt: input.now,
-          })
+          .values(toNewTranslationJob(input))
           .returning()
           .get();
+        return toTranslationJobRecord(row);
+      },
+      createTranslationJobWithChunks: async (input, chunks) => {
+        if (input.chunkCount !== chunks.length) {
+          throw new MemoryRepositoryError(
+            "Translation job chunk count must match its initial chunks.",
+          );
+        }
+
+        const row = db.transaction((tx) => {
+          const memory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.memoryId))
+            .get();
+          if (memory === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot create translation for missing memory: ${input.memoryId}`,
+            );
+          }
+
+          const created = tx
+            .insert(schema.translationJobs)
+            .values(toNewTranslationJob(input))
+            .returning()
+            .get();
+          if (chunks.length > 0) {
+            tx
+              .insert(schema.translationChunks)
+              .values(toNewTranslationChunks(input.jobId, chunks))
+              .run();
+          }
+          return created;
+        });
         return toTranslationJobRecord(row);
       },
       getTranslationJob: async (jobId) => {
@@ -1434,21 +1477,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
 
         await db
           .insert(schema.translationChunks)
-          .values(
-            chunks.map((chunk) => ({
-              jobId,
-              chunkIndex: chunk.chunkIndex,
-              sourceChunkHash: chunk.sourceChunkHash,
-              blockIdsJson: serializeBlockIds(chunk.blockIds),
-              status: chunk.status,
-              retryCount: 0,
-              translatedMarkdown: null,
-              translatedHash: null,
-              error: null,
-              createdAt: chunk.now,
-              updatedAt: chunk.now,
-            })),
-          )
+          .values(toNewTranslationChunks(jobId, chunks))
           .run();
       },
       getTranslationChunks: async (jobId) => {
@@ -2097,6 +2126,48 @@ async function getOrCreateSettings(
   return current;
 }
 
+function toNewTranslationJob(
+  input: CreateTranslationJobInput,
+): NewTranslationJob {
+  return {
+    jobId: input.jobId,
+    memoryId: input.memoryId,
+    langCode: input.langCode,
+    sourceHash: input.sourceHash,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort ?? null,
+    promptPolicyVersion: input.promptPolicyVersion,
+    chunkerVersion: input.chunkerVersion,
+    status: "pending",
+    chunkCount: input.chunkCount,
+    outputPath: null,
+    outputHash: null,
+    error: null,
+    completedAt: null,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+function toNewTranslationChunks(
+  jobId: string,
+  chunks: InsertTranslationChunkInput[],
+): NewTranslationChunk[] {
+  return chunks.map((chunk) => ({
+    jobId,
+    chunkIndex: chunk.chunkIndex,
+    sourceChunkHash: chunk.sourceChunkHash,
+    blockIdsJson: serializeBlockIds(chunk.blockIds),
+    status: chunk.status,
+    retryCount: 0,
+    translatedMarkdown: null,
+    translatedHash: null,
+    error: null,
+    createdAt: chunk.now,
+    updatedAt: chunk.now,
+  }));
+}
+
 function toTranslationJobRecord(row: TranslationJob): TranslationJobRecord {
   return {
     ...row,
@@ -2338,7 +2409,6 @@ async function assertMemoryExists(
     | "attach category to"
     | "attach tag to"
     | "create translation for"
-    | "create moment for"
     | "detach tag from",
 ): Promise<void> {
   const memory = await db.query.memories.findFirst({

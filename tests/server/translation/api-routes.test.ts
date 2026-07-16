@@ -108,6 +108,30 @@ describe("translation API routes", () => {
     });
   });
 
+  it("rejects a cross-origin empty translation start before starting a job", async () => {
+    let starts = 0;
+    const handler = createStartTranslationHandler({
+      startTranslationJob: async () => {
+        starts += 1;
+        throw new Error("must not run");
+      },
+    });
+
+    const response = await handler({
+      params: { memoryId: "019e3906-0000-7000-8000-000000000001" },
+      request: new Request("http://localhost/api/memories/test/translations", {
+        headers: { origin: "https://evil.example" },
+        method: "POST",
+      }),
+    } as unknown as APIEvent);
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect(starts).toBe(0);
+  });
+
   it("maps malformed translated memory ids to client errors", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-translation-api-"));
     tempRoots.push(root);
@@ -319,6 +343,33 @@ describe("translation API routes", () => {
       job_id: "job-canceled",
     });
     expect(repo.calls).toEqual(["get:job-canceled"]);
+  });
+
+  it("rejects cross-origin cancellation before opening a database connection", async () => {
+    let opened = 0;
+    const handler = createCancelTranslationHandler({
+      openConnection: () => {
+        opened += 1;
+        throw new Error("must not open");
+      },
+    });
+
+    const response = await handler({
+      params: { jobId: "job-cross-origin" },
+      request: new Request(
+        "http://localhost/api/translation-jobs/job-cross-origin/cancel",
+        {
+          headers: { origin: "https://evil.example" },
+          method: "POST",
+        },
+      ),
+    } as unknown as APIEvent);
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect(opened).toBe(0);
   });
 });
 

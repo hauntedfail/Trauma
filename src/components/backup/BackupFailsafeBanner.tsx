@@ -46,48 +46,9 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
             {describeBackupFailsafeAlert(props.alert)}
           </p>
         </div>
-        <dl class="grid gap-1 text-sm text-red-50">
-          <Show when={props.alert.previousProjectPath}>
-            {(path) => (
-              <div>
-                <dt class="inline font-bold">Previous project path: </dt>
-                <dd class="inline break-all">{path()}</dd>
-              </div>
-            )}
-          </Show>
-          <Show when={props.alert.previousStorePath}>
-            {(path) => (
-              <div>
-                <dt class="inline font-bold">Previous store path: </dt>
-                <dd class="inline break-all">{path()}</dd>
-              </div>
-            )}
-          </Show>
-          <div>
-            <dt class="inline font-bold">Current project path: </dt>
-            <dd class="inline break-all">{props.alert.currentProjectPath}</dd>
-          </div>
-          <div>
-            <dt class="inline font-bold">Current store path: </dt>
-            <dd class="inline break-all">{props.alert.currentStorePath}</dd>
-          </div>
-          <Show when={props.alert.error}>
-            {(message) => (
-              <div>
-                <dt class="inline font-bold">Error: </dt>
-                <dd class="inline break-all">{message()}</dd>
-              </div>
-            )}
-          </Show>
-        </dl>
-        <Show when={props.alert.kind === "backup_path_drift"}>
+        <Show when={hasAction(props.alert, "revert") || hasAction(props.alert, "migrate")}>
           <div class="flex flex-wrap gap-2">
-            <Show
-              when={
-                props.alert.previousProjectPath !== null &&
-                props.alert.previousStorePath !== null
-              }
-            >
+            <Show when={hasAction(props.alert, "revert")}>
               <button
                 type="button"
                 class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
@@ -97,29 +58,21 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
                 Revert config
               </button>
             </Show>
-            <button
-              type="button"
-              class="min-h-10 rounded-lg border border-red-200 px-3 py-2 font-bold text-white"
-              disabled={pendingAction() !== null}
-              onClick={() => void submit("migrate")}
-            >
-              Migrate backup
-            </button>
+            <Show when={hasAction(props.alert, "migrate")}>
+              <button
+                type="button"
+                class="min-h-10 rounded-lg border border-red-200 px-3 py-2 font-bold text-white"
+                disabled={pendingAction() !== null}
+                onClick={() => void submit("migrate")}
+              >
+                {props.alert.kind === "backup_push_failed"
+                  ? "Retry backup push"
+                  : "Migrate backup"}
+              </button>
+            </Show>
           </div>
         </Show>
-        <Show when={props.alert.kind === "backup_push_failed"}>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
-              disabled={pendingAction() !== null}
-              onClick={() => void submit("migrate")}
-            >
-              Retry backup push
-            </button>
-          </div>
-        </Show>
-        <Show when={canDeleteMissingMemoryRecord(props.alert)}>
+        <Show when={hasAction(props.alert, "delete-missing-record")}>
           <div class="flex flex-wrap gap-2">
             <button
               type="button"
@@ -199,11 +152,11 @@ function describeBackupFailsafeAlert(alert: BackupFailsafeAlertView) {
   return "TRAUMA will not silently write memories into the configured backup location until this is resolved.";
 }
 
-function canDeleteMissingMemoryRecord(alert: BackupFailsafeAlertView) {
-  return (
-    alert.kind === "backup_content_inconsistent" &&
-    (alert.error?.includes("reason=missing_file") ?? false)
-  );
+function hasAction(
+  alert: BackupFailsafeAlertView,
+  action: BackupFailsafeActionName,
+) {
+  return alert.availableActions.includes(action);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -223,7 +224,7 @@ describe("memory delete API route", () => {
         projectPath: config.projectPath,
         storePath: config.storePath,
         gitRemote: config.backup.git.remote,
-        gitRemoteUrl: missingRemotePath,
+        gitRemoteUrl: `sha256:${createHash("sha256").update(missingRemotePath).digest("hex")}`,
         gitBranch: config.backup.git.branch,
         createdAt: routeNow,
         updatedAt: routeNow,
@@ -263,13 +264,15 @@ describe("memory delete API route", () => {
     );
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       error: "failed to delete memory",
       backupFailsafe: {
         kind: "backup_push_failed",
-        gitRemoteUrl: missingRemotePath,
+        availableActions: ["migrate"],
       },
     });
+    expect(JSON.stringify(body)).not.toContain(missingRemotePath);
     await expect(
       readFile(join(config.storePath, "memories", routeMemoryId, "CONTENT.md"), "utf8"),
     ).resolves.toContain("# Route Memory");

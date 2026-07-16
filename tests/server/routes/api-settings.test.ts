@@ -8,10 +8,12 @@ import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
+import { MAX_MUTATION_JSON_BODY_BYTES } from "../../../src/server/http/mutation-request";
 import {
   createReadCodexModelsHandler,
   createUpdateCodexTranslationDefaultsHandler,
 } from "../../../src/server/settings/codex-model-routes";
+import { CodexAppServerError } from "../../../src/server/translation/codex-app-server";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -116,6 +118,25 @@ describe("settings API routes", () => {
     });
   });
 
+  it("projects Codex model failures without raw diagnostics", async () => {
+    const secret = "/Users/alice/.codex/auth.json token=unique-secret";
+    const handler = createReadCodexModelsHandler({
+      listModels: async () => {
+        throw new CodexAppServerError("app_server_protocol_error", secret);
+      },
+    });
+
+    const response = await handler(apiEvent("/api/settings/codex-models", "GET"));
+    const body = await response.json();
+    expect(response.status).toBe(502);
+    expect(body).toEqual({
+      code: "app_server_protocol_error",
+      message: "Codex app-server returned an invalid response.",
+      status: "error",
+    });
+    expect(JSON.stringify(body)).not.toContain(secret);
+  });
+
   it("closes internally created Codex model clients after reading the catalog", async () => {
     let closeCalls = 0;
     const handler = createReadCodexModelsHandler({
@@ -181,6 +202,87 @@ describe("settings API routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       codexTranslationModel: "gpt-5.5",
       codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("rejects cross-origin settings mutations before dependencies run", async () => {
+    let listCalls = 0;
+    let readCalls = 0;
+    let updateCalls = 0;
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => {
+        listCalls += 1;
+        return { models: [] };
+      },
+      readDefaults: async () => {
+        readCalls += 1;
+        return { model: null, reasoningEffort: null };
+      },
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update cross-origin settings");
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-codex-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-type": "text/plain",
+            origin: "https://evil.example",
+          },
+          body: JSON.stringify({ reasoning_effort: "high" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect({ listCalls, readCalls, updateCalls }).toEqual({
+      listCalls: 0,
+      readCalls: 0,
+      updateCalls: 0,
+    });
+  });
+
+  it("rejects oversized settings mutations before dependencies run", async () => {
+    let listCalls = 0;
+    let updateCalls = 0;
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => {
+        listCalls += 1;
+        return { models: [] };
+      },
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update oversized settings");
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-codex-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-length": String(MAX_MUTATION_JSON_BODY_BYTES + 1),
+            "content-type": "application/json",
+            origin: "http://localhost",
+          },
+          body: "{}",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "request body is too large",
+    });
+    expect({ listCalls, updateCalls }).toEqual({
+      listCalls: 0,
+      updateCalls: 0,
     });
   });
 
@@ -388,7 +490,33 @@ describe("settings API routes", () => {
       status: "failed",
       provider: "codex",
       loginId: null,
-      error: "Cannot connect to Codex app-server Unix socket.",
+      error: "Codex app-server is unavailable.",
+    });
+  });
+
+  it("rejects cross-origin empty auth mutations before app-server work", async () => {
+    const request = (path: string, method: "DELETE" | "POST") =>
+      createApiEvent(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: { origin: "https://evil.example" },
+        }),
+      );
+
+    const enabled = await enableOpenAiAuth(
+      request("/api/settings/openai-auth/enable", "POST"),
+    );
+    const deleted = await deleteOpenAiAuth(
+      request("/api/settings/openai-auth", "DELETE"),
+    );
+
+    expect(enabled.status).toBe(403);
+    await expect(enabled.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect(deleted.status).toBe(403);
+    await expect(deleted.json()).resolves.toEqual({
+      error: "same-origin request is required",
     });
   });
 
@@ -400,7 +528,7 @@ describe("settings API routes", () => {
 
     expect(deleted.status).toBe(500);
     expect(await deleted.json()).toEqual({
-      error: "Cannot connect to Codex app-server Unix socket.",
+      error: "Codex app-server is unavailable.",
     });
   });
 });

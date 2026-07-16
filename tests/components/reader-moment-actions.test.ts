@@ -85,7 +85,8 @@ describe("reader Moment actions", () => {
 
   it("keeps lifted reader title in the offset basis without making reader chrome mutable", () => {
     expect(readerSource).toContain("let bodyContentRef: HTMLDivElement | undefined");
-    expect(readerSource).toContain("container: bodyContentRef");
+    expect(readerSource).toContain("const container = bodyContentRef");
+    expect(readerSource).toContain("container,");
     expect(readerSource).toContain("data-reader-mutable-content");
     expect(readerSource).toContain("ref={bodyContentRef}");
     expect(readerSource).toContain("data-reader-noncontent");
@@ -221,8 +222,8 @@ describe("reader Moment actions", () => {
         "await Promise.all([",
         "        revalidateMomentBrowseRows(),",
         "        revalidateReaderMemory(",
-        "          props.result.memory.id,",
-        "          props.result.content.langCode,",
+        "          readerGeneration.memoryId,",
+        "          readerGeneration.langCode,",
         "        ),",
         "      ]);",
       ].join("\n"),

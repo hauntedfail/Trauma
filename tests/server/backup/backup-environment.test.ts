@@ -10,6 +10,7 @@ import {
   assertBackupEnvironmentReady,
   ensureBackupEnvironment,
   getBackupFailsafeStatus,
+  recordBackupPushFailureAlert,
 } from "../../../src/server/backup/environment";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
@@ -53,6 +54,51 @@ describe("backup environment failsafe", () => {
         });
     } finally {
       connection.close();
+    }
+  });
+
+  it("fingerprints credentialed remotes and redacts persisted push diagnostics", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const secret = "unique-backup-secret";
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, [
+      "remote",
+      "add",
+      "origin",
+      `https://backup-user:${secret}@example.com/private.git`,
+    ]);
+    const connection = initializeDatabase(config);
+    connection.close();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await recordBackupPushFailureAlert(
+      config,
+      `fatal: https://backup-user:${secret}@example.com/private.git token=${secret}`,
+    );
+
+    const check = initializeDatabase(config);
+    try {
+      const alert =
+        await check.repositories.backupEnvironment.getBackupFailsafeAlert();
+      expect(alert?.gitRemoteUrl).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(alert?.error).toContain("[redacted]");
+      expect(JSON.stringify(alert)).not.toContain(secret);
+
+      const status = await getBackupFailsafeStatus({
+        config,
+        db: check.db,
+        now: () => now,
+      });
+      expect(status.alert).toMatchObject({
+        kind: "backup_push_failed",
+        availableActions: ["migrate"],
+      });
+      expect(JSON.stringify(status.alert)).not.toContain(secret);
+      expect(JSON.stringify(status.alert)).not.toContain(root);
+    } finally {
+      check.close();
     }
   });
 
@@ -319,8 +365,9 @@ describe("backup environment failsafe", () => {
 
       expect(status.alert).toMatchObject({
         kind: "backup_path_drift",
-        currentProjectPath: config.projectPath,
+        availableActions: ["migrate"],
       });
+      expect(JSON.stringify(status.alert)).not.toContain(root);
     } finally {
       connection.close();
     }

@@ -6,7 +6,6 @@ import {
   readActiveBackupFailsafeAlert,
   revertBackupFailsafeConfig,
 } from "../src/server/backup/failsafe";
-import { getBackupFailsafeStatus } from "../src/server/backup/environment";
 
 type Command = "status" | "revert" | "migrate" | "delete-missing-record";
 
@@ -16,13 +15,10 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
   const connection = initializeDatabase(config);
   try {
     if (parsed.command === "status") {
-      const status = await getBackupFailsafeStatus({
-        config,
-        db: connection.db,
-      });
-      return status.alert === null
+      const alert = await readActiveBackupFailsafeAlert(connection.db);
+      return alert === null
         ? "No active backup failsafe alert.\n"
-        : `${JSON.stringify(status.alert, null, 2)}\n`;
+        : `${JSON.stringify(alert, null, 2)}\n`;
     }
 
     if (parsed.command === "revert") {

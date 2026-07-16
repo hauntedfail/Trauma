@@ -24,6 +24,10 @@ import {
   submitTranslationTargetLanguage,
 } from "./settings-submit";
 import { revalidateSettingsState } from "./settings-loader";
+import {
+  createAsyncActionTracker,
+  type AsyncActionToken,
+} from "./action-state";
 import { RouteHeader } from "../layout/RouteHeader";
 
 export interface SettingsPageProps {
@@ -35,6 +39,12 @@ type PendingCodexAuth = Extract<
   SettingsPageProps["initialSettings"]["openaiAuth"],
   { status: "login_started" }
 >;
+
+type SettingsAction =
+  | "language"
+  | "codex-defaults"
+  | "openai-auth"
+  | "openai-auth-poll";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
@@ -71,10 +81,44 @@ export function SettingsPage(props: SettingsPageProps) {
     codexAuth().status === "login_started"
       ? codexAuth() as PendingCodexAuth
       : undefined;
-  const [pending, setPending] = createSignal("");
+  const [pendingActions, setPendingActions] = createSignal<
+    ReadonlySet<SettingsAction>
+  >(new Set());
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   const authPollControllers = new Set<AbortController>();
+  const actionTracker = createAsyncActionTracker<SettingsAction>(
+    setPendingActions,
+  );
+  const isPending = (action: SettingsAction): boolean =>
+    pendingActions().has(action);
+  const beginAction = (
+    action: SettingsAction,
+    options: { clearFeedback?: boolean } = {},
+  ): AsyncActionToken<SettingsAction> => {
+    const token = actionTracker.begin(action);
+    if (options.clearFeedback !== false) {
+      setError("");
+      setMessage("");
+    }
+    return token;
+  };
+  const setActionMessage = (
+    token: AsyncActionToken<SettingsAction>,
+    value: string,
+  ): void => {
+    if (actionTracker.isCurrent(token) && actionTracker.isLatestFeedback(token)) {
+      setMessage(value);
+    }
+  };
+  const setActionError = (
+    token: AsyncActionToken<SettingsAction>,
+    value: string,
+  ): void => {
+    if (actionTracker.isCurrent(token) && actionTracker.isLatestFeedback(token)) {
+      setError(value);
+    }
+  };
 
   onCleanup(() => {
     for (const controller of authPollControllers) {
@@ -112,20 +156,21 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   const updateLanguage = async (): Promise<void> => {
-    setPending("language");
-    setError("");
-    setMessage("");
+    const action = beginAction("language");
     try {
       const settings = await submitTranslationTargetLanguage({
         language: language(),
       });
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
       setLanguage(settings.translationTargetLanguage);
-      setMessage("Translation target language saved.");
+      setActionMessage(action, "Translation target language saved.");
       void revalidateSettingsState();
     } catch {
-      setError("Failed to update translation target language.");
+      setActionError(action, "Failed to update translation target language.");
     } finally {
-      setPending("");
+      actionTracker.finish(action);
     }
   };
 
@@ -151,96 +196,112 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   const updateCodexDefaults = async (): Promise<void> => {
-    setPending("codex-defaults");
-    setError("");
-    setMessage("");
+    const action = beginAction("codex-defaults");
     try {
       const selectedEffort = codexEffort();
       const settings = await submitCodexTranslationDefaults({
         model: codexModel() === "" ? null : codexModel(),
         reasoningEffort: selectedEffort === "" ? null : selectedEffort,
       });
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
       setCodexModel(settings.codexTranslationModel ?? "");
       setCodexEffort(settings.codexTranslationReasoningEffort ?? "");
-      setMessage("Codex translation defaults saved.");
+      setActionMessage(action, "Codex translation defaults saved.");
       void revalidateSettingsState();
     } catch (error) {
-      setError(
+      setActionError(
+        action,
         error instanceof Error
           ? error.message
           : "Failed to update Codex translation defaults.",
       );
     } finally {
-      setPending("");
+      actionTracker.finish(action);
     }
   };
 
   const enableOpenAiAuth = async (): Promise<void> => {
-    setPending("openai-auth");
-    setError("");
-    setMessage("");
+    const action = beginAction("openai-auth");
     try {
       const response = await submitEnableOpenAiAuth();
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
       if (response.status === "enabled") {
         setCodexAuth(response);
-        setMessage(response.message);
+        setActionMessage(action, response.message);
         void revalidateSettingsState();
       } else if (response.status === "login_started") {
         setCodexAuth(response);
-        setMessage("Codex device-code setup started.");
+        setActionMessage(action, "Codex device-code setup started.");
         void refreshCodexAuthAfterLogin();
       } else if (response.status === "failed") {
-        setError(response.error);
+        setActionError(action, response.error);
       } else {
         setCodexAuth(response);
-        setMessage("Codex auth setup state refreshed.");
+        setActionMessage(action, "Codex auth setup state refreshed.");
         void revalidateSettingsState();
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to enable OpenAI auth.");
+      setActionError(
+        action,
+        error instanceof Error ? error.message : "Failed to enable OpenAI auth.",
+      );
     } finally {
-      setPending("");
+      actionTracker.finish(action);
     }
   };
 
   const refreshCodexAuthAfterLogin = async (): Promise<void> => {
+    const action = beginAction("openai-auth-poll", { clearFeedback: false });
     const controller = new AbortController();
     authPollControllers.add(controller);
     try {
       const response = await pollCodexAuthSetup({
         signal: controller.signal,
       });
-      if (response === undefined || controller.signal.aborted) {
+      if (
+        response === undefined ||
+        controller.signal.aborted ||
+        !actionTracker.isCurrent(action)
+      ) {
         return;
       }
       setCodexAuth(response);
       if (response.status === "enabled") {
-        setMessage(response.message);
+        setActionMessage(action, response.message);
         void revalidateSettingsState();
       } else if (response.status === "error") {
-        setError(response.error);
+        setActionError(action, response.error);
       } else {
-        setMessage("Codex auth setup state refreshed.");
+        setActionMessage(action, "Codex auth setup state refreshed.");
         void revalidateSettingsState();
       }
     } catch (error) {
       if (!controller.signal.aborted) {
-        setError(error instanceof Error ? error.message : "Failed to refresh Codex auth.");
+        setActionError(
+          action,
+          error instanceof Error ? error.message : "Failed to refresh Codex auth.",
+        );
       }
     } finally {
       authPollControllers.delete(controller);
+      actionTracker.finish(action);
     }
   };
 
   const deleteOpenAiAuth = async (): Promise<void> => {
-    setPending("openai-auth");
-    setError("");
-    setMessage("");
+    const action = beginAction("openai-auth");
     try {
       const response = await submitDeleteOpenAiAuth({
         confirm: (text) =>
           typeof window === "undefined" ? false : window.confirm(text),
       });
+      if (!actionTracker.isCurrent(action)) {
+        return;
+      }
       if (response !== undefined) {
         if (response.status === "unsupported") {
           setCodexAuth({
@@ -248,7 +309,10 @@ export function SettingsPage(props: SettingsPageProps) {
             provider: "codex",
             message: response.message,
           });
-          setMessage(response.message ?? "Codex auth logout is unsupported.");
+          setActionMessage(
+            action,
+            response.message ?? "Codex auth logout is unsupported.",
+          );
           void revalidateSettingsState();
           return;
         }
@@ -257,13 +321,13 @@ export function SettingsPage(props: SettingsPageProps) {
           provider: "codex",
           reason: "logged_out",
         });
-        setMessage("Codex auth was deleted.");
+        setActionMessage(action, "Codex auth was deleted.");
         void revalidateSettingsState();
       }
     } catch {
-      setError("Failed to delete OpenAI auth.");
+      setActionError(action, "Failed to delete OpenAI auth.");
     } finally {
-      setPending("");
+      actionTracker.finish(action);
     }
   };
 
@@ -281,7 +345,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <span class={labelClass}>Translation target language</span>
             <select
               class={selectClass}
-              disabled={pending() === "language"}
+              disabled={isPending("language")}
               value={language()}
               onChange={(event) =>
                 setLanguage(event.currentTarget.value as SupportedLanguageCode)
@@ -297,7 +361,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <div>
             <button
               class={primaryButtonClass}
-              disabled={pending() === "language"}
+              disabled={isPending("language")}
               type="submit"
             >
               Save language
@@ -313,7 +377,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <span class={labelClass}>Model</span>
             <select
               class={selectClass}
-              disabled={pending() === "codex-defaults"}
+              disabled={isPending("codex-defaults")}
               value={codexModel()}
               onChange={(event) => setCodexModel(event.currentTarget.value)}
             >
@@ -341,7 +405,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <span class={labelClass}>Reasoning effort</span>
             <select
               class={selectClass}
-              disabled={pending() === "codex-defaults"}
+              disabled={isPending("codex-defaults")}
               value={codexEffort()}
               onChange={(event) =>
                 setCodexEffort(
@@ -366,7 +430,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <div>
             <button
               class={primaryButtonClass}
-              disabled={pending() === "codex-defaults"}
+              disabled={isPending("codex-defaults")}
               type="submit"
             >
               Save Codex defaults
@@ -392,7 +456,7 @@ export function SettingsPage(props: SettingsPageProps) {
               disabled={
                 codexAuth().status === "enabled" ||
                 codexAuth().status === "login_started" ||
-                pending() === "openai-auth"
+                isPending("openai-auth") || isPending("openai-auth-poll")
               }
               type="button"
               onClick={() => void enableOpenAiAuth()}
@@ -402,7 +466,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <Show when={codexAuth().status === "enabled"}>
               <button
                 class={dangerButtonClass}
-                disabled={pending() === "openai-auth"}
+                disabled={isPending("openai-auth")}
                 type="button"
                 onClick={() => void deleteOpenAiAuth()}
               >
@@ -420,14 +484,18 @@ export function SettingsPage(props: SettingsPageProps) {
               <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
                 {pendingAuth().userCode}
               </p>
-              <a
-                class="text-sm font-bold text-trauma-link"
-                href={pendingAuth().verificationUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {pendingAuth().verificationUrl}
-              </a>
+              <Show when={readSafeVerificationUrl(pendingAuth().verificationUrl)}>
+                {(verificationUrl) => (
+                  <a
+                    class="text-sm font-bold text-trauma-link"
+                    href={verificationUrl()}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {verificationUrl()}
+                  </a>
+                )}
+              </Show>
             </div>
             )}
           </Show>
@@ -458,4 +526,20 @@ export function SettingsPage(props: SettingsPageProps) {
       </div>
     </section>
   );
+}
+
+export function readSafeVerificationUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== ""
+    ) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }

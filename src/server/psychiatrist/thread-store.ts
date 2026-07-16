@@ -1332,11 +1332,23 @@ async function hydratePairRetryActions(
   pairs: PsychiatristThreadPair[],
 ): Promise<PsychiatristThreadPair[]> {
   const terminalTurns = await readTerminalTurns(config, manifest);
-  return Promise.all(pairs.map(async (pair) => {
+  const terminalTurnsByPairId = new Map<
+    string,
+    (typeof terminalTurns)[number][]
+  >();
+  for (const turn of terminalTurns) {
+    const turns = terminalTurnsByPairId.get(turn.pairId) ?? [];
+    turns.push(turn);
+    terminalTurnsByPairId.set(turn.pairId, turns);
+  }
+  for (const turns of terminalTurnsByPairId.values()) {
+    turns.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  return pairs.map((pair) => {
     const completedAt = pair.assistant?.completedAt;
-    const retryTurn = terminalTurns
-      .filter((turn) =>
-        turn.pairId === pair.pairId &&
+    const retryTurn = (terminalTurnsByPairId.get(pair.pairId) ?? [])
+      .find((turn) =>
         (
           pair.assistant === undefined
             ? turn.regenerateFromTurnId === undefined
@@ -1347,8 +1359,7 @@ async function hydratePairRetryActions(
           completedAt === undefined ||
           turn.updatedAt > completedAt
         )
-      )
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+      );
     if (retryTurn === undefined) {
       return pair;
     }
@@ -1379,7 +1390,7 @@ async function hydratePairRetryActions(
       };
     }
     return pair;
-  }));
+  });
 }
 
 async function readTerminalTurns(

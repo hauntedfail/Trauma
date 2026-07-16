@@ -1,4 +1,6 @@
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
+
+import { BoundedCache } from "./bounded-cache";
 
 interface ParsedJsonl<T> {
   hasTornTail: boolean;
@@ -6,19 +8,49 @@ interface ParsedJsonl<T> {
   validPrefix: string;
 }
 
+const MAX_VALIDATED_JSONL_PATHS = 256;
+const validatedAppendStates = new BoundedCache<string, string>(
+  MAX_VALIDATED_JSONL_PATHS,
+);
+
 export async function readJsonlRows<T>(path: string): Promise<T[]> {
-  return parseJsonl<T>(await readJsonlContent(path)).rows;
+  const before = await readFileSignature(path);
+  const content = await readJsonlContent(path);
+  const parsed = parseJsonl<T>(content);
+  const after = await readFileSignature(path);
+  if (
+    !parsed.hasTornTail &&
+    (content === "" || content.endsWith("\n")) &&
+    before === after &&
+    after !== undefined
+  ) {
+    validatedAppendStates.set(path, after);
+  }
+  return parsed.rows;
 }
 
 export async function appendJsonlRow(path: string, row: unknown): Promise<void> {
-  const content = await readJsonlContent(path);
-  const parsed = parseJsonl(content);
-  if (parsed.hasTornTail) {
-    await writeFile(path, parsed.validPrefix, "utf8");
+  const signature = await readFileSignature(path);
+  let prefix = "";
+  if (
+    signature === undefined ||
+    validatedAppendStates.get(path) !== signature
+  ) {
+    const content = await readJsonlContent(path);
+    const parsed = parseJsonl(content);
+    if (parsed.hasTornTail) {
+      await writeFile(path, parsed.validPrefix, "utf8");
+    }
+    const retainedContent = parsed.hasTornTail ? parsed.validPrefix : content;
+    prefix = retainedContent !== "" && !retainedContent.endsWith("\n")
+      ? "\n"
+      : "";
   }
-  const retainedContent = parsed.hasTornTail ? parsed.validPrefix : content;
-  const separator = retainedContent !== "" && !retainedContent.endsWith("\n") ? "\n" : "";
-  await appendFile(path, `${separator}${JSON.stringify(row)}\n`, "utf8");
+  await appendFile(path, `${prefix}${JSON.stringify(row)}\n`, "utf8");
+  const updatedSignature = await readFileSignature(path);
+  if (updatedSignature !== undefined) {
+    validatedAppendStates.set(path, updatedSignature);
+  }
 }
 
 async function readJsonlContent(path: string): Promise<string> {
@@ -56,4 +88,16 @@ function parseJsonl<T>(content: string): ParsedJsonl<T> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function readFileSignature(path: string): Promise<string | undefined> {
+  try {
+    const value = await stat(path, { bigint: true });
+    return `${value.dev}:${value.ino}:${value.size}:${value.mtimeNs}`;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
 }

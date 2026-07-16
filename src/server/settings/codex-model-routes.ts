@@ -1,9 +1,11 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { formatConfigError, jsonResponse } from "../http/json";
+import { readJsonMutationRequest } from "../http/mutation-request";
 import {
   CodexAppServerClient,
   CodexAppServerError,
+  safeCodexAppServerErrorMessage,
   type CodexModelCatalog,
 } from "../translation/codex-app-server";
 import {
@@ -37,7 +39,7 @@ type DefaultsPayload =
       model?: string | null;
       reasoningEffort?: CodexReasoningEffort | null;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 class CodexModelSelectionError extends Error {
   constructor(
@@ -82,7 +84,10 @@ export function createUpdateCodexTranslationDefaultsHandler(input: {
   return async function updateDefaultsRoute(event: APIEvent): Promise<Response> {
     const payload = await parseDefaultsPayload(event.request);
     if (!payload.ok) {
-      return jsonResponse({ error: payload.error }, { status: 400 });
+      return jsonResponse(
+        { error: payload.error },
+        { status: payload.status ?? 400 },
+      );
     }
 
     try {
@@ -121,12 +126,11 @@ async function listModelsWithOwnedClient(
 }
 
 async function parseDefaultsPayload(request: Request): Promise<DefaultsPayload> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };
   }
@@ -228,7 +232,10 @@ function formatCodexModelError(error: unknown): Response {
     return jsonResponse(
       {
         code: error.code,
-        message: error.message,
+        message: safeCodexAppServerErrorMessage(
+          error,
+          "Codex model request failed.",
+        ),
         status: "error",
       },
       { status: statusForCodexAppServerError(error.code) },

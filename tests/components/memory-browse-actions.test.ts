@@ -325,6 +325,21 @@ describe("memory browse actions", () => {
     expect(browseSource).not.toContain("loadMoreSentinel === undefined || typeof IntersectionObserver");
   });
 
+  it("keeps empty filtered pages continuable when the server returns a cursor", () => {
+    const memoriesShowStart = browseSource.indexOf(
+      "when={visibleMemories().length > 0}",
+    );
+    const memoriesShowEnd = browseSource.indexOf("\n      </Show>", memoriesShowStart);
+    const loadMoreStart = browseSource.indexOf(
+      "<Show when={nextCursor() !== null}>",
+      memoriesShowStart,
+    );
+
+    expect(memoriesShowStart).toBeGreaterThan(-1);
+    expect(memoriesShowEnd).toBeGreaterThan(memoriesShowStart);
+    expect(loadMoreStart).toBeGreaterThan(memoriesShowEnd);
+  });
+
   it("reports handled load-more failures without rethrowing to void callers", () => {
     const loadNextPageStart = browseSource.indexOf("const loadNextPage = async");
     const loadNextPageEnd = browseSource.indexOf(
