@@ -416,9 +416,14 @@ test("closes taxonomy creation controls on outside clicks", async ({ page }) => 
   await page.getByRole("button", { name: "New tag" }).click();
   await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "All" }).click();
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  await statusTabs.getByRole("tab", { name: "Unread" }).click();
 
   await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
+  await expect(statusTabs.getByRole("tab", { name: "All" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
@@ -1037,6 +1042,86 @@ test("does not suppress the next normal click after an outside right-click dismi
   await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
+test("does not suppress a click after an outside pointer sequence is canceled", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
+  await page.getByRole("button", { name: "New tag" }).click();
+  await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
+
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 17,
+    pointerType: "touch",
+  });
+  await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
+  await unreadTab.dispatchEvent("pointercancel", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 17,
+    pointerType: "touch",
+  });
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
+test("does not suppress a click after an outside pointerup produced no click", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
+  await page.getByRole("button", { name: "New tag" }).click();
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 23,
+    pointerType: "touch",
+  });
+  await unreadTab.dispatchEvent("pointerup", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 23,
+    pointerType: "touch",
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
+test("expires outside click suppression when a pointer sequence goes silent", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "New tag" }).click();
+  const unreadTab = page
+    .getByRole("tablist", { name: "Memory read status" })
+    .getByRole("tab", { name: "Unread" });
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 29,
+    pointerType: "touch",
+  });
+  await page.evaluate(() =>
+    new Promise<void>((resolve) => setTimeout(resolve, 1_300))
+  );
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {
   const layer = await page.evaluate((name) => {
     const dialog = Array.from(
@@ -1128,6 +1213,19 @@ async function readPaperShellMaterial(page: Page) {
       routeBackgroundImage: routePaneStyle.backgroundImage,
     };
   });
+}
+
+async function installDismissableClickProbe(page: Page) {
+  await page.evaluate(() => {
+    const probe = document.createElement("button");
+    probe.dataset.dismissableClickProbe = "true";
+    probe.textContent = "Dismissable click probe";
+    probe.addEventListener("click", () => {
+      probe.dataset.clicked = "true";
+    });
+    document.body.append(probe);
+  });
+  return page.locator("[data-dismissable-click-probe='true']");
 }
 
 function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901"): void {

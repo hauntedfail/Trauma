@@ -105,9 +105,10 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       });
     },
   );
-  await page.route("**/api/settings/translation-codex-defaults", async (route) => {
+  await page.route("**/api/settings/translation-defaults", async (route) => {
     translationDefaultsRequestCount += 1;
     const body = route.request().postDataJSON() as {
+      language: string;
       model: string | null;
       reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
     };
@@ -116,7 +117,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       contentType: "application/json",
       status: 200,
       body: JSON.stringify({
-        translationTargetLanguage: "ja-JP",
+        translationTargetLanguage: body.language,
         codexTranslationModel: body.model,
         codexTranslationReasoningEffort: body.reasoning_effort,
         openaiAuth: {
@@ -160,7 +161,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   await effortSelect.selectOption("medium");
   const defaultsRequest = page.waitForRequest(
     (request) =>
-      request.url().endsWith("/api/settings/translation-codex-defaults") &&
+      request.url().endsWith("/api/settings/translation-defaults") &&
       request.method() === "PATCH",
   );
   const translationRequest = page.waitForRequest(
@@ -187,6 +188,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   ]);
   await expect(dialog).toHaveCount(0);
   expect(settingsRequest.postDataJSON()).toEqual({
+    language: "ja-JP",
     model: "gpt-5.3",
     reasoning_effort: "medium",
   });
@@ -2023,6 +2025,64 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   expect((await deleteResponse).status()).toBe(204);
   await expect(tocButton).toHaveAttribute("aria-pressed", "false");
   expect(readMomentAnchors()).not.toContain("details");
+});
+
+test("preserves right-rail tab and scroll state while toggling a Moment", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 700 });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const rightRailScroll = page.locator(".trauma-shell-right-rail > div");
+  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  const tocScroll = toc.locator("ol");
+  const allTab = page.getByRole("button", { exact: true, name: "All" });
+  await allTab.click();
+  await expect(allTab).toHaveAttribute("aria-pressed", "true");
+
+  const before = await page.evaluate(() => {
+    const rightRail = document.querySelector<HTMLElement>(
+      ".trauma-shell-right-rail > div",
+    );
+    const tocList = document.querySelector<HTMLElement>(
+      'nav[aria-label="Table of contents"] ol',
+    );
+    if (rightRail === null || tocList === null) {
+      throw new Error("Reader right-rail scroll containers are missing");
+    }
+    rightRail.scrollTop = Math.min(80, rightRail.scrollHeight - rightRail.clientHeight);
+    tocList.scrollTop = Math.min(120, tocList.scrollHeight - tocList.clientHeight);
+    return {
+      rightRail: rightRail.scrollTop,
+      toc: tocList.scrollTop,
+    };
+  });
+  expect(before.rightRail).toBeGreaterThan(0);
+  expect(before.toc).toBeGreaterThan(0);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await toc
+    .getByRole("button", { name: "Moment Section 20" })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect((await createResponse).status()).toBe(201);
+  await expect(
+    toc.getByRole("button", { name: "Moment Section 20" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(allTab).toHaveAttribute("aria-pressed", "true");
+
+  const after = {
+    rightRail: await rightRailScroll.evaluate((element) => element.scrollTop),
+    toc: await tocScroll.evaluate((element) => element.scrollTop),
+  };
+  expect(Math.abs(after.rightRail - before.rightRail)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.toc - before.toc)).toBeLessThanOrEqual(1);
 });
 
 test("creates a Moment from a reader heading affordance button", async ({

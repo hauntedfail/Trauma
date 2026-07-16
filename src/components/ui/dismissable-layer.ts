@@ -1,6 +1,7 @@
 import { createEffect, onCleanup } from "solid-js";
 
 const activeLayerIds: symbol[] = [];
+const OUTSIDE_CLICK_SUPPRESSION_TIMEOUT_MS = 1_200;
 
 export type DismissableLayerDismissReason = "escape" | "outside-pointer";
 
@@ -16,7 +17,8 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
   options: DismissableLayerOptions<TRoot>,
 ): void {
   const layerId = Symbol("dismissable-layer");
-  let outsideClickSuppressionArmed = false;
+  let outsideClickSuppressionPointerId: number | undefined;
+  let outsideClickSuppressionTimeout: number | undefined;
   const isEnabled = () => options.isEnabled?.() ?? true;
   const isTopmostLayer = () => activeLayerIds.at(-1) === layerId;
   const isOutside = (target: EventTarget | null): boolean => {
@@ -24,20 +26,86 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
     return root !== undefined && target instanceof Node && !root.contains(target);
   };
   const handleSuppressedOutsideClick = (event: MouseEvent) => {
-    outsideClickSuppressionArmed = false;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  };
-  const armOutsideClickSuppression = () => {
-    if (outsideClickSuppressionArmed) {
+    const pointerId = readEventPointerId(event);
+    const shouldSuppress = pointerId === undefined ||
+      pointerId === outsideClickSuppressionPointerId;
+    clearOutsideClickSuppression();
+    if (!shouldSuppress) {
       return;
     }
 
-    outsideClickSuppressionArmed = true;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const handleSuppressedPointerCancel = (event: PointerEvent) => {
+    if (event.pointerId === outsideClickSuppressionPointerId) {
+      clearOutsideClickSuppression();
+    }
+  };
+  const handleSuppressedPointerUp = (event: PointerEvent) => {
+    if (event.pointerId === outsideClickSuppressionPointerId) {
+      scheduleOutsideClickSuppressionClear(0);
+    }
+  };
+  const handleInterruptedPointerDown = () => {
+    clearOutsideClickSuppression();
+  };
+  const clearOutsideClickSuppression = () => {
+    outsideClickSuppressionPointerId = undefined;
+    if (outsideClickSuppressionTimeout !== undefined) {
+      window.clearTimeout(outsideClickSuppressionTimeout);
+      outsideClickSuppressionTimeout = undefined;
+    }
+    document.removeEventListener("click", handleSuppressedOutsideClick, true);
+    document.removeEventListener(
+      "pointercancel",
+      handleSuppressedPointerCancel,
+      true,
+    );
+    document.removeEventListener("pointerup", handleSuppressedPointerUp, true);
+    document.removeEventListener(
+      "pointerdown",
+      handleInterruptedPointerDown,
+      true,
+    );
+    document.removeEventListener("keydown", clearOutsideClickSuppression, true);
+    window.removeEventListener("blur", clearOutsideClickSuppression);
+  };
+  const scheduleOutsideClickSuppressionClear = (delayMs: number) => {
+    if (outsideClickSuppressionTimeout !== undefined) {
+      window.clearTimeout(outsideClickSuppressionTimeout);
+    }
+    outsideClickSuppressionTimeout = window.setTimeout(
+      clearOutsideClickSuppression,
+      delayMs,
+    );
+  };
+  const armOutsideClickSuppression = (event: PointerEvent) => {
+    if (outsideClickSuppressionPointerId !== undefined) {
+      return;
+    }
+
+    outsideClickSuppressionPointerId = event.pointerId;
     document.addEventListener("click", handleSuppressedOutsideClick, {
       capture: true,
       once: true,
     });
+    document.addEventListener(
+      "pointercancel",
+      handleSuppressedPointerCancel,
+      true,
+    );
+    document.addEventListener("pointerup", handleSuppressedPointerUp, true);
+    document.addEventListener(
+      "pointerdown",
+      handleInterruptedPointerDown,
+      true,
+    );
+    document.addEventListener("keydown", clearOutsideClickSuppression, true);
+    window.addEventListener("blur", clearOutsideClickSuppression);
+    scheduleOutsideClickSuppressionClear(
+      OUTSIDE_CLICK_SUPPRESSION_TIMEOUT_MS,
+    );
   };
 
   createEffect(() => {
@@ -61,7 +129,7 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
         isClickProducingPrimaryPointerDown(event) &&
         (options.shouldSuppressOutsideClick?.(event.target) ?? true)
       ) {
-        armOutsideClickSuppression();
+        armOutsideClickSuppression(event);
       }
       options.onDismiss("outside-pointer");
     };
@@ -87,4 +155,9 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
 
 function isClickProducingPrimaryPointerDown(event: PointerEvent): boolean {
   return event.button === 0 && event.isPrimary !== false;
+}
+
+function readEventPointerId(event: MouseEvent): number | undefined {
+  const pointerId = Reflect.get(event, "pointerId");
+  return typeof pointerId === "number" ? pointerId : undefined;
 }

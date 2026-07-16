@@ -136,6 +136,16 @@ durable SQLite job/chunk state. Before new or recoverable Codex work is reserved
 the shared runtime-isolation assertion must confirm that an external boundary
 makes host data unreadable to the app-server.
 
+Before the Reader starts a translation, it sends the selected language, model,
+and reasoning effort together to `PATCH /api/settings/translation-defaults`.
+The route applies the normal mutation Host/origin/body guards, validates every
+field and the Codex catalog selection, then persists all three defaults with one
+settings update. The Reader uses the canonical language/model/effort returned in
+`SettingsState` for the translation `POST`; it must not reuse stale form values.
+The language-mismatch rejection in the runner remains a required defense for
+direct or stale callers. Existing language-only and Codex-only settings routes
+remain compatible for their current clients.
+
 1. `POST /api/memories/:memoryId/translations` validates the request, resolves
    the configured target language and Codex model/effort, loads source
    `CONTENT.md`, and hashes it.
@@ -184,6 +194,13 @@ The SSE endpoint first sends the durable job snapshot, then any in-process
 replay events, follows live events, sends heartbeats, and closes on a terminal
 state. Reconnecting after a process restart relies on the durable snapshot, not
 on replay history that lived only in the previous process.
+
+Codex device-login polling owns an `AbortController` per polling generation and
+passes its signal into each in-flight auth-status `GET`. Canceling setup or
+unmounting Settings aborts both delay and fetch work. An `AbortError` is normal
+cancellation: it must not publish failure feedback or a stale auth state, and an
+older poll completion must not clear or re-enable controls owned by a newer
+action generation.
 
 ## Psychiatrist
 

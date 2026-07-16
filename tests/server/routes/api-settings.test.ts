@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
+import { PATCH as updateTranslationDefaultsRoute } from "../../../src/routes/api/settings/translation-defaults";
 import { DELETE as deleteCodexAuth } from "../../../src/routes/api/settings/codex-auth";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
@@ -13,6 +14,7 @@ import { MAX_MUTATION_JSON_BODY_BYTES } from "../../../src/server/http/mutation-
 import {
   createReadCodexModelsHandler,
   createUpdateCodexTranslationDefaultsHandler,
+  createUpdateTranslationDefaultsHandler,
 } from "../../../src/server/settings/codex-model-routes";
 import { CodexAppServerError } from "../../../src/server/translation/codex-app-server";
 import {
@@ -204,6 +206,110 @@ describe("settings API routes", () => {
       codexTranslationModel: "gpt-5.5",
       codexTranslationReasoningEffort: "high",
     });
+  });
+
+  it("validates and persists combined translation defaults with one update", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "model-id",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: input.language,
+          codexTranslationModel: input.model,
+          codexTranslationReasoningEffort: input.reasoningEffort,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: "model-id",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([
+      { language: "en-US", model: "gpt-5.5", reasoningEffort: "high" },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("rejects invalid combined defaults before any settings update", async () => {
+    let updateCalls = 0;
+    const handler = createUpdateTranslationDefaultsHandler({
+      listModels: async () => ({ models: [] }),
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update invalid defaults");
+      },
+    });
+
+    const unsupportedLanguage = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "xx-XX",
+        model: null,
+        reasoning_effort: null,
+      }),
+    );
+    const unavailableModel = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: "missing-model",
+        reasoning_effort: null,
+      }),
+    );
+    const malformed = await updateTranslationDefaultsRoute(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: null,
+      }),
+    );
+    const crossOrigin = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-type": "text/plain",
+            origin: "https://evil.example",
+          },
+          body: JSON.stringify({
+            language: "en-US",
+            model: null,
+            reasoning_effort: null,
+          }),
+        }),
+      ),
+    );
+
+    expect(unsupportedLanguage.status).toBe(400);
+    expect(unavailableModel.status).toBe(409);
+    expect(malformed.status).toBe(400);
+    expect(crossOrigin.status).toBe(403);
+    expect(updateCalls).toBe(0);
   });
 
   it("rejects cross-origin settings mutations before dependencies run", async () => {

@@ -29,7 +29,14 @@ describe("dismissable popup layers", () => {
     expect(dismissableLayerSource).toContain('document.addEventListener("pointerdown"');
     expect(dismissableLayerSource).toContain("armOutsideClickSuppression");
     expect(dismissableLayerSource).toContain("handleSuppressedOutsideClick");
-    expect(dismissableLayerSource).toContain("outsideClickSuppressionArmed");
+    expect(dismissableLayerSource).toContain("outsideClickSuppressionPointerId");
+    expect(dismissableLayerSource).toContain("clearOutsideClickSuppression");
+    expect(dismissableLayerSource).toContain("handleSuppressedPointerCancel");
+    expect(dismissableLayerSource).toContain("handleSuppressedPointerUp");
+    expect(dismissableLayerSource).toContain("handleInterruptedPointerDown");
+    expect(dismissableLayerSource).toContain('"pointercancel",');
+    expect(dismissableLayerSource).toContain('window.addEventListener("blur"');
+    expect(dismissableLayerSource).toContain("window.setTimeout");
     expect(dismissableLayerSource).toContain("once: true");
     expect(dismissableLayerSource).toContain("shouldSuppressOutsideClick");
     expect(dismissableLayerSource).toContain("isClickProducingPrimaryPointerDown");

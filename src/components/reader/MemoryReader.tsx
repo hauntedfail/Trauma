@@ -93,8 +93,8 @@ import {
   ScrollableUrlLink,
 } from "../url/ScrollableUrlText";
 import {
-  submitCodexTranslationDefaults,
   submitReadCodexModels,
+  submitTranslationDefaults,
 } from "../settings/settings-submit";
 import { revalidateSettingsState } from "../settings/settings-loader";
 import {
@@ -349,22 +349,6 @@ function ReadyMemoryReader(props: {
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
   });
-  createEffect(() => {
-    setRightRailContent(
-      <ReaderRightRailContent
-        activeTocRange={activeTocRange}
-        currentFlashbacks={currentFlashbacks()}
-        flashbackRows={props.flashbackRows}
-        moments={moments()}
-        memoryId={props.result.memory.id}
-        onCreateMoment={(section) => void toggleMoment(section)}
-        onOpenSectionMenu={openSectionMenu}
-        pendingMomentKey={pendingMomentKey()}
-        toc={props.result.rendered.toc}
-      />,
-    );
-  });
-
   onCleanup(() => {
     readerGenerationGuard.invalidate();
     translationRequestGeneration += 1;
@@ -375,6 +359,19 @@ function ReadyMemoryReader(props: {
   });
 
   onMount(() => {
+    setRightRailContent(
+      <ReaderRightRailContent
+        activeTocRange={activeTocRange}
+        currentFlashbacks={currentFlashbacks}
+        flashbackRows={props.flashbackRows}
+        moments={moments}
+        memoryId={props.result.memory.id}
+        onCreateMoment={(section) => void toggleMoment(section)}
+        onOpenSectionMenu={openSectionMenu}
+        pendingMomentKey={pendingMomentKey}
+        toc={props.result.rendered.toc}
+      />,
+    );
     setIsReaderClientReady(true);
     const closeOnEscape = (event: KeyboardEvent) => {
       if (
@@ -843,7 +840,8 @@ function ReadyMemoryReader(props: {
       status: "starting",
     });
     try {
-      const settings = await submitCodexTranslationDefaults({
+      const settings = await submitTranslationDefaults({
+        language: input.langCode,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
@@ -851,14 +849,15 @@ function ReadyMemoryReader(props: {
         return;
       }
 
+      const persistedLanguage = settings.translationTargetLanguage;
       const persistedModel = settings.codexTranslationModel;
       const persistedReasoningEffort = settings.codexTranslationReasoningEffort;
-      setTranslationDefaultLanguage(input.langCode);
+      setTranslationDefaultLanguage(persistedLanguage);
       setTranslationDefaultModel(persistedModel ?? "");
       setTranslationDefaultEffort(persistedReasoningEffort ?? "");
       void revalidateSettingsState();
       const result = await startReaderTranslation({
-        langCode,
+        langCode: persistedLanguage,
         memoryId: readerGeneration.memoryId,
         model: persistedModel,
         reasoningEffort: persistedReasoningEffort,
@@ -868,7 +867,7 @@ function ReadyMemoryReader(props: {
       }
       if (
         result.memory_id !== readerGeneration.memoryId ||
-        result.lang_code !== langCode
+        result.lang_code !== persistedLanguage
       ) {
         throw new Error("Translation response did not match the active reader.");
       }
@@ -1354,7 +1353,11 @@ function ReadyMemoryReader(props: {
                         </label>
                         <Show when={translationCatalogError()}>
                           {(value) => (
-                            <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                            <p
+                              aria-live="assertive"
+                              class="mb-0 text-xs font-bold text-trauma-text-muted"
+                              role="alert"
+                            >
                               {value()}
                             </p>
                           )}
@@ -2289,28 +2292,28 @@ function focusReaderToolbarButton(
 
 function ReaderRightRailContent(props: {
   activeTocRange: Accessor<ActiveTocRange>;
-  currentFlashbacks: ReaderFlashbackItem[];
+  currentFlashbacks: Accessor<ReaderFlashbackItem[]>;
   flashbackRows?: FlashbackBrowseRow[];
-  moments: ReaderMomentItem[];
+  moments: Accessor<ReaderMomentItem[]>;
   memoryId: string;
   onCreateMoment: (section: ReaderMomentSection) => void;
   onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
-  pendingMomentKey: string;
+  pendingMomentKey: Accessor<string>;
   toc: ReaderTocEntry[];
 }) {
   return (
     <div class="grid gap-4">
       <ReaderToc
         activeTocRange={props.activeTocRange}
-        moments={props.moments}
+        moments={props.moments()}
         onCreateMoment={props.onCreateMoment}
         onOpenSectionMenu={props.onOpenSectionMenu}
-        pendingMomentKey={props.pendingMomentKey}
+        pendingMomentKey={props.pendingMomentKey()}
         toc={props.toc}
       />
       <ReaderFlashbackTabs
         allFlashbacks={props.flashbackRows}
-        currentFlashbacks={props.currentFlashbacks}
+        currentFlashbacks={props.currentFlashbacks()}
         memoryId={props.memoryId}
       />
     </div>

@@ -266,13 +266,49 @@ describe("memory reader actions", () => {
       "  createEffect(() => {\n    readerGenerationGuard.activate({",
     );
     const resultSyncEnd = memoryReaderSource.indexOf(
-      "  createEffect(() => {",
+      "  onCleanup(() => {",
       resultSyncStart + 1,
     );
     const resultSync = memoryReaderSource.slice(resultSyncStart, resultSyncEnd);
     expect(resultSync).toContain("setCurrentFlashbacks");
     expect(resultSync).not.toContain("setTranslationProgress");
     expect(resultSync).not.toContain("translationEventSource");
+  });
+
+  it("registers one right-rail subtree with reactive reader-owned state", () => {
+    expect(memoryReaderSource).toContain(
+      "currentFlashbacks={currentFlashbacks}",
+    );
+    expect(memoryReaderSource).toContain("moments={moments}");
+    expect(memoryReaderSource).toContain("pendingMomentKey={pendingMomentKey}");
+    expect(memoryReaderSource).toContain(
+      "currentFlashbacks: Accessor<ReaderFlashbackItem[]>",
+    );
+    expect(memoryReaderSource).toContain(
+      "moments: Accessor<ReaderMomentItem[]>",
+    );
+    expect(memoryReaderSource).toContain("pendingMomentKey: Accessor<string>");
+    expect(memoryReaderSource).not.toContain(
+      "currentFlashbacks={currentFlashbacks()}",
+    );
+  });
+
+  it("announces reader model-catalog failures assertively", () => {
+    const catalogErrorStart = memoryReaderSource.indexOf(
+      "<Show when={translationCatalogError()}>",
+    );
+    const catalogErrorEnd = memoryReaderSource.indexOf(
+      "</Show>",
+      catalogErrorStart,
+    );
+    const catalogErrorMarkup = memoryReaderSource.slice(
+      catalogErrorStart,
+      catalogErrorEnd,
+    );
+
+    expect(catalogErrorStart).toBeGreaterThan(-1);
+    expect(catalogErrorMarkup).toContain('aria-live="assertive"');
+    expect(catalogErrorMarkup).toContain('role="alert"');
   });
 
   it("treats terminal translation snapshots as terminal SSE progress", () => {
@@ -558,7 +594,7 @@ describe("memory reader actions", () => {
 
   it("keeps remembered model values selectable and the submit button primary", () => {
     expect(memoryReaderSource).toContain("canonicalTranslationModel");
-    expect(memoryReaderSource).toContain("submitCodexTranslationDefaults");
+    expect(memoryReaderSource).toContain("submitTranslationDefaults");
     expect(memoryReaderSource).toContain(
       "!translationCatalogModels().some((model) =>",
     );
@@ -578,12 +614,12 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
   });
 
-  it("persists reader-selected Codex defaults before translation start revalidation", () => {
+  it("persists canonical reader translation defaults before translation start", () => {
     const persistIndex = memoryReaderSource.indexOf(
-      "await submitCodexTranslationDefaults",
+      "await submitTranslationDefaults",
     );
     const defaultUpdateIndex = memoryReaderSource.indexOf(
-      "setTranslationDefaultLanguage(input.langCode)",
+      "setTranslationDefaultLanguage(persistedLanguage)",
       persistIndex,
     );
     const startIndex = memoryReaderSource.indexOf(
@@ -603,6 +639,8 @@ describe("memory reader actions", () => {
     expect(startIndex).toBeGreaterThan(persistIndex);
     expect(memoryReaderSource).toContain("codexTranslationModel");
     expect(memoryReaderSource).toContain("codexTranslationReasoningEffort");
+    expect(memoryReaderSource).toContain("settings.translationTargetLanguage");
+    expect(memoryReaderSource).toContain("langCode: persistedLanguage");
   });
 
   it("validates the selected translation language before submitting", () => {

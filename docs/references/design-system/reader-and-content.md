@@ -44,6 +44,9 @@ Contract:
 
 - Registered by `MemoryReader` into the shell right rail while a ready memory
   route is mounted.
+- The right-rail subtree is registered once per ready Reader mount. Reader-owned
+  Flashbacks, Moments, and pending Moment state flow into that stable subtree
+  through reactive accessors; state changes must not replace the subtree.
 - Rendered as the first right rail island on ready source and translated reader
   routes.
 - Hidden from `/memories`, `/flashbacks`, and other non-reader routes.
@@ -57,6 +60,8 @@ Contract:
   indentation for hierarchy.
 - Heading links live inside a bounded scroll body so many headings do not expand
   the right rail or the whole app layout.
+- Toggling a Moment preserves the Flashbacks Current/All selection, the bounded
+  TOC `scrollTop`, and the enclosing right-rail `scrollTop`.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
   the available scroll edge. At the top of the list this appears only after the
   user has scrolled down; at the bottom it disappears when no more content
@@ -188,6 +193,10 @@ content and do not reuse stale DOM.
 
 Reader fallback states use the same route frame and should not look like a
 separate page type.
+
+The translation popover treats Codex model-catalog load failure as actionable
+async feedback. It remains visible in the popover and uses an assertive
+`role="alert"` live region so the failure is announced without relying on color.
 
 ## Psychiatrist Dock
 

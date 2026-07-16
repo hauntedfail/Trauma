@@ -70,6 +70,12 @@ Theme controls:
 - Close the popover with Escape and outside pointer interaction.
 - Use the shared translucent `Popup` surface for anchored popovers; domain
   components must not add their own outside-pointer listeners for those panels.
+- Shared outside-pointer dismissal may suppress the click produced by that same
+  primary pointer sequence so a closing popover does not activate the surface
+  beneath it. Suppression is bound to the initiating `pointerId` and clears on
+  its click, matching `pointercancel`, a pointerup that produces no click, the
+  next pointer/keyboard interruption, window blur, or a short deadline. A later
+  unrelated click must never be swallowed.
 
 ## Focus And Keyboard
 
@@ -182,4 +188,6 @@ an interaction state and respect readability.
 
 Async failures use an assertive `role="alert"` region. Successful settings or
 save feedback uses a polite `role="status"` region. Do not rely on colour or
-visual placement alone to announce completion or failure.
+visual placement alone to announce completion or failure. Reader model-catalog
+failures follow the same assertive alert contract. Aborted Codex-auth polling is
+cancellation rather than failure and must not announce stale feedback.

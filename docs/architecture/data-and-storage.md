@@ -133,7 +133,11 @@ inconsistency so only safe recovery actions are offered.
 
 `app_settings` stores singleton local preferences such as translation language,
 Codex model, and reasoning effort. These defaults seed future translation jobs;
-they do not rewrite historical job records.
+they do not rewrite historical job records. The canonical combined translation
+defaults mutation validates language, model, and reasoning effort before one
+SQLite `UPDATE` writes all three columns. Invalid input writes none of them.
+Language-only and Codex-only mutations remain compatibility surfaces, but must
+preserve the same singleton row and return the canonical settings projection.
 
 `openai_auth_credentials` is the retained singleton compatibility table for
 an external credential reference. Current Codex login state belongs to Codex

@@ -9,6 +9,7 @@ import {
 } from "../../src/components/settings/SettingsPage";
 import {
   submitCodexTranslationDefaults,
+  submitTranslationDefaults,
   submitReadCodexModels,
   pollCodexAuthSetup,
   submitCancelCodexAuthSetup,
@@ -196,6 +197,19 @@ describe("settings page", () => {
         });
       }
 
+      if (String(input).includes("translation-defaults")) {
+        return jsonResponse({
+          translationTargetLanguage: "en-US",
+          codexTranslationModel: "gpt-5.5",
+          codexTranslationReasoningEffort: "high",
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
+        });
+      }
+
       return jsonResponse({
         status: "disabled",
         provider: "codex",
@@ -219,6 +233,18 @@ describe("settings page", () => {
       codexTranslationModel: "gpt-5.5",
       codexTranslationReasoningEffort: "high",
     });
+    await expect(
+      submitTranslationDefaults({
+        fetch,
+        language: "en-US",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
     await expect(submitEnableOpenAiAuth({ fetch })).resolves.toEqual({
       status: "login_started",
       provider: "codex",
@@ -238,6 +264,7 @@ describe("settings page", () => {
       ["http://localhost/api/settings/translation-language", "PATCH"],
       ["http://localhost/api/settings/codex-models", "GET"],
       ["http://localhost/api/settings/translation-codex-defaults", "PATCH"],
+      ["http://localhost/api/settings/translation-defaults", "PATCH"],
       ["http://localhost/api/settings/codex-auth/device-code", "POST"],
       ["http://localhost/api/settings/codex-auth", "DELETE"],
     ]);
@@ -264,10 +291,13 @@ describe("settings page", () => {
 
   it("reads Codex auth status through the settings API", async () => {
     const requests: Request[] = [];
+    const controller = new AbortController();
 
     await expect(
       submitReadCodexAuth({
+        signal: controller.signal,
         fetch: async (input, init) => {
+          expect(init?.signal).toBe(controller.signal);
           requests.push(new Request(new URL(String(input), "http://localhost"), init));
           return jsonResponse({
             status: "enabled",
@@ -285,6 +315,58 @@ describe("settings page", () => {
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/settings/codex-auth", "GET"],
     ]);
+  });
+
+  it("aborts an in-flight Codex auth status read without projecting a failure", async () => {
+    const controller = new AbortController();
+    let resolveStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let requestSignal: AbortSignal | null | undefined;
+    const polling = pollCodexAuthSetup({
+      intervalMs: 0,
+      maxAttempts: 1,
+      signal: controller.signal,
+      fetch: async (_input, init) => {
+        requestSignal = init?.signal;
+        resolveStarted();
+        return new Promise<Response>((_resolve, reject) => {
+          controller.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+
+    await started;
+    controller.abort();
+
+    await expect(polling).resolves.toBeUndefined();
+    expect(requestSignal).toBe(controller.signal);
+  });
+
+  it("treats AbortError as polling cancellation but preserves other failures", async () => {
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async () => {
+          throw new DOMException("Aborted", "AbortError");
+        },
+        intervalMs: 0,
+        maxAttempts: 1,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async () => {
+          throw new Error("auth network failed");
+        },
+        intervalMs: 0,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("auth network failed");
   });
 
   it("polls Codex auth setup until device-code login is enabled", async () => {
@@ -376,6 +458,11 @@ describe("settings page", () => {
     );
     expect(settingsPageSource).toContain("cancelOpenAiAuthSetup");
     expect(settingsPageSource).toContain("refreshCodexAuthStatus");
+    expect(settingsPageSource).toContain("controller.signal.aborted");
+    expect(settingsPageSource).toContain("!actionTracker.isCurrent(action)");
+    expect(settingsPageSource.indexOf("abortCodexAuthPolls();")).toBeLessThan(
+      settingsPageSource.indexOf("await submitCancelCodexAuthSetup()"),
+    );
   });
 
   it("tracks concurrent settings actions without a shared pending slot", () => {

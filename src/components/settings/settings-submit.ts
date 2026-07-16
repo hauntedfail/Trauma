@@ -71,6 +71,33 @@ export async function submitCodexTranslationDefaults(input: {
   return response.json() as Promise<SettingsState>;
 }
 
+export async function submitTranslationDefaults(input: {
+  fetch?: FetchFunction;
+  language: string;
+  model: string | null;
+  reasoningEffort: CodexReasoningEffort | null;
+}): Promise<SettingsState> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch("/api/settings/translation-defaults", {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      language: input.language,
+      model: input.model,
+      reasoning_effort: input.reasoningEffort,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "failed to update translation defaults"),
+    );
+  }
+
+  return response.json() as Promise<SettingsState>;
+}
+
 export async function submitEnableOpenAiAuth(input: {
   fetch?: FetchFunction;
 } = {}): Promise<CodexDeviceCodeStartResponse> {
@@ -87,10 +114,12 @@ export async function submitEnableOpenAiAuth(input: {
 
 export async function submitReadCodexAuth(input: {
   fetch?: FetchFunction;
+  signal?: AbortSignal;
 } = {}): Promise<CodexAuthStatusResponse> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/settings/codex-auth", {
     method: "GET",
+    signal: input.signal,
   });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "failed to read Codex auth"));
@@ -113,7 +142,21 @@ export async function pollCodexAuthSetup(input: {
     if (!ready) {
       return undefined;
     }
-    const status = await submitReadCodexAuth({ fetch: input.fetch });
+    let status: CodexAuthStatusResponse;
+    try {
+      status = await submitReadCodexAuth({
+        fetch: input.fetch,
+        signal: input.signal,
+      });
+    } catch (error) {
+      if (input.signal?.aborted === true || isAbortError(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (input.signal?.aborted === true) {
+      return undefined;
+    }
     lastStatus = status;
     if (status.status !== "login_started") {
       return status;
@@ -121,6 +164,13 @@ export async function pollCodexAuthSetup(input: {
   }
 
   return lastStatus;
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError";
 }
 
 export async function submitCancelCodexAuthSetup(input: {

@@ -447,6 +447,12 @@ export interface BackupEnvironmentRepository {
 
 export interface SettingsRepository {
   getSettings: (now: Date) => Promise<AppSettings>;
+  updateTranslationDefaults: (input: {
+    language: SupportedLanguageCode;
+    model: string | null;
+    reasoningEffort: CodexReasoningEffort | null;
+    updatedAt: Date;
+  }) => Promise<AppSettings>;
   updateCodexTranslationDefaults: (input: {
     model?: string | null;
     reasoningEffort?: CodexReasoningEffort | null;
@@ -1639,48 +1645,12 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     },
     settings: {
       getSettings: async (now) => getOrCreateSettings(db, now),
-      updateTranslationTargetLanguage: async (input) => {
-        await getOrCreateSettings(db, input.updatedAt);
-        const updated = await db
-          .update(schema.appSettings)
-          .set({
-            translationTargetLanguage: input.language,
-            updatedAt: input.updatedAt,
-          })
-          .where(eq(schema.appSettings.id, "default"))
-          .returning()
-          .get();
-        if (updated === undefined) {
-          throw new MemoryRepositoryError("Cannot update app settings.");
-        }
-        return updated;
-      },
-      updateCodexTranslationDefaults: async (input) => {
-        await getOrCreateSettings(db, input.updatedAt);
-        const values: {
-          codexTranslationModel?: string | null;
-          codexTranslationReasoningEffort?: CodexReasoningEffort | null;
-          updatedAt: Date;
-        } = {
-          updatedAt: input.updatedAt,
-        };
-        if (input.model !== undefined) {
-          values.codexTranslationModel = input.model;
-        }
-        if (input.reasoningEffort !== undefined) {
-          values.codexTranslationReasoningEffort = input.reasoningEffort;
-        }
-        const updated = await db
-          .update(schema.appSettings)
-          .set(values)
-          .where(eq(schema.appSettings.id, "default"))
-          .returning()
-          .get();
-        if (updated === undefined) {
-          throw new MemoryRepositoryError("Cannot update app settings.");
-        }
-        return updated;
-      },
+      updateTranslationDefaults: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
+      updateTranslationTargetLanguage: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
+      updateCodexTranslationDefaults: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
       getOpenAiAuthCredential: async () =>
         db.query.openaiAuthCredentials.findFirst({
           where: eq(schema.openaiAuthCredentials.id, "default"),
@@ -2186,6 +2156,45 @@ async function getOrCreateSettings(
   }
 
   return current;
+}
+
+async function updateSettingsTranslationDefaults(
+  db: TraumaDatabase,
+  input: {
+    language?: SupportedLanguageCode;
+    model?: string | null;
+    reasoningEffort?: CodexReasoningEffort | null;
+    updatedAt: Date;
+  },
+): Promise<AppSettings> {
+  await getOrCreateSettings(db, input.updatedAt);
+  const values: {
+    translationTargetLanguage?: SupportedLanguageCode;
+    codexTranslationModel?: string | null;
+    codexTranslationReasoningEffort?: CodexReasoningEffort | null;
+    updatedAt: Date;
+  } = {
+    updatedAt: input.updatedAt,
+  };
+  if (input.language !== undefined) {
+    values.translationTargetLanguage = input.language;
+  }
+  if (input.model !== undefined) {
+    values.codexTranslationModel = input.model;
+  }
+  if (input.reasoningEffort !== undefined) {
+    values.codexTranslationReasoningEffort = input.reasoningEffort;
+  }
+  const updated = await db
+    .update(schema.appSettings)
+    .set(values)
+    .where(eq(schema.appSettings.id, "default"))
+    .returning()
+    .get();
+  if (updated === undefined) {
+    throw new MemoryRepositoryError("Cannot update app settings.");
+  }
+  return updated;
 }
 
 function toNewTranslationJob(

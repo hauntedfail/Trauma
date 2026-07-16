@@ -11,6 +11,7 @@ import {
   getSettings,
   getTranslationSettings,
   updateCodexTranslationDefaults,
+  updateTranslationDefaults,
   updateTranslationTargetLanguage,
   UnsupportedTranslationLanguageError,
 } from "../../../src/server/settings/settings";
@@ -147,6 +148,73 @@ describe("settings service", () => {
     ).resolves.toMatchObject({
       codexTranslationModel: null,
       codexTranslationReasoningEffort: null,
+    });
+  });
+
+  it("persists translation language, model, and effort in one settings update", async () => {
+    const config = await makeConfig();
+
+    await expect(
+      updateTranslationDefaults({
+        config,
+        language: "en-US",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("updates all translation defaults through one repository operation", async () => {
+    const config = await makeConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.settings.updateTranslationDefaults({
+          language: "fr-FR",
+          model: "gpt-5.5",
+          reasoningEffort: "high",
+          updatedAt: new Date("2026-05-15T00:00:00.000Z"),
+        }),
+      ).resolves.toMatchObject({
+        translationTargetLanguage: "fr-FR",
+        codexTranslationModel: "gpt-5.5",
+        codexTranslationReasoningEffort: "high",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("does not persist any combined default when its language is invalid", async () => {
+    const config = await makeConfig();
+    await updateTranslationDefaults({
+      config,
+      language: "en-US",
+      model: "gpt-5.3",
+      reasoningEffort: "medium",
+    });
+
+    await expect(
+      updateTranslationDefaults({
+        config,
+        language: "xx-XX",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).rejects.toBeInstanceOf(UnsupportedTranslationLanguageError);
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.3",
+      codexTranslationReasoningEffort: "medium",
     });
   });
 
