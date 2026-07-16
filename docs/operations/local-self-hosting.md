@@ -87,16 +87,24 @@ TRAUMA has no user accounts, browser sessions, public signup, or multi-user
 ownership. Deploy it behind local access controls, private networking, or a
 reverse-proxy policy if it is exposed beyond the host.
 
+Requests are accepted for loopback hostnames by default. A reverse proxy that
+preserves another hostname must set `TRAUMA_ALLOWED_HOSTS` to the exact
+comma-separated hostnames it serves; see the
+[configuration reference](../references/configuration.md#trusted-request-hosts).
+The host allowlist blocks DNS-rebinding-style boundary confusion but does not
+replace proxy authentication or private-network policy.
+
 Codex app-server login used by Brilliant and Psychiatrist authenticates that
 backend integration only; it does not protect the TRAUMA web application.
 Public or team operation requires a separate auth design and threat model.
 
-## Psychiatrist Runtime Isolation
+## Codex Runtime Isolation
 
-Do not enable production Psychiatrist turns against an app-server that can read
-the host user's home directory, the TRAUMA application project, or the memory
-store. Codex `readOnly` sandbox policy blocks writes but still allows host reads,
-so an empty working directory and prompt policy are not an isolation boundary.
+Do not enable production Brilliant translation or Psychiatrist turns against an
+app-server that can read the host user's home directory, the TRAUMA application
+project, or the memory store. Codex `readOnly` sandbox policy blocks writes but
+still allows host reads, so an empty working directory and prompt policy are not
+an isolation boundary.
 
 Run the app-server under an independently enforced process or container policy
 that exposes none of those host roots. Constrain any app-server egress to public
@@ -107,11 +115,11 @@ and requests it only for a user-approved web-source turn.
 Only after that external policy is active, start TRAUMA with:
 
 ```bash
-TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
+TRAUMA_CODEX_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
 TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run start
 ```
 
 This assertion tells TRAUMA that the operator has supplied the boundary; it
 does not create or validate the boundary itself. If it is absent or has any
-other value, production message and Regenerate requests fail closed with
-`runtime_isolation_required` and do not start a turn.
+other value, production translation, message, and Regenerate requests fail
+closed with `runtime_isolation_required` and do not start Codex work.

@@ -13,12 +13,13 @@ The global composer accepts one URL.
    interruptible import timeout boundary.
 4. Use extracted Markdown on success or a safe Markdown link on link-only
    fallback. Raw HTML is never persisted.
-5. Write `{storePath}/memories/{memoryId}/CONTENT.md` with `overwrite: false`.
-6. Insert the SQLite `memories` row with the new content path and initial backup
+5. Persist a creation journal containing the intended SQLite row.
+6. Write `{storePath}/memories/{memoryId}/CONTENT.md` with `overwrite: false`.
+7. Insert the SQLite `memories` row with the new content path and initial backup
    status.
-7. If the SQLite insert fails, delete the newly written memory directory before
-   returning the error.
-8. If backup is enabled, enqueue the written content path and persist the best
+8. Remove the creation journal. If the SQLite insert fails, delete the newly
+   written memory directory before returning the error.
+9. If backup is enabled, enqueue the written content path and persist the best
    available backup status.
 
 Extraction failure or empty output still creates a link-only memory and records
@@ -28,13 +29,34 @@ Defuddle parsing, and Markdown generation; late extraction output is discarded.
 Once both `CONTENT.md` and the memory row are durable, backup enqueue or backup
 status-update failure must not turn the successful create into an ambiguous
 failed request. Return the created memory with the best persisted status.
+On startup, a surviving creation journal reconstructs a missing SQLite row only
+when its owning `CONTENT.md` exists; otherwise the unused journal is removed.
+
+## Delete Memory
+
+Deletion accepts only the canonical
+`memories/{memoryId}/CONTENT.md` path owned by the requested row.
+
+1. Back up the current memory artifacts locally when git backup is enabled.
+2. Persist a deletion journal, then atomically move the owning memory directory
+   into delete staging.
+3. Commit the staged deletion before removing the SQLite row.
+4. Remove staged content and the journal after the row is gone.
+
+Startup recovery restores staged content and marks backup pending while the row
+still exists. If both canonical and staged content are already absent, recovery
+marks the row pending, revalidates the full backup environment, commits the
+deletion, and only then removes the row and journal. Any backup or validation
+failure keeps the pending row and journal for retry. If the row is already gone,
+recovery finishes staging cleanup.
 
 ## Browser-Assisted Import
 
 The optional local Chrome MV3 extension handles pages the server cannot fetch
 or extract reliably.
 
-1. The operator enables browser import and configures its bearer token.
+1. The operator enables browser import and configures a cryptographically random
+   bearer token that satisfies the configuration contract.
 2. The extension captures a bounded snapshot from the current user-visible tab.
 3. It POSTs JSON to `/api/browser-import` on the local TRAUMA server.
 4. The server validates enablement, token, extension origin, content type,
@@ -59,8 +81,8 @@ Flashback ranges without rewriting `CONTENT.md`.
    active language when translated.
 4. The server resolves the selection against current active-variant reader text
    and fails closed if the content or translation hash is stale.
-5. It creates, deletes, shrinks, or splits SQLite rows so only the intended
-   ranges change.
+5. It persists backup intent before creating, deleting, shrinking, or splitting
+   SQLite rows so only the intended ranges change.
 6. It rewrites the active variant's deterministic `FLASHBACKS.json` export.
 7. It enqueues that export for backup.
 
@@ -68,7 +90,8 @@ Offsets use canonical reader text and a `sha256:<hex>` content hash. Translated
 rows are additionally scoped by language and translation output hash. A stale
 row is not rendered at a guessed location. Persistence failure rolls back or
 clearly fails the optimistic UI; backup failsafe metadata also refreshes the
-global alert.
+global alert. Startup retry regenerates a missing or stale export from its
+authoritative SQLite rows before backup.
 
 ## Moment Toggle
 
@@ -86,7 +109,9 @@ Moment store export; see the ownership matrix before changing backup behavior.
 ## Brilliant Translation
 
 Translation runs through the separately operated Codex app-server and uses
-durable SQLite job/chunk state.
+durable SQLite job/chunk state. Before new or recoverable Codex work is reserved,
+the shared runtime-isolation assertion must confirm that an external boundary
+makes host data unreadable to the app-server.
 
 1. `POST /api/memories/:memoryId/translations` validates the request, resolves
    the configured target language and Codex model/effort, loads source
@@ -110,13 +135,21 @@ durable SQLite job/chunk state.
    compare-and-set guards, then rechecks the source hash.
 8. Completed chunks are stitched in order and the final Markdown/frontmatter
    structure is validated.
-9. The translated `CONTENT.md` is file-synced and atomically renamed into its
+9. Backup intent for `CONTENT.md` and `TRANSLATION_MAP.json` is persisted before
+   either terminal artifact is written.
+10. The translated `CONTENT.md` is file-synced and atomically renamed into its
    language directory. TRAUMA hashes the written bytes, writes
    `TRANSLATION_MAP.json`, replaces SQLite projection spans, and marks the job
    complete with output path/hash.
-10. Completed chunk payloads are purged best-effort. Translation content and
+11. Completed chunk payloads are purged best-effort. Translation content and
     projection export are enqueued for backup; enqueue failure does not undo a
     completed translation.
+
+A crash after the atomic output rename but before projection or SQLite
+completion leaves the durable job in `committing` with its chunks intact. The
+next start for the same source and language reschedules that job; replay rewrites
+the output and projection, completes SQLite state, and repeats backup intent and
+enqueue.
 
 The SSE endpoint first sends the durable job snapshot, then any in-process
 replay events, follows live events, sends heartbeats, and closes on a terminal
@@ -154,6 +187,11 @@ canceled, stale, and permission-required turns cannot append orphan assistant
 responses. Closing the panel or navigating away disconnects browser SSE only;
 Stop is the explicit cancellation action.
 
+The latest durable pair revision is authoritative for `RESPONSE.md`. Startup
+recovery rewrites a missing or torn completed response and removes a response
+that has no completed revision. Detached turn failures are contained even when
+their best-effort failure-state write also fails.
+
 Psychiatrist writes are limited to the memory-local `threads/` subtree. Source
 and translated content, taxonomy, Flashbacks, Moments, settings, and SQLite
 domain state remain unchanged.
@@ -173,11 +211,15 @@ Backup is built-in git backup, not a generic hook system.
 Backup failure does not roll back an already durable memory, Flashback export,
 translation, or Psychiatrist answer. Startup retries eligible pending, queued,
 or failed work; process-local `queued` state from a prior process is eligible.
+Preparation and enqueue failures are isolated per memory so one corrupt retry
+candidate cannot prevent later eligible memories from running.
 
 Backup readiness is tied to the full persisted identity: project/store paths,
-remote name and URL, branch, and already-successful tracked content. A recreated
-repository or changed identity requires explicit recovery rather than silent
-acceptance.
+remote name and URL, configured and checked-out branch, and already-successful
+tracked content. A recreated repository or changed identity requires explicit
+recovery rather than silent acceptance. Successful content paths are compared
+with one tracked-index snapshot per readiness check rather than starting a git
+process per memory.
 
 Recovery is retry-safe. Existing migration targets are accepted only when their
 bytes match the source. A push failure after local migration preserves the local

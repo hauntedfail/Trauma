@@ -28,6 +28,9 @@
   custom markdown conversion unless a separate design explains why the extractor
   boundary is insufficient.
 - MUST sanitize rendered markdown or HTML before it reaches the browser.
+- MUST bound syntax-highlighting work for untrusted code fences. Oversized or
+  unknown-language blocks render as escaped plain code instead of entering a
+  high-cost grammar or automatic language scan.
 - MUST enforce auto-loaded media safety at render time. Images, responsive
   sources, and iframes must not load local/private/IP/userinfo/non-HTTPS URLs
   merely because they appear in extracted markdown.
@@ -83,9 +86,9 @@
   [translation](../../../.agents/skills/reader-translate/SKILL.md) policies.
 - MUST keep browser clients behind TRAUMA routes. They never connect directly
   to Codex app-server or receive raw protocol events.
-- MUST NOT enable production Psychiatrist turns until the independently
+- MUST NOT enable production Brilliant translation or Psychiatrist turns until the independently
   enforced boundary in
-  [local/self-hosting](../../operations/local-self-hosting.md#psychiatrist-runtime-isolation)
+  [local/self-hosting](../../operations/local-self-hosting.md#codex-runtime-isolation)
   makes the home directory, application project, and memory store unreadable.
   Codex `readOnly` sandbox policy is not that boundary.
 - MUST default Psychiatrist network access off. Public web access requires

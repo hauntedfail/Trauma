@@ -84,6 +84,15 @@ Rules:
   during ordinary text navigation.
 - Confirmation popovers must treat Cancel, Escape, and outside pointer
   dismissal as the same cancel/reset path.
+- Opening a shared popover moves focus to its first enabled control. Escape and
+  explicit completion return focus to the opener; outside-pointer dismissal
+  leaves focus with the newly targeted surface.
+- Popup menus use `menuitem` controls with roving focus. Arrow Up/Down wrap,
+  Home/End move to the bounds, Escape returns to the opener, and Tab closes the
+  menu after focus leaves it.
+- Reader selection and section actions use a labelled horizontal toolbar.
+  Arrow Left/Right wrap, Home/End move to the bounds, and Escape returns focus
+  to the reader content.
 
 ## Labels And Landmarks
 
@@ -170,3 +179,7 @@ final selected and opened states.
 
 Do not add decorative motion or animation loops. Any future animation must serve
 an interaction state and respect readability.
+
+Async failures use an assertive `role="alert"` region. Successful settings or
+save feedback uses a polite `role="status"` region. Do not rely on colour or
+visual placement alone to announce completion or failure.

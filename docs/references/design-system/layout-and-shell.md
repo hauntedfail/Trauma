@@ -85,12 +85,13 @@ sufficient.
 ## Local Archive Surface
 
 The local archive row sits at the bottom of the left rail. It is not an auth
-profile and must not imply account management.
+profile and must not imply account management. It is a static status surface,
+not a button or menu trigger.
 
 Current contract:
 
-- Transparent background by default.
-- Rounded full hover target.
+- Transparent background with no hover or pressed treatment.
+- Rounded rail layout without interactive semantics or a trailing action icon.
 - `40px` mark/avatar cell.
 - Text shows local archive status and storage location.
 

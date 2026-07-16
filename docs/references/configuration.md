@@ -68,7 +68,9 @@ mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.c
 ```
 
 Both commands are dry-run by default. Add `--apply` only after checking the
-summary.
+summary. An applied config revert writes and syncs a same-directory temporary
+file before atomic replacement. A write, sync, or rename failure leaves the
+previous config intact and removes the temporary file.
 
 If the stamp and configured paths still match but SQLite says a memory was
 successfully backed up while its `CONTENT.md` is missing, outside the configured
@@ -108,6 +110,23 @@ TRAUMA records a critical push-failure alert.
 
 No generic command hooks are part of the current contract.
 
+## Trusted Request Hosts
+
+TRAUMA accepts `localhost`, `127.0.0.1`, and `::1` request hosts by default.
+This prevents a public hostname that resolves to the loopback interface from
+crossing the local-only boundary.
+
+When a reverse proxy preserves a different `Host` value, add its exact hostname
+through a comma-separated server environment variable. Entries are hostnames,
+not URLs, ports, or wildcard patterns:
+
+```bash
+TRAUMA_ALLOWED_HOSTS=archive.example,reader.example bun run start
+```
+
+This allowlist is not authentication. Non-local deployments still require the
+access controls described in the operations guide.
+
 ## Browser-Assisted Import Environment
 
 Environment variables can be specified in the project root `.env` file when
@@ -125,7 +144,9 @@ TRAUMA_BROWSER_IMPORT_TOKEN=
 
 - `TRAUMA_BROWSER_IMPORT_ENABLED` must be `true` before the API accepts imports.
 - `TRAUMA_BROWSER_IMPORT_TOKEN` is a local bearer token shared with the browser
-  extension settings. Do not commit it.
+  extension settings. When import is enabled it must contain at least 32
+  URL-safe characters. Generate a random value with `openssl rand -hex 32` and
+  do not commit it.
 
 Advanced operator and CI overrides, such as runtime config path, Drizzle CLI
 database path, dev smoke tuning, fixture mode, or browser import origin/size
@@ -152,26 +173,27 @@ different socket path. Loopback WebSocket endpoints are not supported. `http://`
 `https://`, `ws://`, and `stdio://` are rejected because they are not Brilliant
 wire-protocol transports.
 
-Psychiatrist production turns require a separately enforced runtime boundary.
-Codex `sandboxPolicy: readOnly` prevents writes, but it does not remove shell or
-file-read capabilities and is not sufficient isolation for untrusted memory and
-transcript content. The external boundary must make the user's home directory,
-the application project, and the memory store unreadable to the app-server
-runtime. If egress is available, it must be constrained to public HTTP(S)
-destinations and must still be enabled by TRAUMA only after the user approves
-web sources for that turn.
+Brilliant translation and Psychiatrist production turns require a separately
+enforced runtime boundary. Codex `sandboxPolicy: readOnly` prevents writes, but
+it does not remove shell or file-read capabilities and is not sufficient
+isolation for untrusted imported content or transcripts. The external boundary
+must make the user's home directory, application project, and memory store
+unreadable to the app-server runtime. If egress is available, constrain it to
+public HTTP(S); Psychiatrist still enables it only for a user-approved web-source
+turn.
 
 After independently enforcing that boundary, the operator must make this exact
 assertion in the TRAUMA server environment:
 
 ```bash
-TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
+TRAUMA_CODEX_RUNTIME_ISOLATION=external_no_host_reads_public_http_https_only \
 TRAUMA_CODEX_APP_SERVER_ENDPOINT=unix:// bun run dev
 ```
 
-Without the exact assertion, message and Regenerate routes fail with
-`runtime_isolation_required` before reserving a turn or writing thread
-artifacts. The variable is only an operator-controlled fail-closed gate. It does
-not create, inspect, or verify a sandbox, and it must not be set until the
-app-server process or container is actually isolated. Translation does not use
-this Psychiatrist-specific gate.
+Without the exact assertion, translation and Psychiatrist mutation routes fail
+with `runtime_isolation_required` before reserving Codex work. The variable is
+only an operator-controlled fail-closed gate. It does not create, inspect, or
+verify a sandbox, and it must not be set until the app-server process or
+container is actually isolated. The legacy
+`TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION` name remains accepted for compatibility;
+new deployments should use the shared name.

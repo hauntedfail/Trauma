@@ -47,6 +47,12 @@ The current store tree is:
 Some files are created only when their feature is used. All resolved paths must
 remain inside the configured `storePath` and the owning memory subtree.
 
+`{storePath}/.operations/` contains short-lived create/delete journals, and
+`{storePath}/.delete-staging/` contains directories moved during deletion.
+They are internal crash-recovery state, not memory artifacts or backup inputs.
+A deletion journal is cleared only after content, backup, and SQLite state have
+been reconciled.
+
 ## Source Content
 
 `memoryId` is UUID v7 and is not derived from title, URL, tags, or category
@@ -92,7 +98,14 @@ Runtime tables:
 
 Runtime initialization applies and validates bundled migrations before
 repositories are exposed. Application code must not observe a partially
-initialized schema.
+initialized schema. Every runtime connection enables foreign keys and WAL and
+uses a bounded five-second busy timeout so short write contention is serialized
+instead of failing immediately.
+
+Global Moment and Flashback browse reads use deterministic `created_at`/`id`
+cursor pages. File-backed renderability checks group rows by memory or variant
+and cap concurrent file reads; route results retain their existing ordering and
+complete row set.
 
 `memories` owns URL metadata, content path, extraction/read/backup status, and
 timestamps. Tags and categories are many-to-many relations; URL import does not
@@ -100,7 +113,8 @@ assign either automatically.
 
 `backup_environment_stamps` records the validated backup identity: resolved
 project/store paths, configured remote and its URL when available, branch, and
-timestamps. Startup and writes compare the current identity with this stamp.
+timestamps. Startup and writes compare paths, remote, configured branch, and
+the checked-out branch with this stamp.
 
 `backup_failsafe_alerts` stores the one active critical backup alert. Its kind
 distinguishes path drift, missing repository, push failure, and content
@@ -184,7 +198,9 @@ authority for spans.
 
 The language-scoped `CONTENT.md` is committed with a same-directory temporary
 file, file sync, and atomic rename. A translation is current only when its
-completed job identity, source hash, output hash, and file agree.
+completed job identity, source hash, output hash, and file agree. A durable
+`committing` job keeps its chunks so an interrupted output/projection commit can
+be replayed before the artifact becomes current.
 
 ## Psychiatrist Thread Store
 
@@ -205,6 +221,9 @@ written atomically where replacement is required. A completed first answer or
 Regenerate enqueues the manifest, transcript, pair files, turn record, and
 stream for built-in backup. Backup enqueue failure is reported as a warning and
 does not erase the saved answer.
+
+For a pair, the latest valid `PAIRS.jsonl` revision is authoritative over
+`RESPONSE.md`; recovery reconciles the response projection before backup retry.
 
 Psychiatrist may write only inside the active memory's `threads/` subtree. It
 must not mutate source or translated `CONTENT.md`, taxonomy, Flashbacks,

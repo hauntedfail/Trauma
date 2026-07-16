@@ -108,6 +108,10 @@ drawers:
   constraints.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
+- Opening moves focus into the panel. Escape and successful completion restore
+  the opener; outside-pointer dismissal preserves focus on the outside target.
+- Menu popovers expose a roving `menuitem` keyboard model for Arrow Up/Down,
+  Home, and End, and close when Tab moves focus outside.
 - Outside pointer dismissal is a cancel action for confirmation popovers. It
   closes the panel and resets draft form edits without submitting the action.
 - Add memory keeps the shell-level command globally reachable, but the composer

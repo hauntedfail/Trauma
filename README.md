@@ -1,6 +1,6 @@
 <div align="center">
     <p align="center">
-        <img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
+        <img width="100" height="100" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
     </p>
     <h1>TRAUMA</h1>
     <br/>
@@ -26,7 +26,7 @@ translation, the memory-scoped Psychiatrist assistant, settings, responsive
 shells, and backup failsafe recovery. See [docs/INDEX.md](docs/INDEX.md) for the
 current implementation contracts.
 
-## Proves
+## Previews
 
 | Sun Light | Sun Paper |
 | --- | --- |

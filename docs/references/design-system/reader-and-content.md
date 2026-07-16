@@ -84,7 +84,9 @@ static aids (anchors, scroll fades, Moment toggles, long-press menus).
   reader DOM.
 - The range is painted by a single measured overlay element
   (`trauma-toc-reading-band`) positioned behind the entries, not per-row
-  backgrounds. Its top/height are measured from the first and last on-screen
+  backgrounds. The overlay remains a presentation-only list item so the
+  ordered list has valid direct-child semantics. Its top/height are measured
+  from the first and last on-screen
   rows so the highlight is one seamless region with no visible seams between
   chapters. The fill is a subtle translucent contrast lift over the TOC surface
   (`color-mix(in srgb, var(--fg-1) 8%, transparent)`); background-only, it does
