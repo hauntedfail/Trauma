@@ -90,6 +90,10 @@ translated reader maps to its source-canonical section before it appears here.
 Add memory is a shared anchored `Popup` available from desktop/tablet rail and
 phone tabs. It accepts one URL and has no dedicated route. Escape, outside
 pointer dismissal, and successful completion use the shared popup lifecycle.
+Rail and phone forms project one shell-owned URL, pending, error, and
+idempotency attempt state. Dismissing or switching popovers cannot start a
+duplicate request, and an unmounted form cannot navigate or close a later
+popover when its request settles.
 
 ## Reader
 

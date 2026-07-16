@@ -93,7 +93,8 @@ Current contract:
 - Transparent background with no hover or pressed treatment.
 - Rounded rail layout without interactive semantics or a trailing action icon.
 - `40px` mark/avatar cell.
-- Text shows local archive status and storage location.
+- Text shows local archive status and a non-sensitive on-device label. Do not
+  expose or guess the configured store path in browser-visible shell chrome.
 
 ## Theme Controls
 

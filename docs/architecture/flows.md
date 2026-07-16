@@ -7,19 +7,35 @@ ownership is defined in [Data and storage](data-and-storage.md).
 
 The global composer accepts one URL.
 
-1. Validate that the configured backup environment is ready for a new write.
-2. Generate a UUID v7 memory ID and capture the current timestamp.
-3. Fetch and validate the public URL, then run Defuddle extraction inside the
+The shell owns one submission controller shared by the rail and phone popovers.
+It assigns a cryptographically random UUID v7 identity to each normalized URL
+attempt. Closing a popover does not abandon the pending request; retrying a
+failed or response-lost attempt reuses its identity, while changing the URL
+rotates it.
+
+1. Validate the optional `Idempotency-Key` header as a canonical UUID v7 before
+   configuration, database, or store work. Requests without the header remain
+   supported and receive a server-generated UUID v7 memory ID.
+2. Validate the public URL, then durably reserve an idempotency key for that
+   preflight-normalized request URL. Reusing a key for a different URL fails
+   with `409`; URL equality alone never deduplicates memories.
+3. Coalesce concurrent work for the same key and URL. A retry returns its
+   existing or creation-journal-recovered row before importing again.
+4. Validate that the configured backup environment is ready for a new write.
+5. Fetch the public URL, then run Defuddle extraction inside the
    interruptible import timeout boundary.
-4. Use extracted Markdown on success or a safe Markdown link on link-only
+6. Use extracted Markdown on success or a safe Markdown link on link-only
    fallback. Raw HTML is never persisted.
-5. Persist a creation journal containing the intended SQLite row.
-6. Write `{storePath}/memories/{memoryId}/CONTENT.md` with `overwrite: false`.
-7. Insert the SQLite `memories` row with the new content path and initial backup
+7. Persist a creation journal containing the intended SQLite row.
+8. Durably publish `{storePath}/memories/{memoryId}/CONTENT.md` with
+   `overwrite: false`: write a same-directory temporary file, sync its bytes,
+   publish it without replacing an existing file, and sync the owning directory
+   hierarchy before SQLite success is possible.
+9. Insert the SQLite `memories` row with the new content path and initial backup
    status.
-8. Remove the creation journal. If the SQLite insert fails, delete the newly
+10. Remove the creation journal. If the SQLite insert fails, delete the newly
    written memory directory before returning the error.
-9. If backup is enabled, enqueue the written content path and persist the best
+11. If backup is enabled, enqueue the written content path and persist the best
    available backup status.
 
 Extraction failure or empty output still creates a link-only memory and records
@@ -30,12 +46,19 @@ Once both `CONTENT.md` and the memory row are durable, backup enqueue or backup
 status-update failure must not turn the successful create into an ambiguous
 failed request. Return the created memory with the best persisted status.
 On startup, a surviving creation journal reconstructs a missing SQLite row only
-when its owning `CONTENT.md` exists; otherwise the unused journal is removed.
+when its owning `CONTENT.md` exists; otherwise the unused journal is removed. A
+surviving journal with an existing row but missing canonical content is an
+integrity failure and remains available for diagnosis rather than being cleared.
 
 ## Delete Memory
 
 Deletion accepts only the canonical
 `memories/{memoryId}/CONTENT.md` path owned by the requested row.
+
+Before inspecting or moving artifacts, deletion reserves the memory against
+process-local artifact publication. It waits for an already-admitted short
+publication to finish and rejects new translation, Flashback, and Psychiatrist
+writes until deletion either completes or restores the memory after failure.
 
 1. Back up the current memory artifacts locally when git backup is enabled.
 2. Persist a deletion journal, then atomically move the owning memory directory
@@ -124,7 +147,11 @@ makes host data unreadable to the app-server.
    in-process sequential runner.
 4. The runner claims `pending` work or resumes `running`, `stitching`, or
    `committing` work. It re-reads the source and marks the job stale when the
-   source hash changed.
+   source hash changed. Before reusing any chunk, it requires the persisted
+   prompt-policy and chunker versions, chunk count, chunk indexes, source chunk
+   hashes, and ordered block IDs to match the current runtime manifest exactly.
+   An incompatible job fails terminally and permits a fresh attempt; it cannot
+   write output or enter backup.
 5. Each chunk is sent through the Brilliant prompt/validation boundary and its
    validated Markdown and projection data are persisted before the next chunk.
 6. Cancellation is checked before and after chunk work. Pending jobs cancel
@@ -137,7 +164,9 @@ makes host data unreadable to the app-server.
    structure is validated.
 9. Backup intent for `CONTENT.md` and `TRANSLATION_MAP.json` is persisted before
    either terminal artifact is written.
-10. The translated `CONTENT.md` is file-synced and atomically renamed into its
+10. The terminal artifact/SQLite publication holds the memory mutation
+    reservation and rechecks it immediately before each write. The translated
+    `CONTENT.md` is file-synced and atomically renamed into its
    language directory. TRAUMA hashes the written bytes, writes
    `TRANSLATION_MAP.json`, replaces SQLite projection spans, and marks the job
    complete with output path/hash.
@@ -187,6 +216,12 @@ canceled, stale, and permission-required turns cannot append orphan assistant
 responses. Closing the panel or navigating away disconnects browser SSE only;
 Stop is the explicit cancellation action.
 
+Process and answer-delta writes are serialized and fully drained after Codex
+settles but before a terminal state or terminal event is written. A stream
+persistence failure fails an otherwise successful turn; when Codex also fails,
+its safe failure remains authoritative. Closed turn queues reject late Codex
+callbacks, so no non-terminal event can be persisted after terminal state.
+
 The latest durable pair revision is authoritative for `RESPONSE.md`. Startup
 recovery rewrites a missing or torn completed response and removes a response
 that has no completed revision. Detached turn failures are contained even when
@@ -194,7 +229,8 @@ their best-effort failure-state write also fails.
 
 Psychiatrist writes are limited to the memory-local `threads/` subtree. Source
 and translated content, taxonomy, Flashbacks, Moments, settings, and SQLite
-domain state remain unchanged.
+domain state remain unchanged. Each short thread, pair, response, turn, and
+stream publication holds the same memory mutation reservation as deletion.
 
 ## Git Backup
 

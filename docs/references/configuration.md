@@ -78,6 +78,12 @@ backup paths, or not tracked by the backup repository, TRAUMA creates a separate
 content-integrity alert. This is not a backup location change, so path migration
 actions must not be offered for that alert.
 
+A legacy `redacted:migration-0016` remote value is an unknown identity, not a
+wildcard match. Existing data therefore remains fail-closed until the operator
+reviews the current repository and explicitly applies the `migrate` recovery;
+that action records the current remote fingerprint without persisting its URL or
+credentials.
+
 When the content-integrity reason is `missing_file`, the UI and CLI may offer a
 delete recovery that removes the orphan SQLite `memories` row. This recovery is
 not available for untracked or out-of-scope content because those cases may

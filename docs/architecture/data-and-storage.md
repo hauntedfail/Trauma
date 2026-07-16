@@ -51,7 +51,9 @@ remain inside the configured `storePath` and the owning memory subtree.
 `{storePath}/.delete-staging/` contains directories moved during deletion.
 They are internal crash-recovery state, not memory artifacts or backup inputs.
 A deletion journal is cleared only after content, backup, and SQLite state have
-been reconciled.
+been reconciled. A creation row is published only after canonical `CONTENT.md`
+and its directory entries have been synced; recovery fails closed when a
+surviving creation journal instead finds a row without that canonical file.
 
 ## Source Content
 
@@ -82,6 +84,7 @@ Remote images stay remote. TRAUMA is not a full offline archive.
 Runtime tables:
 
 - `memories`
+- `memory_creation_idempotency`
 - `tags`
 - `categories`
 - `memory_tags`
@@ -110,6 +113,14 @@ complete row set.
 `memories` owns URL metadata, content path, extraction/read/backup status, and
 timestamps. Tags and categories are many-to-many relations; URL import does not
 assign either automatically.
+
+`memory_creation_idempotency` durably binds an optional add-memory UUID v7
+request identity to its preflight-normalized request URL before import begins.
+The identity is also the intended memory ID. Reservations intentionally survive
+success, failure, process restart, and later memory deletion so a replay cannot
+silently create a second memory or claim the same identity for another URL.
+The table has no foreign key to `memories` because the reservation must exist
+before the memory row and may outlive it.
 
 `backup_environment_stamps` records the validated backup identity: resolved
 project/store paths, configured remote and its URL when available, branch, and
@@ -189,6 +200,13 @@ Translated reader artifacts live beside the source memory:
 for each attempt. `translation_chunks` holds durable work state and may hold
 translated chunk Markdown while a job is active; completed chunk bodies and
 temporary projection JSON are purged after final commit.
+
+Active-job recovery reuses completed chunks only when the job's persisted
+prompt-policy/chunker versions and its complete source chunk manifest still
+match the current runtime. The manifest includes count, indexes, source chunk
+hashes, and ordered block IDs. A mismatch terminalizes that attempt before any
+new translation, output commit, or backup work and leaves a fresh attempt
+available.
 
 `translation_projection_spans` owns runtime source-to-translated alignment.
 Rows are scoped by memory, language, source hash, and output hash so stale files
