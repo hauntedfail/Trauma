@@ -12,6 +12,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
 import type { MemoryRepository } from "../db";
+import { syncDirectoryBestEffort } from "../files/atomic-write";
 import {
   isExtractionStatus,
   type ExtractionStatus,
@@ -110,7 +111,7 @@ export async function clearMemoryOperationJournal(input: {
   memoryId: string;
 }): Promise<void> {
   const path = resolveJournalPath(input.config.storePath, input.memoryId);
-  await rm(path, { force: true });
+  await removeFileDurably(path);
 }
 
 export async function recoverInterruptedMemoryOperations(
@@ -170,7 +171,7 @@ async function recoverInterruptedMemoryOperationsUnlocked(
     } else {
       await recoverDeletion(input, journal);
     }
-    await rm(path, { force: true });
+    await removeFileDurably(path);
     recovered += 1;
   }
   return recovered;
@@ -224,7 +225,8 @@ async function recoverDeletion(
   const stagingPath = resolve(input.config.storePath, journal.stagingPath);
 
   if (row === undefined) {
-    await rm(stagingPath, { recursive: true, force: true });
+    await removeDirectoryDurably(dirname(content.absolutePath));
+    await removeDirectoryDurably(stagingPath);
     return;
   }
   if (row.contentPath !== content.relativePath) {
@@ -268,6 +270,10 @@ async function recoverDeletion(
     }
     await mkdir(dirname(dirname(content.absolutePath)), { recursive: true });
     await rename(stagingPath, dirname(content.absolutePath));
+    await syncRenamedDirectoryEntries(
+      stagingPath,
+      dirname(content.absolutePath),
+    );
   }
 
   if (input.config.backup.git.enabled) {
@@ -290,6 +296,7 @@ async function writeJournal(
   const directory = dirname(finalPath);
   const temporaryPath = join(directory, `.${memoryId}.${randomUUID()}.tmp`);
   await mkdir(directory, { recursive: true });
+  await syncDirectoryBestEffort(dirname(directory));
   let file;
   try {
     file = await open(temporaryPath, "wx");
@@ -298,27 +305,38 @@ async function writeJournal(
     await file.close();
     file = undefined;
     await rename(temporaryPath, finalPath);
-    await syncDirectory(directory);
+    await syncDirectoryBestEffort(directory);
   } finally {
     await file?.close().catch(() => undefined);
     await rm(temporaryPath, { force: true });
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  let directory;
-  try {
-    directory = await open(path, "r");
-    await directory.sync();
-  } catch (error) {
-    if (
-      !isNodeError(error) ||
-      !["EINVAL", "ENOTSUP", "EBADF"].includes(error.code)
-    ) {
-      throw error;
-    }
-  } finally {
-    await directory?.close().catch(() => undefined);
+async function removeDirectoryDurably(path: string): Promise<void> {
+  if (!(await pathExists(path))) {
+    return;
+  }
+  await rm(path, { recursive: true, force: true });
+  await syncDirectoryBestEffort(dirname(path));
+}
+
+async function removeFileDurably(path: string): Promise<void> {
+  if (!(await pathExists(path))) {
+    return;
+  }
+  await rm(path, { force: true });
+  await syncDirectoryBestEffort(dirname(path));
+}
+
+async function syncRenamedDirectoryEntries(
+  source: string,
+  destination: string,
+): Promise<void> {
+  const sourceParent = dirname(source);
+  const destinationParent = dirname(destination);
+  await syncDirectoryBestEffort(sourceParent);
+  if (destinationParent !== sourceParent) {
+    await syncDirectoryBestEffort(destinationParent);
   }
 }
 

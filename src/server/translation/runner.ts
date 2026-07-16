@@ -56,6 +56,7 @@ import {
   type TranslationJobFailedData,
   type TranslationJobSnapshotError,
   type TranslationJobStaleData,
+  type TranslationJobStatus,
 } from "./types";
 import { isSupportedLanguageCode, type SupportedLanguageCode } from "./languages";
 import {
@@ -457,16 +458,24 @@ export async function runTranslationJob(
       memoryId: job.memoryId,
     });
     if (source.sourceHash !== job.sourceHash) {
-      await markJobFailed({
+      const markedStale = await markJobFailed({
         connection,
         error: {
           code: "stale_source",
           message: "Source CONTENT.md changed while translation was running.",
           action: "open_source_reader",
         },
+        expectedStatus: activeStatus,
         jobId,
         status: "stale",
       });
+      if (!markedStale) {
+        await cancelIfRequestedAfterFinalizationRace(
+          connection.repositories,
+          job,
+        );
+        return;
+      }
       translationEventBus.emit({
         data: {
           reason: "source_changed",
@@ -580,13 +589,12 @@ export async function runTranslationJob(
       job,
       repository: connection.repositories.translations,
     });
-    if ((result as { status?: string }).status === "stale") {
-      const stale = result as Extract<typeof result, { status: "stale" }>;
+    if ("status" in result && result.status === "stale") {
       translationEventBus.emit<TranslationJobStaleData>({
         data: {
           reason: "source_changed",
-          job_source_hash: stale.jobSourceHash,
-          current_source_hash: stale.currentSourceHash,
+          job_source_hash: result.jobSourceHash,
+          current_source_hash: result.currentSourceHash,
         },
         jobId,
         langCode: job.langCode,
@@ -595,12 +603,18 @@ export async function runTranslationJob(
       });
       return;
     }
-    const committed = result as Exclude<typeof result, { status: "stale" }>;
+    if ("status" in result && result.status === "superseded") {
+      await cancelIfRequestedAfterFinalizationRace(
+        connection.repositories,
+        job,
+      );
+      return;
+    }
     translationEventBus.emit<TranslationJobCompletedData>({
       data: {
-        output_hash: committed.outputHash,
-        output_path: committed.outputPath,
-        reader_url: committed.readerUrl,
+        output_hash: result.outputHash,
+        output_path: result.outputPath,
+        reader_url: result.readerUrl,
       },
       jobId,
       langCode: job.langCode,
@@ -1025,13 +1039,28 @@ async function failRunningJob(
   if (job === null) {
     return;
   }
+  if (job.status === "cancel_requested") {
+    await cancelJob(connection.repositories, job);
+    return;
+  }
+  if (!isActiveTranslationJobStatus(job.status)) {
+    return;
+  }
   const persistedError = toPersistedError(error);
-  await markJobFailed({
+  const markedFailed = await markJobFailed({
     connection,
     error: persistedError,
+    expectedStatus: job.status,
     jobId,
     status: "failed",
   });
+  if (!markedFailed) {
+    await cancelIfRequestedAfterFinalizationRace(
+      connection.repositories,
+      job,
+    );
+    return;
+  }
   translationEventBus.emit<TranslationJobFailedData>({
     data: { error: persistedError },
     jobId,
@@ -1044,11 +1073,13 @@ async function failRunningJob(
 async function markJobFailed(input: {
   connection: TraumaDatabaseConnection;
   error: TranslationJobSnapshotError;
+  expectedStatus: ActiveTranslationJobStatus;
   jobId: string;
   status: "failed" | "stale";
-}): Promise<void> {
-  await input.connection.repositories.translations.updateTranslationJobStatus(
+}): Promise<boolean> {
+  return input.connection.repositories.translations.transitionTranslationJobStatus(
     input.jobId,
+    input.expectedStatus,
     input.status,
     {
       completedAt: new Date(),
@@ -1122,9 +1153,10 @@ function waitForTimer(
 async function cancelJob(
   repositories: TraumaRepositories,
   job: { jobId: string; langCode: string; memoryId: string },
-): Promise<void> {
-  await repositories.translations.updateTranslationJobStatus(
+): Promise<boolean> {
+  const canceled = await repositories.translations.transitionTranslationJobStatus(
     job.jobId,
+    "cancel_requested",
     "canceled",
     {
       completedAt: new Date(),
@@ -1132,6 +1164,9 @@ async function cancelJob(
       updatedAt: new Date(),
     },
   );
+  if (!canceled) {
+    return false;
+  }
   translationEventBus.emit({
     data: {},
     jobId: job.jobId,
@@ -1139,6 +1174,7 @@ async function cancelJob(
     memoryId: job.memoryId,
     type: "translation.job.canceled",
   });
+  return true;
 }
 
 async function cancelIfRequestedAfterFinalizationRace(
@@ -1148,6 +1184,17 @@ async function cancelIfRequestedAfterFinalizationRace(
   if (await isCancellationRequested(repositories, job.jobId)) {
     await cancelJob(repositories, job);
   }
+}
+
+type ActiveTranslationJobStatus = Extract<
+  TranslationJobStatus,
+  "running" | "stitching" | "committing"
+>;
+
+function isActiveTranslationJobStatus(
+  status: TranslationJobStatus,
+): status is ActiveTranslationJobStatus {
+  return status === "running" || status === "stitching" || status === "committing";
 }
 
 async function resolveCodexTranslationSelection(input: {

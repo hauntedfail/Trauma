@@ -1020,7 +1020,7 @@ describe("git memory backup queue", () => {
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
-        import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+        import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -1063,10 +1063,6 @@ describe("git memory backup queue", () => {
         writeFileSync(
           join(config.storePath, "memories", ids.failed, "ja-JP", "CONTENT.md"),
           "# 翻訳済みバックアップ候補\\n",
-        );
-        writeFileSync(
-          join(config.storePath, "memories", ids.failed, "ja-JP", "TRANSLATION_MAP.json"),
-          JSON.stringify({ version: 1, memoryId: ids.failed, spans: [] }, null, 2) + "\\n",
         );
         writeFileSync(
           join(config.storePath, "memories", ids.failed, "ja-JP", "FLASHBACKS.json"),
@@ -1271,6 +1267,29 @@ describe("git memory backup queue", () => {
               updatedAt: now,
             },
           );
+          await connection.repositories.translations.replaceProjectionSpansForJob(
+            "retry-translation-ja",
+            [{
+              blockId: "b000001",
+              createdAt: now,
+              jobId: "retry-translation-ja",
+              langCode: "ja-JP",
+              memoryId: ids.failed,
+              outputHash: "sha256:retry-output",
+              segmentId: "s000001",
+              sourceHash: "sha256:retry-source",
+              sourceMarkdownEnd: 4,
+              sourceMarkdownStart: 0,
+              sourceReaderEnd: 4,
+              sourceReaderStart: 0,
+              spanIndex: 0,
+              translatedMarkdownEnd: 4,
+              translatedMarkdownStart: 0,
+              translatedReaderEnd: 4,
+              translatedReaderStart: 0,
+              updatedAt: now,
+            }],
+          );
         } finally {
           connection.close();
         }
@@ -1299,7 +1318,22 @@ describe("git memory backup queue", () => {
           const rows = check.sqlite
             .prepare("select id, backup_status as backupStatus, last_backup_error as lastBackupError from memories order by id")
             .all();
-          process.stdout.write(JSON.stringify({ retryCount, processed, rows }));
+          const projectionMap = JSON.parse(readFileSync(
+            join(
+              config.storePath,
+              "memories",
+              ids.failed,
+              "ja-JP",
+              "TRANSLATION_MAP.json",
+            ),
+            "utf8",
+          ));
+          process.stdout.write(JSON.stringify({
+            projectionMap,
+            retryCount,
+            processed,
+            rows,
+          }));
         } finally {
           check.close();
         }
@@ -1332,9 +1366,22 @@ describe("git memory backup queue", () => {
       `,
       root,
     );
-    const { retryCount, processed, rows } = JSON.parse(output);
+    const { projectionMap, retryCount, processed, rows } = JSON.parse(output);
 
     expect(retryCount).toBe(3);
+    expect(projectionMap).toMatchObject({
+      jobId: "retry-translation-ja",
+      langCode: "ja-JP",
+      memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+      outputHash: "sha256:retry-output",
+      sourceHash: "sha256:retry-source",
+      spans: [expect.objectContaining({
+        blockId: "b000001",
+        segmentId: "s000001",
+        spanIndex: 0,
+      })],
+      version: 1,
+    });
     expect(processed).toEqual([
       {
         memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",

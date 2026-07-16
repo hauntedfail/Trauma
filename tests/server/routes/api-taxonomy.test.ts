@@ -352,20 +352,12 @@ describe("taxonomy API routes", () => {
     const now = new Date("2026-05-14T01:00:00.000Z");
     const connection = initializeDatabase(config);
     try {
-      await connection.db.insert(schema.tags).values([
-        {
-          id: "tag-lower",
-          name: "harness-engineering",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "tag-upper",
-          name: "Harness-Engineering",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+      await connection.db.insert(schema.tags).values({
+        id: "tag-lower",
+        name: "harness-engineering",
+        createdAt: now,
+        updatedAt: now,
+      });
       await connection.repositories.taxonomy.attachTagToMemory({
         memoryId: routeMemoryId,
         tagId: "tag-lower",
@@ -440,24 +432,37 @@ describe("taxonomy API routes", () => {
     await seedRouteMemory(config);
 
     const now = new Date("2026-05-14T01:00:00.000Z");
+    const otherMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef993";
     const connection = initializeDatabase(config);
     try {
-      await connection.db.insert(schema.tags).values([
-        {
-          id: "tag-lower",
-          name: "harness-engineering",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "tag-upper",
-          name: "Harness-Engineering",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+      await connection.repositories.memories.create({
+        id: otherMemoryId,
+        url: "https://example.com/other-taxonomy-memory",
+        title: "Other taxonomy memory",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${otherMemoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.db.insert(schema.tags).values({
+        id: "tag-upper",
+        name: "Harness-Engineering",
+        createdAt: now,
+        updatedAt: now,
+      });
       await connection.repositories.taxonomy.attachTagToMemory({
         memoryId: routeMemoryId,
+        tagId: "tag-upper",
+        now,
+      });
+      await connection.repositories.taxonomy.attachTagToMemory({
+        memoryId: otherMemoryId,
         tagId: "tag-upper",
         now,
       });
@@ -482,10 +487,12 @@ describe("taxonomy API routes", () => {
     const afterDetach = initializeDatabase(config);
     try {
       expect(
-        afterDetach.sqlite.prepare("select tag_id as tagId from memory_tags").all(),
-      ).toEqual([]);
+        afterDetach.sqlite
+          .prepare("select memory_id as memoryId, tag_id as tagId from memory_tags")
+          .all(),
+      ).toEqual([{ memoryId: otherMemoryId, tagId: "tag-upper" }]);
       expect(afterDetach.sqlite.prepare("select count(*) as count from tags").get())
-        .toEqual({ count: 2 });
+        .toEqual({ count: 1 });
     } finally {
       afterDetach.close();
     }

@@ -17,6 +17,7 @@ const SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS = 1784221790920;
 const MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS = 1784223792512;
 const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
 const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
+const CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS = 1784238332412;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -322,6 +323,135 @@ describe("db foundation", () => {
       },
       foreignKeyViolations: [],
       migrationRecorded: 1,
+    });
+  });
+
+  it("deduplicates case-variant taxonomy identities while preserving assignments", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            applyRuntimeMigrations(
+              sqlite,
+              migrations.filter(
+                (migration) => migration.folderMillis < ${CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS},
+              ),
+              "previous",
+            );
+
+            const firstMemory = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311";
+            const secondMemory = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312";
+            const insertMemory = sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)");
+            insertMemory.run(firstMemory, "https://example.com/first", "First", "memories/" + firstMemory + "/CONTENT.md", "success", "disabled", 1, 1);
+            insertMemory.run(secondMemory, "https://example.com/second", "Second", "memories/" + secondMemory + "/CONTENT.md", "success", "disabled", 1, 1);
+
+            const insertTag = sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)");
+            insertTag.run("tag-early", "Harness", 10, 20);
+            insertTag.run("tag-late", "harness", 30, 40);
+            const insertCategory = sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)");
+            insertCategory.run("category-z", "Research", 10, 20);
+            insertCategory.run("category-a", "research", 10, 40);
+
+            const insertMemoryTag = sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)");
+            insertMemoryTag.run(firstMemory, "tag-early", 100, 110);
+            insertMemoryTag.run(firstMemory, "tag-late", 90, 130);
+            insertMemoryTag.run(secondMemory, "tag-late", 120, 140);
+            const insertMemoryCategory = sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)");
+            insertMemoryCategory.run(firstMemory, "category-z", 100, 110);
+            insertMemoryCategory.run(firstMemory, "category-a", 80, 150);
+            insertMemoryCategory.run(secondMemory, "category-z", 120, 140);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            const duplicateErrors = [];
+            try {
+              insertTag.run("tag-rejected", "HARNESS", 50, 50);
+            } catch (error) {
+              duplicateErrors.push(error instanceof Error ? error.message : String(error));
+            }
+            try {
+              insertCategory.run("category-rejected", "RESEARCH", 50, 50);
+            } catch (error) {
+              duplicateErrors.push(error instanceof Error ? error.message : String(error));
+            }
+
+            process.stdout.write(JSON.stringify({
+              categories: sqlite.prepare("select id, name from categories order by id").all(),
+              categoryAssignments: sqlite.prepare("select memory_id as memoryId, category_id as categoryId, created_at as createdAt, updated_at as updatedAt from memory_categories order by memory_id").all(),
+              duplicateErrors,
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              indexes: sqlite.prepare("select name, sql from sqlite_master where type = 'index' and name in ('tags_name_unique', 'categories_name_unique') order by name").all(),
+              migrationRecorded: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?").get(${CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS}).count,
+              tags: sqlite.prepare("select id, name from tags order by id").all(),
+              tagAssignments: sqlite.prepare("select memory_id as memoryId, tag_id as tagId, created_at as createdAt, updated_at as updatedAt from memory_tags order by memory_id").all(),
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      categories: [{ id: "category-a", name: "research" }],
+      categoryAssignments: [
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311",
+          categoryId: "category-a",
+          createdAt: 80,
+          updatedAt: 150,
+        },
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312",
+          categoryId: "category-a",
+          createdAt: 120,
+          updatedAt: 140,
+        },
+      ],
+      duplicateErrors: [
+        expect.stringContaining("UNIQUE constraint failed"),
+        expect.stringContaining("UNIQUE constraint failed"),
+      ],
+      foreignKeyViolations: [],
+      indexes: [
+        expect.objectContaining({
+          name: "categories_name_unique",
+          sql: expect.stringContaining("lower(\"name\")"),
+        }),
+        expect.objectContaining({
+          name: "tags_name_unique",
+          sql: expect.stringContaining("lower(\"name\")"),
+        }),
+      ],
+      migrationRecorded: 1,
+      tags: [{ id: "tag-early", name: "Harness" }],
+      tagAssignments: [
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311",
+          tagId: "tag-early",
+          createdAt: 90,
+          updatedAt: 130,
+        },
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312",
+          tagId: "tag-early",
+          createdAt: 120,
+          updatedAt: 140,
+        },
+      ],
     });
   });
 

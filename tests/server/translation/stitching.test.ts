@@ -129,6 +129,11 @@ describe("translation stitching and atomic commit", () => {
           updatedAt: now,
         },
       );
+      await connection.repositories.translations.updateTranslationJobStatus(
+        job.jobId,
+        "committing",
+        { updatedAt: now },
+      );
 
       const result = await commitTranslatedContent({
         backupQueue,
@@ -249,6 +254,11 @@ describe("translation stitching and atomic commit", () => {
           updatedAt: now,
         },
       );
+      await connection.repositories.translations.updateTranslationJobStatus(
+        job.jobId,
+        "committing",
+        { updatedAt: now },
+      );
       const repository = {
         ...connection.repositories.translations,
         purgeCompletedTranslationChunks: async () => {
@@ -297,6 +307,120 @@ describe("translation stitching and atomic commit", () => {
           reason: "translation_update",
         },
       ]);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("keeps the job and chunks recoverable when projection publication fails", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    const source = await loadTranslationSourceSnapshot({ config, memoryId });
+    const enqueued: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
+      enqueue: async (input) => {
+        enqueued.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/brilliant",
+        title: "Brilliant Source",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${memoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const job = await connection.repositories.translations.createTranslationJob({
+        chunkCount: 1,
+        chunkerVersion: "chunker-v1",
+        jobId: "job-projection-publish-fails",
+        langCode: "ja-JP",
+        memoryId,
+        model: "codex-test",
+        now,
+        promptPolicyVersion: "brilliant-v1",
+        sourceHash: source.sourceHash,
+      });
+      await connection.repositories.translations.insertTranslationChunks(
+        job.jobId,
+        [{
+          blockIds: ["b000001"],
+          chunkIndex: 0,
+          now,
+          sourceChunkHash: "sha256:chunk-0",
+          status: "complete",
+        }],
+      );
+      await connection.repositories.translations.updateTranslationChunk(
+        job.jobId,
+        0,
+        {
+          projectionSpansJson: JSON.stringify([{
+            blockId: "b000001",
+            segmentId: "s000001",
+            sourceMarkdownEnd: 18,
+            sourceMarkdownStart: 2,
+            sourceReaderEnd: 16,
+            sourceReaderStart: 0,
+            translatedMarkdownEnd: 4,
+            translatedMarkdownStart: 2,
+            translatedReaderEnd: 2,
+            translatedReaderStart: 0,
+          }]),
+          status: "complete",
+          translatedHash: "sha256:translated-0",
+          translatedMarkdown: "# 翻訳\n\n本文。\n",
+          updatedAt: now,
+        },
+      );
+      await connection.repositories.translations.updateTranslationJobStatus(
+        job.jobId,
+        "committing",
+        { updatedAt: now },
+      );
+
+      await expect(
+        commitTranslatedContent({
+          backupQueue,
+          chunks: await connection.repositories.translations.getTranslationChunks(
+            job.jobId,
+          ),
+          config,
+          job: { ...job, status: "committing" },
+          now,
+          publishProjectionSidecar: async () => {
+            throw Object.assign(new Error("directory fsync failed"), {
+              code: "EIO",
+            });
+          },
+          repository: connection.repositories.translations,
+        }),
+      ).rejects.toThrow("directory fsync failed");
+
+      await expect(
+        connection.repositories.translations.getTranslationJob(job.jobId),
+      ).resolves.toMatchObject({ status: "committing" });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(job.jobId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          projectionSpansJson: expect.any(String),
+          status: "complete",
+          translatedMarkdown: "# 翻訳\n\n本文。\n",
+        }),
+      ]);
+      expect(enqueued).toEqual([]);
     } finally {
       connection.close();
     }

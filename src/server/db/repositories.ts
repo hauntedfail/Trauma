@@ -1041,7 +1041,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             createdAt: input.now,
             updatedAt: input.now,
           })
-          .onConflictDoNothing({ target: schema.tags.name })
+          .onConflictDoNothing()
           .run();
         return requireTagByName(db, name);
       },
@@ -1119,7 +1119,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
                 createdAt: input.now,
                 updatedAt: input.now,
               })
-              .onConflictDoNothing({ target: schema.tags.name })
+              .onConflictDoNothing()
               .run();
 
             tag =
@@ -1159,7 +1159,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           return tag;
         }),
       createCategory: async (input) => {
-        const existing = await findCategoryByName(db, input.name);
+        const name = normalizeTaxonomyLookupName(input.name);
+        const existing = await findCategoryByName(db, name);
         if (existing !== undefined) {
           return existing;
         }
@@ -1168,13 +1169,13 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .insert(schema.categories)
           .values({
             id: input.id,
-            name: input.name,
+            name,
             createdAt: input.now,
             updatedAt: input.now,
           })
-          .onConflictDoNothing({ target: schema.categories.name })
+          .onConflictDoNothing()
           .run();
-        return requireCategoryByName(db, input.name);
+        return requireCategoryByName(db, name);
       },
       createAndAttachCategoryToMemory: async (input) =>
         db.transaction((tx) => {
@@ -1210,7 +1211,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
                 createdAt: input.now,
                 updatedAt: input.now,
               })
-              .onConflictDoNothing({ target: schema.categories.name })
+              .onConflictDoNothing()
               .run();
 
             category =

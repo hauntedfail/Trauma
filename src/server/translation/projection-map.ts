@@ -1,3 +1,10 @@
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import {
+  publishFileAtomically,
+  syncDirectoryBestEffort,
+} from "../files/atomic-write";
 import type { SupportedLanguageCode } from "./languages";
 import {
   mapMarkdownSourceRangeToReaderRange,
@@ -97,6 +104,19 @@ export function serializeTranslationProjectionSidecar(
       (left, right) => left.spanIndex - right.spanIndex,
     ),
   }, null, 2)}\n`;
+}
+
+export async function writeTranslationProjectionSidecarAtomically(
+  absolutePath: string,
+  sidecar: TranslationProjectionSidecar,
+): Promise<void> {
+  const directory = dirname(absolutePath);
+  await mkdir(directory, { recursive: true });
+  await syncDirectoryBestEffort(dirname(directory));
+  await publishFileAtomically(
+    absolutePath,
+    serializeTranslationProjectionSidecar(sidecar),
+  );
 }
 
 function parseChunkProjectionSpans(

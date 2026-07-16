@@ -681,6 +681,227 @@ describe("translation runner", () => {
     expect(events).not.toContain("translation.job.completed");
   });
 
+  it("does not overwrite cancellation accepted while terminalizing a failure", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000031";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new DiagnosticFailingTranslationClient("diagnostic");
+    let cancellationInjected = false;
+    const injectCancellation = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!cancellationInjected && targetStatus === "failed") {
+        cancellationInjected = true;
+        await translations.requestRunningTranslationJobCancellation(
+          jobId,
+          new Date(),
+        );
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.failed");
+  });
+
+  it("does not overwrite cancellation accepted while terminalizing stale source", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000032";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new FakeTranslationClient();
+    let cancellationInjected = false;
+    const injectCancellation = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!cancellationInjected && targetStatus === "stale") {
+        cancellationInjected = true;
+        await translations.requestRunningTranslationJobCancellation(
+          jobId,
+          new Date(),
+        );
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await writeSourceContent(config, "# Brilliant Source\n\nChanged.");
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.stale");
+  });
+
+  it("does not emit completion when the complete CAS loses a terminal race", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000033";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new FakeTranslationClient();
+    let terminalRaceInjected = false;
+    const injectTerminalRace = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!terminalRaceInjected && targetStatus === "complete") {
+        terminalRaceInjected = true;
+        await translations.updateTranslationJobStatus(jobId, "canceled", {
+          completedAt: new Date(),
+          error: null,
+          updatedAt: new Date(),
+        });
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectTerminalRace(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectTerminalRace(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).not.toContain("translation.job.completed");
+    expect(events).not.toContain("translation.job.failed");
+  });
+
   it("does not retry a failed chunk after cancellation is requested", async () => {
     const config = await createConfig();
     await writeSourceContent(config);

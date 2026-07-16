@@ -296,9 +296,7 @@ describe("memory and taxonomy repositories", () => {
           });
 
           connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-lower", "harness", now.getTime(), now.getTime());
-          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-upper", "Harness", now.getTime(), now.getTime());
           connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-lower", "work", now.getTime(), now.getTime());
-          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-upper", "Work", now.getTime(), now.getTime());
 
           const tag = await connection.repositories.taxonomy.createAndAttachTagToMemory({
             id: "tag-new",
@@ -332,11 +330,89 @@ describe("memory and taxonomy repositories", () => {
     );
 
     expect(JSON.parse(output)).toMatchObject({
-      tag: { id: "tag-upper", name: "Harness" },
-      category: { id: "category-upper", name: "Work" },
-      memoryTags: [{ tagId: "tag-lower" }, { tagId: "tag-upper" }],
-      memoryCategories: [{ categoryId: "category-upper" }],
+      tag: { id: "tag-lower", name: "harness" },
+      category: { id: "category-lower", name: "work" },
+      memoryTags: [{ tagId: "tag-lower" }],
+      memoryCategories: [{ categoryId: "category-lower" }],
     });
+  });
+
+  it("serializes case-variant taxonomy creation across independent connections", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const first = initializeDatabase(config);
+        const second = initializeDatabase(config);
+        try {
+          const now = new Date("2026-07-17T00:00:00.000Z");
+          const [tagUpper, tagLower, categoryUpper, categoryLower] =
+            await Promise.all([
+              first.repositories.taxonomy.createTag({
+                id: "tag-race-upper",
+                name: "Harness",
+                now,
+              }),
+              second.repositories.taxonomy.createTag({
+                id: "tag-race-lower",
+                name: "harness",
+                now,
+              }),
+              first.repositories.taxonomy.createCategory({
+                id: "category-race-upper",
+                name: "Research",
+                now,
+              }),
+              second.repositories.taxonomy.createCategory({
+                id: "category-race-lower",
+                name: "research",
+                now,
+              }),
+            ]);
+          process.stdout.write(JSON.stringify({
+            categoryIds: [categoryUpper.id, categoryLower.id],
+            categoryRows: first.sqlite
+              .prepare("select id, name from categories where lower(name) = 'research'")
+              .all(),
+            tagIds: [tagUpper.id, tagLower.id],
+            tagRows: first.sqlite
+              .prepare("select id, name from tags where lower(name) = 'harness'")
+              .all(),
+          }));
+        } finally {
+          first.close();
+          second.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    const result = JSON.parse(output);
+    expect(new Set(result.tagIds).size).toBe(1);
+    expect(result.tagRows).toHaveLength(1);
+    expect(new Set(result.categoryIds).size).toBe(1);
+    expect(result.categoryRows).toHaveLength(1);
   });
 
   it("rolls back taxonomy creation when create-and-attach fails", () => {

@@ -1,4 +1,4 @@
-import { access, mkdir, rename, rm } from "node:fs/promises";
+import { access, mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import {
@@ -10,6 +10,10 @@ import {
   assertBackupEnvironmentReady,
 } from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
+import {
+  syncDirectoryBestEffort,
+  type DirectorySyncFileSystem,
+} from "../files/atomic-write";
 import {
   createRepositories,
   type TraumaDatabase,
@@ -46,6 +50,7 @@ export type DeleteMemoryWarning =
 type DeleteMemoryFileSystem = {
   access: typeof access;
   mkdir: typeof mkdir;
+  openDirectory: DirectorySyncFileSystem["openDirectory"];
   rename: typeof rename;
   rm: typeof rm;
 };
@@ -103,6 +108,7 @@ async function deleteMemoryReserved(
   const fileSystem = {
     access,
     mkdir,
+    openDirectory: (path: string) => open(path, "r"),
     rename,
     rm,
     ...input.fileSystem,
@@ -176,13 +182,35 @@ async function deleteMemoryReserved(
 
   let staged = false;
   try {
-    await fileSystem.mkdir(dirname(paths.stagingDir), { recursive: true });
+    const stagingParent = dirname(paths.stagingDir);
+    await fileSystem.mkdir(stagingParent, { recursive: true });
+    await syncDirectoryBestEffort(dirname(stagingParent), fileSystem);
     reservation.assertExclusive();
     await fileSystem.rename(paths.contentDir, paths.stagingDir);
     staged = true;
+    await syncRenamedDirectoryEntries({
+      destination: paths.stagingDir,
+      fileSystem,
+      source: paths.contentDir,
+    });
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") {
-      return { status: "failed", error: formatUnknownError(error) };
+      const restoreError = staged
+        ? await restoreStagedContent({ fileSystem, paths })
+        : undefined;
+      if (staged && restoreError === undefined) {
+        await clearMemoryOperationJournal({
+          config: input.config,
+          memoryId: input.memoryId,
+        }).catch(() => undefined);
+      }
+      return {
+        status: "failed",
+        error: formatFailureMessage([
+          formatUnknownError(error),
+          restoreError,
+        ]),
+      };
     }
   }
 
@@ -282,6 +310,7 @@ async function deleteMemoryReserved(
   if (staged) {
     try {
       await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
+      await syncDirectoryBestEffort(dirname(paths.stagingDir), fileSystem);
     } catch (error) {
       stagedContentCleaned = false;
       warnings.push({
@@ -366,9 +395,27 @@ async function restoreStagedContent(input: {
 }): Promise<string | undefined> {
   try {
     await input.fileSystem.rename(input.paths.stagingDir, input.paths.contentDir);
+    await syncRenamedDirectoryEntries({
+      destination: input.paths.contentDir,
+      fileSystem: input.fileSystem,
+      source: input.paths.stagingDir,
+    });
     return undefined;
   } catch (error) {
     return `Failed to restore staged memory content from ${input.paths.stagingDir}: ${formatUnknownError(error)}`;
+  }
+}
+
+async function syncRenamedDirectoryEntries(input: {
+  destination: string;
+  fileSystem: DirectorySyncFileSystem;
+  source: string;
+}): Promise<void> {
+  const sourceParent = dirname(input.source);
+  const destinationParent = dirname(input.destination);
+  await syncDirectoryBestEffort(sourceParent, input.fileSystem);
+  if (destinationParent !== sourceParent) {
+    await syncDirectoryBestEffort(destinationParent, input.fileSystem);
   }
 }
 

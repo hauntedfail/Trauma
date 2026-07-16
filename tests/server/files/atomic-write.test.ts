@@ -16,8 +16,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createFileAtomically,
+  publishFileAtomically,
   writeFileAtomically,
   type AtomicCreateFileSystem,
+  type AtomicPublishFileSystem,
   type AtomicWriteFileSystem,
 } from "../../../src/server/files/atomic-write";
 
@@ -98,6 +100,61 @@ describe("durable atomic file replacement", () => {
 
     expect(await readFile(targetPath, "utf8")).toBe("old\n");
     await expect(access(temporaryPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("durable atomic file publication", () => {
+  it("syncs a new file before rename and syncs its parent directory", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "TRANSLATION_MAP.json");
+    const calls: string[] = [];
+    const fileSystem = createInstrumentedPublishFileSystem({ calls });
+
+    await publishFileAtomically(targetPath, "{}\n", { fileSystem });
+
+    expect(await readFile(targetPath, "utf8")).toBe("{}\n");
+    expect(calls).toEqual([
+      "open-file",
+      "write-file",
+      "sync-file",
+      "close-file",
+      "rename",
+      "open-directory",
+      "sync-directory",
+      "close-directory",
+    ]);
+  });
+
+  it("rejects a real parent-directory sync failure", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    const error = Object.assign(new Error("directory sync failed"), { code: "EIO" });
+
+    await expect(
+      publishFileAtomically(targetPath, "translated\n", {
+        fileSystem: createInstrumentedPublishFileSystem({
+          calls: [],
+          directorySyncError: error,
+        }),
+      }),
+    ).rejects.toThrow("directory sync failed");
+  });
+
+  it("allows only an unsupported parent-directory sync operation", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    const error = Object.assign(new Error("directory sync unsupported"), {
+      code: "ENOTSUP",
+    });
+
+    await expect(
+      publishFileAtomically(targetPath, "translated\n", {
+        fileSystem: createInstrumentedPublishFileSystem({
+          calls: [],
+          directorySyncError: error,
+        }),
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -223,5 +280,55 @@ function createInstrumentedCreateFileSystem(input: {
       input.calls.push("remove-temporary");
       await rm(path, options);
     },
+  };
+}
+
+function createInstrumentedPublishFileSystem(input: {
+  calls: string[];
+  directorySyncError?: Error;
+}): AtomicPublishFileSystem {
+  return {
+    open: async (path, flags, mode) => {
+      input.calls.push("open-file");
+      const handle = await open(path, flags, mode);
+      return {
+        writeFile: async (data, options) => {
+          input.calls.push("write-file");
+          await handle.writeFile(data, options);
+        },
+        sync: async () => {
+          input.calls.push("sync-file");
+          await handle.sync();
+        },
+        close: async () => {
+          input.calls.push("close-file");
+          await handle.close();
+        },
+      };
+    },
+    rename: async (source, destination) => {
+      input.calls.push("rename");
+      await import("node:fs/promises").then((module) =>
+        module.rename(source, destination)
+      );
+    },
+    openDirectory: async (path) => {
+      input.calls.push("open-directory");
+      const handle = await open(path, "r");
+      return {
+        sync: async () => {
+          input.calls.push("sync-directory");
+          if (input.directorySyncError !== undefined) {
+            throw input.directorySyncError;
+          }
+          await handle.sync();
+        },
+        close: async () => {
+          input.calls.push("close-directory");
+          await handle.close();
+        },
+      };
+    },
+    rm: (path, options) => rm(path, options),
   };
 }

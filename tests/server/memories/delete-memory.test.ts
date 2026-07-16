@@ -610,6 +610,105 @@ describe("delete memory service", () => {
     }
   });
 
+  it("syncs both rename parents and the staging parent after removal", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    const syncedDirectories: string[] = [];
+
+    try {
+      await expect(deleteMemory({
+        config,
+        db: connection.db,
+        fileSystem: {
+          openDirectory: async (path) => ({
+            close: async () => undefined,
+            sync: async () => {
+              syncedDirectories.push(path);
+            },
+          }),
+        },
+        memoryId: routeMemoryId,
+      })).resolves.toEqual({ status: "deleted" });
+    } finally {
+      connection.close();
+    }
+
+    expect(syncedDirectories).toEqual([
+      config.storePath,
+      join(config.storePath, "memories"),
+      join(config.storePath, ".delete-staging"),
+      join(config.storePath, ".delete-staging"),
+    ]);
+  });
+
+  it("restores content and preserves the row when rename durability cannot be confirmed", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    let syncCount = 0;
+
+    try {
+      const result = await deleteMemory({
+        config,
+        db: connection.db,
+        fileSystem: {
+          openDirectory: async () => ({
+            close: async () => undefined,
+            sync: async () => {
+              syncCount += 1;
+              if (syncCount === 2) {
+                throw Object.assign(new Error("directory fsync failed"), {
+                  code: "EIO",
+                });
+              }
+            },
+          }),
+        },
+        memoryId: routeMemoryId,
+      });
+
+      expect(result).toEqual({
+        status: "failed",
+        error: "directory fsync failed",
+      });
+      await expect(connection.repositories.memories.findById(routeMemoryId))
+        .resolves.toMatchObject({ id: routeMemoryId });
+    } finally {
+      connection.close();
+    }
+    await expect(readFile(
+      join(config.storePath, "memories", routeMemoryId, "CONTENT.md"),
+      "utf8",
+    )).resolves.toContain("# Route Memory");
+  });
+
   it("restores staged content when database deletion fails", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

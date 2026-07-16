@@ -36,8 +36,12 @@ import {
 import { activePsychiatristTurns } from "../psychiatrist/active-turns";
 import { recoverCompletedPsychiatristArtifactsForMemory } from "../psychiatrist/thread-store";
 import { recoverInterruptedMemoryOperations } from "../memories/operation-journal";
-import { isSupportedLanguageCode } from "../translation/languages";
+import {
+  isSupportedLanguageCode,
+  type SupportedLanguageCode,
+} from "../translation/languages";
 import { resolveTranslatedMemoryProjectionPath } from "../translation/paths";
+import { writeTranslationProjectionSidecarAtomically } from "../translation/projection-map";
 
 export { BACKUP_STATUSES };
 export type { BackupStatus };
@@ -544,6 +548,15 @@ async function getRetryContentPaths(
       !recoveredTranslationLanguages.has(translation.langCode)
     ) {
       recoveredTranslationLanguages.add(translation.langCode);
+      await recoverTranslationProjectionSidecarIfNeeded({
+        config,
+        jobId: translation.jobId,
+        langCode: translation.langCode,
+        memoryId: backup.id,
+        outputHash: translation.outputHash,
+        sourceHash: translation.sourceHash,
+        translations,
+      });
       await recoverFlashbackExportIfNeeded({
         config,
         flashbacks,
@@ -576,6 +589,42 @@ async function getRetryContentPaths(
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
+}
+
+async function recoverTranslationProjectionSidecarIfNeeded(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  jobId: string;
+  langCode: SupportedLanguageCode;
+  memoryId: string;
+  outputHash: string;
+  sourceHash: string;
+  translations: TranslationRepository;
+}): Promise<void> {
+  const path = resolveTranslatedMemoryProjectionPath({
+    config: input.config,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+  });
+  if (await pathExists(path.absolutePath)) {
+    return;
+  }
+  const spans = (
+    await input.translations.listCurrentProjectionSpans({
+      langCode: input.langCode,
+      memoryId: input.memoryId,
+      outputHash: input.outputHash,
+      sourceHash: input.sourceHash,
+    })
+  ).filter((span) => span.jobId === input.jobId);
+  await writeTranslationProjectionSidecarAtomically(path.absolutePath, {
+    jobId: input.jobId,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    outputHash: input.outputHash,
+    sourceHash: input.sourceHash,
+    spans,
+    version: 1,
+  });
 }
 
 async function recoverFlashbackExportIfNeeded(input: {

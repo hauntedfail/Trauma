@@ -230,6 +230,18 @@ describe("memory operation journal recovery", () => {
       uniqueSuffix: "row-removed",
     });
     try {
+      await writeMemoryContent({
+        config,
+        memoryId,
+        frontmatter: {
+          id: memoryId,
+          url: "https://example.com/orphaned-canonical",
+          title: "Orphaned canonical",
+          capturedAt: now.toISOString(),
+          extractionStatus: "success",
+        },
+        markdown: "# Orphaned canonical plaintext",
+      });
       await mkdir(stagingPath.absolutePath, { recursive: true });
       await writeFile(join(stagingPath.absolutePath, "CONTENT.md"), "plaintext", "utf8");
       await persistMemoryDeletionJournal({
@@ -248,6 +260,8 @@ describe("memory operation journal recovery", () => {
         memories: connection.repositories.memories,
       })).resolves.toBe(1);
       await expect(access(stagingPath.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(dirname(contentPath.absolutePath)))
+        .rejects.toMatchObject({ code: "ENOENT" });
       await expect(access(join(config.storePath, ".operations", `${memoryId}.json`)))
         .rejects.toMatchObject({ code: "ENOENT" });
     } finally {

@@ -12,6 +12,10 @@ import { basename, dirname, join } from "node:path";
 type AtomicWriteFileHandle = Pick<FileHandle, "close" | "sync" | "writeFile">;
 type AtomicWriteDirectoryHandle = Pick<FileHandle, "close" | "sync">;
 
+export interface DirectorySyncFileSystem {
+  openDirectory: (path: string) => Promise<AtomicWriteDirectoryHandle>;
+}
+
 export interface AtomicCreateFileSystem {
   link: (source: string, destination: string) => Promise<void>;
   open: (
@@ -35,6 +39,17 @@ export interface AtomicWriteFileSystem {
   stat: (path: string) => Promise<{ mode: number }>;
 }
 
+export interface AtomicPublishFileSystem {
+  open: (
+    path: string,
+    flags: "wx",
+    mode: number,
+  ) => Promise<AtomicWriteFileHandle>;
+  openDirectory: (path: string) => Promise<AtomicWriteDirectoryHandle>;
+  rename: (source: string, destination: string) => Promise<void>;
+  rm: (path: string, options: { force: boolean }) => Promise<void>;
+}
+
 const defaultFileSystem: AtomicWriteFileSystem = {
   open: (path, flags, mode) => open(path, flags, mode),
   openDirectory: (path) => open(path, "r"),
@@ -47,6 +62,13 @@ const defaultCreateFileSystem: AtomicCreateFileSystem = {
   link,
   open: (path, flags, mode) => open(path, flags, mode),
   openDirectory: (path) => open(path, "r"),
+  rm,
+};
+
+const defaultPublishFileSystem: AtomicPublishFileSystem = {
+  open: (path, flags, mode) => open(path, flags, mode),
+  openDirectory: (path) => open(path, "r"),
+  rename,
   rm,
 };
 
@@ -143,9 +165,55 @@ export async function writeFileAtomically(
   }
 }
 
-async function syncDirectoryBestEffort(
+export async function publishFileAtomically(
+  targetPath: string,
+  content: string,
+  options: { fileSystem?: AtomicPublishFileSystem; mode?: number } = {},
+): Promise<void> {
+  const fileSystem = options.fileSystem ?? defaultPublishFileSystem;
+  const directoryPath = dirname(targetPath);
+  const temporaryPath = join(
+    directoryPath,
+    `.${basename(targetPath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  let published = false;
+  let operationError: unknown;
+
+  try {
+    const temporaryFile = await fileSystem.open(
+      temporaryPath,
+      "wx",
+      options.mode ?? 0o666,
+    );
+    try {
+      await temporaryFile.writeFile(content, "utf8");
+      await temporaryFile.sync();
+    } finally {
+      await temporaryFile.close();
+    }
+
+    await fileSystem.rename(temporaryPath, targetPath);
+    published = true;
+    await syncDirectoryBestEffort(directoryPath, fileSystem);
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    if (!published) {
+      try {
+        await fileSystem.rm(temporaryPath, { force: true });
+      } catch (cleanupError) {
+        if (operationError === undefined) {
+          throw cleanupError;
+        }
+      }
+    }
+  }
+}
+
+export async function syncDirectoryBestEffort(
   directoryPath: string,
-  fileSystem: Pick<AtomicWriteFileSystem, "openDirectory">,
+  fileSystem: DirectorySyncFileSystem = defaultFileSystem,
 ): Promise<void> {
   try {
     const directory = await fileSystem.openDirectory(directoryPath);

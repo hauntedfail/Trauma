@@ -122,7 +122,7 @@ export const tags = sqliteTable(
     name: text("name").notNull(),
     ...timestamps(),
   },
-  (table) => [uniqueIndex("tags_name_unique").on(table.name)],
+  (table) => [uniqueIndex("tags_name_unique").on(sql`lower(${table.name})`)],
 );
 
 export const categories = sqliteTable(
@@ -132,7 +132,9 @@ export const categories = sqliteTable(
     name: text("name").notNull(),
     ...timestamps(),
   },
-  (table) => [uniqueIndex("categories_name_unique").on(table.name)],
+  (table) => [
+    uniqueIndex("categories_name_unique").on(sql`lower(${table.name})`),
+  ],
 );
 
 export const memoryTags = sqliteTable(
