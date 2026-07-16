@@ -12,10 +12,12 @@
 : The readable markdown file for one memory.
 
 `storePath`
-: Directory that contains memory markdown files.
+: Directory that contains source/translated reader files, portable metadata
+exports, and memory-local Psychiatrist thread artifacts.
 
 `projectPath`
-: Git working directory used by the built-in markdown backup feature.
+: Git working directory used by built-in backup for explicitly enqueued
+`storePath` artifacts.
 
 `category`
 : Curated grouping. A memory can have multiple categories.

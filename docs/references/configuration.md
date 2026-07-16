@@ -6,15 +6,15 @@ TRAUMA uses static JSON configuration at the project root:
 trauma.config.json
 ```
 
-The initial design does not allow executable config files or arbitrary
-lifecycle hooks.
+The current configuration contract does not allow executable config files or
+arbitrary lifecycle hooks.
 
 Runtime UI preferences are stored in SQLite, not in `trauma.config.json`.
 Codex translation defaults such as the selected model and reasoning effort are
 managed through `app_settings` so the reader translation popover can reopen with
 the user's last saved selections.
 
-## Initial Shape
+## Configuration Shape
 
 ```json
 {
@@ -40,12 +40,13 @@ as `/Users/name/trauma-data` or a config-relative path such as `./data`.
 
 ## Path Rules
 
-- `storePath` contains memory markdown files.
+- `storePath` contains source/translated reader files, metadata exports, and
+  memory-local Psychiatrist thread artifacts.
 - `projectPath` is the git working directory used by built-in backup.
 - `storePath` must be inside `projectPath`.
 - `databasePath` points to the SQLite runtime database.
 - `databasePath` must be outside `storePath`, which keeps the SQLite database
-  outside TRAUMA's markdown backup scope.
+  outside TRAUMA's built-in store-backup scope.
 
 Invalid path relationships are startup errors.
 
@@ -82,7 +83,8 @@ still have recoverable markdown content.
 
 ## Backup Rules
 
-`backup.git.enabled` controls built-in markdown backup.
+`backup.git.enabled` controls built-in backup for explicitly enqueued store
+artifacts.
 
 When enabled, TRAUMA stages only files under `storePath`, commits with
 `commitMessageTemplate`, and pushes only when `backup.git.push` is true.
@@ -104,7 +106,7 @@ When `backup.git.push` is true, a missing remote name skips push without a
 warning and keeps the local backup commit. If the remote exists but push fails,
 TRAUMA records a critical push-failure alert.
 
-No generic command hooks are part of the initial design.
+No generic command hooks are part of the current contract.
 
 ## Browser-Assisted Import Environment
 

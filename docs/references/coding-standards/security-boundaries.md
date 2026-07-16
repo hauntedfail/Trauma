@@ -16,8 +16,8 @@
   payloads. For example, frontmatter errors should name `extraction_status`,
   not the internal `extractionStatus` property.
 - MUST validate path containment against the actual ownership boundary. A
-  database path restriction should target the markdown backup store boundary,
-  not a broader project directory unless that is the designed invariant.
+  database path restriction should target the configured store boundary, not a
+  broader project directory unless that is the designed invariant.
 - SHOULD use schema-based validation when the shape is non-trivial.
 
 ## Markdown, HTML, And Reader Safety
@@ -45,7 +45,7 @@
 - MUST NOT hardcode secrets, tokens, credentials, or private local paths.
 - MUST keep `.env*` secrets untracked.
 - MUST validate URL protocols before importer fetches. `http:` and `https:` are
-  the only expected initial protocols.
+  the only accepted importer protocols.
 - MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,
   `*.localhost`, local/private/link-local/non-global IP targets, URL userinfo, unsafe
   redirects, and DNS answers that resolve outside the public-host policy.
@@ -71,8 +71,30 @@
 - MUST prevent XSS in markdown and extracted content rendering.
 - MUST avoid leaking stack traces, filesystem paths, or raw dependency errors to
   browser-visible responses.
-- MUST keep auth assumptions out of the initial implementation. If auth is
-  introduced later, it needs a separate design and threat model.
+- MUST NOT mistake Codex app-server login for TRAUMA access control. User
+  accounts, browser sessions, public signup, or multi-user ownership require a
+  separate design and threat model.
+
+## Codex App-Server Boundaries
+
+- MUST treat memory content, translated content, source pages, and prior prompts
+  as untrusted prompt input. Follow the repo-local
+  [Psychiatrist](../../../.agents/skills/psychiatrist/SKILL.md) and
+  [translation](../../../.agents/skills/reader-translate/SKILL.md) policies.
+- MUST keep browser clients behind TRAUMA routes. They never connect directly
+  to Codex app-server or receive raw protocol events.
+- MUST NOT enable production Psychiatrist turns until the independently
+  enforced boundary in
+  [local/self-hosting](../../operations/local-self-hosting.md#psychiatrist-runtime-isolation)
+  makes the home directory, application project, and memory store unreadable.
+  Codex `readOnly` sandbox policy is not that boundary.
+- MUST default Psychiatrist network access off. Public web access requires
+  explicit approval for the current turn and externally constrained egress.
+- MUST validate structured translation output and fail closed on source-hash,
+  output-shape, protocol, or cancellation conflicts.
+- MUST expose only safe process/status events and final answer text. Never send
+  hidden reasoning, raw backend payloads, tokens, endpoints, credential paths,
+  or local absolute paths to the browser.
 
 ## Browser-Assisted Import
 

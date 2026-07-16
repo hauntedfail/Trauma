@@ -99,7 +99,9 @@ tests cannot fully prove:
 - `/memories` desktop.
 - `/memories?view=grid` desktop.
 - `/flashbacks` desktop.
-- `/memories/:id` reader.
+- `/moments` desktop.
+- `/settings` desktop.
+- Source and translated reader routes.
 - `/memories` tablet.
 - `/memories` mobile.
 

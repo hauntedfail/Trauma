@@ -51,9 +51,11 @@ Rules:
 
 - Memories.
 - Flashbacks, represented by a lightning mark.
+- Moments.
 - Categories.
 - Tags.
 - Backup.
+- Theme.
 - Settings.
 
 Active route links use the filled variant. Inactive links and future controls
@@ -73,7 +75,6 @@ Current utility icons include:
 - Check.
 - Sun.
 - Moon.
-- Paint tool for the Theme tab.
 - Page.
 - Paper.
 - Hermès shopping bag silhouette for night paper surface mode.

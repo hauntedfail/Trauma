@@ -2,18 +2,12 @@
 
 ## Route Behaviour
 
-Canonical UI routes:
-
-- `/memories`
-- `/flashbacks`
-- `/moments`
-- `/memories/:id`
-- `/settings`
-
-The root route redirects to `/memories`.
+The canonical route inventory and compatibility redirects are owned by
+[UI and routing](../../architecture/ui-and-routing.md#canonical-routes). This
+document adds interaction and accessibility requirements only.
 
 Do not add live navigation links to missing `/category`, `/tags`, or `/backup`
-routes. Future items may be rendered as disabled controls only.
+routes. Those items may be rendered as disabled controls only.
 
 ## Query State
 
@@ -106,6 +100,8 @@ Route surfaces should use `aria-labelledby` and stable headings:
 
 - `memories-title`.
 - `flashbacks-title`.
+- `moment-title`.
+- `settings-title`.
 - Reader fallback states use `reader-state-title`; ready reader content uses
   a route-local sticky header with only the back control and `Memory` label.
   The memory URL/action row, title, and taxonomy chips live in the main reader
@@ -130,8 +126,8 @@ Disabled future controls:
 Desktop:
 
 - Left rail, main pane, and right rail are visible.
-- Reader TOC appears at the top of the right rail only on concrete memory
-  reader routes.
+- Reader TOC appears at the top of the right rail only on ready source or
+  translated memory reader routes.
 - TOC and Flashback shortcut lists scroll inside their own bounded list bodies.
 
 Tablet:
@@ -146,12 +142,12 @@ Tablet:
 
 Mobile:
 
-- Bottom `Primary tabs` render Memories, Flashbacks, Categories, Tags, Backup,
-  Add memory, Theme, and Settings.
+- Bottom `Primary tabs` render Memories, Flashbacks, Moments, Categories, Tags,
+  Backup, Add memory, Theme, and Settings.
 - The tab list scrolls horizontally when space is constrained. The page itself
   must not gain horizontal overflow from the tab bar.
-- Categories, Tags, Backup, and Settings stay disabled until their route or
-  action contracts are implemented.
+- Categories, Tags, and Backup are disabled. Memories, Flashbacks, Moments, and
+  Settings are live route tabs.
 - Phone tab icons use a larger dedicated icon slot so the tab bar remains
   scannable without enlarging desktop rail icons.
 - Phone tab text labels are `sr-only`: names must remain available to assistive

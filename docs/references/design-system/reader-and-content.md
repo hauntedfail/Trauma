@@ -11,7 +11,8 @@ selection.
 Reader route frames use:
 
 ```text
-min-h-screen w-full bg-trauma-bg-surface
+trauma-route-surface trauma-reader-surface trauma-mobile-stable-viewport
+w-full bg-trauma-bg-surface
 ```
 
 The frame must fill the main pane. It must not centre itself independently
@@ -26,10 +27,11 @@ Contract:
 - Back control links to `/memories`.
 - Header uses the route frame background with backdrop blur.
 - Header label is exactly `Memory`.
-- Do not repeat the memory title in the header; the markdown body already owns
-  the visible content title.
+- Do not repeat the memory title in the sticky header. `MemoryReader` lifts the
+  content title, or renders the memory title fallback, in the main reader intro.
 - Do not render `Reader mode` copy.
-- Source URL is visible and opens in a new tab only when safe.
+- The main reader intro shows the source URL and memory actions.
+- A safe source URL opens in a new tab.
 - Source URL links use `text-trauma-link` and `hover:text-trauma-link-hover`.
 - Unsafe or non-linkable source values render as text.
 
@@ -42,7 +44,8 @@ Contract:
 
 - Registered by `MemoryReader` into the shell right rail while a ready memory
   route is mounted.
-- Rendered as the first right rail island on `/memories/:id`.
+- Rendered as the first right rail island on ready source and translated reader
+  routes.
 - Hidden from `/memories`, `/flashbacks`, and other non-reader routes.
 - Removed from the right rail on reader unmount.
 - Rounded island surface matching right rail section geometry.
@@ -109,6 +112,22 @@ static aids (anchors, scroll fades, Moment toggles, long-press menus).
 ## Markdown Prose
 
 Rendered markdown uses Tailwind Typography through `@tailwindcss/typography`.
+
+The Markdown pipeline is deliberately split by responsibility:
+
+- Reader display uses `markdown-it` for GFM-like rendering, footnotes, heading
+  anchors/ToC metadata, and syntax highlighting, then sanitizes the generated
+  HTML before adding TRAUMA-owned Moment controls.
+- Auto-loaded image and iframe URLs pass through the reader media policy; the
+  same-origin media proxy performs public-host, redirect, timeout, byte-limit,
+  and raster-content checks before a browser can load remote images.
+- Translation uses the `unified`/Remark AST only for structural segmentation,
+  projection, and validation. That AST pipeline does not render browser HTML.
+
+Keep these boundaries separate. A future parser replacement must preserve the
+same heading IDs and paths, code output, tables/tasks/footnotes, sanitizer and
+embed policy, ToC metadata, and `data-flashback-id` semantics before removing
+either implementation.
 
 Reader prose rules:
 

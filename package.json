@@ -10,6 +10,7 @@
     "start": "HOST=${HOST:-127.0.0.1} bun --bun x vinxi start",
     "preview": "HOST=${HOST:-127.0.0.1} bun --bun x vinxi preview",
     "audit": "bun audit --ignore GHSA-67mh-4wv8-2f99 --ignore GHSA-g7r4-m6w7-qqqr",
+    "docs:check": "bun run scripts/check-docs.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun --bun x vitest run",
     "test:watch": "bun --bun x vitest",
@@ -17,7 +18,7 @@
     "build:extension": "bun run scripts/build-browser-extension.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "verify": "bun run typecheck && bun run test && bun run build"
+    "verify": "bun run docs:check && bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
     "@solidjs/meta": "^0.29.4",

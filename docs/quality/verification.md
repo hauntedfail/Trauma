@@ -1,109 +1,106 @@
 # Verification Strategy
 
-TRAUMA uses an E2E-first verification strategy.
+TRAUMA uses layered, risk-based verification. Focused tests prove domain
+invariants; Playwright proves cross-boundary user behavior.
 
-## E2E Coverage
-
-Playwright should cover the main user workflows:
-
-- Add memory success path.
-- Link-only fallback when extraction fails.
-- Markdown file creation.
-- `/memories` list rendering.
-- `/memories/:id` reader rendering.
-- `/flashbacks` flashback excerpt rendering.
-- Category/tag filtering.
-- `/memories?q=...` matching flashback text.
-- Flashback selection and persistence.
-- Flashback toggle removal when selecting already-flashbacked text.
-- Backup status display.
-
-E2E tests should use controlled URLs or fixtures so extraction behavior is
-deterministic.
-
-## Startup Smoke
-
-`bun run dev:smoke` boots the dev server with a deterministic host and port,
-probes `/memories`, then shuts the server down. The smoke check fails fast
-when the server cannot bind, crashes early, or does not respond within the
-timeout.
-
-Use the smoke check before E2E runs and after toolchain or config changes
-that could affect dev startup.
-
-## Release Automation
-
-`.github/workflows/release.yml` creates a GitHub Release from tag pushes after
-running the same baseline verification and E2E smoke suite as CI.
-
-Release tags must be three-part numeric semantic versions with an optional
-leading `v`:
-
-- `0.1.111`
-- `v0.1.111`
-
-The workflow intentionally ignores non-matching tag names before checkout or
-dependency installation. Release titles use the normalized version without the
-optional leading `v`.
-
-## Focused Tests
-
-Unit or integration tests should cover:
-
-- Config validation.
-- Drizzle repositories.
-- Importer success and failure mapping.
-- Markdown store writer.
-- Flashback marker insertion.
-- Flashback marker removal, shrink, and split behavior.
-- Backup queue behavior.
-- Backup environment failsafe drift, bootstrap, recovery, and push-failure
-  behavior.
-- Reader sanitization and rendering.
-
-For backup failsafe changes, run the focused suite before broad verification:
+## Standard Commands
 
 ```bash
-mise exec -- bun run test tests/server/db/schema.test.ts
-mise exec -- bun run test tests/server/backup/backup-environment.test.ts tests/server/backup/git-backup.test.ts tests/server/routes/api-backup-failsafe.test.ts tests/components/backup-failsafe.test.ts tests/server/backup/backup-failsafe-cli.test.ts
+bun run typecheck
+bun run test
+bun run build
+bun run dev:smoke
+bun run test:e2e
 ```
 
-Use recovery commands in dry-run mode before applying filesystem changes:
+`bun run docs:check` validates documentation links, indexed reachability,
+retired active terminology, and chronology boundaries. `bun run verify` runs
+that documentation check, typecheck, unit/integration tests, and the production
+build. `bun run dev:smoke` is the deterministic startup probe.
+`bun run test:e2e` is the full Playwright suite, not the startup smoke check.
 
-```bash
-mise exec -- bun run scripts/trauma-backup-failsafe.ts status --config trauma.config.json
-mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config trauma.config.json
-mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json
-mise exec -- bun run scripts/trauma-backup-failsafe.ts delete-missing-record --config trauma.config.json
-```
+Run `bun run audit` for dependency changes and security reviews. CI keeps the
+audit separate from `bun run verify` so the normal typecheck, test, and build
+loop remains network-independent.
+
+The audit ignores `GHSA-67mh-4wv8-2f99` and `GHSA-g7r4-m6w7-qqqr`. Their
+affected `esbuild` versions are transitive build-tool dependencies of
+`@esbuild-kit/core-utils` and `tsx`; those consumers use transforms, not
+esbuild's vulnerable development-server API. A global `esbuild` override is
+unsafe because Vinxi, Vite, Nitro, and the database tools require different
+release lines. Recheck the reachability and remove each exception when its
+upstream dependency advances.
+
+Run focused tests while iterating, then use the broad commands appropriate to
+the changed risk. Tests and E2E must use fixtures and temporary database,
+store, and git paths rather than external websites or real application data.
+
+## Current E2E Risk Coverage
+
+- `e2e/bootstrap.spec.ts`: basic application boot and shell availability.
+- `e2e/add-memory.spec.ts`: public composer submission, successful extraction,
+  link-only fallback, reader projection, SQLite/store persistence, and local git
+  backup completion.
+- `e2e/browse-shell.spec.ts`: canonical redirects, query/filter/read state,
+  pagination, memory actions, taxonomy, keyboard navigation, shell popovers, and
+  desktop/tablet/phone chrome.
+- `e2e/cross-device-responsive.spec.ts`: responsive navigation, safe-area and
+  overflow behavior, theme controls, and primary-action reachability.
+- `e2e/reader.spec.ts`: source reader, translation controls, deletion,
+  Flashbacks, Moments, table-of-contents behavior, and Psychiatrist
+  streaming/resume/cancel/regenerate/permission flows.
+
+The Add Memory fixture seam is owned by `src/server/importer/runtime.ts`. It is
+enabled only by Playwright's three fixed E2E guards and synthesizes results for
+two exact reserved `.invalid` URLs without network I/O. Custom hosts, paths,
+query strings, userinfo, and content cannot enter the seam; every non-exact URL
+uses the production SSRF validation and pinned-fetch importer.
+
+## Focused Test Ownership
+
+Use focused tests for the smallest affected boundary:
+
+- `tests/server/config/**`, `db/**`, and `store/**`: config, migrations,
+  repositories, and filesystem ownership.
+- `tests/server/importer/**`, `browser-import/**`, and `memories/**`: public
+  URL policy, extraction, add/delete compensation, and browse behavior.
+- `tests/server/reader/**`, `flashbacks/**`, and route tests: sanitization,
+  reader hashes, variant-local ranges, Moments, and API validation.
+- `tests/server/translation/**`: job state, chunking, Codex protocol,
+  cancellation, stitching, projections, and current-output resolution.
+- `tests/server/psychiatrist/**` plus `tests/skills/**`: runtime isolation,
+  prompt policy, file-backed thread state, events, citations, and route
+  semantics.
+- `tests/server/backup/**` and backup route/component tests: identity stamps,
+  content integrity, recovery, queue behavior, and push failure.
+- `tests/components/**` and `tests/scripts/frontend-refine-tokens.test.ts`:
+  UI contracts that are cheaper and more deterministic than browser tests.
+
+Tests for persisted data must use real Bun SQLite and temporary files where the
+runtime behavior depends on them. Pure parsing/transformation tests should stay
+deterministic and avoid server startup.
+
+## Startup And Release
+
+`bun run dev:smoke` boots a server on an explicit host/port, probes
+`/memories`, and fails on bind fallback, early exit, or timeout. Use it after
+runtime, config, build-tool, or startup-script changes.
+
+CI and tagged releases run `bun run verify` and `bun run test:e2e`. Release
+tags are three-part numeric semantic versions with an optional leading `v`,
+for example `0.3.0` or `v0.3.0`.
 
 ## Completion Bar
 
-A change that affects storage, import, flashbacks, backup, routing, or reader
-rendering should include either E2E coverage or a clear reason why focused tests
-are sufficient.
+- Behavior changes include regression coverage at the owning boundary.
+- Storage, security, import, translation, Psychiatrist, backup, routing, or
+  reader changes run focused tests plus the broad checks justified by risk.
+- Browser-visible layout or interaction changes run Playwright.
+- Documentation-only changes run `bun run docs:check`; a dedicated lightweight
+  CI workflow runs for documentation paths.
+- Verification commands and exact outcomes are recorded at handoff.
+- Tests are never weakened merely to make a change pass.
 
-Do not claim an implementation is complete without running the relevant
-verification commands and recording their outcomes.
-
-## Review Follow-Up
-
-When a valid review finding exposes a reproducible bug, invariant gap, parser
-edge case, or implementation anti-pattern, the fix should use the strongest
-durable guardrail that fits:
-
-- One-off bug: add a regression test.
-- Repeated style issue: add or update linting, formatting, typecheck, or a
-  static check.
-- Architecture invariant: document the invariant and add a test/static check
-  where possible.
-- Workflow failure: update workflow automation or the workflow checklist.
-- Reviewer false positive: update reviewer config, ignore rules, or reply with
-  evidence.
-
-Do not treat a prose-only documentation update as sufficient when the finding
-is machine-checkable.
-
-Review follow-up is not complete until thread-aware review state has been
-checked after the fix is pushed and the corresponding review thread has a
-concrete reply.
+For accepted review findings, follow the canonical
+[review feedback policy](../references/coding-standards/review-feedback-policy.md)
+instead of duplicating review procedure here.

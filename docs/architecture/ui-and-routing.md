@@ -1,148 +1,128 @@
 # UI And Routing Architecture
 
-TRAUMA's UI direction follows the current X-style layout while staying focused
-on bookmark/memory management.
+This document owns the canonical route and responsive-shell contract. The
+[design system](../references/design-system/INDEX.md) owns visual and
+accessibility details without redefining route availability.
 
 ## Canonical Routes
 
-Initial canonical routes:
+- `/memories`: browse, search, filter, read state, and memory actions.
+- `/memories/:id`: source reader.
+- `/memories/:langCode/:id`: current translated reader.
+- `/flashbacks`: renderable source and translated Flashback excerpts.
+- `/moments`: source-canonical section bookmarks.
+- `/settings`: translation defaults, Codex model/effort, and Codex auth state.
 
-- `/`
-- `/memories`
-- `/memories/:id`
-- `/flashbacks`
+`/` redirects to `/memories`. `/highlights` redirects to `/flashbacks` and
+`/flashback` redirects to `/moments` only for legacy compatibility; do not link
+to them or use their retired terminology in new contracts.
 
-`/` redirects to `/memories`.
+`/category`, `/tags`, `/backup`, and `/memories/new` are not routes. Categories
+and tags are managed inline and through the browse right rail. Backup is exposed
+through status/failsafe surfaces. Add memory is a global shell popover.
 
-`/memories` is the canonical browse and filter route. Query string state holds
-filters and view options:
+## Browse Query State
+
+`/memories` owns filter and view state in the URL:
 
 ```text
 /memories?q=...&category=...&tag=...&flashback=...&view=list|grid
 ```
 
-`/flashbacks` is the canonical route for browsing renderable flashbacked
-excerpts across memories and reader content variants.
+`q` supports free text, `title:`, `url:`, `tag:`, `category:`, `flashback:`, and
+standalone `read`/`unread` terms. Search covers memory metadata, taxonomy, and
+renderable Flashback text/context, not the full reader body. Explicit taxonomy
+and Flashback query keys combine with search terms rather than clearing them.
 
-`/category`, `/tags`, and `/memories/new` are not initial routes. Category/tag
-management pages are future work.
+Memory results are cursor-paginated. Read-state tabs manipulate the search
+terms, and list/grid remains URL-addressable even when no dedicated view toggle
+is rendered.
 
 ## Shell Layout
 
-Desktop layout:
+Desktop (`min-width: 1041px`):
 
-- Left shared navigation.
-- Center content area.
-- Right category/tag/Flashback panel.
+- Persistent `275px` left rail.
+- Route-owned main pane up to `840px`.
+- `360px` right rail with category/tag filters and contextual shortcuts.
+- Ready source and translated readers may replace the top right-rail slot with
+  their table of contents.
 
-The left navigation is an app-shell component shared by all routes. It should
-not be implemented as a page-specific component.
+Tablet (`721px` through `1040px`):
 
-The right panel lists categories, tags, and Flashback shortcuts. Category and tag
-items update the `/memories` query filter. Flashback shortcuts apply
-`/memories?flashback=<flashback id>`. Memory navigation is handled by the
-`/flashbacks` row title/link or reader anchors, not the primary right-panel
-shortcut. Translated Flashback links route to `/memories/:lang_code/:id` when
-the Flashback belongs to a translated variant.
+- Compact `80px` icon rail and route main pane.
+- No right rail, navigation drawer, filter drawer, or duplicate brand/filter
+  header.
+- Add memory and Theme remain available from rail popovers.
 
-## Search And Filters
+Phone (`max-width: 720px`):
 
-`/memories?q=...` searches memory metadata and flashback metadata. The query
-must match title, URL, description, category names, tag names, flashbacked text,
-and stored flashback prefix/suffix context. This is not full body search; body
-FTS remains future work.
+- Compact brand header, route main pane, and fixed horizontally scrollable
+  bottom `Primary tabs` bar.
+- Live tabs: Memories, Flashbacks, Moments, and Settings.
+- Disabled placeholders: Categories, Tags, and Backup.
+- Add memory and Theme are actions that open popovers above the bar.
+- No navigation or filter drawer.
 
-`flashback=...` filters memories to a specific flashback ID. This is mainly
-used by right-panel flashback shortcuts.
+The shell owns global chrome, composer/theme popup state, backup alert, and the
+right-rail slot. Routes own headers, controls, loading/empty/error states, and
+content. Responsive route/component sizing should use the shared fluid and
+container-query utilities rather than device-specific wrappers.
 
 ## Flashbacks View
 
-`/flashbacks` is a flashback-first browse view.
+`/flashbacks` renders dense excerpt rows. Each row shows muted prefix/suffix
+context, selected text as the focal content, and the memory title as subordinate
+metadata. Its link opens the matching source or translated reader at the
+Flashback anchor.
 
-Each flashback row shows the memory title, muted prefix context, flashbacked
-text, and muted suffix context. The visual treatment should feel
-close to a GitHub pull request file-review view: dense rows, selected text as
-the focal content, muted surrounding context, subordinate source metadata, and
-no full article rendering.
+Right-rail Flashback shortcuts may filter `/memories` with `flashback=<id>`.
+They do not replace direct reader links from the canonical Flashbacks route.
 
-Clicking the row content or memory title opens the source or translated reader
-route at the corresponding flashback anchor.
+## Moments View
 
-## Responsive Behavior
+`/moments` lists saved reader sections. Rows open the source reader at the
+stored section anchor and expose Moment deletion. A Moment selected on a
+translated reader maps to its source-canonical section before it appears here.
 
-Responsive behavior is part of the initial design.
+## Add Memory
 
-On narrow screens:
-
-- Preserve the same conceptual shell.
-- Collapse left navigation into a drawer.
-- Collapse right filters into a drawer.
-- Keep the add memory composer globally reachable.
-
-## Styling System
-
-UI styling is implemented with Tailwind CSS v4 through the SolidStart Vite
-configuration.
-
-- `src/styles/tailwind.css` owns Tailwind imports, theme tokens, and minimal
-  document-level base styles.
-- Page and component styling belongs on JSX through static Tailwind classes and
-  Solid `classList`.
-- Reader HTML produced from markdown uses Tailwind Typography plus narrow
-  arbitrary variants for sanitized markup that components cannot author
-  directly.
-- Do not rebuild the removed `src/styles/app.css` semantic selector layer.
-
-## Add Memory Composer
-
-Add memory is a global composer modal or drawer. It accepts only a URL in the
-initial design.
-
-Do not create `/memories/new` for the initial implementation unless a later
-design changes the route model.
+Add memory is a shared anchored `Popup` available from desktop/tablet rail and
+phone tabs. It accepts one URL and has no dedicated route. Escape, outside
+pointer dismissal, and successful completion use the shared popup lifecycle.
 
 ## Reader
 
-`/memories/:id` renders source `CONTENT.md` in read mode.
-`/memories/:lang_code/:id` renders a current translated variant from
-`memories/<memory_id>/<lang_code>/CONTENT.md` when the translation row and file
-hash are current.
+The source route reads source `CONTENT.md`. A translated route renders only a
+completed translation whose source hash, output hash, job row, and language
+file are current.
 
-Psychiatrist is a reader-only surface on `/memories/:id` and
-`/memories/:lang_code/:id`. It is not rendered on `/memories`, `/flashbacks`,
-settings, or shell-only routes. The reader creates or resumes a memory-local
-thread for the active source or translated variant, and all chat traffic goes
-through TRAUMA API routes rather than browser-to-Codex connections.
+Both reader variants support:
 
-The initial markdown reader supports:
+- GitHub Flavored Markdown, footnotes, tables, and task lists.
+- Syntax highlighting.
+- Sanitized HTML and controlled external embeds.
+- Stable heading anchors and a live table-of-contents reading range.
+- Variant-local Flashback marks and source-canonical Moments.
+- Brilliant translation controls and variant tabs.
+- The memory-scoped Psychiatrist dock.
 
-- GitHub Flavored Markdown.
-- Syntax flashbacking.
-- HTML sanitization.
-- Footnotes.
-- Heading anchors.
-- Table of contents that tracks the reader's live position and highlights the
-  active chapter reading range (see the design-system reader-and-content TOC
-  reading-progress contract).
-- Controlled external embeds.
-- Flashback marks.
+Text selection toggles Flashback ranges. Source and translated Flashbacks never
+share offsets: translated writes include language and current output hash, and
+only current rows render. Moment creation from translated content is validated
+then mapped to the matching source section.
 
-Text selection inside reader content is a flashback toggle. Selecting
-unflashbacked text creates a flashback. Selecting text that is already
-flashbacked removes flashback styling from the selected text only, preserving
-any unselected flashbacked text around it.
+Psychiatrist appears only on ready source and translated readers. It creates or
+resumes a thread for the active memory variant through TRAUMA APIs; the browser
+never connects directly to Codex app-server.
 
-Flashbacks are local to the reader content variant where they are created.
-Source Flashbacks use source reader offsets. Translated Flashbacks use
-translated reader offsets and are scoped to the completed translation output
-hash. Global Flashback browse and memory search surfaces include renderable
-Flashbacks from both source and translated variants.
+External embeds may auto-load only after reader sanitization and media URL
+policy. This has privacy/network effects and must not be expanded to unsafe or
+private targets.
 
-Translated reader routes show translated Flashbacks for the active translated
-variant only. Source Flashbacks do not automatically appear in translated
-content. Creating a Flashback from a translated route sends the active language
-to the backend so the write is stored against the translated `CONTENT.md` and
-current translation output hash.
+## Styling Boundary
 
-External embeds auto-load in the initial design. This has privacy and network
-side effects; future configuration may allow lazy or disabled embeds.
+Tailwind CSS v4 and semantic tokens own styling. Route and component classes
+belong in JSX; sanitized reader markup may use narrowly scoped selectors in the
+global stylesheet. Do not restore the removed broad `src/styles/app.css`
+selector layer.

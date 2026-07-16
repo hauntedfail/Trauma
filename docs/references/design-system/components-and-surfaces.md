@@ -200,7 +200,7 @@ Use them for lightweight filter and shortcut groups:
 - Tags.
 - Flashback shortcuts.
 - Reader table of contents, only as route-specific right rail content on a
-  concrete memory route.
+  ready source or translated memory route.
 
 They should not become dense forms, search panels, settings pages, or broad
 route content containers. Contextual route content must stay small enough to

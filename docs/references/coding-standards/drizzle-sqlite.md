@@ -20,24 +20,27 @@
   guards for existing local SQLite databases.
 - MUST define both database-level constraints and Drizzle relations when a table
   relationship is part of the domain model.
-- MUST wrap multi-table or multi-step writes in transactions. Memory creation,
-  tag/category association, flashback persistence, and backup status updates
-  must not partially commit.
+- MUST wrap related SQLite multi-table or multi-step writes in transactions.
+  Tag/category association, Flashback range splitting, and other relational
+  mutations must not partially commit. Cross-store workflows such as memory
+  creation use explicit compensation because filesystem writes cannot join a
+  SQLite transaction.
 - MUST keep Bun SQLite Drizzle transaction callbacks synchronous. Do not pass an
   `async` callback to `db.transaction(...)`; awaited work can escape the
   rollback boundary. Add a focused rollback regression test for multi-step
   writes that must be atomic.
-- MUST make post-insert boundary failures recoverable for create workflows.
-  After a memory row and `CONTENT.md` are durable, backup enqueue/status failures
-  must return the created memory with the best persisted status or compensate
-  explicitly instead of surfacing an ambiguous failed create.
+- MUST make post-persistence boundary failures recoverable for create workflows.
+  Memory creation writes `CONTENT.md` before inserting the SQLite row and
+  removes that new file if the insert fails. After both are durable, backup
+  enqueue/status failures must return the created memory with the best persisted
+  status instead of surfacing an ambiguous failed create.
 - MUST apply bundled migrations before exposing repositories or returning an
   initialized database handle to application code.
 - MUST use current Bun SQLite APIs. Use `Database.run`, prepared statements, or
   Drizzle queries instead of deprecated `Database.exec`.
 - MUST close the SQLite handle if initialization fails after the handle is
   opened.
-- MUST keep SQLite database files outside the markdown backup store.
+- MUST keep SQLite database files outside the configured artifact store.
 - MUST resolve and validate configured paths before filesystem writes.
 - MUST prevent path traversal when reading or writing markdown content.
 - MUST resolve bundled migration paths from module/package location or an
@@ -90,5 +93,6 @@
   queries.
 - SHOULD expose repository methods that match domain use cases rather than
   generic table access.
-- AVOID adding external services, queues, managed databases, or auth/user
-  ownership unless a later design explicitly adds them.
+- AVOID adding external services, queues, managed databases, or TRAUMA
+  user/session/multi-user ownership unless a current design explicitly adds
+  them.

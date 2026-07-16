@@ -28,7 +28,8 @@
 - SHOULD use route data, server functions, or `createResource` for async data
   loading depending on whether the data is server-owned or client-only.
 - SHOULD keep components mostly presentational. Move persistence, extraction,
-  markdown, and backup behavior into server/domain modules.
+  reader transforms, translation/Psychiatrist protocols, and backup behavior
+  into server/domain modules.
 - AVOID component-level duplication of server state. Derive view state from
   route data, params, query state, or local UI signals.
 
