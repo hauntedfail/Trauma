@@ -234,14 +234,26 @@ thread, pair, turn, or stream rows.
 - `turns/{turnId}.json` stores durable turn identity and terminal state.
 - `streams/{turnId}.jsonl` stores safe replayable events before SSE fan-out.
 
-Pair revisions, manifests, response files, and transcript projections are
-written atomically where replacement is required. A completed first answer or
-Regenerate enqueues the manifest, transcript, pair files, turn record, and
-stream for built-in backup. Backup enqueue failure is reported as a warning and
-does not erase the saved answer.
+Manifests, response files, turn records, context snapshots, prompts, and
+transcript projections use a same-directory temporary file, file sync, atomic
+rename, and owning-directory sync when they are published or replaced.
+`PAIRS.jsonl` and turn streams repair only a torn trailing fragment, append
+through an open file handle, and file-sync before the append becomes visible to
+callers or stream subscribers. Creating a JSONL file also syncs its owning
+directory. JSONL replay is read incrementally behind byte and row limits rather
+than loading an unchecked legacy file.
+
+A completed first answer or Regenerate enqueues the manifest, transcript, pair
+files, turn record, and stream for built-in backup. Backup enqueue failure is
+reported as a warning and does not erase the saved answer.
 
 For a pair, the latest valid `PAIRS.jsonl` revision is authoritative over
-`RESPONSE.md`; recovery reconciles the response projection before backup retry.
+`RESPONSE.md`. A new response projection is removed, or a replaced response is
+restored, if its completed revision cannot be appended. A crash that leaves the
+two out of agreement is reconciled from the latest durable pair revision before
+backup retry. The `THREAD.json` manifest and `THREAD.md` transcript are
+recoverable projections after a completed pair revision, so a post-save
+finalization failure is surfaced as a warning instead of erasing the answer.
 
 Psychiatrist may write only inside the active memory's `threads/` subtree. It
 must not mutate source or translated `CONTENT.md`, taxonomy, Flashbacks,

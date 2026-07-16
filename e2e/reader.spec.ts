@@ -347,6 +347,91 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
   ).toBeVisible();
 });
 
+test("does not submit the psychiatrist prompt while an IME composition is active", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await expect(prompt).toBeEnabled();
+  await prompt.fill("変換中の質問");
+
+  await prompt.dispatchEvent("keydown", {
+    bubbles: true,
+    isComposing: true,
+    key: "Enter",
+    keyCode: 13,
+  });
+
+  expect(mock.startedRequests).toEqual([]);
+  await expect(prompt).toHaveValue("変換中の質問");
+
+  await prompt.press("Enter");
+  await expect.poll(() => mock.startedRequests).toHaveLength(1);
+  expect(mock.startedRequests[0]?.message).toBe("変換中の質問");
+});
+
+test("keeps psychiatrist transcript scrolling sticky only near the bottom", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page, {
+    initialPairs: [completedPsychiatristPair("Historical answer. ".repeat(320))],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const transcript = page.locator("[data-psychiatrist-transcript]");
+  await expect(transcript).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Append a new transcript pair.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+
+  await transcript.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: " Manual-scroll delta.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+  await expect(page.getByText("Manual-scroll delta.", { exact: false })).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+
+  await transcript.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: ` ${"Bottom-following delta. ".repeat(80)}`,
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+});
+
 test("streams named psychiatrist events through the browser EventSource transport", async ({
   page,
 }) => {
@@ -355,6 +440,24 @@ test("streams named psychiatrist events through the browser EventSource transpor
   const pairId = "pair-e2e-real-sse";
   const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
   try {
+    await page.addInitScript(() => {
+      const state = window as typeof window & {
+        __psychiatristNativeEventSourceCloseCount?: number;
+      };
+      const NativeEventSource = window.EventSource;
+      state.__psychiatristNativeEventSourceCloseCount = 0;
+      class TrackedEventSource extends NativeEventSource {
+        override close() {
+          state.__psychiatristNativeEventSourceCloseCount =
+            (state.__psychiatristNativeEventSourceCloseCount ?? 0) + 1;
+          super.close();
+        }
+      }
+      Object.defineProperty(window, "EventSource", {
+        configurable: true,
+        value: TrackedEventSource,
+      });
+    });
     await installPsychiatristMock(page, {
       eventUrlForTurn: () => transport.eventUrl,
       sendTurns: [{ pairId, turnId }],
@@ -385,7 +488,11 @@ test("streams named psychiatrist events through the browser EventSource transpor
     await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
       .toBeEnabled();
-    await expect.poll(() => transport.clientClosed()).toBe(true);
+    await expect.poll(() => page.evaluate(() =>
+      (window as typeof window & {
+        __psychiatristNativeEventSourceCloseCount?: number;
+      }).__psychiatristNativeEventSourceCloseCount ?? 0
+    )).toBeGreaterThan(0);
   } finally {
     await transport.close();
   }

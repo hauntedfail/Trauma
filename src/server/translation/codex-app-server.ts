@@ -93,11 +93,15 @@ export interface CodexConversationTurnInput {
   input: string;
   model?: string | null;
   networkAccess?: "disabled" | "user_approved_web_sources";
-  onEvent?: (event: CodexAppServerEvent) => void;
+  onEvent?: CodexConversationEventHandler;
   reasoningEffort?: CodexReasoningEffort | null;
   sandboxPolicy?: CodexSandboxPolicy;
   threadId?: string;
 }
+
+export type CodexConversationEventHandler = (
+  event: CodexAppServerEvent,
+) => boolean | void;
 
 export interface CodexConversationTurnResult {
   outputText: string;
@@ -420,7 +424,15 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       const responseTurnId = readTurnStartResponseTurnId(turn);
       if (responseTurnId !== undefined) {
         turnId = responseTurnId;
-        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
+        try {
+          assertConversationEventAccepted(input.onEvent, {
+            type: "turn.started",
+            turnId: responseTurnId,
+          });
+        } catch (error) {
+          completed.unsubscribe();
+          throw error;
+        }
       }
       const immediateOutput = readFinalTextTurnOutput(turn);
       if (immediateOutput !== undefined && turnId !== undefined) {
@@ -470,7 +482,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
 
   private async startEphemeralThread(input: {
     cwd: string;
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexConversationEventHandler;
   }): Promise<string> {
     const thread = await this.request("thread/start", {
       cwd: input.cwd,
@@ -487,7 +499,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         "Codex app-server did not return a thread id.",
       );
     }
-    input.onEvent?.({ type: "thread.started", threadId });
+    assertConversationEventAccepted(input.onEvent, {
+      type: "thread.started",
+      threadId,
+    });
     return threadId;
   }
 
@@ -824,7 +839,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
   }
 
   private waitForTextTurnCompletion(input: {
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexConversationEventHandler;
     recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
@@ -871,6 +886,16 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
         reject(error);
       };
+      const emitEvent = (event: CodexAppServerEvent): boolean => {
+        if (settled) {
+          return false;
+        }
+        if (input.onEvent?.(event) !== false) {
+          return true;
+        }
+        settleReject(conversationEventBackpressureError());
+        return false;
+      };
       timeout = setTimeout(() => {
         settleReject(
           new CodexAppServerError(
@@ -890,7 +915,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             startedTurnId !== undefined
           ) {
             input.recordTurnId(startedTurnId);
-            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+            emitEvent({ type: "turn.started", turnId: startedTurnId });
           }
           return;
         }
@@ -900,7 +925,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const delta = readStringField(message.params, "delta");
           if (delta !== undefined) {
-            input.onEvent?.({ type: "delta", text: delta });
+            emitEvent({ type: "delta", text: delta });
           }
           return;
         }
@@ -910,7 +935,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const processMessage = readSafeProcessMessage(message.params);
           if (processMessage !== undefined) {
-            input.onEvent?.({ message: processMessage, type: "process" });
+            emitEvent({ message: processMessage, type: "process" });
           }
           return;
         }
@@ -921,20 +946,24 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (!emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.started",
-          });
+          })) {
+            return;
+          }
           return;
         }
         if (message.method === "item/completed") {
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (!emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.completed",
-          });
+          })) {
+            return;
+          }
           const itemOutput = readFinalTextTurnOutput(message.params);
           const turnId = readNotificationTurnId(message.params) ?? input.turnId();
           if (itemOutput !== undefined && turnId !== undefined) {
@@ -2061,6 +2090,7 @@ export class CodexAppServerError extends Error {
       | "usage_limit"
       | "context_overflow"
       | "stream_disconnected"
+      | "event_limit_exceeded"
       | "timeout"
       | "turn_interrupted"
       | "unknown"
@@ -2069,6 +2099,22 @@ export class CodexAppServerError extends Error {
   ) {
     super(message);
     this.name = "CodexAppServerError";
+  }
+}
+
+function conversationEventBackpressureError(): CodexAppServerError {
+  return new CodexAppServerError(
+    "event_limit_exceeded",
+    "Codex conversation event consumer rejected further events.",
+  );
+}
+
+function assertConversationEventAccepted(
+  onEvent: CodexConversationEventHandler | undefined,
+  event: CodexAppServerEvent,
+): void {
+  if (onEvent?.(event) === false) {
+    throw conversationEventBackpressureError();
   }
 }
 
@@ -2097,6 +2143,8 @@ export function safeCodexAppServerErrorMessage(
       return "Codex app-server request timed out.";
     case "turn_interrupted":
       return "Codex request was interrupted.";
+    case "event_limit_exceeded":
+      return "Codex event limit was exceeded.";
     case "invalid_final_output":
       return "Codex returned invalid output.";
     case "unknown":

@@ -1282,13 +1282,14 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     };
   }
   if (error instanceof CodexAppServerError) {
+    const code = translationCodexErrorCode(error.code);
     return {
-      code: error.code,
+      code,
       message: safeCodexAppServerErrorMessage(
         error,
         "Translation failed.",
       ),
-      action: codexErrorAction(error.code),
+      action: codexErrorAction(code),
     };
   }
   if (error instanceof TranslationOutputSchemaError) {
@@ -1347,10 +1348,11 @@ function isPersistableErrorCode(
 
 function mapStartError(error: unknown): Error {
   if (error instanceof CodexAppServerError) {
+    const code = translationCodexErrorCode(error.code);
     return new TranslationApiError(
-      error.code,
+      code,
       safeCodexAppServerErrorMessage(error, "Translation failed."),
-      codexErrorAction(error.code),
+      codexErrorAction(code),
     );
   }
   if (
@@ -1367,6 +1369,12 @@ function mapStartError(error: unknown): Error {
     return error;
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function translationCodexErrorCode(
+  code: CodexAppServerError["code"],
+): Exclude<CodexAppServerError["code"], "event_limit_exceeded"> {
+  return code === "event_limit_exceeded" ? "unknown" : code;
 }
 
 export function createTranslationEventUrl(jobId: string): string {

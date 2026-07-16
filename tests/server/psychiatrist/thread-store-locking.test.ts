@@ -29,16 +29,33 @@ vi.mock("node:fs/promises", async () => {
   const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   return {
     ...actual,
-    appendFile: async (...args: Parameters<typeof actual.appendFile>) => {
-      if (
-        appendGate.enabled &&
-        String(args[1]).includes('"revision_kind":"failed"')
-      ) {
-        appendGate.enabled = false;
-        appendGate.resolveHit?.();
-        await appendGate.release;
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      if (args[1] !== "a+") {
+        return handle;
       }
-      return actual.appendFile(...args);
+      return {
+        close: () => handle.close(),
+        read: (
+          buffer: NodeJS.ArrayBufferView,
+          offset: number,
+          length: number,
+          position: number | null,
+        ) => handle.read(buffer, offset, length, position),
+        sync: () => handle.sync(),
+        truncate: (length?: number) => handle.truncate(length),
+        writeFile: async (...writeArgs: Parameters<typeof handle.writeFile>) => {
+          if (
+            appendGate.enabled &&
+            String(writeArgs[0]).includes('"revision_kind":"failed"')
+          ) {
+            appendGate.enabled = false;
+            appendGate.resolveHit?.();
+            await appendGate.release;
+          }
+          return handle.writeFile(...writeArgs);
+        },
+      };
     },
   };
 });

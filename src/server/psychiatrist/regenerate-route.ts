@@ -21,6 +21,13 @@ import { activePsychiatristTurns } from "./active-turns";
 import { runDetachedPsychiatristTask } from "./detached-task";
 import { createPsychiatristEventPersistenceQueue } from "./event-persistence";
 import {
+  assertPsychiatristFinalAnswerWithinLimit,
+  measurePsychiatristCodexEventBytes,
+  PSYCHIATRIST_TURN_LIMITS,
+  PsychiatristEventLimitError,
+  type PsychiatristTurnLimits,
+} from "./limits";
+import {
   buildPsychiatristPrompt,
   PSYCHIATRIST_PROMPT_POLICY_VERSION,
 } from "./prompt";
@@ -73,6 +80,7 @@ export function createRegeneratePsychiatristResponseHandler(input: {
   client?: CodexConversationClient;
   config?: ResolvedTraumaConfig;
   generateId?: () => string;
+  limits?: PsychiatristTurnLimits;
   loadPair?: typeof loadPsychiatristPairRegeneration;
 } = {}) {
   return async function regeneratePsychiatristResponse(event: APIEvent): Promise<Response> {
@@ -90,6 +98,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
     client?: CodexConversationClient;
     config?: ResolvedTraumaConfig;
     generateId?: () => string;
+    limits?: PsychiatristTurnLimits;
     loadPair?: typeof loadPsychiatristPairRegeneration;
   } = {},
 ): Promise<Response> {
@@ -254,6 +263,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
       turnMode,
       turnId,
       webSourcePolicy,
+      limits: input.limits ?? PSYCHIATRIST_TURN_LIMITS,
     }));
   } catch (error) {
     activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
@@ -313,6 +323,7 @@ async function runRegenerateTurn(input: {
   client: CodexConversationClient;
   config: ResolvedTraumaConfig;
   loaded: Awaited<ReturnType<typeof loadPsychiatristPairRegeneration>>;
+  limits: PsychiatristTurnLimits;
   ownsClient: boolean;
   pairId: string;
   turnMode: RegenerateTurnMode;
@@ -323,7 +334,9 @@ async function runRegenerateTurn(input: {
   const isAnswerRetry = input.turnMode === "answer_retry";
   let assistantResponsePersisted = false;
   let completedAnswerText: string | undefined;
-  const eventWrites = createPsychiatristEventPersistenceQueue();
+  const eventWrites = createPsychiatristEventPersistenceQueue(
+    input.limits.eventPersistence,
+  );
   try {
     const runOutcome = await Promise.resolve().then(() => input.client.runConversationTurn({
       cwdPurpose: "psychiatrist",
@@ -364,7 +377,7 @@ async function runRegenerateTurn(input: {
         ? "user_approved_web_sources"
         : "disabled",
       onEvent: (codexEvent) => {
-        if (!eventWrites.enqueue(() =>
+        const accepted = eventWrites.enqueue(() =>
           persistCodexEvent({
             appendStreamEvent: input.appendStreamEvent,
             config: input.config,
@@ -372,9 +385,11 @@ async function runRegenerateTurn(input: {
             memoryId: input.loaded.manifest.memoryId,
             threadId: input.loaded.manifest.threadId,
             turnId: input.turnId,
-          })
-        )) {
-          return;
+          }),
+          measurePsychiatristCodexEventBytes(codexEvent),
+        );
+        if (!accepted) {
+          return false;
         }
         if (codexEvent.type === "thread.started") {
           activePsychiatristTurns.updateCodexIds({
@@ -388,6 +403,7 @@ async function runRegenerateTurn(input: {
             turnId: input.turnId,
           });
         }
+        return true;
       },
     })).then(
       (result) => ({ result, status: "completed" as const }),
@@ -404,6 +420,10 @@ async function runRegenerateTurn(input: {
       throw persistenceOutcome.error;
     }
     const result = runOutcome.result;
+    assertPsychiatristFinalAnswerWithinLimit(
+      result.outputText,
+      input.limits.maxFinalAnswerBytes,
+    );
     if (!input.webSourcePolicy.allowed && result.webSourceRequired === true) {
       const safeError = {
         action: "retry" as const,
@@ -797,6 +817,13 @@ function toSafeCodexError(error: unknown, fallbackMessage: string): {
   code: string;
   message: string;
 } {
+  if (error instanceof PsychiatristEventLimitError) {
+    return {
+      action: "retry",
+      code: error.code,
+      message: "Psychiatrist response exceeded the supported event limit.",
+    };
+  }
   if (!(error instanceof CodexAppServerError)) {
     return {
       action: "retry",
@@ -823,6 +850,9 @@ function safeCodexErrorMessage(code: string, fallbackMessage: string): string {
   }
   if (code === "turn_interrupted") {
     return "Psychiatrist turn was interrupted.";
+  }
+  if (code === "event_limit_exceeded") {
+    return "Psychiatrist response exceeded the supported event limit.";
   }
   return fallbackMessage;
 }

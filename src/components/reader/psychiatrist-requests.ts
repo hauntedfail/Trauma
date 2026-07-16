@@ -52,6 +52,7 @@ export function getPsychiatristErrorMessage(error: unknown): string {
     case "usage_limit":
     case "timeout":
     case "stream_disconnected":
+    case "event_limit_exceeded":
       return "Psychiatrist could not finish. Retry when ready.";
     case "context_overflow":
       return "This memory is too large for the current assistant context.";

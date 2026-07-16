@@ -203,8 +203,9 @@ to TRAUMA API routes; it never connects directly to Codex app-server.
    and filesystem use; the required external process/container boundary makes
    the home directory, application project, and memory store unreadable. Network
    is disabled unless the user approved public web sources for that turn.
-6. Safe process and answer events are appended to the turn stream before SSE
-   fan-out, so navigation and reload can replay visible output.
+6. Safe process and answer events enter a bounded serialized persistence queue.
+   Each accepted event is appended and file-synced in the turn stream before
+   SSE fan-out, so navigation and reload can replay only durable visible output.
 7. A completed first answer writes `RESPONSE.md`, updates pair/thread/turn state,
    refreshes `THREAD.md`, and enqueues all completed artifacts for backup.
 8. Regenerate reuses the stored prompt/context provenance for the same pair,
@@ -221,6 +222,26 @@ settles but before a terminal state or terminal event is written. A stream
 persistence failure fails an otherwise successful turn; when Codex also fails,
 its safe failure remains authoritative. Closed turn queues reject late Codex
 callbacks, so no non-terminal event can be persisted after terminal state.
+
+The fixed admission policy permits at most 64 KiB per serialized Codex event,
+128 events or 1 MiB pending, and 4,096 events or 4 MiB over one turn. Final
+answer text is capped at 2 MiB. The durable stream is capped at 4,100 rows and
+8 MiB. Exceeding any boundary stops admission and persists a safe failed outcome
+when the existing stream still has room for its terminal event; no partial
+answer is published as `RESPONSE.md`.
+
+On success, the queue drains and the final answer passes its byte check before
+backup intent or answer publication. `RESPONSE.md` plus the completed
+`PAIRS.jsonl` revision become durable before the completed turn record and
+completed stream event. A manifest or `THREAD.md` finalization fault after that
+canonical pair save is a completed answer with a warning and is repaired from
+`PAIRS.jsonl`; it is not rewritten as a failed answer. On failure, the failed
+pair/turn state is durable before the failed stream event is appended.
+
+SSE replay is delivered one encoded event per pull. A live connection buffers
+at most 128 not-yet-delivered events and 3 MiB while replay or a slow consumer
+blocks delivery; exceeding that budget unsubscribes and errors only that
+connection. Reconnect still reads the bounded durable stream.
 
 The latest durable pair revision is authoritative for `RESPONSE.md`. Startup
 recovery rewrites a missing or torn completed response and removes a response

@@ -1,8 +1,8 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import type { ResolvedTraumaConfig } from "../config";
+import { publishFileAtomically } from "../files/atomic-write";
 import type {
   PsychiatristContextSection,
   PsychiatristContextSnapshotManifest,
@@ -1857,9 +1857,7 @@ async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
 
 async function writeFileAtomic(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = join(dirname(path), `.${randomUUID()}.tmp`);
-  await writeFile(temporaryPath, content, "utf8");
-  await rename(temporaryPath, path);
+  await publishFileAtomically(path, content);
 }
 
 function validateSafeId(id: string): void {

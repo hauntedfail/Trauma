@@ -30,6 +30,22 @@ interface PsychiatristDockProps {
   memoryId: string;
 }
 
+interface PsychiatristPromptKeyInput {
+  isComposing: boolean;
+  key: string;
+  keyCode: number;
+  shiftKey: boolean;
+  targetIsPrompt: boolean;
+}
+
+interface PsychiatristTranscriptScrollMetrics {
+  clientHeight: number;
+  scrollHeight: number;
+  scrollTop: number;
+}
+
+const PSYCHIATRIST_TRANSCRIPT_BOTTOM_THRESHOLD_PX = 48;
+
 interface ReaderRequestGeneration {
   readerGeneration: number;
   readerIdentity: string;
@@ -51,9 +67,27 @@ type PendingStopReconciliation =
   | { kind: "terminal"; status: "canceled" | "completed" | "failed" }
   | { errorMessage: string; kind: "ambiguous" };
 
+export function shouldSubmitPsychiatristPromptOnKeyDown(
+  input: PsychiatristPromptKeyInput,
+): boolean {
+  return input.key === "Enter" &&
+    !input.shiftKey &&
+    !input.isComposing &&
+    input.keyCode !== 229 &&
+    input.targetIsPrompt;
+}
+
+export function isPsychiatristTranscriptNearBottom(
+  metrics: PsychiatristTranscriptScrollMetrics,
+  threshold = PSYCHIATRIST_TRANSCRIPT_BOTTOM_THRESHOLD_PX,
+): boolean {
+  return metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop <= threshold;
+}
+
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
+  let transcriptRef: HTMLDivElement | undefined;
   let disconnectPsychiatristStream: (() => void) | undefined;
   const [isOpen, setIsOpen] = createSignal(false);
   const [thread, setThread] = createSignal<PsychiatristThreadResponse>();
@@ -73,6 +107,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   let isDisposed = false;
   let readerGeneration = 0;
   let streamGeneration = 0;
+  let transcriptScrollGeneration = 0;
   let pendingStopReconciliation: PendingStopReconciliation | undefined;
   let loadedReaderThreadKey = readPsychiatristReaderGenerationIdentity(
     props.memoryId,
@@ -84,6 +119,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const openDock = () => {
     const request = captureReaderRequestGeneration();
     setIsOpen(true);
+    queueTranscriptScrollToBottom(request);
     if (threadLoadState() === "idle") {
       void loadThread();
     }
@@ -94,6 +130,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     });
   };
   const closeDock = () => {
+    transcriptScrollGeneration += 1;
     setIsOpen(false);
     triggerRef?.focus();
   };
@@ -123,6 +160,24 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       props.memoryId,
       props.langCode,
     );
+  const queueTranscriptScrollToBottom = (
+    request: ReaderRequestGeneration,
+  ) => {
+    const scrollGeneration = transcriptScrollGeneration;
+    queueMicrotask(() => {
+      if (
+        !isOpen() ||
+        scrollGeneration !== transcriptScrollGeneration ||
+        !isCurrentReaderRequestGeneration(request)
+      ) {
+        return;
+      }
+      const transcript = transcriptRef;
+      if (transcript !== undefined) {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    });
+  };
   const captureThreadRequestGeneration = (
     currentThread: PsychiatristThreadResponse,
   ): ThreadRequestGeneration => ({
@@ -163,6 +218,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setLiveStatusMessage("Allow web search/source lookup for this answer to continue.");
   };
   const resetThreadStateForMemoryChange = () => {
+    transcriptScrollGeneration += 1;
     clearRunningTurnState();
     pendingStopReconciliation = undefined;
     setThread(undefined);
@@ -193,6 +249,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const loadThread = async (options: { preserveTurnPhase?: boolean } = {}) => {
     const request = captureReaderRequestGeneration();
+    const isInitialLoad = thread() === undefined;
     setThreadLoadState("loading");
     setErrorMessage("");
     setLiveStatusMessage("Loading Psychiatrist thread.");
@@ -215,6 +272,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
       setThread(nextThread);
       setTranscriptPairs(nextPairs);
+      if (isInitialLoad) {
+        queueTranscriptScrollToBottom(request);
+      }
       setThreadLoadState("ready");
       if (options.preserveTurnPhase === true) {
         syncPersistedWebSourceRetryState(nextPairs);
@@ -331,6 +391,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           userPrompt: message,
         },
       ]);
+      queueTranscriptScrollToBottom(request);
       setPrompt("");
       setRunningPairId(started.pair_id);
       setRunningTurnId(started.turn_id);
@@ -562,7 +623,13 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       closeDock();
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey && event.target === inputRef) {
+    if (shouldSubmitPsychiatristPromptOnKeyDown({
+      isComposing: event.isComposing,
+      key: event.key,
+      keyCode: event.keyCode,
+      shiftKey: event.shiftKey,
+      targetIsPrompt: event.target === inputRef,
+    })) {
       event.preventDefault();
       void submitPrompt();
     }
@@ -586,7 +653,12 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     const retryPairId = event.type === "psychiatrist.network.permission_required"
       ? readPairId(event.data) ?? ""
       : "";
+    const shouldStickToBottom = transcriptRef === undefined ||
+      isPsychiatristTranscriptNearBottom(transcriptRef);
     setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, event));
+    if (shouldStickToBottom) {
+      queueTranscriptScrollToBottom(currentStream);
+    }
     if (
       event.type === "psychiatrist.answer.completed" ||
       event.type === "psychiatrist.regenerate.completed" ||
@@ -656,6 +728,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     onCleanup(() => {
       isDisposed = true;
       readerGeneration += 1;
+      transcriptScrollGeneration += 1;
       document.removeEventListener("keydown", handleKeyDown);
       disconnectCurrentStream();
     });
@@ -702,7 +775,14 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
               {liveStatusMessage()}
             </p>
           </Show>
-          <div class="grid gap-2 overflow-y-auto pr-1 text-sm" data-psychiatrist-transcript>
+          <div
+            ref={transcriptRef}
+            class="grid gap-2 overflow-y-auto pr-1 text-sm"
+            data-psychiatrist-transcript
+            onScroll={() => {
+              transcriptScrollGeneration += 1;
+            }}
+          >
             <Show when={threadLoadState() === "loading"}>
               <p class="text-trauma-text-secondary">Loading Psychiatrist thread…</p>
             </Show>

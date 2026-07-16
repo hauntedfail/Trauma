@@ -36,6 +36,7 @@ import {
 import { PsychiatristContextError } from "../../../src/server/psychiatrist/context";
 import { writeMemoryContent } from "../../../src/server/store";
 import { createSha256ContentHash } from "../../../src/server/translation/hash";
+import { CodexAppServerError } from "../../../src/server/translation/codex-app-server";
 import type {
   PsychiatristMemoryContext,
   PsychiatristSourceCitation,
@@ -1718,6 +1719,62 @@ describe("Psychiatrist thread API routes", () => {
       status: "failed",
       thread_id: THREAD_ID,
       turn_id: TURN_ID,
+    });
+  });
+
+  it("fails an oversized final answer before publishing RESPONSE.md", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-final-limit-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    const handler = createSendPsychiatristMessageHandler({
+      client: new FakeConversationClient("界界界"),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+      limits: tinyTurnLimits({ maxFinalAnswerBytes: 8 }),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Return a bounded answer." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+    expect(loaded.pairs[0]).toMatchObject({ status: "failed" });
+    expect(loaded.pairs[0]?.assistant).toBeUndefined();
+    await expect(readFile(
+      join(
+        storePath,
+        "memories",
+        MEMORY_ID,
+        "threads",
+        THREAD_ID,
+        "pairs",
+        PAIR_ID,
+        "RESPONSE.md",
+      ),
+      "utf8",
+    )).rejects.toMatchObject({ code: "ENOENT" });
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(replay.at(-1)).toMatchObject({
+      data: { code: "event_limit_exceeded" },
+      type: "psychiatrist.answer.failed",
     });
   });
 
@@ -4065,6 +4122,68 @@ describe("Psychiatrist thread API routes", () => {
     expect(writes).toHaveLength(3);
   });
 
+  it("keeps the prior RESPONSE when regenerate event ingestion exceeds its turn limit", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-limit-"));
+    await createPsychiatristThread({
+      config: { storePath },
+      manifest: manifest(),
+    });
+    await createSendPsychiatristMessageHandler({
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original bounded answer."),
+      config: { storePath },
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Create an answer." }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const regenerateTurnId = EXTRA_TURN_IDS[0]!;
+    const response = await createRegeneratePsychiatristResponseHandler({
+      client: new BackpressureAwareFloodingClient(),
+      config: config(storePath),
+      generateId: createIdGenerator([regenerateTurnId]),
+      limits: tinyTurnLimits({ maxTurnEvents: 1 }),
+    })(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: regenerateBody(),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(202);
+    await waitFor(() => activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined);
+    const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
+    expect(loaded.pairs[0]).toMatchObject({
+      assistant: { content: "Original bounded answer." },
+      status: "completed",
+      turnId: TURN_ID,
+    });
+    const failedReplay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: regenerateTurnId,
+    });
+    expect(failedReplay.at(-1)).toMatchObject({
+      data: { code: "event_limit_exceeded" },
+      type: "psychiatrist.answer.failed",
+    });
+  });
+
   it("keeps the previous completed answer visible when regenerate is stopped", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-stop-"));
     const regenerateTurnId = EXTRA_TURN_IDS[0]!;
@@ -4783,6 +4902,50 @@ class FakeConversationClient implements CodexConversationClient {
       turnId: "codex-turn-1",
     };
   }
+}
+
+class BackpressureAwareFloodingClient implements CodexConversationClient {
+  async cancelTurn(): Promise<void> {
+    return undefined;
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    for (const text of ["first", "second"]) {
+      if (input.onEvent?.({ text, type: "delta" }) === false) {
+        throw new CodexAppServerError(
+          "event_limit_exceeded",
+          "event consumer applied backpressure",
+        );
+      }
+    }
+    return {
+      outputText: "Must not complete.",
+      threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+    };
+  }
+}
+
+function tinyTurnLimits(overrides: {
+  maxFinalAnswerBytes?: number;
+  maxTurnEvents?: number;
+} = {}) {
+  return {
+    eventPersistence: {
+      maxEventBytes: 1_024,
+      maxPendingBytes: 4_096,
+      maxPendingEvents: 16,
+      maxTurnBytes: 4_096,
+      maxTurnEvents: overrides.maxTurnEvents ?? 16,
+    },
+    maxFinalAnswerBytes: overrides.maxFinalAnswerBytes ?? 1_024,
+  };
 }
 
 class HangingConversationClient implements CodexConversationClient {

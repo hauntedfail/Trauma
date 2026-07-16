@@ -156,7 +156,9 @@ describe("Codex app-server endpoint parsing", () => {
 
       const output = await client.translateChunk({
         chunk: createChunk(),
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
         prompt: "translate chunk",
       });
 
@@ -572,7 +574,9 @@ describe("Codex app-server endpoint parsing", () => {
       const result = await client.runConversationTurn({
         cwdPurpose: "psychiatrist",
         input: "What does the memory say?",
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
       });
 
       expect(result).toEqual({
@@ -612,6 +616,35 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
       await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
         .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a conversation turn when its event consumer applies backpressure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-backpressure-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      conversationFinalText: "Must not complete after rejected delta.",
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "Generate an answer.",
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "delta";
+        },
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+      expect(events.filter((event) => event.type === "delta")).toHaveLength(1);
     } finally {
       await server.close();
     }
@@ -695,7 +728,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Continue from local pair history.",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-expired",
         }),
       ).resolves.toMatchObject({
@@ -850,7 +885,9 @@ describe("Codex app-server endpoint parsing", () => {
       await client.runConversationTurn({
         cwdPurpose: "psychiatrist",
         input: "Explain this.",
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
       });
 
       expect(events).toContainEqual({ type: "delta", text: "visible delta" });
@@ -903,7 +940,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Follow up",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-1",
         }),
       ).resolves.toMatchObject({
@@ -945,7 +984,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Follow up",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-1",
         }),
       ).resolves.toMatchObject({

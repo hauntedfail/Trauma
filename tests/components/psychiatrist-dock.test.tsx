@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   findPersistedWebSourceRetryPair,
+  isPsychiatristTranscriptNearBottom,
   PsychiatristDock,
   readPsychiatristReaderGenerationIdentity,
+  shouldSubmitPsychiatristPromptOnKeyDown,
 } from "../../src/components/reader/PsychiatristDock";
 import {
   cancelPsychiatristTurn,
@@ -145,6 +147,52 @@ describe("PsychiatristDock", () => {
   it("scopes Enter submit handling to the prompt textarea", () => {
     expect(dockSource).toContain("event.target === inputRef");
     expect(dockSource).toContain("event.preventDefault()");
+  });
+
+  it("submits plain Enter but preserves IME composition and multiline input", () => {
+    const plainEnter = {
+      isComposing: false,
+      key: "Enter",
+      keyCode: 13,
+      shiftKey: false,
+      targetIsPrompt: true,
+    };
+
+    expect(shouldSubmitPsychiatristPromptOnKeyDown(plainEnter)).toBe(true);
+    expect(shouldSubmitPsychiatristPromptOnKeyDown({
+      ...plainEnter,
+      isComposing: true,
+    })).toBe(false);
+    expect(shouldSubmitPsychiatristPromptOnKeyDown({
+      ...plainEnter,
+      keyCode: 229,
+    })).toBe(false);
+    expect(shouldSubmitPsychiatristPromptOnKeyDown({
+      ...plainEnter,
+      shiftKey: true,
+    })).toBe(false);
+    expect(shouldSubmitPsychiatristPromptOnKeyDown({
+      ...plainEnter,
+      targetIsPrompt: false,
+    })).toBe(false);
+  });
+
+  it("detects the transcript bottom using a stable pixel threshold", () => {
+    expect(isPsychiatristTranscriptNearBottom({
+      clientHeight: 200,
+      scrollHeight: 600,
+      scrollTop: 352,
+    })).toBe(true);
+    expect(isPsychiatristTranscriptNearBottom({
+      clientHeight: 200,
+      scrollHeight: 600,
+      scrollTop: 351,
+    })).toBe(false);
+    expect(isPsychiatristTranscriptNearBottom({
+      clientHeight: 300,
+      scrollHeight: 200,
+      scrollTop: 0,
+    })).toBe(true);
   });
 
   it("creates or resumes a source thread with network disabled by default", async () => {
@@ -407,6 +455,12 @@ describe("PsychiatristDock", () => {
       message: "stop failed while active turn metadata is settling",
       responseStatus: 409,
     }))).toBe("Psychiatrist turn is still starting. Retry Stop after the turn is ready.");
+    expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
+      action: "retry",
+      code: "event_limit_exceeded",
+      message: "raw oversized event details with secret path /private/tmp/turn",
+      responseStatus: 500,
+    }))).toBe("Psychiatrist could not finish. Retry when ready.");
     expect(getPsychiatristErrorMessage(new PsychiatristRequestError({
       action: "retry",
       code: "unknown",

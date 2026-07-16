@@ -17,15 +17,24 @@ import {
   reconcileInactivePsychiatristTurns,
 } from "./thread-store";
 import type { PsychiatristStreamEvent } from "./types";
+import {
+  PSYCHIATRIST_SSE_LIMITS,
+  PsychiatristEventLimitError,
+  type PsychiatristSseLimits,
+} from "./limits";
 
 type LoadPsychiatristStreamReplay = typeof loadPsychiatristStreamReplay;
 type SubscribePsychiatristStream = typeof subscribePsychiatristStream;
-
-export function createPsychiatristTurnEventsHandler(input: {
+interface PsychiatristEventsHandlerOptions {
   config?: Pick<ResolvedTraumaConfig, "storePath">;
   loadReplay?: LoadPsychiatristStreamReplay;
+  sseLimits?: PsychiatristSseLimits;
   subscribe?: SubscribePsychiatristStream;
-} = {}) {
+}
+
+export function createPsychiatristTurnEventsHandler(
+  input: PsychiatristEventsHandlerOptions = {},
+) {
   return async function psychiatristTurnEvents(event: APIEvent): Promise<Response> {
     return handlePsychiatristTurnEventsRequest(event, input);
   };
@@ -33,11 +42,7 @@ export function createPsychiatristTurnEventsHandler(input: {
 
 export async function handlePsychiatristTurnEventsRequest(
   event: APIEvent,
-  input: {
-    config?: Pick<ResolvedTraumaConfig, "storePath">;
-    loadReplay?: LoadPsychiatristStreamReplay;
-    subscribe?: SubscribePsychiatristStream;
-  } = {},
+  input: PsychiatristEventsHandlerOptions = {},
 ): Promise<Response> {
   const memoryId = event.params.memoryId?.trim();
   if (memoryId === undefined || memoryId === "") {
@@ -86,6 +91,7 @@ export async function handlePsychiatristTurnEventsRequest(
   const subscribe = input.subscribe ?? subscribePsychiatristStream;
   const activeTurn = activePsychiatristTurns.getByTurnId(turnId);
   const isLiveTurn = activeTurn?.memoryId === memoryId && activeTurn.threadId === threadId;
+  const sseLimits = input.sseLimits ?? PSYCHIATRIST_SSE_LIMITS;
   const body = isLiveTurn
     ? createLiveEventStream({
       afterEventId,
@@ -93,17 +99,21 @@ export async function handlePsychiatristTurnEventsRequest(
       loadReplay,
       memoryId,
       subscribe,
+      sseLimits,
       threadId,
       turnId,
     })
-    : (await loadInactiveReplay({
-      afterEventId,
-      config,
-      loadReplay,
-      memoryId,
-      threadId,
-      turnId,
-    })).map(encodePsychiatristServerSentEvent).join("");
+    : createReplayEventStream(
+      await loadInactiveReplay({
+        afterEventId,
+        config,
+        loadReplay,
+        memoryId,
+        threadId,
+        turnId,
+      }),
+      sseLimits,
+    );
   return new Response(body, {
     headers: {
       "cache-control": "no-cache, no-transform",
@@ -218,75 +228,178 @@ function createLiveEventStream(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   loadReplay: LoadPsychiatristStreamReplay;
   memoryId: string;
+  sseLimits: PsychiatristSseLimits;
   subscribe: SubscribePsychiatristStream;
   threadId: string;
   turnId: string;
 }): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
+  let closed = false;
+  let replay: PsychiatristStreamEvent[] | undefined;
+  let replayIndex = 0;
+  let replayLoaded = false;
+  let liveBufferBytes = 0;
+  let pump: (() => void) | undefined;
+  const liveBuffer: Array<{
+    bytes: Uint8Array;
+    event: PsychiatristStreamEvent;
+  }> = [];
+  const queuedLiveEventIds = new Set<string>();
+  const sentEventIds = new Set<string>();
+
   return new ReadableStream({
     async start(controller) {
-      let closed = false;
-      let replaying = true;
-      const liveBuffer: PsychiatristStreamEvent[] = [];
-      const sentEventIds = new Set<string>();
-      const enqueueNow = (event: PsychiatristStreamEvent) => {
-        if (input.afterEventId !== undefined && event.eventId <= input.afterEventId) {
+      const closeWithError = (error: unknown) => {
+        if (closed) {
           return;
         }
-        if (closed || sentEventIds.has(event.eventId)) {
-          return;
+        closed = true;
+        unsubscribe?.();
+        liveBuffer.length = 0;
+        liveBufferBytes = 0;
+        queuedLiveEventIds.clear();
+        controller.error(error);
+      };
+      const closeAfterTerminal = () => {
+        closed = true;
+        unsubscribe?.();
+        liveBuffer.length = 0;
+        liveBufferBytes = 0;
+        queuedLiveEventIds.clear();
+        controller.close();
+      };
+      const shouldSkip = (event: PsychiatristStreamEvent): boolean => {
+        if (input.afterEventId !== undefined && event.eventId <= input.afterEventId) {
+          return true;
+        }
+        return closed || sentEventIds.has(event.eventId);
+      };
+      const enqueueEncoded = (
+        event: PsychiatristStreamEvent,
+        bytes: Uint8Array,
+      ): boolean => {
+        if (shouldSkip(event)) {
+          return true;
+        }
+        if (bytes.byteLength > input.sseLimits.maxPendingBytes) {
+          closeWithError(new PsychiatristEventLimitError("sse_pending_bytes"));
+          return false;
         }
         sentEventIds.add(event.eventId);
-        controller.enqueue(encoder.encode(encodePsychiatristServerSentEvent(event)));
+        controller.enqueue(bytes);
         if (isTerminalEvent(event)) {
-          closed = true;
-          unsubscribe?.();
-          controller.close();
+          closeAfterTerminal();
+          return false;
+        }
+        return true;
+      };
+      pump = () => {
+        while (!closed && (controller.desiredSize ?? 0) > 0) {
+          if (replay !== undefined && replayIndex < replay.length) {
+            const event = replay[replayIndex++];
+            if (event === undefined) {
+              continue;
+            }
+            const bytes = encoder.encode(encodePsychiatristServerSentEvent(event));
+            if (!enqueueEncoded(event, bytes)) {
+              return;
+            }
+            continue;
+          }
+          if (!replayLoaded) {
+            return;
+          }
+          replay = undefined;
+          const queued = liveBuffer.shift();
+          if (queued === undefined) {
+            return;
+          }
+          queuedLiveEventIds.delete(queued.event.eventId);
+          liveBufferBytes -= queued.bytes.byteLength;
+          if (!enqueueEncoded(queued.event, queued.bytes)) {
+            return;
+          }
         }
       };
-      const enqueue = (event: PsychiatristStreamEvent) => {
-        if (replaying) {
-          liveBuffer.push(event);
+      const enqueueLive = (event: PsychiatristStreamEvent) => {
+        if (
+          shouldSkip(event) ||
+          queuedLiveEventIds.has(event.eventId)
+        ) {
           return;
         }
-        enqueueNow(event);
+        const bytes = encoder.encode(encodePsychiatristServerSentEvent(event));
+        if (liveBuffer.length + 1 > input.sseLimits.maxPendingEvents) {
+          closeWithError(new PsychiatristEventLimitError("sse_pending_events"));
+          return;
+        }
+        if (liveBufferBytes + bytes.byteLength > input.sseLimits.maxPendingBytes) {
+          closeWithError(new PsychiatristEventLimitError("sse_pending_bytes"));
+          return;
+        }
+        liveBuffer.push({ bytes, event });
+        queuedLiveEventIds.add(event.eventId);
+        liveBufferBytes += bytes.byteLength;
+        pump?.();
       };
       unsubscribe = input.subscribe({
-        onEvent: enqueue,
+        onEvent: enqueueLive,
         turnId: input.turnId,
       });
-      let replay: PsychiatristStreamEvent[];
       try {
-        replay = await input.loadReplay({
+        const loadedReplay = await input.loadReplay({
           afterEventId: input.afterEventId,
           config: input.config,
           memoryId: input.memoryId,
           threadId: input.threadId,
           turnId: input.turnId,
         });
+        if (closed) {
+          return;
+        }
+        replay = normalizeReplayTerminalEvents(loadedReplay);
+        replayLoaded = true;
+        pump?.();
       } catch (error) {
-        closed = true;
-        unsubscribe?.();
-        throw error;
-      }
-      replay = normalizeReplayTerminalEvents(replay);
-      for (const event of replay) {
-        enqueueNow(event);
-        if (closed) {
-          return;
-        }
-      }
-      replaying = false;
-      for (const event of liveBuffer) {
-        enqueueNow(event);
-        if (closed) {
-          return;
-        }
+        closeWithError(error);
       }
     },
+    pull() {
+      pump?.();
+    },
     cancel() {
+      closed = true;
+      liveBuffer.length = 0;
+      liveBufferBytes = 0;
+      queuedLiveEventIds.clear();
       unsubscribe?.();
+    },
+  });
+}
+
+function createReplayEventStream(
+  replay: PsychiatristStreamEvent[],
+  limits: PsychiatristSseLimits,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return new ReadableStream({
+    pull(controller) {
+      const event = replay[index++];
+      if (event === undefined) {
+        controller.close();
+        return;
+      }
+      const bytes = encoder.encode(encodePsychiatristServerSentEvent(event));
+      if (bytes.byteLength > limits.maxPendingBytes) {
+        controller.error(new PsychiatristEventLimitError("sse_pending_bytes"));
+        return;
+      }
+      controller.enqueue(bytes);
+      if (index >= replay.length) {
+        controller.close();
+      }
     },
   });
 }

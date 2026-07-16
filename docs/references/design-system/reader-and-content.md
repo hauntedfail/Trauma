@@ -205,6 +205,9 @@ text, and hidden chain-of-thought or raw backend payloads are never rendered.
 Interaction contract:
 
 - Submit becomes Stop while a turn is running.
+- Plain Enter submits only when the prompt textarea owns the keyboard event.
+  Shift+Enter remains a newline. Enter during IME composition, including the
+  legacy `keyCode = 229` signal, must not be prevented or submitted.
 - Stop is the only UI action that calls the cancel route.
 - Panel close, Escape, route unmount, memory navigation, and browser reload do
   not cancel the server turn.
@@ -216,6 +219,11 @@ Interaction contract:
 - `network_permission_required` is shown as a per-turn permission state: the
   user must explicitly allow web search/source lookup for that answer before any
   web-source turn may run.
+- Opening the dock, completing its initial thread load, or appending a new user
+  prompt scrolls the transcript to its bottom. Streaming output follows only
+  when the transcript was within 48 px of the bottom before that update; a user
+  who scrolls upward keeps that reading position. Deferred scroll writes must be
+  canceled by a newer manual scroll, reader generation, close, or unmount.
 
 Motion follows the reader's accessibility contract. Normal expansion may animate
 from the home bar, but `prefers-reduced-motion: reduce` disables transform-heavy

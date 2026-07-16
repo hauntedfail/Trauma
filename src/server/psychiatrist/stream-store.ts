@@ -3,13 +3,24 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { appendJsonlRow, readJsonlRows } from "./jsonl";
+import {
+  appendJsonlRow,
+  JsonlLimitError,
+  readJsonlRows,
+} from "./jsonl";
 import type {
   PsychiatristStreamEvent,
   PsychiatristStreamEventInput,
 } from "./types";
 import { BoundedCache } from "./bounded-cache";
 import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
+import {
+  assertPsychiatristDeltaWithinLimit,
+  assertPsychiatristFinalAnswerWithinLimit,
+  PSYCHIATRIST_STREAM_LIMITS,
+  PsychiatristEventLimitError,
+  type PsychiatristStreamLimits,
+} from "./limits";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -22,12 +33,15 @@ const MAX_SAFE_PROCESS_TEXT_LENGTH = 240;
 export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   event: PsychiatristStreamEventInput<TData>;
+  limits?: PsychiatristStreamLimits;
   publish?: false;
 }): Promise<PsychiatristStreamEvent<TData> | undefined> {
   const projectedInput = projectSafeStreamEvent(input.event);
   if (projectedInput === undefined) {
     return undefined;
   }
+  const limits = input.limits ?? PSYCHIATRIST_STREAM_LIMITS;
+  assertProjectedEventWithinLimits(projectedInput, limits);
   const path = streamPath(input.config, projectedInput);
   let written: PsychiatristStreamEvent<TData> | undefined;
   const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
@@ -39,7 +53,7 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
       },
       async (reservation) => {
         const eventNumber = nextEventNumbersByPath.get(path) ??
-          await countExistingStreamEvents(path) + 1;
+          await countExistingStreamEvents(path, limits) + 1;
         const event = {
           ...projectedInput,
           eventId: String(eventNumber).padStart(12, "0"),
@@ -48,7 +62,16 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
         reservation.assertWritable();
         await mkdir(dirname(path), { recursive: true });
         reservation.assertWritable();
-        await appendJsonlRow(path, event);
+        try {
+          await appendJsonlRow(path, event, {
+            limits: {
+              maxBytes: limits.maxStreamBytes,
+              maxRows: limits.maxStreamRows,
+            },
+          });
+        } catch (error) {
+          throw mapJsonlLimitError(error);
+        }
         nextEventNumbersByPath.set(path, eventNumber + 1);
         if (input.publish !== false) {
           publishStreamEvent(event);
@@ -95,6 +118,7 @@ export function subscribePsychiatristStream(input: {
 export async function loadPsychiatristStreamReplay(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  limits?: PsychiatristStreamLimits;
   memoryId: string;
   threadId: string;
   turnId: string;
@@ -106,7 +130,18 @@ export async function loadPsychiatristStreamReplay(input: {
   if (path === undefined) {
     return [];
   }
-  const events = await readJsonlRows<PsychiatristStreamEvent>(path);
+  const limits = input.limits ?? PSYCHIATRIST_STREAM_LIMITS;
+  let events: PsychiatristStreamEvent[];
+  try {
+    events = await readJsonlRows<PsychiatristStreamEvent>(path, {
+      limits: {
+        maxBytes: limits.maxStreamBytes,
+        maxRows: limits.maxStreamRows,
+      },
+    });
+  } catch (error) {
+    throw mapJsonlLimitError(error);
+  }
   if (input.afterEventId === undefined) {
     return events;
   }
@@ -149,8 +184,49 @@ function findStreamPath(
   return existsSync(directPath) ? directPath : undefined;
 }
 
-async function countExistingStreamEvents(path: string): Promise<number> {
-  return (await readJsonlRows<PsychiatristStreamEvent>(path)).length;
+async function countExistingStreamEvents(
+  path: string,
+  limits: PsychiatristStreamLimits,
+): Promise<number> {
+  try {
+    return (await readJsonlRows<PsychiatristStreamEvent>(path, {
+      limits: {
+        maxBytes: limits.maxStreamBytes,
+        maxRows: limits.maxStreamRows,
+      },
+    })).length;
+  } catch (error) {
+    throw mapJsonlLimitError(error);
+  }
+}
+
+function assertProjectedEventWithinLimits(
+  event: PsychiatristStreamEventInput,
+  limits: PsychiatristStreamLimits,
+): void {
+  const text = readStringField(event.data, "text");
+  if (text === undefined) {
+    return;
+  }
+  if (event.type === "psychiatrist.answer.delta") {
+    assertPsychiatristDeltaWithinLimit(text, limits.maxDeltaBytes);
+  }
+  if (
+    event.type === "psychiatrist.answer.completed" ||
+    event.type === "psychiatrist.regenerate.completed"
+  ) {
+    assertPsychiatristFinalAnswerWithinLimit(text, limits.maxFinalAnswerBytes);
+  }
+}
+
+function mapJsonlLimitError(error: unknown): unknown {
+  if (!(error instanceof JsonlLimitError)) {
+    return error;
+  }
+  return new PsychiatristEventLimitError(
+    error.kind === "bytes" ? "stream_bytes" : "stream_rows",
+    "Psychiatrist turn stream exceeded the supported replay limit.",
+  );
 }
 
 function projectSafeStreamEvent<TData>(

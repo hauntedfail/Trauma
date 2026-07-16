@@ -95,6 +95,16 @@
   explicit approval for the current turn and externally constrained egress.
 - MUST validate structured translation output and fail closed on source-hash,
   output-shape, protocol, or cancellation conflicts.
+- MUST treat Codex protocol event size and rate as untrusted input. Psychiatrist
+  enforces fixed server-side byte and count budgets at callback admission, the
+  pending persistence queue, the complete turn, the durable replay stream, and
+  each SSE subscriber; these safety limits are not runtime configuration.
+- MUST propagate Psychiatrist persistence backpressure to the Codex conversation
+  callback. Once admission fails, the turn stops accepting events and fails with
+  the safe `event_limit_exceeded` class instead of accumulating more work.
+- MUST bound replay reads and slow SSE consumers. Oversized legacy replay files
+  fail before unbounded parsing, inactive replay is encoded one event at a time,
+  and a live subscriber that exceeds its pending budget is unsubscribed.
 - MUST expose only safe process/status events and final answer text. Never send
   hidden reasoning, raw backend payloads, tokens, endpoints, credential paths,
   or local absolute paths to the browser.
