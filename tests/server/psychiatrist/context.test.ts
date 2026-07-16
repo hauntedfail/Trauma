@@ -1,0 +1,571 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  buildPsychiatristMemoryContext,
+  PsychiatristContextError,
+} from "../../../src/server/psychiatrist/context";
+import { createSha256ContentHash } from "../../../src/server/translation/hash";
+import { resolveTranslatedMemoryContentPath } from "../../../src/server/translation/paths";
+import {
+  BRILLIANT_CHUNKER_VERSION,
+  BRILLIANT_PROMPT_POLICY_VERSION,
+} from "../../../src/server/translation/prompt";
+import {
+  createMemoryContentFixture,
+  writeMemoryContent,
+} from "../../../src/server/store";
+import type {
+  MemoryRepository,
+  ReaderMemoryAggregateRow,
+  TranslationJobRecord,
+  TranslationRepository,
+} from "../../../src/server/db/repositories";
+
+const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
+
+describe("Psychiatrist memory context", () => {
+  it("builds source memory context with metadata, hash, and markdown sections", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-"));
+    const markdown = [
+      "# Deploy Notes",
+      "",
+      "Main context.",
+      "",
+      "## Risks",
+      "",
+      "No rollback plan.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Deploy Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({
+        categories: [{ id: "cat-1", name: "Ops" }],
+        tags: [{ id: "tag-1", name: "deploy" }],
+        title: "Deploy Notes",
+      }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context).toMatchObject({
+      categories: ["Ops"],
+      contentHash: createSha256ContentHash(markdown),
+      memoryId: MEMORY_ID,
+      relativePath: `memories/${MEMORY_ID}/CONTENT.md`,
+      sourceHash: createSha256ContentHash(markdown),
+      sourceUrl: "https://example.com/source",
+      tags: ["deploy"],
+      title: "Deploy Notes",
+      variantKind: "source",
+    });
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        anchor: "deploy-notes",
+        level: 1,
+        markdown: expect.stringContaining("# Deploy Notes"),
+        path: "1",
+        title: "Deploy Notes",
+      }),
+      expect.objectContaining({
+        anchor: "risks",
+        level: 2,
+        markdown: expect.stringContaining("No rollback plan."),
+        path: "1/1",
+        title: "Risks",
+      }),
+    ]);
+  });
+
+  it("falls back to one document section when markdown has no headings", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-flat-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Flat" }),
+      markdown: "A flat note without headings.",
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Flat" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        anchor: "document",
+        level: 1,
+        markdown: "A flat note without headings.",
+        path: "document",
+        title: "Document",
+      }),
+    ]);
+  });
+
+  it("preserves pre-heading memory text as an introduction section", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-pre-heading-"));
+    const markdown = [
+      "Important context before any heading.",
+      "",
+      "# Deploy Notes",
+      "",
+      "Main context.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Deploy Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Deploy Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        anchor: "document-introduction",
+        endOffset: markdown.indexOf("# Deploy Notes"),
+        markdown: "Important context before any heading.",
+        startOffset: 0,
+        title: "Document introduction",
+      }),
+      expect.objectContaining({
+        anchor: "deploy-notes",
+        markdown: expect.stringContaining("# Deploy Notes"),
+        title: "Deploy Notes",
+      }),
+    ]);
+  });
+
+  it("splits duplicate headings by occurrence instead of reusing the first offset", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-duplicate-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "## Repeat",
+      "",
+      "First body.",
+      "",
+      "## Repeat",
+      "",
+      "Second body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    const repeated = context.sections.filter((section) => section.title === "Repeat");
+    expect(repeated).toHaveLength(2);
+    expect(repeated[0]?.markdown).toContain("First body.");
+    expect(repeated[0]?.markdown).not.toContain("Second body.");
+    expect(repeated[1]?.markdown).toContain("Second body.");
+    expect(repeated[1]?.startOffset).toBeGreaterThan(repeated[0]?.startOffset ?? 0);
+  });
+
+  it("locates headings that contain inline markdown syntax", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-inline-heading-"));
+    const markdown = [
+      "# **Deploy Notes**",
+      "",
+      "Main context.",
+      "",
+      "## [Risks](https://example.com/risks)",
+      "",
+      "Inline link heading body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Deploy Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Deploy Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        markdown: expect.stringContaining("# **Deploy Notes**"),
+        startOffset: 0,
+        title: "Deploy Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## [Risks](https://example.com/risks)"),
+        startOffset: markdown.indexOf("## [Risks]"),
+        title: "Risks",
+      }),
+    ]);
+    expect(context.sections[0]?.markdown).not.toContain("Inline link heading body.");
+    expect(context.sections[1]?.markdown).toContain("Inline link heading body.");
+  });
+
+  it("does not match fenced code hashes as rendered headings", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-code-heading-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "```md",
+      "## Fake",
+      "",
+      "This is example code.",
+      "```",
+      "",
+      "Between code and heading.",
+      "",
+      "## Real",
+      "",
+      "Real body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Fake"),
+        startOffset: 0,
+        title: "Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Real"),
+        startOffset: markdown.indexOf("## Real"),
+        title: "Real",
+      }),
+    ]);
+    expect(context.sections[0]?.markdown).toContain("Between code and heading.");
+    expect(context.sections[0]?.markdown).not.toContain("Real body.");
+    expect(context.sections[1]?.markdown).toContain("Real body.");
+  });
+
+  it("locates indented ATX headings and setext headings rendered into the TOC", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-commonmark-heading-"));
+    const markdown = [
+      "# Notes",
+      "",
+      "Intro.",
+      "",
+      "  ## Indented",
+      "",
+      "Indented body.",
+      "",
+      "Setext Details",
+      "--------------",
+      "",
+      "Setext body.",
+    ].join("\n");
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Notes" }),
+      markdown,
+      memoryId: MEMORY_ID,
+    });
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Notes" }),
+      translationRepository: fakeTranslationRepository(),
+    });
+
+    expect(context.sections).toEqual([
+      expect.objectContaining({
+        startOffset: 0,
+        title: "Notes",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("## Indented"),
+        startOffset: markdown.indexOf("  ## Indented"),
+        title: "Indented",
+      }),
+      expect.objectContaining({
+        markdown: expect.stringContaining("Setext Details"),
+        startOffset: markdown.indexOf("Setext Details"),
+        title: "Setext Details",
+      }),
+    ]);
+    expect(context.sections[1]?.markdown).toContain("Indented body.");
+    expect(context.sections[1]?.markdown).not.toContain("Setext body.");
+    expect(context.sections[2]?.markdown).toContain("Setext body.");
+  });
+
+  it("uses current translated CONTENT.md and output hash for translated context", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-ja-"));
+    const sourceMarkdown = "# Source\n\nOriginal.";
+    const translatedMarkdown = "# 翻訳\n\n翻訳本文。";
+    const sourceContent = createMemoryContentFixture({
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: sourceMarkdown,
+    });
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: sourceMarkdown,
+      memoryId: MEMORY_ID,
+    });
+    const translatedPath = resolveTranslatedMemoryContentPath({
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+    });
+    await mkdir(join(storePath, "memories", MEMORY_ID, "ja-JP"), {
+      recursive: true,
+    });
+    await writeFile(
+      translatedPath.absolutePath,
+      createMemoryContentFixture({
+        frontmatter: frontmatter({ title: "翻訳" }),
+        markdown: translatedMarkdown,
+      }),
+      "utf8",
+    );
+    const outputHash = createSha256ContentHash(
+      createMemoryContentFixture({
+        frontmatter: frontmatter({ title: "翻訳" }),
+        markdown: translatedMarkdown,
+      }),
+    );
+    const sourceHash = createSha256ContentHash(sourceContent);
+
+    const context = await buildPsychiatristMemoryContext({
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+      memoryRepository: fakeMemoryRepository({ title: "Source" }),
+      translationRepository: fakeTranslationRepository({
+        outputHash,
+        outputPath: translatedPath.relativePath,
+        sourceHash,
+      }),
+    });
+
+    expect(context).toMatchObject({
+      contentHash: outputHash,
+      langCode: "ja-JP",
+      relativePath: translatedPath.relativePath,
+      sourceHash,
+      title: "Source",
+      variantKind: "translation",
+    });
+    expect(context.sections[0]?.markdown).toContain("# 翻訳");
+  });
+
+  it("maps missing source memory to a typed missing_memory error", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-missing-"));
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository(undefined),
+        translationRepository: fakeTranslationRepository(),
+      }),
+    ).rejects.toMatchObject({
+      code: "missing_memory",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
+
+  it("maps stale translated content to context_unavailable", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-stale-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: "# Source",
+      memoryId: MEMORY_ID,
+    });
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository({ title: "Source" }),
+        translationRepository: fakeTranslationRepository(null),
+      }),
+    ).rejects.toMatchObject({
+      code: "context_unavailable",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
+
+  it("maps missing translated content file to context_unavailable", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-missing-ja-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: "# Source",
+      memoryId: MEMORY_ID,
+    });
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository({ title: "Source" }),
+        translationRepository: fakeTranslationRepository({
+          outputHash: "sha256:missing",
+          outputPath: `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+          sourceHash: "sha256:source",
+        }),
+      }),
+    ).rejects.toMatchObject({
+      code: "context_unavailable",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
+
+  it("maps invalid translated content parse failures to context_unavailable", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-context-invalid-ja-"));
+    await writeMemoryContent({
+      config: { storePath },
+      frontmatter: frontmatter({ title: "Source" }),
+      markdown: "# Source",
+      memoryId: MEMORY_ID,
+    });
+    const translatedPath = resolveTranslatedMemoryContentPath({
+      config: { storePath },
+      langCode: "ja-JP",
+      memoryId: MEMORY_ID,
+    });
+    await mkdir(join(storePath, "memories", MEMORY_ID, "ja-JP"), {
+      recursive: true,
+    });
+    await writeFile(translatedPath.absolutePath, "not valid frontmatter", "utf8");
+
+    await expect(
+      buildPsychiatristMemoryContext({
+        config: { storePath },
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        memoryRepository: fakeMemoryRepository({ title: "Source" }),
+        translationRepository: fakeTranslationRepository({
+          outputHash: "sha256:invalid",
+          outputPath: translatedPath.relativePath,
+          sourceHash: "sha256:source",
+        }),
+      }),
+    ).rejects.toMatchObject({
+      code: "context_unavailable",
+      name: "PsychiatristContextError",
+    } satisfies Partial<PsychiatristContextError>);
+  });
+});
+
+function frontmatter(input: { title: string }) {
+  return {
+    capturedAt: "2026-06-01T00:00:00.000Z",
+    extractionStatus: "success" as const,
+    id: MEMORY_ID,
+    title: input.title,
+    url: "https://example.com/source",
+  };
+}
+
+function fakeMemoryRepository(
+  input?: Partial<ReaderMemoryAggregateRow> & {
+    categories?: Array<{ id: string; name: string }>;
+    tags?: Array<{ id: string; name: string }>;
+  },
+): Pick<MemoryRepository, "findReaderAggregateById"> {
+  return {
+    async findReaderAggregateById() {
+      if (input === undefined) {
+        return undefined;
+      }
+      return {
+        categories: [],
+        contentPath: `memories/${MEMORY_ID}/CONTENT.md`,
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+        description: null,
+        extractionStatus: "success",
+        faviconUrl: null,
+        flashbacks: [],
+        id: MEMORY_ID,
+        memoryCategories: (input.categories ?? []).map((category) => ({ category })),
+        memoryTags: (input.tags ?? []).map((tag) => ({ tag })),
+        moments: [],
+        read: false,
+        tags: [],
+        title: "Memory",
+        updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+        url: "https://example.com/source",
+        ...input,
+      } as ReaderMemoryAggregateRow;
+    },
+  };
+}
+
+function fakeTranslationRepository(
+  input?: Partial<TranslationJobRecord> | null,
+): Pick<TranslationRepository, "findCompleteTranslationRecord"> {
+  return {
+    async findCompleteTranslationRecord() {
+      if (input === null || input === undefined) {
+        return null;
+      }
+      return {
+        chunkCount: 1,
+        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+        completedAt: new Date("2026-06-01T00:00:00.000Z"),
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+        error: null,
+        jobId: "job-1",
+        langCode: "ja-JP",
+        memoryId: MEMORY_ID,
+        model: null,
+        outputHash: input.outputHash ?? "sha256:missing",
+        outputPath: input.outputPath ?? `memories/${MEMORY_ID}/ja-JP/CONTENT.md`,
+        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+        reasoningEffort: null,
+        sourceHash: input.sourceHash ?? "sha256:source",
+        status: "complete",
+        updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+        ...input,
+      } as TranslationJobRecord;
+    },
+  };
+}

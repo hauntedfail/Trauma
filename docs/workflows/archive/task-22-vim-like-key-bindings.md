@@ -8,11 +8,11 @@ memory without using the mouse.
 
 ## Required Context
 
-- [Project orientation](../INDEX.md)
-- [UI and routing architecture](../architecture/ui-and-routing.md)
-- [Interaction and accessibility](../references/design-system/interaction-and-accessibility.md)
-- [Verification strategy](../quality/verification.md)
-- [Coding standards](../references/coding-standards/INDEX.md)
+- [Project orientation](../../INDEX.md)
+- [UI and routing architecture](../../architecture/ui-and-routing.md)
+- [Interaction and accessibility](../../references/design-system/interaction-and-accessibility.md)
+- [Verification strategy](../../quality/verification.md)
+- [Coding standards](../../references/coding-standards/INDEX.md)
 
 ## Ownership
 

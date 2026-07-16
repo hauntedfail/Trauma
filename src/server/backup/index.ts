@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -21,6 +22,8 @@ import {
   getSourceFlashbackMetadataExportPath,
   getTranslatedFlashbackMetadataExportPath,
 } from "../flashbacks/export";
+import { activePsychiatristTurns } from "../psychiatrist/active-turns";
+import { recoverCompletedPsychiatristArtifactsForMemory } from "../psychiatrist/thread-store";
 import { isSupportedLanguageCode } from "../translation/languages";
 import { resolveTranslatedMemoryProjectionPath } from "../translation/paths";
 
@@ -31,7 +34,9 @@ export type BackupTriggerReason =
   | "memory_creation"
   | "flashback_update"
   | "memory_deletion"
-  | "translation_update";
+  | "translation_update"
+  | "psychiatrist_thread_update"
+  | "psychiatrist_response_regenerate";
 
 export interface MemoryBackupJob {
   memoryId: string;
@@ -50,13 +55,24 @@ export interface EnqueueMemoryBackupResult {
   backupStatus: Extract<BackupStatus, "pending" | "queued" | "disabled">;
 }
 
+export type MemoryBackupEnqueueFinalizer = (
+  result: EnqueueMemoryBackupResult,
+) => Promise<void>;
+
 export interface MemoryBackupQueue {
   enqueue: (
+    input: EnqueueMemoryBackupInput,
+    finalizer?: MemoryBackupEnqueueFinalizer,
+  ) => Promise<EnqueueMemoryBackupResult>;
+}
+
+export interface DurableMemoryBackupQueue extends MemoryBackupQueue {
+  persistIntent: (
     input: EnqueueMemoryBackupInput,
   ) => Promise<EnqueueMemoryBackupResult>;
 }
 
-export interface GitMemoryBackupQueue extends MemoryBackupQueue {
+export interface GitMemoryBackupQueue extends DurableMemoryBackupQueue {
   drain: () => Promise<void>;
   retryEligibleBackups: () => Promise<number>;
 }
@@ -78,15 +94,20 @@ export interface CreateGitMemoryBackupQueueInput {
 const execFileAsync = promisify(execFile);
 const gitQueueByConfigKey = new Map<string, GitMemoryBackupQueue>();
 
-export function createNoopMemoryBackupQueue(): MemoryBackupQueue {
+export function createNoopMemoryBackupQueue(): DurableMemoryBackupQueue {
   return {
-    enqueue: async () => ({ backupStatus: "pending" }),
+    enqueue: async (_input, finalizer) => {
+      const result = { backupStatus: "pending" } as const;
+      await finalizer?.(result);
+      return result;
+    },
+    persistIntent: async () => ({ backupStatus: "pending" }),
   };
 }
 
 export function getMemoryBackupQueue(
   config: ResolvedTraumaConfig,
-): MemoryBackupQueue {
+): DurableMemoryBackupQueue {
   if (!config.backup.git.enabled) {
     return createNoopMemoryBackupQueue();
   }
@@ -114,11 +135,18 @@ export function createGitMemoryBackupQueue(
   const now = input.now ?? (() => new Date());
   const pendingJobs: MemoryBackupJob[] = [];
   const pendingJobsByMemoryId = new Map<string, MemoryBackupJob>();
-  const runningMemoryIds = new Set<string>();
+  const runningJobsByMemoryId = new Map<string, MemoryBackupJob>();
+  const durableIntentJobsByMemoryId = new Map<string, MemoryBackupJob>();
+  const persistIntentTransitionsByMemoryId = new Map<
+    string,
+    Set<MemoryBackupJob>
+  >();
+  const enqueueTransitionsByMemoryId = new Map<string, number>();
   let worker: Promise<void> | undefined;
+  let schedulingSuspensions = 0;
 
   function scheduleWorker() {
-    if (worker !== undefined) {
+    if (worker !== undefined || schedulingSuspensions > 0) {
       return;
     }
 
@@ -136,36 +164,60 @@ export function createGitMemoryBackupQueue(
   }
 
   async function processJobs() {
-    while (pendingJobs.length > 0) {
+    while (pendingJobs.length > 0 && schedulingSuspensions === 0) {
       const job = pendingJobs.shift();
       if (job === undefined) {
         continue;
       }
       pendingJobsByMemoryId.delete(job.memoryId);
-      runningMemoryIds.add(job.memoryId);
+      runningJobsByMemoryId.set(job.memoryId, job);
 
       try {
         await processJob(job);
       } finally {
-        runningMemoryIds.delete(job.memoryId);
+        runningJobsByMemoryId.delete(job.memoryId);
       }
     }
   }
 
   async function processJob(job: MemoryBackupJob) {
     try {
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "queued",
-        lastBackupError: null,
-      });
       await runJob({ config: input.config, job });
-      await updateBackupStatus({
-        memoryId: job.memoryId,
-        backupStatus: "success",
-        lastBackupAt: now(),
-        lastBackupError: null,
-      });
+      if (hasPersistIntentTransition(
+        persistIntentTransitionsByMemoryId,
+        job.memoryId,
+      )) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+      } else if (hasCount(enqueueTransitionsByMemoryId, job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "queued",
+          lastBackupError: null,
+        });
+      } else if (durableIntentJobsByMemoryId.has(job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+      } else if (pendingJobsByMemoryId.has(job.memoryId)) {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "queued",
+          lastBackupError: null,
+        });
+      } else {
+        await updateBackupStatus({
+          memoryId: job.memoryId,
+          backupStatus: "success",
+          lastBackupAt: now(),
+          lastBackupError: null,
+        });
+      }
     } catch (error) {
       try {
         await updateBackupStatus({
@@ -202,31 +254,130 @@ export function createGitMemoryBackupQueue(
 
   async function enqueue(
     enqueueInput: EnqueueMemoryBackupInput,
+    finalizer?: MemoryBackupEnqueueFinalizer,
   ): Promise<EnqueueMemoryBackupResult> {
     if (!input.config.backup.git.enabled) {
-      return { backupStatus: "disabled" };
+      const result = { backupStatus: "disabled" } as const;
+      await finalizer?.(result);
+      return result;
     }
 
-    const job = normalizeBackupJob(enqueueInput);
+    let job = normalizeBackupJob(enqueueInput);
     if (job.reason === "memory_deletion") {
       throw new GitBackupError(
         "memory deletion backups must run synchronously before deleting the memory row",
       );
     }
-    const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
-    if (pendingJob !== undefined) {
-      mergeBackupJobs(pendingJob, job);
-      return { backupStatus: "queued" };
+    const durableIntentJob = durableIntentJobsByMemoryId.get(job.memoryId);
+    if (durableIntentJob !== undefined) {
+      durableIntentJobsByMemoryId.delete(job.memoryId);
+      mergeBackupJobs(durableIntentJob, job);
+      job = durableIntentJob;
     }
+    incrementCount(enqueueTransitionsByMemoryId, job.memoryId);
+    if (finalizer !== undefined) {
+      schedulingSuspensions += 1;
+    }
+    let queuedStatePersisted = false;
+    try {
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "queued",
+        lastBackupError: null,
+      });
+      queuedStatePersisted = true;
+      const result = { backupStatus: "queued" } as const;
+      await finalizer?.(result);
 
-    pendingJobs.push(job);
-    pendingJobsByMemoryId.set(job.memoryId, job);
-    scheduleWorker();
-    return { backupStatus: "queued" };
+      const pendingJob = pendingJobsByMemoryId.get(job.memoryId);
+      if (pendingJob === undefined) {
+        pendingJobs.push(job);
+        pendingJobsByMemoryId.set(job.memoryId, job);
+      } else {
+        mergeBackupJobs(pendingJob, job);
+      }
+      scheduleWorker();
+      return result;
+    } catch (error) {
+      if (durableIntentJob !== undefined || queuedStatePersisted) {
+        const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
+        if (retainedJob === undefined) {
+          durableIntentJobsByMemoryId.set(job.memoryId, job);
+        } else {
+          mergeBackupJobs(job, retainedJob);
+          durableIntentJobsByMemoryId.set(job.memoryId, job);
+        }
+      }
+      if (
+        queuedStatePersisted &&
+        !pendingJobsByMemoryId.has(job.memoryId) &&
+        !runningJobsByMemoryId.has(job.memoryId)
+      ) {
+        try {
+          await updateBackupStatus({
+            memoryId: job.memoryId,
+            backupStatus: "pending",
+            lastBackupError: null,
+          });
+        } catch {
+          // Preserve the finalizer failure. The durable intent remains retained
+          // in memory even when the compensating status update is unavailable.
+        }
+      }
+      throw error;
+    } finally {
+      decrementCount(enqueueTransitionsByMemoryId, job.memoryId);
+      if (finalizer !== undefined) {
+        schedulingSuspensions -= 1;
+        if (pendingJobs.length > 0) {
+          scheduleWorker();
+        }
+      }
+    }
+  }
+
+  async function persistIntent(
+    intentInput: EnqueueMemoryBackupInput,
+  ): Promise<EnqueueMemoryBackupResult> {
+    if (!input.config.backup.git.enabled) {
+      return { backupStatus: "disabled" };
+    }
+    const job = normalizeBackupJob(intentInput);
+    if (job.reason === "memory_deletion") {
+      throw new GitBackupError(
+        "memory deletion backups must run synchronously before deleting the memory row",
+      );
+    }
+    let transitions = persistIntentTransitionsByMemoryId.get(job.memoryId);
+    if (transitions === undefined) {
+      transitions = new Set<MemoryBackupJob>();
+      persistIntentTransitionsByMemoryId.set(job.memoryId, transitions);
+    }
+    transitions.add(job);
+    try {
+      await updateBackupStatus({
+        memoryId: job.memoryId,
+        backupStatus: "pending",
+        lastBackupError: null,
+      });
+      const retainedJob = durableIntentJobsByMemoryId.get(job.memoryId);
+      if (retainedJob === undefined) {
+        durableIntentJobsByMemoryId.set(job.memoryId, job);
+      } else {
+        mergeBackupJobs(retainedJob, job);
+      }
+    } finally {
+      transitions.delete(job);
+      if (transitions.size === 0) {
+        persistIntentTransitionsByMemoryId.delete(job.memoryId);
+      }
+    }
+    return { backupStatus: "pending" };
   }
 
   return {
     enqueue,
+    persistIntent,
     drain: async () => {
       while (worker !== undefined) {
         await worker;
@@ -246,23 +397,31 @@ export function createGitMemoryBackupQueue(
         const backups =
           await connection.repositories.memories.listBackupsEligibleForRetry();
         let enqueued = 0;
-        for (const backup of backups) {
-          if (
-            pendingJobsByMemoryId.has(backup.id) ||
-            runningMemoryIds.has(backup.id)
-          ) {
-            continue;
+        schedulingSuspensions += 1;
+        try {
+          for (const backup of backups) {
+            if (
+              pendingJobsByMemoryId.has(backup.id) ||
+              runningJobsByMemoryId.has(backup.id)
+            ) {
+              continue;
+            }
+            await enqueue({
+              memoryId: backup.id,
+              contentPaths: await getRetryContentPaths(
+                input.config,
+                backup,
+                connection.repositories.translations,
+              ),
+              reason: "memory_creation",
+            });
+            enqueued += 1;
           }
-          await enqueue({
-            memoryId: backup.id,
-            contentPaths: await getRetryContentPaths(
-              input.config,
-              backup,
-              connection.repositories.translations,
-            ),
-            reason: "memory_creation",
-          });
-          enqueued += 1;
+        } finally {
+          schedulingSuspensions -= 1;
+          if (pendingJobs.length > 0) {
+            scheduleWorker();
+          }
         }
         return enqueued;
       } finally {
@@ -277,6 +436,11 @@ async function getRetryContentPaths(
   backup: { id: string; contentPath: string },
   translations: TranslationRepository,
 ): Promise<string[]> {
+  await recoverCompletedPsychiatristArtifactsForMemory({
+    activeTurnIds: activePsychiatristTurns.getTurnIdsForMemory(backup.id),
+    config,
+    memoryId: backup.id,
+  });
   const paths = [
     backup.contentPath,
     getSourceFlashbackMetadataExportPath(backup.id),
@@ -302,9 +466,73 @@ async function getRetryContentPaths(
       }),
     );
   }
+  paths.push(...getPsychiatristRetryContentPaths(config, backup.id));
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
+}
+
+function getPsychiatristRetryContentPaths(
+  config: Pick<ResolvedTraumaConfig, "storePath">,
+  memoryId: string,
+): string[] {
+  const threadsRoot = resolve(config.storePath, "memories", memoryId, "threads");
+  const threadIds = readDirectoryNames(threadsRoot);
+  const paths: string[] = [];
+  for (const threadId of threadIds) {
+    const threadBase = `memories/${memoryId}/threads/${threadId}`;
+    paths.push(
+      `${threadBase}/THREAD.json`,
+      `${threadBase}/THREAD.md`,
+      `${threadBase}/PAIRS.jsonl`,
+    );
+    const turnIds = readFileStemNames(resolve(threadsRoot, threadId, "turns"), ".json");
+    for (const turnId of turnIds) {
+      paths.push(`${threadBase}/turns/${turnId}.json`);
+    }
+    const streamIds = readFileStemNames(resolve(threadsRoot, threadId, "streams"), ".jsonl");
+    for (const streamId of streamIds) {
+      paths.push(`${threadBase}/streams/${streamId}.jsonl`);
+    }
+    const pairIds = readDirectoryNames(resolve(threadsRoot, threadId, "pairs"));
+    for (const pairId of pairIds) {
+      const pairBase = `${threadBase}/pairs/${pairId}`;
+      paths.push(
+        `${pairBase}/PROMPT.md`,
+        `${pairBase}/CONTEXT.json`,
+        `${pairBase}/RESPONSE.md`,
+      );
+    }
+  }
+  return paths;
+}
+
+function readFileStemNames(path: string, extension: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+      .map((entry) => entry.name.slice(0, -extension.length))
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function readDirectoryNames(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function validateRetryContentPath(
@@ -405,7 +633,7 @@ function normalizeBackupJob(input: EnqueueMemoryBackupInput): MemoryBackupJob {
 
   return {
     memoryId: input.memoryId,
-    contentPaths,
+    contentPaths: [...contentPaths],
     reason: input.reason ?? "memory_creation",
   };
 }
@@ -417,6 +645,34 @@ function mergeBackupJobs(existing: MemoryBackupJob, incoming: MemoryBackupJob) {
   }
   existing.contentPaths = [...contentPaths];
   existing.reason = incoming.reason;
+}
+
+function hasPersistIntentTransition(
+  transitionsByMemoryId: Map<string, Set<MemoryBackupJob>>,
+  memoryId: string,
+) {
+  return (transitionsByMemoryId.get(memoryId)?.size ?? 0) > 0;
+}
+
+function hasCount(counts: Map<string, number>, key: string) {
+  return (counts.get(key) ?? 0) > 0;
+}
+
+function incrementCount(counts: Map<string, number>, key: string) {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function decrementCount(counts: Map<string, number>, key: string) {
+  const count = counts.get(key) ?? 0;
+  if (count <= 0) {
+    return false;
+  }
+  if (count === 1) {
+    counts.delete(key);
+  } else {
+    counts.set(key, count - 1);
+  }
+  return true;
 }
 
 async function pushGitBackup(config: ResolvedTraumaConfig) {
@@ -594,6 +850,10 @@ function formatBackupAction(reason: BackupTriggerReason): string {
       return "deleted memory";
     case "translation_update":
       return "updated translation";
+    case "psychiatrist_thread_update":
+      return "updated psychiatrist thread";
+    case "psychiatrist_response_regenerate":
+      return "regenerated psychiatrist response";
   }
 }
 

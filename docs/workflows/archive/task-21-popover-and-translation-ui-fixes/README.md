@@ -26,19 +26,19 @@ taxonomy, action-menu, and reader translation uses.
 
 ## Required Context
 
-- [Documentation index](../../INDEX.md)
-- [UI and routing architecture](../../architecture/ui-and-routing.md)
-- [Design system reference](../../references/design-system/INDEX.md)
-- [Design system interactions](../../references/design-system/interaction-and-accessibility.md)
-- [Design system surfaces](../../references/design-system/components-and-surfaces.md)
-- [Design system verification](../../references/design-system/verification.md)
-- [SolidStart UI rules](../../references/coding-standards/solidstart-ui.md)
-- [Testing and verification rules](../../references/coding-standards/testing-verification.md)
-- [Configuration reference](../../references/configuration.md)
-- [Data and storage architecture](../../architecture/data-and-storage.md)
-- [Archived shared popup foundation](../archive/task-18-alpha-ui-routing-refresh/02-shared-popup-shell-foundation.md)
-- [Archived translation model controls](../archive/task-19-codex-translation-model-controls.md)
-- [Archived frontend translation controls](../archive/task-19-codex-translation/12-frontend-translation-controls-and-progress-ui.md)
+- [Documentation index](../../../INDEX.md)
+- [UI and routing architecture](../../../architecture/ui-and-routing.md)
+- [Design system reference](../../../references/design-system/INDEX.md)
+- [Design system interactions](../../../references/design-system/interaction-and-accessibility.md)
+- [Design system surfaces](../../../references/design-system/components-and-surfaces.md)
+- [Design system verification](../../../references/design-system/verification.md)
+- [SolidStart UI rules](../../../references/coding-standards/solidstart-ui.md)
+- [Testing and verification rules](../../../references/coding-standards/testing-verification.md)
+- [Configuration reference](../../../references/configuration.md)
+- [Data and storage architecture](../../../architecture/data-and-storage.md)
+- [Archived shared popup foundation](../task-18-alpha-ui-routing-refresh/02-shared-popup-shell-foundation.md)
+- [Archived translation model controls](../task-19-codex-translation-model-controls.md)
+- [Archived frontend translation controls](../task-19-codex-translation/12-frontend-translation-controls-and-progress-ui.md)
 
 ## Scope
 

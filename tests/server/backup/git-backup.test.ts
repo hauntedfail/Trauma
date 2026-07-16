@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +14,14 @@ import {
 } from "../../../src/server/backup";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
+import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
+import { loadPsychiatristStreamReplay } from "../../../src/server/psychiatrist/stream-store";
+import {
+  appendAssistantResponse,
+  appendPendingPair,
+  createPsychiatristThread,
+  recordPsychiatristTurnStarted,
+} from "../../../src/server/psychiatrist/thread-store";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
 const capturedAt = "2026-05-09T08:00:00.000Z";
@@ -207,6 +215,8 @@ describe("git backup runner", () => {
     const contentPath = `memories/${memoryId}/CONTENT.md`;
     const flashbackPath = `memories/${memoryId}/FLASHBACKS.json`;
     const translationPath = `memories/${memoryId}/ja-JP/CONTENT.md`;
+    const psychiatristThreadPath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md`;
+    const psychiatristResponsePath = `memories/${memoryId}/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md`;
     await mkdir(join(storePath, "memories", memoryId), { recursive: true });
     initializeGitRepository(projectPath);
     const config = createConfig({
@@ -246,6 +256,39 @@ describe("git backup runner", () => {
       }),
     });
 
+    await mkdir(join(storePath, "memories", memoryId, "threads", "019e8a00-0000-7000-8000-000000000001"), {
+      recursive: true,
+    });
+    await writeFile(join(storePath, psychiatristThreadPath), "# Psychiatrist Thread", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristThreadPath],
+        reason: "psychiatrist_thread_update",
+      }),
+    });
+
+    await mkdir(
+      join(
+        storePath,
+        "memories",
+        memoryId,
+        "threads",
+        "019e8a00-0000-7000-8000-000000000001",
+        "pairs",
+        "019e8a00-0000-7000-8000-000000000002",
+      ),
+      { recursive: true },
+    );
+    await writeFile(join(storePath, psychiatristResponsePath), "Regenerated", "utf8");
+    await runGitBackupJob({
+      config,
+      job: createJob({
+        contentPaths: [psychiatristResponsePath],
+        reason: "psychiatrist_response_regenerate",
+      }),
+    });
+
     await rm(join(storePath, "memories", memoryId), { recursive: true, force: true });
     await runGitBackupJob({
       config,
@@ -258,6 +301,8 @@ describe("git backup runner", () => {
     expect(git(projectPath, ["log", "--pretty=%s"]).trim().split(/\r?\n/))
       .toEqual([
         `backup deleted memory ${memoryId}`,
+        `backup regenerated psychiatrist response ${memoryId}`,
+        `backup updated psychiatrist thread ${memoryId}`,
         `backup updated translation ${memoryId}`,
         `backup updated flashbacks ${memoryId}`,
         `backup created memory ${memoryId}`,
@@ -430,6 +475,177 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("recovers a durable intent after simulated process loss without running an incomplete job", async () => {
+    const root = await makeRoot("trauma-git-backup-intent-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(projectPath, { recursive: true });
+    initializeGitRepository(projectPath);
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Durable intent\n", "utf8");
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/durable-intent",
+        title: "Durable intent",
+        description: null,
+        faviconUrl: null,
+        contentPath,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "success",
+        lastBackupAt: new Date(capturedAt),
+        lastBackupError: null,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      connection.close();
+    }
+
+    const processedBeforeRestart: MemoryBackupJob[] = [];
+    const abandonedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedBeforeRestart.push(job);
+      },
+    });
+    await abandonedQueue.persistIntent({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const threadId = "019e8a00-0000-7000-8000-000000000001";
+    const pairId = "019e8a00-0000-7000-8000-000000000002";
+    const turnId = "019e8a00-0000-7000-8000-000000000003";
+    await createPsychiatristThread({
+      config,
+      manifest: {
+        activeContentHash: "sha256:source",
+        createdAt: capturedAt,
+        memoryId,
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+        sourceHash: "sha256:source",
+        status: "ready",
+        threadId,
+        updatedAt: capturedAt,
+        variantKind: "source",
+      },
+    });
+    await appendPendingPair({
+      config,
+      contextSnapshot: {
+        categories: [],
+        contentHash: "sha256:source",
+        contextSnapshotId: pairId,
+        memoryId,
+        policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+        relativePath: contentPath,
+        selectedSectionAnchors: [],
+        selectedSectionHashes: [],
+        sections: [],
+        sourceUrl: "https://example.com/durable-intent",
+        tags: [],
+        title: "Durable intent",
+        userPrompt: "What survives?",
+        variantKind: "source",
+      },
+      pairId,
+      prompt: "What survives?",
+      threadId,
+      turnId,
+    });
+    await recordPsychiatristTurnStarted({
+      config,
+      pairId,
+      threadId,
+      turnId,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "This completed answer survives process loss.",
+      citations: [],
+      config,
+      pairId,
+      threadId,
+    });
+
+    const pendingConnection = initializeDatabase(config);
+    try {
+      await expect(pendingConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "pending" });
+    } finally {
+      pendingConnection.close();
+    }
+    expect(processedBeforeRestart).toEqual([]);
+
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    await expect(restartedQueue.retryEligibleBackups()).resolves.toBe(1);
+    await restartedQueue.drain();
+
+    expect(processedAfterRestart).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([
+          contentPath,
+          `memories/${memoryId}/threads/${threadId}/THREAD.json`,
+          `memories/${memoryId}/threads/${threadId}/THREAD.md`,
+          `memories/${memoryId}/threads/${threadId}/PAIRS.jsonl`,
+          `memories/${memoryId}/threads/${threadId}/pairs/${pairId}/RESPONSE.md`,
+          `memories/${memoryId}/threads/${threadId}/turns/${turnId}.json`,
+          `memories/${memoryId}/threads/${threadId}/streams/${turnId}.jsonl`,
+        ]),
+        memoryId,
+      }),
+    ]);
+    await expect(readFile(
+      join(storePath, "memories", memoryId, "threads", threadId, "turns", `${turnId}.json`),
+      "utf8",
+    ).then((content) => JSON.parse(content))).resolves.toMatchObject({
+      pair_id: pairId,
+      status: "completed",
+      turn_id: turnId,
+    });
+    await expect(loadPsychiatristStreamReplay({
+      config,
+      memoryId,
+      threadId,
+      turnId,
+    })).resolves.toContainEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        pair_id: pairId,
+        text: "This completed answer survives process loss.",
+      }),
+      type: "psychiatrist.answer.completed",
+    }));
+    const completedConnection = initializeDatabase(config);
+    try {
+      await expect(completedConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "success" });
+    } finally {
+      completedConnection.close();
+    }
+  });
+
   it("rejects asynchronous memory deletion jobs", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");
@@ -609,6 +825,140 @@ describe("git memory backup queue", () => {
           join(config.storePath, "memories", ids.failed, "ja-JP", "FLASHBACKS.json"),
           JSON.stringify({ version: 2, memoryId: ids.failed, flashbacks: [] }, null, 2) + "\\n",
         );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+          ),
+          { recursive: true },
+        );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+          ),
+          { recursive: true },
+        );
+        mkdirSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+          ),
+          { recursive: true },
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "THREAD.json",
+          ),
+          JSON.stringify({ thread_id: "019e8a00-0000-7000-8000-000000000001" }) + "\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "THREAD.md",
+          ),
+          "# Psychiatrist Thread\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "PAIRS.jsonl",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "turns",
+            "019e8a00-0000-7000-8000-000000000003.json",
+          ),
+          JSON.stringify({
+            pair_id: "019e8a00-0000-7000-8000-000000000002",
+            status: "completed",
+            turn_id: "019e8a00-0000-7000-8000-000000000003",
+          }) + "\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "streams",
+            "019e8a00-0000-7000-8000-000000000003.jsonl",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "PROMPT.md",
+          ),
+          "What changed?\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "CONTEXT.json",
+          ),
+          "{}\\n",
+        );
+        writeFileSync(
+          join(
+            config.storePath,
+            "memories",
+            ids.failed,
+            "threads",
+            "019e8a00-0000-7000-8000-000000000001",
+            "pairs",
+            "019e8a00-0000-7000-8000-000000000002",
+            "RESPONSE.md",
+          ),
+          "Answer.\\n",
+        );
         unlinkSync(join(config.storePath, "memories", ids.failed, "FLASHBACKS.json"));
         execFileSync(
           "git",
@@ -754,6 +1104,14 @@ describe("git memory backup queue", () => {
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/CONTENT.md",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/TRANSLATION_MAP.json",
           "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/ja-JP/FLASHBACKS.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/THREAD.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/PAIRS.jsonl",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/turns/019e8a00-0000-7000-8000-000000000003.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/streams/019e8a00-0000-7000-8000-000000000003.jsonl",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/PROMPT.md",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/CONTEXT.json",
+          "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812/threads/019e8a00-0000-7000-8000-000000000001/pairs/019e8a00-0000-7000-8000-000000000002/RESPONSE.md",
         ],
       },
       {
@@ -992,6 +1350,640 @@ describe("git memory backup queue", () => {
     ]);
   });
 
+  it.each(["identical", "subset"] as const)(
+    "runs a follow-up backup when a %s-path request arrives during an active backup",
+    async (requestShape) => {
+      const root = await makeRoot("trauma-git-backup-same-path-follow-up-");
+      const projectPath = join(root, "project");
+      const storePath = join(projectPath, "store");
+      const config = createConfig({ root, projectPath, storePath, push: false });
+      const contentPath = `memories/${memoryId}/CONTENT.md`;
+      const additionalPath = `memories/${memoryId}/THREAD.md`;
+      await seedBackupQueueMemory({ config, contentPath });
+      await writeFile(join(storePath, contentPath), "first snapshot\n", "utf8");
+
+      let releaseFirstRun: () => void = () => {};
+      const firstRunGate = new Promise<void>((resolve) => {
+        releaseFirstRun = resolve;
+      });
+      let markFirstSnapshot: () => void = () => {};
+      const firstSnapshotTaken = new Promise<void>((resolve) => {
+        markFirstSnapshot = resolve;
+      });
+      const snapshots: string[] = [];
+      const queue = createGitMemoryBackupQueue({
+        config,
+        runJob: async ({ job }) => {
+          const snapshotPath = job.contentPaths[0];
+          if (snapshotPath === undefined) {
+            throw new Error("backup job did not include a content path");
+          }
+          snapshots.push(await readFile(join(storePath, snapshotPath), "utf8"));
+          if (snapshots.length === 1) {
+            markFirstSnapshot();
+            await firstRunGate;
+          }
+        },
+      });
+
+      await queue.enqueue({
+        contentPaths: requestShape === "subset"
+          ? [contentPath, additionalPath]
+          : [contentPath],
+        memoryId,
+        reason: "memory_creation",
+      });
+      await firstSnapshotTaken;
+      await writeFile(join(storePath, contentPath), "second snapshot\n", "utf8");
+      await queue.enqueue({
+        contentPaths: [contentPath],
+        memoryId,
+        reason: "psychiatrist_thread_update",
+      });
+      releaseFirstRun();
+      await queue.drain();
+
+      expect(snapshots).toEqual(["first snapshot\n", "second snapshot\n"]);
+    },
+  );
+
+  it("persists queued state and completes a caller finalizer before starting the worker", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-order-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+
+    let releaseFinalizer: () => void = () => {};
+    const finalizerGate = new Promise<void>((resolve) => {
+      releaseFinalizer = resolve;
+    });
+    let markFinalizerStarted: () => void = () => {};
+    const finalizerStarted = new Promise<void>((resolve) => {
+      markFinalizerStarted = resolve;
+    });
+    let markWorkerStarted: () => void = () => {};
+    const workerStarted = new Promise<void>((resolve) => {
+      markWorkerStarted = resolve;
+    });
+    const order: string[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async () => {
+        order.push("worker");
+        markWorkerStarted();
+      },
+    });
+
+    const enqueuePromise = queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async (result) => {
+      const connection = initializeDatabase(config);
+      try {
+        const memory = await connection.repositories.memories.findById(memoryId);
+        order.push(`finalizer:${result.backupStatus}:${memory?.backupStatus}`);
+      } finally {
+        connection.close();
+      }
+      markFinalizerStarted();
+      await finalizerGate;
+      order.push("finalizer:complete");
+    });
+
+    await expect(Promise.race([
+      finalizerStarted.then(() => "finalizer"),
+      workerStarted.then(() => "worker"),
+    ])).resolves.toBe("finalizer");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["finalizer:queued:queued"]);
+    releaseFinalizer();
+    await enqueuePromise;
+    await queue.drain();
+
+    expect(order).toEqual([
+      "finalizer:queued:queued",
+      "finalizer:complete",
+      "worker",
+    ]);
+  });
+
+  it("keeps durable queued intent when the caller finalizer fails", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-failure-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    let releaseActiveRun: () => void = () => {};
+    const activeRunGate = new Promise<void>((resolve) => {
+      releaseActiveRun = resolve;
+    });
+    let markActiveRunStarted: () => void = () => {};
+    const activeRunStarted = new Promise<void>((resolve) => {
+      markActiveRunStarted = resolve;
+    });
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push(job);
+        if (processed.length === 1) {
+          markActiveRunStarted();
+          await activeRunGate;
+        }
+      },
+    });
+
+    await queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "memory_creation",
+    });
+    await activeRunStarted;
+    let finalizerError: unknown;
+    try {
+      await queue.enqueue({
+        contentPaths: [contentPath],
+        memoryId,
+        reason: "psychiatrist_thread_update",
+      }, async () => {
+        throw new Error("terminal stream finalization failed");
+      });
+    } catch (error) {
+      finalizerError = error;
+    }
+    releaseActiveRun();
+    await queue.drain();
+
+    expect(finalizerError).toEqual(expect.objectContaining({
+      message: "terminal stream finalization failed",
+    }));
+    expect(processed).toHaveLength(1);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("restores pending intent after a standalone finalizer failure and retries it after restart", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-restart-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    initializeGitRepository(projectPath);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      stampConnection.close();
+    }
+    const processedBeforeRestart: MemoryBackupJob[] = [];
+    const abandonedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedBeforeRestart.push(job);
+      },
+    });
+
+    await expect(abandonedQueue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await abandonedQueue.drain();
+
+    expect(processedBeforeRestart).toEqual([]);
+    const pendingConnection = initializeDatabase(config);
+    try {
+      await expect(pendingConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "pending",
+          lastBackupError: null,
+        });
+    } finally {
+      pendingConnection.close();
+    }
+
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    await expect(restartedQueue.retryEligibleBackups()).resolves.toBe(1);
+    await restartedQueue.drain();
+
+    expect(processedAfterRestart).toEqual([
+      expect.objectContaining({
+        contentPaths: expect.arrayContaining([contentPath]),
+        memoryId,
+      }),
+    ]);
+    const successConnection = initializeDatabase(config);
+    try {
+      await expect(successConnection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "success",
+          lastBackupError: null,
+        });
+    } finally {
+      successConnection.close();
+    }
+  });
+
+  it("merges failed finalizer intent into a later different-path enqueue", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-merge-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const failedPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const laterPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await seedBackupQueueMemory({
+      config,
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+    });
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({
+          ...job,
+          contentPaths: [...job.contentPaths],
+        });
+      },
+    });
+
+    await expect(queue.enqueue({
+      contentPaths: [failedPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await queue.enqueue({
+      contentPaths: [laterPath],
+      memoryId,
+      reason: "flashback_update",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [failedPath, laterPath],
+      memoryId,
+      reason: "flashback_update",
+    }]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({
+          backupStatus: "success",
+          lastBackupError: null,
+        });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("retains sequential durable intents in trigger order with the newest reason", async () => {
+    const root = await makeRoot("trauma-git-backup-sequential-intents-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const firstPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const secondPath = `memories/${memoryId}/threads/thread-1/pairs/pair-1/RESPONSE.md`;
+    await seedBackupQueueMemory({
+      config,
+      contentPath: `memories/${memoryId}/CONTENT.md`,
+    });
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({ ...job, contentPaths: [...job.contentPaths] });
+      },
+    });
+
+    await queue.persistIntent({
+      contentPaths: [firstPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    await queue.persistIntent({
+      contentPaths: [secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    });
+    await queue.enqueue({
+      contentPaths: [secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [firstPath, secondPath],
+      memoryId,
+      reason: "psychiatrist_response_regenerate",
+    }]);
+  });
+
+  it("keeps a persisted intent pending when an active job finishes before persistence returns", async () => {
+    const root = await makeRoot("trauma-git-backup-persist-transition-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const newPath = `memories/${memoryId}/FLASHBACKS.json`;
+    await seedBackupQueueMemory({ config, contentPath });
+    initializeGitRepository(projectPath);
+    await writeFile(join(storePath, contentPath), "# Persist transition\n", "utf8");
+    git(projectPath, ["add", "--", `store/${contentPath}`]);
+    git(projectPath, ["commit", "-m", "seed persisted content"]);
+    const stampConnection = initializeDatabase(config);
+    try {
+      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+    } finally {
+      stampConnection.close();
+    }
+
+    let releaseActiveRun: () => void = () => {};
+    const activeRunGate = new Promise<void>((resolve) => {
+      releaseActiveRun = resolve;
+    });
+    let markActiveRunStarted: () => void = () => {};
+    const activeRunStarted = new Promise<void>((resolve) => {
+      markActiveRunStarted = resolve;
+    });
+    let releasePersistStatus: () => void = () => {};
+    const persistStatusGate = new Promise<void>((resolve) => {
+      releasePersistStatus = resolve;
+    });
+    let markPersistStatusWritten: () => void = () => {};
+    const persistStatusWritten = new Promise<void>((resolve) => {
+      markPersistStatusWritten = resolve;
+    });
+    let markWorkerStatusWritten: () => void = () => {};
+    const workerStatusWritten = new Promise<void>((resolve) => {
+      markWorkerStatusWritten = resolve;
+    });
+    let suspendedFirstPendingWrite = false;
+    const statusTransitions: string[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                const result = await connection.repositories.memories
+                  .updateBackupStatus(statusInput);
+                statusTransitions.push(statusInput.backupStatus);
+                if (
+                  statusInput.backupStatus === "pending" &&
+                  !suspendedFirstPendingWrite
+                ) {
+                  suspendedFirstPendingWrite = true;
+                  markPersistStatusWritten();
+                  await persistStatusGate;
+                } else if (
+                  suspendedFirstPendingWrite &&
+                  (statusInput.backupStatus === "pending" ||
+                    statusInput.backupStatus === "success")
+                ) {
+                  markWorkerStatusWritten();
+                }
+                return result;
+              },
+            },
+          },
+        };
+      },
+      runJob: async () => {
+        markActiveRunStarted();
+        await activeRunGate;
+      },
+    });
+
+    await queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "memory_creation",
+    });
+    await activeRunStarted;
+    const persistPromise = queue.persistIntent({
+      contentPaths: [newPath],
+      memoryId,
+      reason: "flashback_update",
+    });
+    await persistStatusWritten;
+    releaseActiveRun();
+    await workerStatusWritten;
+    releasePersistStatus();
+    await persistPromise;
+    await queue.drain();
+
+    const beforeRestartConnection = initializeDatabase(config);
+    let statusBeforeRestart: string | undefined;
+    try {
+      statusBeforeRestart = (
+        await beforeRestartConnection.repositories.memories.findById(memoryId)
+      )?.backupStatus;
+    } finally {
+      beforeRestartConnection.close();
+    }
+    const processedAfterRestart: MemoryBackupJob[] = [];
+    const restartedQueue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processedAfterRestart.push(job);
+      },
+    });
+    const retryCount = await restartedQueue.retryEligibleBackups();
+    await restartedQueue.drain();
+
+    expect({
+      processedAfterRestart,
+      retryCount,
+      statusBeforeRestart,
+      statusTransitions,
+    }).toEqual({
+      processedAfterRestart: [expect.objectContaining({
+        contentPaths: expect.arrayContaining([contentPath, newPath]),
+        memoryId,
+      })],
+      retryCount: 1,
+      statusBeforeRestart: "pending",
+      statusTransitions: ["queued", "pending", "pending"],
+    });
+  });
+
+  it("does not discard a concurrent durable intent when another persistence fails", async () => {
+    const root = await makeRoot("trauma-git-backup-persist-failure-isolation-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const retainedPath = `memories/${memoryId}/threads/thread-1/THREAD.md`;
+    const failedPath = `memories/${memoryId}/FLASHBACKS.json`;
+    const laterPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath: laterPath });
+    let releaseFailedPersist: () => void = () => {};
+    const failedPersistGate = new Promise<void>((resolve) => {
+      releaseFailedPersist = resolve;
+    });
+    let markFailedPersistStarted: () => void = () => {};
+    const failedPersistStarted = new Promise<void>((resolve) => {
+      markFailedPersistStarted = resolve;
+    });
+    let pendingWrites = 0;
+    const processed: MemoryBackupJob[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                if (statusInput.backupStatus === "pending") {
+                  pendingWrites += 1;
+                  if (pendingWrites === 1) {
+                    markFailedPersistStarted();
+                    await failedPersistGate;
+                    throw new Error("persist status failed");
+                  }
+                }
+                return connection.repositories.memories.updateBackupStatus(
+                  statusInput,
+                );
+              },
+            },
+          },
+        };
+      },
+      runJob: async ({ job }) => {
+        processed.push({ ...job, contentPaths: [...job.contentPaths] });
+      },
+    });
+
+    const failedPersist = queue.persistIntent({
+      contentPaths: [failedPath],
+      memoryId,
+      reason: "flashback_update",
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await failedPersistStarted;
+    await queue.persistIntent({
+      contentPaths: [retainedPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    });
+    releaseFailedPersist();
+    await expect(failedPersist).resolves.toEqual(expect.objectContaining({
+      message: "persist status failed",
+    }));
+    await queue.enqueue({
+      contentPaths: [laterPath],
+      memoryId,
+      reason: "memory_creation",
+    });
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      contentPaths: [retainedPath, laterPath],
+      memoryId,
+      reason: "memory_creation",
+    }]);
+  });
+
+  it("preserves the finalizer error when pending-status recovery fails", async () => {
+    const root = await makeRoot("trauma-git-backup-finalizer-recovery-error-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    const statusTransitions: string[] = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            memories: {
+              ...connection.repositories.memories,
+              updateBackupStatus: async (statusInput) => {
+                statusTransitions.push(statusInput.backupStatus);
+                if (statusInput.backupStatus === "pending") {
+                  throw new Error("pending status recovery failed");
+                }
+                return connection.repositories.memories.updateBackupStatus(
+                  statusInput,
+                );
+              },
+            },
+          },
+        };
+      },
+      runJob: async () => {
+        throw new Error("worker must not start");
+      },
+    });
+
+    await expect(queue.enqueue({
+      contentPaths: [contentPath],
+      memoryId,
+      reason: "psychiatrist_thread_update",
+    }, async () => {
+      throw new Error("terminal stream finalization failed");
+    })).rejects.toThrow("terminal stream finalization failed");
+    await queue.drain();
+
+    expect(statusTransitions).toEqual(["queued", "pending"]);
+  });
+
   it("keeps the last successful backup timestamp when a later backup fails", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(
@@ -1101,6 +2093,33 @@ async function makeRoot(prefix: string) {
   const root = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(root);
   return root;
+}
+
+async function seedBackupQueueMemory(input: {
+  config: ResolvedTraumaConfig;
+  contentPath: string;
+}) {
+  await mkdir(join(input.config.storePath, "memories", memoryId), { recursive: true });
+  const connection = initializeDatabase(input.config);
+  try {
+    await connection.repositories.memories.create({
+      id: memoryId,
+      url: "https://example.com/backup-queue",
+      title: "Backup queue",
+      description: null,
+      faviconUrl: null,
+      contentPath: input.contentPath,
+      extractionStatus: "success",
+      extractionError: null,
+      backupStatus: "pending",
+      lastBackupAt: null,
+      lastBackupError: null,
+      createdAt: new Date(capturedAt),
+      updatedAt: new Date(capturedAt),
+    });
+  } finally {
+    connection.close();
+  }
 }
 
 function createConfig(input: {

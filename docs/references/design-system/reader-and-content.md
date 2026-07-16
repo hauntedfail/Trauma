@@ -167,3 +167,35 @@ content and do not reuse stale DOM.
 
 Reader fallback states use the same route frame and should not look like a
 separate page type.
+
+## Psychiatrist Dock
+
+Psychiatrist uses a bottom-centered floating home-bar affordance on ready reader
+routes. The collapsed state is a small pill at the bottom of the viewport; it
+must not cover the reader title, selection menu, right rail, or bottom shell
+navigation. The expanded state is a compact chat panel anchored to that home bar
+and keeps the reader page usable around it.
+
+The dock creates or resumes the active memory variant's latest thread. Stored
+pair history returned by the thread API is rendered as user prompt/assistant
+response rows. Safe process/status events are visually subordinate to answer
+text, and hidden chain-of-thought or raw backend payloads are never rendered.
+
+Interaction contract:
+
+- Submit becomes Stop while a turn is running.
+- Stop is the only UI action that calls the cancel route.
+- Panel close, Escape, route unmount, memory navigation, and browser reload do
+  not cancel the server turn.
+- Route lifecycle cleanup closes the browser `EventSource` connection only.
+- Returning to the same memory resumes the latest matching thread and reconnects
+  to `active_turn.event_url` when present.
+- Completed responses expose Regenerate. Regenerate streams into the same pair
+  row and replaces the visible answer on the first new answer delta.
+- `network_permission_required` is shown as a per-turn permission state: the
+  user must explicitly allow web search/source lookup for that answer before any
+  web-source turn may run.
+
+Motion follows the reader's accessibility contract. Normal expansion may animate
+from the home bar, but `prefers-reduced-motion: reduce` disables transform-heavy
+motion and keeps the open/close transition usable on mobile and desktop.

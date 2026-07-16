@@ -23,6 +23,7 @@ export type CodexAppServerEvent =
   | { type: "thread.started"; threadId: string }
   | { type: "turn.started"; turnId: string }
   | { type: "delta"; text: string }
+  | { type: "process"; message: string }
   | { type: "item.started"; itemId: string | null }
   | { type: "item.completed"; itemId: string | null };
 
@@ -87,6 +88,39 @@ export interface TranslationClient {
   translateChunk: (input: TranslateChunkInput) => Promise<RawCodexChunkOutput>;
 }
 
+export interface CodexConversationTurnInput {
+  cwdPurpose: "translation" | "psychiatrist";
+  input: string;
+  model?: string | null;
+  networkAccess?: "disabled" | "user_approved_web_sources";
+  onEvent?: (event: CodexAppServerEvent) => void;
+  reasoningEffort?: CodexReasoningEffort | null;
+  sandboxPolicy?: CodexSandboxPolicy;
+  threadId?: string;
+}
+
+export interface CodexConversationTurnResult {
+  outputText: string;
+  sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+  threadId: string;
+  turnId: string;
+  webSourceRequired?: boolean;
+}
+
+export interface CodexConversationClient {
+  cancelTurn(input: { threadId: string; turnId: string }): Promise<void>;
+  close?: () => Promise<void> | void;
+  probe(): Promise<void>;
+  runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult>;
+}
+
+export interface CodexSandboxPolicy {
+  type: "readOnly";
+  networkAccess: boolean;
+}
+
 interface WireMessage {
   id?: string;
   method?: string;
@@ -102,6 +136,13 @@ interface PendingRequest {
 }
 
 const DEFAULT_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 120_000;
+const SAFE_PROCESS_PARAM_FIELDS = new Set([
+  "kind",
+  "status",
+  "threadId",
+  "turn",
+  "turnId",
+]);
 
 export function parseCodexAppServerEndpoint(
   raw = process.env.TRAUMA_CODEX_APP_SERVER_ENDPOINT ?? "unix://",
@@ -148,7 +189,7 @@ export function parseCodexAppServerEndpoint(
   );
 }
 
-export class CodexAppServerClient implements TranslationClient {
+export class CodexAppServerClient implements TranslationClient, CodexConversationClient {
   private initialized = false;
   private connectionClosed = false;
   private readonly closeListeners = new Set<(error: CodexAppServerError) => void>();
@@ -337,6 +378,119 @@ export class CodexAppServerClient implements TranslationClient {
     }
   }
 
+  async runConversationTurn(
+    input: CodexConversationTurnInput,
+  ): Promise<CodexConversationTurnResult> {
+    await this.probe();
+    let runtimeCwd: string | undefined;
+    const runTextTurn = async (threadId: string): Promise<CodexConversationTurnResult> => {
+      let turnId: string | undefined;
+      const completed = this.waitForTextTurnCompletion({
+        onEvent: input.onEvent,
+        recordTurnId: (startedTurnId) => {
+          turnId = startedTurnId;
+        },
+        threadId,
+        turnId: () => turnId,
+      });
+      let turn: unknown;
+      const networkAccess = input.networkAccess === "user_approved_web_sources";
+      const turnStartParams = {
+        threadId,
+        input: [{ type: "text", text: input.input, text_elements: [] }],
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        sandboxPolicy: input.sandboxPolicy ?? {
+          type: "readOnly",
+          networkAccess,
+        },
+        ...(input.model === undefined || input.model === null
+          ? {}
+          : { model: input.model }),
+        ...(input.reasoningEffort === undefined || input.reasoningEffort === null
+          ? {}
+          : { effort: input.reasoningEffort }),
+      };
+      try {
+        turn = await this.request("turn/start", turnStartParams);
+      } catch (error) {
+        completed.unsubscribe();
+        throw error;
+      }
+      const responseTurnId = readTurnStartResponseTurnId(turn);
+      if (responseTurnId !== undefined) {
+        turnId = responseTurnId;
+        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
+      }
+      const immediateOutput = readFinalTextTurnOutput(turn);
+      if (immediateOutput !== undefined && turnId !== undefined) {
+        completed.unsubscribe();
+        return { ...immediateOutput, threadId, turnId };
+      }
+
+      try {
+        const completedOutput = await completed.output;
+        return {
+          outputText: completedOutput.outputText,
+          ...(completedOutput.sourceCitations === undefined
+            ? {}
+            : { sourceCitations: completedOutput.sourceCitations }),
+          ...(completedOutput.webSourceRequired === undefined
+            ? {}
+            : { webSourceRequired: completedOutput.webSourceRequired }),
+          threadId,
+          turnId: completedOutput.turnId,
+        };
+      } finally {
+        completed.unsubscribe();
+      }
+    };
+    try {
+      if (input.threadId !== undefined) {
+        try {
+          return await runTextTurn(input.threadId);
+        } catch (error) {
+          if (!isReusableCodexThreadUnavailableError(error)) {
+            throw error;
+          }
+        }
+      }
+      runtimeCwd = await createRuntimeCwd(`${input.cwdPurpose}-${randomBytes(8).toString("hex")}`);
+      const threadId = await this.startEphemeralThread({
+        cwd: runtimeCwd,
+        onEvent: input.onEvent,
+      });
+      return await runTextTurn(threadId);
+    } finally {
+      if (runtimeCwd !== undefined) {
+        await removeRuntimeCwd(runtimeCwd);
+      }
+    }
+  }
+
+  private async startEphemeralThread(input: {
+    cwd: string;
+    onEvent?: (event: CodexAppServerEvent) => void;
+  }): Promise<string> {
+    const thread = await this.request("thread/start", {
+      cwd: input.cwd,
+      ephemeral: true,
+      approvalPolicy: "never",
+      approvalsReviewer: "auto_review",
+      sandbox: "read-only",
+      threadSource: "user",
+    });
+    const threadId = readThreadStartResponseThreadId(thread);
+    if (threadId === undefined) {
+      throw new CodexAppServerError(
+        "app_server_unavailable",
+        "Codex app-server did not return a thread id.",
+      );
+    }
+    input.onEvent?.({ type: "thread.started", threadId });
+    return threadId;
+  }
+
   private async translateChunkAttempt(
     input: TranslateChunkInput,
     options: { includeOutputSchema: boolean },
@@ -363,6 +517,9 @@ export class CodexAppServerClient implements TranslationClient {
       let turnId: string | undefined;
       const completed = this.waitForTurnCompletion({
         onEvent: input.onEvent,
+        recordTurnId: (startedTurnId) => {
+          turnId = startedTurnId;
+        },
         threadId,
         turnId: () => turnId,
       });
@@ -389,9 +546,10 @@ export class CodexAppServerClient implements TranslationClient {
         completed.unsubscribe();
         throw error;
       }
-      turnId = readTurnStartResponseTurnId(turn);
-      if (turnId !== undefined) {
-        input.onEvent?.({ type: "turn.started", turnId });
+      const responseTurnId = readTurnStartResponseTurnId(turn);
+      if (responseTurnId !== undefined) {
+        turnId = responseTurnId;
+        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
       }
       const immediateOutput = readFinalOutput(turn);
       if (immediateOutput !== undefined) {
@@ -540,6 +698,7 @@ export class CodexAppServerClient implements TranslationClient {
 
   private waitForTurnCompletion(input: {
     onEvent?: (event: CodexAppServerEvent) => void;
+    recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
   }): { output: Promise<RawCodexChunkOutput>; unsubscribe: () => void } {
@@ -586,6 +745,7 @@ export class CodexAppServerClient implements TranslationClient {
             readNotificationThreadId(message.params) === input.threadId &&
             startedTurnId !== undefined
           ) {
+            input.recordTurnId(startedTurnId);
             input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
           }
           return;
@@ -648,6 +808,165 @@ export class CodexAppServerClient implements TranslationClient {
             return;
           }
           settleResolve(finalOutput);
+        }
+      });
+    });
+    return {
+      output,
+      unsubscribe: () => {
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        unsubscribe();
+        unsubscribeClose();
+      },
+    };
+  }
+
+  private waitForTextTurnCompletion(input: {
+    onEvent?: (event: CodexAppServerEvent) => void;
+    recordTurnId: (turnId: string) => void;
+    threadId: string;
+    turnId: () => string | undefined;
+  }): {
+    output: Promise<{
+      outputText: string;
+      sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+      turnId: string;
+      webSourceRequired?: boolean;
+    }>;
+    unsubscribe: () => void;
+  } {
+    let unsubscribe: () => void = () => undefined;
+    let unsubscribeClose: () => void = () => undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const output = new Promise<{
+      outputText: string;
+      sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+      turnId: string;
+    }>((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (value: {
+        outputText: string;
+        sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+        turnId: string;
+        webSourceRequired?: boolean;
+      }) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        resolve(value);
+      };
+      const settleReject = (error: CodexAppServerError) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        reject(error);
+      };
+      timeout = setTimeout(() => {
+        settleReject(
+          new CodexAppServerError(
+            "timeout",
+            "Codex app-server turn timed out.",
+          ),
+        );
+      }, readRequestTimeoutMs());
+      unsubscribeClose = this.subscribeClose((error) => {
+        settleReject(error);
+      });
+      unsubscribe = this.subscribeNotification((message) => {
+        if (message.method === "turn/started") {
+          const startedTurnId = readNotificationTurnId(message.params);
+          if (
+            readNotificationThreadId(message.params) === input.threadId &&
+            startedTurnId !== undefined
+          ) {
+            input.recordTurnId(startedTurnId);
+            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+          }
+          return;
+        }
+        if (message.method === "item/agentMessage/delta") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const delta = readStringField(message.params, "delta");
+          if (delta !== undefined) {
+            input.onEvent?.({ type: "delta", text: delta });
+          }
+          return;
+        }
+        if (message.method === "item/process") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const processMessage = readSafeProcessMessage(message.params);
+          if (processMessage !== undefined) {
+            input.onEvent?.({ message: processMessage, type: "process" });
+          }
+          return;
+        }
+        if (message.method === "item/reasoning" || message.method === "raw/event") {
+          return;
+        }
+        if (message.method === "item/started") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          input.onEvent?.({
+            itemId: readNotificationItemId(message.params) ?? null,
+            type: "item.started",
+          });
+          return;
+        }
+        if (message.method === "item/completed") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          input.onEvent?.({
+            itemId: readNotificationItemId(message.params) ?? null,
+            type: "item.completed",
+          });
+          const itemOutput = readFinalTextTurnOutput(message.params);
+          const turnId = readNotificationTurnId(message.params) ?? input.turnId();
+          if (itemOutput !== undefined && turnId !== undefined) {
+            settleResolve({ ...itemOutput, turnId });
+          }
+          return;
+        }
+        if (message.method === "turn/completed") {
+          if (!matchesTurnNotification(message.params, input)) {
+            return;
+          }
+          const finalOutput = readFinalTextTurnOutput(message.params);
+          const turnId = readNotificationTurnId(message.params) ?? input.turnId();
+          if (finalOutput === undefined || turnId === undefined) {
+            if (isTurnInterruptedCompletion(message.params)) {
+              settleReject(
+                new CodexAppServerError(
+                  "turn_interrupted",
+                  "Codex app-server turn was interrupted.",
+                ),
+              );
+              return;
+            }
+            settleReject(
+              new CodexAppServerError(
+                "invalid_final_output",
+                "Codex app-server did not return a final conversation response.",
+              ),
+            );
+            return;
+          }
+          settleResolve({ ...finalOutput, turnId });
         }
       });
     });
@@ -1062,6 +1381,218 @@ function readFinalOutput(value: unknown): RawCodexChunkOutput | undefined {
   return undefined;
 }
 
+function readFinalTextOutput(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (isAssistantMessageRecord(value)) {
+    const text = readStringField(value, "text") ??
+      readStringField(value, "outputText") ??
+      readStringField(value, "content");
+    if (text !== undefined) {
+      return text;
+    }
+  }
+  const output = isTypedNonAssistantRecord(value)
+    ? undefined
+    : value.output ?? value.finalOutput ?? value.text;
+  if (typeof output === "string") {
+    return output;
+  }
+  if (isRecord(output)) {
+    const nestedOutput = readFinalTextOutput(output);
+    if (nestedOutput !== undefined) {
+      return nestedOutput;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readFinalTextOutput(value.turn);
+    if (turnOutput !== undefined) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readFinalTextOutput(value.item);
+    if (itemOutput !== undefined) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readFinalTextOutput(value.items[index]);
+      if (itemOutput !== undefined) {
+        return itemOutput;
+      }
+    }
+  }
+  if (value.type === "agentMessage" && typeof value.text === "string") {
+    return value.text;
+  }
+  return undefined;
+}
+
+function isAssistantMessageRecord(value: Record<string, unknown>): boolean {
+  const type = readStringField(value, "type")?.toLowerCase();
+  const role = readStringField(value, "role")?.toLowerCase();
+  return type === "agentmessage" ||
+    type === "assistant" ||
+    type === "assistant_message" ||
+    (type === "message" && role === "assistant") ||
+    role === "assistant";
+}
+
+function isTypedNonAssistantRecord(value: Record<string, unknown>): boolean {
+  const type = readStringField(value, "type")?.toLowerCase();
+  const role = readStringField(value, "role")?.toLowerCase();
+  if (type === undefined || isAssistantMessageRecord(value)) {
+    return false;
+  }
+  return role !== undefined ||
+    type === "message" ||
+    type.endsWith("message") ||
+    type === "process" ||
+    type === "reasoning" ||
+    type.includes("tool") ||
+    type.includes("function") ||
+    type.includes("command");
+}
+
+function readFinalTextTurnOutput(value: unknown): {
+  outputText: string;
+  sourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
+  webSourceRequired?: boolean;
+} | undefined {
+  const outputText = readFinalTextOutput(value);
+  if (outputText === undefined) {
+    return undefined;
+  }
+  const sourceCitations = readSourceCitations(value);
+  const webSourceRequired = readWebSourceRequired(value);
+  return {
+    outputText,
+    ...(sourceCitations.length === 0 ? {} : { sourceCitations }),
+    ...(webSourceRequired === undefined ? {} : { webSourceRequired }),
+  };
+}
+
+function readWebSourceRequired(value: unknown): boolean | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const direct = readBooleanField(value, "webSourceRequired") ??
+    readBooleanField(value, "web_source_required") ??
+    readBooleanField(value, "requiresWebSources") ??
+    readBooleanField(value, "requires_web_sources");
+  if (direct !== undefined) {
+    return direct;
+  }
+  if (isRecord(value.output)) {
+    const output = readWebSourceRequired(value.output);
+    if (output !== undefined) {
+      return output;
+    }
+  }
+  if (isRecord(value.finalOutput)) {
+    const finalOutput = readWebSourceRequired(value.finalOutput);
+    if (finalOutput !== undefined) {
+      return finalOutput;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readWebSourceRequired(value.turn);
+    if (turnOutput !== undefined) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readWebSourceRequired(value.item);
+    if (itemOutput !== undefined) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readWebSourceRequired(value.items[index]);
+      if (itemOutput !== undefined) {
+        return itemOutput;
+      }
+    }
+  }
+  return undefined;
+}
+
+function readSourceCitations(value: unknown): Array<{ sourceId: string; title: string; url: string }> {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const direct = readCitationArray(value.sourceCitations) ??
+    readCitationArray(value.source_citations) ??
+    readCitationArray(value.citations);
+  if (direct !== undefined) {
+    return direct;
+  }
+  if (isRecord(value.output)) {
+    const output = readSourceCitations(value.output);
+    if (output.length > 0) {
+      return output;
+    }
+  }
+  if (isRecord(value.finalOutput)) {
+    const finalOutput = readSourceCitations(value.finalOutput);
+    if (finalOutput.length > 0) {
+      return finalOutput;
+    }
+  }
+  if (isRecord(value.turn)) {
+    const turnOutput = readSourceCitations(value.turn);
+    if (turnOutput.length > 0) {
+      return turnOutput;
+    }
+  }
+  if (isRecord(value.item)) {
+    const itemOutput = readSourceCitations(value.item);
+    if (itemOutput.length > 0) {
+      return itemOutput;
+    }
+  }
+  if (Array.isArray(value.items)) {
+    for (let index = value.items.length - 1; index >= 0; index -= 1) {
+      const itemOutput = readSourceCitations(value.items[index]);
+      if (itemOutput.length > 0) {
+        return itemOutput;
+      }
+    }
+  }
+  return [];
+}
+
+function readCitationArray(value: unknown): Array<{ sourceId: string; title: string; url: string }> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const citations: Array<{ sourceId: string; title: string; url: string }> = [];
+  for (const row of value) {
+    if (!isRecord(row)) {
+      continue;
+    }
+    const url = readStringField(row, "url") ?? readStringField(row, "uri");
+    if (url === undefined) {
+      continue;
+    }
+    citations.push({
+      sourceId: readStringField(row, "sourceId") ??
+        readStringField(row, "source_id") ??
+        readStringField(row, "id") ??
+        `source-${citations.length + 1}`,
+      title: readStringField(row, "title") ??
+        readStringField(row, "name") ??
+        "Source",
+      url,
+    });
+  }
+  return citations;
+}
+
 function readThreadStartResponseThreadId(value: unknown): string | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -1246,9 +1777,7 @@ function matchesTurnNotification(
   }
   const expectedTurnId = input.turnId();
   const actualTurnId = readNotificationTurnId(params);
-  return expectedTurnId === undefined ||
-    actualTurnId === undefined ||
-    actualTurnId === expectedTurnId;
+  return expectedTurnId !== undefined && actualTurnId === expectedTurnId;
 }
 
 function isTurnInterruptedCompletion(params: unknown): boolean {
@@ -1295,6 +1824,48 @@ function readStringField(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
     ? value[key]
     : undefined;
+}
+
+function readBooleanField(value: unknown, key: string): boolean | undefined {
+  return isRecord(value) && typeof value[key] === "boolean"
+    ? value[key]
+    : undefined;
+}
+
+function readSafeProcessMessage(params: unknown): string | undefined {
+  if (!isExactProcessParams(params)) {
+    return undefined;
+  }
+  const kind = readStringField(params, "kind");
+  const status = readStringField(params, "status");
+  if (status !== "started") {
+    return undefined;
+  }
+  switch (kind) {
+    case "memory_context":
+      return "Reading the active memory context.";
+    case "web_search":
+      return "Searching approved web sources.";
+    case "response":
+      return "Preparing the response.";
+    default:
+      return undefined;
+  }
+}
+
+function isExactProcessParams(value: unknown): value is Record<string, unknown> {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((field) => !SAFE_PROCESS_PARAM_FIELDS.has(field))
+  ) {
+    return false;
+  }
+  if (!("turn" in value)) {
+    return true;
+  }
+  return isRecord(value.turn) &&
+    Object.keys(value.turn).every((field) => field === "id") &&
+    typeof value.turn.id === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1369,6 +1940,22 @@ function isOutputSchemaUnsupportedError(error: unknown): boolean {
       normalized,
     )
   );
+}
+
+function isReusableCodexThreadUnavailableError(error: unknown): boolean {
+  if (!(error instanceof CodexAppServerError)) {
+    return false;
+  }
+  const normalized = error.message.toLowerCase();
+  return normalized.includes("thread") &&
+    (
+      normalized.includes("not found") ||
+      normalized.includes("missing") ||
+      normalized.includes("unknown") ||
+      normalized.includes("expired") ||
+      normalized.includes("does not exist") ||
+      normalized.includes("invalid thread")
+    );
 }
 
 function readRequestTimeoutMs(): number {
