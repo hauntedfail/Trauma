@@ -722,10 +722,32 @@ async function repairCompletedPairArtifacts(input: {
   let latestCompletedAt = input.manifest.updatedAt;
   for (const row of latestRowsByPairId.values()) {
     if (
+      (input.targetTurnId !== undefined && row.turn_id !== input.targetTurnId) ||
+      input.activeTurnIds.has(row.turn_id)
+    ) {
+      continue;
+    }
+    const responsePath = join(
+      pairDirectory(input.config, input.manifest, row.pair_id),
+      "RESPONSE.md",
+    );
+    if (
+      row.revision_kind === "completed" &&
+      row.status === "completed" &&
+      row.assistant_response !== undefined
+    ) {
+      const existingResponse = await readOptionalFile(responsePath);
+      if (existingResponse !== row.assistant_response) {
+        await writeFileAtomic(responsePath, row.assistant_response);
+        changed = true;
+      }
+    } else if (await removeFileIfPresent(responsePath)) {
+      changed = true;
+    }
+    if (
       row.revision_kind !== "completed" ||
       row.status !== "completed" ||
       row.assistant_response === undefined ||
-      (input.targetTurnId !== undefined && row.turn_id !== input.targetTurnId) ||
       input.activeTurnIds.has(row.turn_id)
     ) {
       continue;
@@ -804,6 +826,29 @@ async function repairCompletedPairArtifacts(input: {
     await rewriteThreadMarkdown(input.config, input.manifest);
   }
   return changed;
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function removeFileIfPresent(path: string): Promise<boolean> {
+  try {
+    await rm(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function repairCanceledTurnReplays(input: {

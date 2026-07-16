@@ -156,6 +156,7 @@ function statusForTranslationError(error: TranslationApiError): number {
     case "translation_language_mismatch":
     case "translation_model_unavailable":
     case "translation_reasoning_effort_unavailable":
+    case "runtime_isolation_required":
     case "cancellation_conflict":
       return 409;
     case "auth_required":

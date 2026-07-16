@@ -14,14 +14,27 @@ const MAX_BROWSER_IMPORT_MAX_BYTES = 20_000_000;
 export function loadBrowserImportConfig(
   env: BrowserImportConfigEnv = process.env,
 ): BrowserImportConfig {
+  const enabled = env.TRAUMA_BROWSER_IMPORT_ENABLED === "true";
+  const token = normalizeOptionalText(env.TRAUMA_BROWSER_IMPORT_TOKEN);
+  if (enabled && !isStrongBrowserImportToken(token)) {
+    throw new Error(
+      "TRAUMA_BROWSER_IMPORT_TOKEN must contain at least 32 URL-safe characters when browser import is enabled",
+    );
+  }
+
   return {
-    enabled: env.TRAUMA_BROWSER_IMPORT_ENABLED === "true",
-    token: normalizeOptionalText(env.TRAUMA_BROWSER_IMPORT_TOKEN),
+    enabled,
+    token,
     allowedOrigins: parseAllowedOrigins(
       env.TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS,
     ),
     maxBytes: parseMaxBytes(env.TRAUMA_BROWSER_IMPORT_MAX_BYTES),
   };
+}
+
+function isStrongBrowserImportToken(token: string | null): token is string {
+  return token !== null && token.length >= 32 && token.length <= 512 &&
+    /^[A-Za-z0-9_-]+$/u.test(token);
 }
 
 export function isBrowserImportOriginAllowed(

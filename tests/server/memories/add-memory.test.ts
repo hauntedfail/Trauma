@@ -434,7 +434,13 @@ describe("add memory orchestration", () => {
             },
             backupQueue: {
               enqueue: async () => {
-                throw new Error("queue unavailable");
+                const credential = ["queue", "credential"].join("-");
+                throw new Error(
+                  "queue unavailable for https://backup-user:" +
+                    credential +
+                    "@example.com/private.git Bearer " +
+                    credential,
+                );
               },
             },
             generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef113")},
@@ -471,8 +477,11 @@ describe("add memory orchestration", () => {
     expect(result).toMatchObject({
       id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef113",
       backupStatus: "failed",
-      lastBackupError: "queue unavailable",
     });
+    expect(result.lastBackupError).toContain("queue unavailable");
+    expect(result.lastBackupError).toContain("[redacted]");
+    expect(result.lastBackupError).not.toContain("queue-credential");
+    expect(result.lastBackupError.length).toBeLessThanOrEqual(4_096);
   });
 
   it("returns the created memory when queued-status persistence fails after insert", async () => {

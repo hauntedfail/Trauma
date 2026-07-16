@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { MemoryBackupQueue } from "../../../src/server/backup";
+import type { DurableMemoryBackupQueue } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { createMemoryContentFixture } from "../../../src/server/store";
@@ -30,7 +30,12 @@ describe("translation stitching and atomic commit", () => {
     await writeSourceContent(config);
     const source = await loadTranslationSourceSnapshot({ config, memoryId });
     const enqueued: unknown[] = [];
-    const backupQueue: MemoryBackupQueue = {
+    const persistedIntents: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        persistedIntents.push(input);
+        return { backupStatus: "pending" };
+      },
       enqueue: async (input) => {
         enqueued.push(input);
         return { backupStatus: "queued" };
@@ -150,6 +155,7 @@ describe("translation stitching and atomic commit", () => {
           reason: "translation_update",
         },
       ]);
+      expect(persistedIntents).toEqual(enqueued);
       expect(
         await connection.repositories.translations.getTranslationChunks(
           "job-stitch",
@@ -176,7 +182,8 @@ describe("translation stitching and atomic commit", () => {
     await writeSourceContent(config);
     const source = await loadTranslationSourceSnapshot({ config, memoryId });
     const enqueued: unknown[] = [];
-    const backupQueue: MemoryBackupQueue = {
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
       enqueue: async (input) => {
         enqueued.push(input);
         return { backupStatus: "queued" };

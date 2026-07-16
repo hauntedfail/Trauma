@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { MemoryBackupQueue } from "../backup";
+import type { DurableMemoryBackupQueue } from "../backup";
 import { assertBackupEnvironmentReady } from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
@@ -52,7 +52,7 @@ export interface ToggleMemoryFlashbackInput {
   };
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
-  backupQueue: MemoryBackupQueue;
+  backupQueue: DurableMemoryBackupQueue;
   generateId?: () => string;
   now?: () => Date;
 }
@@ -176,6 +176,15 @@ async function toggleMemoryFlashbackUnlocked(
     now,
     ranges: nextRanges,
     variant,
+  });
+  const intendedExportPath = getFlashbackMetadataExportPath({
+    memoryId: input.memoryId,
+    variant,
+  });
+  await input.backupQueue.persistIntent({
+    memoryId: input.memoryId,
+    contentPaths: [intendedExportPath],
+    reason: "flashback_update",
   });
   await repositories.flashbacks.replaceForMemoryVariant({
     memoryId: input.memoryId,

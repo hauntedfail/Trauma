@@ -288,6 +288,15 @@ describe("backup failsafe CLI", () => {
       recursive: true,
     });
     await writeFile(join(config.storePath, "memories/memory-1/CONTENT.md"), "# Current\n", "utf8");
+    await mkdir(config.projectPath, { recursive: true });
+    git(config.projectPath, ["init", "--initial-branch=main"]);
+    const recoveryCredential = "recovery-secret";
+    git(config.projectPath, [
+      "remote",
+      "add",
+      "origin",
+      `https://user:${recoveryCredential}@example.com/archive.git`,
+    ]);
     await seedUnstampedCurrentDataAlert(configPath);
 
     const output = await withGitIdentity(() =>
@@ -305,11 +314,14 @@ describe("backup failsafe CLI", () => {
     try {
       expect(await connection.repositories.backupEnvironment.getBackupFailsafeAlert())
         .toBeUndefined();
-      expect(await connection.repositories.backupEnvironment.getBackupEnvironmentStamp())
-        .toMatchObject({
+      const stamp =
+        await connection.repositories.backupEnvironment.getBackupEnvironmentStamp();
+      expect(stamp).toMatchObject({
           projectPath: config.projectPath,
           storePath: config.storePath,
         });
+      expect(stamp?.gitRemoteUrl).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(JSON.stringify(stamp)).not.toContain(recoveryCredential);
     } finally {
       connection.close();
     }

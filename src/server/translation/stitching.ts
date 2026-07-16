@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { MemoryBackupQueue } from "../backup";
+import type { DurableMemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import type {
   TranslationChunkRecord,
@@ -39,7 +39,7 @@ export interface StaleTranslationCommitResult {
 }
 
 export async function commitTranslatedContent(input: {
-  backupQueue: MemoryBackupQueue;
+  backupQueue: DurableMemoryBackupQueue;
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
   job: TranslationJobRecord;
@@ -75,6 +75,24 @@ export async function commitTranslatedContent(input: {
     expectedFrontmatter: frontmatter,
     output,
   });
+  const intendedOutputPath = resolveTranslatedMemoryContentPath({
+    config: input.config,
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  const projectionPath = resolveTranslatedMemoryProjectionPath({
+    config: input.config,
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  await input.backupQueue.persistIntent({
+    contentPaths: [
+      intendedOutputPath.relativePath,
+      projectionPath.relativePath,
+    ],
+    memoryId: input.job.memoryId,
+    reason: "translation_update",
+  });
   const outputPath = await writeTranslatedContentAtomically({
     config: input.config,
     jobId: input.job.jobId,
@@ -93,11 +111,6 @@ export async function commitTranslatedContent(input: {
     now,
     outputHash,
     sourceHash: input.job.sourceHash,
-  });
-  const projectionPath = resolveTranslatedMemoryProjectionPath({
-    config: input.config,
-    langCode: input.job.langCode,
-    memoryId: input.job.memoryId,
   });
   await writeFile(
     projectionPath.absolutePath,

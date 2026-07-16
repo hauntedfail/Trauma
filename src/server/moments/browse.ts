@@ -4,9 +4,17 @@ import {
   type ResolvedTraumaConfig,
 } from "../config";
 import { initializeDatabase } from "../db";
-import type { MomentBrowseRow as StoredMomentBrowseRow } from "../db/repositories";
+import type {
+  MomentBrowseCursor,
+  MomentBrowseRow as StoredMomentBrowseRow,
+  MomentRepository,
+} from "../db/repositories";
 import { MemoryContentStoreError, readMemoryContent } from "../store";
 import { renderMemoryMarkdown } from "../reader/markdown-renderer";
+import { mapWithConcurrency } from "../browse/concurrency";
+
+const MOMENT_BROWSE_SCAN_CHUNK_LIMIT = 100;
+const MOMENT_TOC_READ_CONCURRENCY = 8;
 
 export type MomentTargetStatus = "current" | "resolved_from_path" | "stale";
 
@@ -45,73 +53,124 @@ export async function loadMomentBrowseRowsForConfig(
   let connection: ReturnType<typeof initializeDatabase> | undefined;
   try {
     connection = initializeDatabase(config);
-    const rows = await connection.repositories.moments.listForBrowse();
-    const tocCache = new Map<
-      string,
-      Promise<ReturnType<typeof renderMemoryMarkdown>["toc"] | undefined>
-    >();
-    return Promise.all(
-      rows.map(async (row) => ({
-          ...row,
-          ...await resolveMomentTarget({
-            row,
-            loadToc: () => getMomentMemoryToc({ config, memoryId: row.memoryId, tocCache }),
-          }),
-      })),
-    );
+    const rows = await listAllMomentBrowseRows(connection.repositories.moments);
+    return resolveMomentTargets({ config, rows });
   } finally {
     connection?.close();
   }
 }
 
-async function resolveMomentTarget(input: {
-  row: StoredMomentBrowseRow;
-  loadToc: () => Promise<ReturnType<typeof renderMemoryMarkdown>["toc"] | undefined>;
-}): Promise<Pick<MomentBrowseRow, "targetAnchor" | "targetStatus">> {
-  const toc = await input.loadToc();
-  if (toc === undefined) {
-    return { targetAnchor: null, targetStatus: "stale" };
-  }
+async function listAllMomentBrowseRows(
+  repository: Pick<MomentRepository, "listPageForBrowse">,
+): Promise<StoredMomentBrowseRow[]> {
+  const rows: StoredMomentBrowseRow[] = [];
+  let cursor: MomentBrowseCursor | null = null;
 
-  if (
-    toc.some((entry) =>
-      entry.id === input.row.sectionAnchor &&
-      entry.path === input.row.sectionPath
-    )
-  ) {
-    return {
-      targetAnchor: input.row.sectionAnchor,
-      targetStatus: "current",
-    };
+  while (true) {
+    const page = await repository.listPageForBrowse({
+      cursor,
+      limit: MOMENT_BROWSE_SCAN_CHUNK_LIMIT,
+    });
+    rows.push(...page);
+    const lastRow = page[page.length - 1];
+    if (page.length < MOMENT_BROWSE_SCAN_CHUNK_LIMIT || lastRow === undefined) {
+      return rows;
+    }
+    cursor = { createdAt: new Date(lastRow.createdAt), id: lastRow.id };
   }
-
-  const pathMatches = toc.filter((entry) => entry.path === input.row.sectionPath);
-  if (pathMatches.length === 1) {
-    return {
-      targetAnchor: pathMatches[0]?.id ?? null,
-      targetStatus: "resolved_from_path",
-    };
-  }
-
-  return { targetAnchor: null, targetStatus: "stale" };
 }
 
-async function getMomentMemoryToc(input: {
+async function resolveMomentTargets(input: {
   config: Parameters<typeof readMemoryContent>[0]["config"];
-  memoryId: string;
-  tocCache: Map<
+  rows: StoredMomentBrowseRow[];
+}): Promise<MomentBrowseRow[]> {
+  const rowsByMemoryId = new Map<
     string,
-    Promise<ReturnType<typeof renderMemoryMarkdown>["toc"] | undefined>
-  >;
-}) {
-  const cached = input.tocCache.get(input.memoryId);
-  if (cached !== undefined) {
-    return cached;
+    { index: number; row: StoredMomentBrowseRow }[]
+  >();
+  input.rows.forEach((row, index) => {
+    const memoryRows = rowsByMemoryId.get(row.memoryId);
+    const indexedRow = { index, row };
+    if (memoryRows === undefined) {
+      rowsByMemoryId.set(row.memoryId, [indexedRow]);
+    } else {
+      memoryRows.push(indexedRow);
+    }
+  });
+
+  const targets = new Array<Pick<MomentBrowseRow, "targetAnchor" | "targetStatus">>(
+    input.rows.length,
+  );
+  await mapWithConcurrency(
+    [...rowsByMemoryId.entries()],
+    MOMENT_TOC_READ_CONCURRENCY,
+    async ([memoryId, memoryRows]) => {
+      const toc = await readMomentMemoryToc(input.config, memoryId);
+      const tocIndex = toc === undefined ? undefined : createMomentTocIndex(toc);
+      for (const { index, row } of memoryRows) {
+        targets[index] = resolveMomentTarget(row, tocIndex);
+      }
+    },
+  );
+
+  return input.rows.map((row, index) => ({
+    ...row,
+    ...(targets[index] ?? staleMomentTarget()),
+  }));
+}
+
+type MomentToc = ReturnType<typeof renderMemoryMarkdown>["toc"];
+
+interface MomentTocIndex {
+  anchors: Map<string, Set<string>>;
+  paths: Map<string, { anchor: string; count: number }>;
+}
+
+function createMomentTocIndex(toc: MomentToc): MomentTocIndex {
+  const anchors = new Map<string, Set<string>>();
+  const paths = new Map<string, { anchor: string; count: number }>();
+  for (const entry of toc) {
+    const anchorPaths = anchors.get(entry.id);
+    if (anchorPaths === undefined) {
+      anchors.set(entry.id, new Set([entry.path]));
+    } else {
+      anchorPaths.add(entry.path);
+    }
+
+    const path = paths.get(entry.path);
+    paths.set(entry.path, {
+      anchor: path?.anchor ?? entry.id,
+      count: (path?.count ?? 0) + 1,
+    });
+  }
+  return { anchors, paths };
+}
+
+function resolveMomentTarget(
+  row: StoredMomentBrowseRow,
+  toc: MomentTocIndex | undefined,
+): Pick<MomentBrowseRow, "targetAnchor" | "targetStatus"> {
+  if (toc === undefined) {
+    return staleMomentTarget();
   }
 
-  const toc = readMomentMemoryToc(input.config, input.memoryId);
-  input.tocCache.set(input.memoryId, toc);
-  return toc;
+  if (toc.anchors.get(row.sectionAnchor)?.has(row.sectionPath) === true) {
+    return { targetAnchor: row.sectionAnchor, targetStatus: "current" };
+  }
+
+  const path = toc.paths.get(row.sectionPath);
+  if (path?.count === 1) {
+    return { targetAnchor: path.anchor, targetStatus: "resolved_from_path" };
+  }
+
+  return staleMomentTarget();
+}
+
+function staleMomentTarget(): Pick<
+  MomentBrowseRow,
+  "targetAnchor" | "targetStatus"
+> {
+  return { targetAnchor: null, targetStatus: "stale" };
 }
 
 async function readMomentMemoryToc(

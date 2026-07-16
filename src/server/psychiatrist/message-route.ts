@@ -41,6 +41,7 @@ import {
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
 import { activePsychiatristTurns } from "./active-turns";
+import { runDetachedPsychiatristTask } from "./detached-task";
 import {
   appendAssistantResponse as appendAssistantResponseToStore,
   appendPendingPair,
@@ -274,7 +275,7 @@ export async function handleSendPsychiatristMessageRequest(
       turnId,
       variantKind: context.variantKind,
     });
-    void runPsychiatristTurn({
+    runDetachedPsychiatristTask(() => runPsychiatristTurn({
       appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
@@ -287,7 +288,7 @@ export async function handleSendPsychiatristMessageRequest(
       turnId,
       webSourcePolicy,
       ownsClient,
-    });
+    }));
     return jsonResponse(toStartedResponse({
       manifest: thread.manifest,
       pairId,

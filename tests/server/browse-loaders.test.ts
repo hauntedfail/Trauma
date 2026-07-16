@@ -873,6 +873,55 @@ describe("server browse loaders", () => {
       },
     ]);
   });
+
+  it("preserves all Moment browse rows across bounded repository pages", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const sectionCount = 101;
+    const sections = Array.from(
+      { length: sectionCount },
+      (_, index) => `## Section ${index + 1}\n\nBody ${index + 1}.`,
+    );
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: ["# Loader Memory", ...sections].join("\n\n"),
+    });
+    const connection = initializeDatabase(config);
+    try {
+      for (let index = 0; index < sectionCount; index += 1) {
+        const ordinal = index + 1;
+        const createdAt = new Date(now.getTime() + index);
+        await connection.repositories.moments.create({
+          id: `moment-page-${String(ordinal).padStart(3, "0")}`,
+          memoryId,
+          sectionAnchor: `section-${ordinal}`,
+          sectionTitle: `Section ${ordinal}`,
+          sectionLevel: 2,
+          sectionPath: `1/${ordinal}`,
+          sectionStartOffset: null,
+          sectionEndOffset: null,
+          contentHash: null,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+    } finally {
+      connection.close();
+    }
+
+    const rows = await loadMomentBrowseRows();
+    expect(rows).toHaveLength(sectionCount);
+    expect(rows.every((row) => row.targetStatus === "current")).toBe(true);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(sectionCount);
+  });
 });
 
 async function createRuntimeConfig(): Promise<ResolvedTraumaConfig> {

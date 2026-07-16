@@ -19,9 +19,11 @@ import {
 import { resolveCurrentTranslationReadOnly } from "../translation/current-translation";
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
 import { normalizeBrowseLimit } from "../browse/limits";
+import { mapWithConcurrency } from "../browse/concurrency";
 
 const RECENT_FLASHBACK_SCAN_CHUNK_LIMIT = 100;
 const MAX_RECENT_FLASHBACK_FETCH_ROUNDS = 20;
+const FLASHBACK_VARIANT_READ_CONCURRENCY = 8;
 
 export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   "use server";
@@ -34,7 +36,9 @@ export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   try {
     const config = loadRuntimeTraumaConfig();
     connection = initializeDatabase(config);
-    const rows = await connection.repositories.flashbacks.listForBrowse();
+    const rows = await listAllFlashbackBrowseRows(
+      connection.repositories.flashbacks,
+    );
     return await filterRenderableFlashbackRows({
       config,
       rows,
@@ -236,19 +240,48 @@ export async function filterRenderableFlashbackRows(input: {
   }
 
   const renderableIds = new Set<string>();
-  await Promise.all(
-    [...rowsByVariant].map(async ([, rows]) => {
-      for (const id of await resolveRenderableFlashbackIds({
+  const resolvedIds = await mapWithConcurrency(
+    [...rowsByVariant.values()],
+    FLASHBACK_VARIANT_READ_CONCURRENCY,
+    async (rows) =>
+      resolveRenderableFlashbackIds({
         config: input.config,
         rows,
         translationRepository: input.translationRepository,
-      })) {
-        renderableIds.add(id);
-      }
-    }),
+      }),
   );
+  for (const ids of resolvedIds) {
+    for (const id of ids) {
+      renderableIds.add(id);
+    }
+  }
 
   return input.rows.filter((row) => renderableIds.has(row.id));
+}
+
+async function listAllFlashbackBrowseRows(
+  repository: {
+    listRecentForBrowse: (input: {
+      cursor: { createdAt: Date; id: string } | null;
+      limit: number;
+    }) => Promise<FlashbackBrowseRow[]>;
+  },
+): Promise<FlashbackBrowseRow[]> {
+  const rows: FlashbackBrowseRow[] = [];
+  let cursor: { createdAt: Date; id: string } | null = null;
+
+  while (true) {
+    const page = await repository.listRecentForBrowse({
+      cursor,
+      limit: RECENT_FLASHBACK_SCAN_CHUNK_LIMIT,
+    });
+    rows.push(...page);
+    const lastRow = page[page.length - 1];
+    if (page.length < RECENT_FLASHBACK_SCAN_CHUNK_LIMIT || lastRow === undefined) {
+      return rows;
+    }
+    cursor = { createdAt: new Date(lastRow.createdAt), id: lastRow.id };
+  }
 }
 
 async function resolveRenderableFlashbackIds(input: {

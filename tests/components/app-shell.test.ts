@@ -299,6 +299,23 @@ describe("refined app shell contract", () => {
     expect(settingsIndex).toBeGreaterThan(themeIndex);
   });
 
+  it("keeps the local archive identity as a non-interactive status surface", () => {
+    const statusStart = appShellSource.indexOf("function LocalArchiveStatus");
+    const statusEnd = appShellSource.indexOf(
+      "function AddMemoryComposerButton",
+      statusStart,
+    );
+    const statusSource = appShellSource.slice(statusStart, statusEnd);
+
+    expect(statusStart).toBeGreaterThan(-1);
+    expect(statusEnd).toBeGreaterThan(statusStart);
+    expect(statusSource).toContain("<div");
+    expect(statusSource).toContain("Local archive");
+    expect(statusSource).not.toContain("<button");
+    expect(statusSource).not.toContain("KebabIcon");
+    expect(statusSource).not.toContain("hover:");
+  });
+
   it("keeps add-memory URL label colour theme-tokenized", () => {
     expect(addMemoryFormSource).toContain("text-trauma-text-muted");
     expect(addMemoryFormSource).not.toContain("text-[#4e5a48]");

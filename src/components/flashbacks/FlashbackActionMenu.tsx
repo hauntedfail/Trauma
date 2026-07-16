@@ -93,7 +93,9 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
             Delete flashback
           </button>
           <Show when={error() !== ""}>
-            <p class={kebabActionMenuErrorClass}>{error()}</p>
+            <p class={kebabActionMenuErrorClass} role="alert">
+              {error()}
+            </p>
           </Show>
         </>
       )}

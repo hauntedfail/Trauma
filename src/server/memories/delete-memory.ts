@@ -6,7 +6,9 @@ import {
   type MemoryBackupJob,
   type MemoryBackupQueue,
 } from "../backup";
-import { assertBackupEnvironmentReady } from "../backup/environment";
+import {
+  assertBackupEnvironmentReady,
+} from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import {
   createRepositories,
@@ -14,6 +16,13 @@ import {
   type TraumaRepositories,
 } from "../db/repositories";
 import { getFlashbackMetadataExportPath } from "../flashbacks/export";
+import { resolveMemoryContentPath } from "../store/memory-content";
+import {
+  clearMemoryOperationJournal,
+  persistMemoryDeletionJournal,
+  recoverInterruptedMemoryOperations,
+  resolveMemoryDeletionStagingPath,
+} from "./operation-journal";
 
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
@@ -52,7 +61,22 @@ export async function deleteMemory(input: {
   memoryId: string;
   repositories?: DeleteMemoryRepositories;
 }): Promise<DeleteMemoryResult> {
-  const repositories = input.repositories ?? createRepositories(input.db);
+  const databaseRepositories = createRepositories(input.db);
+  await recoverInterruptedMemoryOperations({
+    completeMissingDeletionBackup: async (deletion) => {
+      await assertBackupEnvironmentReady({
+        config: input.config,
+        db: input.db,
+      });
+      await runSerializedGitBackupJob({
+        config: input.config,
+        job: { ...deletion, reason: "memory_deletion" },
+      });
+    },
+    config: input.config,
+    memories: databaseRepositories.memories,
+  });
+  const repositories = input.repositories ?? databaseRepositories;
   const fileSystem = {
     access,
     mkdir,
@@ -112,6 +136,21 @@ export async function deleteMemory(input: {
     }
   }
 
+  try {
+    await persistMemoryDeletionJournal({
+      config: input.config,
+      journal: {
+        version: 1,
+        kind: "memory_deletion",
+        memoryId: input.memoryId,
+        contentPath: target.contentPath,
+        stagingPath: paths.stagingRelativePath,
+      },
+    });
+  } catch (error) {
+    return { status: "failed", error: formatUnknownError(error) };
+  }
+
   let staged = false;
   try {
     await fileSystem.mkdir(dirname(paths.stagingDir), { recursive: true });
@@ -142,6 +181,12 @@ export async function deleteMemory(input: {
               deletionBackupJob,
             })
           : undefined;
+      if (restoreError === undefined && backupRestoreError === undefined) {
+        await clearMemoryOperationJournal({
+          config: input.config,
+          memoryId: input.memoryId,
+        }).catch(() => undefined);
+      }
       return {
         status: "failed",
         error: formatFailureMessage([
@@ -166,6 +211,12 @@ export async function deleteMemory(input: {
               deletionBackupJob,
             })
           : undefined;
+      if (restoreError === undefined && backupRestoreError === undefined) {
+        await clearMemoryOperationJournal({
+          config: input.config,
+          memoryId: input.memoryId,
+        }).catch(() => undefined);
+      }
       if (restoreError !== undefined || backupRestoreError !== undefined) {
         return {
           status: "failed",
@@ -185,6 +236,12 @@ export async function deleteMemory(input: {
             deletionBackupJob,
           })
         : undefined;
+    if (restoreError === undefined && backupRestoreError === undefined) {
+      await clearMemoryOperationJournal({
+        config: input.config,
+        memoryId: input.memoryId,
+      }).catch(() => undefined);
+    }
     return {
       status: "failed",
       error: formatFailureMessage([
@@ -196,13 +253,28 @@ export async function deleteMemory(input: {
   }
 
   const warnings: DeleteMemoryWarning[] = [];
+  let stagedContentCleaned = true;
   if (staged) {
     try {
       await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
     } catch (error) {
+      stagedContentCleaned = false;
       warnings.push({
         kind: "content_cleanup_failed",
         error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
+      });
+    }
+  }
+  if (stagedContentCleaned) {
+    try {
+      await clearMemoryOperationJournal({
+        config: input.config,
+        memoryId: input.memoryId,
+      });
+    } catch (error) {
+      warnings.push({
+        kind: "content_cleanup_failed",
+        error: `Failed to remove the completed memory deletion journal: ${formatUnknownError(error)}`,
       });
     }
   }
@@ -301,10 +373,16 @@ function resolveDeletionPaths(input: {
   storePath: string;
   memoryId: string;
   contentPath: string;
-}): { contentDir: string; stagingDir: string } {
+}): { contentDir: string; stagingDir: string; stagingRelativePath: string } {
   const storeRoot = resolve(input.storePath);
-  const contentFile = resolve(storeRoot, input.contentPath);
-  assertPathInsideStore(storeRoot, contentFile);
+  const expectedContent = resolveMemoryContentPath(
+    { storePath: input.storePath },
+    input.memoryId,
+  );
+  if (input.contentPath !== expectedContent.relativePath) {
+    throw new Error("memory content path is not owned by the requested memory");
+  }
+  const contentFile = expectedContent.absolutePath;
 
   const contentDir = dirname(contentFile);
   assertPathInsideStore(storeRoot, contentDir);
@@ -312,14 +390,18 @@ function resolveDeletionPaths(input: {
     throw new Error("memory content path must resolve to a memory directory");
   }
 
-  const stagingDir = resolve(
-    storeRoot,
-    ".delete-staging",
-    `${input.memoryId}-${Date.now()}`,
-  );
+  const staging = resolveMemoryDeletionStagingPath({
+    memoryId: input.memoryId,
+    storePath: input.storePath,
+  });
+  const stagingDir = staging.absolutePath;
   assertPathInsideStore(storeRoot, stagingDir);
 
-  return { contentDir, stagingDir };
+  return {
+    contentDir,
+    stagingDir,
+    stagingRelativePath: staging.relativePath,
+  };
 }
 
 function resolveBackupDeletionPaths(input: {

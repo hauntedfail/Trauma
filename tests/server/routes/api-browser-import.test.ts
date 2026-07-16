@@ -11,6 +11,7 @@ import { initializeDatabase } from "../../../src/server/db";
 
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
+const browserImportToken = "0123456789abcdef0123456789abcdef";
 
 afterEach(async () => {
   process.env = { ...originalEnv };
@@ -43,7 +44,7 @@ describe("browser import API route", () => {
 
   it("rejects ordinary website origins before body processing", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await POST(
       createApiEvent(
@@ -51,7 +52,7 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "https://evil.example",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body: "{}",
@@ -68,7 +69,7 @@ describe("browser import API route", () => {
 
   it("rejects invalid tokens and exposes CORS only to extension origins", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await POST(
       createApiEvent(
@@ -95,7 +96,7 @@ describe("browser import API route", () => {
 
   it("answers extension preflight requests", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await OPTIONS(
       createApiEvent(
@@ -117,7 +118,7 @@ describe("browser import API route", () => {
 
   it("rejects streamed request bodies as soon as the byte cap is exceeded", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
     process.env.TRAUMA_BROWSER_IMPORT_MAX_BYTES = "100000";
     const encoder = new TextEncoder();
     let pulledChunks = 0;
@@ -143,7 +144,7 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "chrome-extension://extension-id",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body,
@@ -162,7 +163,7 @@ describe("browser import API route", () => {
 
   it("maps backup failsafe errors to JSON responses with CORS", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
     const root = await makeRoot();
     const configPath = await writeConfig(root);
     process.env.TRAUMA_CONFIG_PATH = configPath;
@@ -174,7 +175,7 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "chrome-extension://extension-id",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({

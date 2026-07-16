@@ -84,6 +84,7 @@ export async function ensureBackupEnvironment(
     await repositories.backupEnvironment.getBackupFailsafeAlert();
   const hasMemoryData = await detectMemoryData(input.config, input.db, stamp);
   const currentGitRemoteUrl = await readGitRemoteUrl(input.config);
+  const currentGitBranch = await readGitBranch(input.config.projectPath);
   const pathsMatch =
     stamp !== undefined &&
     stamp.projectPath === input.config.projectPath &&
@@ -93,7 +94,8 @@ export async function ensureBackupEnvironment(
     stamp.gitRemote === input.config.backup.git.remote &&
     (stamp.gitRemoteUrl === currentGitRemoteUrl ||
       stamp.gitRemoteUrl === LEGACY_REDACTED_REMOTE_IDENTITY) &&
-    stamp.gitBranch === input.config.backup.git.branch;
+    stamp.gitBranch === input.config.backup.git.branch &&
+    currentGitBranch === input.config.backup.git.branch;
 
   if (stamp === undefined && hasMemoryData) {
     return createAndReportPathAlert({
@@ -474,6 +476,20 @@ async function readGitRepositoryRoot(projectPath: string) {
   }
 }
 
+async function readGitBranch(projectPath: string) {
+  if (!existsSync(projectPath)) {
+    return null;
+  }
+
+  try {
+    const result = await runGit(projectPath, ["symbolic-ref", "--short", "HEAD"]);
+    const branch = result.stdout.trim();
+    return branch === "" ? null : branch;
+  } catch {
+    return null;
+  }
+}
+
 async function isSamePath(left: string | null, right: string) {
   if (left === null) {
     return false;
@@ -666,16 +682,16 @@ function formatPushFailureWarning(alert: BackupFailsafeAlertDetails) {
   ].join("\n");
 }
 
-function fingerprintGitRemote(remoteUrl: string) {
+export function fingerprintGitRemote(remoteUrl: string) {
   return `sha256:${createHash("sha256").update(remoteUrl).digest("hex")}`;
 }
 
 export function redactOperationalError(error: string) {
   return error
-    .slice(0, 4_096)
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1[redacted]@")
     .replace(/\b(Bearer\s+)[^\s]+/giu, "$1[redacted]")
-    .replace(/\b(token|password|secret|authorization)=([^\s&]+)/giu, "$1=[redacted]");
+    .replace(/\b(token|password|secret|authorization)=([^\s&]+)/giu, "$1=[redacted]")
+    .slice(0, 4_096);
 }
 
 function shellQuote(value: string) {

@@ -106,7 +106,9 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
             onError={(message) => setError(message)}
           />
           <Show when={error() !== ""}>
-            <p class={kebabActionMenuErrorClass}>{error()}</p>
+            <p class={kebabActionMenuErrorClass} role="alert">
+              {error()}
+            </p>
           </Show>
         </>
       )}

@@ -539,7 +539,10 @@ describe("memory and taxonomy repositories", () => {
             createdAt: later,
             updatedAt: later,
           });
-          const listed = await connection.repositories.moments.listForBrowse();
+          const listed = await connection.repositories.moments.listPageForBrowse({
+            cursor: null,
+            limit: 100,
+          });
           const deleted = await connection.repositories.moments.deleteById("moment-1");
           const missingDeleted = await connection.repositories.moments.deleteById("missing-moment");
 
@@ -630,8 +633,9 @@ describe("memory and taxonomy repositories", () => {
         const secondConnection = initializeDatabase(config);
 
         try {
-          firstConnection.sqlite.run("PRAGMA busy_timeout = 5000");
-          secondConnection.sqlite.run("PRAGMA busy_timeout = 5000");
+          const busyTimeouts = [firstConnection, secondConnection].map(
+            (connection) => connection.sqlite.prepare("PRAGMA busy_timeout").get().timeout,
+          );
           const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f107";
           const now = new Date("2026-05-10T01:00:00.000Z");
           const later = new Date("2026-05-10T02:00:00.000Z");
@@ -752,6 +756,7 @@ describe("memory and taxonomy repositories", () => {
           ]);
 
           process.stdout.write(JSON.stringify({
+            busyTimeouts,
             first,
             second,
             rows: firstConnection.sqlite
@@ -773,6 +778,7 @@ describe("memory and taxonomy repositories", () => {
     );
 
     expect(JSON.parse(output)).toMatchObject({
+      busyTimeouts: [5000, 5000],
       first: {
         alreadyExists: false,
         moment: {

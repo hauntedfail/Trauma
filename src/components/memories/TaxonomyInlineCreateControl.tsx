@@ -1,8 +1,15 @@
 import { Show, createEffect, createSignal, type JSX } from "solid-js";
 
 import { PlusIcon } from "../icons";
-import { useDismissableLayer } from "../ui/dismissable-layer";
+import {
+  useDismissableLayer,
+  type DismissableLayerDismissReason,
+} from "../ui/dismissable-layer";
 import { normalizeTaxonomyName } from "../../taxonomy/name-policy";
+
+export type TaxonomyInlineCreateCloseReason =
+  | DismissableLayerDismissReason
+  | "submit";
 
 export interface TaxonomyInlineCreateControlProps {
   class?: string;
@@ -11,7 +18,10 @@ export interface TaxonomyInlineCreateControlProps {
   open?: boolean;
   validateName?: (name: string) => string | null;
   onError?: (message: string) => void;
-  onOpenChange?: (open: boolean) => void;
+  onOpenChange?: (
+    open: boolean,
+    reason?: TaxonomyInlineCreateCloseReason,
+  ) => void;
   onSubmitName: (name: string) => Promise<void> | void;
 }
 
@@ -23,20 +33,27 @@ const addTaxonomyInputClass =
 export function TaxonomyInlineCreateControl(
   props: TaxonomyInlineCreateControlProps,
 ) {
-  let rootRef: HTMLSpanElement | undefined;
+  let rootRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
+  let triggerRef: HTMLButtonElement | undefined;
   const [internalOpen, setInternalOpen] = createSignal(false);
   const [draftName, setDraftName] = createSignal("");
   const [pending, setPending] = createSignal(false);
   const isOpen = () => props.open ?? internalOpen();
   const triggerClass = () => props.class ?? addTaxonomyPillClass;
-  const setOpen = (open: boolean): void => {
+  const setOpen = (
+    open: boolean,
+    reason?: TaxonomyInlineCreateCloseReason,
+  ): void => {
     if (props.open === undefined) {
       setInternalOpen(open);
     }
-    props.onOpenChange?.(open);
+    props.onOpenChange?.(open, reason);
     if (!open) {
       setDraftName("");
+      if (reason !== "outside-pointer") {
+        restoreTaxonomyTriggerFocus(triggerRef);
+      }
     }
   };
 
@@ -50,7 +67,7 @@ export function TaxonomyInlineCreateControl(
   useDismissableLayer({
     getRoot: () => rootRef,
     isEnabled: isOpen,
-    onDismiss: () => setOpen(false),
+    onDismiss: (reason) => setOpen(false, reason),
   });
 
   const submit = async (): Promise<void> => {
@@ -68,7 +85,7 @@ export function TaxonomyInlineCreateControl(
     setPending(true);
     try {
       await props.onSubmitName(name);
-      setOpen(false);
+      setOpen(false, "submit");
     } catch (error) {
       props.onError?.(
         error instanceof Error ? error.message : "Failed to update taxonomy.",
@@ -88,16 +105,17 @@ export function TaxonomyInlineCreateControl(
   ) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      setOpen(false);
+      setOpen(false, "escape");
     }
   };
 
   return (
-    <span ref={rootRef} class="relative inline-grid">
+    <div ref={rootRef} class="relative inline-grid">
       <Show
         when={isOpen()}
         fallback={
           <button
+            ref={triggerRef}
             class={triggerClass()}
             data-taxonomy-create-trigger
             disabled={props.disabled}
@@ -132,8 +150,18 @@ export function TaxonomyInlineCreateControl(
           />
         </form>
       </Show>
-    </span>
+    </div>
   );
+}
+
+function restoreTaxonomyTriggerFocus(
+  trigger: HTMLButtonElement | undefined,
+): void {
+  queueMicrotask(() => {
+    if (trigger?.isConnected === true && !trigger.disabled) {
+      trigger.focus({ preventScroll: true });
+    }
+  });
 }
 
 export const normalizeTaxonomyAddName = normalizeTaxonomyName;

@@ -49,7 +49,9 @@ describe("dismissable popup layers", () => {
   it("is shared by inline taxonomy creation controls", () => {
     expect(taxonomyInlineCreateSource).toContain("useDismissableLayer");
     expect(taxonomyInlineCreateSource).toContain("isEnabled: isOpen");
-    expect(taxonomyInlineCreateSource).toContain("onDismiss: () => setOpen(false)");
+    expect(taxonomyInlineCreateSource).toContain(
+      "onDismiss: (reason) => setOpen(false, reason)",
+    );
   });
 
   it("keeps anchored popover dismissal inside the shared Popup shell", () => {

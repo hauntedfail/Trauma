@@ -18,6 +18,7 @@ import {
   type CodexConversationClient,
 } from "../translation/codex-app-server";
 import { activePsychiatristTurns } from "./active-turns";
+import { runDetachedPsychiatristTask } from "./detached-task";
 import {
   buildPsychiatristPrompt,
   PSYCHIATRIST_PROMPT_POLICY_VERSION,
@@ -235,7 +236,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
       turnId,
       variantKind: loaded.contextSnapshot.variantKind,
     });
-    void runRegenerateTurn({
+    runDetachedPsychiatristTask(() => runRegenerateTurn({
       appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
         appendRegeneratedAssistantResponse,
       appendRetriedAssistantResponse: input.appendRetriedAssistantResponse ??
@@ -249,7 +250,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
       turnMode,
       turnId,
       webSourcePolicy,
-    });
+    }));
   } catch (error) {
     activePsychiatristTurns.releaseThread(loaded.manifest.threadId);
     return safeErrorResponse(

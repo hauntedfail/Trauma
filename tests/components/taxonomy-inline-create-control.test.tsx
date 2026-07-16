@@ -12,6 +12,10 @@ const inlineCreateSource = readFileSync(
   "src/components/memories/TaxonomyInlineCreateControl.tsx",
   "utf8",
 );
+const taxonomyAddSource = readFileSync(
+  "src/components/memories/TaxonomyAddControl.tsx",
+  "utf8",
+);
 
 describe("taxonomy inline create control", () => {
   it("renders the existing dashed taxonomy pill as the trigger surface", () => {
@@ -39,5 +43,13 @@ describe("taxonomy inline create control", () => {
   it("supports caller-supplied name validation before submission", () => {
     expect(inlineCreateSource).toContain("validateName");
     expect(inlineCreateSource).toContain("validationError");
+  });
+
+  it("returns focus after keyboard dismissal without stealing outside-pointer focus", () => {
+    expect(inlineCreateSource).toContain("TaxonomyInlineCreateCloseReason");
+    expect(inlineCreateSource).toContain('reason !== "outside-pointer"');
+    expect(inlineCreateSource).toContain("restoreTaxonomyTriggerFocus");
+    expect(taxonomyAddSource).toContain("restoreTaxonomyAddTriggerFocus");
+    expect(taxonomyAddSource).toContain('reason !== "outside-pointer"');
   });
 });

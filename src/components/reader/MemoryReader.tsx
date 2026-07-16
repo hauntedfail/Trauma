@@ -175,21 +175,27 @@ const readerSourceLinkClass =
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
     props.result.status === "ready" ? props.result : undefined;
+  const readyResultIdentity = () => {
+    const result = readyResult();
+    return result === undefined
+      ? undefined
+      : `${result.memory.id}\u0000${result.content.langCode ?? ""}`;
+  };
   const stateMessage = () =>
     props.result.status === "ready" ? "" : props.result.message;
 
   return (
     <Show
       keyed
-      when={readyResult()}
+      when={readyResultIdentity()}
       fallback={<ReaderState message={stateMessage()} />}
     >
-      {(result) => (
+      {(_identity) => (
         <ReadyMemoryReader
           categoryOptions={props.categoryOptions ?? []}
           flashbackRows={props.flashbackRows}
           navigate={props.navigate}
-          result={result}
+          result={readyResult()!}
           tagOptions={props.tagOptions ?? []}
           translationModel={props.translationModel}
           translationReasoningEffort={props.translationReasoningEffort}
@@ -297,6 +303,21 @@ function ReadyMemoryReader(props: {
     closeSelectionMenu();
     closeSectionMenu();
   };
+  const focusReaderContent = () => {
+    queueMicrotask(() => {
+      if (contentRef?.isConnected === true) {
+        contentRef.focus({ preventScroll: true });
+      }
+    });
+  };
+  const dismissSelectionMenu = () => {
+    closeSelectionMenu();
+    focusReaderContent();
+  };
+  const dismissSectionMenu = () => {
+    closeSectionMenu();
+    focusReaderContent();
+  };
   const resetTranslationFormToDefaults = () => {
     setTranslationFormLanguage(translationDefaultLanguage());
     setTranslationFormModel(translationDefaultModel());
@@ -324,14 +345,6 @@ function ReadyMemoryReader(props: {
     setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
-    setPendingMomentKey("");
-    setPendingSelectionKey("");
-    setErrorMessage("");
-    setTranslationProgress(undefined);
-    const activeTranslationEventSource = translationEventSource;
-    translationEventSource = undefined;
-    activeTranslationEventSource?.close();
-    closeReaderMenus();
   });
   createEffect(() => {
     setRightRailContent(
@@ -360,8 +373,13 @@ function ReadyMemoryReader(props: {
   onMount(() => {
     setIsReaderClientReady(true);
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (
+        event.key === "Escape" &&
+        (selectionMenu() !== undefined || sectionMenu() !== undefined)
+      ) {
+        event.preventDefault();
         closeReaderMenus();
+        focusReaderContent();
       }
     };
     const closeOnPointerDown = (event: PointerEvent) => {
@@ -1363,6 +1381,7 @@ function ReadyMemoryReader(props: {
                 menuRef={(element) => {
                   selectionMenuRef = element;
                 }}
+                onDismiss={dismissSelectionMenu}
                 position={menu().position}
               >
                 <button
@@ -1399,6 +1418,7 @@ function ReadyMemoryReader(props: {
                 menuRef={(element) => {
                   sectionMenuRef = element;
                 }}
+                onDismiss={dismissSectionMenu}
                 position={menu().position}
               >
                 <button
@@ -1473,7 +1493,7 @@ function ReaderTaxonomyChips(props: {
         kind="tag"
         mode="chips"
       />
-      <span class="relative inline-grid">
+      <div class="relative inline-grid">
         <TaxonomyAddControl
           attachedItems={props.tags}
           id={`memory-${props.memoryId}-tags-add`}
@@ -1483,7 +1503,7 @@ function ReaderTaxonomyChips(props: {
           onDetachName={props.onRemoveTag}
           onError={props.onTaxonomyError}
         />
-      </span>
+      </div>
     </div>
   );
 }
@@ -2145,22 +2165,100 @@ function ReaderContextMenu(props: {
   children: JSX.Element;
   label: string;
   menuRef: (element: HTMLDivElement) => void;
+  onDismiss: () => void;
   position: ReaderSelectionMenuPosition;
 }) {
   return (
     <div
-      ref={props.menuRef}
+      ref={(element) => {
+        props.menuRef(element);
+        queueMicrotask(() => {
+          if (
+            element.isConnected &&
+            !focusReaderToolbarButton(element, 0)
+          ) {
+            element.focus({ preventScroll: true });
+          }
+        });
+      }}
       aria-label={props.label}
+      aria-orientation="horizontal"
       class={readerContextMenuClass}
-      role="menu"
+      role="toolbar"
       style={{
         left: `${props.position.left}px`,
         top: `${props.position.top}px`,
+      }}
+      tabIndex={-1}
+      onFocusIn={(event) => {
+        if (event.target instanceof HTMLButtonElement) {
+          const buttons = getReaderToolbarButtons(event.currentTarget);
+          const focusedIndex = buttons.indexOf(event.target);
+          buttons.forEach((button, index) => {
+            button.tabIndex = index === focusedIndex ? 0 : -1;
+          });
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onDismiss();
+          return;
+        }
+        if (
+          event.key !== "ArrowRight" &&
+          event.key !== "ArrowLeft" &&
+          event.key !== "Home" &&
+          event.key !== "End"
+        ) {
+          return;
+        }
+
+        const buttons = getReaderToolbarButtons(event.currentTarget);
+        if (buttons.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+        const currentIndex = buttons.findIndex(
+          (button) => button === document.activeElement,
+        );
+        let nextIndex = 0;
+        if (event.key === "End") {
+          nextIndex = buttons.length - 1;
+        } else if (event.key === "ArrowRight") {
+          nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % buttons.length;
+        } else if (event.key === "ArrowLeft") {
+          nextIndex = currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1;
+        }
+        focusReaderToolbarButton(event.currentTarget, nextIndex);
       }}
     >
       {props.children}
     </div>
   );
+}
+
+function getReaderToolbarButtons(toolbar: HTMLDivElement): HTMLButtonElement[] {
+  return [...toolbar.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+}
+
+function focusReaderToolbarButton(
+  toolbar: HTMLDivElement,
+  index: number,
+): boolean {
+  const buttons = getReaderToolbarButtons(toolbar);
+  if (buttons.length === 0) {
+    return false;
+  }
+
+  const nextIndex = Math.min(Math.max(index, 0), buttons.length - 1);
+  buttons.forEach((button, buttonIndex) => {
+    button.tabIndex = buttonIndex === nextIndex ? 0 : -1;
+  });
+  buttons[nextIndex]?.focus({ preventScroll: true });
+  return true;
 }
 
 function ReaderRightRailContent(props: {
@@ -2554,7 +2652,7 @@ function ReaderToc(props: {
             class={`${readerTocScrollContent} relative m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
-            <div
+            <li
               class="trauma-toc-reading-band"
               classList={{
                 "trauma-toc-reading-band-animated": readingBandAnimated(),
@@ -2565,6 +2663,7 @@ function ReaderToc(props: {
                 height: `${readingBand().height}px`,
               }}
               aria-hidden="true"
+              role="presentation"
             />
             {props.toc.map((entry) => (
               <ReaderTocEntryRow
@@ -2704,7 +2803,7 @@ function ReaderTocEntryRow(props: {
       <button
         aria-label={`Moment ${props.entry.text}`}
         aria-pressed={props.active}
-        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
+        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
         title={props.active ? "Remove moment" : "Save moment"}
         disabled={props.pending}
         type="button"

@@ -12,6 +12,7 @@ import {
 
 const DEFAULT_READER_MEDIA_MAX_BYTES = 5_000_000;
 const DEFAULT_READER_MEDIA_TIMEOUT_MS = 10_000;
+const DEFAULT_READER_MEDIA_MAX_CONCURRENCY = 8;
 const MAX_READER_MEDIA_REDIRECTS = 5;
 const MAX_READER_MEDIA_URL_LENGTH = 8_192;
 const READER_MEDIA_ACCEPT = [
@@ -30,19 +31,67 @@ const ALLOWED_READER_MEDIA_TYPES = new Set([
 ]);
 
 export interface ReaderMediaRequestOptions {
+  concurrencyLimiter?: ReaderMediaConcurrencyLimiter;
   fetchAddress?: PinnedAddressFetch;
   maxBytes?: number;
   resolveHostname?: HostResolver;
   timeoutMs?: number;
 }
 
+export interface ReaderMediaConcurrencyLimiter {
+  tryAcquire: () => (() => void) | undefined;
+}
+
+export function createReaderMediaConcurrencyLimiter(
+  maximum: number,
+): ReaderMediaConcurrencyLimiter {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) {
+    throw new Error("reader media concurrency must be a positive integer");
+  }
+
+  let active = 0;
+  return {
+    tryAcquire() {
+      if (active >= maximum) {
+        return undefined;
+      }
+      active += 1;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          active -= 1;
+        }
+      };
+    },
+  };
+}
+
+const readerMediaConcurrencyLimiter = createReaderMediaConcurrencyLimiter(
+  DEFAULT_READER_MEDIA_MAX_CONCURRENCY,
+);
+
 export async function handleReaderMediaRequest(
   request: Request,
   options: ReaderMediaRequestOptions = {},
 ): Promise<Response> {
+  const browserBoundaryError = guardReaderMediaBrowserRequest(request);
+  if (browserBoundaryError !== undefined) {
+    return errorResponse(browserBoundaryError);
+  }
+
   const target = readTargetUrl(request);
   if (target instanceof ReaderMediaError) {
     return errorResponse(target);
+  }
+
+  const releaseConcurrency = (
+    options.concurrencyLimiter ?? readerMediaConcurrencyLimiter
+  ).tryAcquire();
+  if (releaseConcurrency === undefined) {
+    return errorResponse(
+      new ReaderMediaError(429, "reader media proxy is busy"),
+    );
   }
 
   const maxBytes = options.maxBytes ?? DEFAULT_READER_MEDIA_MAX_BYTES;
@@ -128,7 +177,24 @@ export async function handleReaderMediaRequest(
   } finally {
     clearTimeout(timeout);
     request.signal.removeEventListener("abort", abortForRequest);
+    releaseConcurrency();
   }
+}
+
+function guardReaderMediaBrowserRequest(
+  request: Request,
+): ReaderMediaError | undefined {
+  const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
+  if (fetchSite !== "same-origin") {
+    return new ReaderMediaError(403, "same-origin reader media request required");
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin !== null && origin !== new URL(request.url).origin) {
+    return new ReaderMediaError(403, "same-origin reader media request required");
+  }
+
+  return undefined;
 }
 
 interface FetchValidatedRedirectsInput {

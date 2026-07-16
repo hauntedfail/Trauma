@@ -9,6 +9,7 @@ interface PackageJson {
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
 const playwrightConfig = readFileSync("playwright.config.ts", "utf8");
+const appConfig = readFileSync("app.config.ts", "utf8");
 const devSmokeScript = readFileSync("scripts/dev-smoke.ts", "utf8");
 const envExample = readFileSync(".env.example", "utf8");
 
@@ -28,6 +29,15 @@ describe("runtime command contract", () => {
   it("runs Playwright's dev web server through Bun runtime", () => {
     expect(playwrightConfig).toContain("bun --bun x vinxi dev");
     expect(playwrightConfig).toContain("bun --bun .output/server/index.mjs");
+  });
+
+  it("never reuses an unverified server for destructive browser tests", () => {
+    expect(playwrightConfig).toContain("reuseExistingServer: false");
+    expect(playwrightConfig).not.toContain("reuseExistingServer: !process.env.CI");
+  });
+
+  it("runs trusted-host validation before application routing", () => {
+    expect(appConfig).toContain('middleware: "./src/middleware.ts"');
   });
 
   it("runs the smoke-check Vinxi child process through Bun runtime", () => {

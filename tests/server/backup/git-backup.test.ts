@@ -475,6 +475,105 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("isolates a poisoned retry candidate and continues with later memories", async () => {
+    const root = await makeRoot("trauma-git-backup-retry-isolation-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const poisonedMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef800";
+    const healthyContentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, healthyContentPath), "# Healthy retry\n", "utf8");
+    initializeGitRepository(projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath,
+        storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+      for (const candidate of [
+        { id: poisonedMemoryId, contentPath: "../outside/CONTENT.md" },
+        { id: memoryId, contentPath: healthyContentPath },
+      ]) {
+        await connection.repositories.memories.create({
+          id: candidate.id,
+          url: `https://example.com/${candidate.id}`,
+          title: candidate.id,
+          description: null,
+          faviconUrl: null,
+          contentPath: candidate.contentPath,
+          extractionStatus: "success",
+          extractionError: null,
+          backupStatus: "pending",
+          lastBackupAt: null,
+          lastBackupError: null,
+          createdAt: new Date(capturedAt),
+          updatedAt: new Date(capturedAt),
+        });
+      }
+      await connection.repositories.flashbacks.replaceForMemoryVariant({
+        memoryId,
+        variant: { kind: "source" },
+        flashbacks: [{
+          id: "retry-flashback",
+          memoryId,
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
+          text: "Healthy",
+          prefix: "",
+          suffix: " retry",
+          startOffset: 2,
+          endOffset: 9,
+          contentHash: null,
+          createdAt: new Date(capturedAt),
+          updatedAt: new Date(capturedAt),
+        }],
+      });
+    } finally {
+      connection.close();
+    }
+
+    const processed: Array<{ memoryId: string; flashbackExport: string }> = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({
+          memoryId: job.memoryId,
+          flashbackExport: await readFile(
+            join(storePath, "memories", job.memoryId, "FLASHBACKS.json"),
+            "utf8",
+          ),
+        });
+      },
+    });
+    await expect(queue.retryEligibleBackups()).resolves.toBe(1);
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      memoryId,
+      flashbackExport: expect.stringContaining("retry-flashback"),
+    }]);
+    const check = initializeDatabase(config);
+    try {
+      await expect(check.repositories.memories.findById(poisonedMemoryId))
+        .resolves.toMatchObject({
+          backupStatus: "failed",
+          lastBackupError: "backup retry scheduling failed",
+        });
+      await expect(check.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "success" });
+    } finally {
+      check.close();
+    }
+  });
+
   it("recovers a durable intent after simulated process loss without running an incomplete job", async () => {
     const root = await makeRoot("trauma-git-backup-intent-");
     const projectPath = join(root, "project");
@@ -663,6 +762,41 @@ describe("git memory backup queue", () => {
     ).rejects.toThrow(
       "memory deletion backups must run synchronously before deleting the memory row",
     );
+  });
+
+  it("redacts credentials before persisting backup worker failures", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    const credential = ["worker", "credential"].join("-");
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async () => {
+        throw new Error(
+          `git push failed for https://backup-user:${credential}@example.com/private.git token=${credential}`,
+        );
+      },
+    });
+
+    await queue.enqueue({
+      memoryId,
+      contentPaths: [contentPath],
+      reason: "memory_creation",
+    });
+    await queue.drain();
+
+    const connection = initializeDatabase(config);
+    try {
+      const stored = await connection.repositories.memories.findById(memoryId);
+      expect(stored?.lastBackupError).toContain("[redacted]");
+      expect(stored?.lastBackupError).not.toContain(credential);
+      expect(stored?.lastBackupError?.length).toBeLessThanOrEqual(4_096);
+    } finally {
+      connection.close();
+    }
   });
 
   it("marks backup failure without removing the memory row or markdown content", async () => {

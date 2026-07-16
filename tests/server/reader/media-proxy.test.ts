@@ -1,16 +1,44 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   HostResolver,
   PinnedAddressFetch,
 } from "../../../src/server/importer";
 import {
+  createReaderMediaConcurrencyLimiter,
   handleReaderMediaRequest,
 } from "../../../src/server/reader/media-proxy";
 
 const publicAddress = "93.184.216.34";
 
 describe("reader media proxy", () => {
+  it("rejects cross-site browser requests before outbound work", async () => {
+    let resolverCalls = 0;
+    let fetchCalls = 0;
+    const response = await handleReaderMediaRequest(
+      createRequest("https://cdn.example.test/image.png", {
+        headers: {
+          origin: "https://attacker.example",
+          "sec-fetch-site": "cross-site",
+        },
+      }),
+      {
+        fetchAddress: async () => {
+          fetchCalls += 1;
+          return imageResponse();
+        },
+        resolveHostname: async () => {
+          resolverCalls += 1;
+          return [publicAddress];
+        },
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(resolverCalls).toBe(0);
+    expect(fetchCalls).toBe(0);
+  });
+
   it("fetches a raster image through a pinned public address without cookies", async () => {
     const fetchAddress: PinnedAddressFetch = async (url, address, init) => {
       expect(url.toString()).toBe("https://cdn.example.test/image.png");
@@ -281,14 +309,56 @@ describe("reader media proxy", () => {
     expect(response.status).toBe(499);
     expect(fetchCalls).toBe(0);
   });
+
+  it("rejects excess concurrent fetches without creating an unbounded queue", async () => {
+    const limiter = createReaderMediaConcurrencyLimiter(1);
+    let releaseFetch: (() => void) | undefined;
+    let fetchCalls = 0;
+    const firstResponse = handleReaderMediaRequest(
+      createRequest("https://cdn.example.test/first.png"),
+      {
+        concurrencyLimiter: limiter,
+        fetchAddress: async () => {
+          fetchCalls += 1;
+          await new Promise<void>((resolve) => {
+            releaseFetch = resolve;
+          });
+          return imageResponse();
+        },
+        resolveHostname: publicResolver,
+      },
+    );
+
+    await vi.waitFor(() => expect(fetchCalls).toBe(1));
+    const busyResponse = await handleReaderMediaRequest(
+      createRequest("https://cdn.example.test/second.png"),
+      {
+        concurrencyLimiter: limiter,
+        fetchAddress: async () => {
+          fetchCalls += 1;
+          return imageResponse();
+        },
+        resolveHostname: publicResolver,
+      },
+    );
+
+    expect(busyResponse.status).toBe(429);
+    expect(fetchCalls).toBe(1);
+    releaseFetch?.();
+    expect((await firstResponse).status).toBe(200);
+  });
 });
 
 const publicResolver: HostResolver = async () => [publicAddress];
 
 function createRequest(target: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("sec-fetch-site")) {
+    headers.set("sec-fetch-site", "same-origin");
+  }
   return new Request(
     `http://localhost/api/reader-media?url=${encodeURIComponent(target)}`,
-    init,
+    { ...init, headers },
   );
 }
 

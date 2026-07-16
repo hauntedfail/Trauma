@@ -324,7 +324,7 @@ test("keeps browse read-status toggles from opening the memory row", async ({
     };
 
     expect(body).toMatchObject({
-      memoryId: "memory-foundation",
+      memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
       read: true,
     });
     await route.fulfill({
@@ -351,13 +351,13 @@ test("keeps browse read-status toggles from opening the memory row", async ({
   expect(readStatusRequestCount).toBe(1);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
-  await page.waitForLoadState("networkidle");
 });
 
 test("deletes a memory from the browse list through the public DELETE route", async ({
   page,
 }) => {
-  createBrowseDeleteFixture();
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  createBrowseDeleteFixture(memoryId);
   await page.goto("/memories");
 
   const deletedMemoryLink = page.getByRole("link", {
@@ -371,7 +371,7 @@ test("deletes a memory from the browse list through the public DELETE route", as
   });
   const deleteResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/memories/memory-foundation") &&
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
       response.request().method() === "DELETE",
   );
   await page
@@ -732,7 +732,7 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await page
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .click();
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
@@ -741,12 +741,12 @@ test("does not navigate shell and result links to the catch-all route", async ({
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .focus();
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
 
   await page.goto("/flashbacks");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
-  await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901#h-foundation$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
 });
@@ -822,7 +822,7 @@ test("supports vim-like keyboard operation on the memories browse route", async 
   await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
 
   await page.keyboard.press("l");
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
@@ -843,7 +843,7 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(flashbacksComposer).toHaveCount(0);
   await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
 
-  await page.goto("/memories/memory-foundation");
+  await page.goto("/memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901");
   const readerAddButton = page.getByRole("button", { name: "Add memory" });
   await expect(readerAddButton).toHaveAttribute("aria-expanded", "false");
   await expect(readerAddButton).toHaveAttribute("aria-pressed", "false");
@@ -855,12 +855,67 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
+test("moves focus through shared dialogs and menus and returns it to the opener", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const themeTrigger = page.getByRole("button", { name: "Theme" });
+  await themeTrigger.click();
+
+  const themeDialog = page.getByRole("dialog", { name: "Theme settings" });
+  await expect(themeDialog).toBeVisible();
+  await expect(themeDialog.getByRole("button", { name: "Sun" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(themeDialog).toHaveCount(0);
+  await expect(themeTrigger).toBeFocused();
+
+  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const menuTrigger = readerRow.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await menuTrigger.click();
+
+  const menu = page.getByRole("menu", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(menu).toBeVisible();
+  const deleteItem = menu.getByRole("menuitem", { name: "Delete memory" });
+  const categoryItem = menu.getByRole("menuitem", { name: "Add category" });
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(categoryItem).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(menuTrigger).toBeFocused();
+});
+
+test("returns taxonomy creation focus after keyboard dismissal", async ({ page }) => {
+  await page.goto("/memories");
+
+  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const addTagTrigger = readerRow.getByRole("button", { name: "Add tag" });
+  await addTagTrigger.click();
+
+  const tagDialog = page.getByRole("dialog", { name: "Add tag" });
+  await expect(tagDialog).toBeVisible();
+  const newTagButton = tagDialog.getByRole("button", { name: "New tag" });
+  await newTagButton.click();
+
+  const newTagInput = readerRow.getByRole("textbox", { name: "New tag" });
+  await expect(newTagInput).toBeFocused();
+  await newTagInput.press("Escape");
+  await expect(newTagInput).toHaveCount(0);
+  await expect(addTagTrigger).toBeFocused();
+});
+
 test("closes the add-memory composer on outside row clicks without opening memory actions", async ({
   page,
 }) => {
   createBrowseDeleteFixture();
   await page.goto("/memories");
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
@@ -870,7 +925,6 @@ test("closes the add-memory composer on outside row clicks without opening memor
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
@@ -893,7 +947,6 @@ test("does not suppress the next normal click after an outside right-click dismi
   page,
 }) => {
   await page.goto("/memories");
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
@@ -904,7 +957,7 @@ test("does not suppress the next normal click after an outside right-click dismi
 
   await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
   await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
@@ -1001,7 +1054,7 @@ async function readPaperShellMaterial(page: Page) {
   });
 }
 
-function createBrowseDeleteFixture(): void {
+function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901"): void {
   runBunFixtureScript(`
         import { mkdir, rm, writeFile } from "node:fs/promises";
         import { dirname, join } from "node:path";
@@ -1009,7 +1062,7 @@ function createBrowseDeleteFixture(): void {
         import { initializeDatabase } from "./src/server/db/connection.ts";
 
         const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-        const memoryId = "memory-foundation";
+        const memoryId = ${JSON.stringify(memoryId)};
         const now = new Date("2026-05-09T00:00:00.000Z");
         const config = {
           storePath: "./project/store",

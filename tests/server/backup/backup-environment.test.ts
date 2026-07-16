@@ -10,6 +10,7 @@ import {
   assertBackupEnvironmentReady,
   ensureBackupEnvironment,
   getBackupFailsafeStatus,
+  redactOperationalError,
   recordBackupPushFailureAlert,
 } from "../../../src/server/backup/environment";
 import { initializeDatabase } from "../../../src/server/db";
@@ -100,6 +101,17 @@ describe("backup environment failsafe", () => {
     } finally {
       check.close();
     }
+  });
+
+  it("redacts credentials before bounding long operational errors", () => {
+    const credential = "s".repeat(4_096);
+    const redacted = redactOperationalError(
+      `fatal: https://backup-user:${credential}@example.com/private.git`,
+    );
+
+    expect(redacted.length).toBeLessThanOrEqual(4_096);
+    expect(redacted).toContain("https://[redacted]@example.com/private.git");
+    expect(redacted).not.toContain(credential.slice(0, 64));
   });
 
   it("creates a critical alert when existing content has no trusted stamp", async () => {
@@ -286,6 +298,76 @@ describe("backup environment failsafe", () => {
         currentStorePath: config.storePath,
         error: expect.stringContaining("memory-1"),
       });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("checks backup identity after a journaled missing file is marked pending", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        ...createMemoryRow(),
+        backupStatus: "success",
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.memories.updateBackupStatus({
+        id: "memory-1",
+        backupStatus: "pending",
+        lastBackupAt: null,
+        lastBackupError: null,
+        updatedAt: now,
+      });
+
+      await expect(assertBackupEnvironmentReady({
+        config,
+        db: connection.db,
+      })).resolves.toBeUndefined();
+      await expect(
+        connection.repositories.backupEnvironment.getBackupFailsafeAlert(),
+      ).resolves.toBeUndefined();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rejects deletion recovery when the checked-out backup branch drifted", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: now,
+        updatedAt: now,
+      });
+      runGit(config.projectPath, ["symbolic-ref", "HEAD", "refs/heads/other"]);
+
+      await expect(assertBackupEnvironmentReady({
+        config,
+        db: connection.db,
+      })).rejects.toBeInstanceOf(BackupEnvironmentFailsafeError);
     } finally {
       connection.close();
     }

@@ -2,10 +2,12 @@ import { createEffect, onCleanup } from "solid-js";
 
 const activeLayerIds: symbol[] = [];
 
+export type DismissableLayerDismissReason = "escape" | "outside-pointer";
+
 export interface DismissableLayerOptions<TRoot extends HTMLElement> {
   getRoot: () => TRoot | undefined;
   isEnabled?: () => boolean;
-  onDismiss: () => void;
+  onDismiss: (reason: DismissableLayerDismissReason) => void;
   shouldIgnoreOutsidePointerDown?: (target: EventTarget | null) => boolean;
   shouldSuppressOutsideClick?: (target: EventTarget | null) => boolean;
 }
@@ -61,11 +63,12 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       ) {
         armOutsideClickSuppression();
       }
-      options.onDismiss();
+      options.onDismiss("outside-pointer");
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isTopmostLayer()) {
-        options.onDismiss();
+        event.preventDefault();
+        options.onDismiss("escape");
       }
     };
 

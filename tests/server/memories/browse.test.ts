@@ -50,7 +50,7 @@ describe("browse memory loader error policy", () => {
 
     expect(firstPage).toMatchObject({
       memories: [
-        { id: "memory-foundation", flashbacks: [] },
+        { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901", flashbacks: [] },
         { id: "memory-ops", flashbacks: [] },
       ],
       nextCursor: { createdAt: "2026-05-08", id: "memory-ops" },

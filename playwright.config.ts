@@ -22,7 +22,9 @@ export default defineConfig({
       TRAUMA_E2E_IMPORT_FIXTURES: "1",
       TRAUMA_HMR_PORT: String(hmrBasePort),
     },
-    reuseExistingServer: !process.env.CI,
+    // This suite mutates its fixture database and must never attach to an
+    // arbitrary process that happens to own the test port.
+    reuseExistingServer: false,
     timeout: 120_000,
     url: baseURL,
   },

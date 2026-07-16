@@ -257,6 +257,24 @@ describe("memory reader actions", () => {
     );
   });
 
+  it("preserves reader-local UI state across same-identity revalidation", () => {
+    expect(memoryReaderSource).toContain("const readyResultIdentity = () =>");
+    expect(memoryReaderSource).toContain("when={readyResultIdentity()}");
+    expect(memoryReaderSource).toContain("result={readyResult()!}");
+    expect(memoryReaderSource).not.toContain("when={readyResult()}");
+    const resultSyncStart = memoryReaderSource.indexOf(
+      "  createEffect(() => {\n    readerGenerationGuard.activate({",
+    );
+    const resultSyncEnd = memoryReaderSource.indexOf(
+      "  createEffect(() => {",
+      resultSyncStart + 1,
+    );
+    const resultSync = memoryReaderSource.slice(resultSyncStart, resultSyncEnd);
+    expect(resultSync).toContain("setCurrentFlashbacks");
+    expect(resultSync).not.toContain("setTranslationProgress");
+    expect(resultSync).not.toContain("translationEventSource");
+  });
+
   it("treats terminal translation snapshots as terminal SSE progress", () => {
     expect(memoryReaderSource).toContain("TERMINAL_TRANSLATION_SNAPSHOT_STATUSES");
     expect(memoryReaderSource).toContain("isCompletedTranslationEnvelope(envelope)");
@@ -522,6 +540,19 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain("onSubmit={submitTranslationDialog(close)}");
     expect(memoryReaderSource).not.toContain(
       'class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"',
+    );
+  });
+
+  it("uses valid keyboard-operable reader action and TOC semantics", () => {
+    expect(memoryReaderSource).toContain('role="toolbar"');
+    expect(memoryReaderSource).toContain('aria-orientation="horizontal"');
+    expect(memoryReaderSource).toContain("focusReaderToolbarButton");
+    expect(memoryReaderSource).toContain('event.key === "ArrowRight"');
+    expect(memoryReaderSource).toContain('event.key === "ArrowLeft"');
+    expect(memoryReaderSource).toContain("focus-visible:opacity-100");
+    expect(memoryReaderSource).toContain('role="presentation"');
+    expect(memoryReaderSource).not.toMatch(
+      /<div\s+class="trauma-toc-reading-band"/,
     );
   });
 

@@ -39,6 +39,67 @@ afterEach(async () => {
 });
 
 describe("delete memory service", () => {
+  it("refuses to delete content owned by a different memory row", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    const otherMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef992";
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: otherMemoryId,
+      frontmatter: {
+        id: otherMemoryId,
+        url: "https://example.com/other",
+        title: "Other memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Other memory\n\nMust remain.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: otherMemoryId,
+        url: "https://example.com/other",
+        title: "Other memory",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${otherMemoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        read: false,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+      connection.sqlite
+        .prepare("update memories set content_path = ? where id = ?")
+        .run(`memories/${otherMemoryId}/CONTENT.md`, routeMemoryId);
+
+      await expect(deleteMemory({
+        config,
+        db: connection.db,
+        memoryId: routeMemoryId,
+      })).resolves.toEqual({
+        status: "failed",
+        error: "memory content path is not owned by the requested memory",
+      });
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id in (?, ?)")
+          .get(routeMemoryId, otherMemoryId),
+      ).toEqual({ count: 2 });
+    } finally {
+      connection.close();
+    }
+    await expect(readFile(
+      join(config.storePath, "memories", otherMemoryId, "CONTENT.md"),
+      "utf8",
+    )).resolves.toContain("Must remain.");
+  });
+
   it("queues deleted memory content and Flashback export paths for git backup", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));

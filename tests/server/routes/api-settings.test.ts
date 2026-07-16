@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
+import { DELETE as deleteCodexAuth } from "../../../src/routes/api/settings/codex-auth";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
 import { MAX_MUTATION_JSON_BODY_BYTES } from "../../../src/server/http/mutation-request";
@@ -522,14 +523,17 @@ describe("settings API routes", () => {
 
   it("returns a safe error when deleting Codex auth without app-server access", async () => {
     await useTempRouteConfig();
-    const deleted = await deleteOpenAiAuth(
-      apiEvent("/api/settings/openai-auth", "DELETE"),
-    );
+    const deleted = await Promise.all([
+      deleteOpenAiAuth(apiEvent("/api/settings/openai-auth", "DELETE")),
+      deleteCodexAuth(apiEvent("/api/settings/codex-auth", "DELETE")),
+    ]);
 
-    expect(deleted.status).toBe(500);
-    expect(await deleted.json()).toEqual({
-      error: "Codex app-server is unavailable.",
-    });
+    for (const response of deleted) {
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body).toEqual({ error: "Codex app-server is unavailable." });
+      expect(JSON.stringify(body)).not.toContain("missing-codex-app-server.sock");
+    }
   });
 });
 

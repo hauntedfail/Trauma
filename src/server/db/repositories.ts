@@ -158,6 +158,11 @@ export interface FlashbackBrowseCursor {
   id: string;
 }
 
+export interface MomentBrowseCursor {
+  createdAt: Date;
+  id: string;
+}
+
 export interface MomentBrowseRow {
   id: string;
   memoryId: string;
@@ -262,7 +267,6 @@ export interface FlashbackRepository {
     variant: FlashbackVariant;
     flashbacks: Flashback[];
   }) => Promise<Flashback[]>;
-  listForBrowse: () => Promise<FlashbackBrowseRow[]>;
   listRecentForBrowse: (input: {
     cursor?: FlashbackBrowseCursor | null;
     limit: number;
@@ -277,7 +281,10 @@ export interface MomentRepository {
   ) => Promise<{ moment: Moment; alreadyExists: boolean }>;
   deleteById: (momentId: string) => Promise<boolean>;
   listForMemory: (memoryId: string) => Promise<Moment[]>;
-  listForBrowse: () => Promise<MomentBrowseRow[]>;
+  listPageForBrowse: (input: {
+    cursor?: MomentBrowseCursor | null;
+    limit: number;
+  }) => Promise<MomentBrowseRow[]>;
 }
 
 export type TranslationJobRecord = Omit<TranslationJob, "error"> & {
@@ -669,7 +676,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           where: eq(schema.moments.memoryId, memoryId),
           orderBy: [desc(schema.moments.createdAt)],
         }),
-      listForBrowse: async () => {
+      listPageForBrowse: async (input) => {
         const rows = await db
           .select({
             id: schema.moments.id,
@@ -690,7 +697,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             schema.memories,
             eq(schema.moments.memoryId, schema.memories.id),
           )
-          .orderBy(desc(schema.moments.createdAt));
+          .where(buildMomentBrowseCursorWhere(input.cursor ?? null))
+          .orderBy(desc(schema.moments.createdAt), desc(schema.moments.id))
+          .limit(normalizeBrowseLimit(input.limit));
 
         return rows.map((row) => ({
           ...row,
@@ -714,12 +723,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         listFlashbacksForMemoryVariant(db, input),
       replaceForMemoryVariant: async (input) =>
         replaceFlashbacksForMemoryVariant(db, input),
-      listForBrowse: async () => {
-        const rows = await selectFlashbackBrowseRows(db)
-          .orderBy(desc(schema.flashbacks.createdAt));
-
-        return rows.map(formatFlashbackBrowseRow);
-      },
       listRecentForBrowse: async (input) => {
         const rows = await selectFlashbackBrowseRows(db)
           .where(buildFlashbackBrowseCursorWhere(input.cursor ?? null))
@@ -1830,6 +1833,24 @@ function buildFlashbackBrowseCursorWhere(
       and(
         eq(schema.flashbacks.createdAt, cursor.createdAt),
         lt(schema.flashbacks.id, cursor.id),
+      ),
+    ) ?? sql`0 = 1`
+  );
+}
+
+function buildMomentBrowseCursorWhere(
+  cursor: MomentBrowseCursor | null,
+): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+
+  return (
+    or(
+      lt(schema.moments.createdAt, cursor.createdAt),
+      and(
+        eq(schema.moments.createdAt, cursor.createdAt),
+        lt(schema.moments.id, cursor.id),
       ),
     ) ?? sql`0 = 1`
   );

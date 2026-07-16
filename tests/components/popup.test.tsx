@@ -64,4 +64,16 @@ describe("popup shell", () => {
     expect(popupSource).toContain("animate-trauma-pop-bounce");
     expect(popupSource).toContain("shadow-trauma-2");
   });
+
+  it("owns focus transfer, focus return, and the menu keyboard model", () => {
+    expect(popupSource).toContain("focusPopupPanel");
+    expect(popupSource).toContain("restorePopupTriggerFocus");
+    expect(popupSource).toContain('event.key === "ArrowDown"');
+    expect(popupSource).toContain('event.key === "ArrowUp"');
+    expect(popupSource).toContain('event.key === "Home"');
+    expect(popupSource).toContain('event.key === "End"');
+    expect(popupSource).toContain('reason === "escape"');
+    expect(popupSource).toContain("<div ref={rootRef}");
+    expect(popupSource).not.toContain("<span ref={rootRef}");
+  });
 });

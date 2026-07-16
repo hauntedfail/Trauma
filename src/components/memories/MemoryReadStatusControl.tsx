@@ -126,7 +126,9 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
         <ShowVisibleReadStatusLabels compact={props.compact} read={read()} variant={props.variant ?? "label"} />
       </button>
       {error() !== "" ? (
-        <span class="text-xs font-bold text-trauma-danger">{error()}</span>
+        <span class="text-xs font-bold text-trauma-danger" role="alert">
+          {error()}
+        </span>
       ) : null}
     </span>
   );

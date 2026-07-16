@@ -18,7 +18,6 @@ import {
   validateTagName,
 } from "../../taxonomy/name-policy";
 import {
-  KebabIcon,
   HermesIcon,
   LockIcon,
   MoonIcon,
@@ -543,20 +542,25 @@ function NavigationContent(props: {
         onCreated={props.onNavigate}
         popoverId="rail-add-memory-composer"
       />
-      <button type="button" class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)_20px] items-center gap-2.5 rounded-full bg-transparent px-3 py-2.5 text-left text-trauma-text-primary transition hover:bg-trauma-bg-tint max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0" aria-label="Local archive" title="Local archive">
-        <span class={`${railIconSlot} rounded-full bg-trauma-accent-soft`}>
-          <TraumaMark size={26} />
-        </span>
-        <span class="min-w-0 max-[1040px]:sr-only">
-          <strong class="flex items-center gap-1 text-sm text-trauma-text-primary">
-            Local archive <LockIcon />
-          </strong>
-          <small class="block truncate text-xs text-trauma-text-muted">./data/storage</small>
-        </span>
-        <span class="max-[1040px]:hidden">
-          <KebabIcon size={16} />
-        </span>
-      </button>
+      <LocalArchiveStatus />
+    </div>
+  );
+}
+
+function LocalArchiveStatus() {
+  return (
+    <div class="mt-auto grid min-h-[60px] grid-cols-[40px_minmax(0,1fr)] items-center gap-2.5 rounded-full px-3 py-2.5 text-trauma-text-primary max-[1040px]:mx-auto max-[1040px]:size-12 max-[1040px]:grid-cols-1 max-[1040px]:justify-items-center max-[1040px]:px-0">
+      <span class={`${railIconSlot} rounded-full bg-trauma-accent-soft`}>
+        <TraumaMark size={26} />
+      </span>
+      <span class="min-w-0 max-[1040px]:sr-only">
+        <strong class="flex items-center gap-1 text-sm text-trauma-text-primary">
+          Local archive <LockIcon />
+        </strong>
+        <small class="block truncate text-xs text-trauma-text-muted">
+          ./data/storage
+        </small>
+      </span>
     </div>
   );
 }
@@ -766,7 +770,9 @@ function RightRailTaxonomyList(props: {
         />
       </div>
       <Show when={error() !== ""}>
-        <p class="mb-0 text-xs font-bold text-trauma-danger">{error()}</p>
+        <p class="mb-0 text-xs font-bold text-trauma-danger" role="alert">
+          {error()}
+        </p>
       </Show>
     </div>
   );

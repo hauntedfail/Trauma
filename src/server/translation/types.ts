@@ -81,6 +81,7 @@ export type TranslationErrorCode =
   | "missing_source_content"
   | "auth_required"
   | "setup_required"
+  | "runtime_isolation_required"
   | "app_server_unavailable"
   | "app_server_protocol_error"
   | "stale_source"

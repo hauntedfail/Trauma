@@ -19,6 +19,7 @@ import type {
 import {
   TaxonomyInlineCreateControl,
   normalizeTaxonomyAddName,
+  type TaxonomyInlineCreateCloseReason,
 } from "./TaxonomyInlineCreateControl";
 
 export interface TaxonomyAddControlProps {
@@ -43,7 +44,7 @@ const optionClass =
   "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink hover:border-trauma-border-strong hover:text-trauma-text-primary aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink";
 
 export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
-  let rootRef: HTMLSpanElement | undefined;
+  let rootRef: HTMLDivElement | undefined;
   const [inlineInputOpen, setInlineInputOpen] = createSignal(false);
   const [pendingName, setPendingName] = createSignal("");
   const orderedOptions = createMemo(() =>
@@ -52,8 +53,13 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   const label = createMemo(() => getTaxonomyAddLabel(props.kind));
   const newLabel = createMemo(() => getTaxonomyNewLabel(props.kind));
   const triggerClass = createMemo(() => props.triggerClass ?? addTaxonomyPillClass);
-  const cancelInlineInput = (): void => {
+  const cancelInlineInput = (
+    reason?: TaxonomyInlineCreateCloseReason,
+  ): void => {
     setInlineInputOpen(false);
+    if (reason !== "outside-pointer") {
+      restoreTaxonomyAddTriggerFocus(rootRef);
+    }
   };
 
   const attachExistingOption = async (
@@ -101,18 +107,15 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
     const existingOption = findTaxonomyOptionByName(props.options, name);
     if (existingOption !== undefined) {
       if (isTaxonomyNameAttached(props.attachedItems, existingOption)) {
-        cancelInlineInput();
         return;
       }
       await attachExistingOption(existingOption);
-      cancelInlineInput();
       return;
     }
 
     setPendingName(name);
     try {
       await props.onAttachName(name);
-      cancelInlineInput();
     } catch (error) {
       props.onError?.(readTaxonomyAddError(error));
     } finally {
@@ -129,7 +132,7 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   };
 
   return (
-    <span ref={rootRef} class="relative inline-grid">
+    <div ref={rootRef} class="relative inline-grid">
       <Show
         when={inlineInputOpen()}
         fallback={
@@ -205,17 +208,30 @@ export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
           label={newLabel()}
           open={inlineInputOpen()}
           onError={props.onError}
-          onOpenChange={(open) => {
+          onOpenChange={(open, reason) => {
             if (!open) {
-              cancelInlineInput();
+              cancelInlineInput(reason);
             }
           }}
           onSubmitName={submitInlineInput}
           validateName={props.kind === "tag" ? readTagNameValidationError : undefined}
         />
       </Show>
-    </span>
+    </div>
   );
+}
+
+function restoreTaxonomyAddTriggerFocus(
+  root: HTMLDivElement | undefined,
+): void {
+  queueMicrotask(() => {
+    const trigger = root?.querySelector<HTMLButtonElement>(
+      "[data-taxonomy-create-trigger]",
+    );
+    if (trigger?.isConnected === true && !trigger.disabled) {
+      trigger.focus({ preventScroll: true });
+    }
+  });
 }
 
 export { normalizeTaxonomyAddName };

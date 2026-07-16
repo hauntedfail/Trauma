@@ -10,6 +10,7 @@ import { createRepositories, type TraumaRepositories } from "./repositories";
 import * as schema from "./schema";
 
 const require = createRequire(import.meta.url);
+export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 
 type BunDatabaseConstructor = typeof import("bun:sqlite").Database;
 
@@ -35,6 +36,7 @@ export function initializeDatabase(
   const sqlite = new Database(config.databasePath, { create: true });
   try {
     sqlite.run("PRAGMA foreign_keys = ON;");
+    sqlite.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
     sqlite.run("PRAGMA journal_mode = WAL;");
 
     const db = createDrizzleDatabase(sqlite);

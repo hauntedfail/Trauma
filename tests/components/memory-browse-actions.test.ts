@@ -10,8 +10,12 @@ import {
   detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
   MemoryItem,
+  settleCurrentBrowsePageRequest,
 } from "../../src/components/memories/MemoryBrowse";
-import type { BrowseMemory } from "../../src/components/memories/browse-data";
+import type {
+  BrowseMemory,
+  BrowseMemoryPage,
+} from "../../src/components/memories/browse-data";
 
 const memory = {
   id: "memory-1",
@@ -357,6 +361,34 @@ describe("memory browse actions", () => {
     expect(loadNextPageSource).not.toContain("throw error");
   });
 
+  it("ignores every stale load-more completion path", async () => {
+    const staleSuccess = createDeferred<BrowseMemoryPage>();
+    const staleFailure = createDeferred<BrowseMemoryPage>();
+    const events: string[] = [];
+    let current = true;
+    const callbacks = {
+      isCurrent: () => current,
+      onError: () => events.push("error"),
+      onPage: () => events.push("page"),
+      onSettled: () => events.push("settled"),
+    };
+
+    const successRequest = settleCurrentBrowsePageRequest({
+      ...callbacks,
+      loadPage: () => staleSuccess.promise,
+    });
+    const failureRequest = settleCurrentBrowsePageRequest({
+      ...callbacks,
+      loadPage: () => staleFailure.promise,
+    });
+    current = false;
+    staleSuccess.resolve({ memories: [], nextCursor: null });
+    staleFailure.reject(new Error("stale failure"));
+
+    await Promise.all([successRequest, failureRequest]);
+    expect(events).toEqual([]);
+  });
+
   it("clears appended pages after card mutations revalidate browse data", () => {
     expect(browseSource).toContain("clearAdditionalBrowsePages");
     expect(browseSource).toContain("onMemoryMutated={clearAdditionalBrowsePages}");
@@ -440,3 +472,22 @@ describe("memory browse actions", () => {
     expect(isBackupFailsafeMemoryActionError(caught)).toBe(true);
   });
 });
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let rejectPromise: ((error: unknown) => void) | undefined;
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    rejectPromise = reject;
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    reject: (error) => rejectPromise?.(error),
+    resolve: (value) => resolvePromise?.(value),
+  };
+}

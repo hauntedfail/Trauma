@@ -94,7 +94,10 @@ describe("toggleMemoryFlashback", () => {
             },
             config,
             db: connection.db,
-            backupQueue: { enqueue: async () => ({ backupStatus: "disabled" }) },
+            backupQueue: {
+              persistIntent: async () => ({ backupStatus: "disabled" }),
+              enqueue: async () => ({ backupStatus: "disabled" }),
+            },
             generateId: () => "translated-created",
             now: () => now,
           });
@@ -201,7 +204,12 @@ describe("toggleMemoryFlashback", () => {
         };
         const connection = initializeDatabase(config);
         const enqueuedJobs = [];
+        const persistedJobs = [];
         const backupQueue = {
+          persistIntent: async (job) => {
+            persistedJobs.push(job);
+            return { backupStatus: "pending" };
+          },
           enqueue: async (job) => {
             const contentPaths = job.contentPaths ?? (job.contentPath === undefined ? [] : [job.contentPath]);
             const contents = await Promise.all(
@@ -338,6 +346,7 @@ describe("toggleMemoryFlashback", () => {
             rowsAfterRemove,
             exportAfterRemove,
             enqueuedJobs,
+            persistedJobs,
             memory,
             staleError,
           }));
@@ -410,6 +419,22 @@ describe("toggleMemoryFlashback", () => {
           "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
         ],
         containsMarkedContent: false,
+      },
+    ]);
+    expect(result.persistedJobs).toEqual([
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "flashback_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "flashback_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
+        ],
       },
     ]);
     expect(result.memory).toEqual({ backup_status: "queued" });
@@ -495,6 +520,7 @@ describe("toggleMemoryFlashback", () => {
             config,
             db: connection.db,
             backupQueue: {
+              persistIntent: async () => ({ backupStatus: "pending" }),
               enqueue: async () => ({ backupStatus: "queued" }),
             },
             generateId: () => "flashback-rendered",
@@ -628,6 +654,7 @@ describe("toggleMemoryFlashback", () => {
               config,
               db: connection.db,
               backupQueue: {
+                persistIntent: async () => ({ backupStatus: "pending" }),
                 enqueue: async () => {
                   throw new Error("queue offline");
                 },
@@ -774,6 +801,7 @@ describe("toggleMemoryFlashback", () => {
               config,
               db: connection.db,
               backupQueue: {
+                persistIntent: async () => ({ backupStatus: "pending" }),
                 enqueue: async () => ({ backupStatus: "disabled" }),
               },
               generateId: () => "flashback-new",

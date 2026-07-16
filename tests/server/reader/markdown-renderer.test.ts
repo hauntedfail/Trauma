@@ -1,8 +1,36 @@
-import { describe, expect, it } from "vitest";
+import hljs from "highlight.js";
+import { describe, expect, it, vi } from "vitest";
 
 import { renderMemoryMarkdown } from "../../../src/server/reader/markdown-renderer";
 
 describe("renderMemoryMarkdown", () => {
+  it("renders oversized and unknown code as escaped plain text", () => {
+    const highlight = vi.spyOn(hljs, "highlight");
+    const highlightAuto = vi.spyOn(hljs, "highlightAuto");
+    const oversized = `<script>${"x".repeat(20_000)}&`;
+
+    try {
+      const result = renderMemoryMarkdown([
+        "```ts",
+        oversized,
+        "```",
+        "",
+        "```unknown-reader-language",
+        "<unknown>&",
+        "```",
+      ].join("\n"));
+
+      expect(highlight).not.toHaveBeenCalled();
+      expect(highlightAuto).not.toHaveBeenCalled();
+      expect(result.html).toContain("&lt;script&gt;");
+      expect(result.html).toContain("&lt;unknown&gt;&amp;");
+      expect(result.html).not.toContain("<script>");
+    } finally {
+      highlight.mockRestore();
+      highlightAuto.mockRestore();
+    }
+  });
+
   it("renders curated markdown features and table of contents", () => {
     const result = renderMemoryMarkdown([
       "# Reader Title",

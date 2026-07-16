@@ -15,6 +15,7 @@ const STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS = 1779449500000;
 const MEMORY_BROWSE_PAGINATION_MIGRATION_FOLDER_MILLIS = 1779955000000;
 const SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS = 1784221790920;
 const MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS = 1784223792512;
+const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -483,7 +484,52 @@ describe("db foundation", () => {
     expect(output).not.toContain("migration-secret");
   });
 
-+  it("deterministically reconciles legacy Moment path duplicates before enforcing identity", () => {
+  it("scrubs legacy per-memory backup diagnostics", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          const migrations = readBundledMigrations();
+          const previous = migrations.filter(
+            (migration) => migration.folderMillis < ${SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS},
+          );
+          applyRuntimeMigrations(sqlite, previous, "bundled");
+          const credential = ["migration", "credential"].join("-");
+          const now = Date.now();
+          sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, last_backup_error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("memory-secret", "https://example.com", "Secret", "memories/memory-secret/CONTENT.md", "success", "failed", "fatal https://user:" + credential + "@example.com/repo.git", now, now);
+          sqlite.prepare("insert into backup_environment_stamps (id, project_path, store_path, git_remote, git_remote_url, git_branch, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("default", "/project", "/project/store", "origin", "https://user:" + credential + "@example.com/repo.git", "main", now, now);
+          applyRuntimeMigrations(sqlite, migrations, "bundled");
+          const memory = sqlite.prepare("select last_backup_error from memories where id = 'memory-secret'").get();
+          const stamp = sqlite.prepare("select git_remote_url from backup_environment_stamps where id = 'default'").get();
+          const migrationRecorded = sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+            .get(${SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS}).count;
+          sqlite.close();
+          process.stdout.write(JSON.stringify({ memory, stamp, migrationRecorded }));
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      memory: { last_backup_error: null },
+      stamp: { git_remote_url: "redacted:migration-0016" },
+      migrationRecorded: 1,
+    });
+    expect(output).not.toContain("migration-credential");
+  });
+
+  it("deterministically reconciles legacy Moment path duplicates before enforcing identity", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -980,9 +1026,14 @@ describe("db foundation", () => {
                 id text PRIMARY KEY NOT NULL,
                 url text NOT NULL,
                 title text NOT NULL,
+                description text,
+                favicon_url text,
                 content_path text NOT NULL,
                 extraction_status text NOT NULL,
+                extraction_error text,
                 backup_status text NOT NULL,
+                last_backup_at integer,
+                last_backup_error text,
                 created_at integer NOT NULL,
                 updated_at integer NOT NULL
               )

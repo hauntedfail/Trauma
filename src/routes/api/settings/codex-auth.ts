@@ -6,7 +6,7 @@ import {
   deleteCodexAuth,
   readCodexAuthStatus,
 } from "~/server/settings/codex-auth";
-import { CodexAppServerError } from "~/server/translation/codex-app-server";
+import { safeCodexAppServerErrorMessage } from "~/server/translation/codex-app-server";
 
 export async function GET(_event: APIEvent): Promise<Response> {
   try {
@@ -26,7 +26,12 @@ export async function DELETE(event: APIEvent): Promise<Response> {
     return jsonResponse(await deleteCodexAuth(), { status: 200 });
   } catch (error) {
     return jsonResponse(
-      { error: error instanceof CodexAppServerError ? error.message : formatConfigError(error) },
+      {
+        error: safeCodexAppServerErrorMessage(
+          error,
+          formatConfigError(error),
+        ),
+      },
       { status: 500 },
     );
   }

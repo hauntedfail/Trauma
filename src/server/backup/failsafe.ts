@@ -5,7 +5,6 @@ import {
   realpath,
   readFile,
   readdir,
-  writeFile,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -17,11 +16,13 @@ import type { ResolvedTraumaConfig } from "../config";
 import { loadTraumaConfig } from "../config";
 import { createRepositories, type TraumaDatabase } from "../db/repositories";
 import * as schema from "../db/schema";
+import { writeFileAtomically } from "../files/atomic-write";
 import { findInconsistentSuccessfulBackupContent } from "./content-integrity";
 import type { BackupFailsafeAlertDetails } from "./environment";
 import {
   clearBackupPushFailureAlert,
   ensureBackupEnvironment,
+  fingerprintGitRemote,
   hasConfiguredRemote,
   recordBackupPushFailureAlert,
   toAlertDetails,
@@ -327,7 +328,10 @@ async function rewriteConfigPaths(input: {
   }
   parsed.projectPath = input.projectPath;
   parsed.storePath = input.storePath;
-  await writeFile(input.configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  await writeFileAtomically(
+    input.configPath,
+    `${JSON.stringify(parsed, null, 2)}\n`,
+  );
 }
 
 async function listFiles(directory: string): Promise<string[]> {
@@ -580,7 +584,7 @@ async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
       env: createGitCommandEnv(),
     });
     const value = result.stdout.trim();
-    return value === "" ? null : value;
+    return value === "" ? null : fingerprintGitRemote(value);
   } catch {
     return null;
   }

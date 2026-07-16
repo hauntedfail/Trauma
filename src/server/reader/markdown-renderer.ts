@@ -31,6 +31,8 @@ export interface RenderMemoryMarkdownOptions {
   sourceUrl?: string;
 }
 
+export const MAX_HIGHLIGHTED_CODE_LENGTH = 20_000;
+
 export function renderMemoryMarkdown(
   markdown: string,
   options: RenderMemoryMarkdownOptions = {},
@@ -79,11 +81,32 @@ function createMarkdownIt(toc: ReaderTocEntry[]) {
 }
 
 function highlightCode(code: string, language: string) {
-  const highlighted = language.trim() !== "" && hljs.getLanguage(language)
-    ? hljs.highlight(code, { language, ignoreIllegals: true }).value
-    : hljs.highlightAuto(code).value;
+  const normalizedLanguage = language.trim();
+  const knownLanguage = normalizedLanguage !== "" &&
+    hljs.getLanguage(normalizedLanguage) !== undefined;
+  let highlighted: string;
+  if (
+    code.length > MAX_HIGHLIGHTED_CODE_LENGTH ||
+    (normalizedLanguage !== "" && !knownLanguage)
+  ) {
+    highlighted = escapeCodeHtml(code);
+  } else if (knownLanguage) {
+    highlighted = hljs.highlight(code, {
+      language: normalizedLanguage,
+      ignoreIllegals: true,
+    }).value;
+  } else {
+    highlighted = hljs.highlightAuto(code).value;
+  }
 
   return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
+}
+
+function escapeCodeHtml(code: string): string {
+  return code
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) {

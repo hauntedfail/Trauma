@@ -99,7 +99,6 @@ describe("button hover hints", () => {
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
     expect(appShellSource).toContain('title="Theme settings"');
-    expect(appShellSource).toContain('title="Local archive"');
     expect(appShellSource).toContain('hint="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
     expect(memoryBrowseSource).toContain("MemoryReadStateTabs");

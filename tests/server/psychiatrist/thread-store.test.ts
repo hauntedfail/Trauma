@@ -20,6 +20,7 @@ import {
   markPsychiatristTurnFailed,
   markPsychiatristThreadStale,
   reconcileInactivePsychiatristTurns,
+  recoverCompletedPsychiatristArtifactsForMemory,
   recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -159,6 +160,75 @@ describe("Psychiatrist thread store", () => {
       ),
     );
     expect(manifestJson.updated_at).not.toBe("2026-06-01T00:00:00.000Z");
+  });
+
+  it("restores RESPONSE.md from the latest durable completed pair revision", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-response-recovery-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is durable?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    await appendAssistantResponse({
+      assistantResponse: "The pair revision is durable.",
+      citations: [],
+      config: { storePath },
+      pairId: PAIR_ID,
+      threadId: THREAD_ID,
+    });
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await writeFile(responsePath, "uncommitted regenerated response", "utf8");
+
+    await expect(recoverCompletedPsychiatristArtifactsForMemory({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+    })).resolves.toBe(1);
+    await expect(readFile(responsePath, "utf8")).resolves.toBe(
+      "The pair revision is durable.",
+    );
+  });
+
+  it("removes an orphan RESPONSE.md when no completed pair revision exists", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-orphan-response-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    await appendPendingPair({
+      config: { storePath },
+      contextSnapshot: contextSnapshot(),
+      pairId: PAIR_ID,
+      prompt: "What is durable?",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    const responsePath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "pairs",
+      PAIR_ID,
+      "RESPONSE.md",
+    );
+    await writeFile(responsePath, "response written before its pair row", "utf8");
+
+    await expect(recoverCompletedPsychiatristArtifactsForMemory({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+    })).resolves.toBe(1);
+    await expect(readFile(responsePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("recovers a torn final pair revision before appending the next row", async () => {

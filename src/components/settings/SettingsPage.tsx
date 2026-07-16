@@ -511,7 +511,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
         <Show when={message()}>
           {(value) => (
-            <p class="mb-0 rounded-lg border border-trauma-border bg-trauma-bg-base px-3 py-2 text-sm font-bold text-trauma-text-secondary">
+            <p class="mb-0 rounded-lg border border-trauma-border bg-trauma-bg-base px-3 py-2 text-sm font-bold text-trauma-text-secondary" role="status">
               {value()}
             </p>
           )}

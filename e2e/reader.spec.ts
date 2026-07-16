@@ -1983,7 +1983,7 @@ test("opens reader right-rail Flashback shortcuts at the reader flashback mark",
   await expectReaderTargetNearTop(page, "#flashback-deep");
 });
 
-test("creates a Moment from the selection menu when the range contains a section", async ({
+test("creates a Moment from the keyboard-operable selection toolbar", async ({
   page,
 }) => {
   createReaderFixture();
@@ -1992,19 +1992,29 @@ test("creates a Moment from the selection menu when the range contains a section
   await waitForReaderReady(page);
   await selectReaderSection(page, "details");
 
-  const menu = page.getByRole("menu", {
+  const toolbar = page.getByRole("toolbar", {
     name: "Reader text selection actions",
   });
-  await expect(
-    menu.getByRole("button", { name: "Moment selected section" }),
-  ).toBeVisible();
+  const flashbackButton = toolbar.getByRole("button", {
+    name: "Flashback selection",
+  });
+  const momentButton = toolbar.getByRole("button", {
+    name: "Moment selected section",
+  });
+  await expect(flashbackButton).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(momentButton).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(flashbackButton).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(momentButton).toBeFocused();
 
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/moments") &&
       response.request().method() === "POST",
   );
-  await menu.getByRole("button", { name: "Moment selected section" }).click();
+  await momentButton.click();
 
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);

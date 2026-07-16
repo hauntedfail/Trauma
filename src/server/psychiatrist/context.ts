@@ -167,18 +167,14 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
     }];
   }
 
-  let searchOffset = 0;
-  const fencedCodeRanges = findFencedCodeRanges(markdown);
-  const starts = rendered.toc.map((entry) => {
-    const startOffset = findHeadingOffset(
-      markdown,
-      entry.level,
-      searchOffset,
-      fencedCodeRanges,
-    );
-    searchOffset = startOffset + 1;
-    return { entry, startOffset };
-  });
+  const headingOffsets = findHeadingOffsets(
+    markdown,
+    rendered.toc.map((entry) => entry.level),
+  );
+  const starts = rendered.toc.map((entry, index) => ({
+    entry,
+    startOffset: headingOffsets[index] ?? 0,
+  }));
   const sections: PsychiatristContextSection[] = [];
   const firstStart = starts[0]?.startOffset ?? 0;
   if (firstStart > 0 && markdown.slice(0, firstStart).trim() !== "") {
@@ -208,19 +204,14 @@ function splitContextSections(markdown: string): PsychiatristContextSection[] {
   return sections;
 }
 
-type MarkdownOffsetRange = {
-  endOffset: number;
-  startOffset: number;
-};
-
-function findHeadingOffset(
+function findHeadingOffsets(
   markdown: string,
-  level: number,
-  minOffset: number,
-  excludedRanges: readonly MarkdownOffsetRange[],
-): number {
+  levels: readonly number[],
+): number[] {
+  const offsets: number[] = [];
+  let activeFence: { length: number; marker: string } | undefined;
   let lineStart = 0;
-  while (lineStart < markdown.length) {
+  while (lineStart < markdown.length && offsets.length < levels.length) {
     const newlineIndex = markdown.indexOf("\n", lineStart);
     const lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
     const nextLineStart = newlineIndex === -1 ? markdown.length : newlineIndex + 1;
@@ -232,16 +223,31 @@ function findHeadingOffset(
       ? ""
       : markdown.slice(nextLineStart, nextLineEnd === -1 ? markdown.length : nextLineEnd);
 
-    if (lineStart >= minOffset && !isOffsetInRanges(lineStart, excludedRanges)) {
-      const headingLevel = readMarkdownHeadingLevel(line, nextLine);
-      if (headingLevel === level) {
-        return lineStart;
+    if (activeFence !== undefined) {
+      if (isFenceEnd(line, activeFence)) {
+        activeFence = undefined;
+      }
+    } else {
+      const fence = readFenceStart(line);
+      if (fence !== undefined) {
+        activeFence = fence;
+      } else if (readMarkdownHeadingLevel(line, nextLine) === levels[offsets.length]) {
+        offsets.push(lineStart);
       }
     }
 
     lineStart = nextLineStart;
   }
-  return minOffset;
+
+  // The rendered TOC and scanner consume the same Markdown. Retain the prior
+  // monotonic fallback if a future renderer recognizes a heading form that
+  // this offset scanner does not yet understand.
+  let fallbackOffset = 0;
+  return levels.map((_, index) => {
+    const offset = offsets[index] ?? fallbackOffset;
+    fallbackOffset = offset + 1;
+    return offset;
+  });
 }
 
 function readMarkdownHeadingLevel(line: string, nextLine: string): number | undefined {
@@ -259,43 +265,6 @@ function readMarkdownHeadingLevel(line: string, nextLine: string): number | unde
   return setext[1].startsWith("=") ? 1 : 2;
 }
 
-function findFencedCodeRanges(markdown: string): MarkdownOffsetRange[] {
-  const ranges: MarkdownOffsetRange[] = [];
-  let activeFence: { length: number; marker: string; startOffset: number } | undefined;
-  let lineStart = 0;
-
-  while (lineStart < markdown.length) {
-    const newlineIndex = markdown.indexOf("\n", lineStart);
-    const lineEnd = newlineIndex === -1 ? markdown.length : newlineIndex;
-    const nextLineStart = newlineIndex === -1 ? markdown.length : newlineIndex + 1;
-    const line = markdown.slice(lineStart, lineEnd);
-
-    if (activeFence === undefined) {
-      const fence = readFenceStart(line);
-      if (fence !== undefined) {
-        activeFence = { ...fence, startOffset: lineStart };
-      }
-    } else if (isFenceEnd(line, activeFence)) {
-      ranges.push({
-        endOffset: nextLineStart,
-        startOffset: activeFence.startOffset,
-      });
-      activeFence = undefined;
-    }
-
-    lineStart = nextLineStart;
-  }
-
-  if (activeFence !== undefined) {
-    ranges.push({
-      endOffset: markdown.length,
-      startOffset: activeFence.startOffset,
-    });
-  }
-
-  return ranges;
-}
-
 function readFenceStart(line: string): { length: number; marker: string } | undefined {
   const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(line);
   if (match?.[1] === undefined) {
@@ -311,11 +280,4 @@ function isFenceEnd(
   const match = /^(?: {0,3})(`{3,}|~{3,})\s*$/.exec(line);
   return match?.[1]?.startsWith(fence.marker) === true &&
     match[1].length >= fence.length;
-}
-
-function isOffsetInRanges(
-  offset: number,
-  ranges: readonly MarkdownOffsetRange[],
-): boolean {
-  return ranges.some((range) => offset >= range.startOffset && offset < range.endOffset);
 }

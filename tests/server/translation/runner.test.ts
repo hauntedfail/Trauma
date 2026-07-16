@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { MemoryBackupQueue } from "../../../src/server/backup";
+import type { DurableMemoryBackupQueue } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { createMemoryContentFixture } from "../../../src/server/store";
@@ -28,10 +28,22 @@ import {
   type TranslateChunkInput,
   type TranslationClient,
 } from "../../../src/server/translation/codex-app-server";
+import {
+  CODEX_RUNTIME_ISOLATION_ENV,
+  LEGACY_CODEX_RUNTIME_ISOLATION_ENV,
+} from "../../../src/server/codex/runtime-isolation";
 
 const tempRoots: string[] = [];
 const now = new Date("2026-05-21T00:00:00.000Z");
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f905";
+
+function restoreEnvironment(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -40,6 +52,43 @@ afterEach(async () => {
 });
 
 describe("translation runner", () => {
+  it("does not reserve a production translation job without runtime isolation", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const previousShared = process.env[CODEX_RUNTIME_ISOLATION_ENV];
+    const previousLegacy = process.env[LEGACY_CODEX_RUNTIME_ISOLATION_ENV];
+    delete process.env[CODEX_RUNTIME_ISOLATION_ENV];
+    delete process.env[LEGACY_CODEX_RUNTIME_ISOLATION_ENV];
+    const jobId = "019e3906-0000-7000-8000-000000000099";
+
+    try {
+      await expect(
+        startTranslationJob({
+          config,
+          generateJobId: () => jobId,
+          memoryId,
+          now,
+          schedule: () => {
+            throw new Error("must not schedule an unisolated turn");
+          },
+        }),
+      ).rejects.toMatchObject({ code: "runtime_isolation_required" });
+
+      const connection = initializeDatabase(config);
+      try {
+        await expect(
+          connection.repositories.translations.getTranslationJob(jobId),
+        ).resolves.toBeNull();
+      } finally {
+        connection.close();
+      }
+    } finally {
+      restoreEnvironment(CODEX_RUNTIME_ISOLATION_ENV, previousShared);
+      restoreEnvironment(LEGACY_CODEX_RUNTIME_ISOLATION_ENV, previousLegacy);
+    }
+  });
+
   it("starts a job through the atomic job-and-chunks repository operation", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -89,7 +138,8 @@ describe("translation runner", () => {
     await createMemoryRow(config);
     const client = new FakeTranslationClient();
     const enqueued: unknown[] = [];
-    const backupQueue: MemoryBackupQueue = {
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
       enqueue: async (input) => {
         enqueued.push(input);
         return { backupStatus: "queued" };
@@ -906,7 +956,8 @@ describe("translation runner", () => {
     await writeSourceContent(config);
     await createMemoryRow(config);
     const client = new FakeTranslationClient();
-    const backupQueue: MemoryBackupQueue = {
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
       enqueue: async () => {
         throw new Error("backup queue is unavailable");
       },
@@ -1187,6 +1238,100 @@ describe("translation runner", () => {
       await expect(
         verifyConnection.repositories.translations.getTranslationJob(started.job_id),
       ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      verifyConnection.close();
+    }
+  });
+
+  it("replays a committing job after an orphan output write and backs up the completed projection", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const persistedIntents: unknown[] = [];
+    const enqueuedBackups: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        persistedIntents.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        enqueuedBackups.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000023",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const projectionPath = resolveTranslatedMemoryProjectionPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "committing",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+    await mkdir(dirname(outputPath.absolutePath), { recursive: true });
+    await writeFile(outputPath.absolutePath, "# Orphan output\n", "utf8");
+
+    const scheduledJobIds: string[] = [];
+    await expect(startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      memoryId,
+      now,
+      schedule: (jobId) => {
+        scheduledJobIds.push(jobId);
+      },
+    })).resolves.toMatchObject({
+      status: "active",
+      job_id: started.job_id,
+      job_status: "committing",
+    });
+    expect(scheduledJobIds).toEqual([started.job_id]);
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    const expectedBackup = {
+      contentPaths: [outputPath.relativePath, projectionPath.relativePath],
+      memoryId,
+      reason: "translation_update",
+    };
+    expect(persistedIntents).toEqual([expectedBackup]);
+    expect(enqueuedBackups).toEqual([expectedBackup]);
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.toContain("華麗なソース");
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.not.toContain("Orphan output");
+    await expect(readFile(projectionPath.absolutePath, "utf8"))
+      .resolves.toContain(`"jobId": "${started.job_id}"`);
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        status: "complete",
+        outputPath: outputPath.relativePath,
+      });
     } finally {
       verifyConnection.close();
     }

@@ -1,7 +1,7 @@
 import { MemoryContentStoreError } from "../store";
 import {
   getMemoryBackupQueue,
-  type MemoryBackupQueue,
+  type DurableMemoryBackupQueue,
 } from "../backup";
 import {
   loadRuntimeTraumaConfig,
@@ -54,6 +54,10 @@ import {
   type TranslationJobStaleData,
 } from "./types";
 import { isSupportedLanguageCode, type SupportedLanguageCode } from "./languages";
+import {
+  CODEX_RUNTIME_ISOLATION_ERROR,
+  isCodexRuntimeIsolationReady,
+} from "../codex/runtime-isolation";
 
 export type StartTranslationJobResult =
   | {
@@ -99,7 +103,7 @@ export interface TranslationJobSnapshot {
 }
 
 interface StartTranslationJobInput {
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   client?: TranslationClient;
   config?: ResolvedTraumaConfig;
   createClient?: () => TranslationClient;
@@ -114,7 +118,7 @@ interface StartTranslationJobInput {
 }
 
 interface TranslationRunOptions {
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   cancelGraceMs?: number;
   closeClientAfterRun?: boolean;
   client?: TranslationClient;
@@ -220,6 +224,18 @@ export async function startTranslationJob(
         repository: connection.repositories.translations,
         now,
       });
+    }
+
+    if (
+      !isCodexRuntimeIsolationReady({
+        hasInjectedClient:
+          input.client !== undefined || input.createClient !== undefined,
+      })
+    ) {
+      throw new TranslationApiError(
+        CODEX_RUNTIME_ISOLATION_ERROR.code,
+        "Brilliant translation requires an externally isolated Codex runtime.",
+      );
     }
 
     const active = await connection.repositories.translations.findActiveTranslationJob(
@@ -387,6 +403,16 @@ export async function runTranslationJob(
   jobId: string,
   options: TranslationRunOptions = {},
 ): Promise<void> {
+  if (
+    !isCodexRuntimeIsolationReady({
+      hasInjectedClient: options.client !== undefined,
+    })
+  ) {
+    throw new TranslationApiError(
+      CODEX_RUNTIME_ISOLATION_ERROR.code,
+      "Brilliant translation requires an externally isolated Codex runtime.",
+    );
+  }
   const config = options.config ?? loadRuntimeTraumaConfig();
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);

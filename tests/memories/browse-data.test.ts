@@ -24,7 +24,7 @@ import { buildMemoryVariantAnchorHref } from "../../src/components/memories/memo
 
 const fixtures: BrowseMemory[] = [
   {
-    id: "memory-foundation",
+    id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     title: "Reader Mode Notes",
     url: "https://example.com/reader-mode",
     description: "SolidStart route data and shell architecture notes.",
@@ -39,7 +39,7 @@ const fixtures: BrowseMemory[] = [
     flashbacks: [
       {
         id: "h-foundation",
-        memoryId: "memory-foundation",
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
         variantKind: "source",
         langCode: null,
         translationOutputHash: null,
@@ -79,7 +79,7 @@ describe("browse query state", () => {
     const query = parseBrowseQuery("?q=reader");
     const cursor: BrowseMemoryCursor = {
       createdAt: "2026-05-09T12:00:00.000Z",
-      id: "memory-foundation",
+      id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     };
 
     expect(createNextBrowseMemoryPageRequest(query, cursor)).toEqual({
@@ -171,7 +171,7 @@ describe("browse query state", () => {
 
   it("filters fielded search terms inside the q parameter", () => {
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=title:{Reader Mode}")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=url:{local-hosting}")).map((memory) => memory.id)).toEqual([
       "memory-ops",
@@ -180,10 +180,10 @@ describe("browse query state", () => {
       "memory-ops",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category:{Research}")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=flashback:{repository fixtures}")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
   });
 
@@ -192,11 +192,11 @@ describe("browse query state", () => {
       "memory-ops",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26reader")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=tag=solidstart%26sqlite"))).toHaveLength(0);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=category=Research")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
   });
 
@@ -236,7 +236,7 @@ describe("browse query state", () => {
       "memory-ops",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=unread")).map((memory) => memory.id)).toEqual([
-      "memory-foundation",
+      "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
     ]);
     expect(filterBrowseMemories(fixtures, parseBrowseQuery("?q=read+unread"))).toHaveLength(0);
   });
@@ -265,7 +265,7 @@ describe("browse query state", () => {
     expect(
       filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:solidstart&category=research"))
         .map((memory) => memory.id),
-    ).toEqual(["memory-foundation"]);
+    ).toEqual(["018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901"]);
     expect(
       filterBrowseMemories(fixtures, parseBrowseQuery("?q=route+tag:sqlite&category=research")),
     ).toHaveLength(0);
@@ -277,7 +277,7 @@ describe("browse query state", () => {
       flashbacks: [
         {
           id: "h-first",
-          memoryId: "memory-foundation",
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
           variantKind: "source",
           langCode: null,
           translationOutputHash: null,
@@ -288,7 +288,7 @@ describe("browse query state", () => {
         },
         {
           id: "h-selected",
-          memoryId: "memory-foundation",
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
           variantKind: "source",
           langCode: null,
           translationOutputHash: null,
@@ -312,7 +312,7 @@ describe("browse query state", () => {
     const flashbacks = [
       {
         id: "h-first",
-        memoryId: "memory-foundation",
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
         variantKind: "source",
         langCode: null,
         translationOutputHash: null,
@@ -323,7 +323,7 @@ describe("browse query state", () => {
       },
       {
         id: "h-selected",
-        memoryId: "memory-foundation",
+        memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
         variantKind: "source",
         langCode: null,
         translationOutputHash: null,
@@ -350,7 +350,7 @@ describe("browse query state", () => {
         flashbacks: [
           {
             id: "h-newer-memory-old-flashback",
-            memoryId: "memory-foundation",
+            memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
             variantKind: "source",
             langCode: null,
             translationOutputHash: null,
@@ -382,7 +382,7 @@ describe("browse query state", () => {
 
     expect(getRecentFlashbacks(memories).map((flashback) => [flashback.id, flashback.memoryId])).toEqual([
       ["h-older-memory-new-flashback", "memory-ops"],
-      ["h-newer-memory-old-flashback", "memory-foundation"],
+      ["h-newer-memory-old-flashback", "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901"],
     ]);
   });
 

@@ -78,6 +78,29 @@ const readStateTabs = [
   value: BrowseReadStateFilter;
 }[];
 
+export async function settleCurrentBrowsePageRequest(input: {
+  isCurrent: () => boolean;
+  loadPage: () => Promise<BrowseMemoryPage>;
+  onError: () => void;
+  onPage: (page: BrowseMemoryPage) => void;
+  onSettled: () => void;
+}): Promise<void> {
+  try {
+    const page = await input.loadPage();
+    if (input.isCurrent()) {
+      input.onPage(page);
+    }
+  } catch {
+    if (input.isCurrent()) {
+      input.onError();
+    }
+  } finally {
+    if (input.isCurrent()) {
+      input.onSettled();
+    }
+  }
+}
+
 export function MemoryBrowse() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -97,6 +120,12 @@ export function MemoryBrowse() {
   const [additionalPages, setAdditionalPages] = createSignal<BrowseMemoryPage[]>([]);
   const [isLoadingNextPage, setIsLoadingNextPage] = createSignal(false);
   const [loadNextPageError, setLoadNextPageError] = createSignal("");
+  let loadNextPageGeneration = 0;
+  const invalidateLoadNextPage = (): void => {
+    loadNextPageGeneration += 1;
+    setIsLoadingNextPage(false);
+    setLoadNextPageError("");
+  };
   const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
@@ -184,6 +213,7 @@ export function MemoryBrowse() {
 
     setCurrentFirstPage((previousFirstPage) => {
       if (previousFirstPage !== undefined && previousFirstPage !== nextFirstPage) {
+        invalidateLoadNextPage();
         setAdditionalPages([]);
         setFlashbacksByMemoryId({});
       }
@@ -252,23 +282,24 @@ export function MemoryBrowse() {
     }
 
     const requestedQuery = query();
+    const requestGeneration = ++loadNextPageGeneration;
     setIsLoadingNextPage(true);
     setLoadNextPageError("");
-    try {
-      const page = await getBrowseMemoryPage(
-        createNextBrowseMemoryPageRequest(requestedQuery, cursor),
-      );
-      if (!isSameBrowseQuery(query(), requestedQuery)) {
-        return;
-      }
-      setAdditionalPages((current) => [...current, page]);
-    } catch {
-      setLoadNextPageError("Failed to load more memories.");
-    } finally {
-      setIsLoadingNextPage(false);
-    }
+    await settleCurrentBrowsePageRequest({
+      isCurrent: () =>
+        requestGeneration === loadNextPageGeneration &&
+        isSameBrowseQuery(query(), requestedQuery),
+      loadPage: () =>
+        getBrowseMemoryPage(
+          createNextBrowseMemoryPageRequest(requestedQuery, cursor),
+        ),
+      onError: () => setLoadNextPageError("Failed to load more memories."),
+      onPage: (page) => setAdditionalPages((current) => [...current, page]),
+      onSettled: () => setIsLoadingNextPage(false),
+    });
   };
   const clearAdditionalBrowsePages = (): void => {
+    invalidateLoadNextPage();
     setAdditionalPages([]);
   };
   const observeLoadMoreSentinel = (): void => {
@@ -292,6 +323,7 @@ export function MemoryBrowse() {
   createEffect(
     on(query, (nextQuery, previousQuery) => {
       if (previousQuery !== undefined && !isSameBrowseQuery(nextQuery, previousQuery)) {
+        invalidateLoadNextPage();
         setAdditionalPages([]);
         setFlashbacksByMemoryId({});
         setRemovedMemoryIds(new Set<string>());
@@ -733,7 +765,7 @@ export function MemoryItem(props: {
                 Link-only
               </span>
             </Show>
-            <span class="relative inline-grid">
+            <div class="relative inline-grid">
               <TaxonomyAddControl
                 attachedItems={tags()}
                 id={`memory-${props.memory.id}-tags-add`}
@@ -743,10 +775,12 @@ export function MemoryItem(props: {
                 onDetachName={detachTag}
                 onError={(message) => setActionError(message)}
               />
-            </span>
+            </div>
           </div>
           <Show when={actionError() !== ""}>
-            <p class="mb-0 text-xs font-bold text-trauma-danger">{actionError()}</p>
+            <p class="mb-0 text-xs font-bold text-trauma-danger" role="alert">
+              {actionError()}
+            </p>
           </Show>
         </footer>
       </div>

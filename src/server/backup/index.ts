@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type { ResolvedTraumaConfig } from "../config";
 import {
   initializeDatabase,
+  type FlashbackRepository,
   type TranslationRepository,
   type TraumaDatabaseConnection,
 } from "../db";
@@ -15,15 +16,22 @@ import {
   assertBackupRepositoryRoot,
   clearBackupPushFailureAlert,
   hasConfiguredRemote,
+  redactOperationalError,
   recordBackupPushFailureAlert,
 } from "./environment";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 import {
   getSourceFlashbackMetadataExportPath,
   getTranslatedFlashbackMetadataExportPath,
+  writeFlashbackMetadataExport,
 } from "../flashbacks/export";
+import {
+  sourceFlashbackVariant,
+  type FlashbackVariant,
+} from "../flashbacks/variant";
 import { activePsychiatristTurns } from "../psychiatrist/active-turns";
 import { recoverCompletedPsychiatristArtifactsForMemory } from "../psychiatrist/thread-store";
+import { recoverInterruptedMemoryOperations } from "../memories/operation-journal";
 import { isSupportedLanguageCode } from "../translation/languages";
 import { resolveTranslatedMemoryProjectionPath } from "../translation/paths";
 
@@ -93,6 +101,7 @@ export interface CreateGitMemoryBackupQueueInput {
 
 const execFileAsync = promisify(execFile);
 const gitQueueByConfigKey = new Map<string, GitMemoryBackupQueue>();
+const startupOperationRecoveryByConfigKey = new Map<string, Promise<void>>();
 
 export function createNoopMemoryBackupQueue(): DurableMemoryBackupQueue {
   return {
@@ -109,6 +118,7 @@ export function getMemoryBackupQueue(
   config: ResolvedTraumaConfig,
 ): DurableMemoryBackupQueue {
   if (!config.backup.git.enabled) {
+    startDisabledBackupOperationRecovery(config);
     return createNoopMemoryBackupQueue();
   }
 
@@ -121,10 +131,38 @@ export function getMemoryBackupQueue(
   const queue = createGitMemoryBackupQueue({ config });
   gitQueueByConfigKey.set(key, queue);
   void queue.retryEligibleBackups().catch(() => {
-    // Startup retry failures are recorded per memory when jobs run. If the
-    // retry scan itself fails, avoid making request handling depend on it.
+    // Do not expose filesystem or git diagnostics here; the backup failsafe
+    // retains operator-facing details when startup cannot prepare the scan.
+    console.error("failed to scan eligible memory backups during startup");
   });
   return queue;
+}
+
+function startDisabledBackupOperationRecovery(
+  config: ResolvedTraumaConfig,
+): void {
+  const key = createQueueConfigKey(config);
+  if (startupOperationRecoveryByConfigKey.has(key)) {
+    return;
+  }
+  const recovery = (async () => {
+    const connection = initializeDatabase(config);
+    try {
+      await recoverInterruptedMemoryOperations({
+        config,
+        memories: connection.repositories.memories,
+      });
+    } finally {
+      connection.close();
+    }
+  })();
+  startupOperationRecoveryByConfigKey.set(key, recovery);
+  void recovery.catch(() => {
+    startupOperationRecoveryByConfigKey.delete(key);
+    console.error(
+      "failed to recover interrupted memory operations during startup",
+    );
+  });
 }
 
 export function createGitMemoryBackupQueue(
@@ -223,7 +261,7 @@ export function createGitMemoryBackupQueue(
         await updateBackupStatus({
           memoryId: job.memoryId,
           backupStatus: "failed",
-          lastBackupError: formatUnknownError(error),
+          lastBackupError: redactOperationalError(formatUnknownError(error)),
         });
       } catch {
         // Preserve the original backup failure. A missing row or closed DB must
@@ -390,6 +428,24 @@ export function createGitMemoryBackupQueue(
 
       const connection = openConnection(input.config);
       try {
+        await recoverInterruptedMemoryOperations({
+          completeMissingDeletionBackup: async (deletion) => {
+            await assertBackupEnvironmentReady({
+              config: input.config,
+              db: connection.db,
+            });
+            await runJob({
+              config: input.config,
+              job: {
+                ...deletion,
+                reason: "memory_deletion",
+              },
+            });
+          },
+          config: input.config,
+          memories: connection.repositories.memories,
+          now,
+        });
         await assertBackupEnvironmentReady({
           config: input.config,
           db: connection.db,
@@ -406,16 +462,32 @@ export function createGitMemoryBackupQueue(
             ) {
               continue;
             }
-            await enqueue({
-              memoryId: backup.id,
-              contentPaths: await getRetryContentPaths(
-                input.config,
-                backup,
-                connection.repositories.translations,
-              ),
-              reason: "memory_creation",
-            });
-            enqueued += 1;
+            try {
+              await enqueue({
+                memoryId: backup.id,
+                contentPaths: await getRetryContentPaths(
+                  input.config,
+                  backup,
+                  connection.repositories.flashbacks,
+                  connection.repositories.translations,
+                ),
+                reason: "memory_creation",
+              });
+              enqueued += 1;
+            } catch {
+              try {
+                await connection.repositories.memories.updateBackupStatus({
+                  id: backup.id,
+                  backupStatus: "failed",
+                  lastBackupAt: null,
+                  lastBackupError: "backup retry scheduling failed",
+                  updatedAt: now(),
+                });
+              } catch {
+                // A poisoned memory must not prevent later eligible memories
+                // from being considered even when its status cannot be saved.
+              }
+            }
           }
         } finally {
           schedulingSuspensions -= 1;
@@ -434,6 +506,7 @@ export function createGitMemoryBackupQueue(
 async function getRetryContentPaths(
   config: Pick<ResolvedTraumaConfig, "storePath">,
   backup: { id: string; contentPath: string },
+  flashbacks: FlashbackRepository,
   translations: TranslationRepository,
 ): Promise<string[]> {
   await recoverCompletedPsychiatristArtifactsForMemory({
@@ -445,14 +518,37 @@ async function getRetryContentPaths(
     backup.contentPath,
     getSourceFlashbackMetadataExportPath(backup.id),
   ];
+  await recoverFlashbackExportIfNeeded({
+    config,
+    flashbacks,
+    memoryId: backup.id,
+    variant: sourceFlashbackVariant,
+  });
   const completeTranslations =
     await translations.listCompleteTranslationRecordsForMemory(backup.id);
+  const recoveredTranslationLanguages = new Set<string>();
   for (const translation of completeTranslations) {
     if (translation.outputPath !== null) {
       paths.push(translation.outputPath);
     }
     if (!isSupportedLanguageCode(translation.langCode)) {
       continue;
+    }
+    if (
+      translation.outputHash !== null &&
+      !recoveredTranslationLanguages.has(translation.langCode)
+    ) {
+      recoveredTranslationLanguages.add(translation.langCode);
+      await recoverFlashbackExportIfNeeded({
+        config,
+        flashbacks,
+        memoryId: backup.id,
+        variant: {
+          kind: "translation",
+          langCode: translation.langCode,
+          outputHash: translation.outputHash,
+        },
+      });
     }
     paths.push(
       resolveTranslatedMemoryProjectionPath({
@@ -470,6 +566,48 @@ async function getRetryContentPaths(
   return [...new Set(paths.map((contentPath) =>
     validateRetryContentPath(config, contentPath)
   ))];
+}
+
+async function recoverFlashbackExportIfNeeded(input: {
+  config: Pick<ResolvedTraumaConfig, "storePath">;
+  flashbacks: FlashbackRepository;
+  memoryId: string;
+  variant: FlashbackVariant;
+}): Promise<void> {
+  const rows = await input.flashbacks.listForMemoryVariant({
+    memoryId: input.memoryId,
+    variant: input.variant,
+  });
+  const relativePath = input.variant.kind === "source"
+    ? getSourceFlashbackMetadataExportPath(input.memoryId)
+    : getTranslatedFlashbackMetadataExportPath({
+      langCode: input.variant.langCode,
+      memoryId: input.memoryId,
+    });
+  if (
+    rows.length === 0 &&
+    !(await pathExists(resolve(input.config.storePath, relativePath)))
+  ) {
+    return;
+  }
+  await writeFlashbackMetadataExport({
+    config: input.config,
+    flashbacks: rows,
+    memoryId: input.memoryId,
+    variant: input.variant,
+  });
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function getPsychiatristRetryContentPaths(
