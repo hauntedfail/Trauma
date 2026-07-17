@@ -118,7 +118,13 @@
   translation segments, or 4,096 chunks before any Codex client call. New work
   must also fail before client creation or durable job insertion. Aggregate
   overflow is a non-retryable `validation_failed` result; tests may inject
-  smaller limits but production limits are fixed code constants.
+  smaller limits but production limits are fixed code constants. Source loading
+  must not trust `stat`: open the file, read positionally through short reads,
+  retain demand-sized fixed-capacity chunks totaling at most the source-byte
+  limit plus one probe byte, and always close the handle. Reject the probe-byte
+  overflow before streaming UTF-8 decoding, Markdown or frontmatter parsing,
+  document-type inference, or incremental raw-byte hashing. Resume and final
+  commit reloads must receive the same workload source-byte limit.
 - MUST reject translated output above 1 MiB per segment or 4 MiB per chunk by
   serialized UTF-8 bytes before projection or translated payload persistence.
   Absolute output overflow is terminal for that chunk attempt and is not

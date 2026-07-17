@@ -55,6 +55,7 @@ type CommitTranslatedContentInput = {
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
   job: TranslationJobRecord;
+  maxSourceBytes?: number;
   now?: Date;
   publishProjectionSidecar?: (
     absolutePath: string,
@@ -86,6 +87,7 @@ async function commitTranslatedContentReserved(
 > {
   const source = await loadTranslationSourceSnapshot({
     config: input.config,
+    maxSourceBytes: input.maxSourceBytes,
     memoryId: input.job.memoryId,
   });
   const now = input.now ?? new Date();

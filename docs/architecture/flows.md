@@ -188,8 +188,13 @@ direct or stale callers. Existing language-only and Codex-only settings routes
 remain compatible for their current clients.
 
 1. `POST /api/memories/:memoryId/translations` validates the request, resolves
-   the configured target language and Codex model/effort, loads source
-   `CONTENT.md`, and hashes it.
+   the configured target language and Codex model/effort, then opens source
+   `CONTENT.md` and reads at most the 20-MiB limit plus one byte into
+   demand-sized, fixed-capacity chunks. Source admission does not trust a prior
+   file size: it continues positional reads through short reads, closes the
+   file handle on success or failure, and rejects overflow before streaming
+   UTF-8 decoding, Markdown/frontmatter parsing, document-type inference, or
+   incremental raw-byte hashing.
 2. If a completed translation and file are current, the route returns
    `status: current`. If the same source/language already has active work, it
    returns `status: active` and reschedules that job when recoverable.
@@ -208,8 +213,12 @@ remain compatible for their current clients.
    chunks. These limits retain the supported import ceiling and ordinary long
    articles while bounding short-sentence expansion and SQLite job fan-out.
 4. The runner claims `pending` work or resumes `running`, `stitching`, or
-   `committing` work. It re-reads the source and marks the job stale when the
-   source hash changed. Before reusing any chunk, it requires the persisted
+   `committing` work. It re-reads the source through the same bounded admission
+   before creating a client and marks the job stale when the source hash
+   changed. The final commit reload applies that same source-byte limit again,
+   so growth between resume admission and publication cannot reach decoding,
+   parsing, hashing, output publication, or backup. Before reusing any chunk,
+   it requires the persisted
    prompt-policy and chunker versions, chunk count, chunk indexes, source chunk
    hashes, and ordered block IDs to match the current runtime manifest exactly.
    An incompatible job fails terminally and permits a fresh attempt; it cannot

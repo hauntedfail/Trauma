@@ -19,6 +19,9 @@ import {
   BRILLIANT_CHUNKER_VERSION,
   BRILLIANT_PROMPT_POLICY_VERSION,
 } from "../../../src/server/translation/prompt";
+import {
+  TranslationOutputValidationError,
+} from "../../../src/server/translation/errors";
 import { loadTranslationSourceSnapshot } from "../../../src/server/translation/source-loader";
 import { writeTranslatedContentAtomically } from "../../../src/server/translation/stitching";
 
@@ -206,6 +209,216 @@ describe("translation source and current output", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("admits the exact source byte limit and rejects limit plus one before decoding", async () => {
+    const config = await createConfig();
+    const sourceContent = createSourceContent();
+    const sourceBytes = Buffer.from(sourceContent);
+    await writeSourceContent(config, sourceContent);
+
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: sourceBytes.byteLength,
+      memoryId,
+    })).resolves.toMatchObject({
+      byteSize: sourceBytes.byteLength,
+    });
+
+    const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
+    await writeFile(
+      filePath,
+      Buffer.concat([sourceBytes, Buffer.from([0xff])]),
+    );
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: sourceBytes.byteLength,
+      memoryId,
+    })).rejects.toMatchObject({
+      name: "TranslationOutputValidationError",
+      retryable: false,
+    });
+  });
+
+  it("continues short positional reads and closes the admitted source handle", async () => {
+    const config = await createConfig();
+    const sourceBytes = Buffer.from(createSourceContent());
+    const positions: number[] = [];
+    const readEnds: number[] = [];
+    const readBufferLengths: number[] = [];
+    let closeCalls = 0;
+
+    const source = await loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: sourceBytes.byteLength,
+      memoryId,
+      openFile: async () => ({
+        close: async () => {
+          closeCalls += 1;
+        },
+        read: async (buffer, offset, length, position) => {
+          positions.push(position);
+          readEnds.push(position + length);
+          readBufferLengths.push(buffer.byteLength);
+          if (position >= sourceBytes.byteLength) {
+            return { bytesRead: 0 };
+          }
+          const bytesRead = Math.min(
+            7,
+            length,
+            sourceBytes.byteLength - position,
+          );
+          sourceBytes.copy(buffer, offset, position, position + bytesRead);
+          return { bytesRead };
+        },
+      }),
+    });
+
+    expect(source.byteSize).toBe(sourceBytes.byteLength);
+    expect(source.sourceHash).toBe(
+      `sha256:${createHash("sha256").update(sourceBytes).digest("hex")}`,
+    );
+    expect(positions[0]).toBe(0);
+    expect(positions.at(-1)).toBe(sourceBytes.byteLength);
+    expect(Math.max(...readEnds)).toBe(sourceBytes.byteLength + 1);
+    expect(new Set(readBufferLengths)).toEqual(
+      new Set([sourceBytes.byteLength + 1]),
+    );
+    expect(closeCalls).toBe(1);
+  });
+
+  it("uses fixed-size demand buffers for a tiny source under a large limit", async () => {
+    const config = await createConfig();
+    const sourceBytes = Buffer.from(createSourceContent());
+    const readBufferLengths: number[] = [];
+
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: 20 * 1_024 * 1_024,
+      memoryId,
+      openFile: async () => ({
+        close: async () => undefined,
+        read: async (buffer, offset, length, position) => {
+          readBufferLengths.push(buffer.byteLength);
+          if (position >= sourceBytes.byteLength) {
+            return { bytesRead: 0 };
+          }
+          const bytesRead = Math.min(
+            length,
+            sourceBytes.byteLength - position,
+          );
+          sourceBytes.copy(buffer, offset, position, position + bytesRead);
+          return { bytesRead };
+        },
+      }),
+    })).resolves.toMatchObject({ byteSize: sourceBytes.byteLength });
+
+    expect(Math.max(...readBufferLengths)).toBeLessThanOrEqual(64 * 1_024);
+  });
+
+  it("decodes multibyte UTF-8 split across retained source chunks", async () => {
+    const config = await createConfig();
+    const marker = "界";
+    const markerBytes = Buffer.from(marker);
+    const unpaddedContent = createSourceContent(marker);
+    const unpaddedMarkerOffset = Buffer.from(unpaddedContent).indexOf(markerBytes);
+    const paddingLength = 64 * 1_024 - 1 - unpaddedMarkerOffset;
+    expect(paddingLength).toBeGreaterThan(0);
+    const sourceContent = createSourceContent(
+      `${"a".repeat(paddingLength)}${marker}\n`,
+    );
+    const sourceBytes = Buffer.from(sourceContent);
+    expect(sourceBytes.indexOf(markerBytes)).toBe(64 * 1_024 - 1);
+    await writeSourceContent(config, sourceContent);
+
+    const source = await loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: sourceBytes.byteLength,
+      memoryId,
+    });
+
+    expect(source.sourceMarkdown).toBe(sourceContent);
+    expect(source.sourceHash).toBe(
+      `sha256:${createHash("sha256").update(sourceBytes).digest("hex")}`,
+    );
+  });
+
+  it("detects a source that grows by one byte during bounded positional reads", async () => {
+    const config = await createConfig();
+    const initialBytes = Buffer.from("safe");
+    const grownByte = Buffer.from([0xff]);
+    const positions: number[] = [];
+    let closeCalls = 0;
+
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: initialBytes.byteLength,
+      memoryId,
+      openFile: async () => ({
+        close: async () => {
+          closeCalls += 1;
+        },
+        read: async (buffer, offset, length, position) => {
+          positions.push(position);
+          if (position < initialBytes.byteLength) {
+            const bytesRead = Math.min(
+              2,
+              length,
+              initialBytes.byteLength - position,
+            );
+            initialBytes.copy(buffer, offset, position, position + bytesRead);
+            return { bytesRead };
+          }
+          if (position === initialBytes.byteLength) {
+            grownByte.copy(buffer, offset);
+            return { bytesRead: 1 };
+          }
+          return { bytesRead: 0 };
+        },
+      }),
+    })).rejects.toBeInstanceOf(TranslationOutputValidationError);
+
+    expect(positions).toEqual([0, 2, 4]);
+    expect(closeCalls).toBe(1);
+  });
+
+  it("closes after a read error and preserves that primary error", async () => {
+    const config = await createConfig();
+    const readError = new Error("source read failed");
+    let closeCalls = 0;
+
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: 1,
+      memoryId,
+      openFile: async () => ({
+        close: async () => {
+          closeCalls += 1;
+          throw new Error("source close failed");
+        },
+        read: async () => {
+          throw readError;
+        },
+      }),
+    })).rejects.toBe(readError);
+    expect(closeCalls).toBe(1);
+  });
+
+  it("surfaces a close error after an otherwise successful bounded read", async () => {
+    const config = await createConfig();
+    const closeError = new Error("source close failed");
+
+    await expect(loadTranslationSourceSnapshot({
+      config,
+      maxSourceBytes: 1,
+      memoryId,
+      openFile: async () => ({
+        close: async () => {
+          throw closeError;
+        },
+        read: async () => ({ bytesRead: 0 }),
+      }),
+    })).rejects.toBe(closeError);
   });
 
   it("propagates non-missing translated output read failures", async () => {
@@ -418,6 +631,21 @@ async function writeSourceContent(
   const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content, "utf8");
+}
+
+function createSourceContent(
+  markdown = "# Brilliant Source\n\nBody text.",
+): string {
+  return createMemoryContentFixture({
+    frontmatter: {
+      capturedAt: now.toISOString(),
+      extractionStatus: "success",
+      id: memoryId,
+      title: "Brilliant Source",
+      url: "https://example.com/brilliant",
+    },
+    markdown,
+  });
 }
 
 async function createConfig(): Promise<ResolvedTraumaConfig> {

@@ -215,6 +215,9 @@ export async function startTranslationJob(
 
     const source = await loadTranslationSourceSnapshot({
       config,
+      maxSourceBytes:
+        (input.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
+          .maxSourceBytes,
       memoryId: input.memoryId,
     });
     const current = await resolveCurrentTranslationReadOnly({
@@ -445,7 +448,7 @@ export async function runTranslationJob(
   const config = options.config ?? loadRuntimeTraumaConfig();
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
-  const client = options.client ?? options.createClient?.() ?? new CodexAppServerClient();
+  let client = options.client;
   const codexEventAdmission = new TranslationCodexEventAdmission(
     options.codexEventLimits,
   );
@@ -482,6 +485,9 @@ export async function runTranslationJob(
 
     const source = await loadTranslationSourceSnapshot({
       config,
+      maxSourceBytes:
+        (options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
+          .maxSourceBytes,
       memoryId: job.memoryId,
     });
     if (source.sourceHash !== job.sourceHash) {
@@ -549,6 +555,7 @@ export async function runTranslationJob(
       if (record?.status === "complete" || record?.status === "purged") {
         continue;
       }
+      client ??= options.createClient?.() ?? new CodexAppServerClient();
       const chunkResult = await translateAndPersistChunk({
         cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
         chunk,
@@ -621,6 +628,9 @@ export async function runTranslationJob(
       chunks: await connection.repositories.translations.getTranslationChunks(jobId),
       config,
       job,
+      maxSourceBytes:
+        (options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
+          .maxSourceBytes,
       repository: connection.repositories.translations,
     });
     if ("status" in result && result.status === "stale") {
@@ -659,7 +669,7 @@ export async function runTranslationJob(
     await failRunningJob(connection, jobId, error);
   } finally {
     connection.close();
-    if (closeClientAfterRun) {
+    if (closeClientAfterRun && client !== undefined) {
       await closeTranslationClient(client);
     }
   }

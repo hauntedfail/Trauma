@@ -180,7 +180,7 @@ describe("translation runner", () => {
     {
       jobId: "019e3906-0000-7000-8000-000000000115",
       label: "source bytes",
-      markdown: "Small source.",
+      markdown: Buffer.from([0xff, 0xff]),
       workloadLimits: {
         ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
         maxSourceBytes: 1,
@@ -241,6 +241,181 @@ describe("translation runner", () => {
       ).resolves.toBeNull();
     } finally {
       connection.close();
+    }
+  });
+
+  it("rejects an oversized resumed source before decoding or creating a client", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const started = await startTranslationJob({
+      client: new FakeTranslationClient(),
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000118",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    await writeSourceContent(config, Buffer.from([0xff, 0xff]));
+    let clientCreations = 0;
+
+    await runTranslationJob(started.job_id, {
+      config,
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeTranslationClient();
+      },
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: 1,
+      },
+    });
+
+    expect(clientCreations).toBe(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation source exceeds the total source byte limit.",
+        },
+        status: "failed",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rechecks the source byte limit during commit reload without creating a client", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const started = await startTranslationJob({
+      client: new FakeTranslationClient(),
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000119",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let blockStitchingOnce = true;
+    await runTranslationJob(started.job_id, {
+      client: new FakeTranslationClient(),
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              transitionTranslationJobStatus: async (...args) => {
+                if (
+                  blockStitchingOnce &&
+                  args[1] === "running" &&
+                  args[2] === "stitching"
+                ) {
+                  blockStitchingOnce = false;
+                  return false;
+                }
+                return translations.transitionTranslationJobStatus(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    const sourcePath = join(
+      config.storePath,
+      "memories",
+      memoryId,
+      "CONTENT.md",
+    );
+    const sourceBytes = await readFile(sourcePath);
+    const transitionConnection = initializeDatabase(config);
+    try {
+      await transitionConnection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "committing",
+        { updatedAt: now },
+      );
+    } finally {
+      transitionConnection.close();
+    }
+
+    let chunkReads = 0;
+    let clientCreations = 0;
+    let backupCalls = 0;
+    const backupQueue: DurableMemoryBackupQueue = {
+      enqueue: async () => {
+        backupCalls += 1;
+        return { backupStatus: "queued" };
+      },
+      persistIntent: async () => {
+        backupCalls += 1;
+        return { backupStatus: "pending" };
+      },
+    };
+    await runTranslationJob(started.job_id, {
+      backupQueue,
+      config,
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeTranslationClient();
+      },
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              getTranslationChunks: async (...args) => {
+                const chunks = await translations.getTranslationChunks(...args);
+                chunkReads += 1;
+                if (chunkReads === 2) {
+                  await writeFile(
+                    sourcePath,
+                    Buffer.concat([sourceBytes, Buffer.from([0xff])]),
+                  );
+                }
+                return chunks;
+              },
+            },
+          },
+        };
+      },
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: sourceBytes.byteLength,
+      },
+    });
+
+    expect(chunkReads).toBe(2);
+    expect(clientCreations).toBe(0);
+    expect(backupCalls).toBe(0);
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation source exceeds the total source byte limit.",
+        },
+        status: "failed",
+      });
+    } finally {
+      verifyConnection.close();
     }
   });
 
@@ -2742,10 +2917,14 @@ async function createMemoryRow(config: ResolvedTraumaConfig): Promise<void> {
 
 async function writeSourceContent(
   config: ResolvedTraumaConfig,
-  markdown = "# Brilliant Source\n\nBody.",
+  markdown: string | Uint8Array = "# Brilliant Source\n\nBody.",
 ): Promise<void> {
   const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
   await mkdir(dirname(filePath), { recursive: true });
+  if (typeof markdown !== "string") {
+    await writeFile(filePath, markdown);
+    return;
+  }
   await writeFile(
     filePath,
     createMemoryContentFixture({
