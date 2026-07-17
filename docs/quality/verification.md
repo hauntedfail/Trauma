@@ -73,7 +73,10 @@ Use focused tests for the smallest affected boundary:
   stable keyset ordering, bounded stale-row scans, distinct content/TOC reads,
   legacy API compatibility, and paged envelopes.
 - `tests/server/translation/**`: job state, chunking, Codex protocol,
-  cancellation, stitching, projections, and current-output resolution.
+  serialized event admission, retry/job cumulative budgets, replay/SSE
+  backpressure, cancellation races, stitching, projections, and current-output
+  resolution. Shared Codex byte-limit changes also run the adjacent Psychiatrist
+  event-persistence and SSE suites.
 - `tests/server/psychiatrist/**` plus `tests/skills/**`: runtime isolation,
   prompt policy, file-backed thread state, events, citations, and route
   semantics.

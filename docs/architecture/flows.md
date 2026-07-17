@@ -191,6 +191,12 @@ remain compatible for their current clients.
    write output or enter backup.
 5. Each chunk is sent through the Brilliant prompt/validation boundary and its
    validated Markdown and projection data are persisted before the next chunk.
+   Codex events pass fixed serialized UTF-8 admission before any delta reaches
+   replay or SSE. The 4,096-event/4-MiB chunk-attempt budget resets for each
+   attempt; the 262,144-event/32-MiB job budget accumulates across every chunk
+   and retry. A 64-KiB event or any cumulative overflow stops callbacks,
+   interrupts the active turn best-effort, and fails without retry through the
+   existing safe unknown error contract.
 6. Cancellation is checked before and after chunk work. Pending jobs cancel
    immediately; running jobs move to `cancel_requested` and interrupt the active
    Codex turn. Stitching, committing, and terminal jobs reject cancellation to
@@ -217,9 +223,14 @@ next start for the same source and language reschedules that job; replay rewrite
 the output and projection, completes SQLite state, and repeats backup intent and
 enqueue.
 
-The SSE endpoint first sends the durable job snapshot, then any in-process
-replay events, follows live events, sends heartbeats, and closes on a terminal
-state. Reconnecting after a process restart relies on the durable snapshot, not
+In-process replay retains at most 500 events and 4 MiB, evicting the oldest
+events by both limits while preserving order. The SSE endpoint pulls the durable
+job snapshot and replay one event at a time, then follows live events through a
+per-subscriber queue capped at 128 events and 3 MiB. Heartbeats are sent only
+when the stream has desired capacity. A slow subscriber overflow unsubscribes
+and errors only that connection; reconnect reads the bounded replay. Terminal
+events or refreshed terminal snapshots are sent before exact cleanup and close.
+Reconnecting after a process restart still relies on the durable snapshot, not
 on replay history that lived only in the previous process.
 
 Codex device-login polling owns an `AbortController` per polling generation and

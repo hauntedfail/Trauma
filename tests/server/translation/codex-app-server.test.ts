@@ -110,7 +110,9 @@ describe("Codex app-server endpoint parsing", () => {
       const events: string[] = [];
       const output = await client.translateChunk({
         chunk: createChunk(),
-        onEvent: (event) => events.push(event.type),
+        onEvent: (event) => {
+          events.push(event.type);
+        },
         prompt: "translate chunk",
       });
 
@@ -131,6 +133,69 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContain("turn.started");
       expect(events).toContain("delta");
       expect(events).toContain("item.completed");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a translation turn when its event consumer applies backpressure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-translation-backpressure-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, []);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "delta";
+        },
+        prompt: "translate chunk",
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+
+      expect(events.filter((event) => event.type === "delta")).toHaveLength(1);
+      expect(events).not.toContainEqual({
+        itemId: "item-1",
+        type: "item.completed",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not re-enter a rejected translation callback from the turn/start response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-translation-backpressure-race-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "turn.started";
+        },
+        prompt: "translate chunk",
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+
+      expect(events.filter((event) => event.type === "turn.started"))
+        .toHaveLength(1);
     } finally {
       await server.close();
     }

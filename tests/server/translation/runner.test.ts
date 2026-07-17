@@ -28,6 +28,7 @@ import {
   type TranslateChunkInput,
   type TranslationClient,
 } from "../../../src/server/translation/codex-app-server";
+import type { TranslationCodexEventAdmissionLimits } from "../../../src/server/translation/event-admission";
 import {
   CODEX_RUNTIME_ISOLATION_ENV,
   LEGACY_CODEX_RUNTIME_ISOLATION_ENV,
@@ -422,6 +423,140 @@ describe("translation runner", () => {
 
     client.completeTranslation();
     await runPromise;
+  });
+
+  it("interrupts and fails safely without retry after Codex event admission is exceeded", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new OversizedEventTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000031";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({ maxEventBytes: 128 }),
+      config,
+    });
+
+    expect(client.callCount).toBe(1);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-limit", turnId: "turn-limit" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "unknown",
+          message: "Translation failed.",
+        },
+        status: "failed",
+      });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(jobId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          retryCount: 0,
+          status: "failed",
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("accumulates the job event budget across reset chunk attempts", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new AdmissionRetryTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000032";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({
+        maxChunkAttemptEvents: 2,
+        maxJobEvents: 3,
+      }),
+      config,
+    });
+
+    expect(client.callCount).toBe(2);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-retry-2", turnId: "turn-retry-2" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: { action: "none", code: "unknown" },
+        status: "failed",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("lets cancellation win a race with Codex event admission failure", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000033";
+    const client = new CancelAfterEventLimitTranslationClient(async () => {
+      const connection = initializeDatabase(config);
+      try {
+        await connection.repositories.translations
+          .requestRunningTranslationJobCancellation(jobId, new Date());
+      } finally {
+        connection.close();
+      }
+    });
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({ maxEventBytes: 128 }),
+      config,
+    });
+
+    expect(client.callCount).toBe(1);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-limit", turnId: "turn-limit" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
   });
 
   it("preserves academic Markdown syntax while committing segment translations", async () => {
@@ -1843,6 +1978,97 @@ class InterruptibleTranslationClient implements TranslationClient {
   waitUntilTurnStarted(): Promise<void> {
     return this.turnStarted;
   }
+}
+
+class OversizedEventTranslationClient implements TranslationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    input.onEvent?.({ type: "thread.started", threadId: "thread-limit" });
+    input.onEvent?.({ type: "turn.started", turnId: "turn-limit" });
+    input.onEvent?.({ type: "delta", text: "界".repeat(64) });
+    return validTranslationOutput(input);
+  }
+}
+
+class AdmissionRetryTranslationClient implements TranslationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    input.onEvent?.({
+      type: "thread.started",
+      threadId: `thread-retry-${this.callCount}`,
+    });
+    input.onEvent?.({
+      type: "turn.started",
+      turnId: `turn-retry-${this.callCount}`,
+    });
+    if (this.callCount === 1) {
+      return {
+        chunk_index: input.chunk.chunkIndex,
+        segments: [],
+        warnings: [],
+      };
+    }
+    return validTranslationOutput(input);
+  }
+}
+
+class CancelAfterEventLimitTranslationClient extends OversizedEventTranslationClient {
+  constructor(private readonly requestCancel: () => Promise<void>) {
+    super();
+  }
+
+  override async translateChunk(
+    input: TranslateChunkInput,
+  ): Promise<RawCodexChunkOutput> {
+    const output = await super.translateChunk(input);
+    await this.requestCancel();
+    return output;
+  }
+}
+
+function validTranslationOutput(input: TranslateChunkInput): RawCodexChunkOutput {
+  return {
+    chunk_index: input.chunk.chunkIndex,
+    segments: input.chunk.segments.map((segment) => ({
+      id: segment.id,
+      translated_text: segment.text.replaceAll(
+        "Brilliant Source",
+        "華麗なソース",
+      ).replaceAll("Body.", "本文。"),
+    })),
+    warnings: [],
+  };
+}
+
+function tinyCodexEventLimits(
+  overrides: Partial<TranslationCodexEventAdmissionLimits>,
+): TranslationCodexEventAdmissionLimits {
+  return {
+    maxChunkAttemptBytes: 1_000_000,
+    maxChunkAttemptEvents: 1_000,
+    maxEventBytes: 1_000_000,
+    maxJobBytes: 1_000_000,
+    maxJobEvents: 1_000,
+    ...overrides,
+  };
 }
 
 class GraceTimeoutTranslationClient implements TranslationClient {

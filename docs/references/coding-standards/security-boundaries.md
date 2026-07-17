@@ -95,6 +95,20 @@
   explicit approval for the current turn and externally constrained egress.
 - MUST validate structured translation output and fail closed on source-hash,
   output-shape, protocol, or cancellation conflicts.
+- MUST admit Brilliant translation Codex events against fixed server-side
+  serialized UTF-8 budgets: 64 KiB per event, 4,096 events or 4 MiB per chunk
+  attempt, and 262,144 events or 32 MiB for the whole job. Job admission is
+  cumulative across every chunk and retry; only the chunk-attempt budget resets.
+  These limits are test-injectable code constants, not runtime configuration.
+- MUST propagate Brilliant translation admission failure through the Codex event
+  callback. The callback stops accepting events, the active turn is interrupted
+  best-effort, and the job fails without retry through the existing safe unknown
+  public error contract. Cancellation remains authoritative when it races the
+  limit failure.
+- MUST bound Brilliant translation in-process replay to 500 events and 4 MiB,
+  and each live SSE subscriber to 128 pending events and 3 MiB. Snapshot and
+  replay delivery are pull-driven; a slow subscriber overflow disconnects only
+  that subscriber and never fails the translation job.
 - MUST treat Codex protocol event size and rate as untrusted input. Psychiatrist
   enforces fixed server-side byte and count budgets at callback admission, the
   pending persistence queue, the complete turn, the durable replay stream, and

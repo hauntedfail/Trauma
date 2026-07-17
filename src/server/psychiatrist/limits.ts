@@ -1,7 +1,11 @@
 import type { CodexAppServerEvent } from "../translation/codex-app-server";
+import {
+  CODEX_SERIALIZED_EVENT_MAX_BYTES,
+  measureSerializedCodexEventBytes,
+} from "../codex/event-limits";
 
 export const PSYCHIATRIST_EVENT_LIMITS = Object.freeze({
-  maxDeltaBytes: 64 * 1_024,
+  maxDeltaBytes: CODEX_SERIALIZED_EVENT_MAX_BYTES,
   maxFinalAnswerBytes: 2 * 1_024 * 1_024,
   maxPendingBytes: 1 * 1_024 * 1_024,
   maxPendingEvents: 128,
@@ -88,7 +92,7 @@ export class PsychiatristEventLimitError extends Error {
 export function measurePsychiatristCodexEventBytes(
   event: CodexAppServerEvent,
 ): number {
-  return Buffer.byteLength(JSON.stringify(event), "utf8");
+  return measureSerializedCodexEventBytes(event);
 }
 
 export function assertPsychiatristFinalAnswerWithinLimit(

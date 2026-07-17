@@ -30,6 +30,10 @@ import {
   resolveCurrentTranslationReadOnly,
 } from "./current-translation";
 import { translationEventBus } from "./events";
+import {
+  TranslationCodexEventAdmission,
+  type TranslationCodexEventAdmissionLimits,
+} from "./event-admission";
 import { createSha256ContentHash } from "./hash";
 import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
 import {
@@ -127,6 +131,7 @@ interface TranslationRunOptions {
   cancelGraceMs?: number;
   closeClientAfterRun?: boolean;
   client?: TranslationClient;
+  codexEventLimits?: TranslationCodexEventAdmissionLimits;
   config?: ResolvedTraumaConfig;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
 }
@@ -422,6 +427,9 @@ export async function runTranslationJob(
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
   const client = options.client ?? new CodexAppServerClient();
+  const codexEventAdmission = new TranslationCodexEventAdmission(
+    options.codexEventLimits,
+  );
   const closeClientAfterRun = options.client === undefined ||
     options.closeClientAfterRun === true;
   const connection = openConnection(config);
@@ -521,6 +529,7 @@ export async function runTranslationJob(
         cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
         chunk,
         client,
+        codexEventAdmission,
         connection,
         jobLangCode: job.langCode,
         jobMemoryId: job.memoryId,
@@ -800,6 +809,7 @@ async function translateAndPersistChunk(input: {
   cancelGraceMs: number;
   chunk: ReturnType<typeof createTranslationChunks>[number];
   client: TranslationClient;
+  codexEventAdmission: TranslationCodexEventAdmission;
   connection: TraumaDatabaseConnection;
   jobLangCode: string;
   jobMemoryId: string;
@@ -838,7 +848,9 @@ async function translateAndPersistChunk(input: {
         : "translation.chunk.retrying",
     });
 
+    let inFlightTurn: InFlightTranslationTurn | undefined;
     try {
+      const attemptAdmission = input.codexEventAdmission.startChunkAttempt();
       const prompt = buildTranslationPrompt({
         chunk: input.chunk,
         ...(attempt > 0 && latestPersistedError !== undefined
@@ -851,7 +863,7 @@ async function translateAndPersistChunk(input: {
           : {}),
         targetLanguage: input.jobLangCode as SupportedLanguageCode,
       });
-      const inFlightTurn: InFlightTranslationTurn = {
+      inFlightTurn = {
         client: input.client,
       };
       inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
@@ -864,10 +876,14 @@ async function translateAndPersistChunk(input: {
         reasoningEffort: input.reasoningEffort,
         onEvent: (event) => {
           if (event.type === "thread.started") {
-            inFlightTurn.threadId = event.threadId;
+            inFlightTurn!.threadId = event.threadId;
           } else if (event.type === "turn.started") {
-            inFlightTurn.turnId = event.turnId;
-          } else if (event.type === "delta") {
+            inFlightTurn!.turnId = event.turnId;
+          }
+          if (!attemptAdmission.admit(event)) {
+            return false;
+          }
+          if (event.type === "delta") {
             translationEventBus.emit({
               chunkIndex: input.chunk.chunkIndex,
               data: { text: event.text },
@@ -895,6 +911,7 @@ async function translateAndPersistChunk(input: {
               type: "translation.codex.item.completed",
             });
           }
+          return true;
         },
       });
       const rawOutputResult = rawOutputPromise.then(
@@ -924,6 +941,9 @@ async function translateAndPersistChunk(input: {
       }
       if (turnResult.status === "failed") {
         throw turnResult.error;
+      }
+      if (input.codexEventAdmission.error !== undefined) {
+        throw input.codexEventAdmission.error;
       }
       const rawOutput = turnResult.output;
       if (
@@ -976,8 +996,14 @@ async function translateAndPersistChunk(input: {
         type: "translation.chunk.completed",
       });
       return { status: "completed" };
-    } catch (error) {
-      inFlightTranslationTurns.delete(input.chunk.jobId);
+    } catch (caughtError) {
+      const error = input.codexEventAdmission.error ?? caughtError;
+      if (isCodexEventLimitError(error)) {
+        await interruptTranslationTurnBestEffort(inFlightTurn);
+      }
+      if (inFlightTranslationTurns.get(input.chunk.jobId) === inFlightTurn) {
+        inFlightTranslationTurns.delete(input.chunk.jobId);
+      }
       if (
         await isCancellationRequested(
           input.connection.repositories,
@@ -986,7 +1012,8 @@ async function translateAndPersistChunk(input: {
       ) {
         return { status: "canceled" };
       }
-      const willRetry = attempt < BRILLIANT_MAX_RETRIES;
+      const willRetry =
+        !isCodexEventLimitError(error) && attempt < BRILLIANT_MAX_RETRIES;
       const persistedError = toPersistedError(error);
       latestPersistedError = persistedError;
       await input.connection.repositories.translations.updateTranslationChunk(
@@ -1282,6 +1309,13 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     };
   }
   if (error instanceof CodexAppServerError) {
+    if (error.code === "event_limit_exceeded") {
+      return {
+        code: "unknown",
+        message: "Translation failed.",
+        action: "none",
+      };
+    }
     const code = translationCodexErrorCode(error.code);
     return {
       code,
@@ -1319,6 +1353,31 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     message: "Translation failed.",
     action: "retry",
   };
+}
+
+function isCodexEventLimitError(error: unknown): boolean {
+  return error instanceof CodexAppServerError &&
+    error.code === "event_limit_exceeded";
+}
+
+async function interruptTranslationTurnBestEffort(
+  inFlight: InFlightTranslationTurn | undefined,
+): Promise<void> {
+  if (
+    inFlight?.client.cancelTurn === undefined ||
+    inFlight.threadId === undefined ||
+    inFlight.turnId === undefined
+  ) {
+    return;
+  }
+  try {
+    await inFlight.client.cancelTurn({
+      threadId: inFlight.threadId,
+      turnId: inFlight.turnId,
+    });
+  } catch {
+    // Admission failure remains authoritative when best-effort interruption fails.
+  }
 }
 
 function toPersistableError(error: TranslationJobSnapshotError) {

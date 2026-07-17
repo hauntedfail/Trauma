@@ -74,11 +74,15 @@ export type CodexLogoutResult =
 export interface TranslateChunkInput {
   chunk: TranslationChunk;
   model?: string | null;
-  onEvent?: (event: CodexAppServerEvent) => void;
+  onEvent?: CodexAppServerEventHandler;
   outputSchema?: unknown;
   prompt: string;
   reasoningEffort?: CodexReasoningEffort | null;
 }
+
+export type CodexAppServerEventHandler = (
+  event: CodexAppServerEvent,
+) => boolean | void;
 
 export interface TranslationClient {
   cancelTurn?: (input: { threadId: string; turnId: string }) => Promise<void>;
@@ -99,9 +103,7 @@ export interface CodexConversationTurnInput {
   threadId?: string;
 }
 
-export type CodexConversationEventHandler = (
-  event: CodexAppServerEvent,
-) => boolean | void;
+export type CodexConversationEventHandler = CodexAppServerEventHandler;
 
 export interface CodexConversationTurnResult {
   outputText: string;
@@ -425,7 +427,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       if (responseTurnId !== undefined) {
         turnId = responseTurnId;
         try {
-          assertConversationEventAccepted(input.onEvent, {
+          assertCodexEventAccepted(input.onEvent, {
             type: "turn.started",
             turnId: responseTurnId,
           });
@@ -499,7 +501,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         "Codex app-server did not return a thread id.",
       );
     }
-    assertConversationEventAccepted(input.onEvent, {
+    assertCodexEventAccepted(input.onEvent, {
       type: "thread.started",
       threadId,
     });
@@ -527,7 +529,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           "Codex app-server did not return a thread id.",
         );
       }
-      input.onEvent?.({ type: "thread.started", threadId });
+      assertCodexEventAccepted(input.onEvent, {
+        type: "thread.started",
+        threadId,
+      });
 
       let turnId: string | undefined;
       const completed = this.waitForTurnCompletion({
@@ -564,7 +569,13 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       const responseTurnId = readTurnStartResponseTurnId(turn);
       if (responseTurnId !== undefined) {
         turnId = responseTurnId;
-        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
+        if (completed.emitEvent({
+          type: "turn.started",
+          turnId: responseTurnId,
+        }) === "rejected") {
+          completed.unsubscribe();
+          throw conversationEventBackpressureError();
+        }
       }
       const immediateOutput = readFinalOutput(turn);
       if (immediateOutput !== undefined) {
@@ -712,14 +723,24 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
   }
 
   private waitForTurnCompletion(input: {
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexAppServerEventHandler;
     recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
-  }): { output: Promise<RawCodexChunkOutput>; unsubscribe: () => void } {
+  }): {
+    emitEvent: (
+      event: CodexAppServerEvent,
+    ) => "accepted" | "rejected" | "settled";
+    output: Promise<RawCodexChunkOutput>;
+    unsubscribe: () => void;
+  } {
     let unsubscribe: () => void = () => undefined;
     let unsubscribeClose: () => void = () => undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let emitEvent: (
+      event: CodexAppServerEvent,
+    ) => "accepted" | "rejected" | "settled" = () => "settled";
+    let eventConsumerRejected = false;
     const output = new Promise<RawCodexChunkOutput>((resolve, reject) => {
       let settled = false;
       const settleResolve = (value: RawCodexChunkOutput) => {
@@ -742,6 +763,20 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
         reject(error);
       };
+      emitEvent = (event: CodexAppServerEvent) => {
+        if (eventConsumerRejected) {
+          return "rejected";
+        }
+        if (settled) {
+          return "settled";
+        }
+        if (input.onEvent?.(event) !== false) {
+          return "accepted";
+        }
+        eventConsumerRejected = true;
+        settleReject(conversationEventBackpressureError());
+        return "rejected";
+      };
       timeout = setTimeout(() => {
         settleReject(
           new CodexAppServerError(
@@ -761,7 +796,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             startedTurnId !== undefined
           ) {
             input.recordTurnId(startedTurnId);
-            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+            emitEvent({ type: "turn.started", turnId: startedTurnId });
           }
           return;
         }
@@ -771,7 +806,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const delta = readStringField(message.params, "delta");
           if (delta !== undefined) {
-            input.onEvent?.({ type: "delta", text: delta });
+            emitEvent({ type: "delta", text: delta });
           }
           return;
         }
@@ -779,7 +814,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.started",
           });
@@ -789,10 +824,12 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.completed",
-          });
+          }) !== "accepted") {
+            return;
+          }
           const itemOutput = readFinalOutput(message.params);
           if (itemOutput !== undefined) {
             settleResolve(itemOutput);
@@ -826,7 +863,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
       });
     });
+    void output.catch(() => undefined);
     return {
+      emitEvent,
       output,
       unsubscribe: () => {
         if (timeout !== undefined) {
@@ -2109,8 +2148,8 @@ function conversationEventBackpressureError(): CodexAppServerError {
   );
 }
 
-function assertConversationEventAccepted(
-  onEvent: CodexConversationEventHandler | undefined,
+function assertCodexEventAccepted(
+  onEvent: CodexAppServerEventHandler | undefined,
   event: CodexAppServerEvent,
 ): void {
   if (onEvent?.(event) === false) {
