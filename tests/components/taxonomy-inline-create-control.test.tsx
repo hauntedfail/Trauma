@@ -4,6 +4,7 @@ import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
 import {
+  createTaxonomyOpenInstanceTracker,
   normalizeTaxonomyAddName,
   TaxonomyInlineCreateControl,
 } from "../../src/components/memories/TaxonomyInlineCreateControl";
@@ -51,5 +52,19 @@ describe("taxonomy inline create control", () => {
     expect(inlineCreateSource).toContain("restoreTaxonomyTriggerFocus");
     expect(taxonomyAddSource).toContain("restoreTaxonomyAddTriggerFocus");
     expect(taxonomyAddSource).toContain('reason !== "outside-pointer"');
+  });
+
+  it("does not let a settled submit adopt a dismissed or reopened instance", () => {
+    const tracker = createTaxonomyOpenInstanceTracker();
+    tracker.open();
+    const submittingInstanceStillOwned = tracker.capture();
+
+    expect(submittingInstanceStillOwned()).toBe(true);
+    tracker.close();
+    expect(submittingInstanceStillOwned()).toBe(false);
+
+    tracker.open();
+    expect(submittingInstanceStillOwned()).toBe(false);
+    expect(tracker.capture()()).toBe(true);
   });
 });

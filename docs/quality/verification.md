@@ -52,6 +52,10 @@ store, and git paths rather than external websites or real application data.
 - `e2e/reader.spec.ts`: source reader, translation controls, deletion,
   Flashbacks, Moments, table-of-contents behavior, and Psychiatrist
   streaming/resume/cancel/regenerate/permission flows.
+- `e2e/security-boundaries.spec.ts`: hostile Host rejection, configured
+  loopback acceptance, and backup reconciliation GET non-exposure.
+- `e2e/settings.spec.ts`: model-catalog recovery, saved-default preservation,
+  retry focus, and cancellation-safe Codex auth polling.
 
 The Add Memory fixture seam is owned by `src/server/importer/runtime.ts`. It is
 enabled only by Playwright's three fixed E2E guards and synthesizes results for

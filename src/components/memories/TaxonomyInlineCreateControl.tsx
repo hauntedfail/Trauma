@@ -1,4 +1,10 @@
-import { Show, createEffect, createSignal, type JSX } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  type JSX,
+} from "solid-js";
 
 import { PlusIcon } from "../icons";
 import {
@@ -25,6 +31,24 @@ export interface TaxonomyInlineCreateControlProps {
   onSubmitName: (name: string) => Promise<void> | void;
 }
 
+export function createTaxonomyOpenInstanceTracker() {
+  let activeInstance: symbol | undefined;
+
+  return {
+    capture: () => {
+      const capturedInstance = activeInstance;
+      return () =>
+        capturedInstance !== undefined && activeInstance === capturedInstance;
+    },
+    close: () => {
+      activeInstance = undefined;
+    },
+    open: () => {
+      activeInstance ??= Symbol("taxonomy-open-instance");
+    },
+  };
+}
+
 const addTaxonomyPillClass =
   "inline-flex items-center gap-1 rounded-full border border-dashed border-trauma-border-strong px-2.5 py-1 text-xs font-bold text-trauma-text-muted hover:text-trauma-text-primary";
 const addTaxonomyInputClass =
@@ -39,12 +63,18 @@ export function TaxonomyInlineCreateControl(
   const [internalOpen, setInternalOpen] = createSignal(false);
   const [draftName, setDraftName] = createSignal("");
   const [pending, setPending] = createSignal(false);
+  const openInstanceTracker = createTaxonomyOpenInstanceTracker();
   const isOpen = () => props.open ?? internalOpen();
   const triggerClass = () => props.class ?? addTaxonomyPillClass;
   const setOpen = (
     open: boolean,
     reason?: TaxonomyInlineCreateCloseReason,
   ): void => {
+    if (open) {
+      openInstanceTracker.open();
+    } else {
+      openInstanceTracker.close();
+    }
     if (props.open === undefined) {
       setInternalOpen(open);
     }
@@ -59,10 +89,13 @@ export function TaxonomyInlineCreateControl(
 
   createEffect(() => {
     if (!isOpen()) {
+      openInstanceTracker.close();
       return;
     }
+    openInstanceTracker.open();
     queueMicrotask(() => inputRef?.focus());
   });
+  onCleanup(() => openInstanceTracker.close());
 
   useDismissableLayer({
     getRoot: () => rootRef,
@@ -82,10 +115,13 @@ export function TaxonomyInlineCreateControl(
       return;
     }
 
+    const submittingInstanceStillOwned = openInstanceTracker.capture();
     setPending(true);
     try {
       await props.onSubmitName(name);
-      setOpen(false, "submit");
+      if (submittingInstanceStillOwned()) {
+        setOpen(false, "submit");
+      }
     } catch (error) {
       props.onError?.(
         error instanceof Error ? error.message : "Failed to update taxonomy.",

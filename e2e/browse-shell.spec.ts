@@ -437,6 +437,69 @@ test("closes taxonomy creation controls on outside clicks", async ({ page }) => 
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
 
+test("keeps outside focus when a dismissed taxonomy submission later resolves", async ({
+  page,
+}) => {
+  let tagRequestCount = 0;
+  let releaseTagRequest: () => void = () => undefined;
+  const tagRequestGate = new Promise<void>((resolve) => {
+    releaseTagRequest = resolve;
+  });
+  await page.route("**/api/tags", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    tagRequestCount += 1;
+    await tagRequestGate;
+    await route.fulfill({
+      body: JSON.stringify({
+        tag: {
+          id: "late-focus-tag-id",
+          name: "late-focus-tag",
+        },
+      }),
+      contentType: "application/json",
+      status: 201,
+    });
+  });
+
+  try {
+    await page.goto("/memories");
+
+    const filters = page.getByRole("complementary", { name: "Browse filters" });
+    await filters.getByRole("button", { name: "New tag" }).click();
+    const input = filters.getByRole("textbox", { name: "New tag" });
+    await input.fill("late-focus-tag");
+    await input.press("Enter");
+    await expect.poll(() => tagRequestCount).toBe(1);
+    await expect(input).toBeDisabled();
+
+    const outsideTarget = await installDismissableClickProbe(page);
+    await outsideTarget.click();
+    await expect(input).toHaveCount(0);
+    await expect(outsideTarget).toBeFocused();
+
+    const completedTagRequest = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/tags" && response.request().method() === "POST";
+    });
+    releaseTagRequest();
+    const tagResponse = await completedTagRequest;
+    expect(tagResponse.ok()).toBe(true);
+    await tagResponse.finished();
+    await page.evaluate(
+      () => new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      ),
+    );
+    await expect(outsideTarget).toBeFocused();
+  } finally {
+    releaseTagRequest();
+  }
+});
+
 test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
