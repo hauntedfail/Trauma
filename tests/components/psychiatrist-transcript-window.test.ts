@@ -28,6 +28,7 @@ describe("Psychiatrist transcript window", () => {
       endExclusive: 1_000,
       hasNewer: false,
       hasOlder: true,
+      pinnedPairs: [],
       rangeLabel: "Showing 977–1000 of 1000.",
       startIndex: 976,
       total: 1_000,
@@ -92,6 +93,22 @@ describe("Psychiatrist transcript window", () => {
       ...range(976, 1_000).map((index) => `pair-${index}`),
     ]);
     expect(projection.pairs).toHaveLength(26);
+    expect(projection.pinnedPairs).toEqual([
+      {
+        pairId: "pair-100",
+        reasons: ["web_source_retry"],
+        transcriptNumber: 101,
+      },
+      {
+        pairId: "pair-900",
+        reasons: ["active"],
+        transcriptNumber: 901,
+      },
+    ]);
+    expect(projection.rangeLabel).toBe(
+      "Showing 977–1000 of 1000; 2 pinned pairs also shown: " +
+        "pair 101 (web-source retry), pair 901 (active).",
+    );
   });
 
   it("deduplicates pins already inside the page or pointing to the same pair", () => {
@@ -106,6 +123,32 @@ describe("Psychiatrist transcript window", () => {
 
     expect(projection.pairs).toHaveLength(24);
     expect(new Set(projection.pairs.map((pair) => pair.pairId)).size).toBe(24);
+    expect(projection.pinnedPairs).toEqual([]);
+    expect(projection.rangeLabel).toBe("Showing 7–30 of 30.");
+  });
+
+  it("deduplicates one out-of-page pair pinned for both active and retry reasons", () => {
+    const pairs = transcriptPairs(30);
+
+    const projection = projectPsychiatristTranscriptWindow({
+      activePairId: "pair-1",
+      endExclusive: pairs.length,
+      pairs,
+      retryPairId: "pair-1",
+    });
+
+    expect(projection.pairs).toHaveLength(25);
+    expect(projection.pinnedPairs).toEqual([
+      {
+        pairId: "pair-1",
+        reasons: ["active", "web_source_retry"],
+        transcriptNumber: 2,
+      },
+    ]);
+    expect(projection.rangeLabel).toBe(
+      "Showing 7–30 of 30; 1 pinned pair also shown: " +
+        "pair 2 (active and web-source retry).",
+    );
   });
 
   it("clamps stale bounds when a thread is replaced or shortened", () => {
@@ -132,6 +175,7 @@ describe("Psychiatrist transcript window", () => {
       hasNewer: false,
       hasOlder: false,
       pairs: [],
+      pinnedPairs: [],
       rangeLabel: "Showing 0–0 of 0.",
       startIndex: 0,
       total: 0,

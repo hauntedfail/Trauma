@@ -19,7 +19,11 @@ import {
   sendPsychiatristMessage,
 } from "../../src/components/reader/psychiatrist-requests";
 import {
+  projectPublicPsychiatristCitationHref,
+} from "../../src/components/reader/psychiatrist-runtime-validation";
+import {
   applyPsychiatristStreamEvent,
+  PSYCHIATRIST_MAX_PROCESS_ROWS_PER_PAIR,
   toPsychiatristTranscriptPairs,
 } from "../../src/components/reader/psychiatrist-transcript";
 
@@ -911,6 +915,92 @@ describe("PsychiatristDock", () => {
         url: "https://example.com/releases",
       },
     ]);
+  });
+
+  it.each([
+    ["https://example.com/source?query=kept#section", "https://example.com/source?query=kept#section"],
+    ["http://example.com/source", "http://example.com/source"],
+    ["https://8.8.8.8/source", "https://8.8.8.8/source"],
+    ["http://[2606:4700:4700::1111]/source", "http://[2606:4700:4700::1111]/source"],
+    ["javascript:alert(1)", undefined],
+    ["data:text/html,unsafe", undefined],
+    ["file:///private/tmp/source", undefined],
+    ["https://user:password@example.com/source", undefined],
+    ["https://localhost/source", undefined],
+    ["https://localhost./source", undefined],
+    ["https://reader.localhost/source", undefined],
+    ["http://127.0.0.1/source", undefined],
+    ["http://0x7f000001/source", undefined],
+    ["http://10.0.0.1/source", undefined],
+    ["http://169.254.1.1/source", undefined],
+    ["http://224.0.0.1/source", undefined],
+    ["http://[::1]/source", undefined],
+    ["http://[::ffff:127.0.0.1]/source", undefined],
+    ["http://[fc00::1]/source", undefined],
+    ["http://[fe80::1]/source", undefined],
+    ["http://[ff02::1]/source", undefined],
+    ["not a URL", undefined],
+    ["", undefined],
+  ])("projects only public HTTP citations from %s", (url, expected) => {
+    expect(projectPublicPsychiatristCitationHref(url)).toBe(expected);
+  });
+
+  it("bounds and coalesces user-visible process rows without changing answer deltas", () => {
+    let transcript = toPsychiatristTranscriptPairs([
+      {
+        assistant_response: undefined,
+        pair_id: "pair-process",
+        status: "pending",
+        turn_id: "turn-process",
+        user_prompt: {
+          content: "What changed?",
+          created_at: "2026-06-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    for (let index = 0; index < 4_096; index += 1) {
+      transcript = applyPsychiatristStreamEvent(transcript, streamEvent({
+        data: { text: `  Phase   ${index}  ` },
+        turnId: "turn-process",
+        type: "psychiatrist.process.delta",
+      }));
+    }
+    transcript = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "Phase 4095" },
+      turnId: "turn-process",
+      type: "psychiatrist.process.delta",
+    }));
+    transcript = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "   " },
+      turnId: "turn-process",
+      type: "psychiatrist.process.delta",
+    }));
+    transcript = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { text: "The answer mentions token rotation." },
+      turnId: "turn-process",
+      type: "psychiatrist.answer.delta",
+    }));
+
+    expect(PSYCHIATRIST_MAX_PROCESS_ROWS_PER_PAIR).toBe(8);
+    expect(transcript[0]?.process).toEqual([
+      "Phase 0",
+      "Phase 4089",
+      "Phase 4090",
+      "Phase 4091",
+      "Phase 4092",
+      "Phase 4093",
+      "Phase 4094",
+      "Phase 4095",
+    ]);
+    expect(transcript[0]?.answer).toBe("The answer mentions token rotation.");
+
+    const restarted = applyPsychiatristStreamEvent(transcript, streamEvent({
+      data: { pair_id: "pair-process", status: "running" },
+      turnId: "turn-regenerate-process",
+      type: "psychiatrist.regenerate.started",
+    }));
+    expect(restarted[0]?.process).toEqual([]);
   });
 
   it("preserves persisted web-source retry actions in transcript pairs", () => {

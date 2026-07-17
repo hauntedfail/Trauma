@@ -143,6 +143,16 @@
 - MUST expose only safe process/status events and final answer text. Never send
   hidden reasoning, raw backend payloads, tokens, endpoints, credential paths,
   or local absolute paths to the browser.
+- MUST treat Psychiatrist citation URLs from request responses, persisted
+  threads, and SSE terminal events as untrusted browser output. Citation shape
+  validation remains forward-compatible, but only credential-free public HTTP
+  and HTTPS URLs may become anchors. Active schemes, malformed URLs, localhost
+  names, and private, loopback, link-local, or other non-unicast IP literals
+  must render as inert escaped title text rather than rejecting the whole answer.
+- MUST keep the Psychiatrist browser process projection bounded independently of
+  the durable 4,096-event turn limit. Normalize safe status text, coalesce
+  adjacent duplicates, and render no more than eight status rows per pair while
+  retaining the first context status and the latest seven statuses.
 
 ## Browser-Assisted Import
 

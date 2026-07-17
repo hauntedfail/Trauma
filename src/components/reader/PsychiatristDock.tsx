@@ -16,7 +16,10 @@ import {
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
 } from "./psychiatrist-requests";
-import { isRecord } from "./psychiatrist-runtime-validation";
+import {
+  isRecord,
+  projectPublicPsychiatristCitationHref,
+} from "./psychiatrist-runtime-validation";
 import {
   parsePsychiatristStreamEvent,
   type PsychiatristStreamEventScope,
@@ -58,6 +61,7 @@ interface PsychiatristTranscriptScrollMetrics {
 }
 
 const PSYCHIATRIST_TRANSCRIPT_BOTTOM_THRESHOLD_PX = 48;
+const PSYCHIATRIST_MALFORMED_TERMINAL_RECONCILIATION_LIMIT = 1;
 
 interface ReaderRequestGeneration {
   readerGeneration: number;
@@ -72,6 +76,17 @@ interface StreamGeneration extends ThreadRequestGeneration {
   streamGeneration: number;
   threadId: string;
   turnId: string;
+}
+
+interface MalformedTerminalReconciliation {
+  attempts: number;
+  key: string;
+}
+
+interface ThreadLoadOptions {
+  focusGeneration?: number;
+  preserveTurnPhase?: boolean;
+  reconciliationStream?: StreamGeneration;
 }
 
 type PsychiatristThreadLoadState = "idle" | "loading" | "ready" | "error";
@@ -99,6 +114,7 @@ export function isPsychiatristTranscriptNearBottom(
 
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
+  let closeButtonRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
   let panelRef: HTMLElement | undefined;
   let transcriptRef: HTMLDivElement | undefined;
@@ -120,9 +136,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
   const [transcriptWindowEnd, setTranscriptWindowEnd] = createSignal(0);
   let isDisposed = false;
+  let openFocusGeneration = 0;
   let readerGeneration = 0;
   let streamGeneration = 0;
   let transcriptScrollGeneration = 0;
+  let malformedTerminalReconciliation: MalformedTerminalReconciliation | undefined;
   let pendingStopReconciliation: PendingStopReconciliation | undefined;
   let loadedReaderThreadKey = readPsychiatristReaderGenerationIdentity(
     props.memoryId,
@@ -139,19 +157,17 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const isBusy = () => turnPhase() !== "idle";
   const openDock = () => {
     const request = captureReaderRequestGeneration();
+    const focusGeneration = ++openFocusGeneration;
     setTranscriptWindowEnd(transcriptPairs().length);
     setIsOpen(true);
     queueTranscriptScrollToBottom(request);
     if (threadLoadState() === "idle") {
-      void loadThread();
+      void loadThread({ focusGeneration });
     }
-    queueMicrotask(() => {
-      if (isCurrentReaderRequestGeneration(request)) {
-        inputRef?.focus();
-      }
-    });
+    queueDockOpenFocus(request, focusGeneration);
   };
   const closeDock = () => {
+    openFocusGeneration += 1;
     transcriptScrollGeneration += 1;
     setIsOpen(false);
     triggerRef?.focus();
@@ -173,6 +189,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const clearRunningTurnState = () => {
     disconnectCurrentStream();
+    malformedTerminalReconciliation = undefined;
     setTurnPhase("idle");
     setRunningPairId("");
     setRunningTurnId("");
@@ -192,6 +209,44 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       props.memoryId,
       props.langCode,
     );
+  const isPromptFocusable = (): boolean =>
+    threadLoadState() === "ready" && !isBusy() && inputRef?.disabled === false;
+  const queueDockOpenFocus = (
+    request: ReaderRequestGeneration,
+    focusGeneration: number,
+  ) => {
+    queueMicrotask(() => {
+      if (
+        !isOpen() ||
+        focusGeneration !== openFocusGeneration ||
+        !isCurrentReaderRequestGeneration(request)
+      ) {
+        return;
+      }
+      if (isPromptFocusable()) {
+        inputRef?.focus();
+      } else {
+        closeButtonRef?.focus();
+      }
+    });
+  };
+  const queuePromptFocusHandoff = (
+    request: ReaderRequestGeneration,
+    focusGeneration: number,
+  ) => {
+    queueMicrotask(() => {
+      if (
+        !isOpen() ||
+        focusGeneration !== openFocusGeneration ||
+        !isCurrentReaderRequestGeneration(request) ||
+        document.activeElement !== closeButtonRef ||
+        !isPromptFocusable()
+      ) {
+        return;
+      }
+      inputRef?.focus();
+    });
+  };
   const queueTranscriptScrollToBottom = (
     request: ReaderRequestGeneration,
   ) => {
@@ -250,6 +305,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setLiveStatusMessage("Allow web search/source lookup for this answer to continue.");
   };
   const resetThreadStateForMemoryChange = () => {
+    openFocusGeneration += 1;
     transcriptScrollGeneration += 1;
     clearRunningTurnState();
     pendingStopReconciliation = undefined;
@@ -280,7 +336,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     );
     return true;
   };
-  const loadThread = async (options: { preserveTurnPhase?: boolean } = {}) => {
+  const loadThread = async (options: ThreadLoadOptions = {}) => {
     const request = captureReaderRequestGeneration();
     const previousThread = thread();
     const isInitialLoad = previousThread === undefined;
@@ -295,6 +351,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       });
       if (
         !isCurrentReaderRequestGeneration(request) ||
+        (options.reconciliationStream !== undefined &&
+          !isCurrentMalformedTerminalReconciliation(
+            options.reconciliationStream,
+          )) ||
         request.readerIdentity !== readPsychiatristReaderGenerationIdentity(
           nextThread.memory_id,
           nextThread.lang_code ?? undefined,
@@ -325,9 +385,18 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         setLiveStatusMessage("Psychiatrist thread ready.");
         syncPersistedWebSourceRetryState(nextPairs);
       }
+      if (options.focusGeneration !== undefined) {
+        queuePromptFocusHandoff(request, options.focusGeneration);
+      }
       return nextThread;
     } catch (error) {
-      if (!isCurrentReaderRequestGeneration(request)) {
+      if (
+        !isCurrentReaderRequestGeneration(request) ||
+        (options.reconciliationStream !== undefined &&
+          !isCurrentMalformedTerminalReconciliation(
+            options.reconciliationStream,
+          ))
+      ) {
         return false;
       }
       const message = getPsychiatristErrorMessage(error);
@@ -644,6 +713,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       return;
     }
     if (turnPhase() !== "stopping" || pendingStopReconciliation === undefined) {
+      malformedTerminalReconciliation = undefined;
       await loadThread();
       return;
     }
@@ -697,8 +767,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     currentStream: StreamGeneration,
   ) => {
     if (
-      !isCurrentThreadRequestGeneration(currentStream) ||
-      currentStream.streamGeneration !== streamGeneration ||
+      !isCurrentStreamGeneration(currentStream) ||
       currentStream.threadId !== event.threadId ||
       currentStream.turnId !== event.turnId ||
       currentStream.turnId !== runningTurnId()
@@ -747,6 +816,51 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       clearRunningTurnState();
     }
   };
+  const isCurrentStreamGeneration = (
+    currentStream: StreamGeneration,
+  ): boolean =>
+    isCurrentThreadRequestGeneration(currentStream) &&
+    currentStream.streamGeneration === streamGeneration &&
+    currentStream.threadId === thread()?.thread_id &&
+    currentStream.turnId === runningTurnId();
+  const malformedTerminalReconciliationKey = (
+    currentStream: StreamGeneration,
+  ): string =>
+    `${currentStream.readerIdentity}\u0000${currentStream.threadIdentity}` +
+    `\u0000${currentStream.threadId}\u0000${currentStream.turnId}`;
+  const isCurrentMalformedTerminalReconciliation = (
+    currentStream: StreamGeneration,
+  ): boolean => {
+    const reconciliation = malformedTerminalReconciliation;
+    return reconciliation !== undefined &&
+      reconciliation.key === malformedTerminalReconciliationKey(currentStream) &&
+      isCurrentThreadRequestGeneration(currentStream) &&
+      currentStream.threadId === thread()?.thread_id &&
+      currentStream.turnId === runningTurnId() &&
+      turnPhase() === "running";
+  };
+  const handleMalformedTerminal = async (
+    currentStream: StreamGeneration,
+  ) => {
+    if (!isCurrentStreamGeneration(currentStream)) {
+      return;
+    }
+    disconnectCurrentStream();
+    const key = malformedTerminalReconciliationKey(currentStream);
+    const attempts = malformedTerminalReconciliation?.key === key
+      ? malformedTerminalReconciliation.attempts
+      : 0;
+    if (attempts >= PSYCHIATRIST_MALFORMED_TERMINAL_RECONCILIATION_LIMIT) {
+      const message =
+        "Psychiatrist stream ended before a valid terminal event. Retry thread load.";
+      setThreadLoadState("error");
+      setErrorMessage(message);
+      setLiveStatusMessage(message);
+      return;
+    }
+    malformedTerminalReconciliation = { attempts: attempts + 1, key };
+    await loadThread({ reconciliationStream: currentStream });
+  };
   const connectRunningStream = (
     eventUrl: string,
     currentThread: PsychiatristThreadResponse,
@@ -767,6 +881,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         turnId,
       },
       (event) => handleStreamEvent(event, currentStream),
+      () => void handleMalformedTerminal(currentStream),
     );
   };
 
@@ -790,6 +905,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     document.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
       isDisposed = true;
+      openFocusGeneration += 1;
       readerGeneration += 1;
       transcriptScrollGeneration += 1;
       document.removeEventListener("keydown", handleKeyDown);
@@ -822,6 +938,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           <header class="flex items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">Psychiatrist</h2>
             <button
+              ref={closeButtonRef}
               type="button"
               class="rounded-md px-2 py-1 text-xs text-trauma-text-secondary hover:bg-trauma-bg-sunken"
               onClick={closeDock}
@@ -920,18 +1037,30 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                       <Show when={pair.citations.length > 0}>
                         <ul class="mt-2 grid gap-1 text-xs">
                           <For each={pair.citations}>
-                            {(citation) => (
-                              <li>
-                                <a
-                                  class="text-trauma-accent hover:underline"
-                                  href={citation.url}
-                                  rel="noreferrer"
-                                  target="_blank"
-                                >
-                                  {citation.title}
-                                </a>
-                              </li>
-                            )}
+                            {(citation) => {
+                              const safeHref = projectPublicPsychiatristCitationHref(
+                                citation.url,
+                              );
+                              return (
+                                <li>
+                                  <Show
+                                    when={safeHref}
+                                    fallback={<span>{citation.title}</span>}
+                                  >
+                                    {(href) => (
+                                      <a
+                                        class="text-trauma-accent hover:underline"
+                                        href={href()}
+                                        rel="noreferrer"
+                                        target="_blank"
+                                      >
+                                        {citation.title}
+                                      </a>
+                                    )}
+                                  </Show>
+                                </li>
+                              );
+                            }}
                           </For>
                         </ul>
                       </Show>
@@ -1027,23 +1156,32 @@ function connectPsychiatristStream(
   eventUrl: string,
   scope: Omit<PsychiatristStreamEventScope, "eventType">,
   onEvent: (event: PsychiatristStreamEvent) => void,
+  onMalformedTerminal: () => void,
 ): () => void {
   const eventSource = new EventSource(eventUrl);
+  let terminalObserved = false;
   const handleMessage = (
     eventType: PsychiatristStreamEventType,
     terminal = false,
   ) => (message: MessageEvent) => {
+    if (terminal) {
+      if (terminalObserved) {
+        return;
+      }
+      terminalObserved = true;
+      eventSource.close();
+    }
     const event = parsePsychiatristStreamEvent(message.data, {
       ...scope,
       eventType,
     });
     if (event === undefined) {
+      if (terminal) {
+        onMalformedTerminal();
+      }
       return;
     }
     onEvent(event);
-    if (terminal) {
-      eventSource.close();
-    }
   };
   eventSource.addEventListener(
     "psychiatrist.turn.started",

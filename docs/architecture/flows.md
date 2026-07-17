@@ -323,6 +323,16 @@ at most 128 not-yet-delivered events and 3 MiB while replay or a slow consumer
 blocks delivery; exceeding that budget unsubscribes and errors only that
 connection. Reconnect still reads the bounded durable stream.
 
+The browser closes a named terminal `EventSource` before validating that frame,
+so a malformed terminal followed by server EOF cannot enter native EventSource
+reconnect indefinitely. It performs one canonical thread reload for the same
+reader, thread, and turn. The canonical snapshot either publishes the terminal
+pair and returns the dock to idle, reconnects the still-active turn with that
+single automatic recovery already consumed, or leaves the existing manual Retry
+path on reload failure or a second malformed terminal. This reconciliation does
+not call the cancel route and preserves a same-thread transcript page and scroll
+position.
+
 The latest durable pair revision is authoritative for `RESPONSE.md`. Startup
 recovery rewrites a missing or torn completed response and removes a response
 that has no completed revision. Detached turn failures are contained even when

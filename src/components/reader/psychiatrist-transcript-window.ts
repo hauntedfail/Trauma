@@ -4,11 +4,20 @@ export const PSYCHIATRIST_TRANSCRIPT_WINDOW_SIZE = 24;
 export const PSYCHIATRIST_TRANSCRIPT_MAX_VISIBLE_PAIRS =
   PSYCHIATRIST_TRANSCRIPT_WINDOW_SIZE + 2;
 
+export type PsychiatristTranscriptPinReason = "active" | "web_source_retry";
+
+export interface PsychiatristTranscriptPinnedPair {
+  pairId: string;
+  reasons: PsychiatristTranscriptPinReason[];
+  transcriptNumber: number;
+}
+
 export interface PsychiatristTranscriptWindowProjection {
   endExclusive: number;
   hasNewer: boolean;
   hasOlder: boolean;
   pairs: PsychiatristTranscriptPair[];
+  pinnedPairs: PsychiatristTranscriptPinnedPair[];
   rangeLabel: string;
   startIndex: number;
   total: number;
@@ -30,8 +39,32 @@ export function projectPsychiatristTranscriptWindow(input: {
   for (let index = startIndex; index < endExclusive; index += 1) {
     visibleIndices.add(index);
   }
-  addPinnedPairIndex(visibleIndices, input.pairs, input.activePairId);
-  addPinnedPairIndex(visibleIndices, input.pairs, input.retryPairId);
+  const pinnedReasonsByIndex = new Map<number, PsychiatristTranscriptPinReason[]>();
+  addPinnedPairIndex(
+    visibleIndices,
+    pinnedReasonsByIndex,
+    input.pairs,
+    input.activePairId,
+    "active",
+    startIndex,
+    endExclusive,
+  );
+  addPinnedPairIndex(
+    visibleIndices,
+    pinnedReasonsByIndex,
+    input.pairs,
+    input.retryPairId,
+    "web_source_retry",
+    startIndex,
+    endExclusive,
+  );
+  const pinnedPairs = [...pinnedReasonsByIndex]
+    .sort(([left], [right]) => left - right)
+    .map(([index, reasons]) => ({
+      pairId: input.pairs[index]!.pairId,
+      reasons,
+      transcriptNumber: index + 1,
+    }));
 
   return {
     endExclusive,
@@ -40,9 +73,13 @@ export function projectPsychiatristTranscriptWindow(input: {
     pairs: [...visibleIndices]
       .sort((left, right) => left - right)
       .map((index) => input.pairs[index]!),
-    rangeLabel: total === 0
-      ? "Showing 0–0 of 0."
-      : `Showing ${startIndex + 1}–${endExclusive} of ${total}.`,
+    pinnedPairs,
+    rangeLabel: formatTranscriptRangeLabel({
+      endExclusive,
+      pinnedPairs,
+      startIndex,
+      total,
+    }),
     startIndex,
     total,
   };
@@ -84,8 +121,12 @@ function normalizeWindowEnd(endExclusive: number, total: number): number {
 
 function addPinnedPairIndex(
   visibleIndices: Set<number>,
+  pinnedReasonsByIndex: Map<number, PsychiatristTranscriptPinReason[]>,
   pairs: readonly PsychiatristTranscriptPair[],
   pairId: string | undefined,
+  reason: PsychiatristTranscriptPinReason,
+  startIndex: number,
+  endExclusive: number,
 ): void {
   if (pairId === undefined || pairId === "") {
     return;
@@ -93,5 +134,41 @@ function addPinnedPairIndex(
   const index = pairs.findIndex((pair) => pair.pairId === pairId);
   if (index >= 0) {
     visibleIndices.add(index);
+    if (index < startIndex || index >= endExclusive) {
+      const reasons = pinnedReasonsByIndex.get(index) ?? [];
+      if (!reasons.includes(reason)) {
+        reasons.push(reason);
+      }
+      pinnedReasonsByIndex.set(index, reasons);
+    }
   }
+}
+
+function formatTranscriptRangeLabel(input: {
+  endExclusive: number;
+  pinnedPairs: readonly PsychiatristTranscriptPinnedPair[];
+  startIndex: number;
+  total: number;
+}): string {
+  const visibleRange = input.total === 0
+    ? "Showing 0–0 of 0"
+    : `Showing ${input.startIndex + 1}–${input.endExclusive} of ${input.total}`;
+  if (input.pinnedPairs.length === 0) {
+    return `${visibleRange}.`;
+  }
+  const descriptions = input.pinnedPairs.map((pair) =>
+    `pair ${pair.transcriptNumber} (${formatPinReasons(pair.reasons)})`
+  );
+  return `${visibleRange}; ${input.pinnedPairs.length} pinned ${
+    input.pinnedPairs.length === 1 ? "pair" : "pairs"
+  } also shown: ${descriptions.join(", ")}.`;
+}
+
+function formatPinReasons(
+  reasons: readonly PsychiatristTranscriptPinReason[],
+): string {
+  if (reasons.length === 2) {
+    return "active and web-source retry";
+  }
+  return reasons[0] === "active" ? "active" : "web-source retry";
 }

@@ -96,6 +96,33 @@ describe("Psychiatrist browser stream events", () => {
   });
 
   it.each([
+    "",
+    "not a URL",
+    "javascript:alert(1)",
+    "https://user:password@example.com/source",
+    "http://127.0.0.1/source",
+  ])("keeps an unsafe citation URL in a structurally valid terminal event: %s", (url) => {
+    const eventType = "psychiatrist.answer.completed";
+    const event = parsePsychiatristStreamEvent(
+      JSON.stringify(streamEvent(eventType, {
+        pair_id: "pair-reader",
+        source_citations: [
+          {
+            future_citation_field: true,
+            source_id: "source-reader",
+            title: "Untrusted source title",
+            url,
+          },
+        ],
+        text: "The answer.",
+      })),
+      { ...scope, eventType },
+    );
+
+    expect(event).toBeDefined();
+  });
+
+  it.each([
     ["invalid JSON", "not-json", scope],
     [
       "empty event id",

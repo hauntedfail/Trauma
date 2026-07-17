@@ -216,6 +216,10 @@ The dock creates or resumes the active memory variant's latest thread. Stored
 pair history returned by the thread API is rendered as user prompt/assistant
 response rows. Safe process/status events are visually subordinate to answer
 text, and hidden chain-of-thought or raw backend payloads are never rendered.
+The browser normalizes and coalesces adjacent duplicate status text, retains the
+first context row plus the latest seven rows per pair, and therefore renders at
+most eight process rows for each visible pair. Answer deltas remain one answer
+projection and are not subject to process redaction or coalescing.
 
 Interaction contract:
 
@@ -227,6 +231,11 @@ Interaction contract:
 - Panel close, Escape, route unmount, memory navigation, and browser reload do
   not cancel the server turn.
 - Route lifecycle cleanup closes the browser `EventSource` connection only.
+- A named terminal SSE frame closes its `EventSource` before payload parsing. If
+  that terminal payload is malformed, the browser performs at most one
+  canonical same-reader/thread/turn reload and never calls cancel. A failed
+  reload or a second malformed terminal for that turn exposes the existing
+  manual thread Retry action instead of creating an automatic reconnect loop.
 - Returning to the same memory resumes the latest matching thread and reconnects
   to `active_turn.event_url` when present.
 - Completed responses expose Regenerate. Regenerate streams into the same pair
@@ -234,15 +243,27 @@ Interaction contract:
 - `network_permission_required` is shown as a per-turn permission state: the
   user must explicitly allow web search/source lookup for that answer before any
   web-source turn may run.
+- Citation wire values remain compatible strings. Only credential-free public
+  `http:` and `https:` URLs become links; malformed URLs, active-content schemes,
+  localhost names, and non-public IP literals remain visible as inert source
+  title text.
 - The full thread response remains the canonical in-memory transcript. The DOM
   projects fixed 24-pair Older/Newer pages from it, pins an out-of-page active
   pair and the latest persisted web-source retry pair, and never renders more
   than 26 pair rows. Pins are deduplicated and stay in transcript chronology.
+  The polite range label reports each out-of-page pin by one-based transcript
+  number and active or web-source-retry reason; pins already in the page do not
+  change the ordinary range label.
 - Opening the dock, loading a different thread, or appending a new prompt shows
   the most recent page. Same-thread reconciliation preserves the current page.
   Page controls target the transcript with `aria-controls`, announce the visible
   range politely, keep keyboard focus stable, and move the transcript viewport
   to the top without a live stream update stealing that reading position.
+- Opening an unloaded dock focuses the enabled Close control while the prompt is
+  disabled. Initial readiness hands focus to the prompt only when the same dock
+  opening is still active and focus remains on Close. User focus movement,
+  panel close, and background reconciliation never steal focus; load failure
+  leaves Retry keyboard-reachable.
 - Opening the dock, completing its initial thread load, or appending a new user
   prompt scrolls the transcript to its bottom. Streaming output follows only
   when the transcript was within 48 px of the bottom before that update; a user
