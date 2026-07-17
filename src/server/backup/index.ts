@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { access, opendir } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
 import {
@@ -22,6 +20,7 @@ import {
   getGitPathspecFileArgs,
   withGitPathspecFile,
 } from "./git-pathspec";
+import { executeBuiltInGit } from "./git-command";
 import { isInternalBackupStorePath } from "../store/internal-directories";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 import {
@@ -108,7 +107,6 @@ export interface CreateGitMemoryBackupQueueInput {
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
 }
 
-const execFileAsync = promisify(execFile);
 const gitQueueByConfigKey = new Map<string, GitMemoryBackupQueue>();
 const startupOperationRecoveryByConfigKey = new Map<string, Promise<void>>();
 
@@ -1039,7 +1037,7 @@ async function runGit(
 ) {
   observeGitCommand?.(args);
   try {
-    const result = await execFileAsync("git", args, {
+    const result = await executeBuiltInGit(args, {
       cwd,
       env: createGitCommandEnv(),
       maxBuffer: 64 * 1024 * 1024,

@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, readdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { promisify } from "node:util";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
@@ -14,6 +12,7 @@ import {
   findInconsistentSuccessfulBackupContent,
   formatContentInconsistencyError,
 } from "./content-integrity";
+import { executeBuiltInGit } from "./git-command";
 
 export type BackupFailsafeAlertKind =
   | "backup_path_drift"
@@ -64,7 +63,6 @@ export interface EnsureBackupEnvironmentInput {
   now?: () => Date;
 }
 
-const execFileAsync = promisify(execFile);
 const STAMP_ID = "default";
 const ALERT_ID = "active";
 
@@ -524,7 +522,7 @@ async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
 }
 
 async function runGit(cwd: string, args: string[]) {
-  const result = await execFileAsync("git", args, {
+  const result = await executeBuiltInGit(args, {
     cwd,
     env: createGitCommandEnv(),
   });

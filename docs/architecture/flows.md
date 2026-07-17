@@ -77,6 +77,13 @@ deletion, and only then removes the row and journal. Any backup or validation
 failure keeps the pending row and journal for retry. If the row is already gone,
 recovery finishes staging cleanup.
 
+Operation-journal recovery is exclusive per resolved `storePath`: it waits for
+active journaled mutations, and a queued recovery prevents a new journaled
+mutation from starting. Add and delete acquire a shared lease before writing a
+journal and retain it through terminal journal removal or rollback. Different
+mutations may still run concurrently; the barrier exists only to prevent
+recovery from consuming or restoring an operation that is still active.
+
 ## Browser-Assisted Import
 
 The optional local Chrome MV3 extension handles pages the server cannot fetch
@@ -310,7 +317,10 @@ stream publication holds the same memory mutation reservation as deletion.
 
 ## Git Backup
 
-Backup is built-in git backup, not a generic hook system.
+Backup is built-in git backup, not a generic hook system. Every built-in git
+command uses a command-scoped null `core.hooksPath`, so repository and global
+hooks do not run during normal backup, retry, startup recovery, or failsafe
+repair.
 
 1. The owning domain persists its durable store artifact or backup intent.
 2. Explicit relative paths enter the in-process sequential queue.

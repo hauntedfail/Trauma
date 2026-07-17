@@ -22,6 +22,7 @@ import {
   persistMemoryCreationJournal,
   recoverInterruptedMemoryOperations,
 } from "./operation-journal";
+import { withMemoryOperationMutationLease } from "./operation-coordination";
 
 export interface MemoryImporter {
   importUrl: (input: { url: string }) => Promise<ImporterResult>;
@@ -173,64 +174,70 @@ async function addMemoryWithId(
         updatedAt: capturedAt.toISOString(),
       },
     } as const;
-    await persistMemoryCreationJournal({
-      config: input.config,
-      journal: creationJournal,
-    });
-    retainReservationForRecovery = true;
+    const { memory, written } = await withMemoryOperationMutationLease(
+      input.config.storePath,
+      async () => {
+        await persistMemoryCreationJournal({
+          config: input.config,
+          journal: creationJournal,
+        });
+        retainReservationForRecovery = true;
 
-    let memory;
-    let written: Awaited<ReturnType<typeof writeMemoryContent>>;
-    let contentWritten = false;
-    try {
-      written = await writeMemoryContent({
-        config: { storePath: input.config.storePath },
-        memoryId: id,
-        overwrite: false,
-        frontmatter: {
-          id,
-          url: imported.url,
-          title: imported.title,
-          capturedAt: capturedAt.toISOString(),
-          extractionStatus: imported.status,
-        },
-        markdown,
-      });
-      contentWritten = true;
-      memory = await repositories.memories.create({
-        ...creationJournal.memory,
-        createdAt: capturedAt,
-        updatedAt: capturedAt,
-        lastBackupAt: null,
-        lastBackupError: null,
-      });
-    } catch (error) {
-      try {
-        if (
-          contentWritten ||
-          (error instanceof MemoryContentStoreError &&
-            error.code === "content_cleanup_failed")
-        ) {
-          await deleteMemoryContent({
+        let memory;
+        let written: Awaited<ReturnType<typeof writeMemoryContent>>;
+        let contentWritten = false;
+        try {
+          written = await writeMemoryContent({
             config: { storePath: input.config.storePath },
             memoryId: id,
+            overwrite: false,
+            frontmatter: {
+              id,
+              url: imported.url,
+              title: imported.title,
+              capturedAt: capturedAt.toISOString(),
+              extractionStatus: imported.status,
+            },
+            markdown,
           });
+          contentWritten = true;
+          memory = await repositories.memories.create({
+            ...creationJournal.memory,
+            createdAt: capturedAt,
+            updatedAt: capturedAt,
+            lastBackupAt: null,
+            lastBackupError: null,
+          });
+        } catch (error) {
+          try {
+            if (
+              contentWritten ||
+              (error instanceof MemoryContentStoreError &&
+                error.code === "content_cleanup_failed")
+            ) {
+              await deleteMemoryContent({
+                config: { storePath: input.config.storePath },
+                memoryId: id,
+              });
+            }
+            await clearMemoryOperationJournal({
+              config: input.config,
+              memoryId: id,
+            });
+            retainReservationForRecovery = false;
+          } catch {
+            // Keep the journal and reservation when cleanup fails so startup
+            // recovery can reconcile the content file and SQLite row.
+          }
+          throw error;
         }
         await clearMemoryOperationJournal({
           config: input.config,
           memoryId: id,
-        });
-        retainReservationForRecovery = false;
-      } catch {
-        // Keep the journal and reservation when cleanup fails so startup
-        // recovery can reconcile the content file and SQLite row.
-      }
-      throw error;
-    }
-    await clearMemoryOperationJournal({
-      config: input.config,
-      memoryId: id,
-    }).catch(() => undefined);
+        }).catch(() => undefined);
+        return { memory, written };
+      },
+    );
 
     if (input.config.backup.git.enabled) {
       let queued;

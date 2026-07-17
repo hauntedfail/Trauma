@@ -227,6 +227,46 @@ describe("backup failsafe CLI", () => {
     ).toEqual(["storage/memories/memory-1/CONTENT.md"]);
   });
 
+  it("does not execute ambient hooks during failsafe migration commit and push", async () => {
+    const root = await makeRoot();
+    const remotePath = join(root, "remote.git");
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    const globalConfigPath = join(root, "global.gitconfig");
+    const configPath = await writeConfig(root, { push: true });
+    const config = loadTraumaConfig({ configPath });
+    const oldStore = join(root, "old-data/storage");
+    await mkdir(join(oldStore, "memories", "memory-1"), { recursive: true });
+    await writeFile(join(oldStore, "memories/memory-1/CONTENT.md"), "# Old\n", "utf8");
+    git(root, ["init", "--bare", remotePath]);
+    await mkdir(config.projectPath, { recursive: true });
+    git(config.projectPath, ["init", "--initial-branch=main"]);
+    git(config.projectPath, ["remote", "add", "origin", remotePath]);
+    await installExecutableGitHooks({
+      hooks: ["pre-commit", "commit-msg", "post-commit", "pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(root, [
+      "config",
+      "--file",
+      globalConfigPath,
+      "core.hooksPath",
+      hooksPath,
+    ]);
+    await seedPathDriftAlert(configPath, root);
+
+    await withGlobalGitConfig(globalConfigPath, () =>
+      withGitIdentity(() =>
+        runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+      )
+    );
+
+    await expect(readFile(markerPath, "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    expect(hasRemoteMain(remotePath)).toBe(true);
+  });
+
   it("records a push-failure alert when migrated backup content cannot be pushed", async () => {
     const root = await makeRoot();
     const missingRemotePath = join(root, "missing.git");
@@ -284,12 +324,31 @@ describe("backup failsafe CLI", () => {
     ).rejects.toThrow(/git push failed/);
 
     git(root, ["init", "--bare", remotePath]);
-    const output = await withGitIdentity(() =>
-      runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    const globalConfigPath = join(root, "global.gitconfig");
+    await installExecutableGitHooks({
+      hooks: ["pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(root, [
+      "config",
+      "--file",
+      globalConfigPath,
+      "core.hooksPath",
+      hooksPath,
+    ]);
+    const output = await withGlobalGitConfig(globalConfigPath, () =>
+      withGitIdentity(() =>
+        runBackupFailsafeCli(["migrate", "--config", configPath, "--apply"]),
+      )
     );
 
     expect(output).toContain("APPLY: Retry backup push");
     expect(output).toContain("Alert cleared.");
+    await expect(readFile(markerPath, "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
     expect(hasRemoteMain(remotePath)).toBe(true);
     expect(
       git(remotePath, ["show", "--name-only", "--pretty=format:", "main"])
@@ -839,6 +898,40 @@ async function withGitIdentity<T>(run: () => Promise<T>): Promise<T> {
         continue;
       }
       process.env[key] = value;
+    }
+  }
+}
+
+async function installExecutableGitHooks(input: {
+  hooks: readonly string[];
+  hooksPath: string;
+  markerPath: string;
+}): Promise<void> {
+  await mkdir(input.hooksPath, { recursive: true });
+  await Promise.all(input.hooks.map(async (hook) => {
+    const hookPath = join(input.hooksPath, hook);
+    await writeFile(
+      hookPath,
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(hook)} >> ${JSON.stringify(input.markerPath)}\n`,
+      "utf8",
+    );
+    await chmod(hookPath, 0o755);
+  }));
+}
+
+async function withGlobalGitConfig<T>(
+  configPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = configPath;
+  try {
+    return await operation();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = previous;
     }
   }
 }

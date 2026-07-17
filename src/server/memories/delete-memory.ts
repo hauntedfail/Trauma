@@ -31,6 +31,7 @@ import {
   withMemoryDeletionReservation,
   type MemoryDeletionReservation,
 } from "./mutation-reservation";
+import { acquireMemoryOperationMutationLease } from "./operation-coordination";
 
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
@@ -165,20 +166,25 @@ async function deleteMemoryReserved(
     }
   }
 
+  const warnings: DeleteMemoryWarning[] = [];
+  const releaseOperationLease = await acquireMemoryOperationMutationLease(
+    input.config.storePath,
+  );
   try {
-    await persistMemoryDeletionJournal({
-      config: input.config,
-      journal: {
-        version: 1,
-        kind: "memory_deletion",
-        memoryId: input.memoryId,
-        contentPath: target.contentPath,
-        stagingPath: paths.stagingRelativePath,
-      },
-    });
-  } catch (error) {
-    return { status: "failed", error: formatUnknownError(error) };
-  }
+    try {
+      await persistMemoryDeletionJournal({
+        config: input.config,
+        journal: {
+          version: 1,
+          kind: "memory_deletion",
+          memoryId: input.memoryId,
+          contentPath: target.contentPath,
+          stagingPath: paths.stagingRelativePath,
+        },
+      });
+    } catch (error) {
+      return { status: "failed", error: formatUnknownError(error) };
+    }
 
   let staged = false;
   try {
@@ -305,32 +311,34 @@ async function deleteMemoryReserved(
     };
   }
 
-  const warnings: DeleteMemoryWarning[] = [];
-  let stagedContentCleaned = true;
-  if (staged) {
-    try {
-      await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
-      await syncDirectoryBestEffort(dirname(paths.stagingDir), fileSystem);
-    } catch (error) {
-      stagedContentCleaned = false;
-      warnings.push({
-        kind: "content_cleanup_failed",
-        error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
-      });
+    let stagedContentCleaned = true;
+    if (staged) {
+      try {
+        await fileSystem.rm(paths.stagingDir, { recursive: true, force: true });
+        await syncDirectoryBestEffort(dirname(paths.stagingDir), fileSystem);
+      } catch (error) {
+        stagedContentCleaned = false;
+        warnings.push({
+          kind: "content_cleanup_failed",
+          error: `Failed to remove staged memory content at ${paths.stagingDir}: ${formatUnknownError(error)}`,
+        });
+      }
     }
-  }
-  if (stagedContentCleaned) {
-    try {
-      await clearMemoryOperationJournal({
-        config: input.config,
-        memoryId: input.memoryId,
-      });
-    } catch (error) {
-      warnings.push({
-        kind: "content_cleanup_failed",
-        error: `Failed to remove the completed memory deletion journal: ${formatUnknownError(error)}`,
-      });
+    if (stagedContentCleaned) {
+      try {
+        await clearMemoryOperationJournal({
+          config: input.config,
+          memoryId: input.memoryId,
+        });
+      } catch (error) {
+        warnings.push({
+          kind: "content_cleanup_failed",
+          error: `Failed to remove the completed memory deletion journal: ${formatUnknownError(error)}`,
+        });
+      }
     }
+  } finally {
+    releaseOperationLease();
   }
 
   if (!input.config.backup.git.enabled && input.backupQueue !== undefined) {

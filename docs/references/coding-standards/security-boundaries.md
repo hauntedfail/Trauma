@@ -47,6 +47,12 @@
 
 - MUST NOT hardcode secrets, tokens, credentials, or private local paths.
 - MUST keep `.env*` secrets untracked.
+- MUST disable repository and global Git hooks for every built-in git command,
+  including readiness checks, normal backup, retry, startup recovery, and
+  failsafe repair. Apply a command-scoped null `core.hooksPath` through the
+  shared Git execution boundary; trusting `projectPath` never grants ambient
+  hook execution.
+- MUST NOT add a user-configurable shell hook surface to built-in backup.
 - MUST validate URL protocols before importer fetches. `http:` and `https:` are
   the only accepted importer protocols.
 - MUST fetch only public HTTP(S) hosts from importer code. Reject localhost,

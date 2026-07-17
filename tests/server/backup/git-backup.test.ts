@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -127,6 +134,45 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("does not execute ambient hooks during a normal backup commit and push", async () => {
+    const root = await makeRoot("trauma-git-backup-hooks-");
+    const remotePath = join(root, "remote.git");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    const globalConfigPath = join(root, "global.gitconfig");
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Hook isolation\n", "utf8");
+    git(root, ["init", "--bare", remotePath]);
+    initializeGitRepository(projectPath);
+    git(projectPath, ["config", "--unset", "core.hooksPath"]);
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    await installExecutableGitHooks({
+      hooks: ["pre-commit", "commit-msg", "post-commit", "pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(root, [
+      "config",
+      "--file",
+      globalConfigPath,
+      "core.hooksPath",
+      hooksPath,
+    ]);
+
+    await withGlobalGitConfig(globalConfigPath, () =>
+      runGitBackupJob({
+        config: createConfig({ root, projectPath, storePath, push: true }),
+        job: createJob({ contentPaths: [contentPath] }),
+      })
+    );
+
+    expect(existsSync(markerPath)).toBe(false);
+    expect(hasRemoteMain(remotePath)).toBe(true);
   });
 
   it("never stages internal operation recovery directories", async () => {
@@ -512,6 +558,39 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("does not execute an ambient pre-push hook when retrying an existing commit", async () => {
+    const root = await makeRoot("trauma-git-backup-retry-hooks-");
+    const remotePath = join(root, "remote.git");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Retry hook isolation\n", "utf8");
+    initializeGitRepository(projectPath);
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    git(root, ["init", "--bare", remotePath]);
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    await installExecutableGitHooks({
+      hooks: ["pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(projectPath, ["config", "core.hooksPath", hooksPath]);
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: true }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    expect(existsSync(markerPath)).toBe(false);
+    expect(hasRemoteMain(remotePath)).toBe(true);
   });
 
   it("records a failsafe alert when an existing remote push fails", async () => {
@@ -2528,4 +2607,38 @@ function createChildEnv() {
   delete env.GIT_WORK_TREE;
   delete env.GIT_INDEX_FILE;
   return env;
+}
+
+async function installExecutableGitHooks(input: {
+  hooks: readonly string[];
+  hooksPath: string;
+  markerPath: string;
+}): Promise<void> {
+  await mkdir(input.hooksPath, { recursive: true });
+  await Promise.all(input.hooks.map(async (hook) => {
+    const hookPath = join(input.hooksPath, hook);
+    await writeFile(
+      hookPath,
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(hook)} >> ${JSON.stringify(input.markerPath)}\n`,
+      "utf8",
+    );
+    await chmod(hookPath, 0o755);
+  }));
+}
+
+async function withGlobalGitConfig<T>(
+  configPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = configPath;
+  try {
+    return await operation();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  }
 }

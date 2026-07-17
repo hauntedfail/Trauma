@@ -31,6 +31,12 @@ needed. TRAUMA's built-in git backup does not commit the database file.
 Built-in backup commits explicitly enqueued store artifacts from `storePath`
 using `projectPath` as the git working directory.
 
+TRAUMA disables ambient Git hooks for all built-in repository commands by
+overriding `core.hooksPath` with the operating system's null device. Repository
+or global `pre-commit`, `commit-msg`, `post-commit`, and `pre-push` hooks are not
+part of the backup contract and do not run during normal backup, retry, startup
+recovery, or failsafe migration.
+
 `projectPath` is expected to be the backup repository root. For the default
 local setup, use `projectPath: "./data"` and `storePath: "./data/storage"`.
 TRAUMA treats `./data` as separate from the application repository.

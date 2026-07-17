@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   copyFile,
   mkdir,
@@ -8,7 +7,6 @@ import {
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 
 import { eq } from "drizzle-orm";
 
@@ -31,6 +29,7 @@ import {
   getGitPathspecFileArgs,
   withGitPathspecFile,
 } from "./git-pathspec";
+import { executeBuiltInGit } from "./git-command";
 import { isInternalBackupStorePath } from "../store/internal-directories";
 
 export type BackupFailsafeAction =
@@ -45,8 +44,6 @@ export interface BackupFailsafeActionResult {
   summary: string;
   files: readonly string[];
 }
-
-const execFileAsync = promisify(execFile);
 
 export async function revertBackupFailsafeConfig(input: {
   config: ResolvedTraumaConfig;
@@ -409,7 +406,7 @@ async function ensureBackupRepository(config: ResolvedTraumaConfig) {
   }
 
   await mkdir(config.projectPath, { recursive: true });
-  await execFileAsync("git", [
+  await executeBuiltInGit([
     "init",
     `--initial-branch=${config.backup.git.branch}`,
   ], {
@@ -431,7 +428,7 @@ async function commitMigratedFiles(
   );
   await withGitPathspecFile(stagePaths, async (pathspecFile) => {
     const pathspecArgs = getGitPathspecFileArgs(pathspecFile);
-    await execFileAsync("git", ["add", ...pathspecArgs], {
+    await executeBuiltInGit(["add", ...pathspecArgs], {
       cwd: config.projectPath,
       env: createGitCommandEnv(),
     });
@@ -444,8 +441,7 @@ async function commitMigratedFiles(
       return;
     }
 
-    await execFileAsync(
-      "git",
+    await executeBuiltInGit(
       [
         "commit",
         "-m",
@@ -466,7 +462,7 @@ async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
   }
 
   try {
-    await execFileAsync("git", [
+    await executeBuiltInGit([
       "push",
       config.backup.git.remote,
       `HEAD:${config.backup.git.branch}`,
@@ -511,8 +507,7 @@ async function hasStagedGitChanges(
   projectPath: string,
   stagePaths: readonly string[],
 ) {
-  const result = await execFileAsync(
-    "git",
+  const result = await executeBuiltInGit(
     ["diff", "--cached", "--name-only", "-z"],
     {
       cwd: projectPath,
@@ -562,7 +557,7 @@ async function isExactGitRepositoryRoot(projectPath: string) {
     return false;
   }
   try {
-    const result = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+    const result = await executeBuiltInGit(["rev-parse", "--show-toplevel"], {
       cwd: projectPath,
       env: createGitCommandEnv(),
     });
@@ -585,7 +580,7 @@ async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
     return null;
   }
   try {
-    const result = await execFileAsync("git", [
+    const result = await executeBuiltInGit([
       "remote",
       "get-url",
       config.backup.git.remote,

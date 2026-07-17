@@ -1,13 +1,12 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 
 import { eq } from "drizzle-orm";
 
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db/repositories";
 import * as schema from "../db/schema";
+import { executeBuiltInGit } from "./git-command";
 
 export interface InconsistentBackupContent {
   memoryId: string;
@@ -21,7 +20,6 @@ export interface InconsistentBackupContent {
   stagePath?: string;
 }
 
-const execFileAsync = promisify(execFile);
 const MAX_GIT_INDEX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export interface BackupContentIntegrityDependencies {
@@ -124,7 +122,7 @@ function resolveBackupContentPath(
 
 async function listGitTrackedPaths(projectPath: string): Promise<ReadonlySet<string>> {
   try {
-    const { stdout } = await execFileAsync("git", ["ls-files", "--no-sparse", "-z"], {
+    const { stdout } = await executeBuiltInGit(["ls-files", "--no-sparse", "-z"], {
       cwd: projectPath,
       env: createGitCommandEnv(),
       maxBuffer: MAX_GIT_INDEX_OUTPUT_BYTES,

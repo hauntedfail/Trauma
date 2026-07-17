@@ -22,6 +22,7 @@ import {
   MEMORY_DELETE_STAGING_DIRECTORY,
   MEMORY_OPERATION_JOURNAL_DIRECTORY,
 } from "../store/internal-directories";
+import { withMemoryOperationRecoveryLease } from "./operation-coordination";
 
 const OPERATION_JOURNAL_VERSION = 1;
 
@@ -123,7 +124,10 @@ export async function recoverInterruptedMemoryOperations(
     return existing;
   }
 
-  const recovery = recoverInterruptedMemoryOperationsUnlocked(input).finally(() => {
+  const recovery = withMemoryOperationRecoveryLease(
+    storePath,
+    () => recoverInterruptedMemoryOperationsUnlocked(input),
+  ).finally(() => {
     if (recoveryByStorePath.get(storePath) === recovery) {
       recoveryByStorePath.delete(storePath);
     }
