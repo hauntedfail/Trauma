@@ -197,7 +197,12 @@ remain compatible for their current clients.
    job plus its chunk records, emits queued events, closes the short-lived
    probe/model-selection Codex client, and schedules only durable job identity
    and runtime dependencies on the in-process sequential runner. The runner
-   opens a fresh Codex client only when that job reaches execution.
+   opens a fresh Codex client only when that job reaches execution. Before the
+   probe or durable job creation, the chunker deterministically splits oversized
+   paragraphs and lists only at Markdown-safe ordered boundaries. Every source
+   chunk is at most 2,500 rough tokens and its complete initial prompt is at most
+   64 KiB by serialized UTF-8 bytes. An oversized fenced or other structurally
+   indivisible block fails with `validation_failed` before scheduling.
 4. The runner claims `pending` work or resumes `running`, `stitching`, or
    `committing` work. It re-reads the source and marks the job stale when the
    source hash changed. Before reusing any chunk, it requires the persisted
@@ -207,6 +212,10 @@ remain compatible for their current clients.
    write output or enter backup.
 5. Each chunk is sent through the Brilliant prompt/validation boundary and its
    validated Markdown and projection data are persisted before the next chunk.
+   The complete outbound prompt, including retry diagnostics, is checked again
+   against the fixed 64-KiB UTF-8 limit immediately before the translation
+   client is called. Prompt overflow cannot reach the app-server WebSocket and
+   terminally fails the chunk without automatic retry.
    Translated text is admitted by UTF-8 bytes before projection or payload
    persistence: at most 1 MiB per segment and 4 MiB across one chunk. Overflow
    is a terminal, non-auto-retried `validation_failed` attempt.

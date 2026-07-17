@@ -108,6 +108,12 @@
 - MUST close the Brilliant probe/model-selection client before scheduling a
   durable job. A queued job must not retain a connected Codex client; the
   sequential runner creates and owns one only when execution begins.
+- MUST hard-bound Brilliant source chunks to 2,500 rough tokens and complete
+  outbound prompts to 64 KiB by serialized UTF-8 bytes. Safely splittable
+  paragraph and list content must retain exact Markdown byte order and stable
+  source offsets; structurally indivisible overflow must fail before durable
+  scheduling. Recheck every initial or retry prompt before the app-server client
+  call, and never automatically retry a prompt-limit failure.
 - MUST reject translated output above 1 MiB per segment or 4 MiB per chunk by
   serialized UTF-8 bytes before projection or translated payload persistence.
   Absolute output overflow is terminal for that chunk attempt and is not

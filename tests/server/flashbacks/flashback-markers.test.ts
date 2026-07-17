@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFlashbackMarkers,
+  projectMarkdownToReaderText,
   readRenderedMarkdownRangeText,
   resolveFlashbackSelection,
   stripFlashbackMarkers,
@@ -664,6 +665,24 @@ describe("flashback markdown markers", () => {
         endOffset: hardBreakWithBackslash.length,
       }),
     ).toBe("line\ntarget");
+  });
+
+  it.each([
+    ["an ordinary space", "alpha beta", "alpha beta"],
+    ["a single trailing space", "line \nnext", "line \nnext"],
+    ["two spaces inside a line", "alpha  beta", "alpha  beta"],
+    [
+      "a long non-trailing space run",
+      `alpha${" ".repeat(4_096)}beta`,
+      `alpha${" ".repeat(4_096)}beta`,
+    ],
+    ["two trailing spaces before LF", "line  \nnext", "line\nnext"],
+    ["three trailing spaces before CRLF", "line   \r\nnext", "line\nnext"],
+    ["two trailing spaces at EOF", "line  ", "line"],
+    ["a backslash break before LF", "line\\\nnext", "line\nnext"],
+    ["a backslash break before CRLF", "line\\\r\nnext", "line\nnext"],
+  ])("preserves reader projection semantics for %s", (_, markdown, expected) => {
+    expect(projectMarkdownToReaderText(markdown).text).toBe(expected);
   });
 
   it("skips sanitized raw HTML block contents before resolving duplicate text", () => {

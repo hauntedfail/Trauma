@@ -1276,7 +1276,12 @@ function projectMarkdownText(
       continue;
     }
 
-    const hardBreakMarker = readHardBreakMarker(markdown, cursor, markdown.length);
+    const hardBreakMarker = readHardBreakMarker(
+      markdown,
+      cursor,
+      markdown.length,
+      0,
+    );
     if (hardBreakMarker !== undefined) {
       cursor = hardBreakMarker.endOffset;
       continue;
@@ -1568,6 +1573,7 @@ function appendProjectedSlice(input: {
       input.markdown,
       offset,
       input.endOffset,
+      input.startOffset,
     );
     if (hardBreakMarker !== undefined) {
       offset = hardBreakMarker.endOffset;
@@ -1925,22 +1931,35 @@ function readHardBreakMarker(
   markdown: string,
   startOffset: number,
   maximumEndOffset: number,
+  minimumStartOffset: number,
 ): { endOffset: number } | undefined {
-  const lineEndOffset = readLineEndOffset(markdown, startOffset);
-  if (lineEndOffset > maximumEndOffset) {
+  const marker = markdown[startOffset];
+  if (marker !== "\\" && marker !== " ") {
     return undefined;
   }
 
-  if (markdown[startOffset] === "\\" && startOffset + 1 === lineEndOffset) {
-    return { endOffset: lineEndOffset };
+  if (marker === "\\") {
+    const endOffset = startOffset + 1;
+    return endOffset <= maximumEndOffset &&
+        (endOffset === markdown.length || markdown[endOffset] === "\n")
+      ? { endOffset }
+      : undefined;
   }
 
-  if (markdown[startOffset] !== " ") {
+  if (
+    startOffset > minimumStartOffset &&
+    markdown[startOffset - 1] === " "
+  ) {
     return undefined;
   }
 
-  const trailing = markdown.slice(startOffset, lineEndOffset);
-  return /^ {2,}$/.test(trailing) ? { endOffset: lineEndOffset } : undefined;
+  let endOffset = startOffset;
+  while (endOffset < maximumEndOffset && markdown[endOffset] === " ") {
+    endOffset += 1;
+  }
+  const isHardBreak = endOffset - startOffset >= 2 &&
+    (endOffset === markdown.length || markdown[endOffset] === "\n");
+  return isHardBreak ? { endOffset } : undefined;
 }
 
 function readEscapedMarkdownCharacter(
@@ -2219,8 +2238,7 @@ function readThematicBreakLine(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
-  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isExactLineStart(markdown, startOffset)) {
     return undefined;
   }
 
@@ -2279,8 +2297,7 @@ function readAtxHeadingOpeningMarker(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
-  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isExactLineStart(markdown, startOffset)) {
     return undefined;
   }
 
@@ -2296,6 +2313,9 @@ function readAtxHeadingClosingMarker(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
+  if (!hasAtxHeadingClosingPrefix(markdown, startOffset)) {
+    return undefined;
+  }
   const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
   const lineEndOffset = readLineEndOffset(markdown, startOffset);
   const line = markdown.slice(lineStartOffset, lineEndOffset);
@@ -2314,6 +2334,20 @@ function readAtxHeadingClosingMarker(
     : undefined;
 }
 
+function hasAtxHeadingClosingPrefix(
+  markdown: string,
+  startOffset: number,
+): boolean {
+  let cursor = startOffset;
+  if (markdown[cursor] !== " " && markdown[cursor] !== "\t") {
+    return false;
+  }
+  while (markdown[cursor] === " " || markdown[cursor] === "\t") {
+    cursor += 1;
+  }
+  return markdown[cursor] === "#";
+}
+
 function isSetextHeadingUnderlineLine(line: string): boolean {
   return /^(?: {0,3})(?:=+|-+)[ \t]*$/.test(line);
 }
@@ -2322,8 +2356,7 @@ function readReferenceDefinition(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
-  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isExactLineStart(markdown, startOffset)) {
     return undefined;
   }
 
@@ -2403,8 +2436,7 @@ function readBlockquoteMarker(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
-  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isExactLineStart(markdown, startOffset)) {
     return undefined;
   }
 
@@ -2420,6 +2452,9 @@ function readListMarker(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
+  if (!hasPlausibleListMarkerPrefix(markdown, startOffset)) {
+    return undefined;
+  }
   const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
   if (!isContainerPrefix(markdown.slice(lineStartOffset, startOffset))) {
     return undefined;
@@ -2433,10 +2468,48 @@ function readListMarker(
     : { endOffset: startOffset + match.endOffset };
 }
 
+function hasPlausibleListMarkerPrefix(
+  markdown: string,
+  startOffset: number,
+): boolean {
+  let cursor = startOffset;
+  while (markdown[cursor] === " " || markdown[cursor] === "\t") {
+    cursor += 1;
+  }
+
+  const marker = markdown[cursor];
+  if (marker === "-" || marker === "+" || marker === "*") {
+    return markdown[cursor + 1] === " " || markdown[cursor + 1] === "\t";
+  }
+  if (marker === undefined || marker < "0" || marker > "9") {
+    return false;
+  }
+
+  let digitCount = 0;
+  while (
+    digitCount < 10 &&
+    markdown[cursor] !== undefined &&
+    markdown[cursor]! >= "0" &&
+    markdown[cursor]! <= "9"
+  ) {
+    cursor += 1;
+    digitCount += 1;
+  }
+  if (digitCount === 0 || digitCount > 9) {
+    return false;
+  }
+  const delimiter = markdown[cursor];
+  return (delimiter === "." || delimiter === ")") &&
+    (markdown[cursor + 1] === " " || markdown[cursor + 1] === "\t");
+}
+
 function readTaskCheckboxMarker(
   markdown: string,
   startOffset: number,
 ): { endOffset: number } | undefined {
+  if (markdown[startOffset] !== "[") {
+    return undefined;
+  }
   const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
   const prefix = markdown.slice(lineStartOffset, startOffset);
   if (!isListMarkerPrefix(markdown, lineStartOffset, prefix)) {
@@ -2670,8 +2743,7 @@ function readTableProjectionRow(
 ):
   | { endOffset: number; cells: MarkdownRange[]; lineEndOffset: number }
   | undefined {
-  const lineStartOffset = markdown.lastIndexOf("\n", startOffset - 1) + 1;
-  if (lineStartOffset !== startOffset) {
+  if (!isExactLineStart(markdown, startOffset)) {
     return undefined;
   }
 
@@ -2934,6 +3006,10 @@ function parseFenceLine(line: string):
 function readLineEndOffset(markdown: string, lineStartOffset: number): number {
   const lineEndOffset = markdown.indexOf("\n", lineStartOffset);
   return lineEndOffset === -1 ? markdown.length : lineEndOffset;
+}
+
+function isExactLineStart(markdown: string, offset: number): boolean {
+  return offset === 0 || markdown[offset - 1] === "\n";
 }
 
 function readLineEndOffsetWithBreak(

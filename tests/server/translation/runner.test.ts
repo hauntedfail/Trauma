@@ -14,7 +14,11 @@ import {
   runTranslationJob,
   startTranslationJob,
 } from "../../../src/server/translation/runner";
-import { BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES } from "../../../src/server/translation/prompt";
+import {
+  BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES,
+  BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
+} from "../../../src/server/translation/prompt";
+import { splitFrontmatter } from "../../../src/server/translation/markdown-blocks";
 import {
   resolveTranslatedMemoryContentPath,
   resolveTranslatedMemoryProjectionPath,
@@ -132,6 +136,91 @@ describe("translation runner", () => {
       }),
     ).resolves.toMatchObject({ status: "started" });
     expect(atomicCreateCalls).toBe(1);
+  });
+
+  it("rejects an oversized indivisible source block before durable scheduling", async () => {
+    const config = await createConfig();
+    const markdown = `# Source\n\n\`\`\`text\n${"protected-code-line\n".repeat(700)}\`\`\`\n`;
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000112";
+    let scheduled = false;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => {
+          scheduled = true;
+        },
+      }),
+    ).rejects.toMatchObject({
+      action: "open_source_reader",
+      code: "validation_failed",
+    });
+
+    expect(scheduled).toBe(false);
+    expect(client.inputs).toHaveLength(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("stitches bounded paragraph and list fragments in exact Markdown order", async () => {
+    const config = await createConfig();
+    const markdown = [
+      "# Ordered source",
+      "",
+      Array.from(
+        { length: 700 },
+        (_, index) => `Paragraph marker ${String(index).padStart(4, "0")}.`,
+      ).join(" "),
+      "",
+      ...Array.from(
+        { length: 700 },
+        (_, index) => `- List marker ${String(index).padStart(4, "0")} remains ordered.`,
+      ),
+      "",
+    ].join("\n");
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000113",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.inputs.length).toBeGreaterThan(2);
+    expect(client.inputs.every((input) =>
+      Buffer.byteLength(input.prompt, "utf8") <=
+        BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES
+    )).toBe(true);
+    const sourcePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
+    const outputPath = join(
+      config.storePath,
+      "memories",
+      memoryId,
+      "ja-JP",
+      "CONTENT.md",
+    );
+    const sourceBody = splitFrontmatter(await readFile(sourcePath, "utf8")).bodyMarkdown;
+    const outputBody = splitFrontmatter(await readFile(outputPath, "utf8")).bodyMarkdown;
+    expect(outputBody).toBe(sourceBody);
   });
 
   it("starts a job, translates chunks, commits output, and reuses current output", async () => {
@@ -1309,6 +1398,53 @@ describe("translation runner", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("fails a prompt byte-limit violation before client send without retrying", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000111";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      promptByteLimit: 1,
+    });
+
+    expect(client.inputs).toHaveLength(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+        },
+        status: "failed",
+      });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(jobId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          retryCount: 0,
+          status: "failed",
+          translatedMarkdown: null,
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("closes a translation client when the scheduled run owns it", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -1810,7 +1946,7 @@ describe("translation runner", () => {
     },
     {
       mismatch: "chunker version",
-      mutation: "update translation_jobs set chunker_version = 'chunker-old'",
+      mutation: "update translation_jobs set chunker_version = 'chunker-segments-v1'",
     },
     {
       mismatch: "runtime chunk count",
@@ -2015,6 +2151,22 @@ class FakeTranslationClient implements TranslationClient {
           "Brilliant Source",
           "華麗なソース",
         ).replaceAll("Body.", "本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class IdentityTranslationClient extends FakeTranslationClient {
+  override async translateChunk(
+    input: TranslateChunkInput,
+  ): Promise<RawCodexChunkOutput> {
+    this.inputs.push(input);
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text,
       })),
       warnings: [],
     };

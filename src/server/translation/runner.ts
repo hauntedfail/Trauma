@@ -135,6 +135,7 @@ interface TranslationRunOptions {
   config?: ResolvedTraumaConfig;
   createClient?: () => TranslationClient;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+  promptByteLimit?: number;
 }
 
 let queue: Promise<void> = Promise.resolve();
@@ -276,6 +277,12 @@ export async function startTranslationJob(
         "Source CONTENT.md has no translatable content.",
         "open_source_reader",
       );
+    }
+    for (const chunk of chunks) {
+      buildTranslationPrompt({
+        chunk,
+        targetLanguage: langCode,
+      });
     }
 
     const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
@@ -533,6 +540,7 @@ export async function runTranslationJob(
         jobLangCode: job.langCode,
         jobMemoryId: job.memoryId,
         model: job.model,
+        promptByteLimit: options.promptByteLimit,
         reasoningEffort: job.reasoningEffort,
       });
       if (
@@ -813,6 +821,7 @@ async function translateAndPersistChunk(input: {
   jobLangCode: string;
   jobMemoryId: string;
   model: string | null;
+  promptByteLimit?: number;
   reasoningEffort: CodexReasoningEffort | null;
 }): Promise<{ status: "completed" } | { status: "canceled" }> {
   let attempt = 0;
@@ -852,6 +861,7 @@ async function translateAndPersistChunk(input: {
       const attemptAdmission = input.codexEventAdmission.startChunkAttempt();
       const prompt = buildTranslationPrompt({
         chunk: input.chunk,
+        maxPromptBytes: input.promptByteLimit,
         ...(attempt > 0 && latestPersistedError !== undefined
           ? {
             retryContext: {
@@ -1338,7 +1348,7 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     return {
       code: "validation_failed",
       message: error.message,
-      action: "retry",
+      action: error.retryable ? "retry" : "none",
       diagnostics: error.diagnostics,
     };
   }
@@ -1426,6 +1436,13 @@ function mapStartError(error: unknown): Error {
     return new TranslationApiError(
       "missing_source_content",
       "Source CONTENT.md was not found.",
+      "open_source_reader",
+    );
+  }
+  if (error instanceof TranslationOutputValidationError && !error.retryable) {
+    return new TranslationApiError(
+      "validation_failed",
+      error.message,
       "open_source_reader",
     );
   }

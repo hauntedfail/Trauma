@@ -119,6 +119,31 @@ describe("Brilliant translation prompt and validation", () => {
     expect(prompt).not.toContain("\"translated_markdown\"");
   });
 
+  it("rejects an outbound prompt above the fixed UTF-8 byte cap as non-retryable", () => {
+    const chunk = createPromptChunk("Translatable body.");
+    const oversizedText = "界".repeat(24_000);
+    const oversizedChunk: TranslationChunk = {
+      ...chunk,
+      segments: chunk.segments.map((segment) => ({
+        ...segment,
+        text: oversizedText,
+      })),
+      sourceMarkdown: oversizedText,
+    };
+
+    try {
+      buildTranslationPrompt({
+        chunk: oversizedChunk,
+        targetLanguage: "ja-JP",
+      });
+      throw new Error("expected translation prompt byte validation to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).retryable).toBe(false);
+      expect((error as Error).message).toMatch(/prompt.*UTF-8 byte limit/i);
+    }
+  });
+
   it("adds safe validation diagnostics to retry prompts without raw failed output", () => {
     const chunk = createPromptChunk("Read [docs](https://example.com/docs) and `AGENTS.md`.\n");
     const prompt = buildTranslationPrompt({

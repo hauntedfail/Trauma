@@ -2,7 +2,10 @@ import {
   SUPPORTED_TRANSLATION_LANGUAGES,
   type SupportedLanguageCode,
 } from "./languages";
-import { DEFAULT_TRANSLATION_CHUNK_CONFIG } from "./chunker";
+import {
+  BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
+  DEFAULT_TRANSLATION_CHUNK_CONFIG,
+} from "./limits";
 import { readMarkdownDestinationRanges } from "./markdown-destinations";
 import {
   applyTranslatedSegmentsWithProjection,
@@ -22,7 +25,8 @@ import type {
 } from "./types";
 
 export const BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-segments-v1";
-export const BRILLIANT_CHUNKER_VERSION = "chunker-segments-v1";
+export const BRILLIANT_CHUNKER_VERSION = "chunker-segments-v2";
+export { BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES } from "./limits";
 export const BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES = 1 * 1_024 * 1_024;
 export const BRILLIANT_MAX_TRANSLATED_CHUNK_BYTES = 4 * 1_024 * 1_024;
 
@@ -38,6 +42,33 @@ const DEFAULT_TRANSLATION_OUTPUT_BYTE_LIMITS: TranslationOutputByteLimits =
   });
 
 export function buildTranslationPrompt(input: {
+  chunk: TranslationChunk;
+  maxPromptBytes?: number;
+  retryContext?: TranslationRetryContext;
+  targetLanguage: SupportedLanguageCode;
+}): string {
+  const prompt = formatTranslationPrompt(input);
+  if (
+    Buffer.byteLength(prompt, "utf8") >
+      (input.maxPromptBytes ?? BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES)
+  ) {
+    throw new TranslationOutputValidationError(
+      "Translation prompt exceeds the UTF-8 byte limit.",
+      { retryable: false },
+    );
+  }
+  return prompt;
+}
+
+export function measureTranslationPromptBytes(input: {
+  chunk: TranslationChunk;
+  retryContext?: TranslationRetryContext;
+  targetLanguage: SupportedLanguageCode;
+}): number {
+  return Buffer.byteLength(formatTranslationPrompt(input), "utf8");
+}
+
+function formatTranslationPrompt(input: {
   chunk: TranslationChunk;
   retryContext?: TranslationRetryContext;
   targetLanguage: SupportedLanguageCode;
