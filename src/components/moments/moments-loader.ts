@@ -20,6 +20,10 @@ export const getMomentBrowseRows = query(async () => {
   return loadMomentBrowseRows();
 }, "moment-browse-rows");
 
+export function revalidateMomentBrowsePage(cursor: string | null) {
+  return revalidate(getMomentBrowsePage.keyFor({ cursor }));
+}
+
 export function revalidateMomentBrowseRows() {
   return Promise.all([
     revalidate(getMomentBrowsePage.key),

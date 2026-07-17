@@ -1,7 +1,8 @@
 import { Title } from "@solidjs/meta";
 import { createAsync, useLocation } from "@solidjs/router";
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
+import { CollectionPageRetry } from "~/components/collections/CollectionPageRetry";
 import {
   buildCollectionPageHref,
   readCollectionPageCursor,
@@ -15,6 +16,7 @@ import {
 import { FlashbackInlineText } from "~/components/flashbacks/FlashbackText";
 import {
   getFlashbackBrowsePage,
+  revalidateFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "~/components/flashbacks/flashbacks-loader";
 import { buildMemoryVariantAnchorHref } from "~/components/memories/memory-anchor-hrefs";
@@ -28,6 +30,7 @@ const cardBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export default function FlashbacksIndex() {
+  let pageRegionRef: HTMLDivElement | undefined;
   const location = useLocation();
   const cursor = createMemo(() => readCollectionPageCursor(location.search));
   const loadedPage = createAsync(() => {
@@ -39,6 +42,7 @@ export default function FlashbacksIndex() {
   const [removedFlashbackIds, setRemovedFlashbackIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
+  const [isRetryingPage, setIsRetryingPage] = createSignal(false);
   const currentPageState = createMemo(() => {
     const state = loadedPage();
     return state?.cursor === cursor() ? state : undefined;
@@ -55,6 +59,14 @@ export default function FlashbacksIndex() {
 
     return page.flashbacks.filter((row) => !removedFlashbackIds().has(row.id));
   });
+  const retryCurrentPage = async (): Promise<void> => {
+    setIsRetryingPage(true);
+    try {
+      await revalidateFlashbackBrowsePage(cursor());
+    } finally {
+      setIsRetryingPage(false);
+    }
+  };
   const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
     await deleteFlashbackBySelection({ flashback });
     setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
@@ -69,21 +81,36 @@ export default function FlashbacksIndex() {
     <section class={pageFrame} aria-labelledby="flashbacks-title">
       <Title>Flashbacks | TRAUMA</Title>
       <RouteHeader layout="single" title="Flashbacks" titleId="flashbacks-title" />
-      <div class="grid" aria-busy={currentPageState() === undefined}>
+      <div
+        ref={pageRegionRef}
+        aria-busy={currentPageState() === undefined || isRetryingPage()}
+        aria-label="Flashback page results"
+        class="grid"
+        role="region"
+        tabIndex={-1}
+      >
         <Show
-          when={currentPageState() !== undefined}
+          when={currentPageState() !== undefined || isRetryingPage()}
           fallback={
             <FlashbackState title="Loading flashbacks..." />
           }
         >
           <Show
-            when={currentPageState()?.status !== "error"}
+            when={!isRetryingPage() && currentPageState()?.status !== "error"}
             fallback={
               <FlashbackState
                 title="Failed to load flashbacks"
-                message="Return to the first page and try again."
+                message={cursor() === null
+                  ? "Retry the first page."
+                  : "Retry this page or return to the first page."}
                 role="alert"
-              />
+              >
+                <CollectionPageRetry
+                  getFocusTarget={() => pageRegionRef}
+                  onRetry={retryCurrentPage}
+                  subject="flashbacks"
+                />
+              </FlashbackState>
             }
           >
             <Show
@@ -143,6 +170,7 @@ export default function FlashbacksIndex() {
 }
 
 function FlashbackState(props: {
+  children?: JSX.Element;
   message?: string;
   role?: "alert";
   title: string;
@@ -154,6 +182,7 @@ function FlashbackState(props: {
     >
       <h2 class="text-xl font-bold text-trauma-text-primary">{props.title}</h2>
       <Show when={props.message}>{(message) => <p>{message()}</p>}</Show>
+      {props.children}
     </div>
   );
 }

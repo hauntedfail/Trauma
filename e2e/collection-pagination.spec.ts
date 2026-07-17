@@ -5,6 +5,10 @@ import { runBunFixtureScript } from "./bun-fixture";
 const PAGINATION_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f177";
 const PAGE_SIZE = 30;
 const ARCHIVE_SIZE = 37;
+const FLASHBACK_PAGE_QUERY_ID =
+  "src_components_flashbacks_flashbacks-loader_ts--getFlashbackBrowsePage_query";
+const MOMENT_PAGE_QUERY_ID =
+  "src_components_moments_moments-loader_ts--getMomentBrowsePage_query";
 
 test.describe.configure({ mode: "serial" });
 
@@ -97,6 +101,109 @@ test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page
   await expect(listBody.getByRole("link")).toHaveCount(PAGE_SIZE);
 });
 
+test("retries failed first Flashback and Moment pages without resetting the URL", async ({
+  page,
+}) => {
+  seedLargeCollectionArchive();
+
+  for (const surface of [
+    {
+      failureTitle: "Failed to load flashbacks",
+      navLabel: "Flashbacks",
+      pathname: "/flashbacks",
+      queryId: FLASHBACK_PAGE_QUERY_ID,
+      regionName: "Flashback page results",
+      retryName: "Retry flashbacks",
+      retryingName: "Retrying flashbacks...",
+    },
+    {
+      failureTitle: "Failed to load Moments",
+      navLabel: "Moments",
+      pathname: "/moments",
+      queryId: MOMENT_PAGE_QUERY_ID,
+      regionName: "Moment page results",
+      retryName: "Retry Moments",
+      retryingName: "Retrying Moments...",
+    },
+  ] as const) {
+    await page.goto("/memories");
+    const interception = await interceptCollectionPageRetry(page, surface.queryId);
+    try {
+      await page
+        .getByRole("navigation", { name: "Primary sections" })
+        .getByRole("link", { name: surface.navLabel })
+        .click();
+
+      const region = page.getByRole("region", { name: surface.regionName });
+      const alert = region.getByRole("alert");
+      await expect(alert.getByRole("heading", { name: surface.failureTitle }))
+        .toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(surface.pathname);
+      expect(new URL(page.url()).search).toBe("");
+
+      const retry = alert.getByRole("button");
+      await expect(retry).toHaveAccessibleName(surface.retryName);
+      await retry.click();
+      await expect.poll(interception.attempts).toBe(2);
+      await expect(retry).toBeDisabled();
+      await expect(retry).toHaveAccessibleName(surface.retryingName);
+      await retry.evaluate((button: HTMLButtonElement) => button.click());
+
+      interception.release();
+      await expect(region.locator("[data-collection-row]")).toHaveCount(PAGE_SIZE);
+      expect(interception.attempts()).toBe(2);
+      expect(new URL(page.url()).pathname).toBe(surface.pathname);
+      expect(new URL(page.url()).search).toBe("");
+      await expect(region).toBeFocused();
+    } finally {
+      interception.release();
+      await interception.remove();
+    }
+  }
+});
+
+test("retries a failed Reader All page without changing its rail-local cursor", async ({
+  page,
+}) => {
+  seedLargeCollectionArchive();
+  const interception = await interceptCollectionPageRetry(
+    page,
+    FLASHBACK_PAGE_QUERY_ID,
+  );
+  try {
+    await page.setViewportSize({ width: 1440, height: 760 });
+    await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
+    await waitForReaderReady(page);
+    const flashbackSection = page
+      .getByRole("heading", { name: "Flashbacks", exact: true })
+      .locator("xpath=..");
+    await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
+
+    const region = flashbackSection.getByRole("region", {
+      name: "All flashbacks page",
+    });
+    const alert = region.getByRole("alert");
+    await expect(alert).toContainText("Failed to load flashbacks.");
+    const retry = alert.getByRole("button");
+    await expect(retry).toHaveAccessibleName("Retry all flashbacks");
+
+    await retry.click();
+    await expect.poll(interception.attempts).toBe(2);
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveAccessibleName("Retrying all flashbacks...");
+    await retry.evaluate((button: HTMLButtonElement) => button.click());
+
+    interception.release();
+    await expect(region.getByRole("link")).toHaveCount(PAGE_SIZE);
+    expect(interception.attempts()).toBe(2);
+    expect(new URL(page.url()).pathname).toBe(`/memories/${PAGINATION_MEMORY_ID}`);
+    await expect(region).toBeFocused();
+  } finally {
+    interception.release();
+    await interception.remove();
+  }
+});
+
 async function expectCollectionPage(
   page: Page,
   rowCount: number,
@@ -111,6 +218,32 @@ async function waitForReaderReady(page: Page): Promise<void> {
     "data-reader-ready",
     "true",
   );
+}
+
+async function interceptCollectionPageRetry(page: Page, queryId: string) {
+  let requestAttempts = 0;
+  let releaseRetryRequest: () => void = () => undefined;
+  const retryRequestGate = new Promise<void>((resolve) => {
+    releaseRetryRequest = resolve;
+  });
+  const matchesQuery = (url: URL): boolean =>
+    url.pathname === "/_server/" && url.searchParams.get("id") === queryId;
+  await page.route(matchesQuery, async (route) => {
+    requestAttempts += 1;
+    if (requestAttempts === 1) {
+      await route.abort("failed");
+      return;
+    }
+
+    await retryRequestGate;
+    await route.continue();
+  });
+
+  return {
+    attempts: () => requestAttempts,
+    release: () => releaseRetryRequest(),
+    remove: () => page.unroute(matchesQuery),
+  };
 }
 
 function seedLargeCollectionArchive(): void {

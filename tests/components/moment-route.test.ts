@@ -37,5 +37,7 @@ describe("Moment route", () => {
     expect(browseSource).toContain("No Moments yet");
     expect(browseSource).toContain("Saved reader sections will appear here.");
     expect(browseSource).not.toContain("Saved sections");
+    expect(browseSource).toContain("CollectionPageRetry");
+    expect(browseSource).toContain("revalidateMomentBrowsePage(cursor())");
   });
 });

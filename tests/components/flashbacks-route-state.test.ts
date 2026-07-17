@@ -99,5 +99,9 @@ describe("flashbacks route state", () => {
     expect(flashbacksRouteSource).toContain("useLocation");
     expect(flashbacksRouteSource).toContain("nextCursor");
     expect(flashbacksRouteSource).toContain('href="/flashbacks"');
+    expect(flashbacksRouteSource).toContain("CollectionPageRetry");
+    expect(flashbacksRouteSource).toContain(
+      "revalidateFlashbackBrowsePage(cursor())",
+    );
   });
 });

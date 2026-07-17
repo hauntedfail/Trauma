@@ -1,7 +1,8 @@
 import { createAsync, useLocation } from "@solidjs/router";
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
+import { CollectionPageRetry } from "../collections/CollectionPageRetry";
 import {
   buildCollectionPageHref,
   readCollectionPageCursor,
@@ -9,7 +10,11 @@ import {
 } from "../collections/page-state";
 import { deleteMomentById } from "./moment-action-requests";
 import { MomentActionMenu } from "./MomentActionMenu";
-import { getMomentBrowsePage, revalidateMomentBrowseRows } from "./moments-loader";
+import {
+  getMomentBrowsePage,
+  revalidateMomentBrowsePage,
+  revalidateMomentBrowseRows,
+} from "./moments-loader";
 import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { RouteHeader } from "../layout/RouteHeader";
@@ -21,6 +26,7 @@ const rowBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export function MomentBrowse() {
+  let pageRegionRef: HTMLDivElement | undefined;
   const location = useLocation();
   const cursor = createMemo(() => readCollectionPageCursor(location.search));
   const loadedPage = createAsync(() => {
@@ -30,6 +36,7 @@ export function MomentBrowse() {
     );
   });
   const [deletedMomentIds, setDeletedMomentIds] = createSignal(new Set<string>());
+  const [isRetryingPage, setIsRetryingPage] = createSignal(false);
   const currentPageState = createMemo(() => {
     const state = loadedPage();
     return state?.cursor === cursor() ? state : undefined;
@@ -46,6 +53,14 @@ export function MomentBrowse() {
 
     return currentMoments.filter((moment) => !deletedMomentIds().has(moment.id));
   };
+  const retryCurrentPage = async (): Promise<void> => {
+    setIsRetryingPage(true);
+    try {
+      await revalidateMomentBrowsePage(cursor());
+    } finally {
+      setIsRetryingPage(false);
+    }
+  };
   const deleteMoment = async (
     momentId: string,
     memoryId: string,
@@ -60,19 +75,34 @@ export function MomentBrowse() {
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
       <RouteHeader layout="single" title="Moment" titleId="moment-title" />
-      <div class="grid" aria-busy={currentPageState() === undefined}>
+      <div
+        ref={pageRegionRef}
+        aria-busy={currentPageState() === undefined || isRetryingPage()}
+        aria-label="Moment page results"
+        class="grid"
+        role="region"
+        tabIndex={-1}
+      >
         <Show
-          when={currentPageState() !== undefined}
+          when={currentPageState() !== undefined || isRetryingPage()}
           fallback={<MomentState title="Loading Moments..." />}
         >
           <Show
-            when={currentPageState()?.status !== "error"}
+            when={!isRetryingPage() && currentPageState()?.status !== "error"}
             fallback={
               <MomentState
                 title="Failed to load Moments"
-                message="Return to the first page and try again."
+                message={cursor() === null
+                  ? "Retry the first page."
+                  : "Retry this page or return to the first page."}
                 role="alert"
-              />
+              >
+                <CollectionPageRetry
+                  getFocusTarget={() => pageRegionRef}
+                  onRetry={retryCurrentPage}
+                  subject="Moments"
+                />
+              </MomentState>
             }
           >
             <Show
@@ -157,6 +187,7 @@ function MomentRow(props: {
 }
 
 function MomentState(props: {
+  children?: JSX.Element;
   title: string;
   message?: string;
   role?: "alert";
@@ -170,6 +201,7 @@ function MomentState(props: {
       <Show when={props.message}>
         {(message) => <p>{message()}</p>}
       </Show>
+      {props.children}
     </div>
   );
 }

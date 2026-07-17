@@ -32,8 +32,10 @@ import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
   getFlashbackBrowsePage,
+  revalidateFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "../flashbacks/flashbacks-loader";
+import { CollectionPageRetry } from "../collections/CollectionPageRetry";
 import { settleCollectionPage } from "../collections/page-state";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
@@ -2369,6 +2371,7 @@ export function ReaderFlashbackTabs(props: {
   initialTab?: "all" | "memory";
   memoryId: string;
 }) {
+  let allPageRegionRef: HTMLDivElement | undefined;
   const [activeTab, setActiveTab] = createSignal<"all" | "memory">(
     props.initialTab ?? "memory",
   );
@@ -2377,6 +2380,7 @@ export function ReaderFlashbackTabs(props: {
   const [cursorHistory, setCursorHistory] = createSignal<readonly (string | null)[]>(
     [],
   );
+  const [isRetryingAllPage, setIsRetryingAllPage] = createSignal(false);
   const lazyAllPageState = createAsync(async () => {
     if (props.allFlashbacks !== undefined || !shouldLoadAll()) {
       return undefined;
@@ -2404,6 +2408,14 @@ export function ReaderFlashbackTabs(props: {
     shouldLoadAll() &&
     currentAllPageState() === undefined;
   const hasAllPageError = () => currentAllPageState()?.status === "error";
+  const retryAllPage = async (): Promise<void> => {
+    setIsRetryingAllPage(true);
+    try {
+      await revalidateFlashbackBrowsePage(allCursor());
+    } finally {
+      setIsRetryingAllPage(false);
+    }
+  };
   const activateAllTab = (): void => {
     setShouldLoadAll(true);
     setActiveTab("all");
@@ -2454,13 +2466,27 @@ export function ReaderFlashbackTabs(props: {
       <Show
         when={activeTab() === "memory"}
         fallback={
-          <div class="grid gap-3">
+          <div
+            ref={allPageRegionRef}
+            aria-busy={isLoadingAll() || isRetryingAllPage()}
+            aria-label="All flashbacks page"
+            class="grid gap-3"
+            role="region"
+            tabIndex={-1}
+          >
             <Show
-              when={!hasAllPageError()}
+              when={!hasAllPageError() && !isRetryingAllPage()}
               fallback={
-                <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
-                  Failed to load flashbacks.
-                </p>
+                <div role="alert">
+                  <p class="mb-0 text-sm font-bold text-trauma-danger">
+                    Failed to load flashbacks.
+                  </p>
+                  <CollectionPageRetry
+                    getFocusTarget={() => allPageRegionRef}
+                    onRetry={retryAllPage}
+                    subject="all flashbacks"
+                  />
+                </div>
               }
             >
               <FlashbackShortcutList

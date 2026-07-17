@@ -192,6 +192,18 @@ describe("reader flashback tabs", () => {
 
     expect(html).toContain("No flashbacks for this memory yet");
   });
+
+  it("revalidates the current All cursor through an accessible retry action", () => {
+    const source = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
+    const tabsSource = source.slice(
+      source.indexOf("export function ReaderFlashbackTabs"),
+      source.indexOf("function getReaderSelectionKey"),
+    );
+
+    expect(tabsSource).toContain("CollectionPageRetry");
+    expect(tabsSource).toContain("revalidateFlashbackBrowsePage(allCursor())");
+    expect(tabsSource).toContain('subject="all flashbacks"');
+  });
 });
 
 function renderTabs(input: {

@@ -37,6 +37,10 @@ export const getBrowseFlashbacksForMemories = query(async (input: {
   return loadBrowseFlashbacksForMemories(input);
 }, "browse-flashbacks-for-memories");
 
+export function revalidateFlashbackBrowsePage(cursor: string | null) {
+  return revalidate(getFlashbackBrowsePage.keyFor({ cursor }));
+}
+
 export async function revalidateFlashbackBrowseRows() {
   await Promise.all([
     revalidate(getFlashbackBrowsePage.key),

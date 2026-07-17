@@ -4,7 +4,7 @@ const routerMocks = vi.hoisted(() => ({
   query: vi.fn((fn: () => unknown, name: string) =>
     Object.assign(fn, {
       key: name,
-      keyFor: () => name,
+      keyFor: (...args: unknown[]) => `${name}:${JSON.stringify(args)}`,
     }),
   ),
   revalidate: vi.fn(),
@@ -23,6 +23,7 @@ const {
   getFlashbackBrowsePage,
   getFlashbackBrowseRows,
   getRecentFlashbackBrowseRows,
+  revalidateFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } = await import("../../src/components/flashbacks/flashbacks-loader");
 
@@ -40,5 +41,16 @@ describe("flashbacks loader", () => {
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getFlashbackBrowseRows.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getRecentFlashbackBrowseRows.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseFlashbacksForMemories.key);
+  });
+
+  it("revalidates only the requested page cursor for an in-place retry", async () => {
+    routerMocks.revalidate.mockResolvedValue(undefined);
+
+    await revalidateFlashbackBrowsePage("opaque-cursor");
+
+    expect(routerMocks.revalidate).toHaveBeenCalledOnce();
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(
+      'flashback-browse-page:[{"cursor":"opaque-cursor"}]',
+    );
   });
 });
