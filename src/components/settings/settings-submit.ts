@@ -40,10 +40,12 @@ export async function submitTranslationTargetLanguage(input: {
 
 export async function submitReadCodexModels(input: {
   fetch?: FetchFunction;
+  signal?: AbortSignal;
 } = {}): Promise<CodexModelCatalog> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/settings/codex-models", {
     method: "GET",
+    signal: input.signal,
   });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "failed to read Codex models"));

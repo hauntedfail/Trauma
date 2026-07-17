@@ -60,14 +60,19 @@ describe("async action feedback accessibility", () => {
   it("announces Codex catalog failures assertively", () => {
     const source = readSource("src/components/settings/SettingsPage.tsx");
     const catalogErrorStart = source.indexOf(
-      "<Show when={codexCatalogError()}>",
+      "export function CodexCatalogFeedback",
     );
     const catalogErrorSource = source.slice(
       catalogErrorStart,
-      source.indexOf("</Show>", catalogErrorStart) + "</Show>".length,
+      source.indexOf(
+        "export function captureCodexCatalogRetryFocusIntent",
+        catalogErrorStart,
+      ),
     );
 
     expect(catalogErrorStart).toBeGreaterThan(-1);
     expect(catalogErrorSource).toContain('role="alert"');
+    expect(catalogErrorSource).toContain('type="button"');
+    expect(catalogErrorSource).toContain("Retrying...");
   });
 });

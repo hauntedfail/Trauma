@@ -30,6 +30,7 @@ import {
   createAsyncActionTracker,
   type AsyncActionToken,
 } from "./action-state";
+import { createCodexModelCatalogController } from "./codex-model-catalog-state";
 import { RouteHeader } from "../layout/RouteHeader";
 
 export interface SettingsPageProps {
@@ -78,6 +79,7 @@ export function SettingsPage(props: SettingsPageProps) {
     props.initialCodexModelCatalog?.models ?? [],
   );
   const [codexCatalogError, setCodexCatalogError] = createSignal("");
+  const [codexCatalogPending, setCodexCatalogPending] = createSignal(false);
   const [codexAuth, setCodexAuth] = createSignal(props.initialSettings.openaiAuth);
   const pendingCodexAuth = () =>
     codexAuth().status === "login_started"
@@ -89,6 +91,17 @@ export function SettingsPage(props: SettingsPageProps) {
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   const authPollControllers = new Set<AbortController>();
+  let codexModelSelect: HTMLSelectElement | undefined;
+  let settingsPageActive = true;
+  const codexCatalogController = createCodexModelCatalogController({
+    initialModels: codexModels(),
+    onStateChange: (state) => {
+      setCodexModels(state.models);
+      setCodexCatalogError(state.error);
+      setCodexCatalogPending(state.pending);
+    },
+    readCatalog: ({ signal }) => submitReadCodexModels({ signal }),
+  });
   const actionTracker = createAsyncActionTracker<SettingsAction>(
     setPendingActions,
   );
@@ -129,6 +142,8 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   onCleanup(() => {
+    settingsPageActive = false;
+    codexCatalogController.dispose();
     abortCodexAuthPolls();
   });
 
@@ -179,18 +194,21 @@ export function SettingsPage(props: SettingsPageProps) {
     }
   };
 
-  const refreshCodexModels = async (): Promise<void> => {
-    setCodexCatalogError("");
-    try {
-      const catalog = await submitReadCodexModels();
-      setCodexModels(catalog.models);
-    } catch (error) {
-      setCodexCatalogError(
-        error instanceof Error
-          ? error.message
-          : "Failed to read Codex model catalog.",
-      );
-    }
+  const refreshCodexModels = (): Promise<"error" | "ignored" | "success"> =>
+    codexCatalogController.refresh();
+
+  const retryCodexModels = (retryButton: HTMLButtonElement): void => {
+    const shouldRestoreFocus = captureCodexCatalogRetryFocusIntent(retryButton);
+    void refreshCodexModels().then((outcome) => {
+      if (outcome !== "success" || !settingsPageActive) {
+        return;
+      }
+      queueMicrotask(() => {
+        if (settingsPageActive && shouldRestoreFocus()) {
+          codexModelSelect?.focus();
+        }
+      });
+    });
   };
 
   const saveCodexDefaults: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
@@ -446,7 +464,11 @@ export function SettingsPage(props: SettingsPageProps) {
           </div>
         </form>
 
-        <form class={fieldClass} onSubmit={saveCodexDefaults}>
+        <form
+          class={fieldClass}
+          aria-busy={codexCatalogPending()}
+          onSubmit={saveCodexDefaults}
+        >
           <div class="grid gap-2">
             <h2 class={labelClass}>Codex Translation</h2>
           </div>
@@ -454,7 +476,8 @@ export function SettingsPage(props: SettingsPageProps) {
             <span class={labelClass}>Model</span>
             <select
               class={selectClass}
-              disabled={isPending("codex-defaults")}
+              disabled={isPending("codex-defaults") || codexCatalogPending()}
+              ref={codexModelSelect}
               value={codexModel()}
               onChange={(event) => setCodexModel(event.currentTarget.value)}
             >
@@ -482,7 +505,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <span class={labelClass}>Reasoning effort</span>
             <select
               class={selectClass}
-              disabled={isPending("codex-defaults")}
+              disabled={isPending("codex-defaults") || codexCatalogPending()}
               value={codexEffort()}
               onChange={(event) =>
                 setCodexEffort(
@@ -507,15 +530,20 @@ export function SettingsPage(props: SettingsPageProps) {
           <div>
             <button
               class={primaryButtonClass}
-              disabled={isPending("codex-defaults")}
+              disabled={isPending("codex-defaults") || codexCatalogPending()}
               type="submit"
             >
               Save Codex defaults
             </button>
           </div>
-          <Show when={codexCatalogError()}>
-            {(value) => <p class={hintClass} role="alert">{value()}</p>}
+          <Show when={codexCatalogPending() && codexCatalogError() === ""}>
+            <p class={hintClass} role="status">Loading Codex model catalog...</p>
           </Show>
+          <CodexCatalogFeedback
+            error={codexCatalogError()}
+            pending={codexCatalogPending()}
+            retry={retryCodexModels}
+          />
         </form>
 
         <section class={fieldClass} aria-labelledby="codex-auth-title">
@@ -621,6 +649,45 @@ export function SettingsPage(props: SettingsPageProps) {
       </div>
     </section>
   );
+}
+
+export function CodexCatalogFeedback(props: {
+  error: string;
+  pending: boolean;
+  retry: (button: HTMLButtonElement) => void;
+}) {
+  return (
+    <Show when={props.error !== ""}>
+      <div class="grid justify-items-start gap-2" role="alert">
+        <p class={hintClass}>{props.error}</p>
+        <button
+          class={secondaryButtonClass}
+          disabled={props.pending}
+          type="button"
+          onClick={(event) => props.retry(event.currentTarget)}
+        >
+          {props.pending ? "Retrying..." : "Retry"}
+        </button>
+      </div>
+    </Show>
+  );
+}
+
+export function captureCodexCatalogRetryFocusIntent(
+  retryButton: HTMLButtonElement,
+  readActiveElement: () => Element | null = () =>
+    typeof document === "undefined" ? null : document.activeElement,
+  readBody: () => HTMLElement | undefined = () =>
+    typeof document === "undefined" ? undefined : document.body,
+): () => boolean {
+  const retryOwnedFocus = readActiveElement() === retryButton;
+  return () => {
+    if (!retryOwnedFocus) {
+      return false;
+    }
+    const activeElement = readActiveElement();
+    return activeElement === retryButton || activeElement === readBody();
+  };
 }
 
 export function readSafeVerificationUrl(value: string): string | undefined {
