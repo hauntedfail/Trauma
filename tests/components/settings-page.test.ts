@@ -270,6 +270,82 @@ describe("settings page", () => {
     ]);
   });
 
+  it.each([
+    ["invalid JSON", () => new Response("not-json", { status: 200 })],
+    ["a null root", () => jsonResponse(null)],
+    ["an empty object", () => jsonResponse({})],
+    ["a null models field", () => jsonResponse({ models: null })],
+    [
+      "a malformed model row",
+      () => jsonResponse({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: "yes",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    ],
+    [
+      "an unknown reasoning effort",
+      () => jsonResponse({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "extreme",
+            supportedReasoningEfforts: ["medium", "extreme"],
+          },
+        ],
+      }),
+    ],
+  ])("rejects %s from a successful Codex model request", async (_label, response) => {
+    await expect(submitReadCodexModels({
+      fetch: async () => response(),
+    })).rejects.toThrow("Codex model catalog response was invalid.");
+  });
+
+  it("accepts future Codex catalog and model fields", async () => {
+    await expect(submitReadCodexModels({
+      fetch: async () => jsonResponse({
+        future_catalog_field: { enabled: true },
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            future_model_field: 1,
+            supportedReasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+          },
+        ],
+      }),
+    })).resolves.toMatchObject({
+      models: [{ model: "gpt-5.5" }],
+    });
+  });
+
+  it("preserves non-2xx Codex catalog messages", async () => {
+    await expect(submitReadCodexModels({
+      fetch: async () => new Response(JSON.stringify({
+        message: "Catalog temporarily unavailable.",
+      }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    })).rejects.toThrow("Catalog temporarily unavailable.");
+  });
+
   it("surfaces Codex auth device-code failures", async () => {
     await expect(
       submitEnableOpenAiAuth({

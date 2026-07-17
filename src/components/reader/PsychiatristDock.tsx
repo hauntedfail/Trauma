@@ -2,6 +2,7 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createSignal,
   onCleanup,
   onMount,
@@ -15,8 +16,14 @@ import {
   regeneratePsychiatristResponse,
   sendPsychiatristMessage,
 } from "./psychiatrist-requests";
+import { isRecord } from "./psychiatrist-runtime-validation";
+import {
+  parsePsychiatristStreamEvent,
+  type PsychiatristStreamEventScope,
+} from "./psychiatrist-stream-events";
 import type {
   PsychiatristStreamEvent,
+  PsychiatristStreamEventType,
   PsychiatristThreadResponse,
 } from "./psychiatrist-types";
 import {
@@ -24,6 +31,11 @@ import {
   toPsychiatristTranscriptPairs,
   type PsychiatristTranscriptPair,
 } from "./psychiatrist-transcript";
+import {
+  movePsychiatristTranscriptWindowNewer,
+  movePsychiatristTranscriptWindowOlder,
+  projectPsychiatristTranscriptWindow,
+} from "./psychiatrist-transcript-window";
 import { useDismissableLayer } from "../ui/dismissable-layer";
 
 interface PsychiatristDockProps {
@@ -106,6 +118,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const [liveStatusMessage, setLiveStatusMessage] = createSignal("");
   const [webSourceRetryPrompt, setWebSourceRetryPrompt] = createSignal("");
   const [webSourceRetryPairId, setWebSourceRetryPairId] = createSignal("");
+  const [transcriptWindowEnd, setTranscriptWindowEnd] = createSignal(0);
   let isDisposed = false;
   let readerGeneration = 0;
   let streamGeneration = 0;
@@ -116,10 +129,17 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     props.langCode,
   );
 
-  const pairs = () => transcriptPairs();
+  const transcriptWindow = createMemo(() => projectPsychiatristTranscriptWindow({
+    activePairId: runningPairId(),
+    endExclusive: transcriptWindowEnd(),
+    pairs: transcriptPairs(),
+    retryPairId: webSourceRetryPairId(),
+  }));
+  const pairs = () => transcriptWindow().pairs;
   const isBusy = () => turnPhase() !== "idle";
   const openDock = () => {
     const request = captureReaderRequestGeneration();
+    setTranscriptWindowEnd(transcriptPairs().length);
     setIsOpen(true);
     queueTranscriptScrollToBottom(request);
     if (threadLoadState() === "idle") {
@@ -236,6 +256,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setThread(undefined);
     setThreadLoadState("idle");
     setTranscriptPairs([]);
+    setTranscriptWindowEnd(0);
     setPrompt("");
     setErrorMessage("");
     setLiveStatusMessage("");
@@ -261,7 +282,8 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   };
   const loadThread = async (options: { preserveTurnPhase?: boolean } = {}) => {
     const request = captureReaderRequestGeneration();
-    const isInitialLoad = thread() === undefined;
+    const previousThread = thread();
+    const isInitialLoad = previousThread === undefined;
     setThreadLoadState("loading");
     setErrorMessage("");
     setLiveStatusMessage("Loading Psychiatrist thread.");
@@ -282,8 +304,14 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
         return;
       }
       const nextPairs = toPsychiatristTranscriptPairs(nextThread.pairs);
+      const shouldResetTranscriptWindow = previousThread === undefined ||
+        readPsychiatristThreadIdentity(previousThread) !==
+          readPsychiatristThreadIdentity(nextThread);
       setThread(nextThread);
       setTranscriptPairs(nextPairs);
+      if (shouldResetTranscriptWindow) {
+        setTranscriptWindowEnd(nextPairs.length);
+      }
       if (isInitialLoad) {
         queueTranscriptScrollToBottom(request);
       }
@@ -403,6 +431,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           userPrompt: message,
         },
       ]);
+      setTranscriptWindowEnd(transcriptPairs().length);
       queueTranscriptScrollToBottom(request);
       setPrompt("");
       setRunningPairId(started.pair_id);
@@ -504,7 +533,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       }
       if (result.status === "canceled") {
         setTranscriptPairs((current) => applyPsychiatristStreamEvent(current, {
-          data: { pair_id: pairId, status: "canceled" },
+          data: { code: "turn_canceled", pair_id: pairId, status: "canceled" },
           eventId: `cancel:${turnId}`,
           memoryId: currentThread.memory_id,
           threadId: currentThread.thread_id,
@@ -627,6 +656,27 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       turnId,
     });
   };
+  const moveTranscriptWindow = (nextEndExclusive: number) => {
+    if (nextEndExclusive === transcriptWindow().endExclusive) {
+      return;
+    }
+    const request = captureReaderRequestGeneration();
+    transcriptScrollGeneration += 1;
+    const scrollGeneration = transcriptScrollGeneration;
+    setTranscriptWindowEnd(nextEndExclusive);
+    queueMicrotask(() => {
+      if (
+        !isOpen() ||
+        scrollGeneration !== transcriptScrollGeneration ||
+        !isCurrentReaderRequestGeneration(request)
+      ) {
+        return;
+      }
+      if (transcriptRef !== undefined) {
+        transcriptRef.scrollTop = 0;
+      }
+    });
+  };
   const handleKeyDown = (event: KeyboardEvent) => {
     if (!isOpen()) {
       return;
@@ -711,6 +761,11 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     };
     disconnectPsychiatristStream = connectPsychiatristStream(
       eventUrl,
+      {
+        memoryId: currentThread.memory_id,
+        threadId: currentThread.thread_id,
+        turnId,
+      },
       (event) => handleStreamEvent(event, currentStream),
     );
   };
@@ -786,6 +841,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           </Show>
           <div
             ref={transcriptRef}
+            id="psychiatrist-transcript"
             class="grid gap-2 overflow-y-auto pr-1 text-sm"
             data-psychiatrist-transcript
             onScroll={() => {
@@ -794,6 +850,51 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           >
             <Show when={threadLoadState() === "loading"}>
               <p class="text-trauma-text-secondary">Loading Psychiatrist thread…</p>
+            </Show>
+            <Show when={transcriptWindow().total > 0}>
+              <nav
+                aria-label="Psychiatrist transcript pages"
+                class="sticky top-0 z-10 grid gap-1 rounded-md bg-trauma-bg-elev pb-1"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    aria-controls="psychiatrist-transcript"
+                    class="rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!transcriptWindow().hasOlder}
+                    onClick={() => moveTranscriptWindow(
+                      movePsychiatristTranscriptWindowOlder(
+                        transcriptWindow().endExclusive,
+                        transcriptWindow().total,
+                      ),
+                    )}
+                  >
+                    Older
+                  </button>
+                  <button
+                    type="button"
+                    aria-controls="psychiatrist-transcript"
+                    class="rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!transcriptWindow().hasNewer}
+                    onClick={() => moveTranscriptWindow(
+                      movePsychiatristTranscriptWindowNewer(
+                        transcriptWindow().endExclusive,
+                        transcriptWindow().total,
+                      ),
+                    )}
+                  >
+                    Newer
+                  </button>
+                </div>
+                <p
+                  aria-atomic="true"
+                  aria-live="polite"
+                  class="text-center text-xs text-trauma-text-muted"
+                  data-psychiatrist-transcript-range
+                >
+                  {transcriptWindow().rangeLabel}
+                </p>
+              </nav>
             </Show>
             <Show when={pairs().length > 0} fallback={<p class="text-trauma-text-secondary">No messages yet.</p>}>
               <For each={pairs()}>
@@ -924,39 +1025,62 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
 
 function connectPsychiatristStream(
   eventUrl: string,
+  scope: Omit<PsychiatristStreamEventScope, "eventType">,
   onEvent: (event: PsychiatristStreamEvent) => void,
 ): () => void {
   const eventSource = new EventSource(eventUrl);
-  const handleMessage = (message: MessageEvent) => {
-    const event = parsePsychiatristStreamEvent(message.data);
-    if (event !== undefined) {
-      onEvent(event);
+  const handleMessage = (
+    eventType: PsychiatristStreamEventType,
+    terminal = false,
+  ) => (message: MessageEvent) => {
+    const event = parsePsychiatristStreamEvent(message.data, {
+      ...scope,
+      eventType,
+    });
+    if (event === undefined) {
+      return;
+    }
+    onEvent(event);
+    if (terminal) {
+      eventSource.close();
     }
   };
-  eventSource.addEventListener("psychiatrist.turn.started", handleMessage);
-  eventSource.addEventListener("psychiatrist.process.delta", handleMessage);
-  eventSource.addEventListener("psychiatrist.answer.delta", handleMessage);
-  eventSource.addEventListener("psychiatrist.answer.completed", (message) => {
-    handleMessage(message);
-    eventSource.close();
-  });
-  eventSource.addEventListener("psychiatrist.regenerate.started", handleMessage);
-  eventSource.addEventListener("psychiatrist.regenerate.completed", (message) => {
-    handleMessage(message);
-    eventSource.close();
-  });
-  eventSource.addEventListener("psychiatrist.answer.failed", (message) => {
-    handleMessage(message);
-    eventSource.close();
-  });
-  eventSource.addEventListener("psychiatrist.network.permission_required", (message) => {
-    handleMessage(message);
-    eventSource.close();
-  });
-  eventSource.addEventListener("psychiatrist.turn.canceled", (message) => {
-    handleMessage(message);
-    eventSource.close();
-  });
+  eventSource.addEventListener(
+    "psychiatrist.turn.started",
+    handleMessage("psychiatrist.turn.started"),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.process.delta",
+    handleMessage("psychiatrist.process.delta"),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.answer.delta",
+    handleMessage("psychiatrist.answer.delta"),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.answer.completed",
+    handleMessage("psychiatrist.answer.completed", true),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.regenerate.started",
+    handleMessage("psychiatrist.regenerate.started"),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.regenerate.completed",
+    handleMessage("psychiatrist.regenerate.completed", true),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.answer.failed",
+    handleMessage("psychiatrist.answer.failed", true),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.network.permission_required",
+    handleMessage("psychiatrist.network.permission_required", true),
+  );
+  eventSource.addEventListener(
+    "psychiatrist.turn.canceled",
+    handleMessage("psychiatrist.turn.canceled", true),
+  );
   return () => eventSource.close();
 }
 
@@ -1017,28 +1141,6 @@ function getStreamErrorMessage(data: unknown): string {
     message: typeof data.message === "string" ? data.message : "Psychiatrist request failed.",
     responseStatus: 500,
   }));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parsePsychiatristStreamEvent(data: string): PsychiatristStreamEvent | undefined {
-  try {
-    const value = JSON.parse(data) as unknown;
-    return isPsychiatristStreamEvent(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isPsychiatristStreamEvent(value: unknown): value is PsychiatristStreamEvent {
-  return typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    "turnId" in value &&
-    typeof value.type === "string" &&
-    typeof value.turnId === "string";
 }
 
 const psychiatristDockStyles = `

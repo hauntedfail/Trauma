@@ -1,6 +1,9 @@
 import type { SettingsState } from "../../server/settings/settings";
 import type { CodexModelCatalog } from "../../server/translation/codex-app-server";
-import type { CodexReasoningEffort } from "../../server/translation/types";
+import {
+  isCodexReasoningEffort,
+  type CodexReasoningEffort,
+} from "../../server/translation/types";
 import type {
   CodexAuthDeleteResponse,
   CodexAuthStatusResponse,
@@ -12,6 +15,9 @@ type FetchFunction = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+const INVALID_CODEX_MODEL_CATALOG_MESSAGE =
+  "Codex model catalog response was invalid.";
 
 export async function submitTranslationTargetLanguage(input: {
   fetch?: FetchFunction;
@@ -43,7 +49,16 @@ export async function submitReadCodexModels(input: {
     throw new Error(await readErrorMessage(response, "failed to read Codex models"));
   }
 
-  return response.json() as Promise<CodexModelCatalog>;
+  let value: unknown;
+  try {
+    value = await response.json() as unknown;
+  } catch {
+    throw new Error(INVALID_CODEX_MODEL_CATALOG_MESSAGE);
+  }
+  if (!isCodexModelCatalog(value)) {
+    throw new Error(INVALID_CODEX_MODEL_CATALOG_MESSAGE);
+  }
+  return value;
 }
 
 export async function submitCodexTranslationDefaults(input: {
@@ -263,4 +278,31 @@ async function readErrorMessage(
   }
 
   return fallback;
+}
+
+function isCodexModelCatalog(value: unknown): value is CodexModelCatalog {
+  return isRecord(value) &&
+    Array.isArray(value.models) &&
+    value.models.every(isCodexModelInfo);
+}
+
+function isCodexModelInfo(
+  value: unknown,
+): value is CodexModelCatalog["models"][number] {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.model === "string" &&
+    typeof value.displayName === "string" &&
+    typeof value.description === "string" &&
+    typeof value.isDefault === "boolean" &&
+    typeof value.defaultReasoningEffort === "string" &&
+    isCodexReasoningEffort(value.defaultReasoningEffort) &&
+    Array.isArray(value.supportedReasoningEfforts) &&
+    value.supportedReasoningEfforts.every((effort) =>
+      typeof effort === "string" && isCodexReasoningEffort(effort)
+    );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

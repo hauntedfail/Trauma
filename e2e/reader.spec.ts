@@ -390,7 +390,7 @@ test("closes the topmost reader popup before the psychiatrist dock on Escape", a
   await expect(dockTrigger).toBeFocused();
 });
 
-test("coalesces pending reader model catalogs and retries after a settled failure", async ({
+test("coalesces pending reader model catalogs and retries after malformed 2xx", async ({
   page,
 }) => {
   createReaderFixture();
@@ -405,10 +405,8 @@ test("coalesces pending reader model catalogs and retries after a settled failur
       await firstCatalogRequestGate;
       await route.fulfill({
         contentType: "application/json",
-        status: 503,
-        body: JSON.stringify({
-          message: "Catalog temporarily unavailable.",
-        }),
+        status: 200,
+        body: JSON.stringify({ models: null }),
       });
       return;
     }
@@ -450,7 +448,7 @@ test("coalesces pending reader model catalogs and retries after a settled failur
 
     releaseFirstCatalogRequest();
     await expect(dialog.getByRole("alert")).toHaveText(
-      "Catalog temporarily unavailable.",
+      "Codex model catalog response was invalid.",
     );
 
     await page.keyboard.press("Escape");
@@ -552,6 +550,87 @@ test("keeps psychiatrist transcript scrolling sticky only near the bottom", asyn
   )).toBeLessThanOrEqual(1);
 });
 
+test("bounds a 1000-pair psychiatrist transcript while keeping pinned rows reachable", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const initialPairs = Array.from(
+    { length: 1_000 },
+    (_, index) => completedPsychiatristPairAt(index),
+  );
+  initialPairs[100] = {
+    ...initialPairs[100]!,
+    retry_action: "allow_web_sources",
+    retry_mode: "regenerate",
+    retry_turn_id: "turn-history-100-retry",
+  };
+  await installPsychiatristMock(page, { initialPairs });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+
+  const transcript = page.locator("[data-psychiatrist-transcript]");
+  const rows = transcript.locator("[data-psychiatrist-pair]");
+  const range = transcript.locator("[data-psychiatrist-transcript-range]");
+  const older = transcript.getByRole("button", { exact: true, name: "Older" });
+  const newer = transcript.getByRole("button", { exact: true, name: "Newer" });
+
+  await expect(range).toHaveText("Showing 977–1000 of 1000.");
+  await expect(range).toHaveAttribute("aria-live", "polite");
+  await expect(rows).toHaveCount(25);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+  await expect(page.getByText("Historical answer 999.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Historical answer 100.", { exact: true })).toBeVisible();
+  await expect(older).toHaveAttribute("aria-controls", "psychiatrist-transcript");
+  await expect(newer).toBeDisabled();
+
+  await older.click();
+  await expect(range).toHaveText("Showing 953–976 of 1000.");
+  await expect(rows).toHaveCount(25);
+  await expect(page.getByText("Historical answer 975.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Historical answer 999.", { exact: true })).toHaveCount(0);
+  await expect(newer).toBeEnabled();
+
+  await newer.click();
+  await expect(range).toHaveText("Showing 977–1000 of 1000.");
+  await expect(rows).toHaveCount(25);
+
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Keep the active answer reachable on an older page.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+  await expect(range).toHaveText("Showing 978–1001 of 1001.");
+  await expect(rows).toHaveCount(24);
+
+  await older.click();
+  await expect(range).toHaveText("Showing 954–977 of 1001.");
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+  await expect(rows).toHaveCount(25);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+  await expect(older).toBeFocused();
+  await transcript.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: " Window-pinned delta.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+
+  await expect(page.getByText("Window-pinned delta.", { exact: false })).toBeVisible();
+  await expect(older).toBeFocused();
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+});
+
 test("streams named psychiatrist events through the browser EventSource transport", async ({
   page,
 }) => {
@@ -601,6 +680,19 @@ test("streams named psychiatrist events through the browser EventSource transpor
     await expect(page.getByText("Real SSE partial answer.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
     expect(transport.clientClosed()).toBe(false);
+
+    transport.sendMalformedTerminal();
+    transport.sendDeltaAfterMalformedTerminal();
+
+    await expect(page.getByText("Continued after malformed terminal.", { exact: false }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(transport.clientClosed()).toBe(false);
+    expect(await page.evaluate(() =>
+      (window as typeof window & {
+        __psychiatristNativeEventSourceCloseCount?: number;
+      }).__psychiatristNativeEventSourceCloseCount ?? 0
+    )).toBe(0);
 
     transport.sendTerminal();
 
@@ -1057,7 +1149,11 @@ test("keeps a newer psychiatrist turn running when the stopped stream delivers a
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
   await dispatchPsychiatristEvent(page, {
-    data: { pair_id: "pair-e2e-old" },
+    data: {
+      code: "turn_canceled",
+      pair_id: "pair-e2e-old",
+      status: "canceled",
+    },
     turnId: "turn-e2e-old",
     type: "psychiatrist.turn.canceled",
   });
@@ -1801,6 +1897,18 @@ function completedPsychiatristPair(content: string): PsychiatristPairFixture {
   };
 }
 
+function completedPsychiatristPairAt(index: number): PsychiatristPairFixture {
+  return {
+    ...completedPsychiatristPair(`Historical answer ${index}.`),
+    pair_id: `pair-history-${index}`,
+    turn_id: `turn-history-${index}`,
+    user_prompt: {
+      content: `Historical question ${index}?`,
+      created_at: "2026-06-03T00:00:00.000Z",
+    },
+  };
+}
+
 function startedResponse(pairId: string, turnId: string, eventUrl?: string) {
   const resolvedEventUrl = eventUrl ?? psychiatristEventUrl(turnId);
   return {
@@ -1830,6 +1938,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
       {
         data: {
           pair_id: "pair-e2e-running",
+          status: "running",
           user_prompt: "What does this memory say?",
         },
         eventId: "000",
@@ -1854,7 +1963,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
     ],
     "turn-e2e-regenerate": [
       {
-        data: { pair_id: "pair-e2e" },
+        data: { pair_id: "pair-e2e", status: "running" },
         eventId: "001",
         type: "psychiatrist.regenerate.started",
       },
@@ -1877,7 +1986,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
     ],
     "turn-e2e-regenerate-stopped": [
       {
-        data: { pair_id: "pair-e2e" },
+        data: { pair_id: "pair-e2e", status: "running" },
         eventId: "001",
         type: "psychiatrist.regenerate.started",
       },
@@ -1886,6 +1995,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
       {
         data: {
           pair_id: "pair-e2e-web",
+          status: "running",
           user_prompt: "Use current web sources for this memory.",
         },
         eventId: "000",
@@ -1917,6 +2027,8 @@ interface ControlledPsychiatristSseTransport {
   eventUrl: string;
   origin: string;
   requestedUrls: string[];
+  sendDeltaAfterMalformedTerminal: () => void;
+  sendMalformedTerminal: () => void;
   sendTerminal: () => void;
 }
 
@@ -1946,6 +2058,7 @@ async function createControlledPsychiatristSseTransport(input: {
       "real-001",
       {
         pair_id: input.pairId,
+        status: "running",
         user_prompt: "Exercise the real SSE transport.",
       },
     ));
@@ -1998,7 +2111,18 @@ async function createControlledPsychiatristSseTransport(input: {
     eventUrl: origin + eventPath,
     origin,
     requestedUrls,
-    sendTerminal: () => {
+    sendDeltaAfterMalformedTerminal: () => {
+      if (activeResponse === undefined || clientClosed) {
+        throw new Error("Controlled Psychiatrist SSE response is not open.");
+      }
+      activeResponse.write(sseEvent(
+        "psychiatrist.answer.delta",
+        input.turnId,
+        "real-005",
+        { text: " Continued after malformed terminal." },
+      ));
+    },
+    sendMalformedTerminal: () => {
       if (activeResponse === undefined || clientClosed) {
         throw new Error("Controlled Psychiatrist SSE response is not open.");
       }
@@ -2006,6 +2130,20 @@ async function createControlledPsychiatristSseTransport(input: {
         "psychiatrist.answer.completed",
         input.turnId,
         "real-004",
+        {
+          pair_id: input.pairId,
+          text: 42,
+        },
+      ));
+    },
+    sendTerminal: () => {
+      if (activeResponse === undefined || clientClosed) {
+        throw new Error("Controlled Psychiatrist SSE response is not open.");
+      }
+      activeResponse.write(sseEvent(
+        "psychiatrist.answer.completed",
+        input.turnId,
+        "real-006",
         {
           pair_id: input.pairId,
           source_citations: [],

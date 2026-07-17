@@ -180,7 +180,9 @@ Flashback browse excerpts and right-rail shortcuts use the shared
 
 ## Flashback Interaction
 
-Selecting reader text toggles flashback state:
+Selecting reader text opens the reader selection-actions menu; selection alone
+does not change persisted or rendered flashback state. Activating `Flashback
+selection` from that menu toggles flashback state:
 
 - Selecting unmarked text flashbacks it.
 - Selecting a fully marked range unflashbacks it.
@@ -232,6 +234,15 @@ Interaction contract:
 - `network_permission_required` is shown as a per-turn permission state: the
   user must explicitly allow web search/source lookup for that answer before any
   web-source turn may run.
+- The full thread response remains the canonical in-memory transcript. The DOM
+  projects fixed 24-pair Older/Newer pages from it, pins an out-of-page active
+  pair and the latest persisted web-source retry pair, and never renders more
+  than 26 pair rows. Pins are deduplicated and stay in transcript chronology.
+- Opening the dock, loading a different thread, or appending a new prompt shows
+  the most recent page. Same-thread reconciliation preserves the current page.
+  Page controls target the transcript with `aria-controls`, announce the visible
+  range politely, keep keyboard focus stable, and move the transcript viewport
+  to the top without a live stream update stealing that reading position.
 - Opening the dock, completing its initial thread load, or appending a new user
   prompt scrolls the transcript to its bottom. Streaming output follows only
   when the transcript was within 48 px of the bottom before that update; a user

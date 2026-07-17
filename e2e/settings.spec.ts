@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+test("surfaces a stable error for a malformed successful Codex catalog", async ({
+  page,
+}) => {
+  await page.route("**/api/settings/codex-models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({ models: null }),
+    });
+  });
+
+  await page.goto("/settings");
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "Codex model catalog response was invalid.",
+  );
+  await expect(page.getByRole("combobox", { name: "Model", exact: true }))
+    .toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Codex defaults" }))
+    .toBeEnabled();
+});
+
 test("aborts an in-flight Codex auth poll without restoring stale controls", async ({
   page,
 }) => {

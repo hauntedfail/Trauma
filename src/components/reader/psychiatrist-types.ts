@@ -58,16 +58,20 @@ export interface PsychiatristCancelResult {
   };
 }
 
+export const PSYCHIATRIST_STREAM_EVENT_TYPES = [
+  "psychiatrist.turn.started",
+  "psychiatrist.process.delta",
+  "psychiatrist.answer.delta",
+  "psychiatrist.answer.completed",
+  "psychiatrist.answer.failed",
+  "psychiatrist.turn.canceled",
+  "psychiatrist.network.permission_required",
+  "psychiatrist.regenerate.started",
+  "psychiatrist.regenerate.completed",
+] as const;
+
 export type PsychiatristStreamEventType =
-  | "psychiatrist.turn.started"
-  | "psychiatrist.process.delta"
-  | "psychiatrist.answer.delta"
-  | "psychiatrist.answer.completed"
-  | "psychiatrist.answer.failed"
-  | "psychiatrist.turn.canceled"
-  | "psychiatrist.network.permission_required"
-  | "psychiatrist.regenerate.started"
-  | "psychiatrist.regenerate.completed";
+  (typeof PSYCHIATRIST_STREAM_EVENT_TYPES)[number];
 
 export interface PsychiatristStreamEvent {
   data: unknown;

@@ -6,6 +6,11 @@ import type {
   PsychiatristTurnStartedResponse,
   PsychiatristWebSourcePermission,
 } from "./psychiatrist-types";
+import {
+  isNonEmptyString,
+  isPsychiatristSourceCitation,
+  isRecord,
+} from "./psychiatrist-runtime-validation";
 
 type BrowserFetch = (
   input: RequestInfo | URL,
@@ -357,13 +362,6 @@ function isPsychiatristAssistantResponse(value: unknown): boolean {
     value.source_citations.every(isPsychiatristSourceCitation);
 }
 
-function isPsychiatristSourceCitation(value: unknown): boolean {
-  return isRecord(value) &&
-    isNonEmptyString(value.source_id) &&
-    typeof value.title === "string" &&
-    isNonEmptyString(value.url);
-}
-
 function isPsychiatristUserPrompt(value: unknown): boolean {
   return isRecord(value) &&
     typeof value.content === "string" &&
@@ -396,12 +394,4 @@ function isPsychiatristPairStatus(value: unknown): boolean {
     value === "failed" ||
     value === "canceled" ||
     value === "stale";
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value !== "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
