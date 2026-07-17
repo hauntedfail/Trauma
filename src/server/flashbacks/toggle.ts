@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 
 import type { DurableMemoryBackupQueue } from "../backup";
-import { assertBackupEnvironmentReady } from "../backup/environment";
+import {
+  assertBackupEnvironmentReady,
+  redactOperationalError,
+} from "../backup/environment";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
 import { createRepositories } from "../db/repositories";
@@ -63,6 +64,13 @@ export interface ToggleMemoryFlashbackInput {
 
 export interface ToggleMemoryFlashbackResult {
   operation: "flashbacked" | "unflashbacked";
+  backup?: {
+    status: "failed" | "pending";
+    warning: {
+      code: "backup_enqueue_failed";
+      message: "Flashback was saved, but backup enqueue failed.";
+    };
+  };
   flashbacks: Array<{
     id: string;
     text: string;
@@ -81,9 +89,6 @@ export interface ToggleMemoryFlashbackResult {
 type FlashbackRow = Awaited<
   ReturnType<ReturnType<typeof createRepositories>["flashbacks"]["listForMemory"]>
 >[number];
-type FlashbackExportSnapshot =
-  | { exists: true; content: string; relativePath: string }
-  | { exists: false; relativePath: string };
 
 const flashbackMemoryLocks = new Map<string, Promise<void>>();
 
@@ -141,11 +146,6 @@ async function toggleMemoryFlashbackUnlocked(
   const previousFlashbacks = existingFlashbacks.map((flashback) => ({
     ...flashback,
   }));
-  const previousExport = await readFlashbackExportSnapshot({
-    config: input.config,
-    memoryId: input.memoryId,
-    variant,
-  });
   const existingRanges = normalizeFlashbackMarkerRanges(
     content.markdown,
     existingFlashbacks.map(toFlashbackRange),
@@ -220,6 +220,7 @@ async function toggleMemoryFlashbackUnlocked(
     throw error;
   }
 
+  let backup: ToggleMemoryFlashbackResult["backup"];
   if (input.config.backup.git.enabled) {
     try {
       const enqueueResult = await input.backupQueue.enqueue({
@@ -237,23 +238,34 @@ async function toggleMemoryFlashbackUnlocked(
         });
       }
     } catch (error) {
-      reservation.assertWritable();
-      await repositories.flashbacks.replaceForMemoryVariant({
-        memoryId: input.memoryId,
-        variant,
-        flashbacks: previousFlashbacks,
-      });
-      reservation.assertWritable();
-      await restoreFlashbackExportSnapshot({
-        config: input.config,
-        snapshot: previousExport,
-      });
-      throw error;
+      let status: "failed" | "pending" = "pending";
+      try {
+        reservation.assertWritable();
+        await repositories.memories.updateBackupStatus({
+          id: input.memoryId,
+          backupStatus: "failed",
+          lastBackupAt: null,
+          lastBackupError: redactOperationalError(formatUnknownError(error)),
+          updatedAt: now,
+        });
+        status = "failed";
+      } catch {
+        // persistIntent already left a durable pending retry marker. A status
+        // write failure must not roll back the authoritative Flashback state.
+      }
+      backup = {
+        status,
+        warning: {
+          code: "backup_enqueue_failed",
+          message: "Flashback was saved, but backup enqueue failed.",
+        },
+      };
     }
   }
 
   return {
     operation: resultOperation,
+    ...(backup === undefined ? {} : { backup }),
     flashbacks: nextFlashbacks.map((flashback) => ({
       id: flashback.id,
       text: flashback.text,
@@ -268,57 +280,6 @@ async function toggleMemoryFlashbackUnlocked(
       createdAt: flashback.createdAt.toISOString(),
     })),
   };
-}
-
-async function readFlashbackExportSnapshot(input: {
-  config: Pick<ResolvedTraumaConfig, "storePath">;
-  memoryId: string;
-  variant: FlashbackVariant;
-}): Promise<FlashbackExportSnapshot> {
-  const relativePath = getFlashbackMetadataExportPath({
-    memoryId: input.memoryId,
-    variant: input.variant,
-  });
-  const absolutePath = join(input.config.storePath, relativePath);
-  try {
-    return {
-      exists: true,
-      relativePath,
-      content: await readFile(absolutePath, "utf8"),
-    };
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return {
-        exists: false,
-        relativePath,
-      };
-    }
-
-    throw error;
-  }
-}
-
-async function restoreFlashbackExportSnapshot(input: {
-  config: Pick<ResolvedTraumaConfig, "storePath">;
-  snapshot: FlashbackExportSnapshot;
-}): Promise<void> {
-  const absolutePath = join(input.config.storePath, input.snapshot.relativePath);
-  if (input.snapshot.exists) {
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, input.snapshot.content, "utf8");
-    return;
-  }
-
-  await rm(absolutePath, { force: true });
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string"
-  );
 }
 
 async function withFlashbackMemoryLock<T>(
@@ -354,6 +315,10 @@ function resolveSelection(markdown: string, selection: FlashbackSelectionInput) 
 
     throw error;
   }
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toFlashbackRange(flashback: FlashbackRow): FlashbackMarkerRange {

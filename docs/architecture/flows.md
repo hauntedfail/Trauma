@@ -20,7 +20,11 @@ rotates it.
    preflight-normalized request URL. Reusing a key for a different URL fails
    with `409`; URL equality alone never deduplicates memories.
 3. Coalesce concurrent work for the same key and URL. A retry returns its
-   existing or creation-journal-recovered row before importing again.
+   existing or creation-journal-recovered row before importing again. An old
+   reservation whose row and recoverable creation journal are both absent
+   returns a stable `409` without importing; this includes replays after later
+   deletion. A clean initial failure before recoverable state releases only the
+   newly inserted reservation so the same failed attempt can retry.
 4. Validate that the configured backup environment is ready for a new write.
 5. Fetch the public URL, then run Defuddle extraction inside the
    interruptible import timeout boundary.
@@ -111,8 +115,11 @@ Flashback ranges without rewriting `CONTENT.md`.
 
 Offsets use canonical reader text and a `sha256:<hex>` content hash. Translated
 rows are additionally scoped by language and translation output hash. A stale
-row is not rendered at a guessed location. Persistence failure rolls back or
-clearly fails the optimistic UI; backup failsafe metadata also refreshes the
+row is not rendered at a guessed location. Failure before authoritative SQLite
+and export publication rolls back or clearly fails the optimistic UI. Once
+both are durable, backup enqueue or status failure keeps the toggle successful,
+returns an explicit backup warning with `pending` or `failed` status, and does
+not restore the old rows or export. Backup failsafe metadata also refreshes the
 global alert. Startup retry regenerates a missing or stale export from its
 authoritative SQLite rows before backup.
 

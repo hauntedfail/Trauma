@@ -8,6 +8,10 @@ import {
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
 } from "../reader/flashback-failure";
 import {
+  readFlashbackBackupWarning,
+  type FlashbackBackupWarning,
+} from "../reader/flashback-backup-warning";
+import {
   KebabActionMenu,
   kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
@@ -105,7 +109,7 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
 
 export async function deleteFlashbackBySelection(
   input: DeleteFlashbackBySelectionInput,
-): Promise<void> {
+): Promise<FlashbackBackupWarning | undefined> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/flashbacks", {
     method: "POST",
@@ -136,5 +140,21 @@ export async function deleteFlashbackBySelection(
     }
 
     throw new Error(failure.message);
+  }
+
+  const backupWarning = await readSuccessBackupWarning(response);
+  if (backupWarning !== undefined) {
+    void revalidateBackupFailsafeAlert();
+  }
+  return backupWarning;
+}
+
+async function readSuccessBackupWarning(
+  response: Response,
+): Promise<FlashbackBackupWarning | undefined> {
+  try {
+    return readFlashbackBackupWarning(await response.json());
+  } catch {
+    return undefined;
   }
 }

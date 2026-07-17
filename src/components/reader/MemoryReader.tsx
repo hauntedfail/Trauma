@@ -75,6 +75,7 @@ import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
 } from "./flashback-failure";
+import { readFlashbackBackupWarning } from "./flashback-backup-warning";
 import {
   readerArticle,
   readerFrame,
@@ -3039,6 +3040,11 @@ async function toggleReaderSelection(input: {
         ),
         pendingId: optimisticFlashbackId,
       });
+    }
+    const backupWarning = readFlashbackBackupWarning(payload);
+    if (backupWarning !== undefined) {
+      input.setErrorMessage(backupWarning.message);
+      void revalidateBackupFailsafeAlert();
     }
     input.onFlashbacksChanged(payload.result.flashbacks);
     void Promise.resolve(input.onSuccess()).catch(() => undefined);

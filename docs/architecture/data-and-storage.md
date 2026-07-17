@@ -125,11 +125,14 @@ assign either automatically.
 
 `memory_creation_idempotency` durably binds an optional add-memory UUID v7
 request identity to its preflight-normalized request URL before import begins.
-The identity is also the intended memory ID. Reservations intentionally survive
-success, failure, process restart, and later memory deletion so a replay cannot
-silently create a second memory or claim the same identity for another URL.
-The table has no foreign key to `memories` because the reservation must exist
-before the memory row and may outlive it.
+The identity is also the intended memory ID. Completed reservations and
+recoverable interrupted creations survive process restart and later memory
+deletion. A replay can therefore return the existing/recovered row, or fail with
+a stable conflict after deletion, but can never silently import and recreate the
+memory. A newly inserted reservation is released only when its initial attempt
+fails before leaving recoverable durable state, which lets the shell retry that
+same failed attempt. The table has no foreign key to `memories` because the
+reservation must exist before the memory row and may outlive it.
 
 `backup_environment_stamps` records the validated backup identity: resolved
 project/store paths, configured remote and its URL when available, branch, and
@@ -184,6 +187,12 @@ export and enqueues it for backup:
 {storePath}/memories/{memoryId}/FLASHBACKS.json
 {storePath}/memories/{memoryId}/{langCode}/FLASHBACKS.json
 ```
+
+Failure before SQLite and export publication fails the toggle and restores the
+previous authoritative ranges where necessary. Once both are durably
+published, backup enqueue or backup-status failure does not undo the toggle.
+The API returns the normal success fields plus an optional `backup` warning and
+`pending` or `failed` status, and startup recovery retries that memory.
 
 ## Moments
 

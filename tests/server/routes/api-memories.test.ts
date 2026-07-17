@@ -136,6 +136,43 @@ describe("memories API route", () => {
     expect(JSON.stringify(body)).not.toContain(config.storePath);
   });
 
+  it("maps a terminal idempotency replay without a memory to a stable conflict", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-api-memory-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await writeConfig(root);
+    const config = loadTraumaConfig();
+    const connection = initializeDatabase(config);
+    const idempotencyKey = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812";
+    try {
+      await connection.repositories.memories.reserveCreationIdempotency({
+        idempotencyKey,
+        requestUrl: "http://93.184.216.34/article",
+        createdAt: new Date("2026-05-13T00:00:00.000Z"),
+      });
+    } finally {
+      connection.close();
+    }
+
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": idempotencyKey,
+          },
+          body: JSON.stringify({ url: "http://93.184.216.34/article" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Idempotency-Key no longer refers to an existing memory",
+    });
+  });
+
   it("keeps POST route helpers available after Vinxi pick transform", async () => {
     const source = await readFile(
       join(repositoryRoot, "src/routes/api/memories.ts"),

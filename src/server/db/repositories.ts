@@ -185,9 +185,14 @@ export interface MemoryRepository {
     requestUrl: string;
     createdAt: Date;
   }) => Promise<
-    | { status: "reserved"; requestUrl: string }
+    | { status: "existing_reservation"; requestUrl: string }
+    | { status: "new_reservation"; requestUrl: string }
     | { status: "memory_id_exists" }
   >;
+  releaseCreationIdempotency: (input: {
+    idempotencyKey: string;
+    requestUrl: string;
+  }) => Promise<boolean>;
   findReaderAggregateById: (
     id: string,
   ) => Promise<ReaderMemoryAggregateRow | undefined>;
@@ -782,7 +787,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             )
             .get();
           if (reservation !== undefined) {
-            return { status: "reserved" as const, ...reservation };
+            return { status: "existing_reservation" as const, ...reservation };
           }
 
           const existingMemory = tx
@@ -796,10 +801,24 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
 
           tx.insert(schema.memoryCreationIdempotency).values(input).run();
           return {
-            status: "reserved" as const,
+            status: "new_reservation" as const,
             requestUrl: input.requestUrl,
           };
         });
+      },
+      releaseCreationIdempotency: async (input) => {
+        const released = await db
+          .delete(schema.memoryCreationIdempotency)
+          .where(and(
+            eq(
+              schema.memoryCreationIdempotency.idempotencyKey,
+              input.idempotencyKey,
+            ),
+            eq(schema.memoryCreationIdempotency.requestUrl, input.requestUrl),
+          ))
+          .returning({ idempotencyKey: schema.memoryCreationIdempotency.idempotencyKey })
+          .get();
+        return released !== undefined;
       },
       findReaderAggregateById: async (id) =>
         db.query.memories.findFirst({

@@ -9,6 +9,7 @@ import { validateImportUrl } from "~/server/importer";
 import { createRuntimeMemoryImporter } from "~/server/importer/runtime";
 import {
   AddMemoryIdempotencyConflictError,
+  AddMemoryIdempotencyReplayError,
   addMemory,
 } from "~/server/memories/add-memory";
 import { isMemoryId } from "~/server/memories/id";
@@ -48,7 +49,10 @@ export async function POST(event: APIEvent): Promise<Response> {
 
     return json({ memory }, { status: 201 });
   } catch (error) {
-    if (error instanceof AddMemoryIdempotencyConflictError) {
+    if (
+      error instanceof AddMemoryIdempotencyConflictError ||
+      error instanceof AddMemoryIdempotencyReplayError
+    ) {
       return json({ error: error.message }, { status: 409 });
     }
     if (error instanceof BackupEnvironmentFailsafeError) {
