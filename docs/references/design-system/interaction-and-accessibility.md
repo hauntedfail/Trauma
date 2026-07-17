@@ -24,6 +24,12 @@ Supported browse concerns:
 Filter buttons should toggle their own query key without clearing unrelated
 query state.
 
+Flashback and Moment collection cursors are opaque URL state. First removes the
+cursor and Next writes the server continuation. Pending navigation must remove
+the previous page from the rendered row set, expose `aria-busy`, and announce a
+load failure with `role="alert"`. Native links preserve Reload and browser
+Back behavior.
+
 The `q` search value is preserved as raw input in the URL and may contain
 fielded filters:
 
@@ -99,6 +105,9 @@ Rules:
 - Reader selection and section actions use a labelled horizontal toolbar.
   Arrow Left/Right wrap, Home/End move to the bounds, and Escape returns focus
   to the reader content.
+- Reader All Flashbacks uses native First/Previous/Next buttons. Unavailable
+  directions are disabled, the list is a bounded scroll region, and tab changes
+  preserve its rail-local cursor history.
 
 ## Labels And Landmarks
 

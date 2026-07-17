@@ -129,6 +129,26 @@ Moments bookmark source-canonical reader sections.
 Moment persistence does not mutate reader Markdown. The current contract has no
 Moment store export; see the ownership matrix before changing backup behavior.
 
+## Collection Browse Pagination
+
+Flashback and Moment interactive reads use bounded keyset pages.
+
+1. The client submits no cursor for the first page or returns the opaque cursor
+   from the preceding page.
+2. The server validates the version, collection kind, timestamp, ID, and limit
+   before opening collection storage.
+3. The repository applies `(created_at, id)` descending keyset predicates and a
+   SQL limit. It never loads the full collection for a paged request.
+4. Flashbacks validate only bounded raw batches and advance past stale rows;
+   Moments resolve targets only for the current raw page.
+5. `/flashbacks`, `/moments`, and Reader All replace their current page rather
+   than accumulating rows.
+
+No-query `GET /api/moments` retains its full-list envelope. The Flashback
+mutation route remains POST-only. Paged clients explicitly use `page=1` on the
+Moments API or the separate `/api/flashbacks/page` route; mutation behavior is
+unchanged.
+
 ## Brilliant Translation
 
 Translation runs through the separately operated Codex app-server and uses

@@ -106,9 +106,18 @@ uses a bounded five-second busy timeout so short write contention is serialized
 instead of failing immediately.
 
 Global Moment and Flashback browse reads use deterministic `created_at`/`id`
-cursor pages. File-backed renderability checks group rows by memory or variant
-and cap concurrent file reads; route results retain their existing ordering and
-complete row set.
+keyset pages ordered by `created_at DESC, id DESC`. Interactive pages default to
+30 rows and reject limits outside `1..100`. Their opaque versioned cursor binds
+the collection kind, timestamp, and ID; malformed or cross-collection tokens
+never reach a repository query.
+
+Paged Flashback projection scans at most four SQL batches per request and
+returns the last scanned cursor even when every candidate is stale, so callers
+can advance without an unbounded loop. Each batch reads only its distinct
+memory/variant content keys. Paged Moment projection resolves only the SQL page
+and reads one table of contents per distinct memory on that page. Legacy full
+collection reads remain available only for API compatibility and are not used
+by the collection routes or Reader All rail.
 
 `memories` owns URL metadata, content path, extraction/read/backup status, and
 timestamps. Tags and categories are many-to-many relations; URL import does not

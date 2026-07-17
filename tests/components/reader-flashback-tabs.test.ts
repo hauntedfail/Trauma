@@ -4,7 +4,9 @@ import { createComponent, renderToString } from "solid-js/web";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const flashbackLoaderMocks = vi.hoisted(() => ({
-  getFlashbackBrowseRows: vi.fn<() => Promise<never>>(),
+  getFlashbackBrowsePage: vi.fn<
+    (_input: { cursor: string | null }) => Promise<never>
+  >(),
   revalidateFlashbackBrowseRows: vi.fn(),
 }));
 
@@ -60,8 +62,8 @@ const currentFlashbacks = [
 
 describe("reader flashback tabs", () => {
   beforeEach(() => {
-    flashbackLoaderMocks.getFlashbackBrowseRows.mockReset();
-    flashbackLoaderMocks.getFlashbackBrowseRows.mockReturnValue(
+    flashbackLoaderMocks.getFlashbackBrowsePage.mockReset();
+    flashbackLoaderMocks.getFlashbackBrowsePage.mockReturnValue(
       new Promise<never>(() => {}),
     );
     flashbackLoaderMocks.revalidateFlashbackBrowseRows.mockReset();
@@ -113,7 +115,7 @@ describe("reader flashback tabs", () => {
 
     expect(html).toContain("current flashback");
     expect(html).not.toContain("Loading flashbacks...");
-    expect(flashbackLoaderMocks.getFlashbackBrowseRows).not.toHaveBeenCalled();
+    expect(flashbackLoaderMocks.getFlashbackBrowsePage).not.toHaveBeenCalled();
   });
 
   it("defaults to Current when the active memory has no flashbacks", () => {
@@ -129,7 +131,10 @@ describe("reader flashback tabs", () => {
       omitAllFlashbacks: true,
     });
 
-    expect(flashbackLoaderMocks.getFlashbackBrowseRows).toHaveBeenCalledOnce();
+    expect(flashbackLoaderMocks.getFlashbackBrowsePage).toHaveBeenCalledOnce();
+    expect(flashbackLoaderMocks.getFlashbackBrowsePage).toHaveBeenCalledWith({
+      cursor: null,
+    });
     expect(html).toContain("Loading flashbacks...");
   });
 
@@ -140,7 +145,18 @@ describe("reader flashback tabs", () => {
     expect(html).toContain("other flashback");
     expect(html).toContain('href="/memories/memory-1#flashback-current"');
     expect(html).toContain('href="/memories/ja-JP/memory-2#flashback-other"');
-    expect(flashbackLoaderMocks.getFlashbackBrowseRows).not.toHaveBeenCalled();
+    expect(flashbackLoaderMocks.getFlashbackBrowsePage).not.toHaveBeenCalled();
+  });
+
+  it("bounds the All list body and exposes rail-local page controls", () => {
+    const html = renderTabs({ initialTab: "all" });
+
+    expect(html).toContain("max-h-[min(44vh,24rem)]");
+    expect(html).toContain("overflow-y-auto");
+    expect(html).toContain("overscroll-contain");
+    expect(html).toContain(">First<");
+    expect(html).toContain(">Previous<");
+    expect(html).toContain(">Next<");
   });
 
   it("uses shared memory anchor href builders for Flashback shortcuts", () => {
@@ -161,10 +177,11 @@ describe("reader flashback tabs", () => {
       source.indexOf("function getReaderSelectionKey"),
     );
 
-    expect(readyReaderSource).not.toContain("getFlashbackBrowseRows");
-    expect(readyReaderSource).not.toContain("createAsync(() => getFlashbackBrowseRows())");
+    expect(readyReaderSource).not.toContain("getFlashbackBrowsePage");
+    expect(readyReaderSource).not.toContain("createAsync(() => getFlashbackBrowsePage())");
     expect(tabsSource).toContain("shouldLoadAll");
-    expect(tabsSource).toContain("getFlashbackBrowseRows");
+    expect(tabsSource).toContain("getFlashbackBrowsePage");
+    expect(tabsSource).toContain("cursorHistory");
   });
 
   it("renders a concise current-memory empty state", () => {

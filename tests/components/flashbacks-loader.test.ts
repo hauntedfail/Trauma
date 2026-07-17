@@ -13,12 +13,14 @@ const routerMocks = vi.hoisted(() => ({
 vi.mock("@solidjs/router", () => routerMocks);
 vi.mock("~/server/flashbacks/browse", () => ({
   loadBrowseFlashbacksForMemories: vi.fn(),
+  loadFlashbackBrowsePage: vi.fn(),
   loadFlashbackBrowseRows: vi.fn(),
   loadRecentFlashbackBrowseRows: vi.fn(),
 }));
 
 const {
   getBrowseFlashbacksForMemories,
+  getFlashbackBrowsePage,
   getFlashbackBrowseRows,
   getRecentFlashbackBrowseRows,
   revalidateFlashbackBrowseRows,
@@ -29,11 +31,12 @@ describe("flashbacks loader", () => {
     routerMocks.revalidate.mockReset();
   });
 
-  it("revalidates Flashback browse, recent, and memory-card query caches", async () => {
+  it("revalidates paged, legacy, recent, and memory-card query caches", async () => {
     routerMocks.revalidate.mockResolvedValue(undefined);
 
     await revalidateFlashbackBrowseRows();
 
+    expect(routerMocks.revalidate).toHaveBeenCalledWith(getFlashbackBrowsePage.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getFlashbackBrowseRows.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getRecentFlashbackBrowseRows.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseFlashbacksForMemories.key);

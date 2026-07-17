@@ -46,6 +46,9 @@ store, and git paths rather than external websites or real application data.
   desktop/tablet/phone chrome.
 - `e2e/cross-device-responsive.spec.ts`: responsive navigation, safe-area and
   overflow behavior, theme controls, and primary-action reachability.
+- `e2e/collection-pagination.spec.ts`: large SQLite/store archives, stable
+  Flashback/Moment current-page DOM, URL Reload/Back, and Reader All rail-local
+  pagination and scroll bounds.
 - `e2e/reader.spec.ts`: source reader, translation controls, deletion,
   Flashbacks, Moments, table-of-contents behavior, and Psychiatrist
   streaming/resume/cancel/regenerate/permission flows.
@@ -66,6 +69,9 @@ Use focused tests for the smallest affected boundary:
   URL policy, extraction, add/delete compensation, and browse behavior.
 - `tests/server/reader/**`, `flashbacks/**`, and route tests: sanitization,
   reader hashes, variant-local ranges, Moments, and API validation.
+- `tests/server/browse/**` and collection route tests: opaque cursor validation,
+  stable keyset ordering, bounded stale-row scans, distinct content/TOC reads,
+  legacy API compatibility, and paged envelopes.
 - `tests/server/translation/**`: job state, chunking, Codex protocol,
   cancellation, stitching, projections, and current-output resolution.
 - `tests/server/psychiatrist/**` plus `tests/skills/**`: runtime isolation,

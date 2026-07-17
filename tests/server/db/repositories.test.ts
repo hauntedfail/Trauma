@@ -678,6 +678,134 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
+  it("keyset-paginates Flashbacks and Moments by created_at then id without gaps", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f199";
+          const tied = new Date("2026-07-17T00:00:00.000Z");
+          const older = new Date("2026-07-16T00:00:00.000Z");
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/keyset",
+            title: "Keyset Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: older,
+            updatedAt: older,
+          });
+
+          for (const [id, createdAt] of [
+            ["flashback-a", tied],
+            ["flashback-c", tied],
+            ["flashback-b", tied],
+            ["flashback-older", older],
+          ]) {
+            connection.sqlite.prepare(
+              "insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+              id,
+              memoryId,
+              id,
+              "",
+              "",
+              0,
+              id.length,
+              createdAt.getTime(),
+              createdAt.getTime(),
+            );
+          }
+          for (const [id, createdAt] of [
+            ["moment-a", tied],
+            ["moment-c", tied],
+            ["moment-b", tied],
+            ["moment-older", older],
+          ]) {
+            connection.sqlite.prepare(
+              "insert into moments (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+              id,
+              memoryId,
+              id,
+              id,
+              2,
+              id,
+              createdAt.getTime(),
+              createdAt.getTime(),
+            );
+          }
+
+          const flashbackFirst = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: null,
+            limit: 2,
+          });
+          const flashbackLast = flashbackFirst.at(-1);
+          const flashbackSecond = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: flashbackLast === undefined
+              ? null
+              : { createdAt: new Date(flashbackLast.createdAt), id: flashbackLast.id },
+            limit: 2,
+          });
+          const momentFirst = await connection.repositories.moments.listPageForBrowse({
+            cursor: null,
+            limit: 2,
+          });
+          const momentLast = momentFirst.at(-1);
+          const momentSecond = await connection.repositories.moments.listPageForBrowse({
+            cursor: momentLast === undefined
+              ? null
+              : { createdAt: new Date(momentLast.createdAt), id: momentLast.id },
+            limit: 2,
+          });
+
+          process.stdout.write(JSON.stringify({
+            flashbacks: [...flashbackFirst, ...flashbackSecond].map((row) => row.id),
+            moments: [...momentFirst, ...momentSecond].map((row) => row.id),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      flashbacks: ["flashback-c", "flashback-b", "flashback-a", "flashback-older"],
+      moments: ["moment-c", "moment-b", "moment-a", "moment-older"],
+    });
+  });
+
   it("serializes concurrent Moment path creates and crossed anchor moves", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(

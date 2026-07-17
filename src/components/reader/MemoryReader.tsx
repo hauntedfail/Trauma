@@ -31,9 +31,10 @@ import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
-  getFlashbackBrowseRows,
+  getFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "../flashbacks/flashbacks-loader";
+import { settleCollectionPage } from "../collections/page-state";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
 import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
@@ -167,6 +168,8 @@ const noTocScrollState: TocScrollState = {
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
+const readerFlashbackScrollContent =
+  "grid max-h-[min(44vh,24rem)] gap-3 overflow-y-auto overscroll-contain pr-1";
 const readerContextMenuClass =
   "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
 const readerSourceLinkClass =
@@ -2330,21 +2333,61 @@ export function ReaderFlashbackTabs(props: {
     props.initialTab ?? "memory",
   );
   const [shouldLoadAll, setShouldLoadAll] = createSignal(props.initialTab === "all");
-  const lazyAllFlashbacks = createAsync(async () => {
+  const [allCursor, setAllCursor] = createSignal<string | null>(null);
+  const [cursorHistory, setCursorHistory] = createSignal<readonly (string | null)[]>(
+    [],
+  );
+  const lazyAllPageState = createAsync(async () => {
     if (props.allFlashbacks !== undefined || !shouldLoadAll()) {
       return undefined;
     }
 
-    return getFlashbackBrowseRows();
+    const requestedCursor = allCursor();
+    return settleCollectionPage(requestedCursor, () =>
+      getFlashbackBrowsePage({ cursor: requestedCursor }),
+    );
   });
-  const allRows = createMemo(() => props.allFlashbacks ?? lazyAllFlashbacks() ?? []);
+  const currentAllPageState = createMemo(() => {
+    const state = lazyAllPageState();
+    return state?.cursor === allCursor() ? state : undefined;
+  });
+  const allPage = createMemo(() => {
+    if (props.allFlashbacks !== undefined) {
+      return { flashbacks: props.allFlashbacks, nextCursor: null };
+    }
+    const state = currentAllPageState();
+    return state?.status === "ready" ? state.page : undefined;
+  });
+  const allRows = createMemo(() => allPage()?.flashbacks ?? []);
   const isLoadingAll = () =>
     props.allFlashbacks === undefined &&
     shouldLoadAll() &&
-    lazyAllFlashbacks() === undefined;
+    currentAllPageState() === undefined;
+  const hasAllPageError = () => currentAllPageState()?.status === "error";
   const activateAllTab = (): void => {
     setShouldLoadAll(true);
     setActiveTab("all");
+  };
+  const goToFirstAllPage = (): void => {
+    setCursorHistory([]);
+    setAllCursor(null);
+  };
+  const goToPreviousAllPage = (): void => {
+    const history = cursorHistory();
+    if (history.length === 0) {
+      return;
+    }
+    const previousCursor = history[history.length - 1] ?? null;
+    setCursorHistory(history.slice(0, -1));
+    setAllCursor(previousCursor);
+  };
+  const goToNextAllPage = (): void => {
+    const nextCursor = allPage()?.nextCursor;
+    if (nextCursor === undefined || nextCursor === null) {
+      return;
+    }
+    setCursorHistory((history) => [...history, allCursor()]);
+    setAllCursor(nextCursor);
   };
 
   return (
@@ -2371,21 +2414,41 @@ export function ReaderFlashbackTabs(props: {
       <Show
         when={activeTab() === "memory"}
         fallback={
-          <FlashbackShortcutList
-            emptyLabel="No flashbacks yet"
-            flashbacks={allRows().map((flashback) => ({
-              id: flashback.id,
-              href: buildMemoryVariantAnchorHref({
-                anchorId: flashback.id,
-                langCode: flashback.langCode,
-                memoryId: flashback.memoryId,
-              }),
-              prefix: flashback.prefix,
-              suffix: flashback.suffix,
-              text: flashback.text,
-            }))}
-            isLoading={isLoadingAll()}
-          />
+          <div class="grid gap-3">
+            <Show
+              when={!hasAllPageError()}
+              fallback={
+                <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
+                  Failed to load flashbacks.
+                </p>
+              }
+            >
+              <FlashbackShortcutList
+                class={readerFlashbackScrollContent}
+                emptyLabel="No flashbacks on this page"
+                flashbacks={allRows().map((flashback) => ({
+                  id: flashback.id,
+                  href: buildMemoryVariantAnchorHref({
+                    anchorId: flashback.id,
+                    langCode: flashback.langCode,
+                    memoryId: flashback.memoryId,
+                  }),
+                  prefix: flashback.prefix,
+                  suffix: flashback.suffix,
+                  text: flashback.text,
+                }))}
+                isLoading={isLoadingAll()}
+              />
+            </Show>
+            <ReaderFlashbackPageControls
+              canGoFirst={allCursor() !== null || cursorHistory().length > 0}
+              canGoNext={allPage()?.nextCursor !== null && allPage() !== undefined}
+              canGoPrevious={cursorHistory().length > 0}
+              onFirst={goToFirstAllPage}
+              onNext={goToNextAllPage}
+              onPrevious={goToPreviousAllPage}
+            />
+          </div>
         }
       >
         <FlashbackShortcutList
@@ -2401,6 +2464,46 @@ export function ReaderFlashbackTabs(props: {
         />
       </Show>
     </section>
+  );
+}
+
+function ReaderFlashbackPageControls(props: {
+  canGoFirst: boolean;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  onFirst: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const buttonClass =
+    "rounded-full border border-trauma-border px-3 py-1.5 text-xs font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-not-allowed disabled:opacity-60";
+  return (
+    <nav aria-label="All Flashback pages" class="grid grid-cols-3 gap-2">
+      <button
+        class={buttonClass}
+        disabled={!props.canGoFirst}
+        type="button"
+        onClick={props.onFirst}
+      >
+        First
+      </button>
+      <button
+        class={buttonClass}
+        disabled={!props.canGoPrevious}
+        type="button"
+        onClick={props.onPrevious}
+      >
+        Previous
+      </button>
+      <button
+        class={buttonClass}
+        disabled={!props.canGoNext}
+        type="button"
+        onClick={props.onNext}
+      >
+        Next
+      </button>
+    </nav>
   );
 }
 

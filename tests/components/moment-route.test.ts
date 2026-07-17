@@ -21,8 +21,11 @@ describe("Moment route", () => {
   });
 
   it("loads Moments from SQLite metadata and links to memory section anchors", () => {
-    expect(loaderSource).toContain("loadMomentBrowseRows");
-    expect(browseSource).toContain("getMomentBrowseRows");
+    expect(loaderSource).toContain("loadMomentBrowsePage");
+    expect(browseSource).toContain("getMomentBrowsePage");
+    expect(browseSource).toContain("useLocation");
+    expect(browseSource).toContain("nextCursor");
+    expect(browseSource).toContain('href="/moments"');
     expect(browseSource).toContain("MomentActionMenu");
     expect(browseSource).toContain("deleteMomentById");
     expect(browseSource).toContain("revalidateMomentBrowseRows");

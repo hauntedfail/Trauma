@@ -38,6 +38,11 @@ Memory results are cursor-paginated. Read-state tabs manipulate the search
 terms, and list/grid remains URL-addressable even when no dedicated view toggle
 is rendered.
 
+`/flashbacks` and `/moments` use an opaque `cursor` query value. The URL is the
+page source of truth: Next writes the continuation cursor, First removes it,
+and browser Back or Reload restores that exact page. These routes render only
+the current page; they never append earlier pages to the DOM.
+
 ## Shell Layout
 
 Desktop (`min-width: 1041px`):
@@ -78,12 +83,15 @@ Flashback anchor.
 
 Right-rail Flashback shortcuts may filter `/memories` with `flashback=<id>`.
 They do not replace direct reader links from the canonical Flashbacks route.
+The route uses a bounded server page and exposes First/Next navigation. A page
+may be empty while still offering Next when stale stored rows were scanned.
 
 ## Moments View
 
 `/moments` lists saved reader sections. Rows open the source reader at the
 stored section anchor and expose Moment deletion. A Moment selected on a
 translated reader maps to its source-canonical section before it appears here.
+The route uses the same URL-owned First/Next page model as `/flashbacks`.
 
 ## Add Memory
 

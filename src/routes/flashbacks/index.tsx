@@ -1,7 +1,12 @@
 import { Title } from "@solidjs/meta";
-import { createAsync } from "@solidjs/router";
+import { createAsync, useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal } from "solid-js";
 
+import {
+  buildCollectionPageHref,
+  readCollectionPageCursor,
+  settleCollectionPage,
+} from "~/components/collections/page-state";
 import {
   deleteFlashbackBySelection,
   FlashbackActionMenu,
@@ -9,10 +14,9 @@ import {
 } from "~/components/flashbacks/FlashbackActionMenu";
 import { FlashbackInlineText } from "~/components/flashbacks/FlashbackText";
 import {
-  getFlashbackBrowseRows,
+  getFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "~/components/flashbacks/flashbacks-loader";
-import { classifyFlashbackRows } from "~/components/flashbacks/route-state";
 import { buildMemoryVariantAnchorHref } from "~/components/memories/memory-anchor-hrefs";
 import { revalidateBrowseMemoryWorkspace } from "~/components/memories/browse-loader";
 import { revalidateReaderMemory } from "~/components/reader/reader-memory-loader";
@@ -24,22 +28,32 @@ const cardBase =
   "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
 
 export default function FlashbacksIndex() {
-  const flashbacks = createAsync(() => getFlashbackBrowseRows());
+  const location = useLocation();
+  const cursor = createMemo(() => readCollectionPageCursor(location.search));
+  const loadedPage = createAsync(() => {
+    const requestedCursor = cursor();
+    return settleCollectionPage(requestedCursor, () =>
+      getFlashbackBrowsePage({ cursor: requestedCursor }),
+    );
+  });
   const [removedFlashbackIds, setRemovedFlashbackIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
-  const flashbackRowsState = () => classifyFlashbackRows(flashbacks());
+  const currentPageState = createMemo(() => {
+    const state = loadedPage();
+    return state?.cursor === cursor() ? state : undefined;
+  });
+  const currentPage = createMemo(() => {
+    const state = currentPageState();
+    return state?.status === "ready" ? state.page : undefined;
+  });
   const readyFlashbackRows = createMemo(() => {
-    const state = flashbackRowsState();
-    if (state.status !== "ready") {
+    const page = currentPage();
+    if (page === undefined) {
       return undefined;
     }
 
-    return state.rows.filter((row) => !removedFlashbackIds().has(row.id));
-  });
-  const visibleFlashbackRows = createMemo(() => {
-    const rows = readyFlashbackRows();
-    return rows !== undefined && rows.length > 0 ? rows : undefined;
+    return page.flashbacks.filter((row) => !removedFlashbackIds().has(row.id));
   });
   const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
     await deleteFlashbackBySelection({ flashback });
@@ -55,23 +69,39 @@ export default function FlashbacksIndex() {
     <section class={pageFrame} aria-labelledby="flashbacks-title">
       <Title>Flashbacks | TRAUMA</Title>
       <RouteHeader layout="single" title="Flashbacks" titleId="flashbacks-title" />
-      <div class="grid">
+      <div class="grid" aria-busy={currentPageState() === undefined}>
         <Show
-          when={flashbackRowsState().status === "loading"}
+          when={currentPageState() !== undefined}
           fallback={
+            <FlashbackState title="Loading flashbacks..." />
+          }
+        >
+          <Show
+            when={currentPageState()?.status !== "error"}
+            fallback={
+              <FlashbackState
+                title="Failed to load flashbacks"
+                message="Return to the first page and try again."
+                role="alert"
+              />
+            }
+          >
             <Show
-              when={visibleFlashbackRows()}
+              when={(readyFlashbackRows()?.length ?? 0) > 0}
               fallback={
-                <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
-                  <h2 class="text-xl font-bold text-trauma-text-primary">No flashbacks yet</h2>
-                  <p>Saved reader flashbacks will appear here.</p>
-                </div>
+                <FlashbackState
+                  title={cursor() === null
+                    ? "No flashbacks yet"
+                    : "No flashbacks on this page"}
+                  message={cursor() === null
+                    ? "Saved reader flashbacks will appear here."
+                    : "Continue to the next page or return to the first page."}
+                />
               }
             >
-              {(rows) => (
-                <For each={rows()}>
+              <For each={readyFlashbackRows()}>
                   {(flashback) => (
-                    <article class={cardBase}>
+                    <article class={cardBase} data-collection-row={flashback.id}>
                       <a
                         class="grid min-w-0 gap-2 no-underline"
                         href={buildMemoryVariantAnchorHref({
@@ -98,16 +128,61 @@ export default function FlashbacksIndex() {
                       </div>
                     </article>
                   )}
-                </For>
-              )}
+              </For>
             </Show>
-          }
-        >
-          <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
-            <h2 class="text-xl font-bold text-trauma-text-primary">Loading flashbacks...</h2>
-          </div>
+          </Show>
         </Show>
       </div>
+      <CollectionPageNavigation
+        cursor={cursor()}
+        nextCursor={currentPage()?.nextCursor ?? null}
+        pathname="/flashbacks"
+      />
     </section>
+  );
+}
+
+function FlashbackState(props: {
+  message?: string;
+  role?: "alert";
+  title: string;
+}) {
+  return (
+    <div
+      class="trauma-route-row px-6 py-12 text-trauma-text-secondary"
+      role={props.role}
+    >
+      <h2 class="text-xl font-bold text-trauma-text-primary">{props.title}</h2>
+      <Show when={props.message}>{(message) => <p>{message()}</p>}</Show>
+    </div>
+  );
+}
+
+function CollectionPageNavigation(props: {
+  cursor: string | null;
+  nextCursor: string | null;
+  pathname: string;
+}) {
+  return (
+    <nav
+      aria-label="Flashback pages"
+      class="trauma-route-row flex items-center justify-between gap-3 px-6 py-5"
+    >
+      <Show when={props.cursor !== null} fallback={<span />}>
+        <a class="font-bold text-trauma-link" href="/flashbacks">
+          First
+        </a>
+      </Show>
+      <Show when={props.nextCursor}>
+        {(nextCursor) => (
+          <a
+            class="ml-auto font-bold text-trauma-link"
+            href={buildCollectionPageHref(props.pathname, nextCursor())}
+          >
+            Next
+          </a>
+        )}
+      </Show>
+    </nav>
   );
 }

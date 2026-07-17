@@ -194,6 +194,13 @@ Do not hand-roll separate Flashback text treatments for each route. `/flashbacks
 uses dense route rows: shared inline Flashback text first, then the source
 memory title as small supplemental metadata at the bottom.
 
+## Collection Page Controls
+
+Flashbacks and Moments expose compact First/Next link navigation below the
+current route rows. The controls operate on URL cursor state and replace the
+visible rows. Loading uses `aria-busy`; failed page loads use an assertive alert;
+an empty continuation page remains distinct from an empty archive.
+
 ## Right Rail Sections
 
 Right rail sections are independent islands.
@@ -226,6 +233,11 @@ Flashback shortcut lists do not use TOC scroll-edge overlays. Their focal
 treatment is per Flashback item: selected text remains normal and readable,
 while the stored prefix/suffix context uses the shared Flashback context
 blur/mask classes.
+
+Reader All Flashbacks is a bounded page, not an unbounded shortcut group. Its
+list body owns `max-height`, vertical overflow, and overscroll containment, and
+its First/Previous/Next controls use rail-local cursor history. Switching to
+Current and back to All preserves that local page.
 
 ## Add Memory Composer
 

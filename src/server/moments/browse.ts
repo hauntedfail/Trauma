@@ -12,6 +12,9 @@ import type {
 import { MemoryContentStoreError, readMemoryContent } from "../store";
 import { renderMemoryMarkdown } from "../reader/markdown-renderer";
 import { mapWithConcurrency } from "../browse/concurrency";
+import { normalizeBrowseLimit } from "../browse/limits";
+import { parseCollectionPageInput } from "../browse/collection-page";
+import { encodeCollectionCursor } from "../browse/collection-cursor";
 
 const MOMENT_BROWSE_SCAN_CHUNK_LIMIT = 100;
 const MOMENT_TOC_READ_CONCURRENCY = 8;
@@ -22,6 +25,77 @@ export type MomentBrowseRow = StoredMomentBrowseRow & {
   targetAnchor: string | null;
   targetStatus: MomentTargetStatus;
 };
+
+export interface MomentBrowsePage {
+  moments: MomentBrowseRow[];
+  nextCursor: string | null;
+}
+
+export async function loadMomentBrowsePage(
+  input: { cursor?: string | null; limit?: number } = {},
+): Promise<MomentBrowsePage> {
+  "use server";
+
+  const request = parseCollectionPageInput("moments", input);
+  let config: ResolvedTraumaConfig;
+  try {
+    config = loadRuntimeTraumaConfig();
+  } catch (error) {
+    if (
+      process.env.TRAUMA_BROWSE_FIXTURES === "1" &&
+      error instanceof TraumaConfigError
+    ) {
+      return { moments: [], nextCursor: null };
+    }
+    throw error;
+  }
+
+  let connection: ReturnType<typeof initializeDatabase> | undefined;
+  try {
+    const activeConnection = initializeDatabase(config);
+    connection = activeConnection;
+    const page = await collectMomentBrowsePage({
+      cursor: request.cursor,
+      limit: request.limit,
+      listRows: (pageInput) =>
+        activeConnection.repositories.moments.listPageForBrowse(pageInput),
+      resolveRows: (rows) => resolveMomentTargets({ config, rows }),
+    });
+    return {
+      moments: page.rows,
+      nextCursor:
+        page.nextCursor === null
+          ? null
+          : encodeCollectionCursor("moments", page.nextCursor),
+    };
+  } finally {
+    connection?.close();
+  }
+}
+
+export async function collectMomentBrowsePage(input: {
+  cursor: MomentBrowseCursor | null;
+  limit: number;
+  listRows: (input: {
+    cursor: MomentBrowseCursor | null;
+    limit: number;
+  }) => Promise<StoredMomentBrowseRow[]>;
+  resolveRows: (rows: StoredMomentBrowseRow[]) => Promise<MomentBrowseRow[]>;
+}): Promise<{
+  rows: MomentBrowseRow[];
+  nextCursor: MomentBrowseCursor | null;
+}> {
+  const limit = normalizeBrowseLimit(input.limit);
+  const rows = await input.listRows({ cursor: input.cursor, limit });
+  const lastRow = rows[rows.length - 1];
+  return {
+    rows: await input.resolveRows(rows),
+    nextCursor:
+      rows.length === limit && lastRow !== undefined
+        ? { createdAt: new Date(lastRow.createdAt), id: lastRow.id }
+        : null,
+  };
+}
 
 export async function loadMomentBrowseRows(): Promise<MomentBrowseRow[]> {
   "use server";
@@ -84,6 +158,16 @@ async function resolveMomentTargets(input: {
   config: Parameters<typeof readMemoryContent>[0]["config"];
   rows: StoredMomentBrowseRow[];
 }): Promise<MomentBrowseRow[]> {
+  return resolveMomentTargetsByMemory({
+    rows: input.rows,
+    loadToc: (memoryId) => readMomentMemoryToc(input.config, memoryId),
+  });
+}
+
+export async function resolveMomentTargetsByMemory(input: {
+  loadToc: (memoryId: string) => Promise<MomentToc | undefined>;
+  rows: StoredMomentBrowseRow[];
+}): Promise<MomentBrowseRow[]> {
   const rowsByMemoryId = new Map<
     string,
     { index: number; row: StoredMomentBrowseRow }[]
@@ -105,7 +189,7 @@ async function resolveMomentTargets(input: {
     [...rowsByMemoryId.entries()],
     MOMENT_TOC_READ_CONCURRENCY,
     async ([memoryId, memoryRows]) => {
-      const toc = await readMomentMemoryToc(input.config, memoryId);
+      const toc = await input.loadToc(memoryId);
       const tocIndex = toc === undefined ? undefined : createMomentTocIndex(toc);
       for (const { index, row } of memoryRows) {
         targets[index] = resolveMomentTarget(row, tocIndex);

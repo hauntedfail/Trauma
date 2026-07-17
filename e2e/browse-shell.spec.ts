@@ -726,6 +726,7 @@ test("lets active filters be cleared without resetting the rest of the query", a
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
+  createBrowseDeleteFixture();
   await page.goto("/memories");
 
   await page.getByRole("link", { name: "Flashbacks" }).click();
@@ -738,7 +739,10 @@ test("does not navigate shell and result links to the catch-all route", async ({
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .click();
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
   await page.goto("/memories");
@@ -747,12 +751,18 @@ test("does not navigate shell and result links to the catch-all route", async ({
     .focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
 
   await page.goto("/flashbacks");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901#h-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await expect(page.getByText("Page not found")).toHaveCount(0);
 });
 
@@ -828,7 +838,10 @@ test("supports vim-like keyboard operation on the memories browse route", async 
 
   await page.keyboard.press("l");
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
@@ -1039,7 +1052,10 @@ test("does not suppress the next normal click after an outside right-click dismi
   await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
 });
 
 test("does not suppress a click after an outside pointer sequence is canceled", async ({
@@ -1234,10 +1250,20 @@ function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef
         import { dirname, join } from "node:path";
         import { schema } from "./src/server/db/index.ts";
         import { initializeDatabase } from "./src/server/db/connection.ts";
+        import {
+          createReaderContentHash,
+          writeMemoryContent,
+        } from "./src/server/store/index.ts";
+        import { readCanonicalReaderText } from "./src/server/store/flashback-markers.ts";
 
         const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
         const memoryId = ${JSON.stringify(memoryId)};
         const now = new Date("2026-05-09T00:00:00.000Z");
+        const markdown = "# Reader Mode Notes\\n\\nSearch query can be wired to flashback-aware results through repository fixtures.\\n";
+        const flashbackText = "flashback-aware results";
+        const canonical = readCanonicalReaderText(markdown);
+        const flashbackStartOffset = canonical.indexOf(flashbackText);
+        const contentHash = createReaderContentHash(markdown);
         const config = {
           storePath: "./project/store",
           projectPath: "./project",
@@ -1287,8 +1313,9 @@ function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef
             text: "flashback-aware results",
             prefix: "Search query can be wired to",
             suffix: "through repository fixtures.",
-            startOffset: 0,
-            endOffset: "flashback-aware results".length,
+            startOffset: flashbackStartOffset,
+            endOffset: flashbackStartOffset + flashbackText.length,
+            contentHash,
             createdAt: now,
             updatedAt: now,
           });
@@ -1306,12 +1333,17 @@ function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef
           connection.close();
         }
 
-        const memoryDir = join(resolvedConfig.storePath, "memories", memoryId);
-        await mkdir(memoryDir, { recursive: true });
-        await writeFile(
-          join(memoryDir, "CONTENT.md"),
-          "# Reader Mode Notes\\n\\nBrowse delete fixture content.\\n",
-          "utf8",
-        );
+        await writeMemoryContent({
+          config: resolvedConfig,
+          memoryId,
+          frontmatter: {
+            id: memoryId,
+            url: "https://example.com/reader-mode",
+            title: "Reader Mode Notes",
+            capturedAt: now.toISOString(),
+            extractionStatus: "success",
+          },
+          markdown,
+        });
       `);
 }

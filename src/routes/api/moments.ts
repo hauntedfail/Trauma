@@ -1,8 +1,15 @@
 import type { APIEvent } from "@solidjs/start/server";
 
+import {
+  CollectionPageInputError,
+  parseExplicitCollectionPageRequest,
+} from "~/server/browse/collection-page";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
-import { loadMomentBrowseRows } from "~/server/moments/browse";
+import {
+  loadMomentBrowsePage,
+  loadMomentBrowseRows,
+} from "~/server/moments/browse";
 import { generateMomentId } from "~/server/moments/id";
 import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import {
@@ -57,13 +64,29 @@ const REQUIRED_MOMENT_KEYS = [
   "sectionPath",
 ] as const;
 
-export async function GET(): Promise<Response> {
+export async function GET(event?: APIEvent): Promise<Response> {
   try {
+    if (
+      event !== undefined &&
+      new URL(event.request.url).searchParams.has("page")
+    ) {
+      const request = parseExplicitCollectionPageRequest("moments", event.request);
+      return json(
+        await loadMomentBrowsePage({
+          cursor: request.cursorToken,
+          limit: request.limit,
+        }),
+        { status: 200 },
+      );
+    }
     return json(
       { moments: await loadMomentBrowseRows() },
       { status: 200 },
     );
   } catch (error) {
+    if (error instanceof CollectionPageInputError) {
+      return json({ error: error.message }, { status: 400 });
+    }
     if (!(error instanceof TraumaConfigError)) {
       throw error;
     }

@@ -1,10 +1,15 @@
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
 import type { BrowseFlashback } from "../../components/memories/browse-data";
 import type {
+  FlashbackBrowseCursor,
   FlashbackBrowseRow,
   TranslationRepository,
 } from "../db/repositories";
-import { loadRuntimeTraumaConfig, type ResolvedTraumaConfig } from "../config";
+import {
+  loadRuntimeTraumaConfig,
+  TraumaConfigError,
+  type ResolvedTraumaConfig,
+} from "../config";
 import { initializeDatabase } from "../db";
 import {
   MemoryContentStoreError,
@@ -20,10 +25,92 @@ import { resolveCurrentTranslationReadOnly } from "../translation/current-transl
 import { resolveTranslatedMemoryContentPath } from "../translation/paths";
 import { normalizeBrowseLimit } from "../browse/limits";
 import { mapWithConcurrency } from "../browse/concurrency";
+import {
+  collectFilteredCursorPage,
+  type CursorPage,
+} from "../browse/filtered-page";
+import { parseCollectionPageInput } from "../browse/collection-page";
+import { encodeCollectionCursor } from "../browse/collection-cursor";
 
 const RECENT_FLASHBACK_SCAN_CHUNK_LIMIT = 100;
 const MAX_RECENT_FLASHBACK_FETCH_ROUNDS = 20;
 const FLASHBACK_VARIANT_READ_CONCURRENCY = 8;
+export const MAX_FLASHBACK_PAGE_SCAN_BATCHES = 4;
+
+export interface FlashbackBrowsePage {
+  flashbacks: FlashbackBrowseRow[];
+  nextCursor: string | null;
+}
+
+export async function loadFlashbackBrowsePage(
+  input: { cursor?: string | null; limit?: number } = {},
+): Promise<FlashbackBrowsePage> {
+  "use server";
+
+  const request = parseCollectionPageInput("flashbacks", input);
+  let config: ResolvedTraumaConfig;
+  try {
+    config = loadRuntimeTraumaConfig();
+  } catch (error) {
+    if (
+      process.env.TRAUMA_BROWSE_FIXTURES === "1" &&
+      error instanceof TraumaConfigError
+    ) {
+      return loadFixtureFlashbackBrowsePage(request);
+    }
+    throw error;
+  }
+
+  let connection: ReturnType<typeof initializeDatabase> | undefined;
+  try {
+    const activeConnection = initializeDatabase(config);
+    connection = activeConnection;
+    const page = await collectFlashbackBrowsePage({
+      cursor: request.cursor,
+      filterRows: (rows) =>
+        filterRenderableFlashbackRows({
+          config,
+          rows,
+          translationRepository: activeConnection.repositories.translations,
+        }),
+      limit: request.limit,
+      listRows: (pageInput) =>
+        activeConnection.repositories.flashbacks.listRecentForBrowse(pageInput),
+    });
+    return formatFlashbackBrowsePage(page);
+  } finally {
+    connection?.close();
+  }
+}
+
+export async function collectFlashbackBrowsePage(input: {
+  cursor: FlashbackBrowseCursor | null;
+  filterRows: (rows: FlashbackBrowseRow[]) => Promise<FlashbackBrowseRow[]>;
+  limit: number;
+  listRows: (input: {
+    cursor: FlashbackBrowseCursor | null;
+    limit: number;
+  }) => Promise<FlashbackBrowseRow[]>;
+}): Promise<CursorPage<FlashbackBrowseRow, FlashbackBrowseCursor>> {
+  const limit = normalizeBrowseLimit(input.limit);
+  return collectFilteredCursorPage({
+    cursor: input.cursor,
+    filterRows: input.filterRows,
+    limit,
+    loadPage: async ({ cursor, limit: pageLimit }) => {
+      const rows = await input.listRows({ cursor, limit: pageLimit });
+      const lastRow = rows[rows.length - 1];
+      return {
+        rows,
+        nextCursor:
+          rows.length === pageLimit && lastRow !== undefined
+            ? { createdAt: new Date(lastRow.createdAt), id: lastRow.id }
+            : null,
+      };
+    },
+    maxFetchRounds: MAX_FLASHBACK_PAGE_SCAN_BATCHES,
+  });
+}
 
 export async function loadFlashbackBrowseRows(): Promise<FlashbackBrowseRow[]> {
   "use server";
@@ -172,9 +259,53 @@ function fixtureFlashbackBrowseRows(): FlashbackBrowseRow[] {
         createdAt: flashback.createdAt,
       })),
     )
-    .toSorted(
-      (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
-    );
+    .toSorted((left, right) => {
+      const dateOrder = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      return dateOrder !== 0 ? dateOrder : right.id.localeCompare(left.id);
+    });
+}
+
+async function loadFixtureFlashbackBrowsePage(request: {
+  cursor: FlashbackBrowseCursor | null;
+  limit: number;
+}): Promise<FlashbackBrowsePage> {
+  const page = await collectFlashbackBrowsePage({
+    cursor: request.cursor,
+    filterRows: async (rows) => rows,
+    limit: request.limit,
+    listRows: async ({ cursor, limit }) =>
+      listFixtureFlashbackPage(fixtureFlashbackBrowseRows(), cursor, limit),
+  });
+  return formatFlashbackBrowsePage(page);
+}
+
+function listFixtureFlashbackPage(
+  rows: FlashbackBrowseRow[],
+  cursor: FlashbackBrowseCursor | null,
+  limit: number,
+): FlashbackBrowseRow[] {
+  return rows
+    .filter((row) =>
+      cursor === null ||
+      Date.parse(row.createdAt) < cursor.createdAt.getTime() ||
+      (
+        Date.parse(row.createdAt) === cursor.createdAt.getTime() &&
+        row.id < cursor.id
+      )
+    )
+    .slice(0, limit);
+}
+
+function formatFlashbackBrowsePage(
+  page: CursorPage<FlashbackBrowseRow, FlashbackBrowseCursor>,
+): FlashbackBrowsePage {
+  return {
+    flashbacks: page.rows,
+    nextCursor:
+      page.nextCursor === null
+        ? null
+        : encodeCollectionCursor("flashbacks", page.nextCursor),
+  };
 }
 
 function mergeSelectedFlashbackCandidate(input: {
@@ -229,6 +360,23 @@ export async function filterRenderableFlashbackRows(input: {
   rows: FlashbackBrowseRow[];
   translationRepository?: TranslationRepository;
 }): Promise<FlashbackBrowseRow[]> {
+  return filterRenderableFlashbackRowsByVariant({
+    rows: input.rows,
+    resolveVariantRows: (rows) =>
+      resolveRenderableFlashbackIds({
+        config: input.config,
+        rows,
+        translationRepository: input.translationRepository,
+      }),
+  });
+}
+
+export async function filterRenderableFlashbackRowsByVariant(input: {
+  rows: FlashbackBrowseRow[];
+  resolveVariantRows: (
+    rows: FlashbackBrowseRow[],
+  ) => Promise<Set<string>>;
+}): Promise<FlashbackBrowseRow[]> {
   const rowsByVariant = new Map<string, FlashbackBrowseRow[]>();
   for (const row of input.rows) {
     const variantRows = rowsByVariant.get(getFlashbackVariantKey(row));
@@ -243,12 +391,7 @@ export async function filterRenderableFlashbackRows(input: {
   const resolvedIds = await mapWithConcurrency(
     [...rowsByVariant.values()],
     FLASHBACK_VARIANT_READ_CONCURRENCY,
-    async (rows) =>
-      resolveRenderableFlashbackIds({
-        config: input.config,
-        rows,
-        translationRepository: input.translationRepository,
-      }),
+    input.resolveVariantRows,
   );
   for (const ids of resolvedIds) {
     for (const id of ids) {

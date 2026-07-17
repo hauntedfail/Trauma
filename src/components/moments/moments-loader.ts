@@ -1,6 +1,18 @@
 import { query, revalidate } from "@solidjs/router";
 
-import { loadMomentBrowseRows } from "~/server/moments/browse";
+import {
+  loadMomentBrowsePage,
+  loadMomentBrowseRows,
+} from "~/server/moments/browse";
+
+export const getMomentBrowsePage = query(async (input: {
+  cursor: string | null;
+  limit?: number;
+}) => {
+  "use server";
+
+  return loadMomentBrowsePage(input);
+}, "moment-browse-page");
 
 export const getMomentBrowseRows = query(async () => {
   "use server";
@@ -9,5 +21,8 @@ export const getMomentBrowseRows = query(async () => {
 }, "moment-browse-rows");
 
 export function revalidateMomentBrowseRows() {
-  return revalidate(getMomentBrowseRows.key);
+  return Promise.all([
+    revalidate(getMomentBrowsePage.key),
+    revalidate(getMomentBrowseRows.key),
+  ]);
 }

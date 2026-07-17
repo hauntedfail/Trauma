@@ -62,6 +62,10 @@ Contract:
   the right rail or the whole app layout.
 - Toggling a Moment preserves the Flashbacks Current/All selection, the bounded
   TOC `scrollTop`, and the enclosing right-rail `scrollTop`.
+- All Flashbacks loads lazily through the same bounded page loader as the
+  canonical Flashbacks route. It renders one page at a time in a bounded scroll
+  body and owns rail-local First/Previous/Next cursor history. Current remains
+  memory-local and switching tabs does not reset the All page.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
   the available scroll edge. At the top of the list this appears only after the
   user has scrolled down; at the bottom it disappears when no more content
