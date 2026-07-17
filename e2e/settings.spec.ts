@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import {
+  ensureE2eRuntimeFixture,
+  runBunFixtureScript,
+} from "./bun-fixture";
+
+test.beforeEach(() => {
+  ensureE2eRuntimeFixture();
+});
 
 test("recovers a malformed Codex catalog without losing saved defaults", async ({
   page,

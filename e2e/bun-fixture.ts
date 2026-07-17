@@ -1,6 +1,61 @@
 import { execFileSync } from "node:child_process";
 import { accessSync } from "node:fs";
 import { homedir } from "node:os";
+import { resolve } from "node:path";
+
+export function ensureE2eRuntimeFixture(
+  root = resolve(process.cwd(), ".trauma/e2e"),
+): void {
+  runBunFixtureScript(`
+    import { access, mkdir, writeFile } from "node:fs/promises";
+    import { dirname, join } from "node:path";
+    import { loadTraumaConfig } from "./src/server/config/index.ts";
+    import { initializeDatabase } from "./src/server/db/connection.ts";
+
+    const root = ${JSON.stringify(resolve(root))};
+    const configPath = join(root, "trauma.config.json");
+    try {
+      await access(configPath);
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
+
+      await mkdir(dirname(configPath), { recursive: true });
+      await writeFile(
+        configPath,
+        JSON.stringify(
+          {
+            storePath: "./project/store",
+            projectPath: "./project",
+            databasePath: "./runtime/trauma.sqlite",
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+    }
+
+    const config = loadTraumaConfig({ configPath });
+    await Promise.all([
+      mkdir(config.projectPath, { recursive: true }),
+      mkdir(config.storePath, { recursive: true }),
+      mkdir(dirname(config.databasePath), { recursive: true }),
+    ]);
+    const connection = initializeDatabase(config);
+    connection.close();
+  `);
+}
 
 export function runBunFixtureScript(script: string): string {
   return execFileSync(resolveBunExecutable(), ["-e", script], {
