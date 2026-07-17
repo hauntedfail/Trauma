@@ -128,6 +128,8 @@ describe("settings page", () => {
     expect(recoveredHtml).toContain('value="restored-model"');
     expect(recoveredHtml).toContain('value="saved-model"');
     expect(recoveredHtml).toContain('value="high"');
+    expectSelectedOption(recoveredHtml, "saved-model");
+    expectSelectedOption(recoveredHtml, "high");
   });
 
   it("aborts catalog loading and ignores a stale completion after disposal", async () => {
@@ -754,6 +756,12 @@ function createModel(model: string, displayName: string): CodexModelInfo {
     defaultReasoningEffort: "medium",
     supportedReasoningEfforts: ["low", "medium", "high"],
   };
+}
+
+function expectSelectedOption(html: string, value: string): void {
+  expect(html).toMatch(
+    new RegExp(`<option(?=[^>]*value="${value}")(?=[^>]*selected)[^>]*>`),
+  );
 }
 
 function jsonResponse(body: unknown) {

@@ -481,7 +481,9 @@ export function SettingsPage(props: SettingsPageProps) {
               value={codexModel()}
               onChange={(event) => setCodexModel(event.currentTarget.value)}
             >
-              <option value="">Codex app-server default</option>
+              <option selected={codexModel() === ""} value="">
+                Codex app-server default
+              </option>
               <Show
                 when={
                   codexModel() !== "" &&
@@ -490,11 +492,16 @@ export function SettingsPage(props: SettingsPageProps) {
                   )
                 }
               >
-                <option value={codexModel()}>{codexModel()}</option>
+                <option selected value={codexModel()}>{codexModel()}</option>
               </Show>
               <For each={codexModels()}>
                 {(model) => (
-                  <option value={model.model}>
+                  <option
+                    selected={
+                      codexModel() === model.model || codexModel() === model.id
+                    }
+                    value={model.model}
+                  >
                     {model.displayName} ({model.model})
                   </option>
                 )}
@@ -513,17 +520,23 @@ export function SettingsPage(props: SettingsPageProps) {
                 )
               }
             >
-              <option value="">Selected model default</option>
+              <option selected={codexEffort() === ""} value="">
+                Selected model default
+              </option>
               <Show
                 when={
                   codexEffort() !== "" &&
                   !reasoningEfforts().includes(codexEffort() as CodexReasoningEffort)
                 }
               >
-                <option value={codexEffort()}>{codexEffort()}</option>
+                <option selected value={codexEffort()}>{codexEffort()}</option>
               </Show>
               <For each={reasoningEfforts()}>
-                {(effort) => <option value={effort}>{effort}</option>}
+                {(effort) => (
+                  <option selected={codexEffort() === effort} value={effort}>
+                    {effort}
+                  </option>
+                )}
               </For>
             </select>
           </label>

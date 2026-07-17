@@ -1,25 +1,113 @@
 import { expect, test } from "@playwright/test";
 
-test("surfaces a stable error for a malformed successful Codex catalog", async ({
+import { runBunFixtureScript } from "./bun-fixture";
+
+test("recovers a malformed Codex catalog without losing saved defaults", async ({
   page,
 }) => {
+  seedCodexTranslationDefaults({
+    model: "gpt-5.5",
+    reasoningEffort: "high",
+  });
+  let catalogRequestCount = 0;
+  let releaseRetryRequest: () => void = () => undefined;
+  const retryRequestGate = new Promise<void>((resolve) => {
+    releaseRetryRequest = resolve;
+  });
   await page.route("**/api/settings/codex-models", async (route) => {
+    catalogRequestCount += 1;
+    if (catalogRequestCount === 1) {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({ models: null }),
+      });
+      return;
+    }
+
+    await retryRequestGate;
     await route.fulfill({
       contentType: "application/json",
       status: 200,
-      body: JSON.stringify({ models: null }),
+      body: JSON.stringify({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+          {
+            id: "fast",
+            model: "gpt-5.3",
+            displayName: "GPT-5.3",
+            description: "Fast model",
+            isDefault: false,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["medium", "high"],
+          },
+        ],
+      }),
     });
   });
 
-  await page.goto("/settings");
+  try {
+    await page.goto("/settings");
 
-  await expect(page.getByRole("alert")).toHaveText(
-    "Codex model catalog response was invalid.",
-  );
-  await expect(page.getByRole("combobox", { name: "Model", exact: true }))
-    .toBeEnabled();
-  await expect(page.getByRole("button", { name: "Save Codex defaults" }))
-    .toBeEnabled();
+    const alert = page.getByRole("alert");
+    const retry = alert.getByRole("button", { name: /^Retry/ });
+    const model = page.getByRole("combobox", { name: "Model", exact: true });
+    const effort = page.getByRole("combobox", {
+      name: "Reasoning effort",
+      exact: true,
+    });
+    const save = page.getByRole("button", { name: "Save Codex defaults" });
+
+    await expect(
+      alert.getByText("Codex model catalog response was invalid.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(retry).toBeEnabled();
+    await expect(retry).toHaveAccessibleName("Retry");
+    await expect(model).toBeEnabled();
+    await expect(model).toHaveValue("gpt-5.5");
+    await expect(effort).toHaveValue("high");
+    await expect(save).toBeEnabled();
+    expect(catalogRequestCount).toBe(1);
+
+    await retry.click();
+    await expect.poll(() => catalogRequestCount).toBe(2);
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveAccessibleName("Retrying...");
+    await expect(model).toBeDisabled();
+    await expect(model).toHaveValue("gpt-5.5");
+    await expect(effort).toBeDisabled();
+    await expect(effort).toHaveValue("high");
+    await expect(save).toBeDisabled();
+
+    await retry.evaluate((button: HTMLButtonElement) => button.click());
+    releaseRetryRequest();
+
+    await expect(alert).toHaveCount(0);
+    await expect(model).toBeEnabled();
+    await expect(model).toHaveValue("gpt-5.5");
+    await expect(effort).toBeEnabled();
+    await expect(effort).toHaveValue("high");
+    await expect(save).toBeEnabled();
+    await expect(model).toBeFocused();
+    expect(catalogRequestCount).toBe(2);
+
+    await model.selectOption("gpt-5.3");
+    await effort.selectOption("medium");
+    await expect(model).toHaveValue("gpt-5.3");
+    await expect(effort).toHaveValue("medium");
+  } finally {
+    releaseRetryRequest();
+  }
 });
 
 test("aborts an in-flight Codex auth poll without restoring stale controls", async ({
@@ -139,3 +227,54 @@ test("aborts an in-flight Codex auth poll without restoring stale controls", asy
   );
   await expect(page.getByRole("button", { name: "Enabled" })).toHaveCount(0);
 });
+
+function seedCodexTranslationDefaults(input: {
+  model: string | null;
+  reasoningEffort:
+    | "none"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | null;
+}): void {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        const now = Date.parse("2026-05-28T00:00:00.000Z");
+        try {
+          database.exec("PRAGMA busy_timeout = 5000");
+          database
+            .query(\`
+              insert into app_settings (
+                id,
+                translation_target_language,
+                codex_translation_model,
+                codex_translation_reasoning_effort,
+                created_at,
+                updated_at
+              ) values (?, ?, ?, ?, ?, ?)
+              on conflict(id) do update set
+                translation_target_language = excluded.translation_target_language,
+                codex_translation_model = excluded.codex_translation_model,
+                codex_translation_reasoning_effort = excluded.codex_translation_reasoning_effort,
+                updated_at = excluded.updated_at
+            \`)
+            .run(
+              "default",
+              "ja-JP",
+              ${JSON.stringify(input.model)},
+              ${JSON.stringify(input.reasoningEffort)},
+              now,
+              now,
+            );
+        } finally {
+          database.close();
+        }
+  `);
+}
