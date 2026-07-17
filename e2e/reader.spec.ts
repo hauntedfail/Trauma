@@ -349,6 +349,124 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
   ).toBeVisible();
 });
 
+test("closes the topmost reader popup before the psychiatrist dock on Escape", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await installPsychiatristMock(page);
+  await page.route("**/api/settings/codex-models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ models: [] }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const dockTrigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await dockTrigger.click();
+  const dock = page.getByRole("region", { name: "Psychiatrist" });
+  await expect(dock).toBeVisible();
+
+  const translationTrigger = page.getByRole("button", {
+    name: "Translate memory",
+  });
+  await translationTrigger.click();
+  const translationDialog = page.getByRole("dialog", {
+    name: "Translation settings",
+  });
+  await expect(translationDialog).toBeVisible();
+  await expect(translationDialog.getByLabel("Language")).toBeFocused();
+  await expect(dock).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(translationDialog).toHaveCount(0);
+  await expect(dock).toBeVisible();
+  await expect(translationTrigger).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(dock).toHaveCount(0);
+  await expect(dockTrigger).toBeFocused();
+});
+
+test("coalesces pending reader model catalogs and retries after a settled failure", async ({
+  page,
+}) => {
+  createReaderFixture();
+  let catalogRequestCount = 0;
+  let releaseFirstCatalogRequest: () => void = () => undefined;
+  const firstCatalogRequestGate = new Promise<void>((resolve) => {
+    releaseFirstCatalogRequest = resolve;
+  });
+  await page.route("**/api/settings/codex-models", async (route) => {
+    catalogRequestCount += 1;
+    if (catalogRequestCount === 1) {
+      await firstCatalogRequestGate;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 503,
+        body: JSON.stringify({
+          message: "Catalog temporarily unavailable.",
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Translate memory" });
+  const dialog = page.getByRole("dialog", { name: "Translation settings" });
+
+  try {
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => catalogRequestCount).toBe(1);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => catalogRequestCount).toBe(1);
+
+    releaseFirstCatalogRequest();
+    await expect(dialog.getByRole("alert")).toHaveText(
+      "Catalog temporarily unavailable.",
+    );
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => catalogRequestCount).toBe(2);
+    await expect(
+      dialog.getByLabel("Model", { exact: true }).locator('option[value="gpt-5.5"]'),
+    ).toHaveCount(1);
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  } finally {
+    releaseFirstCatalogRequest();
+  }
+});
+
 test("does not submit the psychiatrist prompt while an IME composition is active", async ({
   page,
 }) => {
@@ -2208,6 +2326,39 @@ test("creates a Moment from the keyboard-operable selection toolbar", async ({
   expect(readMomentAnchors()).toContain("details");
 });
 
+test("keeps Space from scrolling before opening the selected-text toolbar on keyup", async ({
+  page,
+}) => {
+  createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const readerContent = page.locator("[data-reader-content]");
+  const selectedText =
+    "Reader spacer paragraph 8 keeps lower anchors below the first viewport.";
+  await readerContent.focus();
+  await readerContent.getByText(selectedText, { exact: true }).scrollIntoViewIfNeeded();
+  await setReaderTextSelection(page, selectedText, false);
+
+  const initialScrollY = await page.evaluate(() => Math.round(window.scrollY));
+  expect(initialScrollY).toBeGreaterThan(0);
+  const toolbar = page.getByRole("toolbar", {
+    name: "Reader text selection actions",
+  });
+  await expect(toolbar).toHaveCount(0);
+
+  await page.keyboard.down(" ");
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(initialScrollY);
+  await expect(toolbar).toHaveCount(0);
+
+  await page.keyboard.up(" ");
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar).toHaveCount(1);
+});
+
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
   page,
 }) => {
@@ -2557,8 +2708,17 @@ async function waitForReaderReady(page: Page) {
 }
 
 async function selectReaderText(page: Page, text: string) {
+  await setReaderTextSelection(page, text, true);
+}
+
+async function setReaderTextSelection(
+  page: Page,
+  text: string,
+  notifyReader: boolean,
+) {
   await waitForReaderReady(page);
-  await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
+  await page.locator("[data-reader-content]").evaluate((root, input) => {
+    const { notifyReader, selectedText } = input;
     const findTextNode = (node: Node): Text | undefined => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
       let current = walker.nextNode();
@@ -2588,8 +2748,10 @@ async function selectReaderText(page: Page, text: string) {
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  }, text);
+    if (notifyReader) {
+      root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    }
+  }, { notifyReader, selectedText: text });
 }
 
 async function selectReaderSection(page: Page, anchor: string) {

@@ -7,6 +7,11 @@ export interface FlashbackKeyboardEvent {
   shiftKey: boolean;
 }
 
+export interface FlashbackKeyboardToggleContext {
+  hasReaderSelection: boolean;
+  targetIsReaderContent: boolean;
+}
+
 export function isExplicitFlashbackKeyboardToggle(
   event: FlashbackKeyboardEvent,
 ): boolean {
@@ -19,6 +24,23 @@ export function isExplicitFlashbackKeyboardToggle(
   }
 
   return event.key === "Enter" || event.key === " ";
+}
+
+export function shouldHandleFlashbackKeyboardToggle(
+  event: FlashbackKeyboardEvent,
+  context: FlashbackKeyboardToggleContext,
+): boolean {
+  return context.hasReaderSelection &&
+    context.targetIsReaderContent &&
+    isExplicitFlashbackKeyboardToggle(event);
+}
+
+export function shouldPreventFlashbackSpaceDefault(
+  event: FlashbackKeyboardEvent,
+  context: FlashbackKeyboardToggleContext,
+): boolean {
+  return event.key === " " &&
+    shouldHandleFlashbackKeyboardToggle(event, context);
 }
 
 export function canStartFlashbackToggle(pendingSelectionKey: string): boolean {

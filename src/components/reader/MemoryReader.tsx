@@ -66,7 +66,8 @@ import {
 import { deleteMomentById } from "../moments/moment-action-requests";
 import {
   canStartFlashbackToggle,
-  isExplicitFlashbackKeyboardToggle,
+  shouldHandleFlashbackKeyboardToggle,
+  shouldPreventFlashbackSpaceDefault,
 } from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
@@ -302,6 +303,10 @@ function ReadyMemoryReader(props: {
   const [translationCatalogError, setTranslationCatalogError] = createSignal("");
   const { setRightRailContent } = useRightRailContent();
   let translationEventSource: EventSource | undefined;
+  let translationCatalogRequest: {
+    generation: number;
+    promise: Promise<void>;
+  } | undefined;
   let translationRequestGeneration = 0;
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
@@ -499,12 +504,28 @@ function ReadyMemoryReader(props: {
     closeSectionMenu();
     void toggleMoment(menu.section);
   };
-  const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
-    if (!isExplicitFlashbackKeyboardToggle(event)) {
+  const readKeyboardSelectionContext = (event: KeyboardEvent) => ({
+    hasReaderSelection: readReaderSelection(contentRef) !== undefined,
+    targetIsReaderContent: event.target === contentRef,
+  });
+  const handleKeyboardSelectionKeyDown = (event: KeyboardEvent) => {
+    if (!shouldPreventFlashbackSpaceDefault(
+      event,
+      readKeyboardSelectionContext(event),
+    )) {
       return;
     }
 
     event.preventDefault();
+  };
+  const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
+    if (!shouldHandleFlashbackKeyboardToggle(
+      event,
+      readKeyboardSelectionContext(event),
+    )) {
+      return;
+    }
+
     openSelectionMenu();
   };
   const deleteMemory = async (memoryId: string): Promise<void> => {
@@ -674,29 +695,46 @@ function ReadyMemoryReader(props: {
     return translationCatalogModels().find((model) => model.isDefault)
       ?.supportedReasoningEfforts ?? [];
   });
-  const refreshTranslationCatalog = async (): Promise<void> => {
+  const refreshTranslationCatalog = (): Promise<void> => {
     const readerGeneration = captureReaderGeneration();
     if (!isCurrentReaderGeneration(readerGeneration)) {
-      return;
+      return Promise.resolve();
+    }
+    if (translationCatalogRequest?.generation === readerGeneration.generation) {
+      return translationCatalogRequest.promise;
     }
 
     setTranslationCatalogError("");
-    try {
-      const catalog = await submitReadCodexModels();
-      if (!isCurrentReaderGeneration(readerGeneration)) {
-        return;
-      }
+    const request = (async () => {
+      try {
+        const catalog = await submitReadCodexModels();
+        if (!isCurrentReaderGeneration(readerGeneration)) {
+          return;
+        }
 
-      setTranslationCatalogModels(catalog.models);
-    } catch (error) {
-      if (isCurrentReaderGeneration(readerGeneration)) {
-        setTranslationCatalogError(
-          error instanceof Error
-            ? error.message
-            : "Codex model catalog is unavailable.",
-        );
+        setTranslationCatalogModels(catalog.models);
+        setTranslationCatalogError("");
+      } catch (error) {
+        if (isCurrentReaderGeneration(readerGeneration)) {
+          setTranslationCatalogError(
+            error instanceof Error
+              ? error.message
+              : "Codex model catalog is unavailable.",
+          );
+        }
       }
-    }
+    })();
+    translationCatalogRequest = {
+      generation: readerGeneration.generation,
+      promise: request,
+    };
+    void request.finally(() => {
+      if (translationCatalogRequest?.promise === request) {
+        translationCatalogRequest = undefined;
+      }
+    });
+
+    return request;
   };
   const handleTranslationPopoverOpenChange = (open: boolean): void => {
     setTranslationDialogOpen(open);
@@ -1183,6 +1221,7 @@ function ReadyMemoryReader(props: {
             data-reader-content
             data-reader-ready={isReaderClientReady() ? "true" : undefined}
             onClick={handleReaderContentClick}
+            onKeyDown={handleKeyboardSelectionKeyDown}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
             onPointerCancel={clearSectionLongPress}

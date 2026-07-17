@@ -56,13 +56,31 @@ describe("PsychiatristDock", () => {
   });
 
   it("keeps the dock source wired for keyboard close, stop, regenerate, and reduced motion", () => {
-    expect(dockSource).toContain("Escape");
+    expect(dockSource).toContain('reason === "escape"');
     expect(dockSource).toContain("handleStop");
     expect(dockSource).toContain("cancelPsychiatristTurn");
     expect(dockSource).toContain("regeneratePsychiatristResponse");
     expect(dockSource).toContain("prefers-reduced-motion");
     expect(dockSource).toContain("shiftKey");
     expect(dockSource).toContain("Enter");
+  });
+
+  it("joins the shared topmost dismissable layer without outside-pointer dismissal", () => {
+    expect(dockSource).toContain('import { useDismissableLayer } from "../ui/dismissable-layer"');
+    expect(dockSource).toContain("useDismissableLayer({");
+    expect(dockSource).toContain("isEnabled: isOpen");
+    expect(dockSource).toContain("shouldIgnoreOutsidePointerDown: () => true");
+
+    const keyHandlerStart = dockSource.indexOf(
+      "const handleKeyDown = (event: KeyboardEvent) =>",
+    );
+    const keyHandlerEnd = dockSource.indexOf(
+      "const handleStreamEvent = (",
+      keyHandlerStart,
+    );
+    const keyHandler = dockSource.slice(keyHandlerStart, keyHandlerEnd);
+    expect(keyHandler).not.toContain('event.key === "Escape"');
+    expect(keyHandler).toContain("shouldSubmitPsychiatristPromptOnKeyDown");
   });
 
   it("keeps web-source approval scoped to a single retry turn", () => {
@@ -334,6 +352,199 @@ describe("PsychiatristDock", () => {
     });
   });
 
+  it("accepts future optional fields in valid thread and nested pair responses", async () => {
+    const thread = await createPsychiatristThread({
+      memoryId: "memory-reader",
+      fetch: async () => jsonResponse({
+        active_turn: null,
+        content_hash: "sha256:source",
+        future_thread_field: { enabled: true },
+        lang_code: null,
+        memory_id: "memory-reader",
+        pairs: [
+          {
+            assistant_response: {
+              completed_at: "2026-07-17T00:00:01.000Z",
+              content: "A cited answer.",
+              future_assistant_field: true,
+              source_citations: [
+                {
+                  future_citation_field: "preserved",
+                  source_id: "source-reader",
+                  title: "Reader source",
+                  url: "https://example.com/source",
+                },
+              ],
+            },
+            future_pair_field: 1,
+            pair_id: "pair-reader",
+            status: "completed",
+            turn_id: "turn-reader",
+            user_prompt: {
+              content: "What changed?",
+              created_at: "2026-07-17T00:00:00.000Z",
+              future_prompt_field: null,
+            },
+          },
+        ],
+        status: "ready",
+        thread_id: "thread-reader",
+        variant_kind: "source",
+      }),
+    });
+
+    expect(thread.thread_id).toBe("thread-reader");
+    expect(thread.pairs[0]?.assistant_response?.source_citations[0]?.source_id)
+      .toBe("source-reader");
+  });
+
+  it("rejects a malformed nested thread response with its actual 2xx status", async () => {
+    await expect(createPsychiatristThread({
+      memoryId: "memory-reader",
+      fetch: async () => jsonResponseWithStatus({
+        active_turn: null,
+        content_hash: "sha256:source",
+        lang_code: null,
+        memory_id: "memory-reader",
+        pairs: [
+          {
+            assistant_response: {
+              completed_at: "2026-07-17T00:00:01.000Z",
+              content: "A cited answer.",
+              source_citations: [
+                {
+                  source_id: "",
+                  title: "Reader source",
+                  url: "https://example.com/source",
+                },
+              ],
+            },
+            pair_id: "pair-reader",
+            status: "completed",
+            turn_id: "turn-reader",
+            user_prompt: {
+              content: "What changed?",
+              created_at: "2026-07-17T00:00:00.000Z",
+            },
+          },
+        ],
+        status: "ready",
+        thread_id: "thread-reader",
+        variant_kind: "source",
+      }, 201),
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist thread response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 201,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects a thread response outside the requested reader scope", async () => {
+    await expect(createPsychiatristThread({
+      langCode: "ja-JP",
+      memoryId: "memory-reader",
+      fetch: async () => jsonResponseWithStatus({
+        active_turn: null,
+        content_hash: "sha256:source",
+        lang_code: null,
+        memory_id: "memory-other",
+        pairs: [],
+        status: "ready",
+        thread_id: "thread-reader",
+        variant_kind: "source",
+      }, 202),
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist thread response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 202,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects invalid JSON from a successful send response", async () => {
+    await expect(sendPsychiatristMessage({
+      fetch: async () => new Response("not-json", {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      }),
+      memoryId: "memory-reader",
+      message: "What changed?",
+      threadId: "thread-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist message response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 202,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects malformed successful send response URLs", async () => {
+    await expect(sendPsychiatristMessage({
+      fetch: async () => jsonResponseWithStatus({
+        event_url: "",
+        pair_id: "pair-reader",
+        replay_url: "/events/replay",
+        status: "started",
+        thread_id: "thread-reader",
+        turn_id: "turn-reader",
+      }, 202),
+      memoryId: "memory-reader",
+      message: "What changed?",
+      threadId: "thread-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist message response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 202,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects an empty successful regenerate response", async () => {
+    await expect(regeneratePsychiatristResponse({
+      fetch: async () => new Response(null, { status: 204 }),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist regenerate response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 204,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("rejects a regenerate response outside the requested pair scope", async () => {
+    await expect(regeneratePsychiatristResponse({
+      fetch: async () => jsonResponseWithStatus({
+        event_url: "/events/live",
+        pair_id: "pair-other",
+        replay_url: "/events/replay",
+        status: "started",
+        thread_id: "thread-reader",
+        turn_id: "turn-reader",
+      }, 202),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist regenerate response was invalid.",
+      name: "PsychiatristRequestError",
+      responseStatus: 202,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
   it("rejects malformed successful cancel payloads at the browser boundary", async () => {
     await expect(cancelPsychiatristTurn({
       fetch: async () => jsonResponse({
@@ -365,6 +576,37 @@ describe("PsychiatristDock", () => {
       variantKind: "source",
     })).rejects.toMatchObject({
       code: "request_failed",
+      name: "PsychiatristRequestError",
+      responseStatus: 200,
+    } satisfies Partial<PsychiatristRequestError>);
+  });
+
+  it("preserves cancel invalid-JSON parsing behavior", async () => {
+    await expect(cancelPsychiatristTurn({
+      fetch: async () => new Response("not-json", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      turnId: "turn-reader",
+      variantKind: "source",
+    })).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("preserves cancel empty-success invalid response behavior", async () => {
+    await expect(cancelPsychiatristTurn({
+      fetch: async () => new Response(null, { status: 204 }),
+      memoryId: "memory-reader",
+      pairId: "pair-reader",
+      threadId: "thread-reader",
+      turnId: "turn-reader",
+      variantKind: "source",
+    })).rejects.toMatchObject({
+      action: "retry",
+      code: "request_failed",
+      message: "Psychiatrist cancel response was invalid.",
       name: "PsychiatristRequestError",
       responseStatus: 200,
     } satisfies Partial<PsychiatristRequestError>);
@@ -1143,8 +1385,12 @@ describe("PsychiatristDock", () => {
 });
 
 function jsonResponse(value: unknown): Response {
+  return jsonResponseWithStatus(value, 200);
+}
+
+function jsonResponseWithStatus(value: unknown, status: number): Response {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 }

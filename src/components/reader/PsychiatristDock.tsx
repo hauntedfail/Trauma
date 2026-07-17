@@ -24,6 +24,7 @@ import {
   toPsychiatristTranscriptPairs,
   type PsychiatristTranscriptPair,
 } from "./psychiatrist-transcript";
+import { useDismissableLayer } from "../ui/dismissable-layer";
 
 interface PsychiatristDockProps {
   langCode?: string;
@@ -87,6 +88,7 @@ export function isPsychiatristTranscriptNearBottom(
 export function PsychiatristDock(props: PsychiatristDockProps) {
   let triggerRef: HTMLButtonElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
+  let panelRef: HTMLElement | undefined;
   let transcriptRef: HTMLDivElement | undefined;
   let disconnectPsychiatristStream: (() => void) | undefined;
   const [isOpen, setIsOpen] = createSignal(false);
@@ -134,6 +136,16 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     setIsOpen(false);
     triggerRef?.focus();
   };
+  useDismissableLayer({
+    getRoot: () => panelRef,
+    isEnabled: isOpen,
+    onDismiss: (reason) => {
+      if (reason === "escape") {
+        closeDock();
+      }
+    },
+    shouldIgnoreOutsidePointerDown: () => true,
+  });
   const disconnectCurrentStream = () => {
     streamGeneration += 1;
     disconnectPsychiatristStream?.();
@@ -619,10 +631,6 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
     if (!isOpen()) {
       return;
     }
-    if (event.key === "Escape") {
-      closeDock();
-      return;
-    }
     if (shouldSubmitPsychiatristPromptOnKeyDown({
       isComposing: event.isComposing,
       key: event.key,
@@ -751,6 +759,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       />
       <Show when={isOpen()}>
         <section
+          ref={panelRef}
           aria-label="Psychiatrist"
           class="trauma-psychiatrist-panel mt-3 grid max-h-[min(70vh,34rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border border-trauma-border bg-trauma-bg-elev p-3 text-trauma-text-primary shadow-xl"
           data-psychiatrist-dock="expanded"
