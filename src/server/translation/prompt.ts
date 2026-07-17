@@ -23,6 +23,19 @@ import type {
 
 export const BRILLIANT_PROMPT_POLICY_VERSION = "brilliant-segments-v1";
 export const BRILLIANT_CHUNKER_VERSION = "chunker-segments-v1";
+export const BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES = 1 * 1_024 * 1_024;
+export const BRILLIANT_MAX_TRANSLATED_CHUNK_BYTES = 4 * 1_024 * 1_024;
+
+export interface TranslationOutputByteLimits {
+  maxChunkBytes: number;
+  maxSegmentBytes: number;
+}
+
+const DEFAULT_TRANSLATION_OUTPUT_BYTE_LIMITS: TranslationOutputByteLimits =
+  Object.freeze({
+    maxChunkBytes: BRILLIANT_MAX_TRANSLATED_CHUNK_BYTES,
+    maxSegmentBytes: BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES,
+  });
 
 export function buildTranslationPrompt(input: {
   chunk: TranslationChunk;
@@ -221,8 +234,10 @@ export function createCodexChunkOutputSchema(chunk: TranslationChunk) {
 
 export function validateCodexChunkOutput(input: {
   chunk: TranslationChunk;
+  limits?: TranslationOutputByteLimits;
   output: unknown;
 }): CodexChunkOutput {
+  const limits = input.limits ?? DEFAULT_TRANSLATION_OUTPUT_BYTE_LIMITS;
   if (!isRecord(input.output)) {
     throw new TranslationOutputSchemaError("Codex output must be an object.");
   }
@@ -270,6 +285,7 @@ export function validateCodexChunkOutput(input: {
   }
 
   const seenSegmentIds = new Set<string>();
+  let translatedChunkBytes = 0;
   const segments = input.output.segments.map((segment, index) => {
     if (!isRecord(segment)) {
       throw new TranslationOutputSchemaError("Codex output segment must be an object.");
@@ -332,6 +348,46 @@ export function validateCodexChunkOutput(input: {
       throw new TranslationOutputSchemaError(
         `Codex output segment ${expectedId} translated_text must be a string.`,
       );
+    }
+    const translatedSegmentBytes = Buffer.byteLength(
+      segment.translated_text,
+      "utf8",
+    );
+    if (translatedSegmentBytes > limits.maxSegmentBytes) {
+      const message =
+        `Codex output segment ${expectedId} exceeded the UTF-8 byte limit.`;
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+            segmentId: expectedId,
+            translatedEntry: {
+              kind: "translated_text_bytes",
+              valuePreview: String(translatedSegmentBytes),
+            },
+          }),
+        ],
+        retryable: false,
+      });
+    }
+    translatedChunkBytes += translatedSegmentBytes;
+    if (translatedChunkBytes > limits.maxChunkBytes) {
+      const message = "Codex output exceeded the chunk UTF-8 byte limit.";
+      throw new TranslationOutputValidationError(message, {
+        diagnostics: [
+          createSegmentSchemaDiagnostic({
+            chunk: input.chunk,
+            message,
+            segmentId: expectedId,
+            translatedEntry: {
+              kind: "translated_chunk_bytes",
+              valuePreview: String(translatedChunkBytes),
+            },
+          }),
+        ],
+        retryable: false,
+      });
     }
     if (segment.translated_text.trim() === "") {
       const message = `Codex output segment ${expectedId} translated_text is empty.`;

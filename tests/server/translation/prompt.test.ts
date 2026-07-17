@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createTranslationChunks } from "../../../src/server/translation/chunker";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
 import {
+  BRILLIANT_MAX_TRANSLATED_CHUNK_BYTES,
+  BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES,
   buildTranslationPrompt,
   stringifyCodexChunkOutput,
   validateCodexChunkOutput,
@@ -14,6 +16,89 @@ import type {
 } from "../../../src/server/translation/types";
 
 describe("Brilliant translation prompt and validation", () => {
+  it("caps a short source segment by absolute UTF-8 bytes", () => {
+    expect(BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES).toBe(1_048_576);
+    expect(BRILLIANT_MAX_TRANSLATED_CHUNK_BYTES).toBe(4_194_304);
+    const chunk = createPromptChunk("x\n");
+    const limits = { maxChunkBytes: 32, maxSegmentBytes: 8 };
+
+    expect(() =>
+      validateCodexChunkOutput({
+        chunk,
+        limits,
+        output: {
+          chunk_index: 0,
+          segments: [{
+            id: "s000001",
+            translated_text: "界".repeat(3),
+          }],
+          warnings: [],
+        },
+      })
+    ).toThrow(/UTF-8 byte limit/);
+
+    try {
+      validateCodexChunkOutput({
+        chunk,
+        limits,
+        output: {
+          chunk_index: 0,
+          segments: [{
+            id: "s000001",
+            translated_text: "x".repeat(limits.maxSegmentBytes + 1),
+          }],
+          warnings: [],
+        },
+      });
+      throw new Error("Expected absolute output admission to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).retryable).toBe(false);
+    }
+  });
+
+  it("accepts a normal short translation near the segment byte cap", () => {
+    const chunk = createPromptChunk("x\n");
+    const limits = { maxChunkBytes: 32, maxSegmentBytes: 12 };
+    const translatedText = "x".repeat(limits.maxSegmentBytes);
+
+    const output = validateCodexChunkOutput({
+      chunk,
+      limits,
+      output: {
+        chunk_index: 0,
+        segments: [{ id: "s000001", translated_text: translatedText }],
+        warnings: [],
+      },
+    });
+
+    expect(Buffer.byteLength(output.segments[0]!.translated_text, "utf8")).toBe(
+      limits.maxSegmentBytes,
+    );
+  });
+
+  it("caps the aggregate UTF-8 bytes across many translated segments", () => {
+    const chunk = createPromptChunk("a\n\nb\n\nc\n\nd\n\ne\n");
+    expect(chunk.segments).toHaveLength(5);
+    const limits = { maxChunkBytes: 16, maxSegmentBytes: 8 };
+    const perSegmentBytes = 4;
+
+    expect(() =>
+      validateCodexChunkOutput({
+        chunk,
+        limits,
+        output: {
+          chunk_index: 0,
+          segments: chunk.segments.map((segment) => ({
+            id: segment.id,
+            translated_text: "x".repeat(perSegmentBytes),
+          })),
+          warnings: [],
+        },
+      })
+    ).toThrow(/chunk UTF-8 byte limit/);
+  });
+
   it("frames source markdown as untrusted data and requests segment output only", () => {
     const chunk = createPromptChunk("Paragraph with `inlineCode`.\n");
 

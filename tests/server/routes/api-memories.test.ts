@@ -8,11 +8,13 @@ import { transformAsync, type PluginItem } from "@babel/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createMemoryPostHandler,
   parseAddMemoryPayload,
   POST,
 } from "../../../src/routes/api/memories";
 import { loadTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
+import { ImportAdmissionError } from "../../../src/server/importer";
 
 const tempDirs: string[] = [];
 
@@ -26,6 +28,41 @@ afterEach(async () => {
 const repositoryRoot = process.cwd();
 
 describe("memories API route", () => {
+  it("maps import admission overflow to a stable retryable response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-api-memory-busy-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await writeNoBackupConfig(root);
+    let importCalls = 0;
+    const handler = createMemoryPostHandler({
+      createImporter: () => ({
+        validateUrl: async (url) => new URL(url).toString(),
+        importUrl: async () => {
+          importCalls += 1;
+          throw new ImportAdmissionError();
+        },
+      }),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: "https://example.com/busy" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toEqual({
+      code: "import_busy",
+      error: "memory import is busy",
+    });
+    expect(importCalls).toBe(1);
+  });
+
   it("rejects malformed idempotency keys before configuration or filesystem work", async () => {
     const response = await POST(
       createApiEvent(
@@ -220,6 +257,31 @@ async function writeConfig(root: string) {
         backup: {
           git: {
             enabled: true,
+            remote: "origin",
+            branch: "main",
+            push: false,
+            commitMessageTemplate: "backup memory {memoryId}",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
+async function writeNoBackupConfig(root: string) {
+  await writeFile(
+    join(root, "trauma.config.json"),
+    JSON.stringify(
+      {
+        projectPath: "./data",
+        storePath: "./data/storage",
+        databasePath: "./.trauma/trauma.sqlite",
+        backup: {
+          git: {
+            enabled: false,
             remote: "origin",
             branch: "main",
             push: false,

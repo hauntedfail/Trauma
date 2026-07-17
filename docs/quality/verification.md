@@ -67,6 +67,8 @@ Use focused tests for the smallest affected boundary:
   repositories, and filesystem ownership.
 - `tests/server/importer/**`, `browser-import/**`, and `memories/**`: public
   URL policy, extraction, add/delete compensation, and browse behavior.
+  Import admission coverage proves overflow is rejected before body/fetch work
+  and that timeout, validation, and failure paths release capacity.
 - `tests/server/reader/**`, `flashbacks/**`, and route tests: sanitization,
   reader hashes, variant-local ranges, Moments, and API validation.
 - `tests/server/browse/**` and collection route tests: opaque cursor validation,
@@ -75,11 +77,12 @@ Use focused tests for the smallest affected boundary:
 - `tests/server/translation/**`: job state, chunking, Codex protocol,
   serialized event admission, retry/job cumulative budgets, replay/SSE
   backpressure, cancellation races, stitching, projections, and current-output
-  resolution. Shared Codex byte-limit changes also run the adjacent Psychiatrist
+  resolution. It also covers probe-client closure before queueing and absolute
+  per-segment/per-chunk UTF-8 output admission. Shared Codex byte-limit changes also run the adjacent Psychiatrist
   event-persistence and SSE suites.
 - `tests/server/psychiatrist/**` plus `tests/skills/**`: runtime isolation,
-  prompt policy, file-backed thread state, events, citations, and route
-  semantics.
+  prompt policy, file-backed thread state, events, citations, route semantics,
+  and shared active-plus-reserved turn capacity.
 - `tests/server/backup/**` and backup route/component tests: identity stamps,
   content integrity, recovery, queue behavior, and push failure.
 - `tests/components/**` and `tests/scripts/frontend-refine-tokens.test.ts`:

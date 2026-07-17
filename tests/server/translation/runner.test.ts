@@ -14,6 +14,7 @@ import {
   runTranslationJob,
   startTranslationJob,
 } from "../../../src/server/translation/runner";
+import { BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES } from "../../../src/server/translation/prompt";
 import {
   resolveTranslatedMemoryContentPath,
   resolveTranslatedMemoryProjectionPath,
@@ -1261,6 +1262,53 @@ describe("translation runner", () => {
     }
   });
 
+  it("fails oversized translated output without retrying or persisting the payload", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, "# x");
+    await createMemoryRow(config);
+    const client = new OversizedOutputTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000110";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.callCount).toBe(1);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: { code: "validation_failed" },
+        status: "failed",
+      });
+      const chunks = await connection.repositories.translations
+        .getTranslationChunks(jobId);
+      expect(chunks).toEqual([
+        expect.objectContaining({
+          projectionSpansJson: null,
+          retryCount: 0,
+          status: "failed",
+          translatedMarkdown: null,
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+    await expect(
+      readFile(
+        join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+        "utf8",
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("closes a translation client when the scheduled run owns it", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -1282,6 +1330,67 @@ describe("translation runner", () => {
       config,
     });
 
+    expect(client.closeCalls).toBe(1);
+  });
+
+  it("closes owned probe clients before queueing and runs queued jobs with a fresh client", async () => {
+    const queued: Array<{
+      config: ResolvedTraumaConfig;
+      jobId: string;
+      options: Parameters<typeof runTranslationJob>[1];
+      probeClient: CloseTrackingTranslationClient;
+    }> = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const config = await createConfig();
+      await writeSourceContent(config);
+      await createMemoryRow(config);
+      const probeClient = new CloseTrackingTranslationClient();
+      const jobId = `019e3906-0000-7000-8000-00000000010${index}`;
+      await startTranslationJob({
+        config,
+        createClient: () => probeClient,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: (scheduledJobId, options) => {
+          expect(probeClient.closeCalls).toBe(1);
+          expect(options).not.toHaveProperty("client");
+          queued.push({ config, jobId: scheduledJobId, options, probeClient });
+        },
+      });
+    }
+
+    expect(queued).toHaveLength(3);
+    expect(queued.every(({ probeClient }) => probeClient.closeCalls === 1)).toBe(true);
+    const executionClient = new CloseTrackingTranslationClient();
+    const first = queued[0]!;
+    await runTranslationJob(first.jobId, {
+      ...first.options,
+      createClient: () => executionClient,
+    });
+    expect(executionClient.inputs).toHaveLength(1);
+    expect(executionClient.closeCalls).toBe(1);
+  });
+
+  it("does not double-close an owned probe client when scheduling fails", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new CloseTrackingTranslationClient();
+
+    await expect(
+      startTranslationJob({
+        config,
+        createClient: () => client,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000109",
+        memoryId,
+        now,
+        schedule: () => {
+          throw new Error("queue unavailable");
+        },
+      }),
+    ).rejects.toThrow("queue unavailable");
     expect(client.closeCalls).toBe(1);
   });
 
@@ -2283,6 +2392,26 @@ class EmptySegmentRetryTranslationClient implements TranslationClient {
         translated_text: this.callCount === 1 && index === 0
           ? "   "
           : `翻訳済み ${segment.text}`,
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class OversizedOutputTranslationClient implements TranslationClient {
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment, index) => ({
+        id: segment.id,
+        translated_text: index === 0
+          ? "x".repeat(BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES + 1)
+          : segment.text,
       })),
       warnings: [],
     };

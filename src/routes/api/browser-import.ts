@@ -11,7 +11,16 @@ import {
   verifyBrowserImportAuthorization,
 } from "~/server/browser-import";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
+import {
+  createNonQueuingAdmissionLimiter,
+  type NonQueuingAdmissionLimiter,
+} from "~/server/concurrency/non-queuing-admission";
 import { initializeDatabase } from "~/server/db";
+
+export const DEFAULT_BROWSER_IMPORT_MAX_CONCURRENCY = 2;
+const browserImportAdmissionLimiter = createNonQueuingAdmissionLimiter(
+  DEFAULT_BROWSER_IMPORT_MAX_CONCURRENCY,
+);
 
 export async function OPTIONS(event: APIEvent): Promise<Response> {
   const config = loadBrowserImportConfig();
@@ -26,7 +35,26 @@ export async function OPTIONS(event: APIEvent): Promise<Response> {
   });
 }
 
+interface BrowserImportPostHandlerOptions {
+  admissionLimiter?: NonQueuingAdmissionLimiter;
+}
+
+export function createBrowserImportPostHandler(
+  options: BrowserImportPostHandlerOptions = {},
+) {
+  return async function postBrowserImport(event: APIEvent): Promise<Response> {
+    return handleBrowserImportPost(event, options);
+  };
+}
+
 export async function POST(event: APIEvent): Promise<Response> {
+  return handleBrowserImportPost(event);
+}
+
+async function handleBrowserImportPost(
+  event: APIEvent,
+  options: BrowserImportPostHandlerOptions = {},
+): Promise<Response> {
   const browserImportConfig = loadBrowserImportConfig();
   const origin = event.request.headers.get("origin");
   const corsHeaders = isBrowserImportOriginAllowed(origin, browserImportConfig)
@@ -74,6 +102,35 @@ export async function POST(event: APIEvent): Promise<Response> {
     );
   }
 
+  const releaseAdmission = (
+    options.admissionLimiter ?? browserImportAdmissionLimiter
+  ).tryAcquire();
+  if (releaseAdmission === undefined) {
+    return json(
+      { code: "browser_import_busy", error: "browser import is busy" },
+      {
+        status: 429,
+        headers: { ...corsHeaders, "retry-after": "1" },
+      },
+    );
+  }
+
+  try {
+    return await handleAdmittedBrowserImport(
+      event,
+      browserImportConfig,
+      corsHeaders,
+    );
+  } finally {
+    releaseAdmission();
+  }
+}
+
+async function handleAdmittedBrowserImport(
+  event: APIEvent,
+  browserImportConfig: ReturnType<typeof loadBrowserImportConfig>,
+  corsHeaders: HeadersInit,
+): Promise<Response> {
   const body = await readBoundedRequestText(
     event.request,
     browserImportConfig.maxBytes,

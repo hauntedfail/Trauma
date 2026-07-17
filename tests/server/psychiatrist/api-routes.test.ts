@@ -9,7 +9,10 @@ import { createSendPsychiatristMessageHandler } from "../../../src/server/psychi
 import { createCancelPsychiatristTurnHandler } from "../../../src/server/psychiatrist/cancel-route";
 import { createRegeneratePsychiatristResponseHandler } from "../../../src/server/psychiatrist/regenerate-route";
 import { createPsychiatristTurnEventsHandler } from "../../../src/server/psychiatrist/events-route";
-import { activePsychiatristTurns } from "../../../src/server/psychiatrist/active-turns";
+import {
+  ActivePsychiatristTurnRegistry,
+  activePsychiatristTurns,
+} from "../../../src/server/psychiatrist/active-turns";
 import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
@@ -63,6 +66,29 @@ const EXTRA_TURN_IDS = [
 describe("Psychiatrist thread API routes", () => {
   afterEach(() => {
     activePsychiatristTurns.clear();
+  });
+
+  it("counts reserved and active turns against one fixed capacity", () => {
+    const activeTurns = new ActivePsychiatristTurnRegistry(1);
+
+    expect(activeTurns.tryReserveThread("thread-reserved")).toBe("reserved");
+    expect(activeTurns.tryReserveThread("thread-overflow")).toBe(
+      "capacity_exceeded",
+    );
+    activeTurns.register({
+      client: new HangingConversationClient(),
+      memoryId: MEMORY_ID,
+      pairId: PAIR_ID,
+      threadId: "thread-reserved",
+      turnId: TURN_ID,
+    });
+    expect(activeTurns.tryReserveThread("thread-still-full")).toBe(
+      "capacity_exceeded",
+    );
+
+    activeTurns.unregister(TURN_ID);
+    expect(activeTurns.tryReserveThread("thread-after-release")).toBe("reserved");
+    activeTurns.releaseThread("thread-after-release");
   });
 
   it("reconciles an unchanged thread generation only once", async () => {
@@ -2365,6 +2391,110 @@ describe("Psychiatrist thread API routes", () => {
     await expect(second.json()).resolves.toMatchObject({
       code: "turn_conflict",
     });
+  });
+
+  it("rejects a different-thread message at global capacity before client creation", async () => {
+    const activeTurns = new ActivePsychiatristTurnRegistry(1);
+    expect(activeTurns.tryReserveThread("other-thread")).toBe("reserved");
+    let clientCreations = 0;
+    const handler = createSendPsychiatristMessageHandler({
+      activeTurns,
+      config: { storePath: "/tmp/unused-psychiatrist-capacity" },
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeConversationClient("unused");
+      },
+      loadThread: async () => ({ manifest: manifest(), pairs: [] }),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "Over capacity" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toMatchObject({
+      code: "turn_capacity_exceeded",
+      status: "error",
+    });
+    expect(clientCreations).toBe(0);
+    activeTurns.releaseThread("other-thread");
+  });
+
+  it("shares global capacity with Regenerate before client creation", async () => {
+    const activeTurns = new ActivePsychiatristTurnRegistry(1);
+    expect(activeTurns.tryReserveThread("other-thread")).toBe("reserved");
+    let clientCreations = 0;
+    const pair = {
+      assistant: {
+        citations: [],
+        completedAt: "2026-06-01T00:00:00.000Z",
+        content: "Prior answer",
+      },
+      pairId: PAIR_ID,
+      status: "completed" as const,
+      turnId: TURN_ID,
+      user: {
+        content: "Prior question",
+        createdAt: "2026-06-01T00:00:00.000Z",
+      },
+    };
+    const threadManifest = manifest();
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      activeTurns,
+      config: config("/tmp/unused-psychiatrist-capacity"),
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeConversationClient("unused");
+      },
+      loadPair: async () => ({
+        contextSnapshot: {
+          ...context(),
+          contextSnapshotId: PAIR_ID,
+          policyVersion: PSYCHIATRIST_PROMPT_POLICY_VERSION,
+          selectedSectionAnchors: [],
+          selectedSectionHashes: [],
+          userPrompt: pair.user.content,
+        },
+        manifest: threadManifest,
+        pair,
+        paths: {
+          pairContextRelativePath: "unused/CONTEXT.json",
+          pairPromptRelativePath: "unused/PROMPT.md",
+          pairResponseRelativePath: "unused/RESPONSE.md",
+          pairRevisionLogRelativePath: "unused/PAIRS.jsonl",
+          threadManifestRelativePath: "unused/THREAD.json",
+          threadMarkdownRelativePath: "unused/THREAD.md",
+        },
+        prompt: pair.user.content,
+        thread: { manifest: threadManifest, pairs: [pair] },
+      }),
+    });
+
+    const response = await regenerate(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+          body: regenerateBody(),
+          method: "POST",
+        }),
+        { pairId: PAIR_ID },
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toMatchObject({
+      code: "turn_capacity_exceeded",
+      status: "error",
+    });
+    expect(clientCreations).toBe(0);
+    activeTurns.releaseThread("other-thread");
   });
 
   it("cancels only an explicitly requested active turn", async () => {

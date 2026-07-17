@@ -159,11 +159,18 @@ database path, dev smoke tuning, fixture mode, or browser import origin/size
 limits, should be set explicitly in the shell or CI job that needs them. They
 are intentionally not part of `.env.example`.
 
+Import concurrency is not operator configuration. TRAUMA uses fixed code-level
+non-queuing limits of four public URL imports and two browser captures; excess
+requests receive `429` with `Retry-After`.
+
 ## Codex App-Server Environment
 
 Brilliant translation and Psychiatrist are optional backend-only consumers of a
 separately running Codex app-server. TRAUMA does not start or supervise that
 process.
+
+Translation output byte admission and the four-turn Psychiatrist capacity are
+fixed server safety constants, not environment or JSON configuration.
 
 Use the Codex app-server Unix listener when enabling these features:
 

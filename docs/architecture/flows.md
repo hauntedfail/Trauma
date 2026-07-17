@@ -26,20 +26,23 @@ rotates it.
    deletion. A clean initial failure before recoverable state releases only the
    newly inserted reservation so the same failed attempt can retry.
 4. Validate that the configured backup environment is ready for a new write.
-5. Fetch the public URL, then run Defuddle extraction inside the
+5. Acquire one of four process-wide URL-import slots without queueing. If all
+   slots are occupied, return `429 import_busy` with `Retry-After: 1` before
+   fetch or extraction begins; every terminal path releases its slot.
+6. Fetch the public URL, then run Defuddle extraction inside the
    interruptible import timeout boundary.
-6. Use extracted Markdown on success or a safe Markdown link on link-only
+7. Use extracted Markdown on success or a safe Markdown link on link-only
    fallback. Raw HTML is never persisted.
-7. Persist a creation journal containing the intended SQLite row.
-8. Durably publish `{storePath}/memories/{memoryId}/CONTENT.md` with
+8. Persist a creation journal containing the intended SQLite row.
+9. Durably publish `{storePath}/memories/{memoryId}/CONTENT.md` with
    `overwrite: false`: write a same-directory temporary file, sync its bytes,
    publish it without replacing an existing file, and sync the owning directory
    hierarchy before SQLite success is possible.
-9. Insert the SQLite `memories` row with the new content path and initial backup
+10. Insert the SQLite `memories` row with the new content path and initial backup
    status.
-10. Remove the creation journal. If the SQLite insert fails, delete the newly
+11. Remove the creation journal. If the SQLite insert fails, delete the newly
    written memory directory before returning the error.
-11. If backup is enabled, enqueue the written content path and persist the best
+12. If backup is enabled, enqueue the written content path and persist the best
    available backup status.
 
 Extraction failure or empty output still creates a link-only memory and records
@@ -95,9 +98,13 @@ or extract reliably.
 3. It POSTs JSON to `/api/browser-import` on the local TRAUMA server.
 4. The server validates enablement, token, extension origin, content type,
    payload size, URL, timestamp, and captured snapshot shape.
-5. Server-side Defuddle extraction and the normal add-memory persistence flow
+5. Before reading the request body, the route acquires one of two process-wide
+   browser-import slots without queueing. Overflow returns
+   `429 browser_import_busy` with `Retry-After: 1`; every response and failure
+   releases its slot.
+6. Server-side Defuddle extraction and the normal add-memory persistence flow
    create the memory.
-6. The extension opens the created reader or reports the server error.
+7. The extension opens the created reader or reports the server error.
 
 Extension HTML is untrusted input. The extension never writes the store or
 SQLite directly and cannot bypass server sanitization, URL policy, or backup
@@ -187,8 +194,10 @@ remain compatible for their current clients.
    `status: current`. If the same source/language already has active work, it
    returns `status: active` and reschedules that job when recoverable.
 3. Otherwise it parses the source into translatable blocks, creates one pending
-   job plus its chunk records, emits queued events, and schedules the job on the
-   in-process sequential runner.
+   job plus its chunk records, emits queued events, closes the short-lived
+   probe/model-selection Codex client, and schedules only durable job identity
+   and runtime dependencies on the in-process sequential runner. The runner
+   opens a fresh Codex client only when that job reaches execution.
 4. The runner claims `pending` work or resumes `running`, `stitching`, or
    `committing` work. It re-reads the source and marks the job stale when the
    source hash changed. Before reusing any chunk, it requires the persisted
@@ -198,6 +207,9 @@ remain compatible for their current clients.
    write output or enter backup.
 5. Each chunk is sent through the Brilliant prompt/validation boundary and its
    validated Markdown and projection data are persisted before the next chunk.
+   Translated text is admitted by UTF-8 bytes before projection or payload
+   persistence: at most 1 MiB per segment and 4 MiB across one chunk. Overflow
+   is a terminal, non-auto-retried `validation_failed` attempt.
    Codex events pass fixed serialized UTF-8 admission before any delta reaches
    replay or SSE. The 4,096-event/4-MiB chunk-attempt budget resets for each
    attempt; the 262,144-event/32-MiB job budget accumulates across every chunk
@@ -285,7 +297,13 @@ persistence failure fails an otherwise successful turn; when Codex also fails,
 its safe failure remains authoritative. Closed turn queues reject late Codex
 callbacks, so no non-terminal event can be persisted after terminal state.
 
-The fixed admission policy permits at most 64 KiB per serialized Codex event,
+The fixed turn admission policy permits at most four active-or-reserved turns
+across all threads. A second turn for the same thread remains a `409` conflict;
+different-thread overflow returns `429 turn_capacity_exceeded` with
+`Retry-After: 1` before a Codex client is created. Capacity is released on
+startup failure, cancellation, and every detached terminal path.
+
+The fixed event admission policy permits at most 64 KiB per serialized Codex event,
 128 events or 1 MiB pending, and 4,096 events or 4 MiB over one turn. Final
 answer text is capped at 2 MiB. The durable stream is capped at 4,100 rows and
 8 MiB. Exceeding any boundary stops admission and persists a safe failed outcome

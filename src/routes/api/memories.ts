@@ -5,8 +5,11 @@ import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
 import { readJsonMutationRequest } from "~/server/http/mutation-request";
-import { validateImportUrl } from "~/server/importer";
-import { createRuntimeMemoryImporter } from "~/server/importer/runtime";
+import { ImportAdmissionError, validateImportUrl } from "~/server/importer";
+import {
+  createRuntimeMemoryImporter,
+  type RuntimeMemoryImporter,
+} from "~/server/importer/runtime";
 import {
   AddMemoryIdempotencyConflictError,
   AddMemoryIdempotencyReplayError,
@@ -14,12 +17,31 @@ import {
 } from "~/server/memories/add-memory";
 import { isMemoryId } from "~/server/memories/id";
 
+interface MemoryPostHandlerOptions {
+  createImporter?: () => RuntimeMemoryImporter;
+}
+
+export function createMemoryPostHandler(
+  options: MemoryPostHandlerOptions = {},
+) {
+  return async function postMemory(event: APIEvent): Promise<Response> {
+    return handleMemoryPost(event, options);
+  };
+}
+
 export async function POST(event: APIEvent): Promise<Response> {
+  return handleMemoryPost(event);
+}
+
+async function handleMemoryPost(
+  event: APIEvent,
+  options: MemoryPostHandlerOptions = {},
+): Promise<Response> {
   const idempotencyKey = readAddMemoryIdempotencyKey(event.request);
   if (!idempotencyKey.ok) {
     return json({ error: idempotencyKey.error }, { status: 400 });
   }
-  const importer = createRuntimeMemoryImporter();
+  const importer = options.createImporter?.() ?? createRuntimeMemoryImporter();
   const payload = await parseAddMemoryPayloadInternal(event.request, {
     validateUrl: importer.validateUrl,
   });
@@ -62,6 +84,15 @@ export async function POST(event: APIEvent): Promise<Response> {
           backupFailsafe: error.alert ?? null,
         },
         { status: 409 },
+      );
+    }
+    if (error instanceof ImportAdmissionError) {
+      return json(
+        { code: error.code, error: error.message },
+        {
+          status: 429,
+          headers: { "retry-after": String(error.retryAfterSeconds) },
+        },
       );
     }
 

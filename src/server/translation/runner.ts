@@ -133,6 +133,7 @@ interface TranslationRunOptions {
   client?: TranslationClient;
   codexEventLimits?: TranslationCodexEventAdmissionLimits;
   config?: ResolvedTraumaConfig;
+  createClient?: () => TranslationClient;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
 }
 
@@ -174,7 +175,6 @@ export async function startTranslationJob(
   const now = input.now ?? new Date();
   const connection = openConnection(config);
   let ownedClient: TranslationClient | undefined;
-  let ownedClientScheduled = false;
   try {
     const memory = await connection.repositories.memories.findById(input.memoryId);
     if (memory === undefined) {
@@ -335,9 +335,6 @@ export async function startTranslationJob(
       if (racedActive === null) {
         throw error;
       }
-      if (input.client === undefined) {
-        await closeTranslationClient(client);
-      }
       assertReusableActiveJob(racedActive);
       return createActiveTranslationResult(racedActive, input.memoryId, langCode);
     }
@@ -360,14 +357,15 @@ export async function startTranslationJob(
     }
 
     const schedule = input.schedule ?? enqueueTranslationJobRun;
+    if (ownedClient !== undefined) {
+      await closeTranslationClient(ownedClient);
+      ownedClient = undefined;
+    }
     schedule(job.jobId, {
       backupQueue: input.backupQueue,
-      closeClientAfterRun: input.client === undefined,
-      client,
       config,
       openConnection,
     });
-    ownedClientScheduled = input.client === undefined;
 
     return {
       status: "started",
@@ -378,11 +376,11 @@ export async function startTranslationJob(
       event_url: createTranslationEventUrl(jobId),
     };
   } catch (error) {
-    if (ownedClient !== undefined && !ownedClientScheduled) {
-      await closeTranslationClient(ownedClient);
-    }
     throw mapStartError(error);
   } finally {
+    if (ownedClient !== undefined) {
+      await closeTranslationClient(ownedClient);
+    }
     connection.close();
   }
 }
@@ -415,7 +413,8 @@ export async function runTranslationJob(
 ): Promise<void> {
   if (
     !isCodexRuntimeIsolationReady({
-      hasInjectedClient: options.client !== undefined,
+      hasInjectedClient:
+        options.client !== undefined || options.createClient !== undefined,
     })
   ) {
     throw new TranslationApiError(
@@ -426,7 +425,7 @@ export async function runTranslationJob(
   const config = options.config ?? loadRuntimeTraumaConfig();
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
-  const client = options.client ?? new CodexAppServerClient();
+  const client = options.client ?? options.createClient?.() ?? new CodexAppServerClient();
   const codexEventAdmission = new TranslationCodexEventAdmission(
     options.codexEventLimits,
   );
@@ -1013,7 +1012,9 @@ async function translateAndPersistChunk(input: {
         return { status: "canceled" };
       }
       const willRetry =
-        !isCodexEventLimitError(error) && attempt < BRILLIANT_MAX_RETRIES;
+        !isCodexEventLimitError(error) &&
+        !isNonRetryableTranslationOutput(error) &&
+        attempt < BRILLIANT_MAX_RETRIES;
       const persistedError = toPersistedError(error);
       latestPersistedError = persistedError;
       await input.connection.repositories.translations.updateTranslationChunk(
@@ -1358,6 +1359,10 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
 function isCodexEventLimitError(error: unknown): boolean {
   return error instanceof CodexAppServerError &&
     error.code === "event_limit_exceeded";
+}
+
+function isNonRetryableTranslationOutput(error: unknown): boolean {
+  return error instanceof TranslationOutputValidationError && !error.retryable;
 }
 
 async function interruptTranslationTurnBestEffort(

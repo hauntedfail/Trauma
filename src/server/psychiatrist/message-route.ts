@@ -40,7 +40,10 @@ import {
 } from "./runtime-isolation";
 import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import { appendPsychiatristStreamEvent } from "./stream-store";
-import { activePsychiatristTurns } from "./active-turns";
+import {
+  activePsychiatristTurns,
+  type ActivePsychiatristTurnRegistry,
+} from "./active-turns";
 import { runDetachedPsychiatristTask } from "./detached-task";
 import { createPsychiatristEventPersistenceQueue } from "./event-persistence";
 import {
@@ -88,12 +91,14 @@ type ResolveActiveContentHash = (input: {
 }) => Promise<string>;
 
 export function createSendPsychiatristMessageHandler(input: {
+  activeTurns?: ActivePsychiatristTurnRegistry;
   appendAssistantResponse?: AppendAssistantResponse;
   appendStreamEvent?: typeof appendPsychiatristStreamEvent;
   backupQueue?: DurableMemoryBackupQueue;
   buildContext?: BuildContext;
   client?: CodexConversationClient;
   config?: Pick<ResolvedTraumaConfig, "storePath">;
+  createClient?: () => CodexConversationClient;
   generateId?: () => string;
   loadThread?: typeof loadPsychiatristThreadForMemory;
   limits?: PsychiatristTurnLimits;
@@ -108,12 +113,14 @@ export function createSendPsychiatristMessageHandler(input: {
 export async function handleSendPsychiatristMessageRequest(
   event: APIEvent,
   input: {
+    activeTurns?: ActivePsychiatristTurnRegistry;
     appendAssistantResponse?: AppendAssistantResponse;
     appendStreamEvent?: typeof appendPsychiatristStreamEvent;
     backupQueue?: DurableMemoryBackupQueue;
     buildContext?: BuildContext;
     client?: CodexConversationClient;
     config?: Pick<ResolvedTraumaConfig, "storePath">;
+    createClient?: () => CodexConversationClient;
     generateId?: () => string;
     loadThread?: typeof loadPsychiatristThreadForMemory;
     limits?: PsychiatristTurnLimits;
@@ -135,7 +142,8 @@ export async function handleSendPsychiatristMessageRequest(
   }
   if (
     !isPsychiatristRuntimeIsolationReady({
-      hasInjectedClient: input.client !== undefined,
+      hasInjectedClient:
+        input.client !== undefined || input.createClient !== undefined,
     })
   ) {
     return safeErrorResponse(
@@ -145,6 +153,7 @@ export async function handleSendPsychiatristMessageRequest(
     );
   }
   const config = input.config ?? loadRuntimeTraumaConfig();
+  const activeTurns = input.activeTurns ?? activePsychiatristTurns;
   const loadThread = input.loadThread ?? loadPsychiatristThreadForMemory;
   let thread: { manifest: PsychiatristThreadManifest; pairs: PsychiatristThreadPair[] };
   try {
@@ -174,11 +183,20 @@ export async function handleSendPsychiatristMessageRequest(
       409,
     );
   }
-  if (!activePsychiatristTurns.reserveThread(threadId)) {
+  const reservation = activeTurns.tryReserveThread(threadId);
+  if (reservation === "thread_conflict") {
     return safeErrorResponse(
       "turn_conflict",
       "A Psychiatrist turn is already running for this thread.",
       409,
+    );
+  }
+  if (reservation === "capacity_exceeded") {
+    return safeErrorResponse(
+      "turn_capacity_exceeded",
+      "Psychiatrist is at capacity. Retry shortly.",
+      429,
+      { "retry-after": "1" },
     );
   }
 
@@ -201,11 +219,11 @@ export async function handleSendPsychiatristMessageRequest(
       manifest: thread.manifest,
     });
   } catch (error) {
-    activePsychiatristTurns.releaseThread(threadId);
+    activeTurns.releaseThread(threadId);
     return formatMessageError(error);
   }
   if (activeContentHash !== thread.manifest.activeContentHash) {
-    activePsychiatristTurns.releaseThread(threadId);
+    activeTurns.releaseThread(threadId);
     await markPsychiatristThreadStale({ config, memoryId, threadId });
     await appendBestEffortStreamEvent(input.appendStreamEvent ?? appendPsychiatristStreamEvent, {
       config,
@@ -275,8 +293,8 @@ export async function handleSendPsychiatristMessageRequest(
     });
 
     const ownsClient = input.client === undefined;
-    const client = input.client ?? new CodexAppServerClient();
-    activePsychiatristTurns.register({
+    const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+    activeTurns.register({
       client,
       ...(context.langCode === undefined ? {} : { langCode: context.langCode }),
       memoryId: thread.manifest.memoryId,
@@ -287,6 +305,7 @@ export async function handleSendPsychiatristMessageRequest(
     });
     runDetachedPsychiatristTask(() => runPsychiatristTurn({
       appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
+      activeTurns,
       appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
       backupQueue: input.backupQueue ?? resolveBackupQueue(config),
       client,
@@ -309,8 +328,8 @@ export async function handleSendPsychiatristMessageRequest(
       status: 202,
     });
   } catch (error) {
-    activePsychiatristTurns.unregister(turnId);
-    activePsychiatristTurns.releaseThread(threadId);
+    activeTurns.unregister(turnId);
+    activeTurns.releaseThread(threadId);
     const safeError = toSafeCodexError(error, "Psychiatrist answer failed.");
     let terminalStatus: Awaited<ReturnType<typeof markPsychiatristTurnFailed>> | undefined;
     if (pendingPairPersisted) {
@@ -343,6 +362,7 @@ export async function handleSendPsychiatristMessageRequest(
 }
 
 async function runPsychiatristTurn(input: {
+  activeTurns: ActivePsychiatristTurnRegistry;
   appendAssistantResponse: AppendAssistantResponse;
   appendStreamEvent: typeof appendPsychiatristStreamEvent;
   backupQueue: DurableMemoryBackupQueue;
@@ -394,13 +414,13 @@ async function runPsychiatristTurn(input: {
           return false;
         }
         if (codexEvent.type === "thread.started") {
-          activePsychiatristTurns.updateCodexIds({
+          input.activeTurns.updateCodexIds({
             codexThreadId: codexEvent.threadId,
             turnId: input.turnId,
           });
         }
         if (codexEvent.type === "turn.started") {
-          activePsychiatristTurns.updateCodexIds({
+          input.activeTurns.updateCodexIds({
             codexTurnId: codexEvent.turnId,
             turnId: input.turnId,
           });
@@ -540,7 +560,7 @@ async function runPsychiatristTurn(input: {
       });
     }
   } catch (error) {
-    const active = activePsychiatristTurns.getByTurnId(input.turnId);
+    const active = input.activeTurns.getByTurnId(input.turnId);
     if (assistantResponsePersisted) {
       await input.appendStreamEvent({
         config: input.config,
@@ -592,7 +612,7 @@ async function runPsychiatristTurn(input: {
     }).catch(() => undefined);
   } finally {
     await eventWrites.drain().catch(() => undefined);
-    activePsychiatristTurns.unregister(input.turnId);
+    input.activeTurns.unregister(input.turnId);
     if (input.ownsClient) {
       await closeOwnedClient(input.client);
     }
@@ -920,6 +940,7 @@ function safeErrorResponse(
   code: string,
   message: string,
   status: number,
+  headers?: HeadersInit,
 ): Response {
   return jsonResponse(
     {
@@ -928,7 +949,7 @@ function safeErrorResponse(
       message,
       status: "error",
     },
-    { status },
+    { status, headers },
   );
 }
 

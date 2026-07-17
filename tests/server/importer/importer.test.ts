@@ -1,12 +1,79 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { createNonQueuingAdmissionLimiter } from "../../../src/server/concurrency/non-queuing-admission";
 import {
   createPinnedFetch,
+  ImportAdmissionError,
   importUrl,
   validateImportUrl,
 } from "../../../src/server/importer";
 
 describe("URL importer", () => {
+  it("rejects excess imports before fetch or extraction and releases capacity", async () => {
+    const admissionLimiter = createNonQueuingAdmissionLimiter(1);
+    let fetchCalls = 0;
+    let extractionCalls = 0;
+    let releaseFirstFetch: (() => void) | undefined;
+    const firstFetchCanFinish = new Promise<void>((resolve) => {
+      releaseFirstFetch = resolve;
+    });
+    const makeInput = (url: string) => ({
+      admissionLimiter,
+      url,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () => {
+        fetchCalls += 1;
+        await firstFetchCanFinish;
+        return new Response("<html><body>article</body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      },
+      extractArticle: async () => {
+        extractionCalls += 1;
+        return {
+          title: "Bounded import",
+          description: null,
+          faviconUrl: null,
+          markdown: "Bounded import body.",
+          wordCount: 3,
+        };
+      },
+    });
+
+    const first = importUrl(makeInput("https://example.com/first"));
+    await vi.waitFor(() => expect(fetchCalls).toBe(1));
+
+    await expect(
+      importUrl(makeInput("https://example.net/second")),
+    ).rejects.toBeInstanceOf(ImportAdmissionError);
+    expect(fetchCalls).toBe(1);
+    expect(extractionCalls).toBe(0);
+
+    releaseFirstFetch?.();
+    await expect(first).resolves.toMatchObject({ status: "success" });
+    await expect(
+      importUrl(makeInput("https://example.org/third")),
+    ).resolves.toMatchObject({ status: "success" });
+    expect(fetchCalls).toBe(2);
+    expect(extractionCalls).toBe(2);
+  });
+
+  it("releases import admission after timeout fallback", async () => {
+    const admissionLimiter = createNonQueuingAdmissionLimiter(1);
+    const timedOut = await importUrl({
+      admissionLimiter,
+      url: "https://example.com/timeout-release",
+      timeoutMs: 1,
+      resolveHostname: async () => ["93.184.216.34"],
+      fetch: async () => new Promise<Response>(() => {}),
+    });
+
+    expect(timedOut.status).toBe("link_only");
+    const release = admissionLimiter.tryAcquire();
+    expect(release).toBeTypeOf("function");
+    release?.();
+  });
+
   it("extracts article metadata and markdown through an injectable fetch boundary", async () => {
     const result = await importUrl({
       url: "https://example.com/posts/importable",

@@ -69,6 +69,10 @@
 - MUST include article extraction work in the same import timeout budget.
   Default extractor parsing and conversion must run behind an interruptible
   worker or process boundary instead of blocking the request event loop.
+- MUST reject excess URL and browser-assisted imports through fixed,
+  process-wide, non-queuing admission before fetch, extraction, or browser body
+  buffering. Return a stable `429` plus `Retry-After` and release admission on
+  every terminal path.
 - MUST request identity encoding or explicitly decode compressed bodies when
   using low-level HTTP clients that do not automatically decompress responses.
 - MUST decode HTML entities before URL resolution where TRAUMA itself accepts or
@@ -101,6 +105,13 @@
   explicit approval for the current turn and externally constrained egress.
 - MUST validate structured translation output and fail closed on source-hash,
   output-shape, protocol, or cancellation conflicts.
+- MUST close the Brilliant probe/model-selection client before scheduling a
+  durable job. A queued job must not retain a connected Codex client; the
+  sequential runner creates and owns one only when execution begins.
+- MUST reject translated output above 1 MiB per segment or 4 MiB per chunk by
+  serialized UTF-8 bytes before projection or translated payload persistence.
+  Absolute output overflow is terminal for that chunk attempt and is not
+  automatically retried.
 - MUST admit Brilliant translation Codex events against fixed server-side
   serialized UTF-8 budgets: 64 KiB per event, 4,096 events or 4 MiB per chunk
   attempt, and 262,144 events or 32 MiB for the whole job. Job admission is
@@ -119,6 +130,10 @@
   enforces fixed server-side byte and count budgets at callback admission, the
   pending persistence queue, the complete turn, the durable replay stream, and
   each SSE subscriber; these safety limits are not runtime configuration.
+- MUST cap Psychiatrist active and reserved turns together across threads.
+  Capacity overflow is a retryable `429` before client creation, distinct from
+  the existing same-thread `409`, and all start, cancel, failure, and detached
+  terminal paths must release their admission.
 - MUST propagate Psychiatrist persistence backpressure to the Codex conversation
   callback. Once admission fails, the turn stops accepting events and fails with
   the safe `event_limit_exceeded` class instead of accumulating more work.
