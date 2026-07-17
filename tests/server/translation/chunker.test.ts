@@ -5,6 +5,15 @@ import {
   DEFAULT_TRANSLATION_CHUNK_CONFIG,
 } from "../../../src/server/translation/chunker";
 import { estimateRoughTokens } from "../../../src/server/translation/hash";
+import { TranslationOutputValidationError } from "../../../src/server/translation/errors";
+import {
+  assertTranslationManifestAdmission,
+  assertTranslationSourceAdmission,
+  BRILLIANT_MAX_TRANSLATION_CHUNKS,
+  BRILLIANT_MAX_TRANSLATION_SEGMENTS,
+  BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES,
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+} from "../../../src/server/translation/limits";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
 import {
   BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
@@ -13,6 +22,61 @@ import {
 import type { TranslationSourceSnapshot } from "../../../src/server/translation/types";
 
 describe("translation chunker", () => {
+  it("enforces the exact aggregate translation admission boundaries", () => {
+    expect(BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES).toBe(20 * 1_024 * 1_024);
+    expect(BRILLIANT_MAX_TRANSLATION_SEGMENTS).toBe(16_384);
+    expect(BRILLIANT_MAX_TRANSLATION_CHUNKS).toBe(4_096);
+
+    expect(() =>
+      assertTranslationSourceAdmission(
+        BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES,
+        DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertTranslationManifestAdmission(
+        {
+          chunkCount: BRILLIANT_MAX_TRANSLATION_CHUNKS,
+          segmentCount: BRILLIANT_MAX_TRANSLATION_SEGMENTS,
+        },
+        DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+      )
+    ).not.toThrow();
+
+    for (const admit of [
+      () =>
+        assertTranslationSourceAdmission(
+          BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES + 1,
+          DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        ),
+      () =>
+        assertTranslationManifestAdmission(
+          {
+            chunkCount: BRILLIANT_MAX_TRANSLATION_CHUNKS + 1,
+            segmentCount: BRILLIANT_MAX_TRANSLATION_SEGMENTS,
+          },
+          DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        ),
+      () =>
+        assertTranslationManifestAdmission(
+          {
+            chunkCount: BRILLIANT_MAX_TRANSLATION_CHUNKS,
+            segmentCount: BRILLIANT_MAX_TRANSLATION_SEGMENTS + 1,
+          },
+          DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        ),
+    ]) {
+      try {
+        admit();
+        throw new Error("expected aggregate translation admission to fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(TranslationOutputValidationError);
+        expect((error as TranslationOutputValidationError).retryable).toBe(false);
+        expect((error as Error).message).toMatch(/translation.*limit/i);
+      }
+    }
+  });
+
   it("groups contiguous block ids and hashes each chunk", () => {
     const manifest = parseMarkdownTranslationBlocks(
       "# One\n\nSmall body.\n\n# Two\n\nSecond body.",
@@ -167,6 +231,33 @@ describe("translation chunker", () => {
       estimateRoughTokens(chunk.sourceMarkdown) <=
         DEFAULT_TRANSLATION_CHUNK_CONFIG.maxRoughTokens
     )).toBe(true);
+  });
+
+  it("builds a large admitted short-sentence manifest without losing order", {
+    timeout: 5_000,
+  }, () => {
+    const sentenceCount = 15_000;
+    const markdown =
+      "Short sentence with bounded projection work. ".repeat(sentenceCount);
+    const source = translationSource(markdown);
+
+    const chunks = createTranslationChunks({
+      blocks: parseMarkdownTranslationBlocks(markdown).blocks,
+      jobId: "job-short-sentences",
+      langCode: "ja-JP",
+      memoryId: source.memoryId,
+      source,
+    });
+
+    expect(chunks.map((chunk) => chunk.sourceMarkdown).join("")).toBe(markdown);
+    const segmentCount = chunks.reduce(
+      (total, chunk) => total + chunk.segments.length,
+      0,
+    );
+    expect(segmentCount).toBeGreaterThanOrEqual(sentenceCount);
+    expect(segmentCount).toBeLessThanOrEqual(
+      BRILLIANT_MAX_TRANSLATION_SEGMENTS,
+    );
   });
 
   it("bounds every prompt-oversized group in one ordered multibyte pass", () => {

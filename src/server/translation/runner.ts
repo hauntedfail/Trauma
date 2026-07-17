@@ -35,6 +35,11 @@ import {
   type TranslationCodexEventAdmissionLimits,
 } from "./event-admission";
 import { createSha256ContentHash } from "./hash";
+import {
+  assertTranslationSourceAdmission,
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  type TranslationWorkloadLimits,
+} from "./limits";
 import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
 import {
   BRILLIANT_CHUNKER_VERSION,
@@ -124,6 +129,7 @@ interface StartTranslationJobInput {
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
   reasoningEffort?: string | null;
   schedule?: (jobId: string, options: TranslationRunOptions) => void;
+  workloadLimits?: TranslationWorkloadLimits;
 }
 
 interface TranslationRunOptions {
@@ -136,6 +142,7 @@ interface TranslationRunOptions {
   createClient?: () => TranslationClient;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
   promptByteLimit?: number;
+  workloadLimits?: TranslationWorkloadLimits;
 }
 
 let queue: Promise<void> = Promise.resolve();
@@ -260,6 +267,10 @@ export async function startTranslationJob(
       return createActiveTranslationResult(active, input.memoryId, langCode);
     }
 
+    assertTranslationSourceAdmission(
+      source.byteSize,
+      input.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+    );
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const jobId = input.generateJobId === undefined
       ? generateMemoryId(now)
@@ -270,6 +281,7 @@ export async function startTranslationJob(
       langCode,
       memoryId: input.memoryId,
       source,
+      workloadLimits: input.workloadLimits,
     });
     if (chunks.length === 0) {
       throw new TranslationApiError(
@@ -372,6 +384,7 @@ export async function startTranslationJob(
       backupQueue: input.backupQueue,
       config,
       openConnection,
+      workloadLimits: input.workloadLimits,
     });
 
     return {
@@ -504,6 +517,10 @@ export async function runTranslationJob(
       return;
     }
 
+    assertTranslationSourceAdmission(
+      source.byteSize,
+      options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+    );
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const runtimeChunks = createTranslationChunks({
       blocks: manifest.blocks,
@@ -511,6 +528,7 @@ export async function runTranslationJob(
       langCode: job.langCode,
       memoryId: job.memoryId,
       source,
+      workloadLimits: options.workloadLimits,
     });
     const persistedChunks = await connection.repositories.translations
       .getTranslationChunks(jobId);
@@ -701,6 +719,7 @@ function scheduleRecoverableActiveJob(
     backupQueue: input.backupQueue,
     config,
     openConnection,
+    workloadLimits: input.workloadLimits,
   });
 }
 

@@ -202,7 +202,11 @@ remain compatible for their current clients.
    paragraphs and lists only at Markdown-safe ordered boundaries. Every source
    chunk is at most 2,500 rough tokens and its complete initial prompt is at most
    64 KiB by serialized UTF-8 bytes. An oversized fenced or other structurally
-   indivisible block fails with `validation_failed` before scheduling.
+   indivisible block fails with `validation_failed` before scheduling. Aggregate
+   admission also runs before client creation and durable rows: the complete
+   source is at most 20 MiB, with at most 16,384 translation segments and 4,096
+   chunks. These limits retain the supported import ceiling and ordinary long
+   articles while bounding short-sentence expansion and SQLite job fan-out.
 4. The runner claims `pending` work or resumes `running`, `stitching`, or
    `committing` work. It re-reads the source and marks the job stale when the
    source hash changed. Before reusing any chunk, it requires the persisted
@@ -225,6 +229,13 @@ remain compatible for their current clients.
    and retry. A 64-KiB event or any cumulative overflow stops callbacks,
    interrupts the active turn best-effort, and fails without retry through the
    existing safe unknown error contract.
+   Chunk partition passes reuse already-built segment-manifest payloads for
+   unchanged groups. Source and translated projection maps retain the canonical
+   reader text and protected-offset semantics. A translation-local compact
+   boundary map only remaps normalized LF source offsets back to raw CRLF
+   positions; hidden paragraph separators remain collapsed exactly as they are
+   in canonical reader text. The legacy Flashback reader projection contract is
+   unchanged.
 6. Cancellation is checked before and after chunk work. Pending jobs cancel
    immediately; running jobs move to `cancel_requested` and interrupt the active
    Codex turn. Stitching, committing, and terminal jobs reject cancellation to

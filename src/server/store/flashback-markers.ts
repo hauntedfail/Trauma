@@ -908,28 +908,62 @@ function findProjectedSpanForSourceRange(
   projectedMarkdown: ProjectedMarkdownText,
   range: MarkdownRange,
 ): { startOffset: number; endOffset: number } | undefined {
-  let startOffset: number | undefined;
-  let endOffset: number | undefined;
-
-  for (let index = 0; index < projectedMarkdown.text.length; index += 1) {
-    const sourceStartOffset = projectedMarkdown.sourceOffsets[index];
-    const sourceEndOffset = projectedMarkdown.sourceEndOffsets[index];
-    if (
-      sourceStartOffset === undefined ||
-      sourceEndOffset === undefined ||
-      sourceStartOffset < range.startOffset ||
-      sourceEndOffset > range.endOffset
-    ) {
-      continue;
-    }
-
-    startOffset ??= index;
-    endOffset = index + 1;
+  const startOffset = lowerBoundOffset(
+    projectedMarkdown.sourceOffsets,
+    range.startOffset,
+  );
+  const endOffset = upperBoundOffset(
+    projectedMarkdown.sourceEndOffsets,
+    range.endOffset,
+  );
+  if (startOffset >= endOffset) {
+    return undefined;
   }
+  const firstSourceStart = projectedMarkdown.sourceOffsets[startOffset];
+  const firstSourceEnd = projectedMarkdown.sourceEndOffsets[startOffset];
+  const lastSourceStart = projectedMarkdown.sourceOffsets[endOffset - 1];
+  const lastSourceEnd = projectedMarkdown.sourceEndOffsets[endOffset - 1];
+  if (
+    firstSourceStart === undefined ||
+    firstSourceEnd === undefined ||
+    lastSourceStart === undefined ||
+    lastSourceEnd === undefined ||
+    firstSourceStart < range.startOffset ||
+    firstSourceEnd > range.endOffset ||
+    lastSourceStart < range.startOffset ||
+    lastSourceEnd > range.endOffset
+  ) {
+    return undefined;
+  }
+  return { endOffset, startOffset };
+}
 
-  return startOffset === undefined || endOffset === undefined
-    ? undefined
-    : { startOffset, endOffset };
+function lowerBoundOffset(offsets: readonly number[], target: number): number {
+  let lower = 0;
+  let upper = offsets.length;
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) < target) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
+}
+
+function upperBoundOffset(offsets: readonly number[], target: number): number {
+  let lower = 0;
+  let upper = offsets.length;
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) <= target) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
 }
 
 function findRenderedContextStart(

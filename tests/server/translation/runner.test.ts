@@ -19,6 +19,7 @@ import {
   BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
 } from "../../../src/server/translation/prompt";
 import { splitFrontmatter } from "../../../src/server/translation/markdown-blocks";
+import { DEFAULT_TRANSLATION_WORKLOAD_LIMITS } from "../../../src/server/translation/limits";
 import {
   resolveTranslatedMemoryContentPath,
   resolveTranslatedMemoryProjectionPath,
@@ -165,6 +166,74 @@ describe("translation runner", () => {
 
     expect(scheduled).toBe(false);
     expect(client.inputs).toHaveLength(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it.each([
+    {
+      jobId: "019e3906-0000-7000-8000-000000000115",
+      label: "source bytes",
+      markdown: "Small source.",
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: 1,
+      },
+    },
+    {
+      jobId: "019e3906-0000-7000-8000-000000000116",
+      label: "segment count",
+      markdown: "Short sentence. ".repeat(20_000),
+      workloadLimits: DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+    },
+    {
+      jobId: "019e3906-0000-7000-8000-000000000117",
+      label: "chunk count",
+      markdown: "Chunked sentence. ".repeat(700),
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxChunks: 1,
+      },
+    },
+  ])("rejects aggregate $label before client creation or durable scheduling", async ({
+    jobId,
+    markdown,
+    workloadLimits,
+  }) => {
+    const config = await createConfig();
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    let clientCreations = 0;
+    let scheduled = false;
+
+    await expect(
+      startTranslationJob({
+        config,
+        createClient: () => {
+          clientCreations += 1;
+          return new FakeTranslationClient();
+        },
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => {
+          scheduled = true;
+        },
+        workloadLimits,
+      }),
+    ).rejects.toMatchObject({
+      action: "open_source_reader",
+      code: "validation_failed",
+    });
+
+    expect(clientCreations).toBe(0);
+    expect(scheduled).toBe(false);
     const connection = initializeDatabase(config);
     try {
       await expect(
@@ -327,6 +396,56 @@ describe("translation runner", () => {
     ).resolves.toMatchObject({
       status: "current",
       reader_url: `/memories/ja-JP/${memoryId}`,
+    });
+  });
+
+  it("persists CRLF source spans in canonical reader coordinates", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      "First sentence.\r\n\r\nSecond sentence.",
+    );
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000114",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const projectionPath = resolveTranslatedMemoryProjectionPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const sidecar = JSON.parse(
+      await readFile(projectionPath.absolutePath, "utf8"),
+    ) as {
+      spans: Array<{
+        segmentId: string;
+        sourceMarkdownEnd: number;
+        sourceMarkdownStart: number;
+        sourceReaderEnd: number;
+        sourceReaderStart: number;
+        translatedReaderEnd: number;
+        translatedReaderStart: number;
+      }>;
+    };
+
+    expect(sidecar.spans).toHaveLength(2);
+    expect(sidecar.spans[1]).toMatchObject({
+      segmentId: "s000002",
+      sourceMarkdownEnd: 35,
+      sourceMarkdownStart: 19,
+      sourceReaderEnd: 32,
+      sourceReaderStart: 16,
+      translatedReaderEnd: 32,
+      translatedReaderStart: 16,
     });
   });
 

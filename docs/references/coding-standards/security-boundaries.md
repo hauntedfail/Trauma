@@ -114,6 +114,11 @@
   source offsets; structurally indivisible overflow must fail before durable
   scheduling. Recheck every initial or retry prompt before the app-server client
   call, and never automatically retry a prompt-limit failure.
+- MUST reject new or resumed Brilliant work above 20 MiB of total source, 16,384
+  translation segments, or 4,096 chunks before any Codex client call. New work
+  must also fail before client creation or durable job insertion. Aggregate
+  overflow is a non-retryable `validation_failed` result; tests may inject
+  smaller limits but production limits are fixed code constants.
 - MUST reject translated output above 1 MiB per segment or 4 MiB per chunk by
   serialized UTF-8 bytes before projection or translated payload persistence.
   Absolute output overflow is terminal for that chunk attempt and is not

@@ -4,10 +4,10 @@ import { visitParents } from "unist-util-visit-parents";
 import { TranslationOutputValidationError } from "./errors";
 import {
   mapMarkdownSourceRangeToReaderRange,
-  projectMarkdownToReaderText,
   type ProjectedMarkdownText,
 } from "../store/flashback-markers";
 import { parseTranslationMarkdownAst } from "./markdown-parser";
+import { projectTranslationMarkdownToReaderText } from "./source-projection";
 import type {
   TranslationChunkProjectionSpan,
   TranslationProtectedRange,
@@ -49,7 +49,8 @@ export function createTranslationSegmentManifest(
   const blockRanges = readTopLevelBlockRanges(parsed.tree, parsed.bodyOffset);
   const sourceDocumentOffset = options.sourceDocumentOffset ?? 0;
   const sourceReaderProjection =
-    options.sourceReaderProjection ?? projectMarkdownToReaderText(sourceMarkdown);
+    options.sourceReaderProjection ??
+      projectTranslationMarkdownToReaderText(sourceMarkdown);
   const segments: TranslationTextSegment[] = [];
   const protectedRanges: TranslationProtectedRange[] = [];
 
@@ -172,7 +173,9 @@ export function applyTranslatedSegmentsWithProjection(input: {
   }
 
   translatedMarkdown += input.manifest.sourceMarkdown.slice(cursor);
-  const translatedProjection = projectMarkdownToReaderText(translatedMarkdown);
+  const translatedProjection = projectTranslationMarkdownToReaderText(
+    translatedMarkdown,
+  );
 
   return {
     projectionSpans: projectionSpans.map((span) => {

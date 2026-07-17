@@ -8,9 +8,9 @@ import {
 import type { SupportedLanguageCode } from "./languages";
 import {
   mapMarkdownSourceRangeToReaderRange,
-  projectMarkdownToReaderText,
 } from "../store/flashback-markers";
 import { TranslationOutputValidationError } from "./errors";
+import { projectTranslationMarkdownToReaderText } from "./source-projection";
 import type {
   TranslationChunkProjectionSpan,
   TranslationProjectionSpan,
@@ -42,7 +42,9 @@ export function buildTranslationProjectionSpans(input: {
   outputHash: string;
   sourceHash: string;
 }): TranslationProjectionSpan[] {
-  const translatedProjection = projectMarkdownToReaderText(input.body);
+  const translatedProjection = projectTranslationMarkdownToReaderText(
+    input.body,
+  );
   const spans: TranslationProjectionSpan[] = [];
   let translatedChunkStart = 0;
 

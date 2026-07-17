@@ -1,13 +1,17 @@
 import { createSha256ContentHash, estimateRoughTokens } from "./hash";
-import { projectMarkdownToReaderText } from "../store/flashback-markers";
 import { TranslationOutputValidationError } from "./errors";
 import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
 import { parseTranslationMarkdownAst } from "./markdown-parser";
 import {
+  assertTranslationManifestAdmission,
+  assertTranslationSourceAdmission,
   BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
   DEFAULT_TRANSLATION_CHUNK_CONFIG,
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  type TranslationWorkloadLimits,
 } from "./limits";
 import { measureTranslationPromptBytes } from "./prompt";
+import { projectTranslationMarkdownToReaderText } from "./source-projection";
 import { createTranslationSegmentManifest } from "./translation-segments";
 import type { SupportedLanguageCode } from "./languages";
 import type { Node, Parent } from "unist";
@@ -27,60 +31,126 @@ export interface CreateTranslationChunksInput {
   source: TranslationSourceSnapshot;
   styleProfile?: string | null;
   glossary?: Record<string, string>;
+  workloadLimits?: TranslationWorkloadLimits;
 }
+
+type TranslationChunkManifestPayload = Omit<
+  TranslationChunk,
+  "chunkCount" | "chunkIndex"
+>;
 
 export function createTranslationChunks(
   input: CreateTranslationChunksInput,
 ): TranslationChunk[] {
+  const workloadLimits =
+    input.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS;
+  assertTranslationSourceAdmission(
+    Buffer.byteLength(input.source.sourceMarkdown, "utf8"),
+    workloadLimits,
+  );
   const boundedBlocks = input.blocks.flatMap(splitOversizedBlock);
   const initialGroups = groupBlocks(boundedBlocks);
-  const sourceReaderProjection = projectMarkdownToReaderText(
+  const sourceReaderProjection = projectTranslationMarkdownToReaderText(
     boundedBlocks.map((block) => block.markdown).join(""),
   );
-  return boundGroupsByPromptBytes(input, initialGroups, sourceReaderProjection);
+  return boundGroupsByPromptBytes(
+    input,
+    initialGroups,
+    sourceReaderProjection,
+    new Map(),
+    workloadLimits,
+  );
 }
 
 function createChunksFromGroups(
   input: CreateTranslationChunksInput,
   groups: TranslationBlock[][],
-  sourceReaderProjection: ReturnType<typeof projectMarkdownToReaderText>,
+  sourceReaderProjection: ReturnType<typeof projectTranslationMarkdownToReaderText>,
+  manifestPayloads: Map<string, TranslationChunkManifestPayload>,
+  workloadLimits: TranslationWorkloadLimits,
 ): TranslationChunk[] {
-  return groups.map((blocks, index) => {
-    const sourceMarkdown = blocks.map((block) => block.markdown).join("");
-    const segmentManifest = createTranslationSegmentManifest(sourceMarkdown, {
-      sourceDocumentOffset: blocks[0]?.sourceStart ?? 0,
-      sourceReaderProjection,
-    });
-    return {
-      blockIds: blocks.map((block) => block.id),
+  assertTranslationManifestAdmission(
+    { chunkCount: groups.length, segmentCount: 0 },
+    workloadLimits,
+  );
+  const chunks: TranslationChunk[] = [];
+  let segmentCount = 0;
+  for (const [index, blocks] of groups.entries()) {
+    const cacheKey = createManifestPayloadCacheKey(blocks);
+    let payload = manifestPayloads.get(cacheKey);
+    if (payload === undefined) {
+      payload = createTranslationChunkManifestPayload(
+        input,
+        blocks,
+        sourceReaderProjection,
+      );
+      manifestPayloads.set(cacheKey, payload);
+    }
+    segmentCount += payload.segments.length;
+    assertTranslationManifestAdmission(
+      { chunkCount: groups.length, segmentCount },
+      workloadLimits,
+    );
+    chunks.push({
+      ...payload,
       chunkCount: groups.length,
       chunkIndex: index,
-      docTitle: input.source.title,
-      documentType: input.source.documentType,
-      glossary: input.glossary ?? {},
-      jobId: input.jobId,
-      langCode: input.langCode,
-      memoryId: input.memoryId,
-      sectionPath: blocks[0]?.sectionPath ?? [],
-      sourceBlocks: blocks,
-      sourceChunkHash: createSha256ContentHash(sourceMarkdown),
-      sourceHash: input.source.sourceHash,
-      sourceMarkdown,
-      sourceUrl: input.source.sourceUrl,
-      segments: segmentManifest.segments,
-      styleProfile: input.styleProfile ?? null,
-    };
+    });
+  }
+  return chunks;
+}
+
+function createTranslationChunkManifestPayload(
+  input: CreateTranslationChunksInput,
+  blocks: TranslationBlock[],
+  sourceReaderProjection: ReturnType<typeof projectTranslationMarkdownToReaderText>,
+): TranslationChunkManifestPayload {
+  const sourceMarkdown = blocks.map((block) => block.markdown).join("");
+  const segmentManifest = createTranslationSegmentManifest(sourceMarkdown, {
+    sourceDocumentOffset: blocks[0]?.sourceStart ?? 0,
+    sourceReaderProjection,
   });
+  return {
+    blockIds: blocks.map((block) => block.id),
+    docTitle: input.source.title,
+    documentType: input.source.documentType,
+    glossary: input.glossary ?? {},
+    jobId: input.jobId,
+    langCode: input.langCode,
+    memoryId: input.memoryId,
+    sectionPath: blocks[0]?.sectionPath ?? [],
+    sourceBlocks: blocks,
+    sourceChunkHash: createSha256ContentHash(sourceMarkdown),
+    sourceHash: input.source.sourceHash,
+    sourceMarkdown,
+    sourceUrl: input.source.sourceUrl,
+    segments: segmentManifest.segments,
+    styleProfile: input.styleProfile ?? null,
+  };
+}
+
+function createManifestPayloadCacheKey(blocks: readonly TranslationBlock[]): string {
+  return blocks.map((block) =>
+    `${block.id}:${block.sourceStart}:${block.sourceEnd}`
+  ).join("|");
 }
 
 function boundGroupsByPromptBytes(
   input: CreateTranslationChunksInput,
   initialGroups: TranslationBlock[][],
-  sourceReaderProjection: ReturnType<typeof projectMarkdownToReaderText>,
+  sourceReaderProjection: ReturnType<typeof projectTranslationMarkdownToReaderText>,
+  manifestPayloads: Map<string, TranslationChunkManifestPayload>,
+  workloadLimits: TranslationWorkloadLimits,
 ): TranslationChunk[] {
   let groups = initialGroups.map((group) => [...group]);
   while (true) {
-    const chunks = createChunksFromGroups(input, groups, sourceReaderProjection);
+    const chunks = createChunksFromGroups(
+      input,
+      groups,
+      sourceReaderProjection,
+      manifestPayloads,
+      workloadLimits,
+    );
     const nextGroups: TranslationBlock[][] = [];
     let splitCount = 0;
 
