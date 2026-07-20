@@ -100,8 +100,10 @@ describe("flashbacks route state", () => {
     expect(flashbacksRouteSource).toContain("nextCursor");
     expect(flashbacksRouteSource).toContain('href="/flashbacks"');
     expect(flashbacksRouteSource).toContain("CollectionPageRetry");
+    expect(flashbacksRouteSource).toContain("createCollectionPageRetryController");
+    expect(flashbacksRouteSource).toContain("isRetryingCurrentPage()");
     expect(flashbacksRouteSource).toContain(
-      "revalidateFlashbackBrowsePage(cursor())",
+      "revalidatePage: revalidateFlashbackBrowsePage",
     );
   });
 });

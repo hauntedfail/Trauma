@@ -38,6 +38,8 @@ describe("Moment route", () => {
     expect(browseSource).toContain("Saved reader sections will appear here.");
     expect(browseSource).not.toContain("Saved sections");
     expect(browseSource).toContain("CollectionPageRetry");
-    expect(browseSource).toContain("revalidateMomentBrowsePage(cursor())");
+    expect(browseSource).toContain("createCollectionPageRetryController");
+    expect(browseSource).toContain("isRetryingCurrentPage()");
+    expect(browseSource).toContain("revalidatePage: revalidateMomentBrowsePage");
   });
 });

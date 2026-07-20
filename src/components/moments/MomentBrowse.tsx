@@ -2,7 +2,10 @@ import { createAsync, useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
-import { CollectionPageRetry } from "../collections/CollectionPageRetry";
+import {
+  CollectionPageRetry,
+  createCollectionPageRetryController,
+} from "../collections/CollectionPageRetry";
 import {
   buildCollectionPageHref,
   readCollectionPageCursor,
@@ -36,10 +39,17 @@ export function MomentBrowse() {
     );
   });
   const [deletedMomentIds, setDeletedMomentIds] = createSignal(new Set<string>());
-  const [isRetryingPage, setIsRetryingPage] = createSignal(false);
   const currentPageState = createMemo(() => {
     const state = loadedPage();
     return state?.cursor === cursor() ? state : undefined;
+  });
+  const pageRetry = createCollectionPageRetryController({
+    getCurrentCursor: cursor,
+    isPageReady: (requestedCursor) => {
+      const state = loadedPage();
+      return state?.cursor === requestedCursor && state.status === "ready";
+    },
+    revalidatePage: revalidateMomentBrowsePage,
   });
   const currentPage = createMemo(() => {
     const state = currentPageState();
@@ -52,14 +62,6 @@ export function MomentBrowse() {
     }
 
     return currentMoments.filter((moment) => !deletedMomentIds().has(moment.id));
-  };
-  const retryCurrentPage = async (): Promise<void> => {
-    setIsRetryingPage(true);
-    try {
-      await revalidateMomentBrowsePage(cursor());
-    } finally {
-      setIsRetryingPage(false);
-    }
   };
   const deleteMoment = async (
     momentId: string,
@@ -77,18 +79,19 @@ export function MomentBrowse() {
       <RouteHeader layout="single" title="Moment" titleId="moment-title" />
       <div
         ref={pageRegionRef}
-        aria-busy={currentPageState() === undefined || isRetryingPage()}
+        aria-busy={currentPageState() === undefined || pageRetry.isRetryingCurrentPage()}
         aria-label="Moment page results"
         class="grid"
         role="region"
         tabIndex={-1}
       >
         <Show
-          when={currentPageState() !== undefined || isRetryingPage()}
+          when={currentPageState() !== undefined || pageRetry.isRetryingCurrentPage()}
           fallback={<MomentState title="Loading Moments..." />}
         >
           <Show
-            when={!isRetryingPage() && currentPageState()?.status !== "error"}
+            when={!pageRetry.isRetryingCurrentPage() &&
+              currentPageState()?.status !== "error"}
             fallback={
               <MomentState
                 title="Failed to load Moments"
@@ -99,7 +102,7 @@ export function MomentBrowse() {
               >
                 <CollectionPageRetry
                   getFocusTarget={() => pageRegionRef}
-                  onRetry={retryCurrentPage}
+                  onRetry={pageRetry.retryCurrentPage}
                   subject="Moments"
                 />
               </MomentState>

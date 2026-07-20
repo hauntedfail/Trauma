@@ -2,7 +2,10 @@ import { Title } from "@solidjs/meta";
 import { createAsync, useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
-import { CollectionPageRetry } from "~/components/collections/CollectionPageRetry";
+import {
+  CollectionPageRetry,
+  createCollectionPageRetryController,
+} from "~/components/collections/CollectionPageRetry";
 import {
   buildCollectionPageHref,
   readCollectionPageCursor,
@@ -42,10 +45,17 @@ export default function FlashbacksIndex() {
   const [removedFlashbackIds, setRemovedFlashbackIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
-  const [isRetryingPage, setIsRetryingPage] = createSignal(false);
   const currentPageState = createMemo(() => {
     const state = loadedPage();
     return state?.cursor === cursor() ? state : undefined;
+  });
+  const pageRetry = createCollectionPageRetryController({
+    getCurrentCursor: cursor,
+    isPageReady: (requestedCursor) => {
+      const state = loadedPage();
+      return state?.cursor === requestedCursor && state.status === "ready";
+    },
+    revalidatePage: revalidateFlashbackBrowsePage,
   });
   const currentPage = createMemo(() => {
     const state = currentPageState();
@@ -59,14 +69,6 @@ export default function FlashbacksIndex() {
 
     return page.flashbacks.filter((row) => !removedFlashbackIds().has(row.id));
   });
-  const retryCurrentPage = async (): Promise<void> => {
-    setIsRetryingPage(true);
-    try {
-      await revalidateFlashbackBrowsePage(cursor());
-    } finally {
-      setIsRetryingPage(false);
-    }
-  };
   const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
     await deleteFlashbackBySelection({ flashback });
     setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
@@ -83,20 +85,21 @@ export default function FlashbacksIndex() {
       <RouteHeader layout="single" title="Flashbacks" titleId="flashbacks-title" />
       <div
         ref={pageRegionRef}
-        aria-busy={currentPageState() === undefined || isRetryingPage()}
+        aria-busy={currentPageState() === undefined || pageRetry.isRetryingCurrentPage()}
         aria-label="Flashback page results"
         class="grid"
         role="region"
         tabIndex={-1}
       >
         <Show
-          when={currentPageState() !== undefined || isRetryingPage()}
+          when={currentPageState() !== undefined || pageRetry.isRetryingCurrentPage()}
           fallback={
             <FlashbackState title="Loading flashbacks..." />
           }
         >
           <Show
-            when={!isRetryingPage() && currentPageState()?.status !== "error"}
+            when={!pageRetry.isRetryingCurrentPage() &&
+              currentPageState()?.status !== "error"}
             fallback={
               <FlashbackState
                 title="Failed to load flashbacks"
@@ -107,7 +110,7 @@ export default function FlashbacksIndex() {
               >
                 <CollectionPageRetry
                   getFocusTarget={() => pageRegionRef}
-                  onRetry={retryCurrentPage}
+                  onRetry={pageRetry.retryCurrentPage}
                   subject="flashbacks"
                 />
               </FlashbackState>

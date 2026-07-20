@@ -7,6 +7,7 @@ const flashbackLoaderMocks = vi.hoisted(() => ({
   getFlashbackBrowsePage: vi.fn<
     (_input: { cursor: string | null }) => Promise<never>
   >(),
+  revalidateFlashbackBrowsePage: vi.fn(),
   revalidateFlashbackBrowseRows: vi.fn(),
 }));
 
@@ -66,6 +67,7 @@ describe("reader flashback tabs", () => {
     flashbackLoaderMocks.getFlashbackBrowsePage.mockReturnValue(
       new Promise<never>(() => {}),
     );
+    flashbackLoaderMocks.revalidateFlashbackBrowsePage.mockReset();
     flashbackLoaderMocks.revalidateFlashbackBrowseRows.mockReset();
   });
 
@@ -201,7 +203,9 @@ describe("reader flashback tabs", () => {
     );
 
     expect(tabsSource).toContain("CollectionPageRetry");
-    expect(tabsSource).toContain("revalidateFlashbackBrowsePage(allCursor())");
+    expect(tabsSource).toContain("createCollectionPageRetryController");
+    expect(tabsSource).toContain("isRetryingCurrentPage()");
+    expect(tabsSource).toContain("revalidatePage: revalidateFlashbackBrowsePage");
     expect(tabsSource).toContain('subject="all flashbacks"');
   });
 });

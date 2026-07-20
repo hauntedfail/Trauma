@@ -35,7 +35,10 @@ import {
   revalidateFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "../flashbacks/flashbacks-loader";
-import { CollectionPageRetry } from "../collections/CollectionPageRetry";
+import {
+  CollectionPageRetry,
+  createCollectionPageRetryController,
+} from "../collections/CollectionPageRetry";
 import { settleCollectionPage } from "../collections/page-state";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
@@ -2380,7 +2383,6 @@ export function ReaderFlashbackTabs(props: {
   const [cursorHistory, setCursorHistory] = createSignal<readonly (string | null)[]>(
     [],
   );
-  const [isRetryingAllPage, setIsRetryingAllPage] = createSignal(false);
   const lazyAllPageState = createAsync(async () => {
     if (props.allFlashbacks !== undefined || !shouldLoadAll()) {
       return undefined;
@@ -2395,6 +2397,14 @@ export function ReaderFlashbackTabs(props: {
     const state = lazyAllPageState();
     return state?.cursor === allCursor() ? state : undefined;
   });
+  const allPageRetry = createCollectionPageRetryController({
+    getCurrentCursor: allCursor,
+    isPageReady: (requestedCursor) => {
+      const state = lazyAllPageState();
+      return state?.cursor === requestedCursor && state.status === "ready";
+    },
+    revalidatePage: revalidateFlashbackBrowsePage,
+  });
   const allPage = createMemo(() => {
     if (props.allFlashbacks !== undefined) {
       return { flashbacks: props.allFlashbacks, nextCursor: null };
@@ -2408,14 +2418,6 @@ export function ReaderFlashbackTabs(props: {
     shouldLoadAll() &&
     currentAllPageState() === undefined;
   const hasAllPageError = () => currentAllPageState()?.status === "error";
-  const retryAllPage = async (): Promise<void> => {
-    setIsRetryingAllPage(true);
-    try {
-      await revalidateFlashbackBrowsePage(allCursor());
-    } finally {
-      setIsRetryingAllPage(false);
-    }
-  };
   const activateAllTab = (): void => {
     setShouldLoadAll(true);
     setActiveTab("all");
@@ -2468,14 +2470,14 @@ export function ReaderFlashbackTabs(props: {
         fallback={
           <div
             ref={allPageRegionRef}
-            aria-busy={isLoadingAll() || isRetryingAllPage()}
+            aria-busy={isLoadingAll() || allPageRetry.isRetryingCurrentPage()}
             aria-label="All flashbacks page"
             class="grid gap-3"
             role="region"
             tabIndex={-1}
           >
             <Show
-              when={!hasAllPageError() && !isRetryingAllPage()}
+              when={!hasAllPageError() && !allPageRetry.isRetryingCurrentPage()}
               fallback={
                 <div role="alert">
                   <p class="mb-0 text-sm font-bold text-trauma-danger">
@@ -2483,7 +2485,7 @@ export function ReaderFlashbackTabs(props: {
                   </p>
                   <CollectionPageRetry
                     getFocusTarget={() => allPageRegionRef}
-                    onRetry={retryAllPage}
+                    onRetry={allPageRetry.retryCurrentPage}
                     subject="all flashbacks"
                   />
                 </div>

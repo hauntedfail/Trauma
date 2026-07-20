@@ -1,8 +1,10 @@
 import { createSignal } from "solid-js";
 
+export type CollectionPageRetryOutcome = "error" | "success" | "superseded";
+
 export function CollectionPageRetry(props: {
   getFocusTarget: () => HTMLElement | undefined;
-  onRetry: () => Promise<unknown> | unknown;
+  onRetry: () => CollectionPageRetryOutcome | Promise<CollectionPageRetryOutcome>;
   subject: string;
 }) {
   const [pending, setPending] = createSignal(false);
@@ -15,20 +17,20 @@ export function CollectionPageRetry(props: {
 
     const shouldRestoreFocus = captureCollectionPageRetryFocusIntent(retryButton);
     setPending(true);
+    let outcome: CollectionPageRetryOutcome = "error";
     try {
-      await props.onRetry();
+      outcome = await props.onRetry();
     } catch {
-      // The owning page keeps its existing error state available for another retry.
+      outcome = "error";
     } finally {
       setPending(false);
       queueMicrotask(() => {
-        if (!shouldRestoreFocus()) {
-          return;
-        }
-        const target = props.getFocusTarget();
-        if (target?.isConnected) {
-          target.focus({ preventScroll: true });
-        }
+        restoreCollectionPageRetryFocus({
+          focusTarget: props.getFocusTarget(),
+          outcome,
+          retryButton,
+          shouldRestoreFocus,
+        });
       });
     }
   };
@@ -57,4 +59,68 @@ export function captureCollectionPageRetryFocusIntent(
   return () =>
     retryOwnedFocus &&
     (readActiveElement() === retryButton || readActiveElement() === readBody());
+}
+
+export function restoreCollectionPageRetryFocus(input: {
+  focusTarget: HTMLElement | undefined;
+  outcome: CollectionPageRetryOutcome;
+  retryButton: HTMLButtonElement;
+  shouldRestoreFocus: () => boolean;
+}): void {
+  if (!input.shouldRestoreFocus() || input.outcome === "superseded") {
+    return;
+  }
+
+  const target = input.outcome === "success" ? input.focusTarget : input.retryButton;
+  if (target?.isConnected) {
+    target.focus({ preventScroll: true });
+  }
+}
+
+export function createCollectionPageRetryController(input: {
+  getCurrentCursor: () => string | null;
+  isPageReady: (cursor: string | null) => boolean;
+  revalidatePage: (cursor: string | null) => Promise<unknown> | unknown;
+}) {
+  let nextGeneration = 0;
+  const [activeRetry, setActiveRetry] = createSignal<{
+    cursor: string | null;
+    generation: number;
+  }>();
+
+  const isRetryingCurrentPage = (): boolean =>
+    activeRetry()?.cursor === input.getCurrentCursor();
+
+  const retryCurrentPage = async (): Promise<CollectionPageRetryOutcome> => {
+    const attempt = {
+      cursor: input.getCurrentCursor(),
+      generation: ++nextGeneration,
+    };
+    setActiveRetry(attempt);
+
+    let revalidationFailed = false;
+    try {
+      await input.revalidatePage(attempt.cursor);
+    } catch {
+      revalidationFailed = true;
+    }
+
+    const ownsRetry = activeRetry()?.generation === attempt.generation;
+    const outcome: CollectionPageRetryOutcome = !ownsRetry ||
+        input.getCurrentCursor() !== attempt.cursor
+      ? "superseded"
+      : !revalidationFailed && input.isPageReady(attempt.cursor)
+        ? "success"
+        : "error";
+
+    if (ownsRetry) {
+      setActiveRetry(undefined);
+    }
+    return outcome;
+  };
+
+  return {
+    isRetryingCurrentPage,
+    retryCurrentPage,
+  };
 }
