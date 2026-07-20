@@ -9,7 +9,9 @@ import {
   deleteBrowseMemory,
   detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
+  MemoryBrowseInitialPageFailure,
   MemoryItem,
+  settleInitialBrowseMemoryPage,
   settleCurrentBrowsePageRequest,
 } from "../../src/components/memories/MemoryBrowse";
 import type {
@@ -145,6 +147,23 @@ describe("memory browse actions", () => {
 
     expect(html).not.toContain('aria-disabled="true"');
     expect(html).toContain('href="/memories/ja-JP/memory-1#flashback-card"');
+  });
+
+  it("renders the reader destination as one native full-row link", () => {
+    const html = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory,
+        selectedFlashbackId: "",
+        view: "list",
+        onDeleted: () => {},
+      }),
+    );
+
+    expect(html).toContain('data-memory-row-link="true"');
+    expect(html).toContain('href="/memories/memory-1"');
+    expect(html).toContain("absolute inset-0");
+    expect(browseSource).not.toContain("isInteractiveTarget");
+    expect(browseSource).not.toContain("onOpen?: (href: string) => void");
   });
 
   it("posts add-tag and add-category actions by name", async () => {
@@ -291,7 +310,7 @@ describe("memory browse actions", () => {
 
   it("does not load additional pages from a stale first-page cursor", () => {
     expect(browseSource).toContain("const firstPageResult = createAsync(async () => {");
-    expect(browseSource).toContain("query: requestedQuery");
+    expect(browseSource).toContain("settleInitialBrowseMemoryPage(requestedQuery");
     expect(browseSource).toContain("const firstPageForCurrentQuery = createMemo(() => {");
     expect(browseSource).toContain(
       "!isSameBrowseQuery(currentFirstPageResult.query, query())",
@@ -334,7 +353,10 @@ describe("memory browse actions", () => {
     const memoriesShowStart = browseSource.indexOf(
       "when={visibleMemories().length > 0}",
     );
-    const memoriesShowEnd = browseSource.indexOf("\n      </Show>", memoriesShowStart);
+    const memoriesShowEnd = browseSource.indexOf(
+      "\n            </Show>",
+      memoriesShowStart,
+    );
     const loadMoreStart = browseSource.indexOf(
       "<Show when={nextCursor() !== null}>",
       memoriesShowStart,
@@ -360,6 +382,36 @@ describe("memory browse actions", () => {
       'setLoadNextPageError("Failed to load more memories.")',
     );
     expect(loadNextPageSource).not.toContain("throw error");
+  });
+
+  it("settles initial-page failures into an explicit retryable state", async () => {
+    const readyPage = { memories: [memory], nextCursor: null } satisfies BrowseMemoryPage;
+
+    await expect(
+      settleInitialBrowseMemoryPage({ q: "", category: "", tag: "", flashback: "", view: "list" }, async () => readyPage),
+    ).resolves.toMatchObject({ status: "ready", page: readyPage });
+    await expect(
+      settleInitialBrowseMemoryPage({ q: "broken", category: "", tag: "", flashback: "", view: "list" }, async () => {
+        throw new Error("database unavailable");
+      }),
+    ).resolves.toMatchObject({ status: "error" });
+
+    const errorHtml = renderToString(() =>
+      createComponent(MemoryBrowseInitialPageFailure, {
+        getFocusTarget: () => undefined,
+        onRetry: () => "success",
+      }),
+    );
+    expect(errorHtml).toContain('role="alert"');
+    expect(errorHtml).toContain("Failed to load memories");
+    expect(errorHtml).toContain('aria-label="Retry memories"');
+    expect(errorHtml).toContain(">Retry</button>");
+
+    expect(browseSource).toContain('aria-label="Memory page results"');
+    expect(browseSource).toContain('role="region"');
+    expect(browseSource).toContain("CollectionPageRetry");
+    expect(browseSource).toContain("createCollectionPageRetryController");
+    expect(browseSource).toContain("revalidateBrowseMemoryFirstPage");
   });
 
   it("ignores every stale load-more completion path", async () => {

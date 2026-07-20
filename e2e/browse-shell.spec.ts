@@ -228,6 +228,51 @@ test("loads additional memory pages and keeps search global", async ({ page }) =
   await expect(page.locator("article")).toHaveCount(1);
 });
 
+test("uses a native full-row memory link for whitespace, keyboard, and new-tab navigation", async ({
+  context,
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const row = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  const rowLink = row.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const linkGeometry = await rowLink.evaluate((link) => {
+    const linkRect = link.getBoundingClientRect();
+    const rowRect = link.closest("article")?.getBoundingClientRect() ?? new DOMRect();
+    return {
+      heightDelta: Math.abs(linkRect.height - rowRect.height),
+      leftDelta: Math.abs(linkRect.left - rowRect.left),
+      topDelta: Math.abs(linkRect.top - rowRect.top),
+      widthDelta: Math.abs(linkRect.width - rowRect.width),
+    };
+  });
+
+  expect(linkGeometry.heightDelta).toBeLessThanOrEqual(1);
+  expect(linkGeometry).toMatchObject({
+    leftDelta: 0,
+    topDelta: 0,
+    widthDelta: 0,
+  });
+
+  const newTabPromise = context.waitForEvent("page");
+  await rowLink.click({ button: "middle" });
+  const newTab = await newTabPromise;
+  await newTab.waitForLoadState("domcontentloaded");
+  await expect(newTab).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+  await newTab.close();
+
+  await rowLink.focus();
+  await rowLink.press("Enter");
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+  await page.goBack();
+
+  const restoredRow = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  await restoredRow.click({ position: { x: 8, y: 8 } });
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+});
+
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {

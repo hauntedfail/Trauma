@@ -9,8 +9,14 @@ import {
   on,
   onCleanup,
   onMount,
+  type JSX,
 } from "solid-js";
 
+import {
+  CollectionPageRetry,
+  createCollectionPageRetryController,
+  type CollectionPageRetryOutcome,
+} from "../collections/CollectionPageRetry";
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
 import {
   buildBrowseHref,
@@ -25,6 +31,7 @@ import {
   type BrowseMemoryPage,
   type BrowseReadStateFilter,
   type BrowseMemory,
+  type BrowseQuery,
   type BrowseTaxonomyItem,
   type BrowseTaxonomySummaryItem,
 } from "./browse-data";
@@ -32,6 +39,7 @@ import { buildMemoryVariantAnchorHref } from "./memory-anchor-hrefs";
 import {
   getBrowseMemoryPage,
   getBrowseTaxonomy,
+  revalidateBrowseMemoryFirstPage,
   revalidateBrowseMemoryWorkspace,
 } from "./browse-loader";
 import { formatCapturedAtForDisplay } from "./captured-at";
@@ -101,18 +109,33 @@ export async function settleCurrentBrowsePageRequest(input: {
   }
 }
 
+export type InitialBrowseMemoryPageState =
+  | { page: BrowseMemoryPage; query: BrowseQuery; status: "ready" }
+  | { query: BrowseQuery; status: "error" };
+
+export async function settleInitialBrowseMemoryPage(
+  query: BrowseQuery,
+  loadPage: () => Promise<BrowseMemoryPage>,
+): Promise<InitialBrowseMemoryPageState> {
+  try {
+    return { page: await loadPage(), query, status: "ready" };
+  } catch {
+    return { query, status: "error" };
+  }
+}
+
 export function MemoryBrowse() {
+  let pageRegionRef: HTMLDivElement | undefined;
   const location = useLocation();
   const navigate = useNavigate();
   const query = createMemo(() => parseBrowseQuery(location.search));
   const firstPageResult = createAsync(async () => {
     const requestedQuery = query();
-    return {
-      page: await getBrowseMemoryPage(
+    return settleInitialBrowseMemoryPage(requestedQuery, () =>
+      getBrowseMemoryPage(
         createInitialBrowseMemoryPageRequest(requestedQuery),
       ),
-      query: requestedQuery,
-    };
+    );
   });
   const taxonomy = createAsync(() => getBrowseTaxonomy());
   const availableCategories = createMemo(() => taxonomy()?.categories ?? []);
@@ -129,7 +152,7 @@ export function MemoryBrowse() {
   const [removedMemoryIds, setRemovedMemoryIds] = createSignal<ReadonlySet<string>>(
     new Set(),
   );
-  const firstPageForCurrentQuery = createMemo(() => {
+  const firstPageStateForCurrentQuery = createMemo(() => {
     const currentFirstPageResult = firstPageResult();
     if (
       currentFirstPageResult === undefined ||
@@ -138,7 +161,21 @@ export function MemoryBrowse() {
       return undefined;
     }
 
-    return currentFirstPageResult.page;
+    return currentFirstPageResult;
+  });
+  const currentQueryKey = createMemo(() => buildBrowseHref(query(), {}));
+  const firstPageRetry = createCollectionPageRetryController({
+    getCurrentCursor: currentQueryKey,
+    isPageReady: (requestedQueryKey) => {
+      const state = firstPageStateForCurrentQuery();
+      return state?.status === "ready" &&
+        buildBrowseHref(state.query, {}) === requestedQueryKey;
+    },
+    revalidatePage: () => revalidateBrowseMemoryFirstPage(query()),
+  });
+  const firstPageForCurrentQuery = createMemo(() => {
+    const state = firstPageStateForCurrentQuery();
+    return state?.status === "ready" ? state.page : undefined;
   });
   const pages = createMemo(() => {
     const initialPage = firstPageForCurrentQuery();
@@ -405,69 +442,137 @@ export function MemoryBrowse() {
           searchInput = input;
         }}
       />
-      <Show
-        when={visibleMemories().length > 0}
-        fallback={
-          <div class="trauma-route-row px-6 py-12 text-trauma-text-secondary">
-            <h2 class="text-xl font-bold text-trauma-text-primary">No matching memories</h2>
-            <p>Adjust the search, category, tag, or flashback filter.</p>
-          </div>
-        }
-      >
-        <div class={isGrid() ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2" : "trauma-memory-list grid"}>
-          <For each={visibleMemories()}>
-            {(memory) => {
-              const memoryFlashbacks = createMemo(
-                () => flashbacksByMemoryId()[memory.id],
-              );
-
-              return (
-                <MemoryItem
-                  memory={memory}
-                  flashbacks={memoryFlashbacks() ?? []}
-                  flashbacksHydrated={memoryFlashbacks() !== undefined}
-                  availableCategories={availableCategories()}
-                  availableTags={availableTags()}
-                  selectedFlashbackId={query().flashback}
-                  isKeyboardSelected={selectedMemoryId() === memory.id}
-                  view={query().view}
-                  onOpen={(href) => navigate(href)}
-                  onOpenLinkMount={(element) => {
-                    memoryLinkRefs.set(memory.id, element);
-                  }}
-                  onDeleted={(memoryId) =>
-                    setRemovedMemoryIds((current) => new Set([...current, memoryId]))
-                  }
-                  onMemoryMutated={clearAdditionalBrowsePages}
-                />
-              );
-            }}
-          </For>
-        </div>
-      </Show>
-      <Show when={nextCursor() !== null}>
-        <div class="trauma-route-row grid gap-3 px-6 py-6 text-center">
-          <button
-            class="justify-self-center rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-wait disabled:opacity-60"
-            type="button"
-            disabled={isLoadingNextPage() || firstPageForCurrentQuery() === undefined}
-            onClick={() => void loadNextPage()}
-          >
-            {isLoadingNextPage() ? "Loading..." : "Load more"}
-          </button>
-          <Show when={loadNextPageError() !== ""}>
-            <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
-              {loadNextPageError()}
-            </p>
-          </Show>
-        </div>
-      </Show>
       <div
-        aria-hidden="true"
-        class="h-px"
-        ref={setLoadMoreSentinel}
-      />
+        ref={pageRegionRef}
+        aria-busy={
+          firstPageStateForCurrentQuery() === undefined ||
+          firstPageRetry.isRetryingCurrentPage()
+        }
+        aria-label="Memory page results"
+        role="region"
+        tabIndex={-1}
+      >
+        <Show
+          when={
+            firstPageStateForCurrentQuery() !== undefined ||
+            firstPageRetry.isRetryingCurrentPage()
+          }
+          fallback={<MemoryBrowseState title="Loading memories..." />}
+        >
+          <Show
+            when={
+              !firstPageRetry.isRetryingCurrentPage() &&
+              firstPageStateForCurrentQuery()?.status !== "error"
+            }
+            fallback={
+              <MemoryBrowseInitialPageFailure
+                getFocusTarget={() => pageRegionRef}
+                onRetry={firstPageRetry.retryCurrentPage}
+              />
+            }
+          >
+            <Show
+              when={visibleMemories().length > 0}
+              fallback={
+                <MemoryBrowseState
+                  message="Adjust the search, category, tag, or flashback filter."
+                  title="No matching memories"
+                />
+              }
+            >
+              <div class={isGrid() ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2" : "trauma-memory-list grid"}>
+                <For each={visibleMemories()}>
+                  {(memory) => {
+                    const memoryFlashbacks = createMemo(
+                      () => flashbacksByMemoryId()[memory.id],
+                    );
+
+                    return (
+                      <MemoryItem
+                        memory={memory}
+                        flashbacks={memoryFlashbacks() ?? []}
+                        flashbacksHydrated={memoryFlashbacks() !== undefined}
+                        availableCategories={availableCategories()}
+                        availableTags={availableTags()}
+                        selectedFlashbackId={query().flashback}
+                        isKeyboardSelected={selectedMemoryId() === memory.id}
+                        view={query().view}
+                        onOpenLinkMount={(element) => {
+                          memoryLinkRefs.set(memory.id, element);
+                        }}
+                        onDeleted={(memoryId) =>
+                          setRemovedMemoryIds((current) => new Set([...current, memoryId]))
+                        }
+                        onMemoryMutated={clearAdditionalBrowsePages}
+                      />
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+            <Show when={nextCursor() !== null}>
+              <div class="trauma-route-row grid gap-3 px-6 py-6 text-center">
+                <button
+                  class="justify-self-center rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-wait disabled:opacity-60"
+                  type="button"
+                  disabled={isLoadingNextPage() || firstPageForCurrentQuery() === undefined}
+                  onClick={() => void loadNextPage()}
+                >
+                  {isLoadingNextPage() ? "Loading..." : "Load more"}
+                </button>
+                <Show when={loadNextPageError() !== ""}>
+                  <p class="mb-0 text-sm font-bold text-trauma-danger" role="alert">
+                    {loadNextPageError()}
+                  </p>
+                </Show>
+              </div>
+            </Show>
+            <div
+              aria-hidden="true"
+              class="h-px"
+              ref={setLoadMoreSentinel}
+            />
+          </Show>
+        </Show>
+      </div>
     </section>
+  );
+}
+
+function MemoryBrowseState(props: {
+  children?: JSX.Element;
+  message?: string;
+  role?: "alert";
+  title: string;
+}) {
+  return (
+    <div
+      class="trauma-route-row px-6 py-12 text-trauma-text-secondary"
+      role={props.role}
+    >
+      <h2 class="text-xl font-bold text-trauma-text-primary">{props.title}</h2>
+      <Show when={props.message}>{(message) => <p>{message()}</p>}</Show>
+      {props.children}
+    </div>
+  );
+}
+
+export function MemoryBrowseInitialPageFailure(props: {
+  getFocusTarget: () => HTMLElement | undefined;
+  onRetry: () => CollectionPageRetryOutcome | Promise<CollectionPageRetryOutcome>;
+}) {
+  return (
+    <MemoryBrowseState
+      message="Retry the current memory search."
+      role="alert"
+      title="Failed to load memories"
+    >
+      <CollectionPageRetry
+        getFocusTarget={props.getFocusTarget}
+        onRetry={props.onRetry}
+        subject="memories"
+      />
+    </MemoryBrowseState>
   );
 }
 
@@ -559,7 +664,6 @@ export function MemoryItem(props: {
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
-  onOpen?: (href: string) => void;
   onDeleted?: (memoryId: string) => void;
   onMemoryMutated?: () => void;
   onOpenLinkMount?: (link: HTMLAnchorElement) => void;
@@ -587,27 +691,6 @@ export function MemoryItem(props: {
   const href = createMemo(() =>
     buildMemoryBrowseItemHref(props.memory, props.selectedFlashbackId, props.flashbacks),
   );
-
-  const openMemory = (): void => {
-    if (isSelectedFlashbackHydrating()) {
-      return;
-    }
-
-    if (props.onOpen !== undefined) {
-      props.onOpen(href());
-      return;
-    }
-
-    if (typeof window !== "undefined") {
-      window.location.href = href();
-    }
-  };
-  const handleMemoryLinkClick = (event: MouseEvent): void => {
-    event.stopPropagation();
-    if (isSelectedFlashbackHydrating()) {
-      event.preventDefault();
-    }
-  };
 
   const submitTag = async (name: string): Promise<void> => {
     setActionError("");
@@ -675,14 +758,17 @@ export function MemoryItem(props: {
 
   return (
     <article
-      class={`${cardBase} cursor-pointer no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent ${isSelected() ? "bg-trauma-bg-tint ring-1 ring-inset ring-trauma-border-strong" : ""} ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
+      class={`${cardBase} relative cursor-pointer no-underline ${isSelected() ? "bg-trauma-bg-tint ring-1 ring-inset ring-trauma-border-strong" : ""} ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
       data-keyboard-selected={isSelected() ? "true" : "false"}
-      onClick={(event) => {
-        if (!isInteractiveTarget(event.target)) {
-          openMemory();
-        }
-      }}
     >
+      <a
+        aria-label={`Open memory ${props.memory.title}`}
+        aria-disabled={isSelectedFlashbackHydrating() ? "true" : undefined}
+        class="absolute inset-0 z-0 no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent"
+        data-memory-row-link="true"
+        href={isSelectedFlashbackHydrating() ? undefined : href()}
+        ref={(element) => props.onOpenLinkMount?.(element)}
+      />
       <span class="mt-1 grid size-12 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-lg font-extrabold text-trauma-accent" aria-hidden="true">
         {initial()}
       </span>
@@ -695,19 +781,10 @@ export function MemoryItem(props: {
               <time dateTime={props.memory.capturedAt}>{formatCapturedAtForDisplay(props.memory.capturedAt)}</time>
             </p>
             <h2 class={cardTitle}>
-              <a
-                aria-label={`Open memory ${props.memory.title}`}
-                aria-disabled={isSelectedFlashbackHydrating() ? "true" : undefined}
-                class="text-trauma-text-primary no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-trauma-accent"
-                href={isSelectedFlashbackHydrating() ? undefined : href()}
-                ref={(element) => props.onOpenLinkMount?.(element)}
-                onClick={handleMemoryLinkClick}
-              >
-                {props.memory.title}
-              </a>
+              {props.memory.title}
             </h2>
           </div>
-          <div class="flex items-start gap-2">
+          <div class="relative z-10 flex items-start gap-2">
             <MemoryReadStatusControl
               memoryId={props.memory.id}
               initialRead={props.memory.read}
@@ -729,12 +806,11 @@ export function MemoryItem(props: {
         </header>
         <p class="mb-0 leading-relaxed text-trauma-text-secondary">{props.memory.description}</p>
         <ScrollableUrlLink
-          class={`${subduedText} no-underline hover:text-trauma-accent`}
+          class={`${subduedText} relative z-10 no-underline hover:text-trauma-accent`}
           href={props.memory.url}
           rel="noreferrer"
           target="_blank"
           url={props.memory.url}
-          onClick={(event) => event.stopPropagation()}
         />
         <Show when={displayFlashback()}>
           {(flashback) => (
@@ -765,7 +841,7 @@ export function MemoryItem(props: {
                 Link-only
               </span>
             </Show>
-            <div class="relative inline-grid">
+            <div class="relative z-10 inline-grid">
               <TaxonomyAddControl
                 attachedItems={tags()}
                 id={`memory-${props.memory.id}-tags-add`}
@@ -883,10 +959,4 @@ function isNativeActivationTarget(target: EventTarget | null): boolean {
   }
 
   return target.closest("a,button,[role='button']") !== null;
-}
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof Element
-    ? target.closest("a,button,input,select,textarea,[role='menu']") !== null
-    : false;
 }
