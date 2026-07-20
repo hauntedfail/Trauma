@@ -7,8 +7,10 @@ import {
   type ExtractionStatus,
 } from "../memory-status";
 import {
+  AtomicCreatePublicationError,
   createFileAtomically,
   writeFileAtomically,
+  type AtomicCreateFileSystem,
 } from "../files/atomic-write";
 
 export const MEMORY_CONTENT_FILENAME = "CONTENT.md";
@@ -46,6 +48,7 @@ export interface ResolvedMemoryContentPath {
 }
 
 export interface WriteMemoryContentInput {
+  atomicCreateFileSystem?: AtomicCreateFileSystem;
   config: MemoryContentStoreConfig;
   memoryId: string;
   frontmatter: MemoryContentFrontmatter;
@@ -146,15 +149,24 @@ export async function writeMemoryContent(
   const contentDir = dirname(resolvedPath.absolutePath);
   const overwrite = input.overwrite ?? true;
   await mkdir(contentDir, { recursive: true });
-  await publishMemoryContent({
-    content,
-    destination: resolvedPath,
-    overwrite,
-  });
+  let canonicalContentMayExist = false;
   try {
+    await publishMemoryContent({
+      atomicCreateFileSystem: input.atomicCreateFileSystem,
+      content,
+      destination: resolvedPath,
+      overwrite,
+    });
+    canonicalContentMayExist = true;
     await syncMemoryDirectoryHierarchy(input.config.storePath, contentDir);
   } catch (error) {
-    if (!overwrite) {
+    // The exclusive hard link can succeed before its parent fsync reports a
+    // failure. Roll that observable publication back before the creation
+    // journal and idempotency reservation are allowed to clear.
+    if (
+      !overwrite &&
+      (canonicalContentMayExist || error instanceof AtomicCreatePublicationError)
+    ) {
       try {
         await removeMemoryDirectoryDurably(input.config.storePath, contentDir);
       } catch (cleanupError) {
@@ -423,13 +435,16 @@ function readSerializedFrontmatterValue(
 }
 
 async function publishMemoryContent(input: {
+  atomicCreateFileSystem?: AtomicCreateFileSystem;
   content: string;
   overwrite: boolean;
   destination: ResolvedMemoryContentPath,
 }): Promise<void> {
   if (!input.overwrite) {
     try {
-      await createFileAtomically(input.destination.absolutePath, input.content);
+      await createFileAtomically(input.destination.absolutePath, input.content, {
+        fileSystem: input.atomicCreateFileSystem,
+      });
     } catch (error) {
       if (isNodeError(error) && error.code === "EEXIST") {
         throw new MemoryContentStoreError(

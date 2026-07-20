@@ -180,6 +180,60 @@ describe("durable atomic file creation", () => {
       "remove-temporary",
     ]);
   });
+
+  it("reports an ambiguous publication when directory durability fails after linking", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    const error = Object.assign(new Error("directory sync failed"), {
+      code: "EIO",
+    });
+
+    const result = await createFileAtomically(targetPath, "content\n", {
+      fileSystem: createInstrumentedCreateFileSystem({
+        calls: [],
+        directorySyncError: error,
+      }),
+    }).catch((caught: unknown) => caught);
+
+    expect(result).toMatchObject({
+      name: "AtomicCreatePublicationError",
+      targetPath,
+    });
+    expect(result).toHaveProperty("cause", error);
+    expect(await readFile(targetPath, "utf8")).toBe("content\n");
+  });
+
+  it("preserves an existing target when exclusive publication collides", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    await writeFile(targetPath, "original\n", "utf8");
+
+    await expect(createFileAtomically(targetPath, "replacement\n"))
+      .rejects.toMatchObject({ code: "EEXIST" });
+
+    expect(await readFile(targetPath, "utf8")).toBe("original\n");
+  });
+
+  it("propagates a pre-publication cross-device link failure without ambiguity", async () => {
+    const root = await makeRoot();
+    const targetPath = join(root, "CONTENT.md");
+    const calls: string[] = [];
+    const error = Object.assign(new Error("cross-device link"), {
+      code: "EXDEV",
+    });
+
+    await expect(
+      createFileAtomically(targetPath, "content\n", {
+        fileSystem: createInstrumentedCreateFileSystem({
+          calls,
+          linkError: error,
+        }),
+      }),
+    ).rejects.toBe(error);
+
+    await expect(access(targetPath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(calls.at(-1)).toBe("remove-temporary");
+  });
 });
 
 async function makeRoot() {
@@ -238,10 +292,15 @@ function createInstrumentedFileSystem(input: {
 
 function createInstrumentedCreateFileSystem(input: {
   calls: string[];
+  directorySyncError?: Error;
+  linkError?: Error;
 }): AtomicCreateFileSystem {
   return {
     link: async (source, destination) => {
       input.calls.push("link");
+      if (input.linkError !== undefined) {
+        throw input.linkError;
+      }
       await link(source, destination);
     },
     open: async (path, flags, mode) => {
@@ -268,6 +327,9 @@ function createInstrumentedCreateFileSystem(input: {
       return {
         sync: async () => {
           input.calls.push("sync-directory");
+          if (input.directorySyncError !== undefined) {
+            throw input.directorySyncError;
+          }
           await handle.sync();
         },
         close: async () => {

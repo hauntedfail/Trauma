@@ -72,6 +72,19 @@ const defaultPublishFileSystem: AtomicPublishFileSystem = {
   rm,
 };
 
+export class AtomicCreatePublicationError extends Error {
+  constructor(
+    public readonly targetPath: string,
+    cause: unknown,
+  ) {
+    super(
+      "Atomic creation linked its target, but directory durability could not be confirmed",
+      { cause },
+    );
+    this.name = "AtomicCreatePublicationError";
+  }
+}
+
 export async function createFileAtomically(
   targetPath: string,
   content: string,
@@ -106,6 +119,9 @@ export async function createFileAtomically(
     await syncDirectoryBestEffort(directoryPath, fileSystem);
   } catch (error) {
     operationError = error;
+    if (published) {
+      throw new AtomicCreatePublicationError(targetPath, error);
+    }
     throw error;
   } finally {
     try {

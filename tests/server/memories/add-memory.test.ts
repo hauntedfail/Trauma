@@ -419,6 +419,167 @@ describe("add memory orchestration", () => {
     });
   });
 
+  it("rolls back a linked file when directory durability fails and retries without an orphan", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { access, link, open, rm } from "node:fs/promises";
+        import { dirname, join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+        import { resolveMemoryContentPath } from "./src/server/store/memory-content.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+        const idempotencyKey = ${JSON.stringify(successMemoryId)};
+        const contentPath = resolveMemoryContentPath(config, idempotencyKey);
+        let importCalls = 0;
+        const baseInput = {
+          url: "https://example.com/retry-after-directory-sync-failure",
+          idempotencyKey,
+          config,
+          db: connection.db,
+          importer: {
+            importUrl: async () => {
+              importCalls += 1;
+              return {
+                status: "success",
+                url: "https://example.com/retry-after-directory-sync-failure",
+                title: "Durable retry",
+                description: null,
+                faviconUrl: null,
+                markdown: "# Durable retry",
+              };
+            },
+          },
+          backupQueue: {
+            enqueue: async () => ({ backupStatus: "disabled" }),
+          },
+          now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+        };
+        const atomicCreateFileSystem = {
+          link,
+          open: async (path, flags, mode) => {
+            const handle = await open(path, flags, mode);
+            return {
+              writeFile: (data, options) => handle.writeFile(data, options),
+              sync: () => handle.sync(),
+              close: () => handle.close(),
+            };
+          },
+          openDirectory: async (path) => {
+            const handle = await open(path, "r");
+            return {
+              sync: async () => {
+                throw Object.assign(
+                  new Error("directory sync failed after link"),
+                  { code: "EIO" },
+                );
+              },
+              close: () => handle.close(),
+            };
+          },
+          rm: (path, options) => rm(path, options),
+        };
+
+        try {
+          let initialError = null;
+          let initialResult = null;
+          try {
+            initialResult = await addMemory({
+              ...baseInput,
+              atomicCreateFileSystem,
+            });
+          } catch (error) {
+            initialError = {
+              message: error instanceof Error ? error.message : String(error),
+              name: error instanceof Error ? error.name : "UnknownError",
+            };
+          }
+
+          let contentDirectoryExistsAfterFailure = true;
+          try {
+            await access(dirname(contentPath.absolutePath));
+          } catch {
+            contentDirectoryExistsAfterFailure = false;
+          }
+          let journalExistsAfterFailure = true;
+          try {
+            await access(join(config.storePath, ".operations", idempotencyKey + ".json"));
+          } catch {
+            journalExistsAfterFailure = false;
+          }
+          const rowsAfterFailure = connection.sqlite
+            .prepare("select count(*) as count from memories where id = ?")
+            .get(idempotencyKey).count;
+          const reservationsAfterFailure = connection.sqlite
+            .prepare("select count(*) as count from memory_creation_idempotency where idempotency_key = ?")
+            .get(idempotencyKey).count;
+
+          const retried = await addMemory(baseInput);
+          const finalRows = connection.sqlite
+            .prepare("select count(*) as count from memories where id = ?")
+            .get(idempotencyKey).count;
+
+          process.stdout.write(JSON.stringify({
+            contentDirectoryExistsAfterFailure,
+            finalRows,
+            importCalls,
+            initialError,
+            initialResult,
+            journalExistsAfterFailure,
+            reservationsAfterFailure,
+            retried,
+            rowsAfterFailure,
+          }));
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      contentDirectoryExistsAfterFailure: false,
+      finalRows: 1,
+      importCalls: 2,
+      initialError: {
+        name: "AtomicCreatePublicationError",
+      },
+      initialResult: null,
+      journalExistsAfterFailure: false,
+      reservationsAfterFailure: 0,
+      retried: {
+        id: successMemoryId,
+        title: "Durable retry",
+      },
+      rowsAfterFailure: 0,
+    });
+  });
+
   it("recovers an existing reservation from its durable creation journal without importing again", async () => {
     const root = await makeRoot();
     const output = runBunScript(

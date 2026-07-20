@@ -9,6 +9,7 @@ import {
 } from "../backup/environment";
 import { importUrl, type ImporterResult } from "../importer";
 import type { TraumaDatabase } from "../db";
+import type { AtomicCreateFileSystem } from "../files/atomic-write";
 import {
   deleteMemoryContent,
   MemoryContentStoreError,
@@ -29,6 +30,7 @@ export interface MemoryImporter {
 }
 
 export interface AddMemoryInput {
+  atomicCreateFileSystem?: AtomicCreateFileSystem;
   url: string;
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
@@ -188,6 +190,7 @@ async function addMemoryWithId(
         let contentWritten = false;
         try {
           written = await writeMemoryContent({
+            atomicCreateFileSystem: input.atomicCreateFileSystem,
             config: { storePath: input.config.storePath },
             memoryId: id,
             overwrite: false,
