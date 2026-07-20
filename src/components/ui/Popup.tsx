@@ -24,6 +24,7 @@ export interface PopupTriggerControls extends PopupControls {
 export interface PopupProps {
   children: (controls: PopupControls) => JSX.Element;
   class?: string;
+  descriptionId?: string;
   disabled?: boolean;
   id: string;
   initialOpen?: boolean;
@@ -58,10 +59,11 @@ export function Popup(props: PopupProps) {
   const mode = () => props.mode ?? "dialog";
   const placement = () => props.placement ?? "bottom-start";
   const closePopup = (restoreFocus: boolean): void => {
-    setOpen(false);
     if (restoreFocus) {
+      focusConnectedPopupTrigger(activeTrigger, rootRef, activeTriggerIndex);
       restorePopupTriggerFocus(activeTrigger, rootRef, activeTriggerIndex);
     }
+    setOpen(false);
   };
   const close = () => closePopup(true);
   const toggle = () => {
@@ -120,6 +122,7 @@ export function Popup(props: PopupProps) {
       <Show when={open()}>
         <div
           ref={(panel) => focusPopupPanel(panel, mode())}
+          aria-describedby={props.descriptionId}
           aria-label={props.label}
           class={`${panelBaseClass} ${
             props.phonePanel === true ? phonePanelClass : placementClass[placement()]
@@ -198,15 +201,26 @@ function restorePopupTriggerFocus(
   triggerIndex: number,
 ): void {
   queueMicrotask(() => {
-    const target = trigger?.isConnected === true
-      ? trigger
-      : root?.querySelectorAll<HTMLButtonElement>("button[aria-haspopup]")[
-        Math.max(triggerIndex, 0)
-      ];
-    if (target?.isConnected === true && !target.disabled) {
-      target.focus({ preventScroll: true });
-    }
+    focusConnectedPopupTrigger(trigger, root, triggerIndex);
   });
+}
+
+function focusConnectedPopupTrigger(
+  trigger: HTMLButtonElement | undefined,
+  root: HTMLDivElement | undefined,
+  triggerIndex: number,
+): boolean {
+  const target = trigger?.isConnected === true
+    ? trigger
+    : root?.querySelectorAll<HTMLButtonElement>("button[aria-haspopup]")[
+      Math.max(triggerIndex, 0)
+    ];
+  if (target?.isConnected !== true || target.disabled) {
+    return false;
+  }
+
+  target.focus({ preventScroll: true });
+  return true;
 }
 
 function handlePopupMenuKeyDown(event: KeyboardEvent): void {

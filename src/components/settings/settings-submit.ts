@@ -208,13 +208,8 @@ export async function submitCancelCodexAuthSetup(input: {
 }
 
 export async function submitDeleteOpenAiAuth(input: {
-  confirm: (message: string) => boolean;
   fetch?: FetchFunction;
-}): Promise<CodexAuthDeleteResponse | undefined> {
-  if (!input.confirm("Delete Codex auth?")) {
-    return undefined;
-  }
-
+} = {}): Promise<CodexAuthDeleteResponse> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/settings/codex-auth", {
     method: "DELETE",

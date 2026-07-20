@@ -410,10 +410,6 @@ test("deletes a memory from the browse list through the public DELETE route", as
   });
   await expect(deletedMemoryLink).toBeVisible();
 
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete memory "Reader Mode Notes"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/memories/${memoryId}`) &&
@@ -423,6 +419,13 @@ test("deletes a memory from the browse list through the public DELETE route", as
     .getByRole("button", { name: "Memory actions for Reader Mode Notes" })
     .click();
   await page.getByRole("menuitem", { name: "Delete memory" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete memory "Reader Mode Notes"? This action cannot be undone.',
+  );
+  await confirmation.getByRole("button", { name: "Delete memory" }).click();
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(deletedMemoryLink).toHaveCount(0);
@@ -1027,9 +1030,34 @@ test("moves focus through shared dialogs and menus and returns it to the opener"
   await expect(categoryItem).toBeFocused();
   await page.keyboard.press("Home");
   await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const cancelConfirmation = confirmation.getByRole("button", {
+    name: "Cancel",
+  });
+  await expect(cancelConfirmation).toBeFocused();
   await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  await expect(cancelConfirmation).toBeFocused();
+  await cancelConfirmation.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  const outsideSearch = page.getByRole("searchbox", {
+    name: "Search memories",
+  });
+  await outsideSearch.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(outsideSearch).toBeFocused();
   await expect(menu).toHaveCount(0);
-  await expect(menuTrigger).toBeFocused();
 });
 
 test("returns taxonomy creation focus after keyboard dismissal", async ({ page }) => {

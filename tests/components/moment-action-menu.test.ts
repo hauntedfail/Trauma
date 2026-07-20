@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
-import {
-  confirmAndDeleteMoment,
-  MomentActionMenu,
-} from "../../src/components/moments/MomentActionMenu";
+import { MomentActionMenu } from "../../src/components/moments/MomentActionMenu";
+
+const momentActionMenuSource = readFileSync(
+  "src/components/moments/MomentActionMenu.tsx",
+  "utf8",
+);
 
 describe("Moment action menu", () => {
   it("renders the shared meetballs trigger and delete menu item", () => {
@@ -19,28 +23,13 @@ describe("Moment action menu", () => {
     expect(html).toContain('aria-label="Moment actions for Details"');
     expect(html).toContain("hover:bg-trauma-bg-elev");
     expect(html).toContain("Delete moment");
+    expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain("text-trauma-danger");
     expect(html).toContain("M4 7h16");
   });
 
-  it("asks for confirmation before deleting", async () => {
-    const calls: string[] = [];
-    const deleted = await confirmAndDeleteMoment({
-      momentId: "moment-1",
-      sectionTitle: "Details",
-      confirm: (message) => {
-        calls.push(message);
-        return true;
-      },
-      onDelete: (momentId) => {
-        calls.push(momentId);
-      },
-    });
-
-    expect(deleted).toBe(true);
-    expect(calls).toEqual([
-      'Delete moment "Details"?',
-      "moment-1",
-    ]);
+  it("uses the shared confirmation popup instead of a browser dialog", () => {
+    expect(momentActionMenuSource).toContain("ConfirmationPopup");
+    expect(momentActionMenuSource).not.toContain("window.confirm");
   });
 });

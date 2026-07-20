@@ -67,6 +67,7 @@ describe("popup shell", () => {
 
   it("owns focus transfer, focus return, and the menu keyboard model", () => {
     expect(popupSource).toContain("focusPopupPanel");
+    expect(popupSource).toContain("focusConnectedPopupTrigger");
     expect(popupSource).toContain("restorePopupTriggerFocus");
     expect(popupSource).toContain('event.key === "ArrowDown"');
     expect(popupSource).toContain('event.key === "ArrowUp"');

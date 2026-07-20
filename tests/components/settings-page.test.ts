@@ -289,6 +289,7 @@ describe("settings page", () => {
     expect(html).toContain("gpt-5.5");
     expect(html).toContain("high");
     expect(html).toContain("Delete auth");
+    expect(html).toContain('aria-haspopup="dialog"');
   });
 
   it("exposes settings in desktop and phone navigation", () => {
@@ -409,7 +410,7 @@ describe("settings page", () => {
       userCode: "ABCD-EFGH",
     });
     await expect(
-      submitDeleteOpenAiAuth({ confirm: () => true, fetch }),
+      submitDeleteOpenAiAuth({ fetch }),
     ).resolves.toEqual({
       status: "disabled",
       provider: "codex",
@@ -720,23 +721,9 @@ describe("settings page", () => {
     );
   });
 
-  it("does not delete OpenAI auth when confirmation is rejected", async () => {
-    const requests: Request[] = [];
-
-    await expect(
-      submitDeleteOpenAiAuth({
-        confirm: () => false,
-        fetch: async (input, init) => {
-          requests.push(new Request(new URL(String(input), "http://localhost"), init));
-          return jsonResponse({
-            status: "disabled",
-            provider: "codex",
-            logoutStatus: "logged_out",
-          });
-        },
-      }),
-    ).resolves.toBeUndefined();
-    expect(requests).toEqual([]);
+  it("keeps destructive auth confirmation in the shared UI layer", () => {
+    expect(settingsPageSource).toContain("ConfirmationPopup");
+    expect(settingsPageSource).not.toContain("window.confirm");
   });
 
   it("keeps Codex auth enabled and surfaces the server message when logout is unsupported", () => {

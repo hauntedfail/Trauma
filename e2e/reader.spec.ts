@@ -209,10 +209,6 @@ test("deletes a memory from reader actions and returns to browse", async ({
   await waitForReaderReady(page);
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
 
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete memory "Fixture Reader"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/memories/${READER_MEMORY_ID}`) &&
@@ -222,6 +218,13 @@ test("deletes a memory from reader actions and returns to browse", async ({
     .getByRole("button", { name: "Memory actions for Fixture Reader" })
     .click();
   await page.getByRole("menuitem", { name: "Delete memory" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Fixture Reader confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete memory "Fixture Reader"? This action cannot be undone.',
+  );
+  await confirmation.getByRole("button", { name: "Delete memory" }).click();
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(page).toHaveURL(/\/memories$/);
@@ -2650,10 +2653,6 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   await expectReaderTargetNearTop(page, "#details");
 
   await page.goto("/moments");
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete moment "Details"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
       /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
@@ -2661,6 +2660,13 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   );
   await page.getByRole("button", { name: "Moment actions for Details" }).click();
   await page.getByRole("menuitem", { name: "Delete moment" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete moment Details confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete moment "Details"? This action cannot be undone.',
+  );
+  await confirmation.getByRole("button", { name: "Delete moment" }).click();
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);

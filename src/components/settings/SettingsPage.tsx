@@ -33,6 +33,7 @@ import {
 import { createCodexModelCatalogController } from "./codex-model-catalog-state";
 import { captureAsyncActionFocusIntent } from "../async-action-focus";
 import { RouteHeader } from "../layout/RouteHeader";
+import { ConfirmationPopup } from "../ui/ConfirmationPopup";
 
 export interface SettingsPageProps {
   initialCodexModelCatalog?: CodexModelCatalog | null;
@@ -382,40 +383,37 @@ export function SettingsPage(props: SettingsPageProps) {
     }
   };
 
-  const deleteOpenAiAuth = async (): Promise<void> => {
+  const deleteOpenAiAuth = async (): Promise<boolean> => {
     const action = beginAction("openai-auth");
     try {
-      const response = await submitDeleteOpenAiAuth({
-        confirm: (text) =>
-          typeof window === "undefined" ? false : window.confirm(text),
-      });
+      const response = await submitDeleteOpenAiAuth();
       if (!actionTracker.isCurrent(action)) {
-        return;
+        return false;
       }
-      if (response !== undefined) {
-        if (response.status === "unsupported") {
-          setCodexAuth({
-            status: "enabled",
-            provider: "codex",
-            message: response.message,
-          });
-          setActionMessage(
-            action,
-            response.message ?? "Codex auth logout is unsupported.",
-          );
-          void revalidateSettingsState();
-          return;
-        }
+      if (response.status === "unsupported") {
         setCodexAuth({
-          status: "disabled",
+          status: "enabled",
           provider: "codex",
-          reason: "logged_out",
+          message: response.message,
         });
-        setActionMessage(action, "Codex auth was deleted.");
+        setActionMessage(
+          action,
+          response.message ?? "Codex auth logout is unsupported.",
+        );
         void revalidateSettingsState();
+        return true;
       }
+      setCodexAuth({
+        status: "disabled",
+        provider: "codex",
+        reason: "logged_out",
+      });
+      setActionMessage(action, "Codex auth was deleted.");
+      void revalidateSettingsState();
+      return true;
     } catch {
       setActionError(action, "Failed to delete OpenAI auth.");
+      return false;
     } finally {
       actionTracker.finish(action);
     }
@@ -583,14 +581,24 @@ export function SettingsPage(props: SettingsPageProps) {
               {codexAuth().status === "enabled" ? "Enabled" : "Start setup"}
             </button>
             <Show when={codexAuth().status === "enabled"}>
-              <button
-                class={dangerButtonClass}
+              <ConfirmationPopup
+                confirmLabel="Delete auth"
+                description="Delete Codex auth from this TRAUMA workspace?"
                 disabled={isPending("openai-auth")}
-                type="button"
-                onClick={() => void deleteOpenAiAuth()}
-              >
-                Delete auth
-              </button>
+                id="delete-codex-auth-confirmation"
+                label="Delete Codex auth confirmation"
+                onConfirm={deleteOpenAiAuth}
+                placement="bottom-start"
+                trigger={({ triggerProps }) => (
+                  <button
+                    {...triggerProps}
+                    class={dangerButtonClass}
+                    type="button"
+                  >
+                    Delete auth
+                  </button>
+                )}
+              />
             </Show>
             <Show when={codexAuth().status === "login_started"}>
               <button

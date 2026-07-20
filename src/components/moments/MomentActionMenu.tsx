@@ -5,18 +5,12 @@ import {
   kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
 } from "../ui/KebabActionMenu";
+import { ConfirmationPopup } from "../ui/ConfirmationPopup";
 import { TrashIcon } from "../icons";
 
 export interface MomentActionMenuProps {
   disabled?: boolean;
   initialOpen?: boolean;
-  momentId: string;
-  onDelete?: (momentId: string) => Promise<void> | void;
-  sectionTitle: string;
-}
-
-export interface ConfirmAndDeleteMomentInput {
-  confirm: (message: string) => boolean;
   momentId: string;
   onDelete?: (momentId: string) => Promise<void> | void;
   sectionTitle: string;
@@ -28,13 +22,8 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
   const deleteMoment = async (): Promise<boolean> => {
     setError("");
     try {
-      return await confirmAndDeleteMoment({
-        momentId: props.momentId,
-        sectionTitle: props.sectionTitle,
-        confirm: (message) =>
-          typeof window === "undefined" ? false : window.confirm(message),
-        onDelete: props.onDelete,
-      });
+      await props.onDelete?.(props.momentId);
+      return true;
     } catch {
       setError("Failed to delete moment.");
       return false;
@@ -50,23 +39,32 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
     >
       {({ close }) => (
         <>
-          <button
-            class={kebabActionMenuDangerItemClass}
-            type="button"
-            role="menuitem"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void deleteMoment().then((deleted) => {
-                if (deleted) {
-                  close();
-                }
-              });
+          <ConfirmationPopup
+            class="w-full"
+            confirmLabel="Delete moment"
+            description={`Delete moment "${props.sectionTitle}"? This action cannot be undone.`}
+            disabled={props.disabled}
+            id={`moment-${props.momentId}-delete-confirmation`}
+            label={`Delete moment ${props.sectionTitle} confirmation`}
+            onConfirm={async () => {
+              const deleted = await deleteMoment();
+              if (deleted) {
+                close();
+              }
+              return deleted;
             }}
-          >
-            <TrashIcon />
-            Delete moment
-          </button>
+            trigger={({ triggerProps }) => (
+              <button
+                {...triggerProps}
+                class={`${kebabActionMenuDangerItemClass} w-full`}
+                role="menuitem"
+                type="button"
+              >
+                <TrashIcon />
+                Delete moment
+              </button>
+            )}
+          />
           <Show when={error() !== ""}>
             <p class={kebabActionMenuErrorClass} role="alert">
               {error()}
@@ -76,15 +74,4 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
       )}
     </KebabActionMenu>
   );
-}
-
-export async function confirmAndDeleteMoment(
-  input: ConfirmAndDeleteMomentInput,
-): Promise<boolean> {
-  if (!input.confirm(`Delete moment "${input.sectionTitle}"?`)) {
-    return false;
-  }
-
-  await input.onDelete?.(input.momentId);
-  return true;
 }
