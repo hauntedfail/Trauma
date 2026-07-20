@@ -293,7 +293,7 @@ describe("memory reader actions", () => {
     );
   });
 
-  it("announces reader model-catalog failures assertively", () => {
+  it("offers an accessible in-popover retry for reader model-catalog failures", () => {
     const catalogErrorStart = memoryReaderSource.indexOf(
       "<Show when={translationCatalogError()}>",
     );
@@ -309,6 +309,11 @@ describe("memory reader actions", () => {
     expect(catalogErrorStart).toBeGreaterThan(-1);
     expect(catalogErrorMarkup).toContain('aria-live="assertive"');
     expect(catalogErrorMarkup).toContain('role="alert"');
+    expect(catalogErrorMarkup).toContain('type="button"');
+    expect(catalogErrorMarkup).toContain("translationCatalogPending()");
+    expect(catalogErrorMarkup).toContain("Retrying model catalog...");
+    expect(catalogErrorMarkup).toContain("Retry model catalog");
+    expect(catalogErrorMarkup).toContain("retryTranslationCatalog");
   });
 
   it("treats terminal translation snapshots as terminal SSE progress", () => {

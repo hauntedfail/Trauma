@@ -76,7 +76,7 @@ export function MomentBrowse() {
   };
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
-      <RouteHeader layout="single" title="Moment" titleId="moment-title" />
+      <RouteHeader layout="single" title="Moments" titleId="moment-title" />
       <div
         ref={pageRegionRef}
         aria-busy={currentPageState() === undefined || pageRetry.isRetryingCurrentPage()}

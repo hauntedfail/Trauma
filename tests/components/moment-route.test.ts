@@ -16,6 +16,10 @@ const shellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
 describe("Moment route", () => {
   it("registers /moments as a first-class route in the shell", () => {
     expect(routeSource).toContain("MomentBrowse");
+    expect(routeSource).toContain("<Title>Moments | TRAUMA</Title>");
+    expect(browseSource).toContain(
+      '<RouteHeader layout="single" title="Moments" titleId="moment-title" />',
+    );
     expect(shellSource).toContain('href: "/moments"');
     expect(shellSource).toContain('label: "Moments"');
   });

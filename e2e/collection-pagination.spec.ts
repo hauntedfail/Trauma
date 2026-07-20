@@ -59,6 +59,10 @@ test("paginates large Flashback and Moment archives through URL history", async 
   await expectCollectionPage(page, PAGE_SIZE, "Flashback selection 37");
 
   await page.goto("/moments");
+  await expect(page).toHaveTitle("Moments | TRAUMA");
+  await expect(
+    page.getByRole("heading", { name: "Moments", exact: true }),
+  ).toBeVisible();
   await expectCollectionPage(page, PAGE_SIZE, "Moment Section 37");
   await expect(page.getByText("Moment Section 07", { exact: true })).toHaveCount(0);
 

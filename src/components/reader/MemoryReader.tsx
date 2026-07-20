@@ -105,6 +105,7 @@ import {
   submitTranslationDefaults,
 } from "../settings/settings-submit";
 import { revalidateSettingsState } from "../settings/settings-loader";
+import { captureAsyncActionFocusIntent } from "../async-action-focus";
 import {
   createReaderGenerationGuard,
   type ReaderGenerationSnapshot,
@@ -231,6 +232,7 @@ function ReadyMemoryReader(props: {
   let bodyContentRef: HTMLDivElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
+  let translationModelSelectRef: HTMLSelectElement | undefined;
   let sectionLongPressTimer: number | undefined;
   const navigate = props.navigate ?? useNavigate();
   const readerGenerationGuard = createReaderGenerationGuard({
@@ -306,11 +308,13 @@ function ReadyMemoryReader(props: {
     CodexModelCatalog["models"]
   >([]);
   const [translationCatalogError, setTranslationCatalogError] = createSignal("");
+  const [translationCatalogPending, setTranslationCatalogPending] =
+    createSignal(false);
   const { setRightRailContent } = useRightRailContent();
   let translationEventSource: EventSource | undefined;
   let translationCatalogRequest: {
     generation: number;
-    promise: Promise<void>;
+    promise: Promise<"error" | "ignored" | "success">;
   } | undefined;
   let translationRequestGeneration = 0;
 
@@ -700,25 +704,28 @@ function ReadyMemoryReader(props: {
     return translationCatalogModels().find((model) => model.isDefault)
       ?.supportedReasoningEfforts ?? [];
   });
-  const refreshTranslationCatalog = (): Promise<void> => {
+  const refreshTranslationCatalog = (): Promise<
+    "error" | "ignored" | "success"
+  > => {
     const readerGeneration = captureReaderGeneration();
     if (!isCurrentReaderGeneration(readerGeneration)) {
-      return Promise.resolve();
+      return Promise.resolve("ignored");
     }
     if (translationCatalogRequest?.generation === readerGeneration.generation) {
       return translationCatalogRequest.promise;
     }
 
-    setTranslationCatalogError("");
+    setTranslationCatalogPending(true);
     const request = (async () => {
       try {
         const catalog = await submitReadCodexModels();
         if (!isCurrentReaderGeneration(readerGeneration)) {
-          return;
+          return "ignored" as const;
         }
 
         setTranslationCatalogModels(catalog.models);
         setTranslationCatalogError("");
+        return "success" as const;
       } catch (error) {
         if (isCurrentReaderGeneration(readerGeneration)) {
           setTranslationCatalogError(
@@ -726,7 +733,9 @@ function ReadyMemoryReader(props: {
               ? error.message
               : "Codex model catalog is unavailable.",
           );
+          return "error" as const;
         }
+        return "ignored" as const;
       }
     })();
     translationCatalogRequest = {
@@ -736,10 +745,36 @@ function ReadyMemoryReader(props: {
     void request.finally(() => {
       if (translationCatalogRequest?.promise === request) {
         translationCatalogRequest = undefined;
+        if (isCurrentReaderGeneration(readerGeneration)) {
+          setTranslationCatalogPending(false);
+        }
       }
     });
 
     return request;
+  };
+  const retryTranslationCatalog = (retryButton: HTMLButtonElement): void => {
+    const readerGeneration = captureReaderGeneration();
+    const shouldRestoreFocus = captureAsyncActionFocusIntent(retryButton);
+    void refreshTranslationCatalog().then((outcome) => {
+      queueMicrotask(() => {
+        if (
+          outcome === "ignored" ||
+          !translationDialogOpen() ||
+          !isCurrentReaderGeneration(readerGeneration) ||
+          !shouldRestoreFocus()
+        ) {
+          return;
+        }
+
+        const focusTarget = outcome === "success"
+          ? translationModelSelectRef
+          : retryButton;
+        if (focusTarget?.isConnected === true && !focusTarget.disabled) {
+          focusTarget.focus({ preventScroll: true });
+        }
+      });
+    });
   };
   const handleTranslationPopoverOpenChange = (open: boolean): void => {
     setTranslationDialogOpen(open);
@@ -1316,6 +1351,7 @@ function ReadyMemoryReader(props: {
                         <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
                           Model
                           <select
+                            ref={translationModelSelectRef}
                             aria-label="Model"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
                             disabled={translationSubmitPending()}
@@ -1401,13 +1437,30 @@ function ReadyMemoryReader(props: {
                         </label>
                         <Show when={translationCatalogError()}>
                           {(value) => (
-                            <p
+                            <div
+                              aria-busy={translationCatalogPending()}
                               aria-live="assertive"
-                              class="mb-0 text-xs font-bold text-trauma-text-muted"
+                              class="grid justify-items-start gap-2"
                               role="alert"
                             >
-                              {value()}
-                            </p>
+                              <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                                {value()}
+                              </p>
+                              <button
+                                aria-label={translationCatalogPending()
+                                  ? "Retrying model catalog..."
+                                  : "Retry model catalog"}
+                                class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary disabled:opacity-60"
+                                disabled={translationCatalogPending()}
+                                type="button"
+                                onClick={(event) =>
+                                  retryTranslationCatalog(event.currentTarget)}
+                              >
+                                {translationCatalogPending()
+                                  ? "Retrying..."
+                                  : "Retry"}
+                              </button>
+                            </div>
                           )}
                         </Show>
                         <div class="flex justify-end gap-2">

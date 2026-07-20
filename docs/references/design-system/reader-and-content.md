@@ -201,8 +201,10 @@ Reader fallback states use the same route frame and should not look like a
 separate page type.
 
 The translation popover treats Codex model-catalog load failure as actionable
-async feedback. It remains visible in the popover and uses an assertive
-`role="alert"` live region so the failure is announced without relying on color.
+async feedback. Its assertive `role="alert"` keeps the error and a Retry action
+visible without relying on color. Retry is disabled while its request is pending;
+after recovery started from the focused Retry control, focus moves to the
+restored Model control unless the user moved focus elsewhere.
 
 ## Psychiatrist Dock
 

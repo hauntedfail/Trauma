@@ -399,6 +399,10 @@ test("coalesces pending reader model catalogs and retries after malformed 2xx", 
   const firstCatalogRequestGate = new Promise<void>((resolve) => {
     releaseFirstCatalogRequest = resolve;
   });
+  let releaseRetryCatalogRequest: () => void = () => undefined;
+  const retryCatalogRequestGate = new Promise<void>((resolve) => {
+    releaseRetryCatalogRequest = resolve;
+  });
   await page.route("**/api/settings/codex-models", async (route) => {
     catalogRequestCount += 1;
     if (catalogRequestCount === 1) {
@@ -411,6 +415,7 @@ test("coalesces pending reader model catalogs and retries after malformed 2xx", 
       return;
     }
 
+    await retryCatalogRequestGate;
     await route.fulfill({
       contentType: "application/json",
       status: 200,
@@ -447,21 +452,32 @@ test("coalesces pending reader model catalogs and retries after malformed 2xx", 
     await expect.poll(() => catalogRequestCount).toBe(1);
 
     releaseFirstCatalogRequest();
-    await expect(dialog.getByRole("alert")).toHaveText(
+    const alert = dialog.getByRole("alert");
+    const retry = alert.getByRole("button", { name: /^Retry/ });
+    const model = dialog.getByLabel("Model", { exact: true });
+    await expect(alert).toContainText(
       "Codex model catalog response was invalid.",
     );
+    await expect(retry).toBeEnabled();
+    await expect(retry).toHaveAccessibleName("Retry model catalog");
 
-    await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
-    await trigger.click();
-    await expect(dialog).toBeVisible();
+    await retry.click();
     await expect.poll(() => catalogRequestCount).toBe(2);
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveAccessibleName("Retrying model catalog...");
+    await retry.evaluate((button: HTMLButtonElement) => button.click());
+    expect(catalogRequestCount).toBe(2);
+
+    releaseRetryCatalogRequest();
     await expect(
-      dialog.getByLabel("Model", { exact: true }).locator('option[value="gpt-5.5"]'),
+      model.locator('option[value="gpt-5.5"]'),
     ).toHaveCount(1);
     await expect(dialog.getByRole("alert")).toHaveCount(0);
+    await expect(model).toBeFocused();
+    expect(catalogRequestCount).toBe(2);
   } finally {
     releaseFirstCatalogRequest();
+    releaseRetryCatalogRequest();
   }
 });
 

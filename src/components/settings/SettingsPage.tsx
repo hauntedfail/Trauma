@@ -31,6 +31,7 @@ import {
   type AsyncActionToken,
 } from "./action-state";
 import { createCodexModelCatalogController } from "./codex-model-catalog-state";
+import { captureAsyncActionFocusIntent } from "../async-action-focus";
 import { RouteHeader } from "../layout/RouteHeader";
 
 export interface SettingsPageProps {
@@ -693,14 +694,11 @@ export function captureCodexCatalogRetryFocusIntent(
   readBody: () => HTMLElement | undefined = () =>
     typeof document === "undefined" ? undefined : document.body,
 ): () => boolean {
-  const retryOwnedFocus = readActiveElement() === retryButton;
-  return () => {
-    if (!retryOwnedFocus) {
-      return false;
-    }
-    const activeElement = readActiveElement();
-    return activeElement === retryButton || activeElement === readBody();
-  };
+  return captureAsyncActionFocusIntent(
+    retryButton,
+    readActiveElement,
+    readBody,
+  );
 }
 
 export function readSafeVerificationUrl(value: string): string | undefined {
