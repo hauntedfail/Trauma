@@ -103,9 +103,13 @@ deterministic and avoid server startup.
 `/memories`, and fails on bind fallback, early exit, or timeout. Use it after
 runtime, config, build-tool, or startup-script changes.
 
-CI and tagged releases run `bun run verify` and `bun run test:e2e`. Release
-tags are three-part numeric semantic versions with an optional leading `v`,
-for example `0.3.0` or `v0.3.0`.
+CI and tagged releases run `bun run verify` and `bun run test:e2e`. Failed E2E
+runs retain their first-attempt Playwright trace and upload the report and test
+results for seven days. Release tags are three-part numeric semantic versions
+with an optional leading `v`, for example `0.3.0` or `v0.3.0`, and their version
+must exactly match the tagged commit's `package.json`. Release notes use the
+tagged commit's matching `changelog/vX.Y.Z.md` when present; only a genuinely
+absent local changelog falls back to generated notes.
 
 ## Completion Bar
 

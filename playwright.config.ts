@@ -12,6 +12,9 @@ export default defineConfig({
   testDir: "./e2e",
   // The suite shares one local TRAUMA_CONFIG_PATH and mutates its SQLite/store fixture.
   workers: 1,
+  reporter: process.env.CI
+    ? [["dot"], ["html", { open: "never" }]]
+    : "list",
   webServer: {
     command: webServerCommand,
     env: {
@@ -30,7 +33,7 @@ export default defineConfig({
   },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
   },
   projects: [
     {
