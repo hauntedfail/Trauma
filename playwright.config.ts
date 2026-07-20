@@ -1,9 +1,17 @@
+import { randomBytes } from "node:crypto";
+
 import { defineConfig, devices } from "@playwright/test";
 
 const host = "127.0.0.1";
 const port = 4173;
 const hmrBasePort = 24681;
 const baseURL = `http://${host}:${port}`;
+const e2eControlToken = process.env.TRAUMA_E2E_CONTROL_TOKEN_GENERATED === "1" &&
+    process.env.TRAUMA_E2E_CONTROL_TOKEN !== undefined
+  ? process.env.TRAUMA_E2E_CONTROL_TOKEN
+  : randomBytes(32).toString("base64url");
+process.env.TRAUMA_E2E_CONTROL_TOKEN = e2eControlToken;
+process.env.TRAUMA_E2E_CONTROL_TOKEN_GENERATED = "1";
 const webServerCommand = process.env.CI
   ? `bun --bun .output/server/index.mjs`
   : `bun --bun x vinxi dev`;
@@ -22,6 +30,8 @@ export default defineConfig({
       PORT: String(port),
       TRAUMA_BROWSE_FIXTURES: "1",
       TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
+      TRAUMA_E2E_CONTROL: "1",
+      TRAUMA_E2E_CONTROL_TOKEN: e2eControlToken,
       TRAUMA_E2E_IMPORT_FIXTURES: "1",
       TRAUMA_HMR_PORT: String(hmrBasePort),
     },

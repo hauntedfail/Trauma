@@ -2,7 +2,11 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import {
+  inspectE2eFixtureValues,
+  materializeE2eFixture,
+  mutateE2eFixtureState,
+} from "./bun-fixture";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
@@ -11,7 +15,7 @@ const TOC_SCROLL_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
 test.describe.configure({ mode: "serial" });
 
 test("renders a fixture memory in reader mode", async ({ page }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -48,11 +52,8 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 test("uses remembered translation defaults and cancels the popover on dismissal", async ({
   page,
 }) => {
-  createReaderFixture();
-  seedReaderTranslationDefaults({
-    model: "gpt-5.5",
-    reasoningEffort: "high",
-  });
+  await createReaderFixture();
+  await seedReaderTranslationDefaults();
   let translationStartCount = 0;
   let translationDefaultsRequestCount = 0;
   let releaseTranslationDefaults: () => void = () => undefined;
@@ -203,7 +204,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
 test("deletes a memory from reader actions and returns to browse", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -238,7 +239,7 @@ test("deletes a memory from reader actions and returns to browse", async ({
 test("keeps linked reader flashback anchors readable in non-normal themes", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   for (const theme of [
     { brightness: "sun", name: "warm-light", surface: "normal" },
@@ -278,7 +279,7 @@ test("keeps linked reader flashback anchors readable in non-normal themes", asyn
 test("keeps sun reader links bright in normal and paper themes", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   for (const theme of [
     { brightness: "sun", name: "warm-light", surface: "normal" },
@@ -308,7 +309,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
 test("keeps the psychiatrist dock clear and named across phone and desktop layouts", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
 
@@ -355,7 +356,7 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
 test("closes the topmost reader popup before the psychiatrist dock on Escape", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page);
   await page.route("**/api/settings/codex-models", async (route) => {
     await route.fulfill({
@@ -396,7 +397,7 @@ test("closes the topmost reader popup before the psychiatrist dock on Escape", a
 test("coalesces pending reader model catalogs and retries after malformed 2xx", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   let catalogRequestCount = 0;
   let releaseFirstCatalogRequest: () => void = () => undefined;
   const firstCatalogRequestGate = new Promise<void>((resolve) => {
@@ -487,7 +488,7 @@ test("coalesces pending reader model catalogs and retries after malformed 2xx", 
 test("does not submit the psychiatrist prompt while an IME composition is active", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -515,7 +516,7 @@ test("does not submit the psychiatrist prompt while an IME composition is active
 test("keeps psychiatrist transcript scrolling sticky only near the bottom", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     initialPairs: [completedPsychiatristPair("Historical answer. ".repeat(320))],
   });
@@ -572,7 +573,7 @@ test("keeps psychiatrist transcript scrolling sticky only near the bottom", asyn
 test("bounds a 1000-pair psychiatrist transcript while keeping pinned rows reachable", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const initialPairs = Array.from(
     { length: 1_000 },
     (_, index) => completedPsychiatristPairAt(index),
@@ -664,7 +665,7 @@ test("bounds a 1000-pair psychiatrist transcript while keeping pinned rows reach
 test("projects only public Psychiatrist citations as links for persisted and SSE answers", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const persistedPair = completedPsychiatristPair("Persisted cited answer.");
   persistedPair.assistant_response!.source_citations = [
     {
@@ -723,7 +724,7 @@ test("projects only public Psychiatrist citations as links for persisted and SSE
 });
 
 test("keeps visible Psychiatrist process rows bounded and useful", async ({ page }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -763,7 +764,7 @@ test("keeps visible Psychiatrist process rows bounded and useful", async ({ page
 test("hands loading Psychiatrist focus from Close to the enabled prompt", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -781,7 +782,7 @@ test("hands loading Psychiatrist focus from Close to the enabled prompt", async 
 test("does not steal focus moved by the user during Psychiatrist loading", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -800,7 +801,7 @@ test("does not steal focus moved by the user during Psychiatrist loading", async
 test("does not steal focus when Psychiatrist loading resolves after close", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -825,7 +826,7 @@ test("does not steal focus when Psychiatrist loading resolves after close", asyn
 test("closes a malformed terminal stream and reconciles once from the canonical thread", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const turnId = "turn-e2e-real-sse";
   const pairId = "pair-e2e-real-sse";
   const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
@@ -896,7 +897,7 @@ test("closes a malformed terminal stream and reconciles once from the canonical 
 test("shows Retry when malformed-terminal canonical reconciliation fails", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const turnId = "turn-e2e-real-sse-failed-reload";
   const pairId = "pair-e2e-real-sse-failed-reload";
   const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
@@ -930,7 +931,7 @@ test("shows Retry when malformed-terminal canonical reconciliation fails", async
 test("caps malformed-terminal canonical reconciliation at one automatic reload per turn", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const turnId = "turn-e2e-real-sse-budget";
   const pairId = "pair-e2e-real-sse-budget";
   const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
@@ -966,7 +967,7 @@ test("caps malformed-terminal canonical reconciliation at one automatic reload p
 test("keeps a running psychiatrist turn alive across navigation, reload, and explicit Stop", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1017,7 +1018,7 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
 test("reloads the canonical psychiatrist thread when completion wins the Stop race", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     cancelResults: ["completed"],
     deferNextCancel: true,
@@ -1049,7 +1050,7 @@ test("reloads the canonical psychiatrist thread when completion wins the Stop ra
 test("keeps a terminal psychiatrist turn final when its pending Stop request later fails", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     deferNextCancel: true,
     rejectNextCancel: true,
@@ -1085,7 +1086,7 @@ test("keeps a terminal psychiatrist turn final when its pending Stop request lat
 test("adopts a canonical successor after a successful canceled response", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-successor",
@@ -1113,7 +1114,7 @@ test("adopts a canonical successor after a successful canceled response", async 
 test("becomes idle when a rejected cancel response persisted cancellation", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     canonicalizeRejectedCancel: true,
     rejectNextCancel: true,
@@ -1134,7 +1135,7 @@ test("becomes idle when a rejected cancel response persisted cancellation", asyn
 test("restores the exact old active turn after an ambiguous cancel failure", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     rejectNextCancel: true,
   });
@@ -1156,7 +1157,7 @@ test("restores the exact old active turn after an ambiguous cancel failure", asy
 test("keeps canceled Stop non-repeatable until failed reconciliation is retried", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     cancelResults: ["canceled"],
     threadFailureRequests: [2],
@@ -1180,7 +1181,7 @@ test("keeps canceled Stop non-repeatable until failed reconciliation is retried"
 test("adopts a different canonical active turn after the stopped turn completed", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-running",
@@ -1209,7 +1210,7 @@ test("adopts a different canonical active turn after the stopped turn completed"
 test("clears stopping when Stop reload resumes a different idle thread", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     cancelResults: ["completed"],
     sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
@@ -1232,7 +1233,7 @@ test("clears stopping when Stop reload resumes a different idle thread", async (
 test("adopts a successor active turn from a different Stop-reload thread", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-successor",
@@ -1264,7 +1265,7 @@ test("adopts a successor active turn from a different Stop-reload thread", async
 test("does not carry a historical web-source retry into a successor active turn", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const historicalRetryPair = {
     ...completedPsychiatristPair("Historical answer requiring sources."),
     pair_id: "pair-e2e-historical",
@@ -1304,7 +1305,7 @@ test("does not carry a historical web-source retry into a successor active turn"
 test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, { deferNextSend: true });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1324,7 +1325,7 @@ test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
 test("keeps psychiatrist actions disabled until thread loading succeeds and can retry", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     deferThreadRequests: [2],
     threadFailures: 1,
@@ -1360,7 +1361,7 @@ test("keeps psychiatrist actions disabled until thread loading succeeds and can 
 test("does not steal Psychiatrist retry focus moved by the user", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     deferThreadRequests: [2],
     threadFailures: 1,
@@ -1385,7 +1386,7 @@ test("does not steal Psychiatrist retry focus moved by the user", async ({
 test("native-disables every Regenerate action while a psychiatrist turn is busy", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const secondPair = {
     ...completedPsychiatristPair("Second completed answer."),
     pair_id: "pair-e2e-second",
@@ -1416,7 +1417,7 @@ test("native-disables every Regenerate action while a psychiatrist turn is busy"
 test("keeps a newer psychiatrist turn running when the stopped stream delivers a late terminal event", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     sendTurns: [
       { pairId: "pair-e2e-old", turnId: "turn-e2e-old" },
@@ -1455,7 +1456,7 @@ test("keeps a newer psychiatrist turn running when the stopped stream delivers a
 test("does not connect a deferred psychiatrist turn after the reader unmounts", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
   await page.addInitScript((responseBody) => {
     const originalFetch = window.fetch.bind(window);
@@ -1532,7 +1533,7 @@ test("does not connect a deferred psychiatrist turn after the reader unmounts", 
 test("regenerates a psychiatrist answer in the same pair and preserves it after failed retry", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     initialPairs: [completedPsychiatristPair("Original answer from stored context.")],
   });
@@ -1593,7 +1594,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
 test("requires per-turn psychiatrist web-source approval before recording source policy", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1630,7 +1631,7 @@ test("requires per-turn psychiatrist web-source approval before recording source
 test("retains persisted web-source approval after an ambiguous Regenerate failure", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const retryPair = {
     ...completedPsychiatristPair("Answer awaiting approved sources."),
     retry_action: "allow_web_sources" as const,
@@ -2474,7 +2475,7 @@ function sseEvent(
 }
 
 test("toggles selected reader text as a persisted flashback", async ({ page }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const selectedText = "Curated markdown body";
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -2523,7 +2524,7 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
 test("keeps a warning-committed flashback and revalidates its authoritative id", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const selectedText = "Curated markdown body";
   const warningMessage =
     "Flashback change was saved, but export durability could not be confirmed.";
@@ -2549,10 +2550,7 @@ test("keeps a warning-committed flashback and revalidates its authoritative id",
       suffix: " with saved flashback.",
       text: selectedText,
     };
-    writeE2eFlashback({
-      ...canonicalSelection,
-      id: "flashback-warning-authoritative",
-    });
+    await mutateE2eFixtureState("flashback_warning_insert");
     await route.fulfill({
       contentType: "application/json",
       status: 200,
@@ -2587,13 +2585,13 @@ test("keeps a warning-committed flashback and revalidates its authoritative id",
     selectedText,
   );
   await expect(page.locator("mark#flashback-warning-response")).toHaveCount(0);
-  expect(readE2eFlashbackIds()).toContain("flashback-warning-authoritative");
+  expect(await readE2eFlashbackIds()).toContain("flashback-warning-authoritative");
 });
 
 test("keeps a warning-committed unflashback removed after authoritative revalidation", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const selectedText = "saved flashback";
   const warningMessage =
     "Flashback change was saved, but export durability could not be confirmed.";
@@ -2602,11 +2600,7 @@ test("keeps a warning-committed unflashback removed after authoritative revalida
       await route.fallback();
       return;
     }
-    deleteE2eFlashback("flashback-fixture");
-    replaceE2eFlashbackId(
-      "flashback-deep",
-      "flashback-deep-authoritative",
-    );
+    await mutateE2eFixtureState("flashback_warning_unflashback");
     await route.fulfill({
       contentType: "application/json",
       status: 200,
@@ -2635,13 +2629,13 @@ test("keeps a warning-committed unflashback removed after authoritative revalida
   await expect(page.locator("mark#flashback-fixture")).toHaveCount(0);
   await expect(page.locator("mark#flashback-deep-authoritative")).toBeVisible();
   await expect(page.locator("mark#flashback-deep")).toHaveCount(0);
-  expect(readE2eFlashbackIds()).not.toContain("flashback-fixture");
+  expect(await readE2eFlashbackIds()).not.toContain("flashback-fixture");
 });
 
 test("creates a Moment from a right-rail table of contents button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -2663,13 +2657,13 @@ test("creates a Moment from a right-rail table of contents button", async ({
       .getByRole("navigation", { name: "Table of contents" })
       .getByRole("button", { name: "Moment Details" }),
   ).toHaveAttribute("aria-pressed", "true");
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 });
 
 test("toggles a Moment off from the right-rail table of contents button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -2685,7 +2679,7 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   await tocButton.click();
   expect((await createResponse).status()).toBe(201);
   await expect(tocButton).toHaveAttribute("aria-pressed", "true");
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 
   const deleteResponse = page.waitForResponse(
     (response) =>
@@ -2696,13 +2690,13 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   await tocButton.click();
   expect((await deleteResponse).status()).toBe(204);
   await expect(tocButton).toHaveAttribute("aria-pressed", "false");
-  expect(readMomentAnchors()).not.toContain("details");
+  expect(await readMomentAnchors()).not.toContain("details");
 });
 
 test("preserves right-rail tab and scroll state while toggling a Moment", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
@@ -2760,7 +2754,7 @@ test("preserves right-rail tab and scroll state while toggling a Moment", async 
 test("creates a Moment from a reader heading affordance button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -2777,13 +2771,13 @@ test("creates a Moment from a reader heading affordance button", async ({
 
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 });
 
 test("opens Moment rows at the reader section and deletes from the Moments menu", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -2798,7 +2792,7 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
     .getByRole("button", { name: "Moment Details" })
     .click();
   expect((await createResponse).status()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 
   await page.goto("/moments");
   await page.getByRole("link", { name: /Fixture Reader.*Details/s }).click();
@@ -2823,14 +2817,14 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);
-  expect(readMomentAnchors()).not.toContain("details");
+  expect(await readMomentAnchors()).not.toContain("details");
 });
 
 test("moves keyboard focus to the next Moment after deleting a row", async ({
   page,
 }) => {
-  createReaderFixture();
-  seedMomentDeleteFocusRows();
+  await createReaderFixture();
+  await seedMomentDeleteFocusRows();
   await page.goto("/moments");
 
   const rows = page.locator("[data-collection-row]");
@@ -2868,7 +2862,7 @@ test("moves keyboard focus to the next Moment after deleting a row", async ({
 test("moves keyboard focus to the next Flashback after deleting a row", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.goto("/flashbacks");
 
   const rows = page.locator("[data-collection-row]");
@@ -2906,7 +2900,7 @@ test("moves keyboard focus to the next Flashback after deleting a row", async ({
 test("opens reader right-rail Flashback shortcuts at the reader flashback mark", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -2925,7 +2919,7 @@ test("opens reader right-rail Flashback shortcuts at the reader flashback mark",
 test("creates a Moment from the keyboard-operable selection toolbar", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -2957,13 +2951,13 @@ test("creates a Moment from the keyboard-operable selection toolbar", async ({
 
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 });
 
 test("keeps Space from scrolling before opening the selected-text toolbar on keyup", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -2996,7 +2990,7 @@ test("keeps Space from scrolling before opening the selected-text toolbar on key
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
@@ -3087,7 +3081,7 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
 test("suspends reader heading layout reads while the right rail is hidden", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 800, height: 900 });
   await page.addInitScript(() => {
     const original = Element.prototype.getBoundingClientRect;
@@ -3154,402 +3148,24 @@ async function setReaderTheme(
   );
 }
 
-function createReaderFixture() {
-  runBunFixtureScript(`
-        import { mkdir, rm, writeFile } from "node:fs/promises";
-        import { dirname, join } from "node:path";
-        import { schema } from "./src/server/db/index.ts";
-        import { initializeDatabase } from "./src/server/db/connection.ts";
-        import { writeMemoryContent } from "./src/server/store/index.ts";
-
-        const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-        const memoryId = "${READER_MEMORY_ID}";
-        const secondMemoryId = "${SECOND_READER_MEMORY_ID}";
-        const tocScrollMemoryId = "${TOC_SCROLL_MEMORY_ID}";
-        const config = {
-          storePath: "./project/store",
-          projectPath: "./project",
-          databasePath: "./runtime/trauma.sqlite",
-          backup: {
-            git: {
-              enabled: false,
-              remote: "origin",
-              branch: "main",
-              push: false,
-              commitMessageTemplate: "backup memory {memoryId}",
-            },
-          },
-        };
-        const resolvedConfig = {
-          configFilePath: configPath,
-          projectPath: join(process.cwd(), ".trauma/e2e/project"),
-          storePath: join(process.cwd(), ".trauma/e2e/project/store"),
-          databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          backup: config.backup,
-        };
-        const readerMarkdown = [
-          "# Fixture Reader",
-          "",
-          "Curated markdown body with saved flashback.",
-          "",
-          "A [Reference link](https://example.com/reference) belongs to the reader content.",
-          "",
-          ...Array.from({ length: 16 }, (_, index) => [
-            \`Reader spacer paragraph \${index + 1} keeps lower anchors below the first viewport.\`,
-            "",
-          ]).flat(),
-          "## Details",
-          "",
-          "Details section keeps deep saved flashback in the lower reader body.",
-          "",
-          "| Kind | Value |",
-          "| --- | --- |",
-          "| reader | smoke |",
-          "",
-          ...Array.from({ length: 16 }, (_, index) => [
-            \`Reader trailing paragraph \${index + 1} keeps anchored sections scrollable to the top.\`,
-            "",
-          ]).flat(),
-        ].join("\\n");
-
-        await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
-        await mkdir(dirname(configPath), { recursive: true });
-        await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-        async function insertMemory(memoryId, title, url) {
-          await connection.db.insert(schema.memories).values({
-            id: memoryId,
-            url,
-            title,
-            description: "Reader fixture",
-            faviconUrl: null,
-            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
-            extractionStatus: "success",
-            extractionError: null,
-            backupStatus: "disabled",
-            lastBackupAt: null,
-            lastBackupError: null,
-            createdAt: new Date("2026-05-09T00:00:00.000Z"),
-            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
-          });
-        }
-
-        const connection = initializeDatabase(resolvedConfig);
-        try {
-          await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
-          await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
-          await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
-          const flashbackStartOffset = readerMarkdown.indexOf("saved flashback");
-          const deepFlashbackStartOffset = readerMarkdown.indexOf("deep saved flashback");
-          await connection.db.insert(schema.flashbacks).values([
-            {
-              id: "flashback-fixture",
-              memoryId,
-              text: "saved flashback",
-              prefix: "Curated markdown body with ",
-              suffix: ".",
-              startOffset: flashbackStartOffset,
-              endOffset: flashbackStartOffset + "saved flashback".length,
-              createdAt: new Date("2026-05-09T00:00:00.000Z"),
-              updatedAt: new Date("2026-05-09T00:00:00.000Z"),
-            },
-            {
-              id: "flashback-deep",
-              memoryId,
-              text: "deep saved flashback",
-              prefix: "Details section keeps ",
-              suffix: " in the lower reader body.",
-              startOffset: deepFlashbackStartOffset,
-              endOffset: deepFlashbackStartOffset + "deep saved flashback".length,
-              createdAt: new Date("2026-05-09T00:01:00.000Z"),
-              updatedAt: new Date("2026-05-09T00:01:00.000Z"),
-            },
-          ]);
-        } finally {
-          connection.close();
-        }
-
-        async function writeFixtureContent(memoryId, title, url, markdown) {
-          await writeMemoryContent({
-            config: resolvedConfig,
-            memoryId,
-            frontmatter: {
-              id: memoryId,
-              url,
-              title,
-              capturedAt: "2026-05-09T00:00:00.000Z",
-              extractionStatus: "success",
-            },
-            markdown,
-          });
-        }
-
-        await writeFixtureContent(
-          memoryId,
-          "Fixture Reader",
-          "https://example.com/reader",
-          readerMarkdown,
-        );
-        await writeFixtureContent(
-          secondMemoryId,
-          "Second Fixture Reader",
-          "https://example.com/second-reader",
-          [
-            "# Second Fixture Reader",
-            "",
-            "Second reader body.",
-            "",
-            "## Follow Up",
-            "",
-            "Ready-to-ready navigation should replace the rendered article.",
-          ].join("\\n"),
-        );
-        await writeFixtureContent(
-          tocScrollMemoryId,
-          "Long Contents Fixture",
-          "https://example.com/long-contents",
-          [
-            "# Long Contents Fixture",
-            "",
-            "This reader exists to make the right-rail table of contents overflow.",
-            "",
-            ...Array.from({ length: 48 }, (_, index) => [
-              \`## Section \${index + 1}\`,
-              "",
-              \`Body \${index + 1}.\`,
-            ]).flat(),
-          ].join("\\n"),
-        );
-  `);
+async function createReaderFixture(): Promise<void> {
+  await materializeE2eFixture("reader_base");
 }
 
-function seedMomentDeleteFocusRows() {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        const memoryId = "${READER_MEMORY_ID}";
-        try {
-          database.query(
-            \`insert into moments (
-              id, memory_id, section_anchor, section_title, section_level,
-              section_path, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?)\`,
-          ).run(
-            "moment-focus-newer",
-            memoryId,
-            "details",
-            "Details",
-            2,
-            "1/1",
-            Date.parse("2026-05-09T00:01:00.000Z"),
-            Date.parse("2026-05-09T00:01:00.000Z"),
-          );
-          database.query(
-            \`insert into moments (
-              id, memory_id, section_anchor, section_title, section_level,
-              section_path, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?)\`,
-          ).run(
-            "moment-focus-older",
-            memoryId,
-            "fixture-reader",
-            "Fixture Reader",
-            1,
-            "1",
-            Date.parse("2026-05-09T00:00:00.000Z"),
-            Date.parse("2026-05-09T00:00:00.000Z"),
-          );
-        } finally {
-          database.close();
-        }
-  `);
+async function seedMomentDeleteFocusRows(): Promise<void> {
+  await mutateE2eFixtureState("moment_delete_focus_rows");
 }
 
-function seedReaderTranslationDefaults(input: {
-  model: string | null;
-  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
-}) {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        const now = Date.parse("2026-05-28T00:00:00.000Z");
-        try {
-          database
-            .query(\`
-              insert into app_settings (
-                id,
-                translation_target_language,
-                codex_translation_model,
-                codex_translation_reasoning_effort,
-                created_at,
-                updated_at
-              ) values (?, ?, ?, ?, ?, ?)
-              on conflict(id) do update set
-                translation_target_language = excluded.translation_target_language,
-                codex_translation_model = excluded.codex_translation_model,
-                codex_translation_reasoning_effort = excluded.codex_translation_reasoning_effort,
-                updated_at = excluded.updated_at
-            \`)
-            .run(
-              "default",
-              "ja-JP",
-              ${JSON.stringify(input.model)},
-              ${JSON.stringify(input.reasoningEffort)},
-              now,
-              now,
-            );
-        } finally {
-          database.close();
-        }
-  `);
+async function seedReaderTranslationDefaults(): Promise<void> {
+  await mutateE2eFixtureState("settings_translation_defaults");
 }
 
-function readMomentAnchors(): string[] {
-  const stdout = runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          { readonly: true },
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          const rows = database
-            .query("select section_anchor from moments order by created_at asc")
-            .all();
-          console.log(JSON.stringify(rows.map((row) => row.section_anchor)));
-        } finally {
-          database.close();
-        }
-  `);
-
-  return JSON.parse(stdout.trim()) as string[];
+async function readMomentAnchors(): Promise<string[]> {
+  return inspectE2eFixtureValues("moment_anchors");
 }
 
-function writeE2eFlashback(input: {
-  endOffset: number;
-  id: string;
-  prefix: string;
-  startOffset: number;
-  suffix: string;
-  text: string;
-}) {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const input = ${JSON.stringify(input)};
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          const now = Date.parse("2026-05-09T00:02:00.000Z");
-          database
-            .query(\`
-              insert into flashbacks (
-                id,
-                memory_id,
-                variant_kind,
-                lang_code,
-                translation_output_hash,
-                text,
-                prefix,
-                suffix,
-                start_offset,
-                end_offset,
-                content_hash,
-                created_at,
-                updated_at
-              ) values (?, ?, 'source', null, null, ?, ?, ?, ?, ?, null, ?, ?)
-            \`)
-            .run(
-              input.id,
-              "${READER_MEMORY_ID}",
-              input.text,
-              input.prefix,
-              input.suffix,
-              input.startOffset,
-              input.endOffset,
-              now,
-              now,
-            );
-        } finally {
-          database.close();
-        }
-  `);
-}
-
-function deleteE2eFlashback(id: string) {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          database.query("delete from flashbacks where id = ?").run(${JSON.stringify(id)});
-        } finally {
-          database.close();
-        }
-  `);
-}
-
-function replaceE2eFlashbackId(oldId: string, newId: string) {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          database
-            .query("update flashbacks set id = ?, updated_at = ? where id = ?")
-            .run(
-              ${JSON.stringify(newId)},
-              Date.parse("2026-05-09T00:03:00.000Z"),
-              ${JSON.stringify(oldId)},
-            );
-        } finally {
-          database.close();
-        }
-  `);
-}
-
-function readE2eFlashbackIds(): string[] {
-  const stdout = runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          { readonly: true },
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          const rows = database
-            .query("select id from flashbacks order by id asc")
-            .all();
-          console.log(JSON.stringify(rows.map((row) => row.id)));
-        } finally {
-          database.close();
-        }
-  `);
-
-  return JSON.parse(stdout.trim()) as string[];
+async function readE2eFlashbackIds(): Promise<string[]> {
+  return inspectE2eFixtureValues("flashback_ids");
 }
 
 async function waitForReaderReady(page: Page) {

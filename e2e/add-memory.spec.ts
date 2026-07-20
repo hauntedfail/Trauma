@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import {
+  inspectE2ePersistenceState,
+  resetE2eFixture,
+} from "./bun-fixture";
 
 const SUCCESS_URL = "https://success.import.trauma.invalid/article";
 const FALLBACK_URL = "https://fallback.import.trauma.invalid/unavailable";
@@ -14,7 +17,7 @@ test.describe.configure({ mode: "serial" });
 test("adds an extracted memory through the public composer and persists every store boundary", async ({
   page,
 }) => {
-  resetAddMemoryFixture();
+  await resetAddMemoryFixture();
 
   const memory = await addMemoryThroughComposer(page, SUCCESS_URL);
 
@@ -48,7 +51,7 @@ test("adds an extracted memory through the public composer and persists every st
 test("persists a link-only memory when the deterministic import response fails", async ({
   page,
 }) => {
-  resetAddMemoryFixture();
+  await resetAddMemoryFixture();
 
   const memory = await addMemoryThroughComposer(page, FALLBACK_URL);
 
@@ -113,66 +116,8 @@ function readCreatedMemory(payload: unknown): { id: string } {
   return { id: payload.memory.id };
 }
 
-function resetAddMemoryFixture(): void {
-  runBunFixtureScript(`
-    import { execFileSync } from "node:child_process";
-    import { mkdir, rm, writeFile } from "node:fs/promises";
-    import { dirname, join } from "node:path";
-    import { initializeDatabase } from "./src/server/db/index.ts";
-
-    const root = join(process.cwd(), ".trauma/e2e");
-    const configPath = join(root, "trauma.config.json");
-    const projectPath = join(root, "project");
-    const config = {
-      storePath: "./project/store",
-      projectPath: "./project",
-      databasePath: "./runtime/trauma.sqlite",
-      backup: {
-        git: {
-          enabled: true,
-          remote: "origin",
-          branch: "main",
-          push: false,
-          commitMessageTemplate: "e2e {action} {memoryId}",
-        },
-      },
-    };
-    const resolvedConfig = {
-      configFilePath: configPath,
-      projectPath,
-      storePath: join(projectPath, "store"),
-      databasePath: join(root, "runtime/trauma.sqlite"),
-      backup: config.backup,
-    };
-    const gitEnv = { ...process.env };
-    delete gitEnv.GIT_DIR;
-    delete gitEnv.GIT_WORK_TREE;
-    delete gitEnv.GIT_INDEX_FILE;
-
-    await rm(root, { recursive: true, force: true });
-    await mkdir(dirname(configPath), { recursive: true });
-    await mkdir(resolvedConfig.storePath, { recursive: true });
-    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-    execFileSync("git", ["init", "--initial-branch=main"], {
-      cwd: projectPath,
-      env: gitEnv,
-      stdio: "ignore",
-    });
-    for (const [key, value] of [
-      ["user.name", "TRAUMA E2E"],
-      ["user.email", "trauma-e2e@example.invalid"],
-      ["commit.gpgSign", "false"],
-    ]) {
-      execFileSync("git", ["config", key, value], {
-        cwd: projectPath,
-        env: gitEnv,
-        stdio: "ignore",
-      });
-    }
-
-    const connection = initializeDatabase(resolvedConfig);
-    connection.close();
-  `);
+async function resetAddMemoryFixture(): Promise<void> {
+  await resetE2eFixture("backup_git");
 }
 
 async function waitForCompletedPersistence(memoryId: string) {
@@ -183,13 +128,13 @@ async function waitForCompletedPersistence(memoryId: string) {
   });
 
   try {
-    let state = readPersistenceState(memoryId);
+    let state = await readPersistenceState(memoryId);
     if (isCompletedPersistence(state)) {
       return state;
     }
 
     for await (const _event of databaseChanges) {
-      state = readPersistenceState(memoryId);
+      state = await readPersistenceState(memoryId);
       if (isCompletedPersistence(state)) {
         return state;
       }
@@ -231,84 +176,6 @@ function isCompletedPersistence(state: PersistenceState) {
   );
 }
 
-function readPersistenceState(memoryId: string): PersistenceState {
-  const stdout = runBunFixtureScript(`
-    import { execFileSync } from "node:child_process";
-    import { readFileSync } from "node:fs";
-    import { join } from "node:path";
-    import { initializeDatabase } from "./src/server/db/index.ts";
-
-    const root = join(process.cwd(), ".trauma/e2e");
-    const projectPath = join(root, "project");
-    const memoryId = ${JSON.stringify(memoryId)};
-    const config = {
-      configFilePath: join(root, "trauma.config.json"),
-      projectPath,
-      storePath: join(projectPath, "store"),
-      databasePath: join(root, "runtime/trauma.sqlite"),
-      backup: {
-        git: {
-          enabled: true,
-          remote: "origin",
-          branch: "main",
-          push: false,
-          commitMessageTemplate: "e2e {action} {memoryId}",
-        },
-      },
-    };
-    const gitEnv = { ...process.env };
-    delete gitEnv.GIT_DIR;
-    delete gitEnv.GIT_WORK_TREE;
-    delete gitEnv.GIT_INDEX_FILE;
-    const runGit = (args) => execFileSync("git", args, {
-      cwd: projectPath,
-      encoding: "utf8",
-      env: gitEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const connection = initializeDatabase(config);
-    let memory;
-    try {
-      memory = await connection.repositories.memories.findById(memoryId);
-    } finally {
-      connection.close();
-    }
-
-    let commitCount = 0;
-    let commitMessage = null;
-    let fileContent = null;
-    let gitStatus = null;
-    let trackedContent = null;
-    if (memory !== undefined) {
-      fileContent = readFileSync(join(config.storePath, memory.contentPath), "utf8");
-      try {
-        commitCount = Number.parseInt(runGit(["rev-list", "--count", "HEAD"]), 10);
-        commitMessage = runGit(["log", "-1", "--format=%s"]).trimEnd();
-        gitStatus = runGit(["status", "--porcelain", "--", "store"]).trimEnd();
-        trackedContent = runGit([
-          "show",
-          \`HEAD:store/\${memory.contentPath}\`,
-        ]);
-      } catch {
-        commitCount = 0;
-      }
-    }
-
-    process.stdout.write(JSON.stringify({
-      backupStatus: memory?.backupStatus ?? null,
-      commitCount,
-      commitMessage,
-      extractionError: memory?.extractionError ?? null,
-      extractionStatus: memory?.extractionStatus ?? null,
-      fileContent,
-      gitStatus,
-      id: memory?.id ?? null,
-      title: memory?.title ?? null,
-      trackedContent,
-      url: memory?.url ?? null,
-    }));
-  `);
-
-  return JSON.parse(stdout) as PersistenceState;
+async function readPersistenceState(memoryId: string): Promise<PersistenceState> {
+  return inspectE2ePersistenceState(memoryId);
 }

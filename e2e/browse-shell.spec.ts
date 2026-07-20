@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import { materializeE2eFixture } from "./bun-fixture";
 
 test("redirects the home route to the canonical memories browse route", async ({ page }) => {
   await page.goto("/");
@@ -260,17 +260,17 @@ test("uses a native full-row memory link for whitespace, keyboard, and new-tab n
   await rowLink.click({ button: "middle" });
   const newTab = await newTabPromise;
   await newTab.waitForLoadState("domcontentloaded");
-  await expect(newTab).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+  await expect(newTab).toHaveURL(/\/memories\/memory-ops$/);
   await newTab.close();
 
   await rowLink.focus();
   await rowLink.press("Enter");
-  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
   await page.goBack();
 
   const restoredRow = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
   await restoredRow.click({ position: { x: 8, y: 8 } });
-  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef902$/);
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
 });
 
 test("keeps the memories search focus indicator on the rounded search surface", async ({
@@ -402,7 +402,7 @@ test("deletes a memory from the browse list through the public DELETE route", as
   page,
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
-  createBrowseDeleteFixture(memoryId);
+  await createBrowseDeleteFixture();
   await page.goto("/memories?q=reader+mode");
 
   const deletedMemoryLink = page.getByRole("link", {
@@ -453,7 +453,7 @@ test("moves keyboard focus to the next memory after deleting a row", async ({
   page,
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
-  createBrowseDeleteFixture(memoryId);
+  await createBrowseDeleteFixture();
   await page.goto("/memories");
 
   const nextMemoryLink = page.getByRole("link", {
@@ -492,7 +492,7 @@ test("restores confirm focus when an async memory deletion fails", async ({
   page,
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
-  createBrowseDeleteFixture(memoryId);
+  await createBrowseDeleteFixture();
   let releaseDelete: (() => void) | undefined;
   const deleteGate = new Promise<void>((resolve) => {
     releaseDelete = resolve;
@@ -555,7 +555,7 @@ test("keeps user focus when an async confirmation fails after dismissal", async 
   page,
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
-  createBrowseDeleteFixture(memoryId);
+  await createBrowseDeleteFixture();
   let releaseDelete: (() => void) | undefined;
   const deleteGate = new Promise<void>((resolve) => {
     releaseDelete = resolve;
@@ -624,7 +624,7 @@ test("does not restore row focus after a pending confirmation is dismissed", asy
   page,
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
-  createBrowseDeleteFixture(memoryId);
+  await createBrowseDeleteFixture();
   let releaseDelete: (() => void) | undefined;
   const deleteGate = new Promise<void>((resolve) => {
     releaseDelete = resolve;
@@ -805,7 +805,7 @@ test("closes taxonomy creation controls on outside clicks", async ({ page }) => 
   await row.getByRole("button", { name: "Add tag" }).click();
   await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
 
-  await row.locator("p").first().click();
+  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
@@ -1164,7 +1164,7 @@ test("lets active filters be cleared without resetting the rest of the query", a
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
-  createBrowseDeleteFixture();
+  await createBrowseDeleteFixture();
   await page.goto("/memories");
 
   await page.getByRole("link", { name: "Flashbacks" }).click();
@@ -1409,14 +1409,14 @@ test("returns taxonomy creation focus after keyboard dismissal", async ({ page }
 test("closes the add-memory composer on outside row clicks without opening memory actions", async ({
   page,
 }) => {
-  createBrowseDeleteFixture();
+  await createBrowseDeleteFixture();
   await page.goto("/memories");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.locator("p").first().click();
+  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
@@ -1509,7 +1509,9 @@ test("does not suppress the next normal click after an outside right-click dismi
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.locator("p").first().click({ button: "right" });
+  await row
+    .getByRole("link", { name: "Open memory Reader Mode Notes" })
+    .click({ button: "right" });
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
@@ -1707,106 +1709,6 @@ async function installDismissableClickProbe(page: Page) {
   return page.locator("[data-dismissable-click-probe='true']");
 }
 
-function createBrowseDeleteFixture(memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901"): void {
-  runBunFixtureScript(`
-        import { mkdir, rm, writeFile } from "node:fs/promises";
-        import { dirname, join } from "node:path";
-        import { schema } from "./src/server/db/index.ts";
-        import { initializeDatabase } from "./src/server/db/connection.ts";
-        import {
-          createReaderContentHash,
-          writeMemoryContent,
-        } from "./src/server/store/index.ts";
-        import { readCanonicalReaderText } from "./src/server/store/flashback-markers.ts";
-
-        const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-        const memoryId = ${JSON.stringify(memoryId)};
-        const now = new Date("2026-05-09T00:00:00.000Z");
-        const markdown = "# Reader Mode Notes\\n\\nSearch query can be wired to flashback-aware results through repository fixtures.\\n";
-        const flashbackText = "flashback-aware results";
-        const canonical = readCanonicalReaderText(markdown);
-        const flashbackStartOffset = canonical.indexOf(flashbackText);
-        const contentHash = createReaderContentHash(markdown);
-        const config = {
-          storePath: "./project/store",
-          projectPath: "./project",
-          databasePath: "./runtime/trauma.sqlite",
-          backup: {
-            git: {
-              enabled: false,
-              remote: "origin",
-              branch: "main",
-              push: false,
-              commitMessageTemplate: "backup memory {memoryId}",
-            },
-          },
-        };
-        const resolvedConfig = {
-          configFilePath: configPath,
-          projectPath: join(process.cwd(), ".trauma/e2e/project"),
-          storePath: join(process.cwd(), ".trauma/e2e/project/store"),
-          databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          backup: config.backup,
-        };
-
-        await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
-        await mkdir(dirname(configPath), { recursive: true });
-        await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-        const connection = initializeDatabase(resolvedConfig);
-        try {
-          await connection.db.insert(schema.memories).values({
-            id: memoryId,
-            url: "https://example.com/reader-mode",
-            title: "Reader Mode Notes",
-            description: "Browse delete fixture",
-            faviconUrl: null,
-            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
-            extractionStatus: "success",
-            extractionError: null,
-            backupStatus: "disabled",
-            lastBackupAt: null,
-            lastBackupError: null,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await connection.db.insert(schema.flashbacks).values({
-            id: "h-foundation",
-            memoryId,
-            text: "flashback-aware results",
-            prefix: "Search query can be wired to",
-            suffix: "through repository fixtures.",
-            startOffset: flashbackStartOffset,
-            endOffset: flashbackStartOffset + flashbackText.length,
-            contentHash,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await connection.db.insert(schema.moments).values({
-            id: "moment-foundation",
-            memoryId,
-            sectionAnchor: "details",
-            sectionTitle: "Details",
-            sectionLevel: 2,
-            sectionPath: "1",
-            createdAt: now,
-            updatedAt: now,
-          });
-        } finally {
-          connection.close();
-        }
-
-        await writeMemoryContent({
-          config: resolvedConfig,
-          memoryId,
-          frontmatter: {
-            id: memoryId,
-            url: "https://example.com/reader-mode",
-            title: "Reader Mode Notes",
-            capturedAt: now.toISOString(),
-            extractionStatus: "success",
-          },
-          markdown,
-        });
-      `);
+async function createBrowseDeleteFixture(): Promise<void> {
+  await materializeE2eFixture("browse_delete");
 }

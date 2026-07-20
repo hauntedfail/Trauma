@@ -1,21 +1,18 @@
 import { expect, test } from "@playwright/test";
 
 import {
-  ensureE2eRuntimeFixture,
-  runBunFixtureScript,
+  mutateE2eFixtureState,
+  resetE2eFixture,
 } from "./bun-fixture";
 
-test.beforeEach(() => {
-  ensureE2eRuntimeFixture();
+test.beforeEach(async () => {
+  await resetE2eFixture("read_only");
 });
 
 test("recovers a malformed Codex catalog without losing saved defaults", async ({
   page,
 }) => {
-  seedCodexTranslationDefaults({
-    model: "gpt-5.5",
-    reasoningEffort: "high",
-  });
+  await seedCodexTranslationDefaults();
   let catalogRequestCount = 0;
   let releaseRetryRequest: () => void = () => undefined;
   const retryRequestGate = new Promise<void>((resolve) => {
@@ -350,53 +347,6 @@ test("moves supported logout focus to setup without overriding the user", async 
   }
 });
 
-function seedCodexTranslationDefaults(input: {
-  model: string | null;
-  reasoningEffort:
-    | "none"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | null;
-}): void {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        const now = Date.parse("2026-05-28T00:00:00.000Z");
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          database
-            .query(\`
-              insert into app_settings (
-                id,
-                translation_target_language,
-                codex_translation_model,
-                codex_translation_reasoning_effort,
-                created_at,
-                updated_at
-              ) values (?, ?, ?, ?, ?, ?)
-              on conflict(id) do update set
-                translation_target_language = excluded.translation_target_language,
-                codex_translation_model = excluded.codex_translation_model,
-                codex_translation_reasoning_effort = excluded.codex_translation_reasoning_effort,
-                updated_at = excluded.updated_at
-            \`)
-            .run(
-              "default",
-              "ja-JP",
-              ${JSON.stringify(input.model)},
-              ${JSON.stringify(input.reasoningEffort)},
-              now,
-              now,
-            );
-        } finally {
-          database.close();
-        }
-  `);
+async function seedCodexTranslationDefaults(): Promise<void> {
+  await mutateE2eFixtureState("settings_translation_defaults");
 }

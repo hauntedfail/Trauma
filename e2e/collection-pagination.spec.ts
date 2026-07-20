@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import { materializeE2eFixture } from "./bun-fixture";
 
 const PAGINATION_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f177";
 const PAGE_SIZE = 30;
@@ -39,7 +39,7 @@ test.describe.configure({ mode: "serial" });
 test("paginates large Flashback and Moment archives through URL history", async ({
   page,
 }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
 
   await page.goto("/flashbacks");
   await expectCollectionPage(page, PAGE_SIZE, "Flashback selection 37");
@@ -81,7 +81,7 @@ test("paginates large Flashback and Moment archives through URL history", async 
 });
 
 test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
   await page.setViewportSize({ width: 1440, height: 760 });
 
   await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
@@ -132,7 +132,7 @@ test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page
 test("retries failed first Flashback and Moment pages without resetting the URL", async ({
   page,
 }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
 
   for (const surface of ROUTE_RETRY_SURFACES) {
     await page.goto("/memories");
@@ -174,7 +174,7 @@ test("retries failed first Flashback and Moment pages without resetting the URL"
 test("retries a failed Reader All page without changing its rail-local cursor", async ({
   page,
 }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
   const interception = await interceptCollectionPageRetry(
     page,
     FLASHBACK_PAGE_QUERY_ID,
@@ -217,7 +217,7 @@ for (const surface of ROUTE_RETRY_SURFACES) {
   test(`does not render an abandoned ${surface.navLabel} retry after navigating to First`, async ({
     page,
   }) => {
-    seedLargeCollectionArchive();
+    await seedLargeCollectionArchive();
     await page.goto(surface.pathname);
     await expectCollectionPage(page, PAGE_SIZE, surface.visibleFirstPageText);
     const interception = await interceptCollectionPageRetry(page, surface.queryId);
@@ -256,7 +256,7 @@ for (const surface of ROUTE_RETRY_SURFACES) {
 test("does not render an abandoned Reader All retry after navigating to Previous", async ({
   page,
 }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
   await page.setViewportSize({ width: 1440, height: 760 });
   await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -303,7 +303,7 @@ test("does not render an abandoned Reader All retry after navigating to Previous
 test("returns keyboard focus to Retry after repeated recovery failures", async ({
   page,
 }) => {
-  seedLargeCollectionArchive();
+  await seedLargeCollectionArchive();
   await page.goto("/memories");
   const interception = await interceptCollectionPageRetry(
     page,
@@ -389,129 +389,6 @@ async function interceptCollectionPageRetry(
   };
 }
 
-function seedLargeCollectionArchive(): void {
-  runBunFixtureScript(`
-    import { mkdir, rm, writeFile } from "node:fs/promises";
-    import { dirname, join } from "node:path";
-    import { schema } from "./src/server/db/index.ts";
-    import { initializeDatabase } from "./src/server/db/connection.ts";
-    import {
-      createReaderContentHash,
-      writeMemoryContent,
-    } from "./src/server/store/index.ts";
-    import { readCanonicalReaderText } from "./src/server/store/flashback-markers.ts";
-
-    const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-    const memoryId = ${JSON.stringify(PAGINATION_MEMORY_ID)};
-    const archiveSize = ${ARCHIVE_SIZE};
-    const config = {
-      storePath: "./project/store",
-      projectPath: "./project",
-      databasePath: "./runtime/trauma.sqlite",
-      backup: {
-        git: {
-          enabled: false,
-          remote: "origin",
-          branch: "main",
-          push: false,
-          commitMessageTemplate: "backup memory {memoryId}",
-        },
-      },
-    };
-    const resolvedConfig = {
-      configFilePath: configPath,
-      projectPath: join(process.cwd(), ".trauma/e2e/project"),
-      storePath: join(process.cwd(), ".trauma/e2e/project/store"),
-      databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-      backup: config.backup,
-    };
-    const pad = (value) => String(value).padStart(2, "0");
-    const markdown = [
-      "# Pagination Archive",
-      ...Array.from({ length: archiveSize }, (_, index) => {
-        const ordinal = index + 1;
-        return [
-          "## Moment Section " + pad(ordinal),
-          "Flashback selection " + pad(ordinal) + " is stored here.",
-        ];
-      }).flat(),
-    ].join("\\n\\n");
-
-    await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
-    await mkdir(dirname(configPath), { recursive: true });
-    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-    const baseTime = Date.parse("2026-07-17T00:00:00.000Z");
-    const canonical = readCanonicalReaderText(markdown);
-    const contentHash = createReaderContentHash(markdown);
-    const connection = initializeDatabase(resolvedConfig);
-    try {
-      await connection.db.insert(schema.memories).values({
-        id: memoryId,
-        url: "https://example.com/pagination-archive",
-        title: "Pagination Archive",
-        description: "Large collection pagination fixture",
-        faviconUrl: null,
-        contentPath: "memories/" + memoryId + "/CONTENT.md",
-        extractionStatus: "success",
-        extractionError: null,
-        backupStatus: "disabled",
-        lastBackupAt: null,
-        lastBackupError: null,
-        createdAt: new Date(baseTime),
-        updatedAt: new Date(baseTime),
-      });
-      const flashbacks = [];
-      const moments = [];
-      for (let index = 0; index < archiveSize; index += 1) {
-        const ordinal = index + 1;
-        const suffix = pad(ordinal);
-        const text = "Flashback selection " + suffix;
-        const startOffset = canonical.indexOf(text);
-        const createdAt = new Date(baseTime + ordinal);
-        flashbacks.push({
-          id: "flashback-page-" + suffix,
-          memoryId,
-          text,
-          prefix: "",
-          suffix: " is stored here.",
-          startOffset,
-          endOffset: startOffset + text.length,
-          contentHash,
-          createdAt,
-          updatedAt: createdAt,
-        });
-        moments.push({
-          id: "moment-page-" + suffix,
-          memoryId,
-          sectionAnchor: "moment-section-" + suffix,
-          sectionTitle: "Moment Section " + suffix,
-          sectionLevel: 2,
-          sectionPath: "1/" + ordinal,
-          sectionStartOffset: null,
-          sectionEndOffset: null,
-          contentHash,
-          createdAt,
-          updatedAt: createdAt,
-        });
-      }
-      await connection.db.insert(schema.flashbacks).values(flashbacks);
-      await connection.db.insert(schema.moments).values(moments);
-    } finally {
-      connection.close();
-    }
-
-    await writeMemoryContent({
-      config: resolvedConfig,
-      memoryId,
-      frontmatter: {
-        id: memoryId,
-        url: "https://example.com/pagination-archive",
-        title: "Pagination Archive",
-        capturedAt: new Date(baseTime).toISOString(),
-        extractionStatus: "success",
-      },
-      markdown,
-    });
-  `);
+async function seedLargeCollectionArchive(): Promise<void> {
+  await materializeE2eFixture("collection_archive");
 }
