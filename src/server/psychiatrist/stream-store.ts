@@ -21,6 +21,7 @@ import {
   PsychiatristEventLimitError,
   type PsychiatristStreamLimits,
 } from "./limits";
+import { sanitizePsychiatristWireSourceCitations } from "./source-citations";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -93,7 +94,10 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
 }
 
 export function publishPsychiatristStreamEvent(event: PsychiatristStreamEvent): void {
-  publishStreamEvent(event);
+  const projected = projectPersistedStreamEvent(event);
+  if (projected !== undefined) {
+    publishStreamEvent(projected);
+  }
 }
 
 export function subscribePsychiatristStream(input: {
@@ -142,6 +146,10 @@ export async function loadPsychiatristStreamReplay(input: {
   } catch (error) {
     throw mapJsonlLimitError(error);
   }
+  events = events.flatMap((event) => {
+    const projected = projectPersistedStreamEvent(event);
+    return projected === undefined ? [] : [projected];
+  });
   if (input.afterEventId === undefined) {
     return events;
   }
@@ -354,6 +362,13 @@ function projectSafeStreamEvent<TData>(
   return undefined;
 }
 
+function projectPersistedStreamEvent(
+  event: PsychiatristStreamEvent,
+): PsychiatristStreamEvent | undefined {
+  const projected = projectSafeStreamEvent(event);
+  return projected === undefined ? undefined : { ...event, data: projected.data };
+}
+
 function readSafeProcessText(value: string | undefined): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -419,20 +434,22 @@ function readSourceCitations(
   if (!isRecord(data) || !Array.isArray(data.source_citations)) {
     return undefined;
   }
-  const citations: Array<{ source_id: string; title: string; url: string }> = [];
-  for (const citation of data.source_citations) {
+  const citations = data.source_citations.flatMap((citation) => {
     if (!isRecord(citation)) {
-      return undefined;
+      return [];
     }
     const sourceId = readStringField(citation, "source_id");
     const title = readStringField(citation, "title");
     const url = readStringField(citation, "url");
-    if (sourceId === undefined || title === undefined || url === undefined) {
-      return undefined;
-    }
-    citations.push({ source_id: sourceId, title, url });
-  }
-  return citations;
+    return sourceId === undefined || title === undefined || url === undefined
+      ? []
+      : [{ source_id: sourceId, title, url }];
+  });
+  return sanitizePsychiatristWireSourceCitations(citations).map((citation) => ({
+    source_id: citation.sourceId,
+    title: citation.title,
+    url: citation.url,
+  }));
 }
 
 function omitUndefined<T extends Record<string, unknown>>(input: T): T {

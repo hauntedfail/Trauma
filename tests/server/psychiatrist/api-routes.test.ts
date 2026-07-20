@@ -730,6 +730,68 @@ describe("Psychiatrist thread API routes", () => {
     expect(JSON.stringify(body)).not.toContain("/private/tmp/secret-store");
   });
 
+  it("sanitizes citations at the thread API response boundary", async () => {
+    const handler = createReadPsychiatristThreadHandler({
+      config: { storePath: "/private/tmp/secret-store" },
+      loadThread: async () => ({
+        manifest: manifest(),
+        pairs: [
+          {
+            assistant: {
+              citations: [
+                {
+                  sourceId: "legacy-public",
+                  title: "  Public source  ",
+                  url: "https://example.com/release?token=secret#section",
+                },
+                {
+                  sourceId: "legacy-internal",
+                  title: "Internal source",
+                  url: "https://release.intranet.corp/notes",
+                },
+              ],
+              completedAt: "2026-06-01T00:00:02.000Z",
+              content: "A cited answer.",
+            },
+            pairId: PAIR_ID,
+            status: "completed",
+            turnId: TURN_ID,
+            user: {
+              content: "What changed?",
+              createdAt: "2026-06-01T00:00:01.000Z",
+            },
+          },
+        ],
+      }),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(
+          `http://localhost/api/memories/${MEMORY_ID}/psychiatrist/threads/${THREAD_ID}?variant_kind=source`,
+        ),
+        { memoryId: MEMORY_ID, threadId: THREAD_ID },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      pairs: [
+        {
+          assistant_response: {
+            source_citations: [
+              {
+                source_id: "source-1",
+                title: "Public source",
+                url: "https://example.com/release",
+              },
+            ],
+          },
+        },
+      ],
+    });
+  });
+
   it("does not discover a thread owned by another memory", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-scoped-read-"));
     await createPsychiatristThread({

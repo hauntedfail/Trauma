@@ -918,17 +918,21 @@ describe("PsychiatristDock", () => {
   });
 
   it.each([
-    ["https://example.com/source?query=kept#section", "https://example.com/source?query=kept#section"],
+    ["https://example.com/source?token=secret#section", "https://example.com/source"],
     ["http://example.com/source", "http://example.com/source"],
     ["https://8.8.8.8/source", "https://8.8.8.8/source"],
     ["http://[2606:4700:4700::1111]/source", "http://[2606:4700:4700::1111]/source"],
     ["javascript:alert(1)", undefined],
     ["data:text/html,unsafe", undefined],
     ["file:///private/tmp/source", undefined],
-    ["https://user:password@example.com/source", undefined],
+    ["https://user:password@example.com/source?token=secret#section", "https://example.com/source"],
     ["https://localhost/source", undefined],
     ["https://localhost./source", undefined],
     ["https://reader.localhost/source", undefined],
+    ["https://printer.local/source", undefined],
+    ["https://intranet/source", undefined],
+    ["https://release.intranet.corp/source", undefined],
+    ["https://router.home.arpa/source", undefined],
     ["http://127.0.0.1/source", undefined],
     ["http://0x7f000001/source", undefined],
     ["http://10.0.0.1/source", undefined],

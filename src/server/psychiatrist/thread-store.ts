@@ -15,6 +15,10 @@ import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
 } from "./stream-store";
+import {
+  sanitizePsychiatristSourceCitations,
+  sanitizePsychiatristWireSourceCitations,
+} from "./source-citations";
 import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
 
 const UUID_V7_PATTERN =
@@ -226,11 +230,13 @@ export async function appendAssistantResponse(input: {
       pair_id: input.pairId,
       response_markdown_path: responsePath,
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, pending.turnId),
       thread_id: input.threadId,
@@ -292,11 +298,13 @@ export async function appendRegeneratedAssistantResponse(input: {
       regenerated_from_turn_id: existing.turnId,
       response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
       thread_id: input.threadId,
@@ -352,11 +360,13 @@ export async function appendRetriedAssistantResponse(input: {
       pair_id: input.pairId,
       response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
       thread_id: input.threadId,
@@ -822,8 +832,10 @@ async function repairCompletedPairArtifacts(input: {
         event: {
           data: {
             pair_id: row.pair_id,
-            source_citations: (row.source_citations ?? []).map((citation) => ({
-              source_id: citation.source_id,
+            source_citations: sanitizePsychiatristWireSourceCitations(
+              row.source_citations,
+            ).map((citation) => ({
+              source_id: citation.sourceId,
               title: citation.title,
               url: citation.url,
             })),
@@ -1375,11 +1387,7 @@ function reducePairRows(rows: PairRevisionRow[]): PsychiatristThreadPair[] {
         ? {}
         : {
           assistant: {
-            citations: (row.source_citations ?? []).map((citation) => ({
-              sourceId: citation.source_id,
-              title: citation.title,
-              url: citation.url,
-            })),
+            citations: sanitizePsychiatristWireSourceCitations(row.source_citations),
             completedAt: row.updated_at,
             content: row.assistant_response,
           },

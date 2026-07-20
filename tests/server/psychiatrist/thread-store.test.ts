@@ -162,6 +162,55 @@ describe("Psychiatrist thread store", () => {
     expect(manifestJson.updated_at).not.toBe("2026-06-01T00:00:00.000Z");
   });
 
+  it("sanitizes legacy persisted citations when loading pair revisions", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-legacy-citations-"));
+    await createPsychiatristThread({ config: { storePath }, manifest: manifest() });
+    const pairsPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "PAIRS.jsonl",
+    );
+    await appendFile(pairsPath, `${JSON.stringify({
+      assistant_response: "Legacy cited answer.",
+      created_at: "2026-06-01T00:00:00.000Z",
+      pair_id: PAIR_ID,
+      revision_kind: "completed",
+      source_citations: [
+        {
+          source_id: "legacy-public",
+          title: "  Public source  ",
+          url: "https://user:password@example.com/release?token=secret#section",
+        },
+        {
+          source_id: "legacy-local",
+          title: "Internal release",
+          url: "https://release.intranet.corp/notes?token=secret",
+        },
+      ],
+      status: "completed",
+      thread_id: THREAD_ID,
+      turn_id: TURN_ID,
+      updated_at: "2026-06-01T00:00:01.000Z",
+      user_prompt: "What changed?",
+    })}\n`, "utf8");
+
+    const loaded = await loadPsychiatristThread({
+      config: { storePath },
+      threadId: THREAD_ID,
+    });
+
+    expect(loaded.pairs[0]?.assistant?.citations).toEqual([
+      {
+        sourceId: "source-1",
+        title: "Public source",
+        url: "https://example.com/release",
+      },
+    ]);
+  });
+
   it("restores RESPONSE.md from the latest durable completed pair revision", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-response-recovery-"));
     await createPsychiatristThread({ config: { storePath }, manifest: manifest() });

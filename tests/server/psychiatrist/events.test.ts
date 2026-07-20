@@ -119,6 +119,68 @@ describe("Psychiatrist stream store", () => {
     ]);
   });
 
+  it("sanitizes citations from legacy persisted terminal replay events", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-legacy-replay-"));
+    const streamPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "streams",
+      `${TURN_ID}.jsonl`,
+    );
+    await mkdir(join(streamPath, ".."), { recursive: true });
+    await writeFile(streamPath, `${JSON.stringify({
+      data: {
+        pair_id: "pair-1",
+        source_citations: [
+          {
+            source_id: "legacy-public",
+            title: "Public source",
+            url: "https://example.com/release?token=secret#section",
+          },
+          {
+            source_id: "legacy-local",
+            title: "Internal source",
+            url: "https://printer.local/status?token=secret",
+          },
+        ],
+        text: "Legacy cited answer.",
+      },
+      eventId: "000000000001",
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      timestamp: 1,
+      turnId: TURN_ID,
+      type: "psychiatrist.answer.completed",
+    })}\n`, "utf8");
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    expect(replay).toEqual([
+      expect.objectContaining({
+        data: {
+          pair_id: "pair-1",
+          source_citations: [
+            {
+              source_id: "source-1",
+              title: "Public source",
+              url: "https://example.com/release",
+            },
+          ],
+          text: "Legacy cited answer.",
+        },
+        eventId: "000000000001",
+      }),
+    ]);
+  });
+
   it("rejects oversized delta and final text before persistence or publication", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-limits-"));
     const published: PsychiatristStreamEvent[] = [];

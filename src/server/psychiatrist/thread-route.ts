@@ -21,6 +21,7 @@ import {
 } from "./context";
 import { activePsychiatristTurns } from "./active-turns";
 import { BoundedCache } from "./bounded-cache";
+import { sanitizePsychiatristSourceCitations } from "./source-citations";
 import {
   createPsychiatristThread,
   findLatestPsychiatristThread,
@@ -381,7 +382,9 @@ function toThreadResponse(input: {
           assistant_response: {
             completed_at: pair.assistant.completedAt,
             content: pair.assistant.content,
-            source_citations: pair.assistant.citations.map((citation) => ({
+            source_citations: sanitizePsychiatristSourceCitations(
+              pair.assistant.citations,
+            ).map((citation) => ({
               source_id: citation.sourceId,
               title: citation.title,
               url: citation.url,
