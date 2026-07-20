@@ -9,9 +9,15 @@ import {
   deleteBrowseMemory,
   detachTagFromMemoryByName,
   isBackupFailsafeMemoryActionError,
+  MemoryBrowseInitialPageFailure,
   MemoryItem,
+  settleInitialBrowseMemoryPage,
+  settleCurrentBrowsePageRequest,
 } from "../../src/components/memories/MemoryBrowse";
-import type { BrowseMemory } from "../../src/components/memories/browse-data";
+import type {
+  BrowseMemory,
+  BrowseMemoryPage,
+} from "../../src/components/memories/browse-data";
 
 const memory = {
   id: "memory-1",
@@ -28,6 +34,7 @@ const memory = {
 const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
 const searchBarSource = readFileSync("src/components/memories/MemorySearchBar.tsx", "utf8");
 const addMemoryFormSource = readFileSync("src/components/memories/AddMemoryForm.tsx", "utf8");
+const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
 
 describe("memory browse actions", () => {
   it("renders actions, read status, and attached taxonomy", () => {
@@ -140,6 +147,23 @@ describe("memory browse actions", () => {
 
     expect(html).not.toContain('aria-disabled="true"');
     expect(html).toContain('href="/memories/ja-JP/memory-1#flashback-card"');
+  });
+
+  it("renders the reader destination as one native full-row link", () => {
+    const html = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory,
+        selectedFlashbackId: "",
+        view: "list",
+        onDeleted: () => {},
+      }),
+    );
+
+    expect(html).toContain('data-memory-row-link="true"');
+    expect(html).toContain('href="/memories/memory-1"');
+    expect(html).toContain("absolute inset-0");
+    expect(browseSource).not.toContain("isInteractiveTarget");
+    expect(browseSource).not.toContain("onOpen?: (href: string) => void");
   });
 
   it("posts add-tag and add-category actions by name", async () => {
@@ -286,7 +310,7 @@ describe("memory browse actions", () => {
 
   it("does not load additional pages from a stale first-page cursor", () => {
     expect(browseSource).toContain("const firstPageResult = createAsync(async () => {");
-    expect(browseSource).toContain("query: requestedQuery");
+    expect(browseSource).toContain("settleInitialBrowseMemoryPage(requestedQuery");
     expect(browseSource).toContain("const firstPageForCurrentQuery = createMemo(() => {");
     expect(browseSource).toContain(
       "!isSameBrowseQuery(currentFirstPageResult.query, query())",
@@ -325,6 +349,24 @@ describe("memory browse actions", () => {
     expect(browseSource).not.toContain("loadMoreSentinel === undefined || typeof IntersectionObserver");
   });
 
+  it("keeps empty filtered pages continuable when the server returns a cursor", () => {
+    const memoriesShowStart = browseSource.indexOf(
+      "when={visibleMemories().length > 0}",
+    );
+    const memoriesShowEnd = browseSource.indexOf(
+      "\n            </Show>",
+      memoriesShowStart,
+    );
+    const loadMoreStart = browseSource.indexOf(
+      "<Show when={nextCursor() !== null}>",
+      memoriesShowStart,
+    );
+
+    expect(memoriesShowStart).toBeGreaterThan(-1);
+    expect(memoriesShowEnd).toBeGreaterThan(memoriesShowStart);
+    expect(loadMoreStart).toBeGreaterThan(memoriesShowEnd);
+  });
+
   it("reports handled load-more failures without rethrowing to void callers", () => {
     const loadNextPageStart = browseSource.indexOf("const loadNextPage = async");
     const loadNextPageEnd = browseSource.indexOf(
@@ -342,6 +384,64 @@ describe("memory browse actions", () => {
     expect(loadNextPageSource).not.toContain("throw error");
   });
 
+  it("settles initial-page failures into an explicit retryable state", async () => {
+    const readyPage = { memories: [memory], nextCursor: null } satisfies BrowseMemoryPage;
+
+    await expect(
+      settleInitialBrowseMemoryPage({ q: "", category: "", tag: "", flashback: "", view: "list" }, async () => readyPage),
+    ).resolves.toMatchObject({ status: "ready", page: readyPage });
+    await expect(
+      settleInitialBrowseMemoryPage({ q: "broken", category: "", tag: "", flashback: "", view: "list" }, async () => {
+        throw new Error("database unavailable");
+      }),
+    ).resolves.toMatchObject({ status: "error" });
+
+    const errorHtml = renderToString(() =>
+      createComponent(MemoryBrowseInitialPageFailure, {
+        getFocusTarget: () => undefined,
+        onRetry: () => "success",
+      }),
+    );
+    expect(errorHtml).toContain('role="alert"');
+    expect(errorHtml).toContain("Failed to load memories");
+    expect(errorHtml).toContain('aria-label="Retry memories"');
+    expect(errorHtml).toContain(">Retry</button>");
+
+    expect(browseSource).toContain('aria-label="Memory page results"');
+    expect(browseSource).toContain('role="region"');
+    expect(browseSource).toContain("CollectionPageRetry");
+    expect(browseSource).toContain("createCollectionPageRetryController");
+    expect(browseSource).toContain("revalidateBrowseMemoryFirstPage");
+  });
+
+  it("ignores every stale load-more completion path", async () => {
+    const staleSuccess = createDeferred<BrowseMemoryPage>();
+    const staleFailure = createDeferred<BrowseMemoryPage>();
+    const events: string[] = [];
+    let current = true;
+    const callbacks = {
+      isCurrent: () => current,
+      onError: () => events.push("error"),
+      onPage: () => events.push("page"),
+      onSettled: () => events.push("settled"),
+    };
+
+    const successRequest = settleCurrentBrowsePageRequest({
+      ...callbacks,
+      loadPage: () => staleSuccess.promise,
+    });
+    const failureRequest = settleCurrentBrowsePageRequest({
+      ...callbacks,
+      loadPage: () => staleFailure.promise,
+    });
+    current = false;
+    staleSuccess.resolve({ memories: [], nextCursor: null });
+    staleFailure.reject(new Error("stale failure"));
+
+    await Promise.all([successRequest, failureRequest]);
+    expect(events).toEqual([]);
+  });
+
   it("clears appended pages after card mutations revalidate browse data", () => {
     expect(browseSource).toContain("clearAdditionalBrowsePages");
     expect(browseSource).toContain("onMemoryMutated={clearAdditionalBrowsePages}");
@@ -355,8 +455,10 @@ describe("memory browse actions", () => {
   });
 
   it("uses global browse workspace revalidation after add-memory success", () => {
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace");
-    expect(addMemoryFormSource).toContain("revalidateBrowseMemoryWorkspace()");
+    expect(appShellSource).toContain("revalidateBrowseMemoryWorkspace");
+    expect(appShellSource).toContain(
+      "onCreationSettled: () => revalidateBrowseMemoryWorkspace()",
+    );
     expect(addMemoryFormSource).not.toContain("revalidateBrowseTaxonomy");
     expect(addMemoryFormSource).not.toContain("useLocation");
     expect(addMemoryFormSource).not.toContain("parseBrowseQuery(location.search)");
@@ -425,3 +527,22 @@ describe("memory browse actions", () => {
     expect(isBackupFailsafeMemoryActionError(caught)).toBe(true);
   });
 });
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let rejectPromise: ((error: unknown) => void) | undefined;
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    rejectPromise = reject;
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    reject: (error) => rejectPromise?.(error),
+    resolve: (value) => resolvePromise?.(value),
+  };
+}

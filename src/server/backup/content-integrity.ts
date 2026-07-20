@@ -1,13 +1,12 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 
 import { eq } from "drizzle-orm";
 
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db/repositories";
 import * as schema from "../db/schema";
+import { executeBuiltInGit } from "./git-command";
 
 export interface InconsistentBackupContent {
   memoryId: string;
@@ -21,17 +20,30 @@ export interface InconsistentBackupContent {
   stagePath?: string;
 }
 
-const execFileAsync = promisify(execFile);
+const MAX_GIT_INDEX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+export interface BackupContentIntegrityDependencies {
+  listTrackedPaths?: (projectPath: string) => Promise<ReadonlySet<string>>;
+}
 
 export async function findInconsistentSuccessfulBackupContent(
   config: ResolvedTraumaConfig,
   db: TraumaDatabase,
+  dependencies: BackupContentIntegrityDependencies = {},
 ) {
   const rows = await db
     .select({ id: schema.memories.id, contentPath: schema.memories.contentPath })
     .from(schema.memories)
     .where(eq(schema.memories.backupStatus, "success"))
     .all();
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const trackedPaths = await (
+    dependencies.listTrackedPaths ?? listGitTrackedPaths
+  )(config.projectPath);
 
   for (const row of rows) {
     const resolved = resolveBackupContentPath(config, row.contentPath);
@@ -53,7 +65,7 @@ export async function findInconsistentSuccessfulBackupContent(
       } satisfies InconsistentBackupContent;
     }
 
-    if (!(await isGitTracked(config.projectPath, resolved.stagePath))) {
+    if (!trackedPaths.has(resolved.stagePath)) {
       return {
         memoryId: row.id,
         contentPath: row.contentPath,
@@ -108,15 +120,16 @@ function resolveBackupContentPath(
   };
 }
 
-async function isGitTracked(projectPath: string, stagePath: string) {
+async function listGitTrackedPaths(projectPath: string): Promise<ReadonlySet<string>> {
   try {
-    await execFileAsync("git", ["ls-files", "--error-unmatch", "--", stagePath], {
+    const { stdout } = await executeBuiltInGit(["ls-files", "--no-sparse", "-z"], {
       cwd: projectPath,
       env: createGitCommandEnv(),
+      maxBuffer: MAX_GIT_INDEX_OUTPUT_BYTES,
     });
-    return true;
+    return new Set(stdout.split("\0").filter((path) => path.length > 0));
   } catch {
-    return false;
+    return new Set();
   }
 }
 

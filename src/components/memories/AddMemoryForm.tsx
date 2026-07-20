@@ -1,12 +1,7 @@
 import { useNavigate } from "@solidjs/router";
-import { Show, createMemo, createSignal, type JSX } from "solid-js";
+import { Show, onCleanup, type JSX } from "solid-js";
 
-import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
-import {
-  submitAddMemoryUrl,
-  type AddMemorySubmitResult,
-} from "./add-memory-submit";
-import { revalidateBrowseMemoryWorkspace } from "./browse-loader";
+import type { AddMemorySubmissionController } from "./add-memory-controller";
 import { WaxSealButton, WaxSealLabel } from "../ui/WaxSealButton";
 
 export interface AddMemoryFormProps {
@@ -14,6 +9,7 @@ export interface AddMemoryFormProps {
   inputClass: string;
   buttonClass: string;
   submitLabel: string;
+  submission: AddMemorySubmissionController;
   title?: string;
   showVisibleLabel?: boolean;
   onCreated?: (memoryId: string) => void;
@@ -21,10 +17,8 @@ export interface AddMemoryFormProps {
 
 export function AddMemoryForm(props: AddMemoryFormProps) {
   const navigate = useNavigate();
-  const [url, setUrl] = createSignal("");
-  const [errorMessage, setErrorMessage] = createSignal("");
-  const [isSubmitting, setIsSubmitting] = createSignal(false);
-  const canSubmit = createMemo(() => url().trim() !== "" && !isSubmitting());
+  const view = props.submission.createView();
+  onCleanup(view.dispose);
 
   const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
     event,
@@ -34,36 +28,23 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
   };
 
   async function saveMemory() {
-    if (!canSubmit()) {
+    if (!props.submission.canSubmit()) {
       return;
     }
 
-    setErrorMessage("");
-    setIsSubmitting(true);
-    try {
-      const result = await submitAddMemoryUrl({ url: url() });
-      if (!result.ok) {
-        setErrorMessage(result.error);
-        if (shouldRevalidateBackupFailsafeAlert(result)) {
-          void revalidateBackupFailsafeAlert();
-        }
-        return;
-      }
-
-      setUrl("");
-      void revalidateBrowseMemoryWorkspace();
-      navigate(`/memories/${encodeURIComponent(result.memoryId)}`);
-      props.onCreated?.(result.memoryId);
-    } finally {
-      setIsSubmitting(false);
-    }
+    await view.submit({
+      onCreated: (memoryId) => {
+        navigate(`/memories/${encodeURIComponent(memoryId)}`);
+        props.onCreated?.(memoryId);
+      },
+    });
   }
 
   return (
     <form
       class={props.formClass}
       aria-label="Add memory"
-      aria-busy={isSubmitting()}
+      aria-busy={props.submission.isSubmitting()}
       onSubmit={handleSubmit}
     >
       <Show when={props.title}>
@@ -83,24 +64,24 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
           class={props.inputClass}
           type="url"
           placeholder="https://example.com/article"
-          value={url()}
+          value={props.submission.url()}
           required
-          disabled={isSubmitting()}
-          onInput={(event) => setUrl(event.currentTarget.value)}
+          disabled={props.submission.isSubmitting()}
+          onInput={(event) => props.submission.setUrl(event.currentTarget.value)}
         />
       </label>
       <WaxSealButton
         class={props.buttonClass}
-        disabled={!canSubmit()}
-        hint={isSubmitting() ? "Saving..." : props.submitLabel}
+        disabled={!props.submission.canSubmit()}
+        hint={props.submission.isSubmitting() ? "Saving..." : props.submitLabel}
         type="submit"
         variant="command"
       >
         <WaxSealLabel>
-          {isSubmitting() ? "Saving..." : props.submitLabel}
+          {props.submission.isSubmitting() ? "Saving..." : props.submitLabel}
         </WaxSealLabel>
       </WaxSealButton>
-      <Show when={errorMessage()}>
+      <Show when={props.submission.errorMessage()}>
         {(message) => (
           <p class="col-span-full mb-0 text-sm font-bold text-red-700" role="alert">
             {message()}
@@ -109,10 +90,4 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       </Show>
     </form>
   );
-}
-
-export function shouldRevalidateBackupFailsafeAlert(
-  result: AddMemorySubmitResult,
-) {
-  return !result.ok && result.backupFailsafe === true;
 }

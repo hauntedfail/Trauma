@@ -31,6 +31,10 @@ export interface RenderMemoryMarkdownOptions {
   sourceUrl?: string;
 }
 
+export const MAX_HIGHLIGHTED_CODE_LENGTH = 20_000;
+export const MAX_TOTAL_HIGHLIGHTED_CODE_LENGTH = 20_000;
+export const MAX_HIGHLIGHTED_CODE_BLOCKS = 32;
+
 export function renderMemoryMarkdown(
   markdown: string,
   options: RenderMemoryMarkdownOptions = {},
@@ -47,12 +51,13 @@ export function renderMemoryMarkdown(
 
 function createMarkdownIt(toc: ReaderTocEntry[]) {
   const headingPathTracker = createHeadingPathTracker();
+  const highlightCode = createCodeHighlighter();
 
   return new MarkdownIt({
     html: true,
     linkify: true,
     typographer: false,
-    highlight: (code, language) => highlightCode(code, language),
+    highlight: highlightCode,
   })
     .use(taskListPlugin)
     .use(footnote)
@@ -78,12 +83,40 @@ function createMarkdownIt(toc: ReaderTocEntry[]) {
     });
 }
 
-function highlightCode(code: string, language: string) {
-  const highlighted = language.trim() !== "" && hljs.getLanguage(language)
-    ? hljs.highlight(code, { language, ignoreIllegals: true }).value
-    : hljs.highlightAuto(code).value;
+function createCodeHighlighter() {
+  let highlightedBlockCount = 0;
+  let highlightedCodeLength = 0;
 
-  return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
+  return (code: string, language: string) => {
+    const normalizedLanguage = language.trim();
+    const knownLanguage = normalizedLanguage !== "" &&
+      hljs.getLanguage(normalizedLanguage) !== undefined;
+    const withinRenderBudget = knownLanguage &&
+      code.length <= MAX_HIGHLIGHTED_CODE_LENGTH &&
+      highlightedBlockCount < MAX_HIGHLIGHTED_CODE_BLOCKS &&
+      highlightedCodeLength + code.length <= MAX_TOTAL_HIGHLIGHTED_CODE_LENGTH;
+
+    let highlighted: string;
+    if (withinRenderBudget) {
+      highlightedBlockCount += 1;
+      highlightedCodeLength += code.length;
+      highlighted = hljs.highlight(code, {
+        language: normalizedLanguage,
+        ignoreIllegals: true,
+      }).value;
+    } else {
+      highlighted = escapeCodeHtml(code);
+    }
+
+    return `<pre><code class="hljs language-${escapeAttribute(language)}">${highlighted}</code></pre>`;
+  };
+}
+
+function escapeCodeHtml(code: string): string {
+  return code
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) {
@@ -222,7 +255,8 @@ function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) 
         (frame.attribs.srcdoc !== undefined ||
           !isSafeReaderIframeUrl(frame.attribs.src))) ||
       (frame.tag === "img" &&
-        resolveReaderImageUrl(frame.attribs.src, options.sourceUrl) === null) ||
+        frame.attribs.src === undefined &&
+        frame.attribs.srcset === undefined) ||
       (frame.tag === "input" && frame.attribs.type !== "checkbox"),
     transformTags: {
       a: createAnchorSanitizer(options.sourceUrl),
@@ -238,7 +272,7 @@ function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) 
 function addReaderHeadingMomentButtons(html: string) {
   return html.replace(
     /<(h[1-3])([^>]*\bdata-reader-section-anchor="[^"]+"[^>]*)>/g,
-    (match: string, tagName: string, attributes: string) => {
+    (_match: string, tagName: string, attributes: string) => {
       const title = readHtmlAttribute(attributes, "data-reader-section-title")
         ?? "section";
       const outline = renderMomentIconSvgMarkup({
@@ -514,19 +548,24 @@ function resolveReaderImageUrl(
     return null;
   }
 
-  if (sourceUrl !== undefined) {
-    return resolveSafeImageUrl(sourceUrl, value);
-  }
+  const safeUrl = sourceUrl !== undefined
+    ? resolveSafeImageUrl(sourceUrl, value)
+    : isSafeReaderImageUrl(value)
+      ? normalizeUrl(value)
+      : null;
+  return safeUrl === null ? null : createReaderMediaProxyUrl(safeUrl);
+}
 
-  if (!isSafeReaderImageUrl(value)) {
-    return null;
-  }
-
+function normalizeUrl(value: string): string | null {
   try {
     return new URL(value).toString();
   } catch {
     return null;
   }
+}
+
+function createReaderMediaProxyUrl(url: string): string {
+  return `/api/reader-media?url=${encodeURIComponent(url)}`;
 }
 
 function isSafeSourceSetDescriptor(value: string): boolean {

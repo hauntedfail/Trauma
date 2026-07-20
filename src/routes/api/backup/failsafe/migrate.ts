@@ -6,6 +6,7 @@ import {
   BackupFailsafeActionError,
   migrateBackupFailsafeContent,
 } from "~/server/backup/failsafe";
+import { RuntimeProcessLeaseError } from "~/server/runtime/process-lease";
 import {
   formatConfigError,
   json,
@@ -31,9 +32,18 @@ export async function POST(event: APIEvent): Promise<Response> {
       config,
       db: connection.db,
       apply: true,
+      expectedGeneration: confirmation.generation,
     });
     return json(result, { status: 200 });
   } catch (error) {
+    if (error instanceof RuntimeProcessLeaseError) {
+      return json(
+        {
+          error: "Backup recovery storage is active in another TRAUMA process. Stop it and retry.",
+        },
+        { status: 409 },
+      );
+    }
     if (error instanceof BackupFailsafeActionError) {
       return json({ error: error.message }, { status: 409 });
     }

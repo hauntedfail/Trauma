@@ -94,7 +94,10 @@ describe("toggleMemoryFlashback", () => {
             },
             config,
             db: connection.db,
-            backupQueue: { enqueue: async () => ({ backupStatus: "disabled" }) },
+            backupQueue: {
+              persistIntent: async () => ({ backupStatus: "disabled" }),
+              enqueue: async () => ({ backupStatus: "disabled" }),
+            },
             generateId: () => "translated-created",
             now: () => now,
           });
@@ -201,7 +204,12 @@ describe("toggleMemoryFlashback", () => {
         };
         const connection = initializeDatabase(config);
         const enqueuedJobs = [];
+        const persistedJobs = [];
         const backupQueue = {
+          persistIntent: async (job) => {
+            persistedJobs.push(job);
+            return { backupStatus: "pending" };
+          },
           enqueue: async (job) => {
             const contentPaths = job.contentPaths ?? (job.contentPath === undefined ? [] : [job.contentPath]);
             const contents = await Promise.all(
@@ -338,6 +346,7 @@ describe("toggleMemoryFlashback", () => {
             rowsAfterRemove,
             exportAfterRemove,
             enqueuedJobs,
+            persistedJobs,
             memory,
             staleError,
           }));
@@ -410,6 +419,22 @@ describe("toggleMemoryFlashback", () => {
           "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
         ],
         containsMarkedContent: false,
+      },
+    ]);
+    expect(result.persistedJobs).toEqual([
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "flashback_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
+        ],
+      },
+      {
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f301",
+        reason: "flashback_update",
+        contentPaths: [
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f301/FLASHBACKS.json",
+        ],
       },
     ]);
     expect(result.memory).toEqual({ backup_status: "queued" });
@@ -495,6 +520,7 @@ describe("toggleMemoryFlashback", () => {
             config,
             db: connection.db,
             backupQueue: {
+              persistIntent: async () => ({ backupStatus: "pending" }),
               enqueue: async () => ({ backupStatus: "queued" }),
             },
             generateId: () => "flashback-rendered",
@@ -519,13 +545,14 @@ describe("toggleMemoryFlashback", () => {
     });
   });
 
-  it("rolls back database rows and FLASHBACKS.json when backup enqueue fails", () => {
+  it("keeps a newly added flashback durable and restart-retryable when backup enqueue fails", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
         import { mkdir, readFile, writeFile } from "node:fs/promises";
         import { join } from "node:path";
+        import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase, schema } from "./src/server/db/index.ts";
         import { toggleMemoryFlashback } from "./src/server/flashbacks/toggle.ts";
         import { writeMemoryContent } from "./src/server/store/index.ts";
@@ -613,40 +640,57 @@ describe("toggleMemoryFlashback", () => {
           const exportPath = join(config.storePath, "memories", memoryId, "FLASHBACKS.json");
           await writeFile(exportPath, JSON.stringify({ version: 1, memoryId, flashbacks: [{ id: "flashback-existing" }] }, null, 2) + "\\n", "utf8");
 
-          let error;
-          try {
-            await toggleMemoryFlashback({
-              memoryId,
-              operation: "flashback",
-              selection: {
-                text: "target",
-                prefix: "second ",
-                suffix: ".",
-                startOffset: markdown.lastIndexOf("target"),
-                endOffset: markdown.lastIndexOf("target") + "target".length,
+          const result = await toggleMemoryFlashback({
+            memoryId,
+            operation: "flashback",
+            selection: {
+              text: "target",
+              prefix: "second ",
+              suffix: ".",
+              startOffset: markdown.lastIndexOf("target"),
+              endOffset: markdown.lastIndexOf("target") + "target".length,
+            },
+            config,
+            db: connection.db,
+            backupQueue: {
+              persistIntent: async () => ({ backupStatus: "pending" }),
+              enqueue: async () => {
+                throw new Error("queue offline");
               },
-              config,
-              db: connection.db,
-              backupQueue: {
-                enqueue: async () => {
-                  throw new Error("queue offline");
-                },
-              },
-              generateId: () => "flashback-new",
-              now: () => new Date("2026-05-10T01:00:00.000Z"),
-            });
-          } catch (caught) {
-            error = caught instanceof Error ? caught.message : String(caught);
-          }
+            },
+            generateId: () => "flashback-new",
+            now: () => new Date("2026-05-10T01:00:00.000Z"),
+          });
 
           const rows = connection.sqlite
             .prepare("select id, text, start_offset, end_offset from flashbacks order by id")
             .all();
           const exportContent = await readFile(exportPath, "utf8");
-          const memory = connection.sqlite
-            .prepare("select backup_status from memories where id = ?")
+          const memoryAfterFailure = connection.sqlite
+            .prepare("select backup_status, last_backup_error from memories where id = ?")
             .get(memoryId);
-          process.stdout.write(JSON.stringify({ error, rows, exportContent: JSON.parse(exportContent), memory }));
+          const retriedJobs = [];
+          const restartQueue = createGitMemoryBackupQueue({
+            config,
+            now: () => new Date("2026-05-10T02:00:00.000Z"),
+            runJob: async ({ job }) => {
+              retriedJobs.push(job);
+            },
+          });
+          const retryCount = await restartQueue.retryEligibleBackups();
+          await restartQueue.drain();
+          const memoryAfterRetry = connection.sqlite
+            .prepare("select backup_status, last_backup_error from memories where id = ?")
+            .get(memoryId);
+          process.stdout.write(JSON.stringify({
+            exportContent: JSON.parse(exportContent),
+            memoryAfterFailure,
+            memoryAfterRetry,
+            result,
+            retriedJobs,
+            retryCount,
+            rows,
+          }));
         } finally {
           connection.close();
         }
@@ -663,7 +707,16 @@ describe("toggleMemoryFlashback", () => {
     );
 
     const result = JSON.parse(output);
-    expect(result.error).toBe("queue offline");
+    expect(result.result).toMatchObject({
+      operation: "flashbacked",
+      backup: {
+        status: "failed",
+        warning: {
+          code: "backup_enqueue_failed",
+          message: "Flashback was saved, but backup enqueue failed.",
+        },
+      },
+    });
     expect(result.rows).toEqual([
       {
         id: "flashback-existing",
@@ -671,13 +724,208 @@ describe("toggleMemoryFlashback", () => {
         start_offset: 6,
         end_offset: 12,
       },
+      {
+        id: "flashback-new",
+        text: "target",
+        start_offset: 25,
+        end_offset: 31,
+      },
     ]);
-    expect(result.exportContent).toEqual({
+    expect(result.exportContent).toMatchObject({
       version: 1,
       memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f303",
-      flashbacks: [{ id: "flashback-existing" }],
+      flashbacks: [
+        expect.objectContaining({ id: "flashback-existing" }),
+        expect.objectContaining({ id: "flashback-new" }),
+      ],
     });
-    expect(result.memory).toEqual({ backup_status: "pending" });
+    expect(result.memoryAfterFailure).toEqual({
+      backup_status: "failed",
+      last_backup_error: "queue offline",
+    });
+    expect(result.retryCount).toBe(1);
+    expect(result.retriedJobs).toEqual([
+      expect.objectContaining({
+        memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f303",
+        contentPaths: expect.arrayContaining([
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f303/CONTENT.md",
+          "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f303/FLASHBACKS.json",
+        ]),
+      }),
+    ]);
+    expect(result.memoryAfterRetry).toEqual({
+      backup_status: "success",
+      last_backup_error: null,
+    });
+  });
+
+  it("keeps a removed flashback durable when backup status persistence fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-flashback-toggle-"));
+    const output = runBunScript(
+      `
+        import { execFileSync } from "node:child_process";
+        import { mkdir, readFile } from "node:fs/promises";
+        import { join } from "node:path";
+        import { initializeDatabase, schema } from "./src/server/db/index.ts";
+        import { toggleMemoryFlashback } from "./src/server/flashbacks/toggle.ts";
+        import { writeFlashbackMetadataExport } from "./src/server/flashbacks/export.ts";
+        import { writeMemoryContent } from "./src/server/store/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f305";
+        const markdown = "Alpha target omega.";
+        const now = new Date("2026-05-10T01:00:00.000Z");
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const connection = initializeDatabase(config);
+        try {
+          await connection.db.insert(schema.memories).values({
+            id: memoryId,
+            url: "https://example.com/flashback-remove",
+            title: "Flashback Remove",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "pending",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+            id: "default",
+            projectPath: config.projectPath,
+            storePath: config.storePath,
+            gitRemote: "origin",
+            gitRemoteUrl: null,
+            gitBranch: "main",
+            createdAt: now,
+            updatedAt: now,
+          });
+          await mkdir(config.projectPath, { recursive: true });
+          execFileSync("git", ["init", "--initial-branch=main"], {
+            cwd: config.projectPath,
+            env: createGitEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          await writeMemoryContent({
+            config,
+            memoryId,
+            frontmatter: {
+              id: memoryId,
+              url: "https://example.com/flashback-remove",
+              title: "Flashback Remove",
+              capturedAt: now.toISOString(),
+              extractionStatus: "success",
+            },
+            markdown,
+          });
+          const existing = {
+            id: "flashback-existing",
+            memoryId,
+            variantKind: "source",
+            langCode: null,
+            translationOutputHash: null,
+            text: "target",
+            prefix: "Alpha ",
+            suffix: " omega.",
+            startOffset: 6,
+            endOffset: 12,
+            contentHash: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          await connection.db.insert(schema.flashbacks).values(existing);
+          await writeFlashbackMetadataExport({
+            config,
+            memoryId,
+            flashbacks: [existing],
+            variant: { kind: "source", langCode: null, outputHash: null },
+          });
+
+          const result = await toggleMemoryFlashback({
+            memoryId,
+            operation: "unflashback",
+            selection: {
+              text: "target",
+              prefix: "Alpha ",
+              suffix: " omega.",
+              startOffset: 6,
+              endOffset: 12,
+            },
+            config,
+            db: connection.db,
+            backupQueue: {
+              persistIntent: async () => ({ backupStatus: "pending" }),
+              enqueue: async () => {
+                throw new Error("backup status unavailable");
+              },
+            },
+            now: () => new Date("2026-05-10T02:00:00.000Z"),
+          });
+          const rows = connection.sqlite
+            .prepare("select id from flashbacks where memory_id = ?")
+            .all(memoryId);
+          const exported = JSON.parse(
+            await readFile(join(config.storePath, "memories", memoryId, "FLASHBACKS.json"), "utf8"),
+          );
+          const memory = connection.sqlite
+            .prepare("select backup_status, last_backup_error from memories where id = ?")
+            .get(memoryId);
+          process.stdout.write(JSON.stringify({ exported, memory, result, rows }));
+        } finally {
+          connection.close();
+        }
+
+        function createGitEnv() {
+          const env = { ...process.env };
+          delete env.GIT_DIR;
+          delete env.GIT_WORK_TREE;
+          delete env.GIT_INDEX_FILE;
+          return env;
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      result: {
+        operation: "unflashbacked",
+        flashbacks: [],
+        backup: {
+          status: "failed",
+          warning: {
+            code: "backup_enqueue_failed",
+            message: "Flashback was saved, but backup enqueue failed.",
+          },
+        },
+      },
+      rows: [],
+      exported: { flashbacks: [] },
+      memory: {
+        backup_status: "failed",
+        last_backup_error: "backup status unavailable",
+      },
+    });
   });
 
   it("rolls back database rows when FLASHBACKS.json cannot be written", () => {
@@ -774,6 +1022,7 @@ describe("toggleMemoryFlashback", () => {
               config,
               db: connection.db,
               backupQueue: {
+                persistIntent: async () => ({ backupStatus: "pending" }),
                 enqueue: async () => ({ backupStatus: "disabled" }),
               },
               generateId: () => "flashback-new",

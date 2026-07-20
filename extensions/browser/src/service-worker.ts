@@ -5,7 +5,6 @@ import type {
   CapturedTabSnapshot,
   CaptureResult,
   ExtensionSettings,
-  RuntimeMessage,
 } from "./types";
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

@@ -91,9 +91,19 @@ describe("flashbacks route state", () => {
     expect(flashbacksRouteSource).toContain("suffix={flashback.suffix}");
     expect(flashbacksRouteSource).toContain("FlashbackActionMenu");
     expect(flashbackActionMenuSource).toContain("Delete flashback");
-    expect(flashbacksRouteSource).toContain("visibleFlashbackRows");
+    expect(flashbacksRouteSource).toContain("readyFlashbackRows");
     expect(flashbacksRouteSource).toContain("flashback.memoryTitle");
     expect(flashbacksRouteSource).not.toContain("Source memory");
     expect(flashbacksRouteSource).not.toContain("Marked excerpts");
+    expect(flashbacksRouteSource).toContain("getFlashbackBrowsePage");
+    expect(flashbacksRouteSource).toContain("useLocation");
+    expect(flashbacksRouteSource).toContain("nextCursor");
+    expect(flashbacksRouteSource).toContain('href="/flashbacks"');
+    expect(flashbacksRouteSource).toContain("CollectionPageRetry");
+    expect(flashbacksRouteSource).toContain("createCollectionPageRetryController");
+    expect(flashbacksRouteSource).toContain("isRetryingCurrentPage()");
+    expect(flashbacksRouteSource).toContain(
+      "revalidatePage: revalidateFlashbackBrowsePage",
+    );
   });
 });

@@ -1,6 +1,9 @@
 import {
+  access,
+  link,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   rm,
@@ -10,6 +13,7 @@ import { dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AtomicCreateFileSystem } from "../../../src/server/files/atomic-write";
 import {
   MEMORY_CONTENT_FILENAME,
   createMemoryContentFixture,
@@ -181,6 +185,33 @@ describe("memory content writing and reading", () => {
     ).toEqual([]);
   });
 
+  it("removes canonical content when exclusive publication durability is ambiguous", async () => {
+    const storePath = await makeStorePath();
+    const contentPath = resolveMemoryContentPath({ storePath }, memoryId);
+    const directorySyncError = Object.assign(
+      new Error("directory sync failed after link"),
+      { code: "EIO" },
+    );
+
+    await expect(
+      writeMemoryContent({
+        config: { storePath },
+        memoryId,
+        overwrite: false,
+        frontmatter: frontmatter(),
+        markdown: "Ambiguous publication must be rolled back.",
+        atomicCreateFileSystem:
+          createDirectorySyncFailingFileSystem(directorySyncError),
+      } as Parameters<typeof writeMemoryContent>[0]),
+    ).rejects.toMatchObject({
+      name: "AtomicCreatePublicationError",
+      targetPath: contentPath.absolutePath,
+    });
+
+    await expect(access(dirname(contentPath.absolutePath))).rejects
+      .toMatchObject({ code: "ENOENT" });
+  });
+
   it("creates deterministic fixture markdown for tests and docs", () => {
     const fixture = createMemoryContentFixture({
       frontmatter: {
@@ -207,6 +238,32 @@ describe("memory content writing and reading", () => {
     );
   });
 });
+
+function createDirectorySyncFailingFileSystem(
+  directorySyncError: Error,
+): AtomicCreateFileSystem {
+  return {
+    link,
+    open: async (path, flags, mode) => {
+      const handle = await open(path, flags, mode);
+      return {
+        writeFile: (data, options) => handle.writeFile(data, options),
+        sync: () => handle.sync(),
+        close: () => handle.close(),
+      };
+    },
+    openDirectory: async (path) => {
+      const handle = await open(path, "r");
+      return {
+        sync: async () => {
+          throw directorySyncError;
+        },
+        close: () => handle.close(),
+      };
+    },
+    rm: (path, options) => rm(path, options),
+  };
+}
 
 describe("memory content read failures", () => {
   it("fails clearly when CONTENT.md is missing", async () => {

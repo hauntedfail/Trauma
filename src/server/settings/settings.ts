@@ -1,18 +1,11 @@
 import {
   DEFAULT_TRANSLATION_TARGET_LANGUAGE,
-  SUPPORTED_TRANSLATION_LANGUAGES,
   isSupportedLanguageCode,
   type SupportedLanguageCode,
 } from "../../settings/languages";
 import { loadRuntimeTraumaConfig, type ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
 import type { SettingsRepository } from "../db/repositories";
-import {
-  enableOpenAiAuthWithRepository,
-  deleteOpenAiAuthWithRepository,
-  type DeleteOpenAiAuthResult,
-  type EnableOpenAiAuthResponse,
-} from "./openai-auth";
 import {
   readCodexAuthStatus,
   type CodexAuthStatusResponse,
@@ -116,6 +109,34 @@ export async function updateCodexTranslationDefaults(input: {
   });
 }
 
+export async function updateTranslationDefaults(input: {
+  config?: ResolvedTraumaConfig;
+  language: string;
+  model: string | null;
+  now?: Date;
+  reasoningEffort: string | null;
+}): Promise<SettingsState> {
+  const language = input.language;
+  if (!isSupportedLanguageCode(language)) {
+    throw new UnsupportedTranslationLanguageError(language);
+  }
+  const model = normalizeOptionalString(input.model);
+  const reasoningEffort = normalizeCodexReasoningEffort(input.reasoningEffort);
+
+  return withSettingsRepository(input, async (repository, now) => {
+    const settings = await repository.updateTranslationDefaults({
+      language,
+      model,
+      reasoningEffort,
+      updatedAt: now,
+    });
+    return {
+      ...toTranslationSettingsState(settings),
+      openaiAuth: await readCodexAuthStatus(),
+    };
+  });
+}
+
 export async function getCodexTranslationDefaults(
   options: SettingsOptions = {},
 ): Promise<{
@@ -129,26 +150,6 @@ export async function getCodexTranslationDefaults(
       reasoningEffort: settings.codexTranslationReasoningEffort,
     };
   });
-}
-
-export async function enableSettingsOpenAiAuth(
-  options: SettingsOptions = {},
-): Promise<EnableOpenAiAuthResponse> {
-  return withSettingsRepository(options, (repository, now) =>
-    enableOpenAiAuthWithRepository(repository, now),
-  );
-}
-
-export async function deleteSettingsOpenAiAuth(
-  options: SettingsOptions = {},
-): Promise<DeleteOpenAiAuthResult> {
-  return withSettingsRepository(options, (repository) =>
-    deleteOpenAiAuthWithRepository(repository),
-  );
-}
-
-export function getSupportedTranslationLanguages() {
-  return SUPPORTED_TRANSLATION_LANGUAGES;
 }
 
 export { DEFAULT_TRANSLATION_TARGET_LANGUAGE };

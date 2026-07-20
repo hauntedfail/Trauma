@@ -1,6 +1,13 @@
-# Trauma Foundation Design
+# Historical Trauma Foundation Design
 
 Date: 2026-05-09
+
+> **Superseded historical record.** This document captures assumptions made
+> before the current implementation existed. Do not use it as an implementation
+> contract or update target. Start at the [documentation index](../../INDEX.md)
+> for current architecture, storage, routing, operations, and verification.
+> Current semantic docs, code, and tests resolve every contradiction in their
+> favor. This file is retained only to explain the project's origin.
 
 ## Purpose
 

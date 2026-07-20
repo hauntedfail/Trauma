@@ -14,12 +14,40 @@ import type {
   CodexDeviceCodeLogin,
   CodexLogoutResult,
 } from "../../../src/server/translation/codex-app-server";
+import { CodexAppServerError } from "../../../src/server/translation/codex-app-server";
 
 afterEach(() => {
   resetCodexAuthForTests();
 });
 
 describe("Codex auth settings service", () => {
+  it("does not expose raw app-server diagnostics in auth responses", async () => {
+    const secret = "/Users/alice/.codex/auth.json token=unique-secret";
+    const statusClient = createCodexAuthClient({
+      authStatus: () => {
+        throw new CodexAppServerError("unknown", secret);
+      },
+    });
+    const status = await readCodexAuthStatus({ client: statusClient });
+    expect(status).toEqual({
+      status: "error",
+      provider: "codex",
+      error: "Codex auth request failed.",
+    });
+    expect(JSON.stringify(status)).not.toContain(secret);
+
+    const loginClient = createCodexAuthClient({
+      authStatus: { status: "setup_required", reason: "auth_required" },
+      login: new CodexAppServerError("app_server_protocol_error", secret),
+    });
+    const login = await startCodexDeviceCodeLogin({ client: loginClient });
+    expect(login).toMatchObject({
+      status: "failed",
+      error: "Codex app-server returned an invalid response.",
+    });
+    expect(JSON.stringify(login)).not.toContain(secret);
+  });
+
   it("returns enabled only after app-server auth is confirmed", async () => {
     const client = createCodexAuthClient({
       authStatus: { status: "enabled" },
@@ -341,7 +369,7 @@ function createCodexAuthClient(input: {
   cancel?: (input: { loginId: string }) => Promise<void>;
   close?: () => Promise<void>;
   events?: CodexAuthEvent[] | (() => AsyncIterable<CodexAuthEvent>);
-  login?: CodexDeviceCodeLogin;
+  login?: CodexDeviceCodeLogin | Error;
   logout?: () => Promise<CodexLogoutResult>;
 }): CodexAuthClient {
   return {
@@ -366,6 +394,9 @@ function createCodexAuthClient(input: {
     startDeviceCodeLogin: async () => {
       if (input.login === undefined) {
         throw new Error("login unavailable");
+      }
+      if (input.login instanceof Error) {
+        throw input.login;
       }
       return input.login;
     },

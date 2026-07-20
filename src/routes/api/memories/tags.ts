@@ -2,6 +2,7 @@ import type { APIEvent } from "@solidjs/start/server";
 
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import { generateTaxonomyId } from "~/server/taxonomy/id";
 import {
   normalizeTaxonomyName,
@@ -12,12 +13,12 @@ import {
 type AttachTagPayload =
   | { ok: true; memoryId: string; tagId: string; name?: never }
   | { ok: true; memoryId: string; tagId?: never; name: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseAttachTagPayload(event.request);
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -86,7 +87,7 @@ export async function POST(event: APIEvent): Promise<Response> {
 export async function DELETE(event: APIEvent): Promise<Response> {
   const payload = await parseAttachTagPayload(event.request);
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -149,12 +150,11 @@ export async function DELETE(event: APIEvent): Promise<Response> {
 async function parseAttachTagPayload(
   request: Request,
 ): Promise<AttachTagPayload> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

@@ -1,9 +1,17 @@
 import type { APIEvent } from "@solidjs/start/server";
 
+import {
+  CollectionPageInputError,
+  parseExplicitCollectionPageRequest,
+} from "~/server/browse/collection-page";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase, MemoryRepositoryError } from "~/server/db";
-import { loadMomentBrowseRows } from "~/server/moments/browse";
+import {
+  loadMomentBrowsePage,
+  loadMomentBrowseRows,
+} from "~/server/moments/browse";
 import { generateMomentId } from "~/server/moments/id";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import {
   renderMemoryMarkdown,
   type ReaderTocEntry,
@@ -34,7 +42,7 @@ export type MomentPayloadResult =
       sectionEndOffset: number | null;
       contentHash: string | null;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 const MOMENT_KEYS = [
   "memoryId",
@@ -56,13 +64,29 @@ const REQUIRED_MOMENT_KEYS = [
   "sectionPath",
 ] as const;
 
-export async function GET(): Promise<Response> {
+export async function GET(event?: APIEvent): Promise<Response> {
   try {
+    if (
+      event !== undefined &&
+      new URL(event.request.url).searchParams.has("page")
+    ) {
+      const request = parseExplicitCollectionPageRequest("moments", event.request);
+      return json(
+        await loadMomentBrowsePage({
+          cursor: request.cursorToken,
+          limit: request.limit,
+        }),
+        { status: 200 },
+      );
+    }
     return json(
       { moments: await loadMomentBrowseRows() },
       { status: 200 },
     );
   } catch (error) {
+    if (error instanceof CollectionPageInputError) {
+      return json({ error: error.message }, { status: 400 });
+    }
     if (!(error instanceof TraumaConfigError)) {
       throw error;
     }
@@ -73,7 +97,7 @@ export async function GET(): Promise<Response> {
 export async function POST(event: APIEvent): Promise<Response> {
   const payload = await parseMomentPayloadInternal(event.request);
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -294,12 +318,11 @@ export const parseMomentPayload = parseMomentPayloadInternal;
 async function parseMomentPayloadInternal(
   request: Request,
 ): Promise<MomentPayloadResult> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

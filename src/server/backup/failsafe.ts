@@ -1,31 +1,63 @@
-import { execFile } from "node:child_process";
 import {
-  copyFile,
   mkdir,
+  lstat,
   realpath,
   readFile,
   readdir,
-  writeFile,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 import { eq } from "drizzle-orm";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { loadTraumaConfig } from "../config";
-import { createRepositories, type TraumaDatabase } from "../db/repositories";
-import * as schema from "../db/schema";
-import { findInconsistentSuccessfulBackupContent } from "./content-integrity";
-import type { BackupFailsafeAlertView } from "./environment";
 import {
-  clearBackupPushFailureAlert,
+  createRepositories,
+  type BackupFailsafeAlert,
+  type TraumaDatabase,
+} from "../db/repositories";
+import * as schema from "../db/schema";
+import { writeFileAtomically } from "../files/atomic-write";
+import { findInconsistentSuccessfulBackupContent } from "./content-integrity";
+import type { BackupFailsafeAlertDetails } from "./environment";
+import {
   ensureBackupEnvironment,
   hasConfiguredRemote,
+  readCurrentBackupGitIdentity,
   recordBackupPushFailureAlert,
-  toAlertView,
+  toAlertDetails,
 } from "./environment";
+import { withBackupFailsafeActionLease } from "./failsafe-action-coordination";
+import {
+  backupFailsafeAlertGenerationWhere,
+  getBackupFailsafeAlertGeneration,
+  sameBackupFailsafeAlertGeneration,
+} from "./failsafe-alert-generation";
+import {
+  BackupFailsafeMigrationConflictError,
+  copyBackupFailsafeMigrationFile,
+} from "./failsafe-migration-file";
+import {
+  getGitPathspecFileArgs,
+  withGitPathspecFile,
+} from "./git-pathspec";
+import { executeBuiltInGit } from "./git-command";
+import { isInternalBackupStorePath } from "../store/internal-directories";
+import {
+  reserveRuntimeProcessLeaseResourcesIfActive,
+  runtimeLeaseInputsForConfig,
+  RuntimeStorageBusyError,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../runtime/process-lease";
 
 export type BackupFailsafeAction =
   | "revert"
@@ -36,19 +68,41 @@ export interface BackupFailsafeActionResult {
   ok: true;
   action: BackupFailsafeAction;
   dryRun: boolean;
+  generation: string;
+  restartRequired: boolean;
   summary: string;
   files: readonly string[];
 }
 
-const execFileAsync = promisify(execFile);
-
-export async function revertBackupFailsafeConfig(input: {
+interface BackupFailsafeActionInput {
   config: ResolvedTraumaConfig;
   db: TraumaDatabase;
   apply: boolean;
-}): Promise<BackupFailsafeActionResult> {
+  beforeRootChange?: () => void | Promise<void>;
+  expectedGeneration?: string;
+}
+
+export async function revertBackupFailsafeConfig(
+  input: BackupFailsafeActionInput,
+): Promise<BackupFailsafeActionResult> {
+  return withBackupFailsafeActionLease(input.config.databasePath, async () => {
+    const expectedAlert = await requireActiveAlert(input.db);
+    if (input.apply) {
+      assertApprovedGeneration(expectedAlert, input.expectedGeneration);
+      await assertAlertGeneration(input.db, expectedAlert);
+    }
+    return revertBackupFailsafeConfigForAlert(input, expectedAlert);
+  });
+}
+
+async function revertBackupFailsafeConfigForAlert(
+  input: BackupFailsafeActionInput,
+  expectedAlert: BackupFailsafeAlert,
+): Promise<BackupFailsafeActionResult> {
+  const generation = getBackupFailsafeAlertGeneration(expectedAlert);
   const repositories = createRepositories(input.db);
-  const alert = await requireActiveAlert(input.db);
+  const alert = toAlertDetails(expectedAlert);
+  assertAlertTargetsCurrentConfig(input.config, expectedAlert);
   if (alert.previousProjectPath === null || alert.previousStorePath === null) {
     throw new BackupFailsafeActionError(
       "cannot revert because the failsafe alert has no previous backup paths",
@@ -62,48 +116,139 @@ export async function revertBackupFailsafeConfig(input: {
   ].join("\n");
 
   if (!input.apply) {
-    return { ok: true, action: "revert", dryRun: true, summary, files: [] };
+    return {
+      ok: true,
+      action: "revert",
+      dryRun: true,
+      generation,
+      restartRequired: false,
+      summary,
+      files: [],
+    };
   }
 
-  await rewriteConfigPaths({
-    configPath: input.config.configFilePath,
+  await assertAlertGeneration(input.db, expectedAlert);
+  reservePreviousBackupRoots(input.config, {
     projectPath: alert.previousProjectPath,
     storePath: alert.previousStorePath,
   });
-  const reloaded = loadTraumaConfig({
-    configPath: input.config.configFilePath,
-  });
-  const stamp =
-    await repositories.backupEnvironment.getBackupEnvironmentStamp();
-  if (
-    stamp !== undefined &&
-    reloaded.projectPath === stamp.projectPath &&
-    reloaded.storePath === stamp.storePath
-  ) {
-    await repositories.backupEnvironment.clearBackupFailsafeAlert();
+  try {
+    await input.beforeRootChange?.();
+  } catch {
+    throw new BackupFailsafeActionError(
+      "TRAUMA could not release current storage activity; recovery did not run.",
+    );
   }
 
-  return { ok: true, action: "revert", dryRun: false, summary, files: [] };
+  let restartRequired = false;
+  try {
+    restartRequired = suspendRuntimeStorageAdmissionIfIdle(
+      runtimeLeaseInputsForConfig(input.config),
+    );
+  } catch (error) {
+    if (error instanceof RuntimeStorageBusyError) {
+      throw error;
+    }
+    throw new BackupFailsafeRestartRequiredError(
+      "TRAUMA could not verify runtime ownership while suspending storage. " +
+        "Restart TRAUMA before retrying recovery.",
+      error,
+    );
+  }
+
+  try {
+    await rewriteConfigPaths({
+      configPath: input.config.configFilePath,
+      projectPath: alert.previousProjectPath,
+      storePath: alert.previousStorePath,
+    });
+  } catch (error) {
+    if (restartRequired) {
+      throw new BackupFailsafeRestartRequiredError(
+        "TRAUMA suspended storage but could not rewrite configuration. " +
+          "Restart TRAUMA before retrying recovery.",
+        error,
+      );
+    }
+    throw error;
+  }
+
+  if (!restartRequired && input.beforeRootChange === undefined) {
+    const reloaded = loadTraumaConfig({
+      configPath: input.config.configFilePath,
+    });
+    const stamp =
+      await repositories.backupEnvironment.getBackupEnvironmentStamp();
+    if (
+      stamp !== undefined &&
+      reloaded.projectPath === stamp.projectPath &&
+      reloaded.storePath === stamp.storePath
+    ) {
+      await clearExpectedAlert(input.db, expectedAlert);
+    }
+  }
+
+  return {
+    ok: true,
+    action: "revert",
+    dryRun: false,
+    generation,
+    restartRequired,
+    summary,
+    files: [],
+  };
 }
 
-export async function migrateBackupFailsafeContent(input: {
-  config: ResolvedTraumaConfig;
-  db: TraumaDatabase;
-  apply: boolean;
-}): Promise<BackupFailsafeActionResult> {
-  const repositories = createRepositories(input.db);
-  const alert = await requireActiveAlert(input.db);
+export async function migrateBackupFailsafeContent(
+  input: BackupFailsafeActionInput,
+): Promise<BackupFailsafeActionResult> {
+  return withBackupFailsafeActionLease(input.config.databasePath, async () => {
+    const expectedAlert = await requireActiveAlert(input.db);
+    if (input.apply) {
+      assertApprovedGeneration(expectedAlert, input.expectedGeneration);
+      await assertAlertGeneration(input.db, expectedAlert);
+    }
+    return migrateBackupFailsafeContentForAlert(input, expectedAlert);
+  });
+}
+
+async function migrateBackupFailsafeContentForAlert(
+  input: BackupFailsafeActionInput,
+  expectedAlert: BackupFailsafeAlert,
+): Promise<BackupFailsafeActionResult> {
+  const generation = getBackupFailsafeAlertGeneration(expectedAlert);
+  const alert = toAlertDetails(expectedAlert);
+  assertAlertTargetsCurrentConfig(input.config, expectedAlert);
   if (alert.kind === "backup_push_failed") {
-    return retryRecoveredBackupPush({ ...input, repositories });
+    return retryRecoveredBackupPush({
+      ...input,
+      expectedAlert,
+    });
   }
   if (alert.kind !== "backup_path_drift") {
     throw new BackupFailsafeActionError(
       `cannot accept current backup paths or migrate backup content while ${alert.kind} alert is active`,
     );
   }
+  await assertPathAlertMatchesCurrentConfig(input.config, expectedAlert);
   if (alert.previousStorePath === null) {
-    return acceptCurrentBackupLocation({ ...input, repositories });
+    return acceptCurrentBackupLocation({
+      ...input,
+      expectedAlert,
+    });
   }
+
+  reservePreviousBackupRoots(input.config, {
+    projectPath: alert.previousProjectPath,
+    storePath: alert.previousStorePath,
+  });
+
+  await assertDisjointMigrationTopology({
+    previousProjectPath: alert.previousProjectPath,
+    previousStorePath: alert.previousStorePath,
+    currentProjectPath: input.config.projectPath,
+    currentStorePath: input.config.storePath,
+  });
 
   const files = await listFiles(alert.previousStorePath);
   const relativeFiles = files.map((file) => relative(alert.previousStorePath!, file));
@@ -130,40 +275,82 @@ export async function migrateBackupFailsafeContent(input: {
       ok: true,
       action: "migrate",
       dryRun: true,
+      generation,
+      restartRequired: false,
       summary,
       files: relativeFiles,
     };
   }
 
-  await mkdir(input.config.storePath, { recursive: true });
+  await assertAlertGeneration(input.db, expectedAlert);
   for (const file of relativeFiles) {
     const source = join(alert.previousStorePath, file);
     const destination = join(input.config.storePath, file);
-    await mkdir(dirname(destination), { recursive: true });
-    await copyFile(source, destination);
+    try {
+      await copyBackupFailsafeMigrationFile(source, destination, {
+        ownerToken: getBackupFailsafeAlertGeneration(expectedAlert),
+        targetRoot: input.config.projectPath,
+      });
+    } catch (error) {
+      if (error instanceof BackupFailsafeMigrationConflictError) {
+        throw new BackupFailsafeActionError(
+          `refusing to overwrite existing backup content: ${file}`,
+        );
+      }
+      throw error;
+    }
   }
 
+  await assertAlertGeneration(input.db, expectedAlert);
   await ensureBackupRepository(input.config);
-  await commitMigratedFiles(input.config, relativeFiles);
-  await stampCurrentBackupLocation(input.config, repositories);
+  const identityBeforeCommit = await requireCurrentRecoveryGitState(input.config);
+  assertPathAlertApprovesGitState(expectedAlert, identityBeforeCommit);
+  const identityAfterCommit = await commitMigratedFiles(
+    input.config,
+    relativeFiles,
+    identityBeforeCommit,
+  );
   await pushRecoveredBackup(input.config);
-  await repositories.backupEnvironment.clearBackupFailsafeAlert();
+  const identityAfterPush = await requireCurrentRecoveryGitState(input.config);
+  assertSameGitState(identityAfterCommit, identityAfterPush);
+  await stampCurrentLocationAndClearExpectedAlert({
+    config: input.config,
+    db: input.db,
+    expectedAlert,
+    identity: identityAfterPush,
+  });
 
   return {
     ok: true,
     action: "migrate",
     dryRun: false,
+    generation,
+    restartRequired: false,
     summary,
     files: relativeFiles,
   };
 }
 
-export async function deleteMissingBackupContentRecord(input: {
-  config: ResolvedTraumaConfig;
-  db: TraumaDatabase;
-  apply: boolean;
-}): Promise<BackupFailsafeActionResult> {
-  const alert = await requireActiveAlert(input.db);
+export async function deleteMissingBackupContentRecord(
+  input: BackupFailsafeActionInput,
+): Promise<BackupFailsafeActionResult> {
+  return withBackupFailsafeActionLease(input.config.databasePath, async () => {
+    const expectedAlert = await requireActiveAlert(input.db);
+    if (input.apply) {
+      assertApprovedGeneration(expectedAlert, input.expectedGeneration);
+      await assertAlertGeneration(input.db, expectedAlert);
+    }
+    return deleteMissingBackupContentRecordForAlert(input, expectedAlert);
+  });
+}
+
+async function deleteMissingBackupContentRecordForAlert(
+  input: BackupFailsafeActionInput,
+  expectedAlert: BackupFailsafeAlert,
+): Promise<BackupFailsafeActionResult> {
+  const generation = getBackupFailsafeAlertGeneration(expectedAlert);
+  const alert = toAlertDetails(expectedAlert);
+  assertAlertTargetsCurrentConfig(input.config, expectedAlert);
   if (alert.kind !== "backup_content_inconsistent") {
     throw new BackupFailsafeActionError(
       `cannot delete missing memory records while ${alert.kind} alert is active`,
@@ -198,22 +385,27 @@ export async function deleteMissingBackupContentRecord(input: {
       ok: true,
       action: "delete-missing-record",
       dryRun: true,
+      generation,
+      restartRequired: false,
       summary,
       files: [],
     };
   }
 
-  await input.db
-    .delete(schema.memories)
-    .where(eq(schema.memories.id, inconsistentContent.memoryId))
-    .run();
-  await createRepositories(input.db).backupEnvironment.clearBackupFailsafeAlert();
+  await assertAlertGeneration(input.db, expectedAlert);
+  deleteMissingRecordAndClearExpectedAlert({
+    db: input.db,
+    expectedAlert,
+    memoryId: inconsistentContent.memoryId,
+  });
   await ensureBackupEnvironment({ config: input.config, db: input.db });
 
   return {
     ok: true,
     action: "delete-missing-record",
     dryRun: false,
+    generation,
+    restartRequired: false,
     summary,
     files: [],
   };
@@ -221,9 +413,11 @@ export async function deleteMissingBackupContentRecord(input: {
 
 async function acceptCurrentBackupLocation(input: {
   config: ResolvedTraumaConfig;
-  repositories: ReturnType<typeof createRepositories>;
+  db: TraumaDatabase;
+  expectedAlert: BackupFailsafeAlert;
   apply: boolean;
 }): Promise<BackupFailsafeActionResult> {
+  const generation = getBackupFailsafeAlertGeneration(input.expectedAlert);
   const files = await listFiles(input.config.storePath);
   const relativeFiles = files.map((file) => relative(input.config.storePath, file));
   const summary = [
@@ -240,21 +434,38 @@ async function acceptCurrentBackupLocation(input: {
       ok: true,
       action: "migrate",
       dryRun: true,
+      generation,
+      restartRequired: false,
       summary,
       files: relativeFiles,
     };
   }
 
+  await assertAlertGeneration(input.db, input.expectedAlert);
   await ensureBackupRepository(input.config);
-  await commitMigratedFiles(input.config, relativeFiles);
-  await stampCurrentBackupLocation(input.config, input.repositories);
+  const identityBeforeCommit = await requireCurrentRecoveryGitState(input.config);
+  assertPathAlertApprovesGitState(input.expectedAlert, identityBeforeCommit);
+  const identityAfterCommit = await commitMigratedFiles(
+    input.config,
+    relativeFiles,
+    identityBeforeCommit,
+  );
   await pushRecoveredBackup(input.config);
-  await input.repositories.backupEnvironment.clearBackupFailsafeAlert();
+  const identityAfterPush = await requireCurrentRecoveryGitState(input.config);
+  assertSameGitState(identityAfterCommit, identityAfterPush);
+  await stampCurrentLocationAndClearExpectedAlert({
+    config: input.config,
+    db: input.db,
+    expectedAlert: input.expectedAlert,
+    identity: identityAfterPush,
+  });
 
   return {
     ok: true,
     action: "migrate",
     dryRun: false,
+    generation,
+    restartRequired: false,
     summary,
     files: relativeFiles,
   };
@@ -262,9 +473,11 @@ async function acceptCurrentBackupLocation(input: {
 
 async function retryRecoveredBackupPush(input: {
   config: ResolvedTraumaConfig;
-  repositories: ReturnType<typeof createRepositories>;
+  db: TraumaDatabase;
+  expectedAlert: BackupFailsafeAlert;
   apply: boolean;
 }): Promise<BackupFailsafeActionResult> {
+  const generation = getBackupFailsafeAlertGeneration(input.expectedAlert);
   const summary = [
     input.apply ? "APPLY: Retry backup push" : "DRY RUN: Retry backup push",
     `projectPath: ${input.config.projectPath}`,
@@ -277,6 +490,8 @@ async function retryRecoveredBackupPush(input: {
       ok: true,
       action: "migrate",
       dryRun: true,
+      generation,
+      restartRequired: false,
       summary,
       files: [],
     };
@@ -288,13 +503,35 @@ async function retryRecoveredBackupPush(input: {
     );
   }
 
+  if (
+    input.expectedAlert.currentProjectPath !== input.config.projectPath ||
+    input.expectedAlert.currentStorePath !== input.config.storePath
+  ) {
+    throw staleAlertError();
+  }
+
+  await assertAlertGeneration(input.db, input.expectedAlert);
+  const identityBeforePush = await requireCurrentRecoveryGitState(
+    input.config,
+  );
   await pushRecoveredBackup(input.config);
-  await input.repositories.backupEnvironment.clearBackupFailsafeAlert();
+  const identityAfterPush = await requireCurrentRecoveryGitState(
+    input.config,
+  );
+  assertSameGitState(identityBeforePush, identityAfterPush);
+  await stampCurrentLocationAndClearExpectedAlert({
+    config: input.config,
+    db: input.db,
+    expectedAlert: input.expectedAlert,
+    identity: identityAfterPush,
+  });
 
   return {
     ok: true,
     action: "migrate",
     dryRun: false,
+    generation,
+    restartRequired: false,
     summary,
     files: [],
   };
@@ -302,18 +539,242 @@ async function retryRecoveredBackupPush(input: {
 
 export async function readActiveBackupFailsafeAlert(
   db: TraumaDatabase,
-): Promise<BackupFailsafeAlertView | null> {
+): Promise<BackupFailsafeAlertDetails | null> {
   const alert =
     await createRepositories(db).backupEnvironment.getBackupFailsafeAlert();
-  return alert === undefined ? null : toAlertView(alert);
+  return alert === undefined ? null : toAlertDetails(alert);
 }
 
 async function requireActiveAlert(db: TraumaDatabase) {
-  const alert = await readActiveBackupFailsafeAlert(db);
-  if (alert === null) {
+  const alert =
+    await createRepositories(db).backupEnvironment.getBackupFailsafeAlert();
+  if (alert === undefined) {
     throw new BackupFailsafeActionError("no active backup failsafe alert");
   }
   return alert;
+}
+
+async function assertAlertGeneration(
+  db: TraumaDatabase,
+  expectedAlert: BackupFailsafeAlert,
+) {
+  const current =
+    await createRepositories(db).backupEnvironment.getBackupFailsafeAlert();
+  if (
+    current === undefined ||
+    !sameBackupFailsafeAlertGeneration(current, expectedAlert)
+  ) {
+    throw staleAlertError();
+  }
+}
+
+function assertApprovedGeneration(
+  alert: BackupFailsafeAlert,
+  expectedGeneration: string | undefined,
+) {
+  if (
+    expectedGeneration === undefined ||
+    getBackupFailsafeAlertGeneration(alert) !== expectedGeneration
+  ) {
+    throw staleAlertError();
+  }
+}
+
+async function clearExpectedAlert(
+  db: TraumaDatabase,
+  expectedAlert: BackupFailsafeAlert,
+) {
+  const result = await db
+    .delete(schema.backupFailsafeAlerts)
+    .where(backupFailsafeAlertGenerationWhere(expectedAlert))
+    .returning({ id: schema.backupFailsafeAlerts.id })
+    .get();
+  if (result === undefined) {
+    throw staleAlertError();
+  }
+}
+
+function deleteMissingRecordAndClearExpectedAlert(input: {
+  db: TraumaDatabase;
+  expectedAlert: BackupFailsafeAlert;
+  memoryId: string;
+}) {
+  input.db.transaction((tx) => {
+    const deleted = tx
+      .delete(schema.memories)
+      .where(eq(schema.memories.id, input.memoryId))
+      .returning({ id: schema.memories.id })
+      .get();
+    if (deleted === undefined) {
+      throw new BackupFailsafeActionError(
+        "the missing memory record changed while recovery was running; refresh and retry",
+      );
+    }
+
+    const cleared = tx
+      .delete(schema.backupFailsafeAlerts)
+      .where(backupFailsafeAlertGenerationWhere(input.expectedAlert))
+      .returning({ id: schema.backupFailsafeAlerts.id })
+      .get();
+    if (cleared === undefined) {
+      throw staleAlertError();
+    }
+  });
+}
+
+async function stampCurrentLocationAndClearExpectedAlert(input: {
+  config: ResolvedTraumaConfig;
+  db: TraumaDatabase;
+  expectedAlert: BackupFailsafeAlert;
+  identity: RecoveryGitState;
+}) {
+  const now = new Date();
+  input.db.transaction((tx) => {
+    const existing = tx
+      .select()
+      .from(schema.backupEnvironmentStamps)
+      .where(eq(schema.backupEnvironmentStamps.id, "default"))
+      .get();
+    tx
+      .insert(schema.backupEnvironmentStamps)
+      .values({
+        id: "default",
+        projectPath: input.config.projectPath,
+        storePath: input.config.storePath,
+        gitRemote: input.config.backup.git.remote,
+        gitRemoteUrl: input.identity.remoteUrl,
+        gitBranch: input.identity.branch,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.backupEnvironmentStamps.id,
+        set: {
+          projectPath: input.config.projectPath,
+          storePath: input.config.storePath,
+          gitRemote: input.config.backup.git.remote,
+          gitRemoteUrl: input.identity.remoteUrl,
+          gitBranch: input.identity.branch,
+          updatedAt: now,
+        },
+      })
+      .run();
+
+    const cleared = tx
+      .delete(schema.backupFailsafeAlerts)
+      .where(backupFailsafeAlertGenerationWhere(input.expectedAlert))
+      .returning({ id: schema.backupFailsafeAlerts.id })
+      .get();
+    if (cleared === undefined) {
+      throw staleAlertError();
+    }
+  });
+}
+
+interface RecoveryGitState {
+  repositoryRoot: string;
+  branch: string;
+  remoteUrl: string | null;
+  head: string | null;
+}
+
+async function assertPathAlertMatchesCurrentConfig(
+  config: ResolvedTraumaConfig,
+  alert: BackupFailsafeAlert,
+) {
+  assertAlertTargetsCurrentConfig(config, alert);
+  if (
+    alert.gitRemote !== config.backup.git.remote ||
+    alert.gitBranch !== config.backup.git.branch
+  ) {
+    throw staleAlertError();
+  }
+
+  if (await isExactGitRepositoryRoot(config.projectPath)) {
+    assertPathAlertApprovesGitState(
+      alert,
+      await requireCurrentRecoveryGitState(config),
+    );
+  }
+}
+
+function assertAlertTargetsCurrentConfig(
+  config: ResolvedTraumaConfig,
+  alert: BackupFailsafeAlert,
+) {
+  if (
+    alert.currentProjectPath !== config.projectPath ||
+    alert.currentStorePath !== config.storePath
+  ) {
+    throw staleAlertError();
+  }
+}
+
+function assertPathAlertApprovesGitState(
+  alert: BackupFailsafeAlert,
+  state: RecoveryGitState,
+) {
+  if (alert.gitRemoteUrl !== state.remoteUrl) {
+    throw staleAlertError();
+  }
+}
+
+async function requireCurrentRecoveryGitState(
+  config: ResolvedTraumaConfig,
+): Promise<RecoveryGitState> {
+  const rootResult = await executeBuiltInGit(["rev-parse", "--show-toplevel"], {
+    cwd: config.projectPath,
+    env: createGitCommandEnv(),
+  }).catch(() => null);
+  if (
+    rootResult === null ||
+    !(await isSamePath(rootResult.stdout.trim(), config.projectPath))
+  ) {
+    throw new BackupFailsafeActionError(
+      "cannot recover backup because projectPath is not the exact git repository root",
+    );
+  }
+  const identity = await readCurrentBackupGitIdentity(config);
+  if (identity.branch !== config.backup.git.branch) {
+    throw new BackupFailsafeActionError(
+      `cannot retry backup push because checked-out branch ${identity.branch ?? "(detached)"} does not match configured branch ${config.backup.git.branch}`,
+    );
+  }
+  let head: string | null = null;
+  try {
+    const result = await executeBuiltInGit(["rev-parse", "--verify", "HEAD"], {
+      cwd: config.projectPath,
+      env: createGitCommandEnv(),
+    });
+    head = result.stdout.trim() || null;
+  } catch {
+    // An initialized repository may have an unborn configured branch.
+  }
+  return {
+    repositoryRoot: await realpath(config.projectPath),
+    branch: identity.branch,
+    remoteUrl: identity.remoteUrl,
+    head,
+  };
+}
+
+function assertSameGitState(left: RecoveryGitState, right: RecoveryGitState) {
+  if (
+    left.repositoryRoot !== right.repositoryRoot ||
+    left.branch !== right.branch ||
+    left.remoteUrl !== right.remoteUrl ||
+    left.head !== right.head
+  ) {
+    throw new BackupFailsafeActionError(
+      "backup git identity or HEAD changed during recovery; refresh and retry",
+    );
+  }
+}
+
+function staleAlertError() {
+  return new BackupFailsafeActionError(
+    "backup failsafe alert changed while recovery was running; refresh and retry",
+  );
 }
 
 async function rewriteConfigPaths(input: {
@@ -327,10 +788,32 @@ async function rewriteConfigPaths(input: {
   }
   parsed.projectPath = input.projectPath;
   parsed.storePath = input.storePath;
-  await writeFile(input.configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  await writeFileAtomically(
+    input.configPath,
+    `${JSON.stringify(parsed, null, 2)}\n`,
+  );
 }
 
-async function listFiles(directory: string): Promise<string[]> {
+function reservePreviousBackupRoots(
+  config: ResolvedTraumaConfig,
+  previous: { projectPath: string | null; storePath: string },
+): void {
+  const resources = [
+    ...(previous.projectPath === null
+      ? []
+      : [{ resourceLabel: "previousProjectPath", resourcePath: previous.projectPath }]),
+    { resourceLabel: "previousStorePath", resourcePath: previous.storePath },
+  ];
+  reserveRuntimeProcessLeaseResourcesIfActive(
+    runtimeLeaseInputsForConfig(config),
+    resources,
+  );
+}
+
+async function listFiles(
+  directory: string,
+  relativeDirectory = "",
+): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -345,15 +828,92 @@ async function listFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of entries) {
     const child = join(directory, entry.name);
+    const relativeChild = relativeDirectory === ""
+      ? entry.name
+      : join(relativeDirectory, entry.name);
+    if (
+      isInternalBackupStorePath(relativeChild) ||
+      relativeChild.split(sep).includes(".git")
+    ) {
+      continue;
+    }
     if (entry.isDirectory()) {
-      files.push(...(await listFiles(child)));
+      files.push(...(await listFiles(child, relativeChild)));
       continue;
     }
     if (entry.isFile()) {
       files.push(child);
+      continue;
     }
+    throw new BackupFailsafeActionError(
+      `unsupported backup migration source entry: ${relativeChild}`,
+    );
   }
   return files;
+}
+
+async function assertDisjointMigrationTopology(input: {
+  previousProjectPath: string | null;
+  previousStorePath: string;
+  currentProjectPath: string;
+  currentStorePath: string;
+}) {
+  const previousPaths = [
+    input.previousProjectPath,
+    input.previousStorePath,
+  ].filter((path): path is string => path !== null);
+  const currentPaths = [input.currentProjectPath, input.currentStorePath];
+  for (const previousPath of previousPaths) {
+    for (const currentPath of currentPaths) {
+      if (await pathsOverlap(previousPath, currentPath)) {
+        throw new BackupFailsafeActionError(
+          "previous and current backup paths overlap; choose disjoint projectPath and storePath locations before migrating",
+        );
+      }
+    }
+  }
+}
+
+async function pathsOverlap(left: string, right: string) {
+  if (
+    resolve(left) === resolve(right) ||
+    isInside(left, right) ||
+    isInside(right, left)
+  ) {
+    return true;
+  }
+  const [canonicalLeft, canonicalRight] = await Promise.all([
+    canonicalizePossiblyMissingPath(left),
+    canonicalizePossiblyMissingPath(right),
+  ]);
+  return (
+    canonicalLeft === canonicalRight ||
+    isInside(canonicalLeft, canonicalRight) ||
+    isInside(canonicalRight, canonicalLeft)
+  );
+}
+
+async function canonicalizePossiblyMissingPath(path: string) {
+  let existingAncestor = resolve(path);
+  const missingComponents: string[] = [];
+  for (;;) {
+    try {
+      return resolve(
+        await realpath(existingAncestor),
+        ...missingComponents,
+      );
+    } catch (error) {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        throw error;
+      }
+      const parent = dirname(existingAncestor);
+      if (parent === existingAncestor) {
+        throw error;
+      }
+      missingComponents.unshift(basename(existingAncestor));
+      existingAncestor = parent;
+    }
+  }
 }
 
 async function findMigrationConflicts(input: {
@@ -375,6 +935,9 @@ async function findMigrationConflicts(input: {
 
 async function hasSameFileContent(left: string, right: string) {
   try {
+    if (!(await lstat(right)).isFile()) {
+      return false;
+    }
     const [leftContent, rightContent] = await Promise.all([
       readFile(left),
       readFile(right),
@@ -391,7 +954,7 @@ async function ensureBackupRepository(config: ResolvedTraumaConfig) {
   }
 
   await mkdir(config.projectPath, { recursive: true });
-  await execFileAsync("git", [
+  await executeBuiltInGit([
     "init",
     `--initial-branch=${config.backup.git.branch}`,
   ], {
@@ -403,32 +966,64 @@ async function ensureBackupRepository(config: ResolvedTraumaConfig) {
 async function commitMigratedFiles(
   config: ResolvedTraumaConfig,
   relativeFiles: readonly string[],
-) {
+  expectedState: RecoveryGitState,
+): Promise<RecoveryGitState> {
   if (relativeFiles.length === 0) {
-    return;
+    const currentState = await requireCurrentRecoveryGitState(config);
+    assertSameGitState(expectedState, currentState);
+    return currentState;
   }
 
   const stagePaths = relativeFiles.map((file) =>
     resolveMigratedStagePath(config, file),
   );
-  await execFileAsync("git", ["add", "--", ...stagePaths], {
-    cwd: config.projectPath,
-    env: createGitCommandEnv(),
-  });
-
-  const hasStagedChanges = await hasStagedGitChanges(config.projectPath, stagePaths);
-  if (!hasStagedChanges) {
-    return;
-  }
-
-  await execFileAsync(
-    "git",
-    ["commit", "-m", "backup migrated memory content", "--", ...stagePaths],
-    {
+  await withGitPathspecFile(stagePaths, async (pathspecFile) => {
+    assertSameGitState(
+      expectedState,
+      await requireCurrentRecoveryGitState(config),
+    );
+    const pathspecArgs = getGitPathspecFileArgs(pathspecFile);
+    await executeBuiltInGit(["add", ...pathspecArgs], {
       cwd: config.projectPath,
       env: createGitCommandEnv(),
-    },
-  );
+    });
+    assertSameGitState(
+      expectedState,
+      await requireCurrentRecoveryGitState(config),
+    );
+
+    const hasStagedChanges = await hasStagedGitChanges(
+      config.projectPath,
+      stagePaths,
+    );
+    if (!hasStagedChanges) {
+      return;
+    }
+
+    await executeBuiltInGit(
+      [
+        "commit",
+        "-m",
+        "backup migrated memory content",
+        ...pathspecArgs,
+      ],
+      {
+        cwd: config.projectPath,
+        env: createGitCommandEnv(),
+      },
+    );
+  });
+  const committedState = await requireCurrentRecoveryGitState(config);
+  if (
+    committedState.repositoryRoot !== expectedState.repositoryRoot ||
+    committedState.branch !== expectedState.branch ||
+    committedState.remoteUrl !== expectedState.remoteUrl
+  ) {
+    throw new BackupFailsafeActionError(
+      "backup git identity changed while committing recovery content; refresh and retry",
+    );
+  }
+  return committedState;
 }
 
 async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
@@ -437,7 +1032,7 @@ async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
   }
 
   try {
-    await execFileAsync("git", [
+    await executeBuiltInGit([
       "push",
       config.backup.git.remote,
       `HEAD:${config.backup.git.branch}`,
@@ -445,11 +1040,12 @@ async function pushRecoveredBackup(config: ResolvedTraumaConfig) {
       cwd: config.projectPath,
       env: createGitCommandEnv(),
     });
-    await clearBackupPushFailureAlert(config);
   } catch (error) {
     const message = formatGitProcessError(error);
     await recordBackupPushFailureAlert(config, message);
-    throw new BackupFailsafeActionError(`git push failed: ${message}`);
+    throw new BackupFailsafeActionError(
+      "git push failed; see the server diagnostics for details",
+    );
   }
 }
 
@@ -480,54 +1076,19 @@ async function hasStagedGitChanges(
   projectPath: string,
   stagePaths: readonly string[],
 ) {
-  try {
-    await execFileAsync(
-      "git",
-      ["diff", "--cached", "--quiet", "--", ...stagePaths],
-      {
-        cwd: projectPath,
-        env: createGitCommandEnv(),
-      },
-    );
-    return false;
-  } catch (error) {
-    if (isProcessExitCode(error, 1)) {
-      return true;
-    }
-
-    throw error;
-  }
-}
-
-async function stampCurrentBackupLocation(
-  config: ResolvedTraumaConfig,
-  repositories: ReturnType<typeof createRepositories>,
-) {
-  const now = new Date();
-  const existing =
-    await repositories.backupEnvironment.getBackupEnvironmentStamp();
-  await repositories.backupEnvironment.upsertBackupEnvironmentStamp({
-    id: "default",
-    projectPath: config.projectPath,
-    storePath: config.storePath,
-    gitRemote: config.backup.git.remote,
-    gitRemoteUrl: await readGitRemoteUrl(config),
-    gitBranch: config.backup.git.branch,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  });
+  const result = await executeBuiltInGit(
+    ["diff", "--cached", "--name-only", "-z"],
+    {
+      cwd: projectPath,
+      env: createGitCommandEnv(),
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  const stagedPaths = new Set(result.stdout.split("\0").filter(Boolean));
+  return stagePaths.some((path) => stagedPaths.has(path));
 }
 
 function isErrorWithCode(error: unknown, code: string) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === code
-  );
-}
-
-function isProcessExitCode(error: unknown, code: number) {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -546,7 +1107,7 @@ async function isExactGitRepositoryRoot(projectPath: string) {
     return false;
   }
   try {
-    const result = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+    const result = await executeBuiltInGit(["rev-parse", "--show-toplevel"], {
       cwd: projectPath,
       env: createGitCommandEnv(),
     });
@@ -561,26 +1122,6 @@ async function isSamePath(left: string, right: string) {
     return (await realpath(left)) === (await realpath(right));
   } catch {
     return resolve(left) === resolve(right);
-  }
-}
-
-async function readGitRemoteUrl(config: ResolvedTraumaConfig) {
-  if (!existsSync(config.projectPath)) {
-    return null;
-  }
-  try {
-    const result = await execFileAsync("git", [
-      "remote",
-      "get-url",
-      config.backup.git.remote,
-    ], {
-      cwd: config.projectPath,
-      env: createGitCommandEnv(),
-    });
-    const value = result.stdout.trim();
-    return value === "" ? null : value;
-  } catch {
-    return null;
   }
 }
 
@@ -629,5 +1170,15 @@ export class BackupFailsafeActionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BackupFailsafeActionError";
+  }
+}
+
+export class BackupFailsafeRestartRequiredError extends Error {
+  override readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = "BackupFailsafeRestartRequiredError";
+    this.cause = cause;
   }
 }

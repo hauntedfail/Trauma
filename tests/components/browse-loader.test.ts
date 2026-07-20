@@ -12,25 +12,23 @@ const routerMocks = vi.hoisted(() => ({
 
 vi.mock("@solidjs/router", () => routerMocks);
 vi.mock("~/server/memories/browse", () => ({
-  loadBrowseMemories: vi.fn(),
   loadBrowseMemoryPage: vi.fn(),
 }));
 vi.mock("~/server/taxonomy/browse", () => ({
   loadBrowseTaxonomy: vi.fn(),
 }));
 
+const browseLoader = await import(
+  "../../src/components/memories/browse-loader"
+);
 const {
-  getBrowseMemories,
   getBrowseMemoryPage,
   getBrowseTaxonomy,
   revalidateBrowseMemoryFirstPage,
   revalidateBrowseMemoryPages,
-  revalidateBrowseMemories,
   revalidateBrowseMemoryWorkspace,
   revalidateBrowseTaxonomy,
-} = await import(
-  "../../src/components/memories/browse-loader"
-);
+} = browseLoader;
 
 describe("browse loader", () => {
   const getBrowseMemoryPageKeyFor = getBrowseMemoryPage.keyFor as unknown as ReturnType<typeof vi.fn>;
@@ -40,14 +38,9 @@ describe("browse loader", () => {
     getBrowseMemoryPageKeyFor.mockClear();
   });
 
-  it("revalidates the browse memories query cache", async () => {
-    routerMocks.revalidate.mockResolvedValue(undefined);
-
-    await revalidateBrowseMemories();
-
-    expect(routerMocks.revalidate).toHaveBeenCalledExactlyOnceWith(
-      getBrowseMemories.key,
-    );
+  it("does not expose the retired unbounded browse memories query", () => {
+    expect("getBrowseMemories" in browseLoader).toBe(false);
+    expect("revalidateBrowseMemories" in browseLoader).toBe(false);
   });
 
   it("revalidates the browse memory page query cache", async () => {
@@ -96,8 +89,8 @@ describe("browse loader", () => {
 
     await revalidateBrowseMemoryWorkspace();
 
-    expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseMemories.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseMemoryPage.key);
     expect(routerMocks.revalidate).toHaveBeenCalledWith(getBrowseTaxonomy.key);
+    expect(routerMocks.revalidate).toHaveBeenCalledTimes(2);
   });
 });

@@ -108,6 +108,10 @@ drawers:
   constraints.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
+- Opening moves focus into the panel. Escape and successful completion restore
+  the opener; outside-pointer dismissal preserves focus on the outside target.
+- Menu popovers expose a roving `menuitem` keyboard model for Arrow Up/Down,
+  Home, and End, and close when Tab moves focus outside.
 - Outside pointer dismissal is a cancel action for confirmation popovers. It
   closes the panel and resets draft form edits without submitting the action.
 - Add memory keeps the shell-level command globally reachable, but the composer
@@ -190,6 +194,13 @@ Do not hand-roll separate Flashback text treatments for each route. `/flashbacks
 uses dense route rows: shared inline Flashback text first, then the source
 memory title as small supplemental metadata at the bottom.
 
+## Collection Page Controls
+
+Flashbacks and Moments expose compact First/Next link navigation below the
+current route rows. The controls operate on URL cursor state and replace the
+visible rows. Loading uses `aria-busy`; failed page loads use an assertive alert;
+an empty continuation page remains distinct from an empty archive.
+
 ## Right Rail Sections
 
 Right rail sections are independent islands.
@@ -200,7 +211,7 @@ Use them for lightweight filter and shortcut groups:
 - Tags.
 - Flashback shortcuts.
 - Reader table of contents, only as route-specific right rail content on a
-  concrete memory route.
+  ready source or translated memory route.
 
 They should not become dense forms, search panels, settings pages, or broad
 route content containers. Contextual route content must stay small enough to
@@ -222,6 +233,11 @@ Flashback shortcut lists do not use TOC scroll-edge overlays. Their focal
 treatment is per Flashback item: selected text remains normal and readable,
 while the stored prefix/suffix context uses the shared Flashback context
 blur/mask classes.
+
+Reader All Flashbacks is a bounded page, not an unbounded shortcut group. Its
+list body owns `max-height`, vertical overflow, and overscroll containment, and
+its First/Previous/Next controls use rail-local cursor history. Switching to
+Current and back to All preserves that local page.
 
 ## Add Memory Composer
 
@@ -253,6 +269,9 @@ Rules:
 - Keep it visible above route content.
 - Use state/severity tokens rather than route-specific styling.
 - Keep recovery actions concrete and aligned with server behaviour.
+- When a config revert suspends storage, disable every recovery action and show
+  a persistent instruction to restart the TRAUMA process/server. Do not reload
+  the page into the suspended process.
 
 ## Empty, Loading, And Error States
 

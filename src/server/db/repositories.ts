@@ -1,11 +1,10 @@
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import {
   sourceFlashbackVariant,
   toFlashbackVariantColumns,
   type FlashbackVariant,
-  type FlashbackVariantColumns,
 } from "../flashbacks/variant";
 import type { ExtractionStatus } from "../memory-status";
 import {
@@ -35,9 +34,10 @@ type Moment = typeof schema.moments.$inferSelect;
 type NewMoment = typeof schema.moments.$inferInsert;
 export type Flashback = typeof schema.flashbacks.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
-type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 type TranslationJob = typeof schema.translationJobs.$inferSelect;
+type NewTranslationJob = typeof schema.translationJobs.$inferInsert;
 type TranslationChunk = typeof schema.translationChunks.$inferSelect;
+type NewTranslationChunk = typeof schema.translationChunks.$inferInsert;
 type TranslationProjectionSpanRow =
   typeof schema.translationProjectionSpans.$inferSelect;
 export type BackupEnvironmentStamp =
@@ -83,19 +83,6 @@ export type ReaderMemoryAggregateRow = ReaderMemoryRow & {
   memoryCategories: { category: TaxonomyLabelRow }[];
   memoryTags: { tag: TaxonomyLabelRow }[];
 };
-
-export interface MemoryBrowseRow {
-  id: string;
-  title: string;
-  url: string;
-  description: string;
-  capturedAt: string;
-  read: boolean;
-  extractionStatus: ExtractionStatus;
-  categories: { id: string; name: string }[];
-  tags: { id: string; name: string }[];
-  flashbacks: FlashbackBrowseRow[];
-}
 
 export interface MemoryBrowsePageRow {
   id: string;
@@ -156,6 +143,11 @@ export interface FlashbackBrowseCursor {
   id: string;
 }
 
+export interface MomentBrowseCursor {
+  createdAt: Date;
+  id: string;
+}
+
 export interface MomentBrowseRow {
   id: string;
   memoryId: string;
@@ -173,6 +165,19 @@ export interface MomentBrowseRow {
 
 export interface MemoryRepository {
   findById: (id: string) => Promise<Memory | undefined>;
+  reserveCreationIdempotency: (input: {
+    idempotencyKey: string;
+    requestUrl: string;
+    createdAt: Date;
+  }) => Promise<
+    | { status: "existing_reservation"; requestUrl: string }
+    | { status: "new_reservation"; requestUrl: string }
+    | { status: "memory_id_exists" }
+  >;
+  releaseCreationIdempotency: (input: {
+    idempotencyKey: string;
+    requestUrl: string;
+  }) => Promise<boolean>;
   findReaderAggregateById: (
     id: string,
   ) => Promise<ReaderMemoryAggregateRow | undefined>;
@@ -195,7 +200,6 @@ export interface MemoryRepository {
   }) => Promise<MemoryBackupStatusUpdate>;
   listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
   listForBrowsePage: (input: ListMemoryBrowsePageInput) => Promise<MemoryBrowsePageResult>;
-  listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
 export interface TaxonomyBrowseRow {
@@ -260,7 +264,6 @@ export interface FlashbackRepository {
     variant: FlashbackVariant;
     flashbacks: Flashback[];
   }) => Promise<Flashback[]>;
-  listForBrowse: () => Promise<FlashbackBrowseRow[]>;
   listRecentForBrowse: (input: {
     cursor?: FlashbackBrowseCursor | null;
     limit: number;
@@ -275,7 +278,10 @@ export interface MomentRepository {
   ) => Promise<{ moment: Moment; alreadyExists: boolean }>;
   deleteById: (momentId: string) => Promise<boolean>;
   listForMemory: (memoryId: string) => Promise<Moment[]>;
-  listForBrowse: () => Promise<MomentBrowseRow[]>;
+  listPageForBrowse: (input: {
+    cursor?: MomentBrowseCursor | null;
+    limit: number;
+  }) => Promise<MomentBrowseRow[]>;
 }
 
 export type TranslationJobRecord = Omit<TranslationJob, "error"> & {
@@ -333,6 +339,10 @@ export interface TranslationJobPatch {
 export interface TranslationRepository {
   createTranslationJob: (
     input: CreateTranslationJobInput,
+  ) => Promise<TranslationJobRecord>;
+  createTranslationJobWithChunks: (
+    input: CreateTranslationJobInput,
+    chunks: InsertTranslationChunkInput[],
   ) => Promise<TranslationJobRecord>;
   getTranslationJob: (jobId: string) => Promise<TranslationJobRecord | null>;
   findCompleteTranslationRecord: (
@@ -426,6 +436,12 @@ export interface BackupEnvironmentRepository {
 
 export interface SettingsRepository {
   getSettings: (now: Date) => Promise<AppSettings>;
+  updateTranslationDefaults: (input: {
+    language: SupportedLanguageCode;
+    model: string | null;
+    reasoningEffort: CodexReasoningEffort | null;
+    updatedAt: Date;
+  }) => Promise<AppSettings>;
   updateCodexTranslationDefaults: (input: {
     model?: string | null;
     reasoningEffort?: CodexReasoningEffort | null;
@@ -435,13 +451,6 @@ export interface SettingsRepository {
     language: SupportedLanguageCode;
     updatedAt: Date;
   }) => Promise<AppSettings>;
-  getOpenAiAuthCredential: () => Promise<OpenAiAuthCredential | undefined>;
-  createOpenAiAuthCredential: (input: {
-    provider: string;
-    credentialReference: string;
-    now: Date;
-  }) => Promise<OpenAiAuthCredential>;
-  deleteOpenAiAuthCredential: () => Promise<boolean>;
 }
 
 export interface TraumaRepositories {
@@ -491,7 +500,16 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           where: eq(schema.backupFailsafeAlerts.id, "active"),
         }),
       upsertBackupFailsafeAlert: async (input) => {
-        await db
+        const existing = await db.query.backupFailsafeAlerts.findFirst({
+          where: eq(schema.backupFailsafeAlerts.id, input.id),
+        });
+        if (
+          existing !== undefined &&
+          hasSameBackupFailsafeAlertContent(existing, input)
+        ) {
+          return existing;
+        }
+        const alert = await db
           .insert(schema.backupFailsafeAlerts)
           .values(input)
           .onConflictDoUpdate({
@@ -511,8 +529,12 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
               updatedAt: input.updatedAt,
             },
           })
-          .run();
-        return input;
+          .returning()
+          .get();
+        if (alert === undefined) {
+          throw new Error("failed to persist backup failsafe alert");
+        }
+        return alert;
       },
       clearBackupFailsafeAlert: async () => {
         await db
@@ -522,114 +544,134 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
     moments: {
-      create: async (input) => {
-        await assertMemoryExists(db, input.memoryId, "create moment for");
-        const existingByPath = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionPath, input.sectionPath),
-          ),
-        });
-        if (existingByPath !== undefined) {
-          const updated = db.transaction((tx) => {
-            if (existingByPath.sectionAnchor !== input.sectionAnchor) {
-              const existingByAnchor = tx
-                .select()
-                .from(schema.moments)
-                .where(
-                  and(
-                    eq(schema.moments.memoryId, input.memoryId),
-                    eq(schema.moments.sectionAnchor, input.sectionAnchor),
-                  ),
-                )
-                .get();
-              if (
-                existingByAnchor !== undefined &&
-                existingByAnchor.id !== existingByPath.id
-              ) {
-                tx
-                  .delete(schema.moments)
-                  .where(eq(schema.moments.id, existingByAnchor.id))
-                  .run();
-              }
+      create: async (input) =>
+        db.transaction(
+          (tx) => {
+            const memory = tx
+              .select({ id: schema.memories.id })
+              .from(schema.memories)
+              .where(eq(schema.memories.id, input.memoryId))
+              .get();
+            if (memory === undefined) {
+              throw new MemoryRepositoryError(
+                `Cannot create moment for missing memory: ${input.memoryId}`,
+              );
             }
 
-            return tx
-              .update(schema.moments)
-              .set({
-                sectionAnchor: input.sectionAnchor,
-                sectionTitle: input.sectionTitle,
-                sectionLevel: input.sectionLevel,
-                sectionStartOffset: input.sectionStartOffset ?? null,
-                sectionEndOffset: input.sectionEndOffset ?? null,
-                contentHash: input.contentHash ?? null,
-                updatedAt: input.updatedAt,
-              })
-              .where(eq(schema.moments.id, existingByPath.id))
-              .returning()
+            const existingByPath = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionPath, input.sectionPath),
+                ),
+              )
               .get();
-          });
-          return {
-            moment: updated ?? existingByPath,
-            alreadyExists: true,
-          };
-        }
+            if (existingByPath !== undefined) {
+              if (existingByPath.sectionAnchor !== input.sectionAnchor) {
+                const existingByAnchor = tx
+                  .select()
+                  .from(schema.moments)
+                  .where(
+                    and(
+                      eq(schema.moments.memoryId, input.memoryId),
+                      eq(schema.moments.sectionAnchor, input.sectionAnchor),
+                    ),
+                  )
+                  .get();
+                if (
+                  existingByAnchor !== undefined &&
+                  existingByAnchor.id !== existingByPath.id
+                ) {
+                  tx
+                    .delete(schema.moments)
+                    .where(eq(schema.moments.id, existingByAnchor.id))
+                    .run();
+                }
+              }
 
-        const existingByAnchor = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionAnchor, input.sectionAnchor),
-          ),
-        });
-        if (existingByAnchor !== undefined) {
-          if (existingByAnchor.sectionPath === input.sectionPath) {
-            return { moment: existingByAnchor, alreadyExists: true };
-          }
+              const updated = tx
+                .update(schema.moments)
+                .set({
+                  sectionAnchor: input.sectionAnchor,
+                  sectionTitle: input.sectionTitle,
+                  sectionLevel: input.sectionLevel,
+                  sectionStartOffset: input.sectionStartOffset ?? null,
+                  sectionEndOffset: input.sectionEndOffset ?? null,
+                  contentHash: input.contentHash ?? null,
+                  updatedAt: input.updatedAt,
+                })
+                .where(eq(schema.moments.id, existingByPath.id))
+                .returning()
+                .get();
+              return {
+                moment: updated ?? existingByPath,
+                alreadyExists: true,
+              };
+            }
 
-          const updated = await db
-            .update(schema.moments)
-            .set({
-              sectionTitle: input.sectionTitle,
-              sectionLevel: input.sectionLevel,
-              sectionPath: input.sectionPath,
-              sectionStartOffset: input.sectionStartOffset ?? null,
-              sectionEndOffset: input.sectionEndOffset ?? null,
-              contentHash: input.contentHash ?? null,
-              updatedAt: input.updatedAt,
-            })
-            .where(eq(schema.moments.id, existingByAnchor.id))
-            .returning()
-            .get();
-          return {
-            moment: updated ?? existingByAnchor,
-            alreadyExists: true,
-          };
-        }
+            const existingByAnchor = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionAnchor, input.sectionAnchor),
+                ),
+              )
+              .get();
+            if (existingByAnchor !== undefined) {
+              const updated = tx
+                .update(schema.moments)
+                .set({
+                  sectionTitle: input.sectionTitle,
+                  sectionLevel: input.sectionLevel,
+                  sectionPath: input.sectionPath,
+                  sectionStartOffset: input.sectionStartOffset ?? null,
+                  sectionEndOffset: input.sectionEndOffset ?? null,
+                  contentHash: input.contentHash ?? null,
+                  updatedAt: input.updatedAt,
+                })
+                .where(eq(schema.moments.id, existingByAnchor.id))
+                .returning()
+                .get();
+              return {
+                moment: updated ?? existingByAnchor,
+                alreadyExists: true,
+              };
+            }
 
-        await db
-          .insert(schema.moments)
-          .values(input)
-          .onConflictDoNothing({
-            target: [schema.moments.memoryId, schema.moments.sectionAnchor],
-          })
-          .run();
+            tx
+              .insert(schema.moments)
+              .values(input)
+              .onConflictDoNothing({
+                target: [schema.moments.memoryId, schema.moments.sectionPath],
+              })
+              .run();
 
-        const moment = await db.query.moments.findFirst({
-          where: and(
-            eq(schema.moments.memoryId, input.memoryId),
-            eq(schema.moments.sectionAnchor, input.sectionAnchor),
-          ),
-        });
-        if (moment === undefined) {
-          throw new MemoryRepositoryError(
-            `Cannot find moment after create: ${input.memoryId}#${input.sectionAnchor}`,
-          );
-        }
-        return {
-          moment,
-          alreadyExists: moment.id !== input.id,
-        };
-      },
+            const moment = tx
+              .select()
+              .from(schema.moments)
+              .where(
+                and(
+                  eq(schema.moments.memoryId, input.memoryId),
+                  eq(schema.moments.sectionPath, input.sectionPath),
+                ),
+              )
+              .get();
+            if (moment === undefined) {
+              throw new MemoryRepositoryError(
+                `Cannot find moment after create: ${input.memoryId}#${input.sectionPath}`,
+              );
+            }
+            return {
+              moment,
+              alreadyExists: moment.id !== input.id,
+            };
+          },
+          { behavior: "immediate" },
+        ),
       deleteById: async (momentId) => {
         const deleted = await db
           .delete(schema.moments)
@@ -643,7 +685,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           where: eq(schema.moments.memoryId, memoryId),
           orderBy: [desc(schema.moments.createdAt)],
         }),
-      listForBrowse: async () => {
+      listPageForBrowse: async (input) => {
         const rows = await db
           .select({
             id: schema.moments.id,
@@ -664,7 +706,9 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             schema.memories,
             eq(schema.moments.memoryId, schema.memories.id),
           )
-          .orderBy(desc(schema.moments.createdAt));
+          .where(buildMomentBrowseCursorWhere(input.cursor ?? null))
+          .orderBy(desc(schema.moments.createdAt), desc(schema.moments.id))
+          .limit(normalizeBrowseLimit(input.limit));
 
         return rows.map((row) => ({
           ...row,
@@ -688,12 +732,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         listFlashbacksForMemoryVariant(db, input),
       replaceForMemoryVariant: async (input) =>
         replaceFlashbacksForMemoryVariant(db, input),
-      listForBrowse: async () => {
-        const rows = await selectFlashbackBrowseRows(db)
-          .orderBy(desc(schema.flashbacks.createdAt));
-
-        return rows.map(formatFlashbackBrowseRow);
-      },
       listRecentForBrowse: async (input) => {
         const rows = await selectFlashbackBrowseRows(db)
           .where(buildFlashbackBrowseCursorWhere(input.cursor ?? null))
@@ -726,6 +764,52 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         db.query.memories.findFirst({
           where: eq(schema.memories.id, id),
         }),
+      reserveCreationIdempotency: async (input) => {
+        return db.transaction((tx) => {
+          const reservation = tx
+            .select({ requestUrl: schema.memoryCreationIdempotency.requestUrl })
+            .from(schema.memoryCreationIdempotency)
+            .where(
+              eq(
+                schema.memoryCreationIdempotency.idempotencyKey,
+                input.idempotencyKey,
+              ),
+            )
+            .get();
+          if (reservation !== undefined) {
+            return { status: "existing_reservation" as const, ...reservation };
+          }
+
+          const existingMemory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.idempotencyKey))
+            .get();
+          if (existingMemory !== undefined) {
+            return { status: "memory_id_exists" as const };
+          }
+
+          tx.insert(schema.memoryCreationIdempotency).values(input).run();
+          return {
+            status: "new_reservation" as const,
+            requestUrl: input.requestUrl,
+          };
+        });
+      },
+      releaseCreationIdempotency: async (input) => {
+        const released = await db
+          .delete(schema.memoryCreationIdempotency)
+          .where(and(
+            eq(
+              schema.memoryCreationIdempotency.idempotencyKey,
+              input.idempotencyKey,
+            ),
+            eq(schema.memoryCreationIdempotency.requestUrl, input.requestUrl),
+          ))
+          .returning({ idempotencyKey: schema.memoryCreationIdempotency.idempotencyKey })
+          .get();
+        return released !== undefined;
+      },
       findReaderAggregateById: async (id) =>
         db.query.memories.findFirst({
           columns: {
@@ -870,91 +954,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           orderBy: [asc(schema.memories.updatedAt), asc(schema.memories.id)],
         }),
       listForBrowsePage: async (input) => listMemoryBrowsePage(db, input),
-      listForBrowse: async () => {
-        const rows = await db.query.memories.findMany({
-          columns: {
-            id: true,
-            title: true,
-            url: true,
-            description: true,
-            createdAt: true,
-            read: true,
-            extractionStatus: true,
-          },
-          orderBy: [desc(schema.memories.createdAt)],
-          with: {
-            flashbacks: {
-              columns: {
-                id: true,
-                variantKind: true,
-                langCode: true,
-                translationOutputHash: true,
-                text: true,
-                prefix: true,
-                suffix: true,
-                startOffset: true,
-                endOffset: true,
-                contentHash: true,
-                createdAt: true,
-              },
-              orderBy: [desc(schema.flashbacks.createdAt)],
-            },
-            memoryCategories: {
-              with: {
-                category: {
-                  columns: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-            memoryTags: {
-              with: {
-                tag: {
-                  columns: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        return rows.map((memory) => ({
-          id: memory.id,
-          title: memory.title,
-          url: memory.url,
-          description: memory.description ?? "",
-          capturedAt: formatDate(memory.createdAt),
-          read: memory.read,
-          extractionStatus: memory.extractionStatus,
-          categories: memory.memoryCategories.map(({ category }) => ({
-            id: category.id,
-            name: category.name,
-          })),
-          tags: memory.memoryTags.map(({ tag }) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-          flashbacks: memory.flashbacks.map((flashback) => ({
-            id: flashback.id,
-            memoryId: memory.id,
-            memoryTitle: memory.title,
-            variantKind: flashback.variantKind,
-            langCode: flashback.langCode,
-            translationOutputHash: flashback.translationOutputHash,
-            text: flashback.text,
-            prefix: flashback.prefix,
-            suffix: flashback.suffix,
-            startOffset: flashback.startOffset,
-            endOffset: flashback.endOffset,
-            contentHash: flashback.contentHash,
-            createdAt: formatDateTime(flashback.createdAt),
-          })),
-        }));
-      },
     },
     taxonomy: {
       createTag: async (input) => {
@@ -972,7 +971,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             createdAt: input.now,
             updatedAt: input.now,
           })
-          .onConflictDoNothing({ target: schema.tags.name })
+          .onConflictDoNothing()
           .run();
         return requireTagByName(db, name);
       },
@@ -1050,7 +1049,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
                 createdAt: input.now,
                 updatedAt: input.now,
               })
-              .onConflictDoNothing({ target: schema.tags.name })
+              .onConflictDoNothing()
               .run();
 
             tag =
@@ -1090,7 +1089,8 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           return tag;
         }),
       createCategory: async (input) => {
-        const existing = await findCategoryByName(db, input.name);
+        const name = normalizeTaxonomyLookupName(input.name);
+        const existing = await findCategoryByName(db, name);
         if (existing !== undefined) {
           return existing;
         }
@@ -1099,13 +1099,13 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .insert(schema.categories)
           .values({
             id: input.id,
-            name: input.name,
+            name,
             createdAt: input.now,
             updatedAt: input.now,
           })
-          .onConflictDoNothing({ target: schema.categories.name })
+          .onConflictDoNothing()
           .run();
-        return requireCategoryByName(db, input.name);
+        return requireCategoryByName(db, name);
       },
       createAndAttachCategoryToMemory: async (input) =>
         db.transaction((tx) => {
@@ -1141,7 +1141,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
                 createdAt: input.now,
                 updatedAt: input.now,
               })
-              .onConflictDoNothing({ target: schema.categories.name })
+              .onConflictDoNothing()
               .run();
 
             category =
@@ -1251,26 +1251,43 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         await assertMemoryExists(db, input.memoryId, "create translation for");
         const row = await db
           .insert(schema.translationJobs)
-          .values({
-            jobId: input.jobId,
-            memoryId: input.memoryId,
-            langCode: input.langCode,
-            sourceHash: input.sourceHash,
-            model: input.model,
-            reasoningEffort: input.reasoningEffort ?? null,
-            promptPolicyVersion: input.promptPolicyVersion,
-            chunkerVersion: input.chunkerVersion,
-            status: "pending",
-            chunkCount: input.chunkCount,
-            outputPath: null,
-            outputHash: null,
-            error: null,
-            completedAt: null,
-            createdAt: input.now,
-            updatedAt: input.now,
-          })
+          .values(toNewTranslationJob(input))
           .returning()
           .get();
+        return toTranslationJobRecord(row);
+      },
+      createTranslationJobWithChunks: async (input, chunks) => {
+        if (input.chunkCount !== chunks.length) {
+          throw new MemoryRepositoryError(
+            "Translation job chunk count must match its initial chunks.",
+          );
+        }
+
+        const row = db.transaction((tx) => {
+          const memory = tx
+            .select({ id: schema.memories.id })
+            .from(schema.memories)
+            .where(eq(schema.memories.id, input.memoryId))
+            .get();
+          if (memory === undefined) {
+            throw new MemoryRepositoryError(
+              `Cannot create translation for missing memory: ${input.memoryId}`,
+            );
+          }
+
+          const created = tx
+            .insert(schema.translationJobs)
+            .values(toNewTranslationJob(input))
+            .returning()
+            .get();
+          if (chunks.length > 0) {
+            tx
+              .insert(schema.translationChunks)
+              .values(toNewTranslationChunks(input.jobId, chunks))
+              .run();
+          }
+          return created;
+        });
         return toTranslationJobRecord(row);
       },
       getTranslationJob: async (jobId) => {
@@ -1434,21 +1451,7 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
 
         await db
           .insert(schema.translationChunks)
-          .values(
-            chunks.map((chunk) => ({
-              jobId,
-              chunkIndex: chunk.chunkIndex,
-              sourceChunkHash: chunk.sourceChunkHash,
-              blockIdsJson: serializeBlockIds(chunk.blockIds),
-              status: chunk.status,
-              retryCount: 0,
-              translatedMarkdown: null,
-              translatedHash: null,
-              error: null,
-              createdAt: chunk.now,
-              updatedAt: chunk.now,
-            })),
-          )
+          .values(toNewTranslationChunks(jobId, chunks))
           .run();
       },
       getTranslationChunks: async (jobId) => {
@@ -1566,82 +1569,34 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
     },
     settings: {
       getSettings: async (now) => getOrCreateSettings(db, now),
-      updateTranslationTargetLanguage: async (input) => {
-        await getOrCreateSettings(db, input.updatedAt);
-        const updated = await db
-          .update(schema.appSettings)
-          .set({
-            translationTargetLanguage: input.language,
-            updatedAt: input.updatedAt,
-          })
-          .where(eq(schema.appSettings.id, "default"))
-          .returning()
-          .get();
-        if (updated === undefined) {
-          throw new MemoryRepositoryError("Cannot update app settings.");
-        }
-        return updated;
-      },
-      updateCodexTranslationDefaults: async (input) => {
-        await getOrCreateSettings(db, input.updatedAt);
-        const values: {
-          codexTranslationModel?: string | null;
-          codexTranslationReasoningEffort?: CodexReasoningEffort | null;
-          updatedAt: Date;
-        } = {
-          updatedAt: input.updatedAt,
-        };
-        if (input.model !== undefined) {
-          values.codexTranslationModel = input.model;
-        }
-        if (input.reasoningEffort !== undefined) {
-          values.codexTranslationReasoningEffort = input.reasoningEffort;
-        }
-        const updated = await db
-          .update(schema.appSettings)
-          .set(values)
-          .where(eq(schema.appSettings.id, "default"))
-          .returning()
-          .get();
-        if (updated === undefined) {
-          throw new MemoryRepositoryError("Cannot update app settings.");
-        }
-        return updated;
-      },
-      getOpenAiAuthCredential: async () =>
-        db.query.openaiAuthCredentials.findFirst({
-          where: eq(schema.openaiAuthCredentials.id, "default"),
-        }),
-      createOpenAiAuthCredential: async (input) => {
-        await db
-          .insert(schema.openaiAuthCredentials)
-          .values({
-            id: "default",
-            provider: input.provider,
-            credentialReference: input.credentialReference,
-            createdAt: input.now,
-            updatedAt: input.now,
-          })
-          .onConflictDoNothing({ target: schema.openaiAuthCredentials.id })
-          .run();
-        const credential = await db.query.openaiAuthCredentials.findFirst({
-          where: eq(schema.openaiAuthCredentials.id, "default"),
-        });
-        if (credential === undefined) {
-          throw new MemoryRepositoryError("Cannot create OpenAI auth state.");
-        }
-        return credential;
-      },
-      deleteOpenAiAuthCredential: async () => {
-        const deleted = await db
-          .delete(schema.openaiAuthCredentials)
-          .where(eq(schema.openaiAuthCredentials.id, "default"))
-          .returning({ id: schema.openaiAuthCredentials.id })
-          .get();
-        return deleted !== undefined;
-      },
+      updateTranslationDefaults: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
+      updateTranslationTargetLanguage: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
+      updateCodexTranslationDefaults: async (input) =>
+        updateSettingsTranslationDefaults(db, input),
     },
   };
+}
+
+function hasSameBackupFailsafeAlertContent(
+  left: BackupFailsafeAlert,
+  right: BackupFailsafeAlert,
+) {
+  return (
+    left.id === right.id &&
+    left.kind === right.kind &&
+    left.severity === right.severity &&
+    left.message === right.message &&
+    left.previousProjectPath === right.previousProjectPath &&
+    left.previousStorePath === right.previousStorePath &&
+    left.currentProjectPath === right.currentProjectPath &&
+    left.currentStorePath === right.currentStorePath &&
+    left.gitRemote === right.gitRemote &&
+    left.gitRemoteUrl === right.gitRemoteUrl &&
+    left.gitBranch === right.gitBranch &&
+    left.error === right.error
+  );
 }
 
 function selectFlashbackBrowseRows(db: TraumaDatabase) {
@@ -1788,22 +1743,28 @@ function buildMemoryBrowsePageWhere(
   return and(...filters);
 }
 
-function buildFlashbackBrowseCursorWhere(
+export function buildFlashbackBrowseCursorWhere(
   cursor: FlashbackBrowseCursor | null,
 ): SQL | undefined {
   if (cursor === null) {
     return undefined;
   }
 
-  return (
-    or(
-      lt(schema.flashbacks.createdAt, cursor.createdAt),
-      and(
-        eq(schema.flashbacks.createdAt, cursor.createdAt),
-        lt(schema.flashbacks.id, cursor.id),
-      ),
-    ) ?? sql`0 = 1`
-  );
+  return sql`(${schema.flashbacks.createdAt}, ${schema.flashbacks.id}) < (${
+    sql.param(cursor.createdAt, schema.flashbacks.createdAt)
+  }, ${sql.param(cursor.id, schema.flashbacks.id)})`;
+}
+
+export function buildMomentBrowseCursorWhere(
+  cursor: MomentBrowseCursor | null,
+): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+
+  return sql`(${schema.moments.createdAt}, ${schema.moments.id}) < (${
+    sql.param(cursor.createdAt, schema.moments.createdAt)
+  }, ${sql.param(cursor.id, schema.moments.id)})`;
 }
 
 function memoryHasCategoryId(categoryId: string): SQL {
@@ -2097,6 +2058,87 @@ async function getOrCreateSettings(
   return current;
 }
 
+async function updateSettingsTranslationDefaults(
+  db: TraumaDatabase,
+  input: {
+    language?: SupportedLanguageCode;
+    model?: string | null;
+    reasoningEffort?: CodexReasoningEffort | null;
+    updatedAt: Date;
+  },
+): Promise<AppSettings> {
+  await getOrCreateSettings(db, input.updatedAt);
+  const values: {
+    translationTargetLanguage?: SupportedLanguageCode;
+    codexTranslationModel?: string | null;
+    codexTranslationReasoningEffort?: CodexReasoningEffort | null;
+    updatedAt: Date;
+  } = {
+    updatedAt: input.updatedAt,
+  };
+  if (input.language !== undefined) {
+    values.translationTargetLanguage = input.language;
+  }
+  if (input.model !== undefined) {
+    values.codexTranslationModel = input.model;
+  }
+  if (input.reasoningEffort !== undefined) {
+    values.codexTranslationReasoningEffort = input.reasoningEffort;
+  }
+  const updated = await db
+    .update(schema.appSettings)
+    .set(values)
+    .where(eq(schema.appSettings.id, "default"))
+    .returning()
+    .get();
+  if (updated === undefined) {
+    throw new MemoryRepositoryError("Cannot update app settings.");
+  }
+  return updated;
+}
+
+function toNewTranslationJob(
+  input: CreateTranslationJobInput,
+): NewTranslationJob {
+  return {
+    jobId: input.jobId,
+    memoryId: input.memoryId,
+    langCode: input.langCode,
+    sourceHash: input.sourceHash,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort ?? null,
+    promptPolicyVersion: input.promptPolicyVersion,
+    chunkerVersion: input.chunkerVersion,
+    status: "pending",
+    chunkCount: input.chunkCount,
+    outputPath: null,
+    outputHash: null,
+    error: null,
+    completedAt: null,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+function toNewTranslationChunks(
+  jobId: string,
+  chunks: InsertTranslationChunkInput[],
+): NewTranslationChunk[] {
+  return chunks.map((chunk) => ({
+    jobId,
+    chunkIndex: chunk.chunkIndex,
+    sourceChunkHash: chunk.sourceChunkHash,
+    blockIdsJson: serializeBlockIds(chunk.blockIds),
+    status: chunk.status,
+    retryCount: 0,
+    translatedMarkdown: null,
+    translatedHash: null,
+    error: null,
+    createdAt: chunk.now,
+    updatedAt: chunk.now,
+  }));
+}
+
 function toTranslationJobRecord(row: TranslationJob): TranslationJobRecord {
   return {
     ...row,
@@ -2338,7 +2380,6 @@ async function assertMemoryExists(
     | "attach category to"
     | "attach tag to"
     | "create translation for"
-    | "create moment for"
     | "detach tag from",
 ): Promise<void> {
   const memory = await db.query.memories.findFirst({

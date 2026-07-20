@@ -6,6 +6,8 @@ import {
 } from "../../../src/server/browser-import";
 
 describe("browser import config", () => {
+  const strongToken = "0123456789abcdef0123456789abcdef";
+
   it("defaults to disabled local extension-only origin handling", () => {
     const config = loadBrowserImportConfig({});
 
@@ -26,7 +28,7 @@ describe("browser import config", () => {
   it("honors exact configured extension origins", () => {
     const config = loadBrowserImportConfig({
       TRAUMA_BROWSER_IMPORT_ENABLED: "true",
-      TRAUMA_BROWSER_IMPORT_TOKEN: " local-token ",
+      TRAUMA_BROWSER_IMPORT_TOKEN: ` ${strongToken} `,
       TRAUMA_BROWSER_IMPORT_ALLOWED_ORIGINS:
         "chrome-extension://allowed, chrome-extension://second",
       TRAUMA_BROWSER_IMPORT_MAX_BYTES: "1000000",
@@ -34,7 +36,7 @@ describe("browser import config", () => {
 
     expect(config).toEqual({
       enabled: true,
-      token: "local-token",
+      token: strongToken,
       allowedOrigins: ["chrome-extension://allowed", "chrome-extension://second"],
       maxBytes: 1_000_000,
     });
@@ -44,6 +46,15 @@ describe("browser import config", () => {
     expect(isBrowserImportOriginAllowed("chrome-extension://other", config)).toBe(
       false,
     );
+  });
+
+  it("rejects weak tokens when browser import is enabled", () => {
+    expect(() =>
+      loadBrowserImportConfig({
+        TRAUMA_BROWSER_IMPORT_ENABLED: "true",
+        TRAUMA_BROWSER_IMPORT_TOKEN: "local-token",
+      })
+    ).toThrow("at least 32 URL-safe characters");
   });
 
   it("rejects ordinary web origins even when they are configured", () => {

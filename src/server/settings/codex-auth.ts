@@ -1,6 +1,7 @@
 import {
   CodexAppServerClient,
   CodexAppServerError,
+  safeCodexAppServerErrorMessage,
   type CodexAuthEvent,
   type CodexAuthCheckOptions,
   type CodexAuthStatus,
@@ -316,7 +317,7 @@ function mapAuthStatus(status: CodexAuthStatus): CodexAuthStatusResponse {
       return {
         status: "error",
         provider: "codex",
-        error: status.error,
+        error: "Codex auth status could not be read.",
       };
   }
 }
@@ -365,5 +366,8 @@ function clearPendingLogin(): void {
 }
 
 function safeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return safeCodexAppServerErrorMessage(
+    error,
+    "Codex auth request failed.",
+  );
 }

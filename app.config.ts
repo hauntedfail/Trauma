@@ -28,6 +28,7 @@ const HMR_PORTS: Record<RouterName, number> = {
 };
 
 export default defineConfig({
+  middleware: "./src/middleware.ts",
   server: {
     externals: {
       traceInclude: [

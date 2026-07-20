@@ -16,6 +16,12 @@ import migration0012Sql from "../../../drizzle/0012_translation_projection_spans
 import migration0013Sql from "../../../drizzle/0013_variant_local_flashbacks.sql?raw";
 import migration0014Sql from "../../../drizzle/0014_strict_flashback_variant_scope.sql?raw";
 import migration0015Sql from "../../../drizzle/0015_memory_browse_pagination.sql?raw";
+import migration0016Sql from "../../../drizzle/0016_scrub_backup_secrets.sql?raw";
+import migration0017Sql from "../../../drizzle/0017_skinny_hobgoblin.sql?raw";
+import migration0018Sql from "../../../drizzle/0018_scrub_backup_diagnostics.sql?raw";
+import migration0019Sql from "../../../drizzle/0019_memory_creation_idempotency.sql?raw";
+import migration0020Sql from "../../../drizzle/0020_nasty_kulan_gath.sql?raw";
+import migration0021Sql from "../../../drizzle/0021_large_dazzler.sql?raw";
 import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
@@ -97,6 +103,36 @@ const BUNDLED_MIGRATIONS = [
   {
     sql: migration0015Sql,
     folderMillis: 1779955000000,
+    bps: true,
+  },
+  {
+    sql: migration0016Sql,
+    folderMillis: 1784221790920,
+    bps: true,
+  },
+  {
+    sql: migration0017Sql,
+    folderMillis: 1784223792512,
+    bps: true,
+  },
+  {
+    sql: migration0018Sql,
+    folderMillis: 1784232000000,
+    bps: true,
+  },
+  {
+    sql: migration0019Sql,
+    folderMillis: 1784234421333,
+    bps: true,
+  },
+  {
+    sql: migration0020Sql,
+    folderMillis: 1784238332412,
+    bps: true,
+  },
+  {
+    sql: migration0021Sql,
+    folderMillis: 1784534032874,
     bps: true,
   },
 ] as const;

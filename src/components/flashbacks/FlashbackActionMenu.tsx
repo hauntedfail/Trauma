@@ -1,12 +1,24 @@
 import { Show, createSignal } from "solid-js";
 
 import type { SupportedLanguageCode } from "../../settings/languages";
+import {
+  captureAsyncActionFocusIntent,
+  type AsyncActionFocusOwnership,
+} from "../async-action-focus";
 import { TrashIcon } from "../icons";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
 } from "../reader/flashback-failure";
+import {
+  readFlashbackBackupWarning,
+  type FlashbackBackupWarning,
+} from "../reader/flashback-backup-warning";
+import {
+  readFlashbackDurabilityWarning,
+  type FlashbackDurabilityWarning,
+} from "../reader/flashback-durability-warning";
 import {
   KebabActionMenu,
   kebabActionMenuDangerItemClass,
@@ -31,7 +43,10 @@ export interface FlashbackActionMenuProps {
   disabled?: boolean;
   flashback: FlashbackActionMenuItem;
   initialOpen?: boolean;
-  onDelete?: (flashback: FlashbackActionMenuItem) => Promise<void> | void;
+  onDelete?: (
+    flashback: FlashbackActionMenuItem,
+    focusOwnership: AsyncActionFocusOwnership,
+  ) => Promise<void> | void;
 }
 
 export interface DeleteFlashbackBySelectionInput {
@@ -51,11 +66,13 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
       ? `Flashback actions for ${props.flashback.text}`
       : `Flashback actions for ${props.flashback.memoryTitle}`;
 
-  const deleteFlashback = async (): Promise<boolean> => {
+  const deleteFlashback = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     setError("");
     try {
       if (props.onDelete !== undefined) {
-        await props.onDelete(props.flashback);
+        await props.onDelete(props.flashback, focusOwnership);
       } else {
         await deleteFlashbackBySelection({ flashback: props.flashback });
       }
@@ -82,7 +99,14 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              void deleteFlashback().then((deleted) => {
+              const ownsCurrentFocus = captureAsyncActionFocusIntent(
+                event.currentTarget,
+              );
+              const focusOwnership = {
+                actionOwnsFocus: ownsCurrentFocus(),
+                ownsCurrentFocus,
+              } satisfies AsyncActionFocusOwnership;
+              void deleteFlashback(focusOwnership).then((deleted) => {
                 if (deleted) {
                   close();
                 }
@@ -93,7 +117,9 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
             Delete flashback
           </button>
           <Show when={error() !== ""}>
-            <p class={kebabActionMenuErrorClass}>{error()}</p>
+            <p class={kebabActionMenuErrorClass} role="alert">
+              {error()}
+            </p>
           </Show>
         </>
       )}
@@ -103,7 +129,7 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
 
 export async function deleteFlashbackBySelection(
   input: DeleteFlashbackBySelectionInput,
-): Promise<void> {
+): Promise<FlashbackBackupWarning | FlashbackDurabilityWarning | undefined> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/flashbacks", {
     method: "POST",
@@ -134,5 +160,23 @@ export async function deleteFlashbackBySelection(
     }
 
     throw new Error(failure.message);
+  }
+
+  const warning = await readSuccessWarning(response);
+  if (warning?.code === "backup_enqueue_failed") {
+    void revalidateBackupFailsafeAlert();
+  }
+  return warning;
+}
+
+async function readSuccessWarning(
+  response: Response,
+): Promise<FlashbackBackupWarning | FlashbackDurabilityWarning | undefined> {
+  try {
+    const payload: unknown = await response.json();
+    return readFlashbackDurabilityWarning(payload) ??
+      readFlashbackBackupWarning(payload);
+  } catch {
+    return undefined;
   }
 }

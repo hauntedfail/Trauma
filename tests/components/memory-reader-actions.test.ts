@@ -183,8 +183,8 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain(
       [
         "        revalidateAfterFlashbackToggle(",
-        "          props.result.memory.id,",
-        "          props.result.content.langCode,",
+        "          readerGeneration.memoryId,",
+        "          readerGeneration.langCode,",
         "        ),",
       ].join("\n"),
     );
@@ -199,8 +199,8 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain(
       [
         "      void revalidateAfterReaderTaxonomyChange(",
-        "        props.result.memory.id,",
-        "        props.result.content.langCode,",
+        "        readerGeneration.memoryId,",
+        "        readerGeneration.langCode,",
         "      );",
       ].join("\n"),
     );
@@ -242,6 +242,80 @@ describe("memory reader actions", () => {
     expect(onErrorBody).toContain("translationEventSource = undefined");
   });
 
+  it("guards reader async continuations with the captured identity and generation", () => {
+    expect(memoryReaderSource).toContain("createReaderGenerationGuard");
+    expect(memoryReaderSource).toContain("captureReaderGeneration");
+    expect(memoryReaderSource).toContain("isCurrentReaderGeneration");
+    expect(memoryReaderSource).toContain(
+      "translationEventSource === eventSource",
+    );
+    expect(memoryReaderSource).toContain(
+      "memoryId: readerGeneration.memoryId",
+    );
+    expect(memoryReaderSource).toContain(
+      "isCurrent: () => isCurrentReaderGeneration(readerGeneration)",
+    );
+  });
+
+  it("preserves reader-local UI state across same-identity revalidation", () => {
+    expect(memoryReaderSource).toContain("const readyResultIdentity = () =>");
+    expect(memoryReaderSource).toContain("when={readyResultIdentity()}");
+    expect(memoryReaderSource).toContain("result={readyResult()!}");
+    expect(memoryReaderSource).not.toContain("when={readyResult()}");
+    const resultSyncStart = memoryReaderSource.indexOf(
+      "  createEffect(() => {\n    readerGenerationGuard.activate({",
+    );
+    const resultSyncEnd = memoryReaderSource.indexOf(
+      "  onCleanup(() => {",
+      resultSyncStart + 1,
+    );
+    const resultSync = memoryReaderSource.slice(resultSyncStart, resultSyncEnd);
+    expect(resultSync).toContain("setCurrentFlashbacks");
+    expect(resultSync).not.toContain("setTranslationProgress");
+    expect(resultSync).not.toContain("translationEventSource");
+  });
+
+  it("registers one right-rail subtree with reactive reader-owned state", () => {
+    expect(memoryReaderSource).toContain(
+      "currentFlashbacks={currentFlashbacks}",
+    );
+    expect(memoryReaderSource).toContain("moments={moments}");
+    expect(memoryReaderSource).toContain("pendingMomentKey={pendingMomentKey}");
+    expect(memoryReaderSource).toContain(
+      "currentFlashbacks: Accessor<ReaderFlashbackItem[]>",
+    );
+    expect(memoryReaderSource).toContain(
+      "moments: Accessor<ReaderMomentItem[]>",
+    );
+    expect(memoryReaderSource).toContain("pendingMomentKey: Accessor<string>");
+    expect(memoryReaderSource).not.toContain(
+      "currentFlashbacks={currentFlashbacks()}",
+    );
+  });
+
+  it("offers an accessible in-popover retry for reader model-catalog failures", () => {
+    const catalogErrorStart = memoryReaderSource.indexOf(
+      "<Show when={translationCatalogError()}>",
+    );
+    const catalogErrorEnd = memoryReaderSource.indexOf(
+      "</Show>",
+      catalogErrorStart,
+    );
+    const catalogErrorMarkup = memoryReaderSource.slice(
+      catalogErrorStart,
+      catalogErrorEnd,
+    );
+
+    expect(catalogErrorStart).toBeGreaterThan(-1);
+    expect(catalogErrorMarkup).toContain('aria-live="assertive"');
+    expect(catalogErrorMarkup).toContain('role="alert"');
+    expect(catalogErrorMarkup).toContain('type="button"');
+    expect(catalogErrorMarkup).toContain("translationCatalogPending()");
+    expect(catalogErrorMarkup).toContain("Retrying model catalog...");
+    expect(catalogErrorMarkup).toContain("Retry model catalog");
+    expect(catalogErrorMarkup).toContain("retryTranslationCatalog");
+  });
+
   it("treats terminal translation snapshots as terminal SSE progress", () => {
     expect(memoryReaderSource).toContain("TERMINAL_TRANSLATION_SNAPSHOT_STATUSES");
     expect(memoryReaderSource).toContain("isCompletedTranslationEnvelope(envelope)");
@@ -275,6 +349,24 @@ describe("memory reader actions", () => {
     expect(navigations).toEqual(["/memories"]);
   });
 
+  it("navigates before deletion revalidation replaces the active reader", async () => {
+    const effects: string[] = [];
+    let current = true;
+
+    await deleteReaderMemory({
+      memoryId: "memory-reader",
+      isCurrent: () => current,
+      navigate: (path) => effects.push(`navigate:${path}`),
+      revalidate: async () => {
+        effects.push("revalidate");
+        current = false;
+      },
+      fetch: async () => new Response(null, { status: 204 }),
+    });
+
+    expect(effects).toEqual(["navigate:/memories", "revalidate"]);
+  });
+
   it("keeps the reader on the current page when delete fails", async () => {
     const navigations: string[] = [];
 
@@ -286,6 +378,30 @@ describe("memory reader actions", () => {
       }),
     ).rejects.toThrow("failed to delete memory");
 
+    expect(navigations).toEqual([]);
+  });
+
+  it("does not revalidate or navigate when deletion completes for a stale reader generation", async () => {
+    const response = createDeferred<Response>();
+    const navigations: string[] = [];
+    const revalidated: string[] = [];
+    let current = true;
+
+    const deletion = deleteReaderMemory({
+      memoryId: "memory-reader-a",
+      isCurrent: () => current,
+      navigate: (path) => navigations.push(path),
+      revalidate: async (memoryId) => {
+        revalidated.push(memoryId);
+      },
+      fetch: () => response.promise,
+    });
+
+    current = false;
+    response.resolve(new Response(null, { status: 204 }));
+    await deletion;
+
+    expect(revalidated).toEqual([]);
     expect(navigations).toEqual([]);
   });
 
@@ -468,9 +584,22 @@ describe("memory reader actions", () => {
     );
   });
 
+  it("uses valid keyboard-operable reader action and TOC semantics", () => {
+    expect(memoryReaderSource).toContain('role="toolbar"');
+    expect(memoryReaderSource).toContain('aria-orientation="horizontal"');
+    expect(memoryReaderSource).toContain("focusReaderToolbarButton");
+    expect(memoryReaderSource).toContain('event.key === "ArrowRight"');
+    expect(memoryReaderSource).toContain('event.key === "ArrowLeft"');
+    expect(memoryReaderSource).toContain("focus-visible:opacity-100");
+    expect(memoryReaderSource).toContain('role="presentation"');
+    expect(memoryReaderSource).not.toMatch(
+      /<div\s+class="trauma-toc-reading-band"/,
+    );
+  });
+
   it("keeps remembered model values selectable and the submit button primary", () => {
     expect(memoryReaderSource).toContain("canonicalTranslationModel");
-    expect(memoryReaderSource).toContain("submitCodexTranslationDefaults");
+    expect(memoryReaderSource).toContain("submitTranslationDefaults");
     expect(memoryReaderSource).toContain(
       "!translationCatalogModels().some((model) =>",
     );
@@ -490,12 +619,12 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
   });
 
-  it("persists reader-selected Codex defaults before translation start revalidation", () => {
+  it("persists canonical reader translation defaults before translation start", () => {
     const persistIndex = memoryReaderSource.indexOf(
-      "await submitCodexTranslationDefaults",
+      "await submitTranslationDefaults",
     );
     const defaultUpdateIndex = memoryReaderSource.indexOf(
-      "setTranslationDefaultLanguage(input.langCode)",
+      "setTranslationDefaultLanguage(persistedLanguage)",
       persistIndex,
     );
     const startIndex = memoryReaderSource.indexOf(
@@ -515,6 +644,8 @@ describe("memory reader actions", () => {
     expect(startIndex).toBeGreaterThan(persistIndex);
     expect(memoryReaderSource).toContain("codexTranslationModel");
     expect(memoryReaderSource).toContain("codexTranslationReasoningEffort");
+    expect(memoryReaderSource).toContain("settings.translationTargetLanguage");
+    expect(memoryReaderSource).toContain("langCode: persistedLanguage");
   });
 
   it("validates the selected translation language before submitting", () => {
@@ -524,6 +655,20 @@ describe("memory reader actions", () => {
     );
     expect(memoryReaderSource).toContain(
       "!hasTranslationVariant(langCode)",
+    );
+  });
+
+  it("owns one translation settings request at a time", () => {
+    expect(memoryReaderSource).toContain("translationSubmitPending");
+    expect(memoryReaderSource).toContain("translationRequestGeneration");
+    expect(memoryReaderSource).toContain(
+      "requestGeneration === translationRequestGeneration",
+    );
+    expect(memoryReaderSource).toContain(
+      "disabled={translationSubmitPending()}",
+    );
+    expect(memoryReaderSource).toContain(
+      "aria-busy={translationSubmitPending()}",
     );
   });
 
@@ -666,4 +811,19 @@ function renderReader(
       },
     });
   });
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
+  };
 }

@@ -1,9 +1,16 @@
 import type {
+  PsychiatristActiveTurnResponse,
   PsychiatristCancelResult,
+  PsychiatristThreadPairResponse,
   PsychiatristThreadResponse,
   PsychiatristTurnStartedResponse,
   PsychiatristWebSourcePermission,
 } from "./psychiatrist-types";
+import {
+  isNonEmptyString,
+  isPsychiatristSourceCitation,
+  isRecord,
+} from "./psychiatrist-runtime-validation";
 
 type BrowserFetch = (
   input: RequestInfo | URL,
@@ -15,6 +22,13 @@ interface PsychiatristRequestScopeInput {
   memoryId: string;
   threadId: string;
   variantKind: "source" | "translation";
+}
+
+interface PsychiatristJsonRequestInput {
+  body?: unknown;
+  fetch?: BrowserFetch;
+  method: string;
+  path: string;
 }
 
 export class PsychiatristRequestError extends Error {
@@ -52,6 +66,7 @@ export function getPsychiatristErrorMessage(error: unknown): string {
     case "usage_limit":
     case "timeout":
     case "stream_disconnected":
+    case "event_limit_exceeded":
       return "Psychiatrist could not finish. Retry when ready.";
     case "context_overflow":
       return "This memory is too large for the current assistant context.";
@@ -82,12 +97,26 @@ export async function createPsychiatristThread(input: {
   if (input.langCode !== undefined) {
     body.lang_code = input.langCode;
   }
-  return requestJson<PsychiatristThreadResponse>({
+  const response = await requestJson({
     body,
     fetch: input.fetch,
+    invalidResponseMessage: "Psychiatrist thread response was invalid.",
     method: "POST",
     path: `/api/memories/${encodeURIComponent(input.memoryId)}/psychiatrist/threads`,
   });
+  const expectedLangCode = input.langCode ?? null;
+  const expectedVariantKind = input.langCode === undefined ? "source" : "translation";
+  if (!isPsychiatristThreadResponse(response.value) ||
+    response.value.memory_id !== input.memoryId ||
+    response.value.lang_code !== expectedLangCode ||
+    response.value.variant_kind !== expectedVariantKind
+  ) {
+    throw invalidPsychiatristResponse(
+      "Psychiatrist thread response was invalid.",
+      response.status,
+    );
+  }
+  return response.value;
 }
 
 export async function sendPsychiatristMessage(input: {
@@ -107,12 +136,22 @@ export async function sendPsychiatristMessage(input: {
   if (input.langCode !== undefined && input.langCode !== null) {
     body.lang_code = input.langCode;
   }
-  return requestJson<PsychiatristTurnStartedResponse>({
+  const response = await requestJson({
     body,
     fetch: input.fetch,
+    invalidResponseMessage: "Psychiatrist message response was invalid.",
     method: "POST",
     path: scopedThreadPath(input) + "/messages",
   });
+  if (!isPsychiatristTurnStartedResponse(response.value) ||
+    response.value.thread_id !== input.threadId
+  ) {
+    throw invalidPsychiatristResponse(
+      "Psychiatrist message response was invalid.",
+      response.status,
+    );
+  }
+  return response.value;
 }
 
 export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInput & {
@@ -120,7 +159,7 @@ export async function cancelPsychiatristTurn(input: PsychiatristRequestScopeInpu
   pairId: string;
   turnId: string;
 }): Promise<PsychiatristCancelResult> {
-  const value = await requestJson<unknown>({
+  const value = await requestCancelJson({
     body: {
       lang_code: input.langCode ?? null,
       memory_id: input.memoryId,
@@ -149,7 +188,7 @@ export async function regeneratePsychiatristResponse(input: PsychiatristRequestS
   pairId: string;
   webSourcePermission?: PsychiatristWebSourcePermission;
 }): Promise<PsychiatristTurnStartedResponse> {
-  return requestJson<PsychiatristTurnStartedResponse>({
+  const response = await requestJson({
     body: {
       lang_code: input.langCode ?? null,
       memory_id: input.memoryId,
@@ -158,10 +197,21 @@ export async function regeneratePsychiatristResponse(input: PsychiatristRequestS
       web_source_permission: input.webSourcePermission ?? "deny",
     },
     fetch: input.fetch,
+    invalidResponseMessage: "Psychiatrist regenerate response was invalid.",
     method: "POST",
     path: scopedThreadPath(input) +
       `/pairs/${encodeURIComponent(input.pairId)}/regenerate`,
   });
+  if (!isPsychiatristTurnStartedResponse(response.value) ||
+    response.value.thread_id !== input.threadId ||
+    response.value.pair_id !== input.pairId
+  ) {
+    throw invalidPsychiatristResponse(
+      "Psychiatrist regenerate response was invalid.",
+      response.status,
+    );
+  }
+  return response.value;
 }
 
 function scopedThreadPath(input: PsychiatristRequestScopeInput): string {
@@ -169,12 +219,36 @@ function scopedThreadPath(input: PsychiatristRequestScopeInput): string {
     `/psychiatrist/threads/${encodeURIComponent(input.threadId)}`;
 }
 
-async function requestJson<T>(input: {
-  body?: unknown;
-  fetch?: BrowserFetch;
-  method: string;
-  path: string;
-}): Promise<T> {
+async function requestJson(input: PsychiatristJsonRequestInput & {
+  invalidResponseMessage: string;
+}): Promise<{ status: number; value: unknown }> {
+  const response = await requestSuccessfulResponse(input);
+  if (response.status === 204) {
+    throw invalidPsychiatristResponse(input.invalidResponseMessage, response.status);
+  }
+  try {
+    return {
+      status: response.status,
+      value: await response.json() as unknown,
+    };
+  } catch {
+    throw invalidPsychiatristResponse(input.invalidResponseMessage, response.status);
+  }
+}
+
+async function requestCancelJson(
+  input: PsychiatristJsonRequestInput,
+): Promise<unknown> {
+  const response = await requestSuccessfulResponse(input);
+  if (response.status === 204) {
+    return undefined;
+  }
+  return await response.json() as unknown;
+}
+
+async function requestSuccessfulResponse(
+  input: PsychiatristJsonRequestInput,
+): Promise<Response> {
   const fetcher = input.fetch ?? fetch;
   const response = await fetcher(input.path, {
     body: input.body === undefined ? undefined : JSON.stringify(input.body),
@@ -184,10 +258,19 @@ async function requestJson<T>(input: {
   if (!response.ok) {
     throw await readRequestError(response);
   }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return await response.json() as T;
+  return response;
+}
+
+function invalidPsychiatristResponse(
+  message: string,
+  responseStatus: number,
+): PsychiatristRequestError {
+  return new PsychiatristRequestError({
+    action: "retry",
+    code: "request_failed",
+    message,
+    responseStatus,
+  });
 }
 
 async function readRequestError(response: Response): Promise<PsychiatristRequestError> {
@@ -231,6 +314,84 @@ function isPsychiatristCancelResult(value: unknown): value is PsychiatristCancel
     typeof value.warning.message === "string";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isPsychiatristThreadResponse(value: unknown): value is PsychiatristThreadResponse {
+  return isRecord(value) &&
+    (value.active_turn === null || isPsychiatristActiveTurnResponse(value.active_turn)) &&
+    isNonEmptyString(value.content_hash) &&
+    (value.lang_code === null || isNonEmptyString(value.lang_code)) &&
+    isNonEmptyString(value.memory_id) &&
+    Array.isArray(value.pairs) &&
+    value.pairs.every(isPsychiatristThreadPairResponse) &&
+    isPsychiatristThreadStatus(value.status) &&
+    isNonEmptyString(value.thread_id) &&
+    (value.variant_kind === "source" || value.variant_kind === "translation");
+}
+
+function isPsychiatristActiveTurnResponse(
+  value: unknown,
+): value is PsychiatristActiveTurnResponse {
+  return isRecord(value) &&
+    isNonEmptyString(value.event_url) &&
+    isNonEmptyString(value.pair_id) &&
+    value.status === "running" &&
+    isNonEmptyString(value.turn_id);
+}
+
+function isPsychiatristThreadPairResponse(
+  value: unknown,
+): value is PsychiatristThreadPairResponse {
+  return isRecord(value) &&
+    (value.assistant_response === undefined ||
+      isPsychiatristAssistantResponse(value.assistant_response)) &&
+    isNonEmptyString(value.pair_id) &&
+    (value.retry_action === undefined || value.retry_action === "allow_web_sources") &&
+    (value.retry_mode === undefined ||
+      value.retry_mode === "first_answer" ||
+      value.retry_mode === "regenerate") &&
+    (value.retry_turn_id === undefined || isNonEmptyString(value.retry_turn_id)) &&
+    isPsychiatristPairStatus(value.status) &&
+    isNonEmptyString(value.turn_id) &&
+    isPsychiatristUserPrompt(value.user_prompt);
+}
+
+function isPsychiatristAssistantResponse(value: unknown): boolean {
+  return isRecord(value) &&
+    isNonEmptyString(value.completed_at) &&
+    typeof value.content === "string" &&
+    Array.isArray(value.source_citations) &&
+    value.source_citations.every(isPsychiatristSourceCitation);
+}
+
+function isPsychiatristUserPrompt(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.content === "string" &&
+    isNonEmptyString(value.created_at);
+}
+
+function isPsychiatristTurnStartedResponse(
+  value: unknown,
+): value is PsychiatristTurnStartedResponse {
+  return isRecord(value) &&
+    isNonEmptyString(value.event_url) &&
+    isNonEmptyString(value.pair_id) &&
+    isNonEmptyString(value.replay_url) &&
+    value.status === "started" &&
+    isNonEmptyString(value.thread_id) &&
+    isNonEmptyString(value.turn_id);
+}
+
+function isPsychiatristThreadStatus(value: unknown): boolean {
+  return value === "ready" ||
+    value === "running" ||
+    value === "stale" ||
+    value === "failed" ||
+    value === "canceled";
+}
+
+function isPsychiatristPairStatus(value: unknown): boolean {
+  return value === "pending" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "canceled" ||
+    value === "stale";
 }

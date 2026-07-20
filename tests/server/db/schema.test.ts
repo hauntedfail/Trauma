@@ -13,6 +13,12 @@ const PRODUCT_LANGUAGE_MIGRATION_FOLDER_MILLIS = 1778934734173;
 const VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS = 1779449000000;
 const STRICT_FLASHBACK_VARIANT_SCOPE_MIGRATION_FOLDER_MILLIS = 1779449500000;
 const MEMORY_BROWSE_PAGINATION_MIGRATION_FOLDER_MILLIS = 1779955000000;
+const SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS = 1784221790920;
+const MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS = 1784223792512;
+const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
+const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
+const CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS = 1784238332412;
+const COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS = 1784534032874;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -24,6 +30,7 @@ describe("db foundation", () => {
       "flashbacks",
       "memories",
       "memoryCategories",
+      "memoryCreationIdempotency",
       "memoryTags",
       "moments",
       "openaiAuthCredentials",
@@ -88,7 +95,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("lists memory browse rows from SQLite metadata and relations", () => {
+  it("lists paged memory browse rows from SQLite metadata and relations", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -147,12 +154,17 @@ describe("db foundation", () => {
             connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("sqlite", "sqlite", now, now);
             connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "research", now, now);
             connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "sqlite", now, now);
-            connection.sqlite
-              .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-              .run("f-real", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "repository flashback", "from", "sqlite", 0, 20, now, now);
-
-            const memories = await connection.repositories.memories.listForBrowse();
-            process.stdout.write(JSON.stringify(memories));
+            const page = await connection.repositories.memories.listForBrowsePage({
+              categoryId: "",
+              cursor: null,
+              flashbackId: "",
+              limit: 30,
+              readState: "all",
+              searchFields: [],
+              searchTerms: [],
+              tagId: "",
+            });
+            process.stdout.write(JSON.stringify(page));
           } finally {
             connection.close();
           }
@@ -166,39 +178,22 @@ describe("db foundation", () => {
       },
     );
 
-    const memories = JSON.parse(output);
-    expect(memories[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(memories[0]?.flashbacks[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(memories).toEqual([
-      {
+    const page = JSON.parse(output);
+    expect(page.rows[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(page).toEqual({
+      rows: [{
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
         title: "Real SQLite Memory",
         url: "https://example.com/real-memory",
         description: "Saved from the repository",
-        capturedAt: memories[0].capturedAt,
+        capturedAt: page.rows[0].capturedAt,
         read: false,
         extractionStatus: "success",
         categories: [{ id: "research", name: "Research" }],
         tags: [{ id: "sqlite", name: "sqlite" }],
-        flashbacks: [
-          {
-            id: "f-real",
-            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
-            memoryTitle: "Real SQLite Memory",
-            variantKind: "source",
-            langCode: null,
-            translationOutputHash: null,
-            text: "repository flashback",
-            prefix: "from",
-            suffix: "sqlite",
-            startOffset: 0,
-            endOffset: 20,
-            contentHash: null,
-            createdAt: memories[0].flashbacks[0].createdAt,
-          },
-        ],
-      },
-    ]);
+      }],
+      nextCursor: null,
+    });
   });
 
   it("applies migrations when launched outside the project cwd", () => {
@@ -259,6 +254,194 @@ describe("db foundation", () => {
     expect(readBundledMigrations()).toEqual(
       readMigrationFiles({ migrationsFolder: join(process.cwd(), "drizzle") }),
     );
+  });
+
+  it("upgrades an existing Bun SQLite database with durable creation identities", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            applyRuntimeMigrations(
+              sqlite,
+              migrations.filter(
+                (migration) => migration.folderMillis < ${MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS},
+              ),
+              "previous",
+            );
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301", "https://example.com/existing", "Existing", "memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301/CONTENT.md", "success", "disabled", 1, 1);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+            sqlite.prepare("insert into memory_creation_idempotency (idempotency_key, request_url, created_at) values (?, ?, ?)")
+              .run("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef302", "https://example.com/new", 2);
+
+            process.stdout.write(JSON.stringify({
+              existingMemory: sqlite.prepare("select id from memories where id = ?")
+                .get("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301"),
+              reservation: sqlite.prepare("select idempotency_key as idempotencyKey, request_url as requestUrl from memory_creation_idempotency")
+                .get(),
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              migrationRecorded: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      existingMemory: { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef301" },
+      reservation: {
+        idempotencyKey: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef302",
+        requestUrl: "https://example.com/new",
+      },
+      foreignKeyViolations: [],
+      migrationRecorded: 1,
+    });
+  });
+
+  it("deduplicates case-variant taxonomy identities while preserving assignments", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            applyRuntimeMigrations(
+              sqlite,
+              migrations.filter(
+                (migration) => migration.folderMillis < ${CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS},
+              ),
+              "previous",
+            );
+
+            const firstMemory = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311";
+            const secondMemory = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312";
+            const insertMemory = sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)");
+            insertMemory.run(firstMemory, "https://example.com/first", "First", "memories/" + firstMemory + "/CONTENT.md", "success", "disabled", 1, 1);
+            insertMemory.run(secondMemory, "https://example.com/second", "Second", "memories/" + secondMemory + "/CONTENT.md", "success", "disabled", 1, 1);
+
+            const insertTag = sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)");
+            insertTag.run("tag-early", "Harness", 10, 20);
+            insertTag.run("tag-late", "harness", 30, 40);
+            const insertCategory = sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)");
+            insertCategory.run("category-z", "Research", 10, 20);
+            insertCategory.run("category-a", "research", 10, 40);
+
+            const insertMemoryTag = sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)");
+            insertMemoryTag.run(firstMemory, "tag-early", 100, 110);
+            insertMemoryTag.run(firstMemory, "tag-late", 90, 130);
+            insertMemoryTag.run(secondMemory, "tag-late", 120, 140);
+            const insertMemoryCategory = sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)");
+            insertMemoryCategory.run(firstMemory, "category-z", 100, 110);
+            insertMemoryCategory.run(firstMemory, "category-a", 80, 150);
+            insertMemoryCategory.run(secondMemory, "category-z", 120, 140);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            const duplicateErrors = [];
+            try {
+              insertTag.run("tag-rejected", "HARNESS", 50, 50);
+            } catch (error) {
+              duplicateErrors.push(error instanceof Error ? error.message : String(error));
+            }
+            try {
+              insertCategory.run("category-rejected", "RESEARCH", 50, 50);
+            } catch (error) {
+              duplicateErrors.push(error instanceof Error ? error.message : String(error));
+            }
+
+            process.stdout.write(JSON.stringify({
+              categories: sqlite.prepare("select id, name from categories order by id").all(),
+              categoryAssignments: sqlite.prepare("select memory_id as memoryId, category_id as categoryId, created_at as createdAt, updated_at as updatedAt from memory_categories order by memory_id").all(),
+              duplicateErrors,
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              indexes: sqlite.prepare("select name, sql from sqlite_master where type = 'index' and name in ('tags_name_unique', 'categories_name_unique') order by name").all(),
+              migrationRecorded: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?").get(${CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS}).count,
+              tags: sqlite.prepare("select id, name from tags order by id").all(),
+              tagAssignments: sqlite.prepare("select memory_id as memoryId, tag_id as tagId, created_at as createdAt, updated_at as updatedAt from memory_tags order by memory_id").all(),
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      categories: [{ id: "category-a", name: "research" }],
+      categoryAssignments: [
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311",
+          categoryId: "category-a",
+          createdAt: 80,
+          updatedAt: 150,
+        },
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312",
+          categoryId: "category-a",
+          createdAt: 120,
+          updatedAt: 140,
+        },
+      ],
+      duplicateErrors: [
+        expect.stringContaining("UNIQUE constraint failed"),
+        expect.stringContaining("UNIQUE constraint failed"),
+      ],
+      foreignKeyViolations: [],
+      indexes: [
+        expect.objectContaining({
+          name: "categories_name_unique",
+          sql: expect.stringContaining("lower(\"name\")"),
+        }),
+        expect.objectContaining({
+          name: "tags_name_unique",
+          sql: expect.stringContaining("lower(\"name\")"),
+        }),
+      ],
+      migrationRecorded: 1,
+      tags: [{ id: "tag-early", name: "Harness" }],
+      tagAssignments: [
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef311",
+          tagId: "tag-early",
+          createdAt: 90,
+          updatedAt: 130,
+        },
+        {
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef312",
+          tagId: "tag-early",
+          createdAt: 120,
+          updatedAt: 140,
+        },
+      ],
+    });
   });
 
   it("records bundled migration rows with SQLite integer primary keys", () => {
@@ -435,6 +618,355 @@ describe("db foundation", () => {
       migrationRecorded: 1,
     });
   });
+
+  it("uses composite indexes for Flashback and Moment browse ordering", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { desc, eq } from "drizzle-orm";
+          import { drizzle } from "drizzle-orm/bun-sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+          import {
+            buildFlashbackBrowseCursorWhere,
+            buildMomentBrowseCursorWhere,
+          } from "./src/server/db/repositories.ts";
+          import * as schema from "./src/server/db/schema.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS},
+            );
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const previousIndexes = {
+              flashbacks: sqlite
+                .prepare("PRAGMA index_list('flashbacks')")
+                .all()
+                .map((row) => row.name),
+              moments: sqlite
+                .prepare("PRAGMA index_list('moments')")
+                .all()
+                .map((row) => row.name),
+            };
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+            const db = drizzle({ client: sqlite, schema });
+
+            const explain = (sql) => sqlite
+              .prepare(\`EXPLAIN QUERY PLAN \${sql}\`)
+              .all(51)
+              .map((row) => row.detail);
+            const explainQuery = (query) => sqlite
+              .prepare(\`EXPLAIN QUERY PLAN \${query.sql}\`)
+              .all(...query.params)
+              .map((row) => row.detail);
+            const flashbackCursorQuery = db
+              .select({ id: schema.flashbacks.id, title: schema.memories.title })
+              .from(schema.flashbacks)
+              .innerJoin(schema.memories, eq(schema.flashbacks.memoryId, schema.memories.id))
+              .where(buildFlashbackBrowseCursorWhere({
+                createdAt: new Date(42),
+                id: "flashback-cursor",
+              }))
+              .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id))
+              .limit(51)
+              .toSQL();
+            const momentCursorQuery = db
+              .select({ id: schema.moments.id, title: schema.memories.title })
+              .from(schema.moments)
+              .innerJoin(schema.memories, eq(schema.moments.memoryId, schema.memories.id))
+              .where(buildMomentBrowseCursorWhere({
+                createdAt: new Date(42),
+                id: "moment-cursor",
+              }))
+              .orderBy(desc(schema.moments.createdAt), desc(schema.moments.id))
+              .limit(51)
+              .toSQL();
+
+            process.stdout.write(JSON.stringify({
+              previousIndexes,
+              flashbacks: explain(\`
+                select flashbacks.id, memories.title
+                from flashbacks
+                inner join memories on flashbacks.memory_id = memories.id
+                order by flashbacks.created_at desc, flashbacks.id desc
+                limit ?
+              \`),
+              moments: explain(\`
+                select moments.id, memories.title
+                from moments
+                inner join memories on moments.memory_id = memories.id
+                order by moments.created_at desc, moments.id desc
+                limit ?
+              \`),
+              flashbackCursor: explainQuery(flashbackCursorQuery),
+              momentCursor: explainQuery(momentCursorQuery),
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              migrationRecorded: sqlite
+                .prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    const plans = JSON.parse(output) as {
+      previousIndexes: {
+        flashbacks: string[];
+        moments: string[];
+      };
+      flashbacks: string[];
+      moments: string[];
+      flashbackCursor: string[];
+      momentCursor: string[];
+      foreignKeyViolations: unknown[];
+      migrationRecorded: number;
+    };
+
+    expect(plans.previousIndexes.flashbacks).toContain(
+      "flashbacks_created_at_idx",
+    );
+    expect(plans.previousIndexes.moments).toContain("moments_created_at_idx");
+    expect(plans.flashbacks).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SCAN flashbacks USING INDEX flashbacks_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.moments).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SCAN moments USING INDEX moments_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.flashbackCursor).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SEARCH flashbacks USING INDEX flashbacks_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.momentCursor).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SEARCH moments USING INDEX moments_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect([
+      ...plans.flashbacks,
+      ...plans.moments,
+      ...plans.flashbackCursor,
+      ...plans.momentCursor,
+    ]).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("TEMP B-TREE")]),
+    );
+    expect(plans.foreignKeyViolations).toEqual([]);
+    expect(plans.migrationRecorded).toBe(1);
+  });
+
+  it("scrubs legacy backup remote credentials and push diagnostics", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          const migrations = readBundledMigrations();
+          const previous = migrations.filter(
+            (migration) => migration.folderMillis < ${SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS},
+          );
+          applyRuntimeMigrations(sqlite, previous, "bundled");
+          const secret = "migration-secret";
+          const now = Date.now();
+          sqlite.prepare("insert into backup_environment_stamps (id, project_path, store_path, git_remote, git_remote_url, git_branch, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("default", "/project", "/project/store", "origin", "https://user:" + secret + "@example.com/repo.git", "main", now, now);
+          sqlite.prepare("insert into backup_failsafe_alerts (id, kind, severity, message, previous_project_path, previous_store_path, current_project_path, current_store_path, git_remote, git_remote_url, git_branch, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("active", "backup_push_failed", "critical", "Backup push failed", null, null, "/project", "/project/store", "origin", "https://user:" + secret + "@example.com/repo.git", "main", "fatal token=" + secret, now, now);
+          applyRuntimeMigrations(sqlite, migrations, "bundled");
+          const stamp = sqlite.prepare("select git_remote_url from backup_environment_stamps where id = 'default'").get();
+          const alert = sqlite.prepare("select git_remote_url, error from backup_failsafe_alerts where id = 'active'").get();
+          const migrationRecorded = sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+            .get(${SCRUB_BACKUP_SECRETS_MIGRATION_FOLDER_MILLIS}).count;
+          sqlite.close();
+          process.stdout.write(JSON.stringify({ stamp, alert, migrationRecorded }));
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      stamp: { git_remote_url: "redacted:migration-0016" },
+      alert: { git_remote_url: null, error: null },
+      migrationRecorded: 1,
+    });
+    expect(output).not.toContain("migration-secret");
+  });
+
+  it("scrubs legacy per-memory backup diagnostics", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+          const migrations = readBundledMigrations();
+          const previous = migrations.filter(
+            (migration) => migration.folderMillis < ${SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS},
+          );
+          applyRuntimeMigrations(sqlite, previous, "bundled");
+          const credential = ["migration", "credential"].join("-");
+          const now = Date.now();
+          sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, last_backup_error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("memory-secret", "https://example.com", "Secret", "memories/memory-secret/CONTENT.md", "success", "failed", "fatal https://user:" + credential + "@example.com/repo.git", now, now);
+          sqlite.prepare("insert into backup_environment_stamps (id, project_path, store_path, git_remote, git_remote_url, git_branch, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run("default", "/project", "/project/store", "origin", "https://user:" + credential + "@example.com/repo.git", "main", now, now);
+          applyRuntimeMigrations(sqlite, migrations, "bundled");
+          const memory = sqlite.prepare("select last_backup_error from memories where id = 'memory-secret'").get();
+          const stamp = sqlite.prepare("select git_remote_url from backup_environment_stamps where id = 'default'").get();
+          const migrationRecorded = sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+            .get(${SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS}).count;
+          sqlite.close();
+          process.stdout.write(JSON.stringify({ memory, stamp, migrationRecorded }));
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      memory: { last_backup_error: null },
+      stamp: { git_remote_url: "redacted:migration-0016" },
+      migrationRecorded: 1,
+    });
+    expect(output).not.toContain("migration-credential");
+  });
+
+  it("deterministically reconciles legacy Moment path duplicates before enforcing identity", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS},
+            );
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f040";
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, read, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(memoryId, "https://example.com/moments", "Moments", \`memories/\${memoryId}/CONTENT.md\`, "success", "pending", 0, 50, 50);
+
+            const insertMoment = sqlite.prepare("insert into moments (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)");
+            insertMoment.run("moment-older-update", memoryId, "older-update", "Older update", 2, "1/1", 50, 200);
+            insertMoment.run("moment-keeper", memoryId, "keeper", "Keeper", 2, "1/1", 100, 300);
+            insertMoment.run("moment-z-tie", memoryId, "tie-id", "Tie id", 2, "1/1", 100, 300);
+            insertMoment.run("moment-newer-created", memoryId, "newer-created", "Newer created", 2, "1/1", 200, 300);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            let duplicateError;
+            try {
+              insertMoment.run("moment-rejected", memoryId, "rejected", "Rejected", 2, "1/1", 400, 400);
+            } catch (error) {
+              duplicateError = error instanceof Error ? error.message : String(error);
+            }
+
+            process.stdout.write(JSON.stringify({
+              moments: sqlite
+                .prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath from moments")
+                .all(),
+              indexNames: sqlite
+                .prepare("PRAGMA index_list('moments')")
+                .all()
+                .map((row) => row.name)
+                .sort(),
+              duplicateError,
+              migrationRecorded: sqlite
+                .prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      moments: [
+        {
+          id: "moment-keeper",
+          sectionAnchor: "keeper",
+          sectionTitle: "Keeper",
+          sectionPath: "1/1",
+        },
+      ],
+      indexNames: expect.arrayContaining([
+        "moments_memory_section_path_unique",
+      ]),
+      duplicateError: expect.stringContaining(
+        "UNIQUE constraint failed: moments.memory_id, moments.section_path",
+      ),
+      migrationRecorded: 1,
+    });
+  });
+
 
   it("migrates existing memories to unread", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
@@ -808,6 +1340,216 @@ describe("db foundation", () => {
     });
   });
 
+  it("rejects a missing migration record before replaying an older migration body", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            applyBundledMigrations(sqlite);
+
+            const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f040";
+            const translationHash = "sha256:" + "a".repeat(64);
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, read, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(memoryId, "https://example.com", "Example", "memories/" + memoryId + "/CONTENT.md", "success", "pending", 0, 1, 1);
+            sqlite.prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translated-flashback", memoryId, "translation", "ja-JP", translationHash, "translated", "", "", 0, 10, null, 2, 2);
+
+            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
+              .run(${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS});
+
+            let rejected = false;
+            let message = "";
+            try {
+              applyBundledMigrations(sqlite);
+            } catch (error) {
+              rejected = true;
+              message = error instanceof Error ? error.message : String(error);
+            }
+
+            process.stdout.write(JSON.stringify({
+              rejected,
+              message,
+              flashback: sqlite.prepare("select variant_kind as variantKind, lang_code as langCode, translation_output_hash as translationOutputHash from flashbacks where id = ?")
+                .get("translated-flashback"),
+              flashbackIndexes: sqlite.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'flashbacks' and name like 'flashbacks_created_at%' order by name")
+                .all(),
+              missingRecordCount: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      rejected: true,
+      message: expect.stringContaining("migration history gap"),
+      flashback: {
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: `sha256:${"a".repeat(64)}`,
+      },
+      flashbackIndexes: [{ name: "flashbacks_created_at_id_idx" }],
+      missingRecordCount: 0,
+    });
+  });
+
+  it("rejects duplicate applied migration records", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+            const duplicatedMigration = readBundledMigrations().find(
+              (migration) => migration.folderMillis === ${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS},
+            );
+            if (!duplicatedMigration) {
+              throw new Error("missing bundled 0013 migration");
+            }
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run(duplicatedMigration.hash, duplicatedMigration.folderMillis);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("duplicate bundled migration"),
+    });
+  });
+
+  it("rejects invalid runtime migration manifests before mutating SQLite", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const manifests = [
+            {
+              name: "duplicate",
+              migrations: [
+                { sql: ["create table manifest_duplicate_first (id integer)"], folderMillis: 1, hash: "first", bps: false },
+                { sql: ["create table manifest_duplicate_second (id integer)"], folderMillis: 1, hash: "second", bps: false },
+              ],
+            },
+            {
+              name: "out-of-order",
+              migrations: [
+                { sql: ["create table manifest_out_of_order_first (id integer)"], folderMillis: 2, hash: "first", bps: false },
+                { sql: ["create table manifest_out_of_order_second (id integer)"], folderMillis: 1, hash: "second", bps: false },
+              ],
+            },
+          ];
+          const results = [];
+
+          for (const manifest of manifests) {
+            const sqlite = new Database(join(root, manifest.name + ".sqlite"));
+            try {
+              let rejected = false;
+              let message = "";
+              try {
+                applyRuntimeMigrations(sqlite, manifest.migrations, "test-manifest");
+              } catch (error) {
+                rejected = true;
+                message = error instanceof Error ? error.message : String(error);
+              }
+
+              results.push({
+                name: manifest.name,
+                rejected,
+                message,
+                tables: sqlite.prepare("select name from sqlite_master where type = 'table' and (name = '__drizzle_migrations' or name like 'manifest_%') order by name").all(),
+              });
+            } finally {
+              sqlite.close();
+            }
+          }
+
+          process.stdout.write(JSON.stringify(results));
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      {
+        name: "duplicate",
+        rejected: true,
+        message: expect.stringContaining("strictly increasing folderMillis"),
+        tables: [],
+      },
+      {
+        name: "out-of-order",
+        rejected: true,
+        message: expect.stringContaining("strictly increasing folderMillis"),
+        tables: [],
+      },
+    ]);
+  });
+
   it("upgrades databases that already recorded the original 0001 migration", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
@@ -843,9 +1585,14 @@ describe("db foundation", () => {
                 id text PRIMARY KEY NOT NULL,
                 url text NOT NULL,
                 title text NOT NULL,
+                description text,
+                favicon_url text,
                 content_path text NOT NULL,
                 extraction_status text NOT NULL,
+                extraction_error text,
                 backup_status text NOT NULL,
+                last_backup_at integer,
+                last_backup_error text,
                 created_at integer NOT NULL,
                 updated_at integer NOT NULL
               )
@@ -1500,7 +2247,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("closes the SQLite handle when initialization fails", () => {
+  it("closes the SQLite and migration-lease handles when initialization fails", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -1513,10 +2260,13 @@ describe("db foundation", () => {
             throw new Error("TRAUMA_TEST_DB_ROOT is required");
           }
 
-          let closeCalls = 0;
+          const databasePath = join(root, ".trauma/trauma.sqlite");
+          let applicationCloseCalls = 0;
           const originalClose = Database.prototype.close;
           Database.prototype.close = function close(...args) {
-            closeCalls += 1;
+            if (this.filename === databasePath) {
+              applicationCloseCalls += 1;
+            }
             return originalClose.apply(this, args);
           };
 
@@ -1526,7 +2276,7 @@ describe("db foundation", () => {
                 configFilePath: join(root, "trauma.config.json"),
                 projectPath: join(root, "data"),
                 storePath: join(root, "data/store"),
-                databasePath: join(root, ".trauma/trauma.sqlite"),
+                databasePath,
                 backup: {
                   git: {
                     enabled: true,
@@ -1539,9 +2289,9 @@ describe("db foundation", () => {
               },
               { migrationsFolder: join(root, "missing-migrations") },
             );
-            process.stdout.write(JSON.stringify({ failed: false, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: false, applicationCloseCalls }));
           } catch {
-            process.stdout.write(JSON.stringify({ failed: true, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: true, applicationCloseCalls }));
           } finally {
             Database.prototype.close = originalClose;
           }
@@ -1557,7 +2307,7 @@ describe("db foundation", () => {
 
     expect(JSON.parse(output)).toEqual({
       failed: true,
-      closeCalls: 1,
+      applicationCloseCalls: 1,
     });
   });
 });

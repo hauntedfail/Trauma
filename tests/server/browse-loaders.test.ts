@@ -15,10 +15,7 @@ import {
   loadFlashbackBrowseRows,
   loadRecentFlashbackBrowseRows,
 } from "../../src/server/flashbacks/browse";
-import {
-  loadBrowseMemories,
-  loadBrowseMemoryPage,
-} from "../../src/server/memories/browse";
+import { loadBrowseMemoryPage } from "../../src/server/memories/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
 import {
   createMemoryContentFixture,
@@ -402,7 +399,7 @@ describe("server browse loaders", () => {
     ]);
   });
 
-  it("filters stale flashbacks from memory browse aggregates", async () => {
+  it("filters stale flashbacks from paged memory browse IDs", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
     const markdown = "# Loader Memory\n\nA selected text.";
@@ -453,16 +450,25 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(loadBrowseMemories()).resolves.toMatchObject([
-      {
-        id: memoryId,
-        flashbacks: [
-          {
-            id: "renderable-memory-flashback",
-          },
-        ],
-      },
-    ]);
+    await expect(
+      loadBrowseMemoryPage({
+        ...createInitialBrowseMemoryPageRequest(
+          parseBrowseQuery("?flashback=renderable-memory-flashback"),
+        ),
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      memories: [{ id: memoryId, flashbacks: [] }],
+      nextCursor: null,
+    });
+    await expect(
+      loadBrowseMemoryPage({
+        ...createInitialBrowseMemoryPageRequest(
+          parseBrowseQuery("?flashback=stale-memory-flashback"),
+        ),
+        limit: 1,
+      }),
+    ).resolves.toEqual({ memories: [], nextCursor: null });
   });
 
   it("loads memory browse pages without validating or returning flashbacks", async () => {
@@ -689,12 +695,20 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(
-      loadBrowseMemoryPage({
-        ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
-        limit: 1,
-      }),
-    ).resolves.toMatchObject({
+    const boundedPage = await loadBrowseMemoryPage({
+      ...createInitialBrowseMemoryPageRequest(parseBrowseQuery("?q=needle")),
+      limit: 1,
+    });
+    expect(boundedPage).toMatchObject({
+      memories: [],
+      nextCursor: expect.objectContaining({ id: expect.any(String) }),
+    });
+
+    await expect(loadBrowseMemoryPage({
+      cursor: boundedPage.nextCursor,
+      limit: 1,
+      query: parseBrowseQuery("?q=needle"),
+    })).resolves.toMatchObject({
       memories: [{ id: olderMemoryId, flashbacks: [] }],
       nextCursor: null,
     });
@@ -864,6 +878,55 @@ describe("server browse loaders", () => {
         targetStatus: "resolved_from_path",
       },
     ]);
+  });
+
+  it("preserves all Moment browse rows across bounded repository pages", async () => {
+    const config = await createRuntimeConfig();
+    await seedMemory(config);
+    const sectionCount = 101;
+    const sections = Array.from(
+      { length: sectionCount },
+      (_, index) => `## Section ${index + 1}\n\nBody ${index + 1}.`,
+    );
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: `https://example.com/${memoryId}`,
+        title: "Loader Memory",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: ["# Loader Memory", ...sections].join("\n\n"),
+    });
+    const connection = initializeDatabase(config);
+    try {
+      for (let index = 0; index < sectionCount; index += 1) {
+        const ordinal = index + 1;
+        const createdAt = new Date(now.getTime() + index);
+        await connection.repositories.moments.create({
+          id: `moment-page-${String(ordinal).padStart(3, "0")}`,
+          memoryId,
+          sectionAnchor: `section-${ordinal}`,
+          sectionTitle: `Section ${ordinal}`,
+          sectionLevel: 2,
+          sectionPath: `1/${ordinal}`,
+          sectionStartOffset: null,
+          sectionEndOffset: null,
+          contentHash: null,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+    } finally {
+      connection.close();
+    }
+
+    const rows = await loadMomentBrowseRows();
+    expect(rows).toHaveLength(sectionCount);
+    expect(rows.every((row) => row.targetStatus === "current")).toBe(true);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(sectionCount);
   });
 });
 

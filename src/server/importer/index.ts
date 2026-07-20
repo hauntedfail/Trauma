@@ -4,6 +4,10 @@ import { request as requestHttps } from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 
+import {
+  createNonQueuingAdmissionLimiter,
+  type NonQueuingAdmissionLimiter,
+} from "../concurrency/non-queuing-admission";
 import type { ArticleExtractor } from "./extractor";
 import {
   ArticleExtractionTimeoutError,
@@ -30,6 +34,7 @@ export type PinnedAddressFetch = (
 ) => Promise<Response>;
 
 export interface ImportUrlInput {
+  admissionLimiter?: NonQueuingAdmissionLimiter;
   url: string;
   fetch?: ImportFetch;
   resolveHostname?: HostResolver;
@@ -58,9 +63,37 @@ export interface LinkOnlyImporterResult {
 
 const DEFAULT_MAX_IMPORT_BYTES = 2_000_000;
 const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
+export const DEFAULT_IMPORT_MAX_CONCURRENCY = 4;
 const MAX_REDIRECTS = 5;
+const importAdmissionLimiter = createNonQueuingAdmissionLimiter(
+  DEFAULT_IMPORT_MAX_CONCURRENCY,
+);
+
+export class ImportAdmissionError extends Error {
+  readonly code = "import_busy";
+  readonly retryAfterSeconds = 1;
+  override name = "ImportAdmissionError";
+
+  constructor(message = "memory import is busy") {
+    super(message);
+  }
+}
 
 export async function importUrl(input: ImportUrlInput): Promise<ImporterResult> {
+  const releaseAdmission = (
+    input.admissionLimiter ?? importAdmissionLimiter
+  ).tryAcquire();
+  if (releaseAdmission === undefined) {
+    throw new ImportAdmissionError();
+  }
+  try {
+    return await importAdmittedUrl(input);
+  } finally {
+    releaseAdmission();
+  }
+}
+
+async function importAdmittedUrl(input: ImportUrlInput): Promise<ImporterResult> {
   const fetchUrl = input.fetch ?? createPinnedFetch(input.resolveHostname);
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_IMPORT_BYTES;
   const timeoutMs = input.timeoutMs ?? DEFAULT_IMPORT_TIMEOUT_MS;

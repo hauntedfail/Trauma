@@ -35,6 +35,8 @@ It is not a separate component package.
 - `src/components/icons/TraumaIcons.tsx`
 - `src/components/memories/MemoryBrowse.tsx`
 - `src/routes/flashbacks/index.tsx`
+- `src/components/moments/MomentBrowse.tsx`
+- `src/components/settings/SettingsPage.tsx`
 - `src/components/reader/MemoryReader.tsx`
 - `src/components/reader/reader-styles.ts`
 

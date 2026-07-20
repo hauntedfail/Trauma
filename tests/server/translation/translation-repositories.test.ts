@@ -19,6 +19,116 @@ afterEach(async () => {
 });
 
 describe("translation repositories", () => {
+  it("atomically creates a Brilliant job with all initial chunks", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+
+      const job = await connection.repositories.translations
+        .createTranslationJobWithChunks(
+          {
+            jobId: "job-atomic-success",
+            memoryId,
+            langCode: "ja-JP",
+            sourceHash: "sha256:atomic-success",
+            model: "codex-test",
+            reasoningEffort: "high",
+            promptPolicyVersion: "brilliant-v1",
+            chunkerVersion: "chunker-v1",
+            chunkCount: 2,
+            now,
+          },
+          [
+            {
+              chunkIndex: 0,
+              sourceChunkHash: "sha256:atomic-success-0",
+              blockIds: ["b000001"],
+              status: "pending",
+              now,
+            },
+            {
+              chunkIndex: 1,
+              sourceChunkHash: "sha256:atomic-success-1",
+              blockIds: ["b000002"],
+              status: "pending",
+              now,
+            },
+          ],
+        );
+
+      expect(job).toMatchObject({
+        jobId: "job-atomic-success",
+        chunkCount: 2,
+        status: "pending",
+      });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(
+          "job-atomic-success",
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({ chunkIndex: 0, status: "pending" }),
+        expect.objectContaining({ chunkIndex: 1, status: "pending" }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rolls back the Brilliant job when an initial chunk insert fails", async () => {
+    const config = await createConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await createMemoryRow(connection);
+
+      await expect(
+        connection.repositories.translations.createTranslationJobWithChunks(
+          {
+            jobId: "job-atomic-rollback",
+            memoryId,
+            langCode: "ja-JP",
+            sourceHash: "sha256:atomic-rollback",
+            model: null,
+            reasoningEffort: null,
+            promptPolicyVersion: "brilliant-v1",
+            chunkerVersion: "chunker-v1",
+            chunkCount: 2,
+            now,
+          },
+          [
+            {
+              chunkIndex: 0,
+              sourceChunkHash: "sha256:atomic-rollback-0",
+              blockIds: ["b000001"],
+              status: "pending",
+              now,
+            },
+            {
+              chunkIndex: 0,
+              sourceChunkHash: "sha256:atomic-rollback-duplicate",
+              blockIds: ["b000002"],
+              status: "pending",
+              now,
+            },
+          ],
+        ),
+      ).rejects.toThrow();
+
+      await expect(
+        connection.repositories.translations.getTranslationJob(
+          "job-atomic-rollback",
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        connection.repositories.translations.getTranslationChunks(
+          "job-atomic-rollback",
+        ),
+      ).resolves.toEqual([]);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("creates, claims, completes, purges, and repairs Brilliant jobs", async () => {
     const config = await createConfig();
     const connection = initializeDatabase(config);

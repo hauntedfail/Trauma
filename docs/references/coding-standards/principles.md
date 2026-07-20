@@ -20,12 +20,10 @@ Trauma favors clean, boring implementation over cleverness.
 
 ## State And Data Ownership
 
-- MUST keep canonical ownership clear:
-  - SQLite owns metadata.
-  - Markdown files own extracted readable content.
-  - The UI owns transient presentation state.
-- MUST NOT duplicate canonical state across SQLite and markdown unless a
-  documented sync rule says which side wins.
+- MUST follow the canonical
+  [data ownership matrix](../../architecture/data-and-storage.md#ownership-matrix).
+- MUST NOT duplicate canonical state across SQLite and store artifacts unless a
+  documented projection/sync rule names the runtime authority.
 - MUST update data immutably in UI and domain transformations.
 - MUST model status fields as explicit unions and enforce persisted constraints
   where possible.

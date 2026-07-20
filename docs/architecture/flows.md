@@ -1,206 +1,469 @@
 # Runtime Flows
 
-This document describes the core runtime flows that implementation should
-preserve.
+These are the durable runtime boundaries implementation must preserve. Storage
+ownership is defined in [Data and storage](data-and-storage.md).
 
 ## Add Memory
 
-The global add memory composer accepts only a URL.
+The global composer accepts one URL.
 
-Flow:
+The shell owns one submission controller shared by the rail and phone popovers.
+It assigns a cryptographically random UUID v7 identity to each normalized URL
+attempt. Closing a popover does not abandon the pending request; retrying a
+failed or response-lost attempt reuses its identity, while changing the URL
+rotates it.
 
-1. Generate a UUID v7 memory ID.
-2. Fetch the URL server-side.
-3. Run the Defuddle-backed extraction pipeline.
-4. Create SQLite metadata.
-5. Write `{storePath}/memories/{memoryId}/CONTENT.md`.
-6. Enqueue markdown backup work.
+1. Validate the optional `Idempotency-Key` header as a canonical UUID v7 before
+   configuration, database, or store work. Requests without the header remain
+   supported and receive a server-generated UUID v7 memory ID.
+2. Validate the public URL, then durably reserve an idempotency key for that
+   preflight-normalized request URL. Reusing a key for a different URL fails
+   with `409`; URL equality alone never deduplicates memories.
+3. Coalesce concurrent work for the same key and URL. A retry returns its
+   existing or creation-journal-recovered row before importing again. An old
+   reservation whose row and recoverable creation journal are both absent
+   returns a stable `409` without importing; this includes replays after later
+   deletion. A clean initial failure before recoverable state releases only the
+   newly inserted reservation so the same failed attempt can retry.
+4. Validate that the configured backup environment is ready for a new write.
+5. Acquire one of four process-wide URL-import slots without queueing. If all
+   slots are occupied, return `429 import_busy` with `Retry-After: 1` before
+   fetch or extraction begins; every terminal path releases its slot.
+6. Fetch the public URL, then run Defuddle extraction inside the
+   interruptible import timeout boundary.
+7. Use extracted Markdown on success or a safe Markdown link on link-only
+   fallback. Raw HTML is never persisted.
+8. Persist a creation journal containing the intended SQLite row.
+9. Durably publish `{storePath}/memories/{memoryId}/CONTENT.md` with
+   `overwrite: false`: write a same-directory temporary file, sync its bytes,
+   publish it without replacing an existing file, and sync the owning directory
+   hierarchy before SQLite success is possible.
+10. Insert the SQLite `memories` row with the new content path and initial backup
+   status.
+11. Remove the creation journal. If the SQLite insert fails, delete the newly
+   written memory directory before returning the error.
+12. If backup is enabled, enqueue the written content path and persist the best
+   available backup status.
 
-If extraction succeeds, save extracted title, description, favicon URL, and the
-markdown body produced by Defuddle.
+Extraction failure or empty output still creates a link-only memory and records
+the extraction detail. Import timeout covers fetch, host/redirect validation,
+Defuddle parsing, and Markdown generation; late extraction output is discarded.
 
-If extraction fails or returns empty markdown, still create a link-only memory.
-Record extraction status and error details in SQLite.
+Once both `CONTENT.md` and the memory row are durable, backup enqueue or backup
+status-update failure must not turn the successful create into an ambiguous
+failed request. Return the created memory with the best persisted status.
+On startup, a surviving creation journal reconstructs a missing SQLite row only
+when its owning `CONTENT.md` exists; otherwise the unused journal is removed. A
+surviving journal with an existing row but missing canonical content is an
+integrity failure and remains available for diagnosis rather than being cleared.
 
-Raw HTML is not stored in the initial design.
+## Delete Memory
 
-Default extraction runs behind an interruptible runtime boundary. The import
-timeout budget covers fetch, validation, Defuddle parser work, and Defuddle
-markdown generation; if the budget is exhausted, the importer returns link-only
-fallback instead of persisting late extraction output.
+Deletion accepts only the canonical
+`memories/{memoryId}/CONTENT.md` path owned by the requested row.
+
+Before inspecting or moving artifacts, deletion reserves the memory against
+process-local artifact publication. It waits for an already-admitted short
+publication to finish and rejects new translation, Flashback, and Psychiatrist
+writes until deletion either completes or restores the memory after failure.
+
+1. Back up the current memory artifacts locally when git backup is enabled.
+2. Persist a deletion journal, then atomically move the owning memory directory
+   into delete staging.
+3. Commit the staged deletion before removing the SQLite row.
+4. Remove staged content and the journal after the row is gone.
+
+Startup recovery restores staged content and marks backup pending while the row
+still exists. If both canonical and staged content are already absent, recovery
+marks the row pending, revalidates the full backup environment, commits the
+deletion, and only then removes the row and journal. Any backup or validation
+failure keeps the pending row and journal for retry. If the row is already gone,
+recovery finishes staging cleanup.
+
+Operation-journal recovery is exclusive per resolved `storePath`: it waits for
+active journaled mutations, and a queued recovery prevents a new journaled
+mutation from starting. Add and delete acquire a shared lease before writing a
+journal and retain it through terminal journal removal or rollback. Different
+mutations may still run concurrently; the barrier exists only to prevent
+recovery from consuming or restoring an operation that is still active.
 
 ## Browser-Assisted Import
 
-Browser-assisted import exists as an optional local Chrome MV3 extension path
-for pages the server cannot fetch or extract reliably.
+The optional local Chrome MV3 extension handles pages the server cannot fetch
+or extract reliably.
 
-Flow:
+1. The operator enables browser import and configures a cryptographically random
+   bearer token that satisfies the configuration contract.
+2. The extension captures a bounded snapshot from the current user-visible tab.
+3. It POSTs JSON to `/api/browser-import` on the local TRAUMA server.
+4. The server validates enablement, token, extension origin, content type,
+   payload size, URL, timestamp, and captured snapshot shape.
+5. Before reading the request body, the route acquires one of two process-wide
+   browser-import slots without queueing. Overflow returns
+   `429 browser_import_busy` with `Retry-After: 1`; every response and failure
+   releases its slot.
+6. Server-side Defuddle extraction and the normal add-memory persistence flow
+   create the memory.
+7. The extension opens the created reader or reports the server error.
 
-1. The operator enables browser import with local environment settings.
-2. The user opens a page in the browser and clicks the TRAUMA extension.
-3. The extension captures bounded content from the current user-visible tab.
-4. The extension sends JSON to `/api/browser-import` on the local TRAUMA server
-   with a bearer token.
-5. The server validates enablement, token, origin, content type, payload size,
-   URL shape, timestamp, and captured snapshot shape.
-6. The server creates the memory through the same add-memory persistence path:
-   SQLite metadata, `CONTENT.md`, and backup enqueue.
-7. The extension opens the created memory route or reports the server error.
+Extension HTML is untrusted input. The extension never writes the store or
+SQLite directly and cannot bypass server sanitization, URL policy, or backup
+readiness.
 
-The extension is a privileged local client, not a trusted persistence layer. It
-may provide browser-only access to the visible DOM, but final validation,
-server-side Defuddle extraction, SQLite writes, and backup state remain
-server-owned. Raw extension HTML is untrusted and must not bypass the server
-sanitization and markdown-store contracts.
+## Flashback Toggle
 
-## Flashback
+Reader content is not generally editable. A selection toggles variant-local
+Flashback ranges without rewriting `CONTENT.md`.
 
-Reader content is not generally editable. Flashback creation changes SQLite
-metadata and transient reader rendering; it does not rewrite `CONTENT.md`. The
-same selection gesture also toggles off existing flashbacks.
+1. The user selects text on a source or translated reader.
+2. The frontend optimistically adds or removes styling only for the selected
+   range.
+3. It sends text, prefix, suffix, start/end offsets, intended operation, and the
+   active language when translated.
+4. The server resolves the selection against current active-variant reader text
+   and fails closed if the content or translation hash is stale.
+5. It durably persists backup intent and a variant-specific export
+   reconciliation intent before changing SQLite rows.
+6. Under the shared artifact-variant lock, it creates, deletes, shrinks, or
+   splits only the intended SQLite ranges and rewrites deterministic
+   `FLASHBACKS.json`.
+7. It clears the reconciliation intent only after confirmed export publication,
+   then enqueues that export for backup.
 
-Flow:
+Offsets use canonical reader text and a `sha256:<hex>` content hash. Translated
+rows are additionally scoped by language and translation output hash. A stale
+row is not rendered at a guessed location. Failure before authoritative SQLite
+and export publication rolls back or clearly fails the optimistic UI. Once
+both are durable, backup enqueue or status failure keeps the toggle successful,
+returns an explicit backup warning with `pending` or `failed` status, and does
+not restore the old rows or export. Backup failsafe metadata also refreshes the
+global alert. Post-rename durability uncertainty is a committed success with an
+explicit warning: Reader and collection clients preserve the new interaction
+state and revalidate authoritative SQLite projections. Startup reconciliation
+runs independently of git backup state, regenerates non-empty or empty exports,
+and rereads rows while holding the same artifact-variant lock used by toggles.
 
-1. User selects text in `/memories/:id` or `/memories/:lang_code/:id`.
-2. Frontend determines whether the selected range is already fully flashbacked.
-3. If the range is not already flashbacked, the frontend renders an optimistic
-   flashback immediately.
-4. If the range is already flashbacked, the frontend optimistically removes
-   flashback styling only from the selected range.
-5. Frontend sends selected `text`, `prefix`, `suffix`, `start_offset`, and
-   `end_offset` to the server with the intended toggle operation.
-6. Server resolves the selection against the active reader variant text, stores
-   `start_offset`, `end_offset`, and `content_hash`, then creates, deletes,
-   shrinks, or splits `flashbacks` rows so SQLite represents exactly the
-   flashbacked ranges that remain.
-7. Server writes the active variant's `FLASHBACKS.json` as a deterministic
-   metadata export for git backup.
-8. Server enqueues backup work for the metadata export.
+## Moment Toggle
 
-Flashback toggle rules:
+Moments bookmark source-canonical reader sections.
 
-- Selecting unflashbacked text creates a flashback for the selected range.
-- Selecting an already-flashbacked range unflashbacks the selected range only.
-- Selecting a subset of a larger flashback preserves the unselected flashbacked
-  text by shrinking or splitting metadata.
-- Selecting across multiple existing flashbacks removes only the selected
-  overlap from each affected flashback.
+1. The reader submits the selected table-of-contents section.
+2. On a translated route, the server validates the translated section and maps
+   it to the source section with the same path and level.
+3. The server creates or removes the corresponding SQLite `moments` row.
+4. Reader and `/moments` projections are revalidated.
 
-Selection payload:
+Moment persistence does not mutate reader Markdown. The current contract has no
+Moment store export; see the ownership matrix before changing backup behavior.
 
-1. `text`
-2. `prefix`
-3. `suffix`
-4. `start_offset`
-5. `end_offset`
+## Collection Browse Pagination
 
-The server stores offsets in active-variant reader text and guards them with
-`content_hash` in `sha256:<hex>` format. Hash-mismatched flashbacks are treated
-as stale and are not rendered at a guessed location.
+Flashback and Moment interactive reads use bounded keyset pages.
 
-Translated reader variants include `langCode` in Flashback toggle requests.
-The server validates the current translation, reads translated `CONTENT.md`,
-and uses translated reader offsets with a variant scope of `(memory_id,
-lang_code, translation_output_hash)`. It does not write translated Flashback
-changes into source rows. If the translated output is missing, stale, or
-hash-mismatched, the Flashback toggle fails closed instead of guessing
-translated text.
+1. The client submits no cursor for the first page or returns the opaque cursor
+   from the preceding page.
+2. The server validates the version, collection kind, timestamp, ID, and limit
+   before opening collection storage.
+3. The repository applies `(created_at, id)` descending keyset predicates and a
+   SQL limit. It never loads the full collection for a paged request.
+4. Flashbacks validate only bounded raw batches and advance past stale rows;
+   Moments resolve targets only for the current raw page.
+5. `/flashbacks`, `/moments`, and Reader All replace their current page rather
+   than accumulating rows.
 
-Moment creation on translated reader variants also includes `langCode`. The
-server validates the posted section against translated ToC data, then stores
-the source ToC section with the same `sectionPath` and level. Moment rows remain
-source canonical.
+No-query `GET /api/moments` retains its full-list envelope. The Flashback
+mutation route remains POST-only. Paged clients explicitly use `page=1` on the
+Moments API or the separate `/api/flashbacks/page` route; mutation behavior is
+unchanged.
 
-If persistence fails, the optimistic UI state is rolled back or surfaced as
-failed.
+## Brilliant Translation
 
-If flashback persistence returns backup failsafe metadata, the frontend must
-refresh the global backup failsafe alert before showing the local flashback
-failure state.
+Translation runs through the separately operated Codex app-server and uses
+durable SQLite job/chunk state. Before new or recoverable Codex work is reserved,
+the shared runtime-isolation assertion must confirm that an external boundary
+makes host data unreadable to the app-server.
+
+Before the Reader starts a translation, it sends the selected language, model,
+and reasoning effort together to `PATCH /api/settings/translation-defaults`.
+The route applies the normal mutation Host/origin/body guards, validates every
+field and the Codex catalog selection, then persists all three defaults with one
+settings update. The Reader uses the canonical language/model/effort returned in
+`SettingsState` for the translation `POST`; it must not reuse stale form values.
+The language-mismatch rejection in the runner remains a required defense for
+direct or stale callers. Existing language-only and Codex-only settings routes
+remain compatible for their current clients.
+
+1. `POST /api/memories/:memoryId/translations` validates the request, resolves
+   the configured target language and Codex model/effort, then opens source
+   `CONTENT.md` and reads at most the 20-MiB limit plus one byte into
+   demand-sized, fixed-capacity chunks. Source admission does not trust a prior
+   file size: it continues positional reads through short reads, closes the
+   file handle on success or failure, and rejects overflow before streaming
+   UTF-8 decoding, Markdown/frontmatter parsing, document-type inference, or
+   incremental raw-byte hashing.
+2. If a completed translation and file are current, the route returns
+   `status: current`. If the same source/language already has active work, it
+   returns `status: active` and reschedules that job when recoverable.
+3. Otherwise it parses the source into translatable blocks, creates one pending
+   job plus its chunk records, emits queued events, closes the short-lived
+   probe/model-selection Codex client, and schedules only durable job identity
+   and runtime dependencies on the in-process sequential runner. The runner
+   opens a fresh Codex client only when that job reaches execution. Before the
+   probe or durable job creation, the chunker deterministically splits oversized
+   paragraphs and lists only at Markdown-safe ordered boundaries. Every source
+   chunk is at most 2,500 rough tokens and its complete initial prompt is at most
+   64 KiB by serialized UTF-8 bytes. An oversized fenced or other structurally
+   indivisible block fails with `validation_failed` before scheduling. Aggregate
+   admission also runs before client creation and durable rows: the complete
+   source is at most 20 MiB, with at most 16,384 translation segments and 4,096
+   chunks. These limits retain the supported import ceiling and ordinary long
+   articles while bounding short-sentence expansion and SQLite job fan-out.
+4. The runner claims `pending` work or resumes `running`, `stitching`, or
+   `committing` work. It re-reads the source through the same bounded admission
+   before creating a client and marks the job stale when the source hash
+   changed. The final commit reload applies that same source-byte limit again,
+   so growth between resume admission and publication cannot reach decoding,
+   parsing, hashing, output publication, or backup. Before reusing any chunk,
+   it requires the persisted
+   prompt-policy and chunker versions, chunk count, chunk indexes, source chunk
+   hashes, and ordered block IDs to match the current runtime manifest exactly.
+   An incompatible job fails terminally and permits a fresh attempt; it cannot
+   write output or enter backup.
+5. Each chunk is sent through the Brilliant prompt/validation boundary and its
+   validated Markdown and projection data are persisted before the next chunk.
+   The complete outbound prompt, including retry diagnostics, is checked again
+   against the fixed 64-KiB UTF-8 limit immediately before the translation
+   client is called. Prompt overflow cannot reach the app-server WebSocket and
+   terminally fails the chunk without automatic retry.
+   Translated text is admitted by UTF-8 bytes before projection or payload
+   persistence: at most 1 MiB per segment, 4 MiB across one chunk, and 56 MiB
+   for the complete translated `CONTENT.md`, including preserved frontmatter.
+   The runner counts resumed chunks and rejects aggregate overflow before the
+   next chunk is persisted; final stitching rechecks the same bound before
+   joining or publishing output. Overflow is a terminal, non-auto-retried
+   `validation_failed` attempt.
+   Codex events pass fixed serialized UTF-8 admission before any delta reaches
+   replay or SSE. The 4,096-event/4-MiB chunk-attempt budget resets for each
+   attempt; the 262,144-event/32-MiB job budget accumulates across every chunk
+   and retry. A 64-KiB event or any cumulative overflow stops callbacks,
+   interrupts the active turn best-effort, and fails without retry through the
+   existing safe unknown error contract.
+   Chunk partition passes reuse already-built segment-manifest payloads for
+   unchanged groups. Source and translated projection maps retain the canonical
+   reader text and protected-offset semantics. A translation-local compact
+   boundary map only remaps normalized LF source offsets back to raw CRLF
+   positions; hidden paragraph separators remain collapsed exactly as they are
+   in canonical reader text. The legacy Flashback reader projection contract is
+   unchanged.
+6. Cancellation is checked before and after chunk work. Pending jobs cancel
+   immediately; running jobs move to `cancel_requested` and interrupt the active
+   Codex turn. Stitching, committing, and terminal jobs reject cancellation to
+   avoid ambiguous final state.
+7. The runner transitions through `running -> stitching -> committing` with
+   compare-and-set guards, then rechecks the source hash.
+8. Completed chunks are stitched in order and the final Markdown/frontmatter
+   structure is validated.
+9. Backup intent for `CONTENT.md`, `TRANSLATION_MAP.json`, and the translated
+   `FLASHBACKS.json` projection is persisted before terminal artifacts are
+   written.
+10. The terminal artifact/SQLite publication holds the memory mutation
+    reservation and the same per-language Flashback projection lock used by
+    toggle/recovery. It rechecks the reservation immediately before each write.
+    The translated `CONTENT.md` is file-synced and atomically renamed into its
+    language directory. TRAUMA hashes the written bytes, writes
+    `TRANSLATION_MAP.json`, replaces SQLite projection spans, and records a
+    Flashback reconciliation intent before marking the job complete with output
+    path/hash.
+11. Completed chunk payloads are purged best-effort. Translation content and
+    both projections are published and enqueued for backup. The Flashback
+    projection is written for the new output hash even when it has no rows, and
+    its intent is cleared only after confirmed publication. Export or enqueue
+    failure does not undo a completed translation; a retained intent is replayed
+    on startup.
+
+A crash after the atomic output rename but before projection or SQLite
+completion leaves the durable job in `committing` with its chunks intact. The
+next start for the same source and language reschedules that job; replay rewrites
+the output and projections, completes SQLite state, and repeats backup intent
+and enqueue.
+
+In-process replay retains at most 500 events and 4 MiB, evicting the oldest
+events by both limits while preserving order. The SSE endpoint pulls the durable
+job snapshot and replay one event at a time, then follows live events through a
+per-subscriber queue capped at 128 events and 3 MiB. Heartbeats are sent only
+when the stream has desired capacity. A slow subscriber overflow unsubscribes
+and errors only that connection; reconnect reads the bounded replay. Terminal
+events or refreshed terminal snapshots are sent before exact cleanup and close.
+Reconnecting after a process restart still relies on the durable snapshot, not
+on replay history that lived only in the previous process.
+
+Codex device-login polling owns an `AbortController` per polling generation and
+passes its signal into each in-flight auth-status `GET`. Canceling setup or
+unmounting Settings aborts both delay and fetch work. An `AbortError` is normal
+cancellation: it must not publish failure feedback or a stale auth state, and an
+older poll completion must not clear or re-enable controls owned by a newer
+action generation.
 
 ## Psychiatrist
 
-Psychiatrist is a reader-only, memory-scoped assistant. It appears on source and
-translated reader routes and talks to TRAUMA API routes only; browser code never
-connects to Codex app-server directly.
+Psychiatrist is a reader-only, memory-scoped assistant. Browser code talks only
+to TRAUMA API routes; it never connects directly to Codex app-server.
 
-Flow:
-
-1. The reader creates or resumes a thread for the active memory variant through
-   `/api/memories/:memoryId/psychiatrist/threads`.
-2. The server loads the active source or translated memory context, records the
-   active content hash, and stores thread metadata under
+1. A source or translated reader creates or resumes a thread for the active
+   memory variant.
+2. The server loads current memory context and stores thread metadata under
    `{storePath}/memories/{memoryId}/threads/{threadId}/`.
-3. A user prompt creates one pending pair in `PAIRS.jsonl` before Codex
-   execution starts. Prompts and answers are pair records under the thread
-   subtree, not SQLite rows.
-4. The server builds the deterministic Psychiatrist prompt from the repo-local
-   `psychiatrist` policy, active memory context, visible pair history, and
-   current user prompt.
-5. Codex app-server turns run backend-only with shell access, file editing,
-   local filesystem browsing, project/store roots, and network access denied by
-   default. Network may be enabled only for a user-approved web-source turn.
-6. Safe process and answer events are written to
-   `streams/{turnId}.jsonl` before SSE fan-out, so navigation and reload can
-   replay already-visible output.
-7. A completed first answer writes `pairs/{pairId}/RESPONSE.md`, rewrites
-   `THREAD.md`, appends a completed pair revision, and enqueues built-in git
-   backup with reason `psychiatrist_thread_update`.
-8. Regenerate reuses the same stored prompt and context provenance for the same
-   pair, overwrites the existing `RESPONSE.md`, rewrites `THREAD.md`, and
-   enqueues backup with reason `psychiatrist_response_regenerate`.
+3. A user message writes the pending pair revision, `PROMPT.md`, context
+   snapshot, turn record, and stream path before Codex execution begins.
+4. The deterministic prompt combines the repo-local Psychiatrist policy, active
+   memory context, visible pair history, and current user prompt.
+5. Codex turns run backend-only from an ephemeral empty working directory with
+   `approvalPolicy: never` and a read-only sandbox. Prompt policy forbids shell
+   and filesystem use; the required external process/container boundary makes
+   the home directory, application project, and memory store unreadable. Network
+   is disabled unless the user approved public web sources for that turn.
+6. Safe process and answer events enter a bounded serialized persistence queue.
+   Each accepted event is appended and file-synced in the turn stream before
+   SSE fan-out, so navigation and reload can replay only durable visible output.
+7. A completed first answer writes `RESPONSE.md`, updates pair/thread/turn state,
+   refreshes `THREAD.md`, and enqueues all completed artifacts for backup.
+8. Regenerate reuses the stored prompt/context provenance for the same pair,
+   replaces that pair's response, refreshes the transcript, and enqueues the
+   updated artifacts.
 
-Every durable assistant answer belongs to exactly one stored user prompt in the
-same pair. Failed, canceled, stale, and permission-required turns must not append
-orphan assistant responses. Psychiatrist writes are limited to the memory-local
-`threads/` subtree; canonical `CONTENT.md`, translated `CONTENT.md`, taxonomy,
-Flashbacks, Moments, settings, and other SQLite state are not modified by chat.
+Every durable answer belongs to one stored user prompt in the same pair. Failed,
+canceled, stale, and permission-required turns cannot append orphan assistant
+responses. Closing the panel or navigating away disconnects browser SSE only;
+Stop is the explicit cancellation action.
+
+Process and answer-delta writes are serialized and fully drained after Codex
+settles but before a terminal state or terminal event is written. A stream
+persistence failure fails an otherwise successful turn; when Codex also fails,
+its safe failure remains authoritative. Closed turn queues reject late Codex
+callbacks, so no non-terminal event can be persisted after terminal state.
+
+The fixed turn admission policy permits at most four active-or-reserved turns
+across all threads. A second turn for the same thread remains a `409` conflict;
+different-thread overflow returns `429 turn_capacity_exceeded` with
+`Retry-After: 1` before a Codex client is created. Capacity is released on
+startup failure, cancellation, and every detached terminal path.
+
+The fixed event admission policy permits at most 64 KiB per serialized Codex event,
+128 events or 1 MiB pending, and 4,096 events or 4 MiB over one turn. Final
+answer text is capped at 2 MiB. The durable stream is capped at 4,100 rows and
+8 MiB. Exceeding any boundary stops admission and persists a safe failed outcome
+when the existing stream still has room for its terminal event; no partial
+answer is published as `RESPONSE.md`.
+
+On success, the queue drains and the final answer passes its byte check before
+backup intent or answer publication. `RESPONSE.md` plus the completed
+`PAIRS.jsonl` revision become durable before the completed turn record and
+completed stream event. A manifest or `THREAD.md` finalization fault after that
+canonical pair save is a completed answer with a warning and is repaired from
+`PAIRS.jsonl`; it is not rewritten as a failed answer. On failure, the failed
+pair/turn state is durable before the failed stream event is appended.
+
+SSE replay is delivered one encoded event per pull. A live connection buffers
+at most 128 not-yet-delivered events and 3 MiB while replay or a slow consumer
+blocks delivery; exceeding that budget unsubscribes and errors only that
+connection. Reconnect still reads the bounded durable stream.
+
+The browser closes a named terminal `EventSource` before validating that frame,
+so a malformed terminal followed by server EOF cannot enter native EventSource
+reconnect indefinitely. It performs one canonical thread reload for the same
+reader, thread, and turn. The canonical snapshot either publishes the terminal
+pair and returns the dock to idle, reconnects the still-active turn with that
+single automatic recovery already consumed, or leaves the existing manual Retry
+path on reload failure or a second malformed terminal. This reconciliation does
+not call the cancel route and preserves a same-thread transcript page and scroll
+position.
+
+The latest durable pair revision is authoritative for `RESPONSE.md`. Startup
+recovery rewrites a missing or torn completed response and removes a response
+that has no completed revision. Detached turn failures are contained even when
+their best-effort failure-state write also fails.
+
+Psychiatrist writes are limited to the memory-local `threads/` subtree. Source
+and translated content, taxonomy, Flashbacks, Moments, settings, and SQLite
+domain state remain unchanged. Each short thread, pair, response, turn, and
+stream publication holds the same memory mutation reservation as deletion.
 
 ## Git Backup
 
-Backup is built-in git backup, not a generic hook system.
+Backup is built-in git backup, not a generic hook system. Every built-in git
+command uses a command-scoped null `core.hooksPath`, so repository and global
+hooks do not run during normal backup, retry, startup recovery, or failsafe
+repair.
 
-Flow:
+1. The owning domain persists its durable store artifact or backup intent.
+2. Explicit relative paths enter the in-process sequential queue.
+3. The worker uses `projectPath` as the git working directory and stages only
+   those paths after confirming they remain under `storePath`.
+4. It commits with the configured template and pushes only when configured.
+5. SQLite backup status and failsafe state are updated where the domain owns
+   such state.
 
-1. Markdown write succeeds.
-2. Backup work is placed on the in-process sequential queue.
-3. The backup worker uses `projectPath` as the working directory.
-4. The worker stages only changes under `storePath`.
-5. The worker commits with the configured message template, including the
-   backup action when `{action}` is present.
-6. The worker pushes only when configured.
-7. SQLite backup status fields are updated.
+Backup failure does not roll back an already durable memory, Flashback export,
+translation, or Psychiatrist answer. Startup retries eligible pending, queued,
+or failed work; process-local `queued` state from a prior process is eligible.
+Preparation and enqueue failures are isolated per memory so one corrupt retry
+candidate cannot prevent later eligible memories from running.
 
-Backup failures do not roll back memory creation or flashback creation.
+Backup readiness is tied to the full persisted identity: project/store paths,
+remote name and URL, configured and checked-out branch, and already-successful
+tracked content. A recreated repository or changed identity requires explicit
+recovery rather than silent acceptance. Successful content paths are compared
+with one tracked-index snapshot per readiness check rather than starting a git
+process per memory.
 
-On startup, TRAUMA should find pending, queued, or failed backup states that are
-eligible for retry and re-enqueue them. `queued` is process-local, so queued rows
-from a previous process are eligible after restart.
+Recovery is retry-safe. Existing migration targets are accepted only when their
+bytes match the source. Each migrated file is copied into an owned
+same-directory temporary file, synced, and published atomically without
+overwriting an existing destination; the directory entry is synced before the
+action continues when the filesystem supports directory sync. A retry removes
+only the exact temporary path owned by the approved alert generation, accepts
+an already-published destination only when its bytes match the synced snapshot,
+and rejects a true conflict. Migration requires disjoint previous/current trees,
+does not traverse `.git`, and rejects symlinked or non-directory destination
+components before rechecking canonical containment at publication.
 
-Backup failsafe recovery actions must be retry-safe. If migration already
-copied a file before a later git step failed, rerunning migration may accept the
-existing target only when its bytes match the source. Different target content
-remains a hard conflict.
+Failsafe dry runs and applied actions capture the active alert generation inside
+a fair process-local exclusive lease keyed by the persisted config database.
+Applied actions revalidate that generation before side effects and clear it with a
+compare-and-delete, so concurrent or stale confirmations cannot consume a
+replacement alert. Ordinary Git backup writers and environment alert/stamp
+writers participate in the same lease, preventing local `HEAD` or alert changes
+during recovery. A stale web confirmation returns `409`; the CLI fails and
+leaves the current alert available for a fresh dry run.
 
-Backup readiness is tied to the full backup identity, not just filesystem
-paths. The persisted stamp must match project path, store path, git remote,
-remote URL, branch, and already-successful tracked content before new writes are
-accepted. If the repository is recreated at the same path, or the configured
-remote/branch changes while successful backup rows already exist, TRAUMA must
-force an explicit recovery path instead of silently treating the new repository
-as complete.
+Git writers acquire that action lease before a runtime storage borrow. A writer
+queued behind root-changing recovery therefore fails before Git side effects
+once storage admission is suspended. Long-lived Psychiatrist turns keep a
+dedicated borrow through terminal persistence and backup enqueue; live SSE keeps
+one only while loading its initial replay. Translation workers hold their
+database borrow for the complete active run.
 
-When already-successful backup rows point at missing, out-of-scope, or
-untracked content, the alert is a content-integrity failure rather than a path
-drift. The UI and logs must not describe this as a backup location change or
-offer path migration as a remedy.
+Recovery also reserves current and previous project/store roots through the
+cross-process runtime lease before reading old content. Config revert returns
+its own request and database borrows, then synchronously suspends admission only
+when no other borrower remains. A busy runtime returns `409` without rewriting
+config. Successful suspension permits only the atomic config write and requires
+a process restart; no database or store access follows in that process. Content
+migration does not change configured roots and does not suspend admission.
 
-Only `missing_file` content-integrity alerts may offer deletion of the orphan
-SQLite memory record. If the content still exists but is untracked or outside
-the configured paths, recovery must preserve the record and require backup
-repository/path repair instead.
+A push failure after local migration preserves the local commit and previous
+environment stamp, leaves a durable push-failure alert, and remains retryable
+after remote repair. Recovery validates the exact repository root, remote
+fingerprint, checked-out branch, and `HEAD` before Git mutation and after the
+idempotent push. Only then does it update the environment stamp and clear the
+approved alert in one SQLite transaction. When push is configured, Git push
+cannot share a transaction with SQLite: a process failure
+after the remote accepts the push but before the SQLite transaction leaves the
+alert active, and retrying the already-pushed commit safely completes the stamp
+update. The runtime root-set lease coordinates separately running servers and
+maintenance CLIs; the action lease orders work inside one process.
 
-If migration commits local backup content but the configured push fails, the
-operator must be able to retry that recovered push after repairing the remote.
-A push-failure alert must not turn a completed local migration into an
-unrecoverable banner state.
+Missing, out-of-scope, or untracked content recorded as successfully backed up
+is a content-integrity failure, not path drift. Only a rechecked `missing_file`
+case may offer deletion of the orphan SQLite memory row; other cases require
+repository/path repair without discarding content.

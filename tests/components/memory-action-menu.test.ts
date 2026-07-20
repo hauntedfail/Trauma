@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
-import {
-  confirmAndDeleteMemory,
-  MemoryActionMenu,
-} from "../../src/components/memories/MemoryActionMenu";
+import { MemoryActionMenu } from "../../src/components/memories/MemoryActionMenu";
+
+const memoryActionMenuSource = readFileSync(
+  "src/components/memories/MemoryActionMenu.tsx",
+  "utf8",
+);
 
 describe("memory action menu", () => {
   it("renders an accessible trigger and required menu items", () => {
@@ -18,6 +22,7 @@ describe("memory action menu", () => {
 
     expect(html).toContain('aria-label="Memory actions for Memory One"');
     expect(html).toContain("Delete memory");
+    expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain("Add category");
     expect(html).toContain("text-trauma-danger");
     expect(html).toContain("M4 7h16");
@@ -35,37 +40,8 @@ describe("memory action menu", () => {
     expect(html).toContain("hover:text-trauma-text-primary");
   });
 
-  it("asks for confirmation before deleting", async () => {
-    const calls: string[] = [];
-    const deleted = await confirmAndDeleteMemory({
-      memoryId: "memory-1",
-      confirm: (message) => {
-        calls.push(message);
-        return true;
-      },
-      onDelete: (memoryId) => {
-        calls.push(memoryId);
-      },
-    });
-
-    expect(deleted).toBe(true);
-    expect(calls).toEqual([
-      "Delete memory \"memory-1\"?",
-      "memory-1",
-    ]);
-  });
-
-  it("does not delete when confirmation is cancelled", async () => {
-    const calls: string[] = [];
-    const deleted = await confirmAndDeleteMemory({
-      memoryId: "memory-1",
-      confirm: () => false,
-      onDelete: (memoryId) => {
-        calls.push(memoryId);
-      },
-    });
-
-    expect(deleted).toBe(false);
-    expect(calls).toEqual([]);
+  it("uses the shared confirmation popup instead of a browser dialog", () => {
+    expect(memoryActionMenuSource).toContain("ConfirmationPopup");
+    expect(memoryActionMenuSource).not.toContain("window.confirm");
   });
 });

@@ -16,13 +16,20 @@ const shellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
 describe("Moment route", () => {
   it("registers /moments as a first-class route in the shell", () => {
     expect(routeSource).toContain("MomentBrowse");
+    expect(routeSource).toContain("<Title>Moments | TRAUMA</Title>");
+    expect(browseSource).toContain(
+      '<RouteHeader layout="single" title="Moments" titleId="moment-title" />',
+    );
     expect(shellSource).toContain('href: "/moments"');
     expect(shellSource).toContain('label: "Moments"');
   });
 
   it("loads Moments from SQLite metadata and links to memory section anchors", () => {
-    expect(loaderSource).toContain("loadMomentBrowseRows");
-    expect(browseSource).toContain("getMomentBrowseRows");
+    expect(loaderSource).toContain("loadMomentBrowsePage");
+    expect(browseSource).toContain("getMomentBrowsePage");
+    expect(browseSource).toContain("useLocation");
+    expect(browseSource).toContain("nextCursor");
+    expect(browseSource).toContain('href="/moments"');
     expect(browseSource).toContain("MomentActionMenu");
     expect(browseSource).toContain("deleteMomentById");
     expect(browseSource).toContain("revalidateMomentBrowseRows");
@@ -34,5 +41,9 @@ describe("Moment route", () => {
     expect(browseSource).toContain("No Moments yet");
     expect(browseSource).toContain("Saved reader sections will appear here.");
     expect(browseSource).not.toContain("Saved sections");
+    expect(browseSource).toContain("CollectionPageRetry");
+    expect(browseSource).toContain("createCollectionPageRetryController");
+    expect(browseSource).toContain("isRetryingCurrentPage()");
+    expect(browseSource).toContain("revalidatePage: revalidateMomentBrowsePage");
   });
 });

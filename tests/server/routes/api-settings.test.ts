@@ -6,12 +6,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { GET as readSettings } from "../../../src/routes/api/settings";
 import { PATCH as updateLanguage } from "../../../src/routes/api/settings/translation-language";
+import { PATCH as updateTranslationDefaultsRoute } from "../../../src/routes/api/settings/translation-defaults";
+import { DELETE as deleteCodexAuth } from "../../../src/routes/api/settings/codex-auth";
 import { DELETE as deleteOpenAiAuth } from "../../../src/routes/api/settings/openai-auth";
 import { POST as enableOpenAiAuth } from "../../../src/routes/api/settings/openai-auth/enable";
+import { MAX_MUTATION_JSON_BODY_BYTES } from "../../../src/server/http/mutation-request";
 import {
   createReadCodexModelsHandler,
   createUpdateCodexTranslationDefaultsHandler,
+  createUpdateTranslationDefaultsHandler,
 } from "../../../src/server/settings/codex-model-routes";
+import { CodexAppServerError } from "../../../src/server/translation/codex-app-server";
 import {
   createApiEvent,
   loadRouteConfig,
@@ -116,6 +121,25 @@ describe("settings API routes", () => {
     });
   });
 
+  it("projects Codex model failures without raw diagnostics", async () => {
+    const secret = "/Users/alice/.codex/auth.json token=unique-secret";
+    const handler = createReadCodexModelsHandler({
+      listModels: async () => {
+        throw new CodexAppServerError("app_server_protocol_error", secret);
+      },
+    });
+
+    const response = await handler(apiEvent("/api/settings/codex-models", "GET"));
+    const body = await response.json();
+    expect(response.status).toBe(502);
+    expect(body).toEqual({
+      code: "app_server_protocol_error",
+      message: "Codex app-server returned an invalid response.",
+      status: "error",
+    });
+    expect(JSON.stringify(body)).not.toContain(secret);
+  });
+
   it("closes internally created Codex model clients after reading the catalog", async () => {
     let closeCalls = 0;
     const handler = createReadCodexModelsHandler({
@@ -181,6 +205,191 @@ describe("settings API routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       codexTranslationModel: "gpt-5.5",
       codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("validates and persists combined translation defaults with one update", async () => {
+    const updates: unknown[] = [];
+    const handler = createUpdateTranslationDefaultsHandler({
+      listModels: async () => ({
+        models: [
+          {
+            id: "model-id",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+      updateDefaults: async (input) => {
+        updates.push(input);
+        return {
+          translationTargetLanguage: input.language,
+          codexTranslationModel: input.model,
+          codexTranslationReasoningEffort: input.reasoningEffort,
+          openaiAuth: {
+            status: "enabled",
+            provider: "codex",
+            message: "Codex ChatGPT sign-in is enabled.",
+          },
+        };
+      },
+    });
+
+    const response = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: "model-id",
+        reasoning_effort: "high",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([
+      { language: "en-US", model: "gpt-5.5", reasoningEffort: "high" },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("rejects invalid combined defaults before any settings update", async () => {
+    let updateCalls = 0;
+    const handler = createUpdateTranslationDefaultsHandler({
+      listModels: async () => ({ models: [] }),
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update invalid defaults");
+      },
+    });
+
+    const unsupportedLanguage = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "xx-XX",
+        model: null,
+        reasoning_effort: null,
+      }),
+    );
+    const unavailableModel = await handler(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: "missing-model",
+        reasoning_effort: null,
+      }),
+    );
+    const malformed = await updateTranslationDefaultsRoute(
+      jsonEvent("/api/settings/translation-defaults", "PATCH", {
+        language: "en-US",
+        model: null,
+      }),
+    );
+    const crossOrigin = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-type": "text/plain",
+            origin: "https://evil.example",
+          },
+          body: JSON.stringify({
+            language: "en-US",
+            model: null,
+            reasoning_effort: null,
+          }),
+        }),
+      ),
+    );
+
+    expect(unsupportedLanguage.status).toBe(400);
+    expect(unavailableModel.status).toBe(409);
+    expect(malformed.status).toBe(400);
+    expect(crossOrigin.status).toBe(403);
+    expect(updateCalls).toBe(0);
+  });
+
+  it("rejects cross-origin settings mutations before dependencies run", async () => {
+    let listCalls = 0;
+    let readCalls = 0;
+    let updateCalls = 0;
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => {
+        listCalls += 1;
+        return { models: [] };
+      },
+      readDefaults: async () => {
+        readCalls += 1;
+        return { model: null, reasoningEffort: null };
+      },
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update cross-origin settings");
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-codex-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-type": "text/plain",
+            origin: "https://evil.example",
+          },
+          body: JSON.stringify({ reasoning_effort: "high" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect({ listCalls, readCalls, updateCalls }).toEqual({
+      listCalls: 0,
+      readCalls: 0,
+      updateCalls: 0,
+    });
+  });
+
+  it("rejects oversized settings mutations before dependencies run", async () => {
+    let listCalls = 0;
+    let updateCalls = 0;
+    const handler = createUpdateCodexTranslationDefaultsHandler({
+      listModels: async () => {
+        listCalls += 1;
+        return { models: [] };
+      },
+      updateDefaults: async () => {
+        updateCalls += 1;
+        throw new Error("must not update oversized settings");
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/settings/translation-codex-defaults", {
+          method: "PATCH",
+          headers: {
+            "content-length": String(MAX_MUTATION_JSON_BODY_BYTES + 1),
+            "content-type": "application/json",
+            origin: "http://localhost",
+          },
+          body: "{}",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "request body is too large",
+    });
+    expect({ listCalls, updateCalls }).toEqual({
+      listCalls: 0,
+      updateCalls: 0,
     });
   });
 
@@ -388,20 +597,49 @@ describe("settings API routes", () => {
       status: "failed",
       provider: "codex",
       loginId: null,
-      error: "Cannot connect to Codex app-server Unix socket.",
+      error: "Codex app-server is unavailable.",
+    });
+  });
+
+  it("rejects cross-origin empty auth mutations before app-server work", async () => {
+    const request = (path: string, method: "DELETE" | "POST") =>
+      createApiEvent(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: { origin: "https://evil.example" },
+        }),
+      );
+
+    const enabled = await enableOpenAiAuth(
+      request("/api/settings/openai-auth/enable", "POST"),
+    );
+    const deleted = await deleteOpenAiAuth(
+      request("/api/settings/openai-auth", "DELETE"),
+    );
+
+    expect(enabled.status).toBe(403);
+    await expect(enabled.json()).resolves.toEqual({
+      error: "same-origin request is required",
+    });
+    expect(deleted.status).toBe(403);
+    await expect(deleted.json()).resolves.toEqual({
+      error: "same-origin request is required",
     });
   });
 
   it("returns a safe error when deleting Codex auth without app-server access", async () => {
     await useTempRouteConfig();
-    const deleted = await deleteOpenAiAuth(
-      apiEvent("/api/settings/openai-auth", "DELETE"),
-    );
+    const deleted = await Promise.all([
+      deleteOpenAiAuth(apiEvent("/api/settings/openai-auth", "DELETE")),
+      deleteCodexAuth(apiEvent("/api/settings/codex-auth", "DELETE")),
+    ]);
 
-    expect(deleted.status).toBe(500);
-    expect(await deleted.json()).toEqual({
-      error: "Cannot connect to Codex app-server Unix socket.",
-    });
+    for (const response of deleted) {
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body).toEqual({ error: "Codex app-server is unavailable." });
+      expect(JSON.stringify(body)).not.toContain("missing-codex-app-server.sock");
+    }
   });
 });
 

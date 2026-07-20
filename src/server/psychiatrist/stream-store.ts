@@ -3,47 +3,83 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
-import { appendJsonlRow, readJsonlRows } from "./jsonl";
+import {
+  appendJsonlRow,
+  JsonlLimitError,
+  readJsonlRows,
+} from "./jsonl";
 import type {
   PsychiatristStreamEvent,
   PsychiatristStreamEventInput,
 } from "./types";
+import { BoundedCache } from "./bounded-cache";
+import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
+import {
+  assertPsychiatristDeltaWithinLimit,
+  assertPsychiatristFinalAnswerWithinLimit,
+  PSYCHIATRIST_STREAM_LIMITS,
+  PsychiatristEventLimitError,
+  type PsychiatristStreamLimits,
+} from "./limits";
+import { sanitizePsychiatristWireSourceCitations } from "./source-citations";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type StreamSubscriber = (event: PsychiatristStreamEvent) => void;
 const appendQueuesByPath = new Map<string, Promise<void>>();
-const nextEventNumbersByPath = new Map<string, number>();
+const nextEventNumbersByPath = new BoundedCache<string, number>(256);
 const subscribersByTurnId = new Map<string, Set<StreamSubscriber>>();
 const MAX_SAFE_PROCESS_TEXT_LENGTH = 240;
 
 export async function appendPsychiatristStreamEvent<TData>(input: {
   config: Pick<ResolvedTraumaConfig, "storePath">;
   event: PsychiatristStreamEventInput<TData>;
+  limits?: PsychiatristStreamLimits;
   publish?: false;
 }): Promise<PsychiatristStreamEvent<TData> | undefined> {
   const projectedInput = projectSafeStreamEvent(input.event);
   if (projectedInput === undefined) {
     return undefined;
   }
+  const limits = input.limits ?? PSYCHIATRIST_STREAM_LIMITS;
+  assertProjectedEventWithinLimits(projectedInput, limits);
   const path = streamPath(input.config, projectedInput);
   let written: PsychiatristStreamEvent<TData> | undefined;
   const previous = appendQueuesByPath.get(path) ?? Promise.resolve();
   const next = previous.then(async () => {
-    const eventNumber = nextEventNumbersByPath.get(path) ??
-      await countExistingStreamEvents(path) + 1;
-    const event = {
-      ...projectedInput,
-      eventId: String(eventNumber).padStart(12, "0"),
-      timestamp: Date.now(),
-    } satisfies PsychiatristStreamEvent<TData>;
-    await mkdir(dirname(path), { recursive: true });
-    await appendJsonlRow(path, event);
-    nextEventNumbersByPath.set(path, eventNumber + 1);
-    if (input.publish !== false) {
-      publishStreamEvent(event);
-    }
-    written = event;
+    await withMemoryArtifactMutation(
+      {
+        memoryId: projectedInput.memoryId,
+        storePath: input.config.storePath,
+      },
+      async (reservation) => {
+        const eventNumber = nextEventNumbersByPath.get(path) ??
+          await countExistingStreamEvents(path, limits) + 1;
+        const event = {
+          ...projectedInput,
+          eventId: String(eventNumber).padStart(12, "0"),
+          timestamp: Date.now(),
+        } satisfies PsychiatristStreamEvent<TData>;
+        reservation.assertWritable();
+        await mkdir(dirname(path), { recursive: true });
+        reservation.assertWritable();
+        try {
+          await appendJsonlRow(path, event, {
+            limits: {
+              maxBytes: limits.maxStreamBytes,
+              maxRows: limits.maxStreamRows,
+            },
+          });
+        } catch (error) {
+          throw mapJsonlLimitError(error);
+        }
+        nextEventNumbersByPath.set(path, eventNumber + 1);
+        if (input.publish !== false) {
+          publishStreamEvent(event);
+        }
+        written = event;
+      },
+    );
   });
   const tracked = next.catch(() => undefined);
   appendQueuesByPath.set(path, tracked);
@@ -55,10 +91,6 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
       appendQueuesByPath.delete(path);
     }
   }
-}
-
-export function publishPsychiatristStreamEvent(event: PsychiatristStreamEvent): void {
-  publishStreamEvent(event);
 }
 
 export function subscribePsychiatristStream(input: {
@@ -83,6 +115,7 @@ export function subscribePsychiatristStream(input: {
 export async function loadPsychiatristStreamReplay(input: {
   afterEventId?: string;
   config: Pick<ResolvedTraumaConfig, "storePath">;
+  limits?: PsychiatristStreamLimits;
   memoryId: string;
   threadId: string;
   turnId: string;
@@ -94,7 +127,22 @@ export async function loadPsychiatristStreamReplay(input: {
   if (path === undefined) {
     return [];
   }
-  const events = await readJsonlRows<PsychiatristStreamEvent>(path);
+  const limits = input.limits ?? PSYCHIATRIST_STREAM_LIMITS;
+  let events: PsychiatristStreamEvent[];
+  try {
+    events = await readJsonlRows<PsychiatristStreamEvent>(path, {
+      limits: {
+        maxBytes: limits.maxStreamBytes,
+        maxRows: limits.maxStreamRows,
+      },
+    });
+  } catch (error) {
+    throw mapJsonlLimitError(error);
+  }
+  events = events.flatMap((event) => {
+    const projected = projectPersistedStreamEvent(event);
+    return projected === undefined ? [] : [projected];
+  });
   if (input.afterEventId === undefined) {
     return events;
   }
@@ -137,8 +185,49 @@ function findStreamPath(
   return existsSync(directPath) ? directPath : undefined;
 }
 
-async function countExistingStreamEvents(path: string): Promise<number> {
-  return (await readJsonlRows<PsychiatristStreamEvent>(path)).length;
+async function countExistingStreamEvents(
+  path: string,
+  limits: PsychiatristStreamLimits,
+): Promise<number> {
+  try {
+    return (await readJsonlRows<PsychiatristStreamEvent>(path, {
+      limits: {
+        maxBytes: limits.maxStreamBytes,
+        maxRows: limits.maxStreamRows,
+      },
+    })).length;
+  } catch (error) {
+    throw mapJsonlLimitError(error);
+  }
+}
+
+function assertProjectedEventWithinLimits(
+  event: PsychiatristStreamEventInput,
+  limits: PsychiatristStreamLimits,
+): void {
+  const text = readStringField(event.data, "text");
+  if (text === undefined) {
+    return;
+  }
+  if (event.type === "psychiatrist.answer.delta") {
+    assertPsychiatristDeltaWithinLimit(text, limits.maxDeltaBytes);
+  }
+  if (
+    event.type === "psychiatrist.answer.completed" ||
+    event.type === "psychiatrist.regenerate.completed"
+  ) {
+    assertPsychiatristFinalAnswerWithinLimit(text, limits.maxFinalAnswerBytes);
+  }
+}
+
+function mapJsonlLimitError(error: unknown): unknown {
+  if (!(error instanceof JsonlLimitError)) {
+    return error;
+  }
+  return new PsychiatristEventLimitError(
+    error.kind === "bytes" ? "stream_bytes" : "stream_rows",
+    "Psychiatrist turn stream exceeded the supported replay limit.",
+  );
 }
 
 function projectSafeStreamEvent<TData>(
@@ -261,9 +350,13 @@ function projectSafeStreamEvent<TData>(
       };
     }
   }
-  const _exhaustive: never = event.type;
-  void _exhaustive;
-  return undefined;
+}
+
+function projectPersistedStreamEvent(
+  event: PsychiatristStreamEvent,
+): PsychiatristStreamEvent | undefined {
+  const projected = projectSafeStreamEvent(event);
+  return projected === undefined ? undefined : { ...event, data: projected.data };
 }
 
 function readSafeProcessText(value: string | undefined): string | undefined {
@@ -331,20 +424,22 @@ function readSourceCitations(
   if (!isRecord(data) || !Array.isArray(data.source_citations)) {
     return undefined;
   }
-  const citations: Array<{ source_id: string; title: string; url: string }> = [];
-  for (const citation of data.source_citations) {
+  const citations = data.source_citations.flatMap((citation) => {
     if (!isRecord(citation)) {
-      return undefined;
+      return [];
     }
     const sourceId = readStringField(citation, "source_id");
     const title = readStringField(citation, "title");
     const url = readStringField(citation, "url");
-    if (sourceId === undefined || title === undefined || url === undefined) {
-      return undefined;
-    }
-    citations.push({ source_id: sourceId, title, url });
-  }
-  return citations;
+    return sourceId === undefined || title === undefined || url === undefined
+      ? []
+      : [{ source_id: sourceId, title, url }];
+  });
+  return sanitizePsychiatristWireSourceCitations(citations).map((citation) => ({
+    source_id: citation.sourceId,
+    title: citation.title,
+    url: citation.url,
+  }));
 }
 
 function omitUndefined<T extends Record<string, unknown>>(input: T): T {
@@ -417,8 +512,4 @@ function validateSafeId(id: string): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }

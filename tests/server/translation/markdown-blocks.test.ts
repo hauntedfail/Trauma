@@ -1,13 +1,81 @@
 import { describe, expect, it } from "vitest";
 
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
+import {
+  applyTranslatedSegments,
+  createTranslationSegmentManifest,
+} from "../../../src/server/translation/translation-segments";
 
 describe("translation Markdown block manifest", () => {
-  it.todo("does not translate inline math spans");
-  it.todo("treats indented code blocks as non-translatable code");
-  it.todo("preserves setext heading structure");
-  it.todo("preserves Markdown link titles and reference labels");
-  it.todo("does not protect ordinary prose as shell commands");
+  it("does not translate inline math spans", () => {
+    const manifest = createTranslationSegmentManifest(
+      "Equation $x + y$ remains stable.\n",
+    );
+
+    expect(manifest.segments.map((segment) => segment.text)).toEqual([
+      "Equation ",
+      " remains stable.",
+    ]);
+    expect(manifest.protectedRanges).toContainEqual(
+      expect.objectContaining({ kind: "inline_math", value: "x + y" }),
+    );
+  });
+
+  it("treats indented code blocks as non-translatable code", () => {
+    const manifest = createTranslationSegmentManifest(
+      "    const value = 'keep';\n\nTranslate this sentence.\n",
+    );
+
+    expect(manifest.segments.map((segment) => segment.text)).toEqual([
+      "Translate this sentence.",
+    ]);
+    expect(manifest.protectedRanges).toContainEqual(
+      expect.objectContaining({
+        kind: "code",
+        value: "const value = 'keep';",
+      }),
+    );
+  });
+
+  it("preserves setext heading structure", () => {
+    const source = "Source heading\n==============\n";
+    const manifest = createTranslationSegmentManifest(source);
+
+    expect(
+      applyTranslatedSegments({
+        manifest,
+        translations: [
+          { segmentId: "s000001", translatedText: "Translated heading" },
+        ],
+      }),
+    ).toBe("Translated heading\n==============\n");
+  });
+
+  it("preserves Markdown link titles and reference labels", () => {
+    const source = [
+      "Read [the guide](https://example.com/guide \"Guide title\") and [reference][docs].",
+      "",
+      "[docs]: https://example.com/docs \"Docs title\"",
+      "",
+    ].join("\n");
+    const manifest = createTranslationSegmentManifest(source);
+    const translations = manifest.segments.map((segment) => ({
+      segmentId: segment.id,
+      translatedText: segment.text,
+    }));
+
+    expect(applyTranslatedSegments({ manifest, translations })).toBe(source);
+  });
+
+  it("does not protect ordinary prose as shell commands", () => {
+    const manifest = createTranslationSegmentManifest(
+      "bun helps local tools run quickly.\n",
+    );
+
+    expect(manifest.segments.map((segment) => segment.text)).toEqual([
+      "bun helps local tools run quickly.",
+    ]);
+  });
 
   it("excludes frontmatter and creates deterministic protected blocks", () => {
     const manifest = parseMarkdownTranslationBlocks(`---

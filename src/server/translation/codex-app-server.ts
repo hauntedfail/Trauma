@@ -74,11 +74,15 @@ export type CodexLogoutResult =
 export interface TranslateChunkInput {
   chunk: TranslationChunk;
   model?: string | null;
-  onEvent?: (event: CodexAppServerEvent) => void;
+  onEvent?: CodexAppServerEventHandler;
   outputSchema?: unknown;
   prompt: string;
   reasoningEffort?: CodexReasoningEffort | null;
 }
+
+export type CodexAppServerEventHandler = (
+  event: CodexAppServerEvent,
+) => boolean | void;
 
 export interface TranslationClient {
   cancelTurn?: (input: { threadId: string; turnId: string }) => Promise<void>;
@@ -93,11 +97,13 @@ export interface CodexConversationTurnInput {
   input: string;
   model?: string | null;
   networkAccess?: "disabled" | "user_approved_web_sources";
-  onEvent?: (event: CodexAppServerEvent) => void;
+  onEvent?: CodexConversationEventHandler;
   reasoningEffort?: CodexReasoningEffort | null;
   sandboxPolicy?: CodexSandboxPolicy;
   threadId?: string;
 }
+
+export type CodexConversationEventHandler = CodexAppServerEventHandler;
 
 export interface CodexConversationTurnResult {
   outputText: string;
@@ -420,7 +426,15 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       const responseTurnId = readTurnStartResponseTurnId(turn);
       if (responseTurnId !== undefined) {
         turnId = responseTurnId;
-        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
+        try {
+          assertCodexEventAccepted(input.onEvent, {
+            type: "turn.started",
+            turnId: responseTurnId,
+          });
+        } catch (error) {
+          completed.unsubscribe();
+          throw error;
+        }
       }
       const immediateOutput = readFinalTextTurnOutput(turn);
       if (immediateOutput !== undefined && turnId !== undefined) {
@@ -470,7 +484,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
 
   private async startEphemeralThread(input: {
     cwd: string;
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexConversationEventHandler;
   }): Promise<string> {
     const thread = await this.request("thread/start", {
       cwd: input.cwd,
@@ -487,7 +501,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         "Codex app-server did not return a thread id.",
       );
     }
-    input.onEvent?.({ type: "thread.started", threadId });
+    assertCodexEventAccepted(input.onEvent, {
+      type: "thread.started",
+      threadId,
+    });
     return threadId;
   }
 
@@ -512,7 +529,10 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           "Codex app-server did not return a thread id.",
         );
       }
-      input.onEvent?.({ type: "thread.started", threadId });
+      assertCodexEventAccepted(input.onEvent, {
+        type: "thread.started",
+        threadId,
+      });
 
       let turnId: string | undefined;
       const completed = this.waitForTurnCompletion({
@@ -549,7 +569,13 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
       const responseTurnId = readTurnStartResponseTurnId(turn);
       if (responseTurnId !== undefined) {
         turnId = responseTurnId;
-        input.onEvent?.({ type: "turn.started", turnId: responseTurnId });
+        if (completed.emitEvent({
+          type: "turn.started",
+          turnId: responseTurnId,
+        }) === "rejected") {
+          completed.unsubscribe();
+          throw conversationEventBackpressureError();
+        }
       }
       const immediateOutput = readFinalOutput(turn);
       if (immediateOutput !== undefined) {
@@ -697,14 +723,24 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
   }
 
   private waitForTurnCompletion(input: {
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexAppServerEventHandler;
     recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
-  }): { output: Promise<RawCodexChunkOutput>; unsubscribe: () => void } {
+  }): {
+    emitEvent: (
+      event: CodexAppServerEvent,
+    ) => "accepted" | "rejected" | "settled";
+    output: Promise<RawCodexChunkOutput>;
+    unsubscribe: () => void;
+  } {
     let unsubscribe: () => void = () => undefined;
     let unsubscribeClose: () => void = () => undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let emitEvent: (
+      event: CodexAppServerEvent,
+    ) => "accepted" | "rejected" | "settled" = () => "settled";
+    let eventConsumerRejected = false;
     const output = new Promise<RawCodexChunkOutput>((resolve, reject) => {
       let settled = false;
       const settleResolve = (value: RawCodexChunkOutput) => {
@@ -727,6 +763,20 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
         reject(error);
       };
+      emitEvent = (event: CodexAppServerEvent) => {
+        if (eventConsumerRejected) {
+          return "rejected";
+        }
+        if (settled) {
+          return "settled";
+        }
+        if (input.onEvent?.(event) !== false) {
+          return "accepted";
+        }
+        eventConsumerRejected = true;
+        settleReject(conversationEventBackpressureError());
+        return "rejected";
+      };
       timeout = setTimeout(() => {
         settleReject(
           new CodexAppServerError(
@@ -746,7 +796,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             startedTurnId !== undefined
           ) {
             input.recordTurnId(startedTurnId);
-            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+            emitEvent({ type: "turn.started", turnId: startedTurnId });
           }
           return;
         }
@@ -756,7 +806,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const delta = readStringField(message.params, "delta");
           if (delta !== undefined) {
-            input.onEvent?.({ type: "delta", text: delta });
+            emitEvent({ type: "delta", text: delta });
           }
           return;
         }
@@ -764,7 +814,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.started",
           });
@@ -774,10 +824,12 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.completed",
-          });
+          }) !== "accepted") {
+            return;
+          }
           const itemOutput = readFinalOutput(message.params);
           if (itemOutput !== undefined) {
             settleResolve(itemOutput);
@@ -811,7 +863,9 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
       });
     });
+    void output.catch(() => undefined);
     return {
+      emitEvent,
       output,
       unsubscribe: () => {
         if (timeout !== undefined) {
@@ -824,7 +878,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
   }
 
   private waitForTextTurnCompletion(input: {
-    onEvent?: (event: CodexAppServerEvent) => void;
+    onEvent?: CodexConversationEventHandler;
     recordTurnId: (turnId: string) => void;
     threadId: string;
     turnId: () => string | undefined;
@@ -871,6 +925,16 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
         }
         reject(error);
       };
+      const emitEvent = (event: CodexAppServerEvent): boolean => {
+        if (settled) {
+          return false;
+        }
+        if (input.onEvent?.(event) !== false) {
+          return true;
+        }
+        settleReject(conversationEventBackpressureError());
+        return false;
+      };
       timeout = setTimeout(() => {
         settleReject(
           new CodexAppServerError(
@@ -890,7 +954,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
             startedTurnId !== undefined
           ) {
             input.recordTurnId(startedTurnId);
-            input.onEvent?.({ type: "turn.started", turnId: startedTurnId });
+            emitEvent({ type: "turn.started", turnId: startedTurnId });
           }
           return;
         }
@@ -900,7 +964,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const delta = readStringField(message.params, "delta");
           if (delta !== undefined) {
-            input.onEvent?.({ type: "delta", text: delta });
+            emitEvent({ type: "delta", text: delta });
           }
           return;
         }
@@ -910,7 +974,7 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           }
           const processMessage = readSafeProcessMessage(message.params);
           if (processMessage !== undefined) {
-            input.onEvent?.({ message: processMessage, type: "process" });
+            emitEvent({ message: processMessage, type: "process" });
           }
           return;
         }
@@ -921,20 +985,24 @@ export class CodexAppServerClient implements TranslationClient, CodexConversatio
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (!emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.started",
-          });
+          })) {
+            return;
+          }
           return;
         }
         if (message.method === "item/completed") {
           if (!matchesTurnNotification(message.params, input)) {
             return;
           }
-          input.onEvent?.({
+          if (!emitEvent({
             itemId: readNotificationItemId(message.params) ?? null,
             type: "item.completed",
-          });
+          })) {
+            return;
+          }
           const itemOutput = readFinalTextTurnOutput(message.params);
           const turnId = readNotificationTurnId(message.params) ?? input.turnId();
           if (itemOutput !== undefined && turnId !== undefined) {
@@ -988,6 +1056,10 @@ interface CodexWireConnection {
   send: (message: WireMessage) => void;
 }
 
+export const CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES = 16 * 1_024;
+export const CODEX_WIRE_MAX_FRAME_BYTES = 8 * 1_024 * 1_024;
+export const CODEX_WIRE_MAX_MESSAGE_BYTES = 8 * 1_024 * 1_024;
+
 async function openCodexWireConnection(
   endpoint: CodexAppServerEndpoint,
   onMessage: (message: WireMessage) => void,
@@ -1004,19 +1076,18 @@ async function openUnixWebSocketConnection(
   if (endpoint.socketPath === undefined) {
     throw new CodexAppServerError("setup_required", "Missing Unix socket path.");
   }
-  const socket = net.createConnection(endpoint.socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", () => {
-      reject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Cannot connect to Codex app-server Unix socket.",
-        ),
-      );
-    });
-  });
+  const socketPath = endpoint.socketPath;
+  let socket: net.Socket;
+  try {
+    socket = new net.Socket();
+  } catch {
+    throw new CodexAppServerError(
+      "app_server_unavailable",
+      "Cannot connect to Codex app-server Unix socket.",
+    );
+  }
 
+  let phase: "connecting" | "upgrading" | "open" | "closed" = "connecting";
   let streamClosed = false;
   const closeWith = (error: CodexAppServerError) => {
     if (streamClosed) {
@@ -1025,18 +1096,35 @@ async function openUnixWebSocketConnection(
     streamClosed = true;
     onClose(error);
   };
+  const closeOpenStream = (
+    error: CodexAppServerError,
+    options: { destroy: boolean } = { destroy: true },
+  ) => {
+    if (phase !== "open") {
+      return;
+    }
+    phase = "closed";
+    closeWith(error);
+    if (options.destroy) {
+      socket.destroy();
+    }
+  };
+  let rejectOpening: (error: CodexAppServerError) => void = () => undefined;
   const decoder = new WebSocketFrameDecoder(
     (text) => onMessage(parseWireMessage(text)),
     (payload) => {
       socket.write(encodeClientWebSocketPongFrame(payload));
     },
     (payload) => {
-      closeWith(
-        new CodexAppServerError(
-          "stream_disconnected",
-          "Codex app-server WebSocket stream closed.",
-        ),
+      const error = new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server WebSocket stream closed.",
       );
+      if (phase === "connecting" || phase === "upgrading") {
+        rejectOpening(error);
+        return;
+      }
+      closeOpenStream(error, { destroy: false });
       if (!socket.destroyed) {
         socket.write(encodeClientWebSocketCloseFrame(payload), () => {
           socket.end();
@@ -1044,17 +1132,22 @@ async function openUnixWebSocketConnection(
       }
     },
   );
-  const pushFrameData = (chunk: Buffer) => {
+  const pushFrameData = (chunk: Buffer): boolean => {
     try {
       decoder.push(chunk);
+      return true;
     } catch (error) {
-      closeWith(toCodexWireProtocolError(error));
-      socket.destroy();
+      const protocolError = toCodexWireProtocolError(error);
+      if (phase === "connecting" || phase === "upgrading") {
+        rejectOpening(protocolError);
+      } else {
+        closeOpenStream(protocolError);
+      }
+      return false;
     }
   };
   const key = randomBytes(16).toString("base64");
-  const upgraded = waitForWebSocketUpgrade(socket, key, pushFrameData);
-  socket.write([
+  const upgradeRequest = [
     "GET / HTTP/1.1",
     "Host: localhost",
     "Upgrade: websocket",
@@ -1063,134 +1156,221 @@ async function openUnixWebSocketConnection(
     "Sec-WebSocket-Version: 13",
     "",
     "",
-  ].join("\r\n"));
-
-  await upgraded;
-  socket.resume();
-  socket.on("error", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream failed.",
-      ),
-    );
-  });
-  socket.on("end", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream closed.",
-      ),
-    );
-  });
-  socket.on("close", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream closed.",
-      ),
-    );
-  });
-
-  return {
+  ].join("\r\n");
+  const connection: CodexWireConnection = {
     close: () => socket.destroy(),
     send: (message) => socket.write(encodeClientWebSocketTextFrame(JSON.stringify(message))),
   };
-}
-
-function waitForWebSocketUpgrade(
-  socket: net.Socket,
-  key: string,
-  onFrameData: (chunk: Buffer) => void,
-): Promise<void> {
   return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let settled = false;
-    const cleanup = (keepDataListener: boolean) => {
-      if (!keepDataListener) {
-        socket.off("data", onData);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let stopReading: () => void = () => undefined;
+    const clearOpeningTimeout = () => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+        timeout = undefined;
       }
+    };
+    const cleanupAll = () => {
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
       socket.off("error", onError);
-      socket.off("close", onClose);
-      socket.off("end", onClose);
+      socket.off("end", onEnd);
+      socket.off("close", onSocketClose);
+      stopReading();
     };
-    const settleResolve = () => {
-      if (settled) {
+    const failOpening = (
+      error: CodexAppServerError,
+      options: { socketClosed?: boolean } = {},
+    ) => {
+      if (phase !== "connecting" && phase !== "upgrading") {
         return;
       }
-      settled = true;
-      cleanup(true);
-      socket.resume();
-      resolve();
-    };
-    const settleReject = (error: CodexAppServerError) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup(false);
-      socket.destroy();
+      phase = "closed";
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
+      socket.off("end", onEnd);
+      stopReading();
       reject(error);
+      socket.destroy();
+      if (options.socketClosed === true) {
+        cleanupAll();
+      }
+    };
+    rejectOpening = failOpening;
+    const openingUnavailableError = (closed: boolean): CodexAppServerError =>
+      new CodexAppServerError(
+        "app_server_unavailable",
+        phase === "connecting"
+          ? "Cannot connect to Codex app-server Unix socket."
+          : closed
+            ? "Codex app-server Unix socket closed during WebSocket upgrade."
+            : "Codex app-server Unix socket failed during WebSocket upgrade.",
+      );
+    const finishOpening = () => {
+      if (phase !== "upgrading") {
+        return;
+      }
+      phase = "open";
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
+      socket.resume();
+      resolve(connection);
+    };
+    const onConnect = () => {
+      if (phase !== "connecting") {
+        return;
+      }
+      phase = "upgrading";
+      try {
+        socket.write(upgradeRequest);
+      } catch {
+        failOpening(openingUnavailableError(false));
+      }
     };
     const onError = () => {
-      settleReject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Codex app-server Unix socket failed during WebSocket upgrade.",
-        ),
-      );
-    };
-    const onClose = () => {
-      settleReject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Codex app-server Unix socket closed during WebSocket upgrade.",
-        ),
-      );
-    };
-    const onData = (chunk: Buffer) => {
-      if (settled) {
-        onFrameData(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(false));
         return;
       }
-      buffer = Buffer.concat([buffer, chunk]);
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) {
-        return;
-      }
-      const header = buffer.slice(0, headerEnd).toString("utf8");
-      if (!/^HTTP\/1\.1 101\b/i.test(header)) {
-        settleReject(
+      if (phase === "open") {
+        closeOpenStream(
           new CodexAppServerError(
-            "app_server_unavailable",
-            "Codex app-server did not accept WebSocket upgrade.",
+            "stream_disconnected",
+            "Codex app-server Unix socket stream failed.",
           ),
         );
+      }
+    };
+    const onEnd = () => {
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(true));
         return;
       }
-      const expectedAccept = createHash("sha1")
-        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-        .digest("base64");
-      if (!header.toLowerCase().includes(`sec-websocket-accept: ${expectedAccept.toLowerCase()}`)) {
-        settleReject(
+      if (phase === "open") {
+        closeOpenStream(
           new CodexAppServerError(
-            "app_server_unavailable",
-            "Codex app-server WebSocket accept key did not match.",
+            "stream_disconnected",
+            "Codex app-server Unix socket stream closed.",
           ),
         );
+      }
+    };
+    const onSocketClose = () => {
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(true), { socketClosed: true });
         return;
       }
-      const remaining = buffer.slice(headerEnd + 4);
-      if (remaining.length > 0) {
-        onFrameData(remaining);
+      if (phase === "open") {
+        phase = "closed";
+        closeWith(
+          new CodexAppServerError(
+            "stream_disconnected",
+            "Codex app-server Unix socket stream closed.",
+          ),
+        );
       }
-      settleResolve();
+      cleanupAll();
     };
-    socket.on("data", onData);
-    socket.once("error", onError);
-    socket.once("close", onClose);
-    socket.once("end", onClose);
+    socket.on("connect", onConnect);
+    socket.on("error", onError);
+    socket.on("end", onEnd);
+    socket.on("close", onSocketClose);
+    stopReading = observeWebSocketUpgrade(
+      socket,
+      key,
+      pushFrameData,
+      finishOpening,
+      failOpening,
+    );
+    timeout = setTimeout(() => {
+      failOpening(
+        new CodexAppServerError(
+          "timeout",
+          "Codex app-server Unix socket connection timed out.",
+        ),
+      );
+    }, readRequestTimeoutMs());
+    try {
+      socket.connect(socketPath);
+    } catch {
+      failOpening(openingUnavailableError(false));
+    }
   });
+}
+
+function observeWebSocketUpgrade(
+  socket: net.Socket,
+  key: string,
+  onFrameData: (chunk: Buffer) => boolean,
+  onReady: () => void,
+  onFailure: (error: CodexAppServerError) => void,
+): () => void {
+  let buffer = Buffer.alloc(0);
+  let upgraded = false;
+  const onData = (chunk: Buffer) => {
+    const data = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    if (upgraded) {
+      onFrameData(data);
+      return;
+    }
+    buffer = Buffer.concat([buffer, data]);
+    const headerEnd = buffer.indexOf("\r\n\r\n");
+    if (headerEnd === -1) {
+      if (buffer.length > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+        onFailure(
+          new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server WebSocket upgrade headers were too large.",
+          ),
+        );
+      }
+      return;
+    }
+    if (headerEnd + 4 > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket upgrade headers were too large.",
+        ),
+      );
+      return;
+    }
+    const header = buffer.slice(0, headerEnd).toString("utf8");
+    if (!/^HTTP\/1\.1 101\b/i.test(header)) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_unavailable",
+          "Codex app-server did not accept WebSocket upgrade.",
+        ),
+      );
+      return;
+    }
+    const expectedAccept = createHash("sha1")
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest("base64");
+    if (
+      !header.toLowerCase().includes(
+        `sec-websocket-accept: ${expectedAccept.toLowerCase()}`,
+      )
+    ) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_unavailable",
+          "Codex app-server WebSocket accept key did not match.",
+        ),
+      );
+      return;
+    }
+    const remaining = buffer.slice(headerEnd + 4);
+    buffer = Buffer.alloc(0);
+    upgraded = true;
+    if (remaining.length > 0 && !onFrameData(remaining)) {
+      return;
+    }
+    onReady();
+  };
+  socket.on("data", onData);
+  return () => socket.off("data", onData);
 }
 
 function encodeClientWebSocketTextFrame(text: string): Buffer {
@@ -1226,9 +1406,11 @@ function encodeClientWebSocketFrame(opcode: number, payload: Buffer): Buffer {
   return Buffer.concat([Buffer.from(header), mask, masked]);
 }
 
-class WebSocketFrameDecoder {
+export class WebSocketFrameDecoder {
   private buffer = Buffer.alloc(0);
-  private fragmentedText: Buffer[] | undefined;
+  private fragmentedText:
+    | { chunks: Buffer[]; totalBytes: number }
+    | undefined;
 
   constructor(
     private readonly onText: (text: string) => void,
@@ -1257,10 +1439,19 @@ class WebSocketFrameDecoder {
         }
         const bigLength = this.buffer.readBigUInt64BE(offset);
         if (bigLength > BigInt(Number.MAX_SAFE_INTEGER)) {
-          throw new CodexAppServerError("app_server_unavailable", "Frame too large.");
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server WebSocket frame was too large.",
+          );
         }
         length = Number(bigLength);
         offset += 8;
+      }
+      if (length > CODEX_WIRE_MAX_FRAME_BYTES) {
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket frame was too large.",
+        );
       }
       const masked = (second & 0x80) !== 0;
       const maskLength = masked ? 4 : 0;
@@ -1271,6 +1462,12 @@ class WebSocketFrameDecoder {
       offset += maskLength;
       const payload = this.buffer.slice(offset, offset + length);
       this.buffer = this.buffer.slice(offset + length);
+      if ((opcode & 0x08) !== 0 && (!fin || payload.length > 125)) {
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server sent an invalid WebSocket control frame.",
+        );
+      }
       if (opcode === 0x9) {
         this.onPing(Buffer.from(payload));
         continue;
@@ -1289,11 +1486,26 @@ class WebSocketFrameDecoder {
         }
       }
       if (opcode === 0x1 && fin) {
+        if (this.fragmentedText !== undefined) {
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server started a new message before finishing the previous one.",
+          );
+        }
         this.onText(payload.toString("utf8"));
         continue;
       }
       if (opcode === 0x1) {
-        this.fragmentedText = [Buffer.from(payload)];
+        if (this.fragmentedText !== undefined) {
+          throw new CodexAppServerError(
+            "app_server_protocol_error",
+            "Codex app-server started a new message before finishing the previous one.",
+          );
+        }
+        this.fragmentedText = {
+          chunks: [Buffer.from(payload)],
+          totalBytes: payload.length,
+        };
         continue;
       }
       if (this.fragmentedText === undefined) {
@@ -1302,9 +1514,18 @@ class WebSocketFrameDecoder {
           "Codex app-server sent an unexpected WebSocket continuation frame.",
         );
       }
-      this.fragmentedText.push(Buffer.from(payload));
+      const totalBytes = this.fragmentedText.totalBytes + payload.length;
+      if (totalBytes > CODEX_WIRE_MAX_MESSAGE_BYTES) {
+        this.fragmentedText = undefined;
+        throw new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket message was too large.",
+        );
+      }
+      this.fragmentedText.chunks.push(Buffer.from(payload));
+      this.fragmentedText.totalBytes = totalBytes;
       if (fin) {
-        const text = Buffer.concat(this.fragmentedText).toString("utf8");
+        const text = Buffer.concat(this.fragmentedText.chunks).toString("utf8");
         this.fragmentedText = undefined;
         this.onText(text);
       }
@@ -1643,7 +1864,27 @@ function readDeviceCodeLogin(value: unknown): CodexDeviceCodeLogin | undefined {
   if (loginId === undefined || userCode === undefined || verificationUrl === undefined) {
     return undefined;
   }
-  return { loginId, userCode, verificationUrl };
+  const safeVerificationUrl = readCredentialFreeHttpsUrl(verificationUrl);
+  if (safeVerificationUrl === undefined) {
+    return undefined;
+  }
+  return { loginId, userCode, verificationUrl: safeVerificationUrl };
+}
+
+function readCredentialFreeHttpsUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== ""
+    ) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 function readCodexAuthEvent(message: WireMessage): CodexAuthEvent | undefined {
@@ -1979,6 +2220,7 @@ export class CodexAppServerError extends Error {
       | "usage_limit"
       | "context_overflow"
       | "stream_disconnected"
+      | "event_limit_exceeded"
       | "timeout"
       | "turn_interrupted"
       | "unknown"
@@ -1987,5 +2229,55 @@ export class CodexAppServerError extends Error {
   ) {
     super(message);
     this.name = "CodexAppServerError";
+  }
+}
+
+function conversationEventBackpressureError(): CodexAppServerError {
+  return new CodexAppServerError(
+    "event_limit_exceeded",
+    "Codex conversation event consumer rejected further events.",
+  );
+}
+
+function assertCodexEventAccepted(
+  onEvent: CodexAppServerEventHandler | undefined,
+  event: CodexAppServerEvent,
+): void {
+  if (onEvent?.(event) === false) {
+    throw conversationEventBackpressureError();
+  }
+}
+
+export function safeCodexAppServerErrorMessage(
+  error: unknown,
+  fallbackMessage = "Codex request failed.",
+): string {
+  if (!(error instanceof CodexAppServerError)) {
+    return fallbackMessage;
+  }
+  switch (error.code) {
+    case "auth_required":
+    case "setup_required":
+      return "Codex authentication is required.";
+    case "app_server_unavailable":
+      return "Codex app-server is unavailable.";
+    case "app_server_protocol_error":
+      return "Codex app-server returned an invalid response.";
+    case "usage_limit":
+      return "Codex usage limit was reached.";
+    case "context_overflow":
+      return "Codex context limit was exceeded.";
+    case "stream_disconnected":
+      return "Codex app-server disconnected.";
+    case "timeout":
+      return "Codex app-server request timed out.";
+    case "turn_interrupted":
+      return "Codex request was interrupted.";
+    case "event_limit_exceeded":
+      return "Codex event limit was exceeded.";
+    case "invalid_final_output":
+      return "Codex returned invalid output.";
+    case "unknown":
+      return fallbackMessage;
   }
 }

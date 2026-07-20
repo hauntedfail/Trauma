@@ -1,6 +1,6 @@
 <div align="center">
     <p align="center">
-        <img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
+        <img width="100" height="100" src="https://github.com/user-attachments/assets/13d12204-e86b-413a-822e-60dc9ef649c8" alt="Trauma Logo"/>
     </p>
     <h1>TRAUMA</h1>
     <br/>
@@ -13,23 +13,20 @@
 > project that I work on in the margins of another project, so please do not
 > expect particularly eager maintenance.
 
-The project is designed as a lightweight local/self-hosted web app: one
-SolidStart app, one Bun runtime, SQLite for metadata, markdown files for saved
-content, and git backup for the markdown store.
+The project is a lightweight local/self-hosted web app: one SolidStart app, one
+Bun runtime, SQLite for relational state, a file-backed memory store for reader
+content and Psychiatrist threads, and built-in git backup for selected store
+artifacts.
 
 ## Status
 
-The foundation implementation is now more than scaffold. The current baseline
-includes SolidStart/Bun runtime commands, Drizzle/SQLite persistence, markdown
-content storage, add-memory import, memory browsing, reader routes, flashbacks,
-git backup, backup failsafe recovery, Defuddle-based extraction, Tailwind
-styling, and the local browser-assisted import extension.
+The current baseline includes URL and browser-assisted import, memory browsing
+and read state, source and translated readers, Flashbacks, Moments, Brilliant
+translation, the memory-scoped Psychiatrist assistant, settings, responsive
+shells, and backup failsafe recovery. See [docs/INDEX.md](docs/INDEX.md) for the
+current implementation contracts.
 
-Some workflow documents remain as implementation records or future hardening
-plans. Treat [docs/workflows/README.md](docs/workflows/README.md) as the
-current map before starting new work.
-
-## Proves
+## Previews
 
 | Sun Light | Sun Paper |
 | --- | --- |
@@ -60,13 +57,16 @@ Install dependencies:
 bun install
 ```
 
-Create the local environment file from the example:
+Create the local configuration files from the examples:
 
 ```bash
 cp .env.example .env
+cp trauma.config.example.json trauma.config.json
 ```
 
-`.env` is gitignored. Keep it for local TRAUMA settings such as browser import.
+Both local files are gitignored. Keep `.env` for settings such as browser
+import, and edit `trauma.config.json` for local storage and backup paths. See
+[Configuration](docs/references/configuration.md) for the supported fields.
 The `dev`, `start`, and `preview` scripts default `HOST` to `127.0.0.1` unless
 you set another host in the shell.
 
@@ -82,7 +82,7 @@ Run baseline verification:
 bun run verify
 ```
 
-Run E2E smoke tests:
+Run the Playwright E2E suite:
 
 ```bash
 bun run test:e2e
@@ -90,21 +90,15 @@ bun run test:e2e
 
 ## Documentation
 
-Start with [docs/INDEX.md](docs/INDEX.md).
+Start with [docs/INDEX.md](docs/INDEX.md). Open durable work is listed in
+[Backlog.md](Backlog.md); completed execution history is retained by Git rather
+than duplicated in agent-facing documentation.
 
-Key references:
+## Operating Scope
 
-- [Foundation design](docs/superpowers/specs/2026-05-09-trauma-foundation-design.md)
-- [Task execution workflows](docs/workflows/README.md)
-- [Architecture overview](docs/architecture/overview.md)
-- [Data and storage](docs/architecture/data-and-storage.md)
-- [Runtime flows](docs/architecture/flows.md)
-- [UI and routing](docs/architecture/ui-and-routing.md)
-- [Configuration](docs/references/configuration.md)
-- [Verification strategy](docs/quality/verification.md)
-
-## Initial Scope
-
-TRAUMA is initially single-user and local/self-hosted. Auth, public signup,
-managed databases, external queues, serverless deployment, and full offline
-archival are out of scope for the foundation.
+TRAUMA is single-user and local/self-hosted. TRAUMA user accounts, sessions,
+multi-user ownership, public signup, managed databases, external queues,
+serverless deployment, and full offline archival are out of scope. Optional
+Codex app-server authentication for Brilliant and Psychiatrist is a separate
+backend integration documented in the
+[configuration reference](docs/references/configuration.md#codex-app-server-environment).

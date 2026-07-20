@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import { materializeE2eFixture } from "./bun-fixture";
 
 test("redirects the home route to the canonical memories browse route", async ({ page }) => {
   await page.goto("/");
@@ -228,6 +228,51 @@ test("loads additional memory pages and keeps search global", async ({ page }) =
   await expect(page.locator("article")).toHaveCount(1);
 });
 
+test("uses a native full-row memory link for whitespace, keyboard, and new-tab navigation", async ({
+  context,
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const row = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  const rowLink = row.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  const linkGeometry = await rowLink.evaluate((link) => {
+    const linkRect = link.getBoundingClientRect();
+    const rowRect = link.closest("article")?.getBoundingClientRect() ?? new DOMRect();
+    return {
+      heightDelta: Math.abs(linkRect.height - rowRect.height),
+      leftDelta: Math.abs(linkRect.left - rowRect.left),
+      topDelta: Math.abs(linkRect.top - rowRect.top),
+      widthDelta: Math.abs(linkRect.width - rowRect.width),
+    };
+  });
+
+  expect(linkGeometry.heightDelta).toBeLessThanOrEqual(1);
+  expect(linkGeometry).toMatchObject({
+    leftDelta: 0,
+    topDelta: 0,
+    widthDelta: 0,
+  });
+
+  const newTabPromise = context.waitForEvent("page");
+  await rowLink.click({ button: "middle" });
+  const newTab = await newTabPromise;
+  await newTab.waitForLoadState("domcontentloaded");
+  await expect(newTab).toHaveURL(/\/memories\/memory-ops$/);
+  await newTab.close();
+
+  await rowLink.focus();
+  await rowLink.press("Enter");
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
+  await page.goBack();
+
+  const restoredRow = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  await restoredRow.click({ position: { x: 8, y: 8 } });
+  await expect(page).toHaveURL(/\/memories\/memory-ops$/);
+});
+
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {
@@ -324,7 +369,7 @@ test("keeps browse read-status toggles from opening the memory row", async ({
     };
 
     expect(body).toMatchObject({
-      memoryId: "memory-foundation",
+      memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
       read: true,
     });
     await route.fulfill({
@@ -351,37 +396,367 @@ test("keeps browse read-status toggles from opening the memory row", async ({
   expect(readStatusRequestCount).toBe(1);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
-  await page.waitForLoadState("networkidle");
 });
 
 test("deletes a memory from the browse list through the public DELETE route", async ({
   page,
 }) => {
-  createBrowseDeleteFixture();
-  await page.goto("/memories");
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+  await page.goto("/memories?q=reader+mode");
 
   const deletedMemoryLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
   });
   await expect(deletedMemoryLink).toBeVisible();
 
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete memory "Reader Mode Notes"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/memories/memory-foundation") &&
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
       response.request().method() === "DELETE",
   );
-  await page
-    .getByRole("button", { name: "Memory actions for Reader Mode Notes" })
-    .click();
-  await page.getByRole("menuitem", { name: "Delete memory" }).click();
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  const deleteItem = page.getByRole("menuitem", { name: "Delete memory" });
+  await expect(deleteItem).toBeFocused();
+  await deleteItem.press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete memory "Reader Mode Notes"? This action cannot be undone.',
+  );
+  const cancel = confirmation.getByRole("button", { name: "Cancel" });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await expect(cancel).toBeFocused();
+  await cancel.press("Tab");
+  await expect(confirm).toBeFocused();
+  await confirm.press("Enter");
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(deletedMemoryLink).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Memory page results" }))
+    .toBeFocused();
   await expect(page.getByText("Failed to delete memory.")).toHaveCount(0);
+});
+
+test("moves keyboard focus to the next memory after deleting a row", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+  await page.goto("/memories");
+
+  const nextMemoryLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  await expect(nextMemoryLink).toBeVisible();
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(nextMemoryLink).toBeFocused();
+});
+
+test("restores confirm focus when an async memory deletion fails", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "fixture delete failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await expect(confirm).toBeFocused();
+  await confirm.press("Enter");
+  await deleteStarted;
+
+  await expect(confirm).toBeDisabled();
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+  releaseDelete?.();
+
+  await expect(
+    page
+      .getByRole("menu", { name: "Memory actions for Reader Mode Notes" })
+      .getByRole("alert"),
+  ).toHaveText("Failed to delete memory.");
+  await expect(confirmation).toBeVisible();
+  await expect(confirm).toBeEnabled();
+  await expect(confirm).toBeFocused();
+});
+
+test("keeps user focus when an async confirmation fails after dismissal", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "fixture delete failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await confirm.press("Enter");
+  await deleteStarted;
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+
+  const outsideSearch = page.getByRole("searchbox", { name: "Search memories" });
+  await outsideSearch.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(outsideSearch).toBeFocused();
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  releaseDelete?.();
+
+  expect((await deleteResponse).status()).toBe(500);
+  await expect(
+    page
+      .locator("article", { hasText: "Reader Mode Notes" })
+      .getByRole("alert"),
+  ).toHaveText("Failed to delete memory.");
+  await expect(outsideSearch).toBeFocused();
+});
+
+test("does not restore row focus after a pending confirmation is dismissed", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+  await deleteStarted;
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body))
+    .toBe(true);
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  releaseDelete?.();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Memory page results" }))
+    .not.toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body))
+    .toBe(true);
+});
+
+test("skips a connected next memory link in a deferred hydration state", async ({
+  page,
+}) => {
+  const memoryPageQueryId =
+    "src_components_memories_browse-loader_ts--getBrowseMemoryPage_query";
+  await page.goto("/memories");
+
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => {
+    releaseRevalidation = resolve;
+  });
+  await page.route(
+    (url) =>
+      url.pathname === "/_server/" &&
+      url.searchParams.get("id") === memoryPageQueryId,
+    async (route) => {
+      await revalidationGate;
+      await route.continue();
+    },
+  );
+  await page.route("**/api/memories/memory-ops", async (route) => {
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.continue();
+  });
+
+  try {
+    const previousLink = page.getByRole("link", {
+      name: "Open memory Reader Mode Notes",
+    });
+    const hydratingNextLink = page
+      .locator("article", { hasText: "Browse Shell Sketch" })
+      .locator("[data-collection-primary-link]");
+    await hydratingNextLink.evaluate((link) => {
+      // Match MemoryBrowse while selected-flashback hydration is deferred.
+      link.setAttribute("aria-disabled", "true");
+      link.removeAttribute("href");
+    });
+    await expect(hydratingNextLink).toHaveAttribute("aria-disabled", "true");
+    await expect(hydratingNextLink).not.toHaveAttribute("href", /.+/);
+
+    const actions = page.getByRole("button", {
+      name: "Memory actions for Local Hosting Checklist",
+    });
+    await expect(async () => {
+      if (await actions.getAttribute("aria-expanded") !== "true") {
+        await actions.click();
+      }
+      await expect(actions).toHaveAttribute("aria-expanded", "true", {
+        timeout: 500,
+      });
+    }).toPass({ timeout: 5_000 });
+    await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+    const confirmation = page.getByRole("dialog", {
+      name: "Delete memory Local Hosting Checklist confirmation",
+    });
+    await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+    const deleteResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/memories/memory-ops") &&
+        response.request().method() === "DELETE",
+    );
+    await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+
+    expect((await deleteResponse).status()).toBe(204);
+    await expect(previousLink).toBeFocused();
+  } finally {
+    releaseRevalidation?.();
+  }
 });
 
 test("renders category, tag, and flashback shortcut sections in the right panel", async ({ page }) => {
@@ -416,20 +791,88 @@ test("closes taxonomy creation controls on outside clicks", async ({ page }) => 
   await page.getByRole("button", { name: "New tag" }).click();
   await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "All" }).click();
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  await statusTabs.getByRole("tab", { name: "Unread" }).click();
 
   await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
+  await expect(statusTabs.getByRole("tab", { name: "All" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
   await row.getByRole("button", { name: "Add tag" }).click();
   await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
 
-  await row.locator("p").first().click();
+  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
+});
+
+test("keeps outside focus when a dismissed taxonomy submission later resolves", async ({
+  page,
+}) => {
+  let tagRequestCount = 0;
+  let releaseTagRequest: () => void = () => undefined;
+  const tagRequestGate = new Promise<void>((resolve) => {
+    releaseTagRequest = resolve;
+  });
+  await page.route("**/api/tags", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    tagRequestCount += 1;
+    await tagRequestGate;
+    await route.fulfill({
+      body: JSON.stringify({
+        tag: {
+          id: "late-focus-tag-id",
+          name: "late-focus-tag",
+        },
+      }),
+      contentType: "application/json",
+      status: 201,
+    });
+  });
+
+  try {
+    await page.goto("/memories");
+
+    const filters = page.getByRole("complementary", { name: "Browse filters" });
+    await filters.getByRole("button", { name: "New tag" }).click();
+    const input = filters.getByRole("textbox", { name: "New tag" });
+    await input.fill("late-focus-tag");
+    await input.press("Enter");
+    await expect.poll(() => tagRequestCount).toBe(1);
+    await expect(input).toBeDisabled();
+
+    const outsideTarget = await installDismissableClickProbe(page);
+    await outsideTarget.click();
+    await expect(input).toHaveCount(0);
+    await expect(outsideTarget).toBeFocused();
+
+    const completedTagRequest = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/tags" && response.request().method() === "POST";
+    });
+    releaseTagRequest();
+    const tagResponse = await completedTagRequest;
+    expect(tagResponse.ok()).toBe(true);
+    await tagResponse.finished();
+    await page.evaluate(
+      () => new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      ),
+    );
+    await expect(outsideTarget).toBeFocused();
+  } finally {
+    releaseTagRequest();
+  }
 });
 
 test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {
@@ -721,6 +1164,7 @@ test("lets active filters be cleared without resetting the rest of the query", a
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
+  await createBrowseDeleteFixture();
   await page.goto("/memories");
 
   await page.getByRole("link", { name: "Flashbacks" }).click();
@@ -732,8 +1176,11 @@ test("does not navigate shell and result links to the catch-all route", async ({
   await page
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .click();
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
   await page.goto("/memories");
@@ -741,13 +1188,19 @@ test("does not navigate shell and result links to the catch-all route", async ({
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .focus();
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
 
   await page.goto("/flashbacks");
   await page.getByRole("link", { name: "Reader Mode Notes" }).click();
-  await expect(page).toHaveURL(/\/memories\/memory-foundation#h-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901#h-foundation$/);
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
   await expect(page.getByText("Page not found")).toHaveCount(0);
 });
 
@@ -822,8 +1275,11 @@ test("supports vim-like keyboard operation on the memories browse route", async 
   await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
 
   await page.keyboard.press("l");
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
@@ -843,7 +1299,7 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(flashbacksComposer).toHaveCount(0);
   await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
 
-  await page.goto("/memories/memory-foundation");
+  await page.goto("/memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901");
   const readerAddButton = page.getByRole("button", { name: "Add memory" });
   await expect(readerAddButton).toHaveAttribute("aria-expanded", "false");
   await expect(readerAddButton).toHaveAttribute("aria-pressed", "false");
@@ -855,22 +1311,115 @@ test("keeps the add-memory composer reachable from shell routes", async ({ page 
   await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
+test("moves focus through shared dialogs and menus and returns it to the opener", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const themeTrigger = page.getByRole("button", { name: "Theme" });
+  await themeTrigger.click();
+
+  const themeDialog = page.getByRole("dialog", { name: "Theme settings" });
+  await expect(themeDialog).toBeVisible();
+  await expect(themeDialog.getByRole("button", { name: "Sun" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(themeDialog).toHaveCount(0);
+  await expect(themeTrigger).toBeFocused();
+
+  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const menuTrigger = readerRow.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await menuTrigger.click();
+
+  const menu = page.getByRole("menu", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(menu).toBeVisible();
+  const deleteItem = menu.getByRole("menuitem", { name: "Delete memory" });
+  const categoryItem = menu.getByRole("menuitem", { name: "Add category" });
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(menu).toHaveCount(0);
+  await expect(menuTrigger).toBeFocused();
+
+  await menuTrigger.click();
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(categoryItem).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(menu).toHaveCount(0);
+
+  await menuTrigger.focus();
+  await menuTrigger.click();
+  await expect(deleteItem).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(categoryItem).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const cancelConfirmation = confirmation.getByRole("button", {
+    name: "Cancel",
+  });
+  await expect(cancelConfirmation).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  await expect(cancelConfirmation).toBeFocused();
+  await cancelConfirmation.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(deleteItem).toBeFocused();
+
+  await deleteItem.click();
+  const outsideSearch = page.getByRole("searchbox", {
+    name: "Search memories",
+  });
+  await outsideSearch.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(outsideSearch).toBeFocused();
+  await expect(menu).toHaveCount(0);
+});
+
+test("returns taxonomy creation focus after keyboard dismissal", async ({ page }) => {
+  await page.goto("/memories");
+
+  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const addTagTrigger = readerRow.getByRole("button", { name: "Add tag" });
+  await addTagTrigger.click();
+
+  const tagDialog = page.getByRole("dialog", { name: "Add tag" });
+  await expect(tagDialog).toBeVisible();
+  const newTagButton = tagDialog.getByRole("button", { name: "New tag" });
+  await newTagButton.click();
+
+  const newTagInput = readerRow.getByRole("textbox", { name: "New tag" });
+  await expect(newTagInput).toBeFocused();
+  await newTagInput.press("Escape");
+  await expect(newTagInput).toHaveCount(0);
+  await expect(addTagTrigger).toBeFocused();
+});
+
 test("closes the add-memory composer on outside row clicks without opening memory actions", async ({
   page,
 }) => {
-  createBrowseDeleteFixture();
+  await createBrowseDeleteFixture();
   await page.goto("/memories");
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.locator("p").first().click();
+  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
@@ -889,23 +1438,169 @@ test("closes the add-memory composer on outside row clicks without opening memor
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
 
+test("keeps a pending add-memory attempt owned across rail dismissal and phone reopen", async ({
+  page,
+}) => {
+  let releaseResponse: (() => void) | undefined;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  let requestCount = 0;
+  await page.route("**/api/memories", async (route) => {
+    requestCount += 1;
+    await responseGate;
+    await route.fulfill({
+      body: JSON.stringify({
+        memory: { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef401" },
+      }),
+      contentType: "application/json",
+      status: 201,
+    });
+  });
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const railComposer = page.getByRole("dialog", { name: "Add memory" });
+  const railUrl = railComposer.getByRole("textbox", { name: "URL" });
+  await railUrl.fill("https://example.com/pending");
+  const requestPromise = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/api/memories") && request.method() === "POST",
+  );
+  await railUrl.press("Enter");
+  const request = await requestPromise;
+  expect(request.headers()["idempotency-key"]).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(railComposer).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phoneAddMemory = page
+    .getByRole("navigation", { name: "Primary tabs" })
+    .getByRole("button", { name: "Add memory" });
+  await phoneAddMemory.click();
+  const phoneComposer = page.getByRole("dialog", { name: "Add memory" });
+  const phoneUrl = phoneComposer.getByRole("textbox", { name: "URL" });
+  await expect(phoneUrl).toHaveValue("https://example.com/pending");
+  await expect(phoneUrl).toBeDisabled();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/memories") &&
+      response.request().method() === "POST",
+  );
+  releaseResponse?.();
+  await responsePromise;
+
+  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
+  await expect(phoneComposer).toBeVisible();
+  await expect(phoneUrl).toBeEnabled();
+  await expect(phoneUrl).toHaveValue("");
+  expect(requestCount).toBe(1);
+});
+
 test("does not suppress the next normal click after an outside right-click dismissal", async ({
   page,
 }) => {
   await page.goto("/memories");
-  await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.locator("p").first().click({ button: "right" });
+  await row
+    .getByRole("link", { name: "Open memory Reader Mode Notes" })
+    .click({ button: "right" });
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
-  await expect(page).toHaveURL(/\/memories\/memory-foundation$/);
-  await expect(page.locator("#reader-state-title")).toBeVisible();
+  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
+});
+
+test("does not suppress a click after an outside pointer sequence is canceled", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
+  await page.getByRole("button", { name: "New tag" }).click();
+  await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
+
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 17,
+    pointerType: "touch",
+  });
+  await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
+  await unreadTab.dispatchEvent("pointercancel", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 17,
+    pointerType: "touch",
+  });
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
+test("does not suppress a click after an outside pointerup produced no click", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
+  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
+  await page.getByRole("button", { name: "New tag" }).click();
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 23,
+    pointerType: "touch",
+  });
+  await unreadTab.dispatchEvent("pointerup", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 23,
+    pointerType: "touch",
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
+test("expires outside click suppression when a pointer sequence goes silent", async ({
+  page,
+}) => {
+  await page.goto("/memories");
+
+  await page.getByRole("button", { name: "New tag" }).click();
+  const unreadTab = page
+    .getByRole("tablist", { name: "Memory read status" })
+    .getByRole("tab", { name: "Unread" });
+  await unreadTab.dispatchEvent("pointerdown", {
+    button: 0,
+    isPrimary: true,
+    pointerId: 29,
+    pointerType: "touch",
+  });
+  await page.evaluate(() =>
+    new Promise<void>((resolve) => setTimeout(resolve, 1_300))
+  );
+
+  const probe = await installDismissableClickProbe(page);
+  await probe.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(probe).toHaveAttribute("data-clicked", "true");
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {
@@ -1001,90 +1696,19 @@ async function readPaperShellMaterial(page: Page) {
   });
 }
 
-function createBrowseDeleteFixture(): void {
-  runBunFixtureScript(`
-        import { mkdir, rm, writeFile } from "node:fs/promises";
-        import { dirname, join } from "node:path";
-        import { schema } from "./src/server/db/index.ts";
-        import { initializeDatabase } from "./src/server/db/connection.ts";
+async function installDismissableClickProbe(page: Page) {
+  await page.evaluate(() => {
+    const probe = document.createElement("button");
+    probe.dataset.dismissableClickProbe = "true";
+    probe.textContent = "Dismissable click probe";
+    probe.addEventListener("click", () => {
+      probe.dataset.clicked = "true";
+    });
+    document.body.append(probe);
+  });
+  return page.locator("[data-dismissable-click-probe='true']");
+}
 
-        const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-        const memoryId = "memory-foundation";
-        const now = new Date("2026-05-09T00:00:00.000Z");
-        const config = {
-          storePath: "./project/store",
-          projectPath: "./project",
-          databasePath: "./runtime/trauma.sqlite",
-          backup: {
-            git: {
-              enabled: false,
-              remote: "origin",
-              branch: "main",
-              push: false,
-              commitMessageTemplate: "backup memory {memoryId}",
-            },
-          },
-        };
-        const resolvedConfig = {
-          configFilePath: configPath,
-          projectPath: join(process.cwd(), ".trauma/e2e/project"),
-          storePath: join(process.cwd(), ".trauma/e2e/project/store"),
-          databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          backup: config.backup,
-        };
-
-        await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
-        await mkdir(dirname(configPath), { recursive: true });
-        await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-        const connection = initializeDatabase(resolvedConfig);
-        try {
-          await connection.db.insert(schema.memories).values({
-            id: memoryId,
-            url: "https://example.com/reader-mode",
-            title: "Reader Mode Notes",
-            description: "Browse delete fixture",
-            faviconUrl: null,
-            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
-            extractionStatus: "success",
-            extractionError: null,
-            backupStatus: "disabled",
-            lastBackupAt: null,
-            lastBackupError: null,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await connection.db.insert(schema.flashbacks).values({
-            id: "h-foundation",
-            memoryId,
-            text: "flashback-aware results",
-            prefix: "Search query can be wired to",
-            suffix: "through repository fixtures.",
-            startOffset: 0,
-            endOffset: "flashback-aware results".length,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await connection.db.insert(schema.moments).values({
-            id: "moment-foundation",
-            memoryId,
-            sectionAnchor: "details",
-            sectionTitle: "Details",
-            sectionLevel: 2,
-            sectionPath: "1",
-            createdAt: now,
-            updatedAt: now,
-          });
-        } finally {
-          connection.close();
-        }
-
-        const memoryDir = join(resolvedConfig.storePath, "memories", memoryId);
-        await mkdir(memoryDir, { recursive: true });
-        await writeFile(
-          join(memoryDir, "CONTENT.md"),
-          "# Reader Mode Notes\\n\\nBrowse delete fixture content.\\n",
-          "utf8",
-        );
-      `);
+async function createBrowseDeleteFixture(): Promise<void> {
+  await materializeE2eFixture("browse_delete");
 }

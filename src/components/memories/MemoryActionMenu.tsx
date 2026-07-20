@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 
+import type { AsyncActionFocusOwnership } from "../async-action-focus";
 import { TrashIcon } from "../icons";
 import {
   KebabActionMenu,
@@ -7,6 +8,7 @@ import {
   kebabActionMenuErrorClass,
   kebabActionMenuItemClass,
 } from "../ui/KebabActionMenu";
+import { ConfirmationPopup } from "../ui/ConfirmationPopup";
 import { TaxonomyAddControl } from "./TaxonomyAddControl";
 import type {
   BrowseTaxonomyItem,
@@ -18,7 +20,10 @@ export interface MemoryActionMenuProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   memoryId: string;
   memoryTitle: string;
-  onDelete?: (memoryId: string) => Promise<void> | void;
+  onDelete?: (
+    memoryId: string,
+    focusOwnership: AsyncActionFocusOwnership,
+  ) => Promise<void> | void;
   onAttachCategoryByName?: (input: {
     memoryId: string;
     name: string;
@@ -28,27 +33,16 @@ export interface MemoryActionMenuProps {
   initialOpen?: boolean;
 }
 
-export interface ConfirmAndDeleteMemoryInput {
-  memoryId: string;
-  memoryTitle?: string;
-  confirm: (message: string) => boolean;
-  onDelete?: (memoryId: string) => Promise<void> | void;
-}
-
 export function MemoryActionMenu(props: MemoryActionMenuProps) {
   const [error, setError] = createSignal("");
 
-  const deleteMemory = async (): Promise<boolean> => {
+  const deleteMemory = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     setError("");
     try {
-      const deleted = await confirmAndDeleteMemory({
-        memoryId: props.memoryId,
-        memoryTitle: props.memoryTitle,
-        confirm: (message) =>
-          typeof window === "undefined" ? false : window.confirm(message),
-        onDelete: props.onDelete,
-      });
-      return deleted;
+      await props.onDelete?.(props.memoryId, focusOwnership);
+      return true;
     } catch {
       setError("Failed to delete memory.");
       return false;
@@ -78,23 +72,32 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
     >
       {({ close }) => (
         <>
-          <button
-            class={kebabActionMenuDangerItemClass}
-            type="button"
-            role="menuitem"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void deleteMemory().then((deleted) => {
-                if (deleted) {
-                  close();
-                }
-              });
+          <ConfirmationPopup
+            class="w-full"
+            confirmLabel="Delete memory"
+            description={`Delete memory "${props.memoryTitle}"? This action cannot be undone.`}
+            disabled={props.disabled}
+            id={`memory-${props.memoryId}-delete-confirmation`}
+            label={`Delete memory ${props.memoryTitle} confirmation`}
+            onConfirm={async (focusOwnership) => {
+              const deleted = await deleteMemory(focusOwnership);
+              if (deleted) {
+                close();
+              }
+              return deleted;
             }}
-          >
-            <TrashIcon />
-            Delete memory
-          </button>
+            trigger={({ triggerProps }) => (
+              <button
+                {...triggerProps}
+                class={`${kebabActionMenuDangerItemClass} w-full`}
+                role="menuitem"
+                type="button"
+              >
+                <TrashIcon />
+                Delete memory
+              </button>
+            )}
+          />
           <TaxonomyAddControl
             attachedItems={props.attachedCategories ?? []}
             id={`memory-${props.memoryId}-categories-add`}
@@ -106,22 +109,12 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
             onError={(message) => setError(message)}
           />
           <Show when={error() !== ""}>
-            <p class={kebabActionMenuErrorClass}>{error()}</p>
+            <p class={kebabActionMenuErrorClass} role="alert">
+              {error()}
+            </p>
           </Show>
         </>
       )}
     </KebabActionMenu>
   );
-}
-
-export async function confirmAndDeleteMemory(
-  input: ConfirmAndDeleteMemoryInput,
-): Promise<boolean> {
-  const label = input.memoryTitle ?? input.memoryId;
-  if (!input.confirm(`Delete memory "${label}"?`)) {
-    return false;
-  }
-
-  await input.onDelete?.(input.memoryId);
-  return true;
 }

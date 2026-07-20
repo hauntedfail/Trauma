@@ -1,54 +1,162 @@
-import { execFileSync } from "node:child_process";
-import { accessSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  E2E_CONTROL_MAX_TOKEN_BYTES,
+  E2E_CONTROL_MIN_TOKEN_BYTES,
+  E2E_CONTROL_TOKEN_HEADER,
+  type E2eControlRequest,
+  type E2ePersistenceState,
+  type InspectFixtureStateRequest,
+  type MaterializeFixtureRequest,
+  type MutateFixtureStateRequest,
+  type ResetFixtureRequest,
+} from "../src/server/e2e/control-types";
 
-export function runBunFixtureScript(script: string): string {
-  return execFileSync(resolveBunExecutable(), ["-e", script], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      BUN_INSTALL_CACHE_DIR: `${process.cwd()}/.tmp/bun-cache`,
-      MISE_TRUSTED_CONFIG_PATHS: `${process.cwd()}/mise.toml`,
-      TMPDIR: `${process.cwd()}/.tmp/bun-tmp`,
+const E2E_CONTROL_URL = "http://127.0.0.1:4173/api/e2e-control";
+
+export async function resetE2eFixture(
+  fixture: ResetFixtureRequest["fixture"],
+): Promise<void> {
+  assertAcknowledgement(await sendE2eControlRequest({
+    action: "reset_fixture",
+    fixture,
+  }));
+}
+
+export async function materializeE2eFixture(
+  fixture: MaterializeFixtureRequest["fixture"],
+): Promise<void> {
+  assertAcknowledgement(await sendE2eControlRequest({
+    action: "materialize_fixture",
+    fixture,
+  }));
+}
+
+export async function mutateE2eFixtureState(
+  mutation: MutateFixtureStateRequest["mutation"],
+): Promise<void> {
+  assertAcknowledgement(await sendE2eControlRequest({
+    action: "mutate_fixture_state",
+    mutation,
+  }));
+}
+
+export async function inspectE2eFixtureValues(
+  inspection: Extract<
+    InspectFixtureStateRequest,
+    { inspection: "moment_anchors" | "flashback_ids" }
+  >["inspection"],
+): Promise<string[]> {
+  const response = await sendE2eControlRequest({
+    action: "inspect_fixture_state",
+    inspection,
+  });
+  if (!hasExactKeys(response, ["ok", "values"]) ||
+      response.ok !== true ||
+      !Array.isArray(response.values) ||
+      !response.values.every((value) => typeof value === "string")) {
+    throw new Error("E2E fixture control returned an invalid list response");
+  }
+  return response.values;
+}
+
+export async function inspectE2ePersistenceState(
+  memoryId: string,
+): Promise<E2ePersistenceState> {
+  const response = await sendE2eControlRequest({
+    action: "inspect_fixture_state",
+    inspection: "persistence_state",
+    memoryId,
+  });
+  if (!hasExactKeys(response, ["ok", "state"]) ||
+      response.ok !== true ||
+      !isPersistenceState(response.state)) {
+    throw new Error("E2E fixture control returned an invalid persistence response");
+  }
+  return response.state;
+}
+
+async function sendE2eControlRequest(
+  request: E2eControlRequest,
+): Promise<unknown> {
+  const token = process.env.TRAUMA_E2E_CONTROL_TOKEN;
+  const tokenBytes = token === undefined ? 0 : Buffer.byteLength(token, "utf8");
+  if (token === undefined ||
+      tokenBytes < E2E_CONTROL_MIN_TOKEN_BYTES ||
+      tokenBytes > E2E_CONTROL_MAX_TOKEN_BYTES) {
+    throw new Error("Playwright E2E control token is unavailable");
+  }
+
+  const response = await fetch(E2E_CONTROL_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [E2E_CONTROL_TOKEN_HEADER]: token,
     },
-    stdio: "pipe",
-  }).toString("utf8");
-}
-
-function resolveBunExecutable(): string {
-  if (process.versions.bun !== undefined) {
-    return process.execPath;
+    body: JSON.stringify(request),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `E2E fixture control failed with HTTP ${response.status}: ${text.slice(0, 256)}`,
+    );
   }
 
-  const candidates = [
-    process.env.BUN_EXECUTABLE,
-    process.versions.bun !== undefined ? process.execPath : undefined,
-    `${homedir()}/.local/share/mise/installs/bun/1.3.13/bin/bun`,
-    process.env.npm_execpath,
-    "bun",
-  ];
-  const executable = candidates.find(
-    (candidate) =>
-      candidate !== undefined &&
-      isBunExecutable(candidate) &&
-      (candidate.includes("/") ? canAccess(candidate) : true),
-  );
-  if (executable === undefined) {
-    throw new Error("Bun executable is required for E2E fixtures");
-  }
-
-  return executable;
-}
-
-function isBunExecutable(path: string): boolean {
-  return path === "bun" || path.endsWith("/bun") || path.endsWith("\\bun.exe");
-}
-
-function canAccess(path: string): boolean {
   try {
-    accessSync(path);
-    return true;
+    return JSON.parse(text) as unknown;
   } catch {
+    throw new Error("E2E fixture control returned invalid JSON");
+  }
+}
+
+function assertAcknowledgement(value: unknown): asserts value is { ok: true } {
+  if (!hasExactKeys(value, ["ok"]) || value.ok !== true) {
+    throw new Error("E2E fixture control returned an invalid acknowledgement");
+  }
+}
+
+function isPersistenceState(value: unknown): value is E2ePersistenceState {
+  if (!hasExactKeys(value, [
+    "backupStatus",
+    "commitCount",
+    "commitMessage",
+    "contentPath",
+    "extractionError",
+    "extractionStatus",
+    "fileContent",
+    "gitStatus",
+    "id",
+    "title",
+    "trackedContent",
+    "url",
+  ])) {
     return false;
   }
+
+  return typeof value.commitCount === "number" &&
+    Number.isSafeInteger(value.commitCount) &&
+    value.commitCount >= 0 &&
+    [
+      value.backupStatus,
+      value.commitMessage,
+      value.contentPath,
+      value.extractionError,
+      value.extractionStatus,
+      value.fileContent,
+      value.gitStatus,
+      value.id,
+      value.title,
+      value.trackedContent,
+      value.url,
+    ].every((field) => field === null || typeof field === "string");
+}
+
+function hasExactKeys(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key));
 }

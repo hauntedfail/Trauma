@@ -2,18 +2,12 @@
 
 ## Route Behaviour
 
-Canonical UI routes:
-
-- `/memories`
-- `/flashbacks`
-- `/moments`
-- `/memories/:id`
-- `/settings`
-
-The root route redirects to `/memories`.
+The canonical route inventory and compatibility redirects are owned by
+[UI and routing](../../architecture/ui-and-routing.md#canonical-routes). This
+document adds interaction and accessibility requirements only.
 
 Do not add live navigation links to missing `/category`, `/tags`, or `/backup`
-routes. Future items may be rendered as disabled controls only.
+routes. Those items may be rendered as disabled controls only.
 
 ## Query State
 
@@ -29,6 +23,12 @@ Supported browse concerns:
 
 Filter buttons should toggle their own query key without clearing unrelated
 query state.
+
+Flashback and Moment collection cursors are opaque URL state. First removes the
+cursor and Next writes the server continuation. Pending navigation must remove
+the previous page from the rendered row set, expose `aria-busy`, and announce a
+load failure with `role="alert"`. Native links preserve Reload and browser
+Back behavior.
 
 The `q` search value is preserved as raw input in the URL and may contain
 fielded filters:
@@ -76,6 +76,12 @@ Theme controls:
 - Close the popover with Escape and outside pointer interaction.
 - Use the shared translucent `Popup` surface for anchored popovers; domain
   components must not add their own outside-pointer listeners for those panels.
+- Shared outside-pointer dismissal may suppress the click produced by that same
+  primary pointer sequence so a closing popover does not activate the surface
+  beneath it. Suppression is bound to the initiating `pointerId` and clears on
+  its click, matching `pointercancel`, a pointerup that produces no click, the
+  next pointer/keyboard interruption, window blur, or a short deadline. A later
+  unrelated click must never be swallowed.
 
 ## Focus And Keyboard
 
@@ -89,7 +95,37 @@ Rules:
 - Reader flashback keyboard toggling must remain explicit and must not trigger
   during ordinary text navigation.
 - Confirmation popovers must treat Cancel, Escape, and outside pointer
-  dismissal as the same cancel/reset path.
+  dismissal as the same cancel/reset path. Dismissal revokes pending focus
+  ownership even if focus later falls back to `body`; completion must not
+  reclaim focus after the user closes the confirmation.
+- A focused asynchronous Confirm action keeps focus on the pending dialog
+  surface while its controls are disabled. If confirmation fails or returns
+  `false`, focus returns to Confirm unless the user moved focus or closed the
+  dialog.
+- Opening a shared popover moves focus to its first enabled control. Escape and
+  explicit completion return focus to the opener; outside-pointer dismissal
+  leaves focus with the newly targeted surface.
+- Popup menus use `menuitem` controls with roving focus. Arrow Up/Down wrap,
+  Home/End move to the bounds, Escape returns to the opener, and Tab closes the
+  menu after focus leaves it.
+- Successful keyboard deletion moves focus from the removed row to the next
+  row's focusable primary link, then the previous row's. Revalidation resolves
+  those row IDs again, then checks the row now occupying the removed row's
+  ordinal before using the focusable results region. Disabled, inert, missing-
+  href, or negative-tab-index links are skipped.
+- Deletion controls explicitly transfer focus ownership before they become
+  disabled. Only the latest deletion in a results region may restore focus;
+  focus the helper placed on a surviving row or the region remains owned across
+  revalidation, while user focus movement is never reclaimed.
+- When a successful destructive setting removes its opener, focus moves to its
+  stable enabled successor only while the action still owns focus. Codex auth
+  logout uses `Start setup`; unsupported logout keeps the existing trigger.
+- Reader selection and section actions use a labelled horizontal toolbar.
+  Arrow Left/Right wrap, Home/End move to the bounds, and Escape returns focus
+  to the reader content.
+- Reader All Flashbacks uses native First/Previous/Next buttons. Unavailable
+  directions are disabled, the list is a bounded scroll region, and tab changes
+  preserve its rail-local cursor history.
 
 ## Labels And Landmarks
 
@@ -106,6 +142,8 @@ Route surfaces should use `aria-labelledby` and stable headings:
 
 - `memories-title`.
 - `flashbacks-title`.
+- `moment-title`.
+- `settings-title`.
 - Reader fallback states use `reader-state-title`; ready reader content uses
   a route-local sticky header with only the back control and `Memory` label.
   The memory URL/action row, title, and taxonomy chips live in the main reader
@@ -130,8 +168,8 @@ Disabled future controls:
 Desktop:
 
 - Left rail, main pane, and right rail are visible.
-- Reader TOC appears at the top of the right rail only on concrete memory
-  reader routes.
+- Reader TOC appears at the top of the right rail only on ready source or
+  translated memory reader routes.
 - TOC and Flashback shortcut lists scroll inside their own bounded list bodies.
 
 Tablet:
@@ -146,12 +184,12 @@ Tablet:
 
 Mobile:
 
-- Bottom `Primary tabs` render Memories, Flashbacks, Categories, Tags, Backup,
-  Add memory, Theme, and Settings.
+- Bottom `Primary tabs` render Memories, Flashbacks, Moments, Categories, Tags,
+  Backup, Add memory, Theme, and Settings.
 - The tab list scrolls horizontally when space is constrained. The page itself
   must not gain horizontal overflow from the tab bar.
-- Categories, Tags, Backup, and Settings stay disabled until their route or
-  action contracts are implemented.
+- Categories, Tags, and Backup are disabled. Memories, Flashbacks, Moments, and
+  Settings are live route tabs.
 - Phone tab icons use a larger dedicated icon slot so the tab bar remains
   scannable without enlarging desktop rail icons.
 - Phone tab text labels are `sr-only`: names must remain available to assistive
@@ -174,3 +212,14 @@ final selected and opened states.
 
 Do not add decorative motion or animation loops. Any future animation must serve
 an interaction state and respect readability.
+
+Async failures use an assertive `role="alert"` region. Successful settings or
+save feedback uses a polite `role="status"` region. Do not rely on colour or
+visual placement alone to announce completion or failure. Reader model-catalog
+failures follow the same alert contract, keep current selections intact, and
+expose a Retry action. Only one catalog request may be in flight; Retry and
+dependent controls remain disabled while it is pending, and unmounted or
+superseded requests must not publish stale results. A successful retry may move
+focus from the removed Retry control to Model only when the user has not moved
+focus elsewhere. Aborted Codex-auth polling is cancellation rather than failure
+and must not announce stale feedback.

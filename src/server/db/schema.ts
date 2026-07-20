@@ -106,6 +106,15 @@ export const memories = sqliteTable(
   ],
 );
 
+export const memoryCreationIdempotency = sqliteTable(
+  "memory_creation_idempotency",
+  {
+    idempotencyKey: text("idempotency_key").primaryKey(),
+    requestUrl: text("request_url").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+);
+
 export const tags = sqliteTable(
   "tags",
   {
@@ -113,7 +122,7 @@ export const tags = sqliteTable(
     name: text("name").notNull(),
     ...timestamps(),
   },
-  (table) => [uniqueIndex("tags_name_unique").on(table.name)],
+  (table) => [uniqueIndex("tags_name_unique").on(sql`lower(${table.name})`)],
 );
 
 export const categories = sqliteTable(
@@ -123,7 +132,9 @@ export const categories = sqliteTable(
     name: text("name").notNull(),
     ...timestamps(),
   },
-  (table) => [uniqueIndex("categories_name_unique").on(table.name)],
+  (table) => [
+    uniqueIndex("categories_name_unique").on(sql`lower(${table.name})`),
+  ],
 );
 
 export const memoryTags = sqliteTable(
@@ -183,7 +194,7 @@ export const flashbacks = sqliteTable(
   },
   (table) => [
     index("flashbacks_memory_id_idx").on(table.memoryId),
-    index("flashbacks_created_at_idx").on(table.createdAt),
+    index("flashbacks_created_at_id_idx").on(table.createdAt, table.id),
     index("flashbacks_memory_variant_idx").on(
       table.memoryId,
       table.variantKind,
@@ -225,8 +236,12 @@ export const moments = sqliteTable(
       table.memoryId,
       table.sectionAnchor,
     ),
+    uniqueIndex("moments_memory_section_path_unique").on(
+      table.memoryId,
+      table.sectionPath,
+    ),
     index("moments_memory_id_idx").on(table.memoryId),
-    index("moments_created_at_idx").on(table.createdAt),
+    index("moments_created_at_id_idx").on(table.createdAt, table.id),
     check(
       "moments_section_anchor_check",
       sql`length(${table.sectionAnchor}) > 0`,

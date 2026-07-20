@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { formatConfigError, jsonResponse } from "../http/json";
+import { readJsonMutationRequest } from "../http/mutation-request";
 import {
   TranslationApiError,
   type startTranslationJob,
@@ -15,7 +16,7 @@ type StartTranslationPayload =
       model?: string | null;
       reasoningEffort?: string | null;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export function createStartTranslationHandler(input: {
   startTranslationJob: StartTranslationJob;
@@ -39,7 +40,7 @@ export async function handleStartTranslationRequest(
 
   const payload = await parseStartTranslationPayload(event.request);
   if (!payload.ok) {
-    return jsonResponse({ error: payload.error }, { status: 400 });
+    return jsonResponse({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   try {
@@ -60,17 +61,14 @@ export async function handleStartTranslationRequest(
 export async function parseStartTranslationPayload(
   request: Request,
 ): Promise<StartTranslationPayload> {
-  const rawBody = await request.text();
-  if (rawBody.trim() === "") {
+  const body = await readJsonMutationRequest(request, { allowEmpty: true });
+  if (!body.ok) {
+    return body;
+  }
+  if (body.payload === undefined) {
     return { ok: true };
   }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
-  }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };
@@ -158,6 +156,7 @@ function statusForTranslationError(error: TranslationApiError): number {
     case "translation_language_mismatch":
     case "translation_model_unavailable":
     case "translation_reasoning_effort_unavailable":
+    case "runtime_isolation_required":
     case "cancellation_conflict":
       return 409;
     case "auth_required":

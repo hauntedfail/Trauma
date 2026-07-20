@@ -31,6 +31,7 @@ export async function POST(event: APIEvent): Promise<Response> {
       config,
       db: connection.db,
       apply: true,
+      expectedGeneration: confirmation.generation,
     });
     return json(result, { status: 200 });
   } catch (error) {

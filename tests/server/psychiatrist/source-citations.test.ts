@@ -80,6 +80,16 @@ describe("sanitizePsychiatristSourceCitations", () => {
     ])).toEqual([]);
   });
 
+  it("rejects single-label and reserved private-style DNS hosts", () => {
+    expect(sanitizePsychiatristSourceCitations([
+      { sourceId: "1", title: "single label", url: "https://intranet/release" },
+      { sourceId: "2", title: "mDNS", url: "https://printer.local/status" },
+      { sourceId: "3", title: "private corp", url: "https://release.intranet.corp/notes" },
+      { sourceId: "4", title: "home network", url: "https://router.home.arpa/admin" },
+      { sourceId: "5", title: "reserved test", url: "https://source.example.test/notes" },
+    ])).toEqual([]);
+  });
+
   it("rejects local and private IPv6 citation hosts including IPv4-mapped forms", () => {
     expect(sanitizePsychiatristSourceCitations([
       { sourceId: "1", title: "mapped loopback", url: "http://[::ffff:127.0.0.1]/a" },

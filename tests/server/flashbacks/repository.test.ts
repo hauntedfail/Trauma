@@ -82,7 +82,10 @@ describe("flashback repository", () => {
             .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .run("flashback-old", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f202", "older text", "old before", "old after", 4, 14, older, older);
 
-          const rows = await connection.repositories.flashbacks.listForBrowse();
+          const rows = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: null,
+            limit: 100,
+          });
           process.stdout.write(JSON.stringify(rows));
         } finally {
           connection.close();
@@ -192,7 +195,10 @@ describe("flashback repository", () => {
             .prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .run("translated-new", memoryId, "translation", "ja-JP", outputHash, "translated text", "", "", 0, 15, now, now);
 
-          const rows = await connection.repositories.flashbacks.listForBrowse();
+          const rows = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: null,
+            limit: 100,
+          });
           process.stdout.write(JSON.stringify(rows));
         } finally {
           connection.close();
@@ -275,6 +281,16 @@ describe("flashback repository", () => {
             .run("flashback-new-translated", "memory-c", "translation", "ja-JP", outputHash, "translated text", "", "", 0, 15, now, now);
 
           const recent = await connection.repositories.flashbacks.listRecentForBrowse({ limit: 2 });
+          const cursorRow = recent.at(-1);
+          const olderPage = cursorRow === undefined
+            ? []
+            : await connection.repositories.flashbacks.listRecentForBrowse({
+                cursor: {
+                  createdAt: new Date(cursorRow.createdAt),
+                  id: cursorRow.id,
+                },
+                limit: 2,
+              });
           const memoryRows = await connection.repositories.flashbacks.listForBrowseMemoryIds({
             memoryIds: ["memory-a", "memory-c"],
           });
@@ -284,6 +300,7 @@ describe("flashback repository", () => {
 
           process.stdout.write(JSON.stringify({
             recent: recent.map((row) => row.id),
+            olderPage: olderPage.map((row) => row.id),
             memoryRows: memoryRows.map((row) => [row.id, row.memoryId]),
             selectedSource,
             selected,
@@ -298,6 +315,7 @@ describe("flashback repository", () => {
 
     expect(JSON.parse(output)).toEqual({
       recent: ["flashback-new-translated", "flashback-middle"],
+      olderPage: ["flashback-old"],
       memoryRows: [
         ["flashback-new-translated", "memory-c"],
         ["flashback-old", "memory-a"],

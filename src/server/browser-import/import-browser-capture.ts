@@ -1,7 +1,11 @@
 import type { MemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
 import type { TraumaDatabase } from "../db";
-import type { ImporterResult } from "../importer";
+import {
+  type HostResolver,
+  type ImporterResult,
+  validateImportUrl,
+} from "../importer";
 import {
   extractArticleInWorker,
   runExtractorWithTimeout,
@@ -32,13 +36,16 @@ export interface ImportBrowserCaptureInput {
   backupQueue: MemoryBackupQueue;
   extractArticle?: ArticleExtractor;
   extractionTimeoutMs?: number;
+  resolveHostname?: HostResolver;
   createMemory?: (input: AddMemoryInput) => Promise<{ id: string }>;
 }
 
 const DEFAULT_BROWSER_IMPORT_EXTRACTION_TIMEOUT_MS = 10_000;
 
 export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
-  const selectedUrl = selectCaptureUrl(input.payload);
+  const selectedUrl = await selectCaptureUrl(input.payload, {
+    resolveHostname: input.resolveHostname,
+  });
 
   const extractionInput = {
     html: createExtractionDocumentHtml(input.payload),
@@ -89,9 +96,14 @@ export async function importBrowserCapture(input: ImportBrowserCaptureInput) {
   });
 }
 
-function selectCaptureUrl(payload: BrowserImportPayload) {
-  const sourceUrl = normalizeCaptureUrl(payload.sourceUrl);
-  if (sourceUrl === null) {
+async function selectCaptureUrl(
+  payload: BrowserImportPayload,
+  options: { resolveHostname?: HostResolver },
+) {
+  let sourceUrl: URL;
+  try {
+    sourceUrl = new URL(await validateImportUrl(payload.sourceUrl, options));
+  } catch {
     throw new BrowserImportError("source URL is not allowed");
   }
 
@@ -99,7 +111,7 @@ function selectCaptureUrl(payload: BrowserImportPayload) {
     return sourceUrl.toString();
   }
 
-  const canonicalUrl = normalizeCaptureUrl(payload.canonicalUrl);
+  const canonicalUrl = parseCaptureUrl(payload.canonicalUrl);
   if (
     canonicalUrl === null ||
     !isTrustedCanonicalHostname(sourceUrl, canonicalUrl.hostname)
@@ -107,10 +119,14 @@ function selectCaptureUrl(payload: BrowserImportPayload) {
     return sourceUrl.toString();
   }
 
-  return canonicalUrl.toString();
+  try {
+    return await validateImportUrl(canonicalUrl.toString(), options);
+  } catch {
+    return sourceUrl.toString();
+  }
 }
 
-function normalizeCaptureUrl(value: string) {
+function parseCaptureUrl(value: string) {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -121,8 +137,10 @@ function normalizeCaptureUrl(value: string) {
       return null;
     }
 
-    url.username = "";
-    url.password = "";
+    if (url.username !== "" || url.password !== "") {
+      return null;
+    }
+
     return url;
   } catch {
     return null;

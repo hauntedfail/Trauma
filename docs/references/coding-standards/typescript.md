@@ -4,8 +4,10 @@
 
 - MUST keep TypeScript `strict` clean.
 - MUST keep the strict compiler options used by the project, including
-  `noFallthroughCasesInSwitch`, `noImplicitOverride`, and
-  `noUncheckedIndexedAccess`.
+  `allowUnreachableCode: false`, `allowUnusedLabels: false`,
+  `noFallthroughCasesInSwitch`, `noImplicitOverride`,
+  `noImplicitReturns`, `noUncheckedIndexedAccess`, `noUnusedLocals`, and
+  `noUnusedParameters`.
 - MUST treat indexed access and map/object lookups as possibly missing. Narrow
   or guard the value before use instead of adding non-null assertions.
 - MUST NOT use `any`, `as any`, or implicit `any`.

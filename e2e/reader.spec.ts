@@ -2,7 +2,11 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { runBunFixtureScript } from "./bun-fixture";
+import {
+  inspectE2eFixtureValues,
+  materializeE2eFixture,
+  mutateE2eFixtureState,
+} from "./bun-fixture";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
@@ -11,7 +15,7 @@ const TOC_SCROLL_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
 test.describe.configure({ mode: "serial" });
 
 test("renders a fixture memory in reader mode", async ({ page }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -48,12 +52,14 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
 test("uses remembered translation defaults and cancels the popover on dismissal", async ({
   page,
 }) => {
-  createReaderFixture();
-  seedReaderTranslationDefaults({
-    model: "gpt-5.5",
-    reasoningEffort: "high",
-  });
+  await createReaderFixture();
+  await seedReaderTranslationDefaults();
   let translationStartCount = 0;
+  let translationDefaultsRequestCount = 0;
+  let releaseTranslationDefaults: () => void = () => undefined;
+  const translationDefaultsGate = new Promise<void>((resolve) => {
+    releaseTranslationDefaults = resolve;
+  });
   await page.route("**/api/settings/codex-models", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -100,16 +106,19 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       });
     },
   );
-  await page.route("**/api/settings/translation-codex-defaults", async (route) => {
+  await page.route("**/api/settings/translation-defaults", async (route) => {
+    translationDefaultsRequestCount += 1;
     const body = route.request().postDataJSON() as {
+      language: string;
       model: string | null;
       reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
     };
+    await translationDefaultsGate;
     await route.fulfill({
       contentType: "application/json",
       status: 200,
       body: JSON.stringify({
-        translationTargetLanguage: "ja-JP",
+        translationTargetLanguage: body.language,
         codexTranslationModel: body.model,
         codexTranslationReasoningEffort: body.reasoning_effort,
         openaiAuth: {
@@ -153,7 +162,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   await effortSelect.selectOption("medium");
   const defaultsRequest = page.waitForRequest(
     (request) =>
-      request.url().endsWith("/api/settings/translation-codex-defaults") &&
+      request.url().endsWith("/api/settings/translation-defaults") &&
       request.method() === "PATCH",
   );
   const translationRequest = page.waitForRequest(
@@ -161,13 +170,26 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
       request.url().endsWith(`/api/memories/${READER_MEMORY_ID}/translations`) &&
       request.method() === "POST",
   );
-  await dialog.getByRole("button", { name: "Translate" }).click();
+  const translateButton = dialog.getByRole("button", { name: "Translate" });
+  await translateButton.click();
+  await expect.poll(() => translationDefaultsRequestCount).toBe(1);
+  await expect(translateButton).toBeDisabled();
+  await dialog.locator("form").evaluate((form) => {
+    form.dispatchEvent(new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await page.waitForTimeout(50);
+  expect(translationDefaultsRequestCount).toBe(1);
+  releaseTranslationDefaults();
   const [settingsRequest, request] = await Promise.all([
     defaultsRequest,
     translationRequest,
   ]);
   await expect(dialog).toHaveCount(0);
   expect(settingsRequest.postDataJSON()).toEqual({
+    language: "ja-JP",
     model: "gpt-5.3",
     reasoning_effort: "medium",
   });
@@ -176,21 +198,18 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     model: "gpt-5.3",
     reasoning_effort: "medium",
   });
+  expect(translationStartCount).toBe(1);
 });
 
 test("deletes a memory from reader actions and returns to browse", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
 
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete memory "Fixture Reader"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/memories/${READER_MEMORY_ID}`) &&
@@ -200,6 +219,13 @@ test("deletes a memory from reader actions and returns to browse", async ({
     .getByRole("button", { name: "Memory actions for Fixture Reader" })
     .click();
   await page.getByRole("menuitem", { name: "Delete memory" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Fixture Reader confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete memory "Fixture Reader"? This action cannot be undone.',
+  );
+  await confirmation.getByRole("button", { name: "Delete memory" }).click();
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(page).toHaveURL(/\/memories$/);
@@ -213,7 +239,7 @@ test("deletes a memory from reader actions and returns to browse", async ({
 test("keeps linked reader flashback anchors readable in non-normal themes", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   for (const theme of [
     { brightness: "sun", name: "warm-light", surface: "normal" },
@@ -253,7 +279,7 @@ test("keeps linked reader flashback anchors readable in non-normal themes", asyn
 test("keeps sun reader links bright in normal and paper themes", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   for (const theme of [
     { brightness: "sun", name: "warm-light", surface: "normal" },
@@ -283,7 +309,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
 test("keeps the psychiatrist dock clear and named across phone and desktop layouts", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
 
@@ -327,15 +353,503 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
   ).toBeVisible();
 });
 
-test("streams named psychiatrist events through the browser EventSource transport", async ({
+test("closes the topmost reader popup before the psychiatrist dock on Escape", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
+  await installPsychiatristMock(page);
+  await page.route("**/api/settings/codex-models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ models: [] }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const dockTrigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await dockTrigger.click();
+  const dock = page.getByRole("region", { name: "Psychiatrist" });
+  await expect(dock).toBeVisible();
+
+  const translationTrigger = page.getByRole("button", {
+    name: "Translate memory",
+  });
+  await translationTrigger.click();
+  const translationDialog = page.getByRole("dialog", {
+    name: "Translation settings",
+  });
+  await expect(translationDialog).toBeVisible();
+  await expect(translationDialog.getByLabel("Language")).toBeFocused();
+  await expect(dock).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(translationDialog).toHaveCount(0);
+  await expect(dock).toBeVisible();
+  await expect(translationTrigger).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(dock).toHaveCount(0);
+  await expect(dockTrigger).toBeFocused();
+});
+
+test("coalesces pending reader model catalogs and retries after malformed 2xx", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  let catalogRequestCount = 0;
+  let releaseFirstCatalogRequest: () => void = () => undefined;
+  const firstCatalogRequestGate = new Promise<void>((resolve) => {
+    releaseFirstCatalogRequest = resolve;
+  });
+  let releaseRetryCatalogRequest: () => void = () => undefined;
+  const retryCatalogRequestGate = new Promise<void>((resolve) => {
+    releaseRetryCatalogRequest = resolve;
+  });
+  await page.route("**/api/settings/codex-models", async (route) => {
+    catalogRequestCount += 1;
+    if (catalogRequestCount === 1) {
+      await firstCatalogRequestGate;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({ models: null }),
+      });
+      return;
+    }
+
+    await retryCatalogRequestGate;
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Translate memory" });
+  const dialog = page.getByRole("dialog", { name: "Translation settings" });
+
+  try {
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => catalogRequestCount).toBe(1);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => catalogRequestCount).toBe(1);
+
+    releaseFirstCatalogRequest();
+    const alert = dialog.getByRole("alert");
+    const retry = alert.getByRole("button", { name: /^Retry/ });
+    const model = dialog.getByLabel("Model", { exact: true });
+    await expect(alert).toContainText(
+      "Codex model catalog response was invalid.",
+    );
+    await expect(retry).toBeEnabled();
+    await expect(retry).toHaveAccessibleName("Retry model catalog");
+
+    await retry.click();
+    await expect.poll(() => catalogRequestCount).toBe(2);
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveAccessibleName("Retrying model catalog...");
+    await retry.evaluate((button: HTMLButtonElement) => button.click());
+    expect(catalogRequestCount).toBe(2);
+
+    releaseRetryCatalogRequest();
+    await expect(
+      model.locator('option[value="gpt-5.5"]'),
+    ).toHaveCount(1);
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    await expect(model).toBeFocused();
+    expect(catalogRequestCount).toBe(2);
+  } finally {
+    releaseFirstCatalogRequest();
+    releaseRetryCatalogRequest();
+  }
+});
+
+test("does not submit the psychiatrist prompt while an IME composition is active", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await expect(prompt).toBeEnabled();
+  await prompt.fill("変換中の質問");
+
+  await prompt.dispatchEvent("keydown", {
+    bubbles: true,
+    isComposing: true,
+    key: "Enter",
+    keyCode: 13,
+  });
+
+  expect(mock.startedRequests).toEqual([]);
+  await expect(prompt).toHaveValue("変換中の質問");
+
+  await prompt.press("Enter");
+  await expect.poll(() => mock.startedRequests).toHaveLength(1);
+  expect(mock.startedRequests[0]?.message).toBe("変換中の質問");
+});
+
+test("keeps psychiatrist transcript scrolling sticky only near the bottom", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await installPsychiatristMock(page, {
+    initialPairs: [completedPsychiatristPair("Historical answer. ".repeat(320))],
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const transcript = page.locator("[data-psychiatrist-transcript]");
+  await expect(transcript).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Append a new transcript pair.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Partial answer from the memory")).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+
+  await transcript.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: " Manual-scroll delta.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+  await expect(page.getByText("Manual-scroll delta.", { exact: false })).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+
+  await transcript.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: ` ${"Bottom-following delta. ".repeat(80)}`,
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  )).toBeLessThanOrEqual(1);
+});
+
+test("bounds a 1000-pair psychiatrist transcript while keeping pinned rows reachable", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const initialPairs = Array.from(
+    { length: 1_000 },
+    (_, index) => completedPsychiatristPairAt(index),
+  );
+  initialPairs[100] = {
+    ...initialPairs[100]!,
+    retry_action: "allow_web_sources",
+    retry_mode: "regenerate",
+    retry_turn_id: "turn-history-100-retry",
+  };
+  await installPsychiatristMock(page, { initialPairs });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+
+  const transcript = page.locator("[data-psychiatrist-transcript]");
+  const rows = transcript.locator("[data-psychiatrist-pair]");
+  const range = transcript.locator("[data-psychiatrist-transcript-range]");
+  const older = transcript.getByRole("button", { exact: true, name: "Older" });
+  const newer = transcript.getByRole("button", { exact: true, name: "Newer" });
+
+  await expect(range).toHaveText(
+    "Showing 977–1000 of 1000; 1 pinned pair also shown: " +
+      "pair 101 (web-source retry).",
+  );
+  await expect(range).toHaveAttribute("aria-live", "polite");
+  await expect(rows).toHaveCount(25);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+  await expect(page.getByText("Historical answer 999.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Historical answer 100.", { exact: true })).toBeVisible();
+  await expect(older).toHaveAttribute("aria-controls", "psychiatrist-transcript");
+  await expect(newer).toBeDisabled();
+
+  await older.click();
+  await expect(range).toHaveText(
+    "Showing 953–976 of 1000; 1 pinned pair also shown: " +
+      "pair 101 (web-source retry).",
+  );
+  await expect(rows).toHaveCount(25);
+  await expect(page.getByText("Historical answer 975.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Historical answer 999.", { exact: true })).toHaveCount(0);
+  await expect(newer).toBeEnabled();
+
+  await newer.click();
+  await expect(range).toHaveText(
+    "Showing 977–1000 of 1000; 1 pinned pair also shown: " +
+      "pair 101 (web-source retry).",
+  );
+  await expect(rows).toHaveCount(25);
+
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Keep the active answer reachable on an older page.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+  await expect(range).toHaveText("Showing 978–1001 of 1001.");
+  await expect(rows).toHaveCount(24);
+
+  await older.click();
+  await expect(range).toHaveText(
+    "Showing 954–977 of 1001; 1 pinned pair also shown: pair 1001 (active).",
+  );
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+  await expect(rows).toHaveCount(25);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+  await expect(older).toBeFocused();
+  await transcript.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      text: " Window-pinned delta.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.delta",
+  });
+
+  await expect(page.getByText("Window-pinned delta.", { exact: false })).toBeVisible();
+  await expect(older).toBeFocused();
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await rows.count()).toBeLessThanOrEqual(26);
+});
+
+test("projects only public Psychiatrist citations as links for persisted and SSE answers", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const persistedPair = completedPsychiatristPair("Persisted cited answer.");
+  persistedPair.assistant_response!.source_citations = [
+    {
+      source_id: "source-persisted-safe",
+      title: "Persisted safe source",
+      url: "https://example.com/persisted",
+    },
+    {
+      source_id: "source-persisted-unsafe",
+      title: "Persisted unsafe source",
+      url: "javascript:alert(1)",
+    },
+  ];
+  await installPsychiatristMock(page, { initialPairs: [persistedPair] });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+
+  await expect(page.getByRole("link", { name: "Persisted safe source" }))
+    .toHaveAttribute("href", "https://example.com/persisted");
+  await expect(page.getByText("Persisted unsafe source", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Persisted unsafe source" })).toHaveCount(0);
+
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Answer with streamed citations.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+  await dispatchPsychiatristEvent(page, {
+    data: {
+      pair_id: "pair-e2e-running",
+      source_citations: [
+        {
+          future_field: true,
+          source_id: "source-stream-safe",
+          title: "Streamed safe source",
+          url: "http://example.com/streamed",
+        },
+        {
+          source_id: "source-stream-unsafe",
+          title: "Streamed unsafe source",
+          url: "http://127.0.0.1/private",
+        },
+      ],
+      text: "Streamed cited answer.",
+    },
+    turnId: "turn-e2e-running",
+    type: "psychiatrist.answer.completed",
+  });
+
+  await expect(page.getByRole("link", { name: "Streamed safe source" }))
+    .toHaveAttribute("href", "http://example.com/streamed");
+  await expect(page.getByText("Streamed unsafe source", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Streamed unsafe source" })).toHaveCount(0);
+});
+
+test("keeps visible Psychiatrist process rows bounded and useful", async ({ page }) => {
+  await createReaderFixture();
+  await installPsychiatristMock(page);
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
+  await prompt.fill("Show bounded progress.");
+  await prompt.press("Enter");
+  await expect(page.getByText("Reading stored context", { exact: true })).toBeVisible();
+
+  for (let index = 0; index < 8; index += 1) {
+    await dispatchPsychiatristEvent(page, {
+      data: { pair_id: "pair-e2e-running", text: `  Phase   ${index}  ` },
+      turnId: "turn-e2e-running",
+      type: "psychiatrist.process.delta",
+    });
+  }
+  for (const text of ["Phase 7", "   ", "credential token /private/secret"]) {
+    await dispatchPsychiatristEvent(page, {
+      data: { pair_id: "pair-e2e-running", text },
+      turnId: "turn-e2e-running",
+      type: "psychiatrist.process.delta",
+    });
+  }
+
+  const runningPair = page.locator('[data-psychiatrist-pair="pair-e2e-running"]');
+  await expect(runningPair.locator("[data-psychiatrist-process]")).toHaveCount(8);
+  await expect(runningPair.getByText("Reading stored context", { exact: true })).toBeVisible();
+  await expect(runningPair.getByText("Phase 0", { exact: true })).toHaveCount(0);
+  for (let index = 1; index < 8; index += 1) {
+    await expect(runningPair.getByText(`Phase ${index}`, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText("Partial answer from the memory", { exact: false }))
+    .toBeVisible();
+});
+
+test("hands loading Psychiatrist focus from Close to the enabled prompt", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" })).toBeDisabled();
+
+  mock.releaseThread?.();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" })).toBeFocused();
+});
+
+test("does not steal focus moved by the user during Psychiatrist loading", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await trigger.click();
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await trigger.focus();
+
+  mock.releaseThread?.();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" })).toBeEnabled();
+  await expect(trigger).toBeFocused();
+});
+
+test("does not steal focus when Psychiatrist loading resolves after close", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page, { deferThreadRequests: [1] });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await trigger.click();
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Psychiatrist" })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  const threadResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`)
+  );
+  mock.releaseThread?.();
+  await threadResponse;
+  await expect(page.getByRole("region", { name: "Psychiatrist" })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("closes a malformed terminal stream and reconciles once from the canonical thread", async ({
+  page,
+}) => {
+  await createReaderFixture();
   const turnId = "turn-e2e-real-sse";
   const pairId = "pair-e2e-real-sse";
   const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
   try {
-    await installPsychiatristMock(page, {
+    await page.addInitScript(() => {
+      const state = window as typeof window & {
+        __psychiatristNativeEventSourceCloseCount?: number;
+      };
+      const NativeEventSource = window.EventSource;
+      state.__psychiatristNativeEventSourceCloseCount = 0;
+      class TrackedEventSource extends NativeEventSource {
+        override close() {
+          state.__psychiatristNativeEventSourceCloseCount =
+            (state.__psychiatristNativeEventSourceCloseCount ?? 0) + 1;
+          super.close();
+        }
+      }
+      Object.defineProperty(window, "EventSource", {
+        configurable: true,
+        value: TrackedEventSource,
+      });
+    });
+    const mock = await installPsychiatristMock(page, {
       eventUrlForTurn: () => transport.eventUrl,
       sendTurns: [{ pairId, turnId }],
       useFakeEventSource: false,
@@ -359,13 +873,92 @@ test("streams named psychiatrist events through the browser EventSource transpor
     await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
     expect(transport.clientClosed()).toBe(false);
 
-    transport.sendTerminal();
+    mock.completeActiveTurn?.("Canonical answer after malformed terminal.");
+    transport.sendMalformedTerminalAndClose();
 
-    await expect(page.getByText("Real SSE terminal answer.")).toBeVisible();
+    await expect.poll(() => mock.threadRequests).toBe(2);
+    await expect(page.getByText("Canonical answer after malformed terminal."))
+      .toBeVisible();
     await expect(page.getByRole("button", { exact: true, name: "Stop" })).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
       .toBeEnabled();
-    await expect.poll(() => transport.clientClosed()).toBe(true);
+    expect(mock.cancelRequests).toBe(0);
+    expect(transport.requestedUrls).toHaveLength(1);
+    await expect.poll(() => page.evaluate(() =>
+      (window as typeof window & {
+        __psychiatristNativeEventSourceCloseCount?: number;
+      }).__psychiatristNativeEventSourceCloseCount ?? 0
+    )).toBeGreaterThan(0);
+  } finally {
+    await transport.close();
+  }
+});
+
+test("shows Retry when malformed-terminal canonical reconciliation fails", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const turnId = "turn-e2e-real-sse-failed-reload";
+  const pairId = "pair-e2e-real-sse-failed-reload";
+  const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
+  try {
+    const mock = await installPsychiatristMock(page, {
+      eventUrlForTurn: () => transport.eventUrl,
+      sendTurns: [{ pairId, turnId }],
+      threadFailureRequests: [2],
+      useFakeEventSource: false,
+    });
+
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await waitForReaderReady(page);
+    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await page.getByRole("textbox", { name: "Message Psychiatrist" })
+      .fill("Reconcile a failed canonical reload.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => transport.requestedUrls.length).toBe(1);
+
+    transport.sendMalformedTerminalAndClose();
+
+    await expect.poll(() => mock.threadRequests).toBe(2);
+    await expect(page.getByRole("button", { name: "Retry thread load" })).toBeVisible();
+    expect(mock.cancelRequests).toBe(0);
+    expect(transport.requestedUrls).toHaveLength(1);
+  } finally {
+    await transport.close();
+  }
+});
+
+test("caps malformed-terminal canonical reconciliation at one automatic reload per turn", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const turnId = "turn-e2e-real-sse-budget";
+  const pairId = "pair-e2e-real-sse-budget";
+  const transport = await createControlledPsychiatristSseTransport({ pairId, turnId });
+  try {
+    const mock = await installPsychiatristMock(page, {
+      eventUrlForTurn: () => transport.eventUrl,
+      sendTurns: [{ pairId, turnId }],
+      useFakeEventSource: false,
+    });
+
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await waitForReaderReady(page);
+    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await page.getByRole("textbox", { name: "Message Psychiatrist" })
+      .fill("Bound malformed terminal recovery.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => transport.requestedUrls.length).toBe(1);
+
+    transport.sendMalformedTerminalAndClose();
+    await expect.poll(() => mock.threadRequests).toBe(2);
+    await expect.poll(() => transport.requestedUrls.length).toBe(2);
+
+    transport.sendMalformedTerminalAndClose();
+    await expect(page.getByRole("button", { name: "Retry thread load" })).toBeVisible();
+    expect(mock.threadRequests).toBe(2);
+    expect(mock.cancelRequests).toBe(0);
+    expect(transport.requestedUrls).toHaveLength(2);
   } finally {
     await transport.close();
   }
@@ -374,7 +967,7 @@ test("streams named psychiatrist events through the browser EventSource transpor
 test("keeps a running psychiatrist turn alive across navigation, reload, and explicit Stop", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -425,7 +1018,7 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
 test("reloads the canonical psychiatrist thread when completion wins the Stop race", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     cancelResults: ["completed"],
     deferNextCancel: true,
@@ -457,7 +1050,7 @@ test("reloads the canonical psychiatrist thread when completion wins the Stop ra
 test("keeps a terminal psychiatrist turn final when its pending Stop request later fails", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     deferNextCancel: true,
     rejectNextCancel: true,
@@ -493,7 +1086,7 @@ test("keeps a terminal psychiatrist turn final when its pending Stop request lat
 test("adopts a canonical successor after a successful canceled response", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-successor",
@@ -521,7 +1114,7 @@ test("adopts a canonical successor after a successful canceled response", async 
 test("becomes idle when a rejected cancel response persisted cancellation", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     canonicalizeRejectedCancel: true,
     rejectNextCancel: true,
@@ -542,7 +1135,7 @@ test("becomes idle when a rejected cancel response persisted cancellation", asyn
 test("restores the exact old active turn after an ambiguous cancel failure", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     rejectNextCancel: true,
   });
@@ -556,7 +1149,7 @@ test("restores the exact old active turn after an ambiguous cancel failure", asy
 
   await expect.poll(() => mock.threadRequests).toBeGreaterThan(1);
   await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Psychiatrist could not finish. Retry when ready.",
   })).toBeVisible();
 });
@@ -564,7 +1157,7 @@ test("restores the exact old active turn after an ambiguous cancel failure", asy
 test("keeps canceled Stop non-repeatable until failed reconciliation is retried", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     cancelResults: ["canceled"],
     threadFailureRequests: [2],
@@ -588,7 +1181,7 @@ test("keeps canceled Stop non-repeatable until failed reconciliation is retried"
 test("adopts a different canonical active turn after the stopped turn completed", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-running",
@@ -617,7 +1210,7 @@ test("adopts a different canonical active turn after the stopped turn completed"
 test("clears stopping when Stop reload resumes a different idle thread", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     cancelResults: ["completed"],
     sendTurns: [{ pairId: "pair-e2e-old", turnId: "turn-e2e-old" }],
@@ -640,7 +1233,7 @@ test("clears stopping when Stop reload resumes a different idle thread", async (
 test("adopts a successor active turn from a different Stop-reload thread", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await installPsychiatristMock(page, {
     activeTurnAfterCancel: {
       pairId: "pair-e2e-successor",
@@ -672,7 +1265,7 @@ test("adopts a successor active turn from a different Stop-reload thread", async
 test("does not carry a historical web-source retry into a successor active turn", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const historicalRetryPair = {
     ...completedPsychiatristPair("Historical answer requiring sources."),
     pair_id: "pair-e2e-historical",
@@ -703,7 +1296,7 @@ test("does not carry a historical web-source retry into a successor active turn"
   await expect(page.getByRole("button", {
     name: "Allow web sources for this turn",
   })).toHaveCount(0);
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Allow web search/source lookup for this answer to continue.",
   })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Stop" })).toBeEnabled();
@@ -712,7 +1305,7 @@ test("does not carry a historical web-source retry into a successor active turn"
 test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, { deferNextSend: true });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -732,31 +1325,68 @@ test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
 test("keeps psychiatrist actions disabled until thread loading succeeds and can retry", async ({
   page,
 }) => {
-  createReaderFixture();
-  await installPsychiatristMock(page, { threadFailures: 1 });
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    deferThreadRequests: [2],
+    threadFailures: 1,
+  });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await page.getByRole("button", { name: "Open Psychiatrist" }).click();
 
+  const close = page.getByRole("button", { name: "Close" });
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
     .toBeDisabled();
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Retry thread load" })).toBeVisible();
-  await expect(page.getByRole("status"))
+  await expect(page.getByRole("alert"))
     .toContainText("Start the Codex app-server, then retry Psychiatrist.");
+  await expect(close).toBeFocused();
+  await close.press("Tab");
+  await expect(page.getByRole("button", { name: "Retry thread load" })).toBeFocused();
 
   await page.getByRole("button", { name: "Retry thread load" }).click();
 
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(close).toBeFocused();
+  mock.releaseThread?.();
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
     .toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeFocused();
   await expect(page.getByRole("button", { name: "Retry thread load" })).toHaveCount(0);
+});
+
+test("does not steal Psychiatrist retry focus moved by the user", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    deferThreadRequests: [2],
+    threadFailures: 1,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await trigger.click();
+  await page.getByRole("button", { name: "Retry thread load" }).click();
+
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await trigger.focus();
+  mock.releaseThread?.();
+
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+  await expect(trigger).toBeFocused();
 });
 
 test("native-disables every Regenerate action while a psychiatrist turn is busy", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const secondPair = {
     ...completedPsychiatristPair("Second completed answer."),
     pair_id: "pair-e2e-second",
@@ -787,7 +1417,7 @@ test("native-disables every Regenerate action while a psychiatrist turn is busy"
 test("keeps a newer psychiatrist turn running when the stopped stream delivers a late terminal event", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     sendTurns: [
       { pairId: "pair-e2e-old", turnId: "turn-e2e-old" },
@@ -810,7 +1440,11 @@ test("keeps a newer psychiatrist turn running when the stopped stream delivers a
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
   await dispatchPsychiatristEvent(page, {
-    data: { pair_id: "pair-e2e-old" },
+    data: {
+      code: "turn_canceled",
+      pair_id: "pair-e2e-old",
+      status: "canceled",
+    },
     turnId: "turn-e2e-old",
     type: "psychiatrist.turn.canceled",
   });
@@ -822,7 +1456,7 @@ test("keeps a newer psychiatrist turn running when the stopped stream delivers a
 test("does not connect a deferred psychiatrist turn after the reader unmounts", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
   await page.addInitScript((responseBody) => {
     const originalFetch = window.fetch.bind(window);
@@ -899,7 +1533,7 @@ test("does not connect a deferred psychiatrist turn after the reader unmounts", 
 test("regenerates a psychiatrist answer in the same pair and preserves it after failed retry", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page, {
     initialPairs: [completedPsychiatristPair("Original answer from stored context.")],
   });
@@ -929,7 +1563,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   mock.failNextRegenerate = true;
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible();
   await page.getByRole("button", { name: "Regenerate" }).click();
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Psychiatrist could not finish. Retry when ready.",
   }))
     .toBeVisible();
@@ -960,7 +1594,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
 test("requires per-turn psychiatrist web-source approval before recording source policy", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const mock = await installPsychiatristMock(page);
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -969,7 +1603,7 @@ test("requires per-turn psychiatrist web-source approval before recording source
   await page.locator("textarea").fill("Use current web sources for this memory.");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByRole("paragraph").filter({
+  await expect(page.getByRole("alert").filter({
     hasText: "Allow web search/source lookup for this answer to continue.",
   }))
     .toBeVisible();
@@ -997,7 +1631,7 @@ test("requires per-turn psychiatrist web-source approval before recording source
 test("retains persisted web-source approval after an ambiguous Regenerate failure", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const retryPair = {
     ...completedPsychiatristPair("Answer awaiting approved sources."),
     retry_action: "allow_web_sources" as const,
@@ -1046,6 +1680,7 @@ interface PsychiatristMockState {
     };
   };
   cancelRequests: number;
+  completeActiveTurn?: (content: string) => void;
   failNextRegenerate: boolean;
   networkEnabledBeforeApproval: boolean;
   pairRevisionEvidence?: {
@@ -1060,6 +1695,7 @@ interface PsychiatristMockState {
   releaseCancel?: () => void;
   releaseRegenerate?: () => void;
   releaseSend?: () => void;
+  releaseThread?: () => void;
   startedRequests: Array<{
     message: string;
     web_source_permission: string;
@@ -1104,6 +1740,7 @@ async function installPsychiatristMock(
     deferNextCancel?: boolean;
     deferNextRegenerate?: boolean;
     deferNextSend?: boolean;
+    deferThreadRequests?: number[];
     eventUrlForTurn?: (turnId: string) => string;
     initialPairs?: PsychiatristPairFixture[];
     rejectNextCancel?: boolean;
@@ -1133,9 +1770,37 @@ async function installPsychiatristMock(
   let currentThreadId = "thread-e2e";
   let pairs = [...(input.initialPairs ?? [])];
   let remainingThreadFailures = input.threadFailures ?? 0;
+  state.completeActiveTurn = (content: string) => {
+    if (activeTurn === null) {
+      throw new Error("No active Psychiatrist turn can be completed");
+    }
+    const completedTurn = activeTurn;
+    pairs = pairs.map((pair) =>
+      pair.pair_id === completedTurn.pair_id
+        ? {
+            ...pair,
+            assistant_response: {
+              completed_at: "2026-06-03T00:00:05.000Z",
+              content,
+              source_citations: [],
+            },
+            status: "completed",
+          }
+        : pair
+    );
+    activeTurn = null;
+  };
 
   await page.route(`**/api/memories/${READER_MEMORY_ID}/psychiatrist/threads`, async (route) => {
     state.threadRequests += 1;
+    if (
+      input.deferThreadRequests?.includes(state.threadRequests) === true &&
+      state.releaseThread === undefined
+    ) {
+      await new Promise<void>((resolve) => {
+        state.releaseThread = resolve;
+      });
+    }
     const consumesRemainingFailure = remainingThreadFailures > 0;
     if (
       consumesRemainingFailure ||
@@ -1162,7 +1827,8 @@ async function installPsychiatristMock(
         active_turn: activeTurn === null
           ? null
           : {
-              event_url: psychiatristEventUrl(activeTurn.turn_id, currentThreadId),
+              event_url: input.eventUrlForTurn?.(activeTurn.turn_id) ??
+                psychiatristEventUrl(activeTurn.turn_id, currentThreadId),
               pair_id: activeTurn.pair_id,
               status: "running",
               turn_id: activeTurn.turn_id,
@@ -1554,6 +2220,18 @@ function completedPsychiatristPair(content: string): PsychiatristPairFixture {
   };
 }
 
+function completedPsychiatristPairAt(index: number): PsychiatristPairFixture {
+  return {
+    ...completedPsychiatristPair(`Historical answer ${index}.`),
+    pair_id: `pair-history-${index}`,
+    turn_id: `turn-history-${index}`,
+    user_prompt: {
+      content: `Historical question ${index}?`,
+      created_at: "2026-06-03T00:00:00.000Z",
+    },
+  };
+}
+
 function startedResponse(pairId: string, turnId: string, eventUrl?: string) {
   const resolvedEventUrl = eventUrl ?? psychiatristEventUrl(turnId);
   return {
@@ -1583,6 +2261,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
       {
         data: {
           pair_id: "pair-e2e-running",
+          status: "running",
           user_prompt: "What does this memory say?",
         },
         eventId: "000",
@@ -1607,7 +2286,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
     ],
     "turn-e2e-regenerate": [
       {
-        data: { pair_id: "pair-e2e" },
+        data: { pair_id: "pair-e2e", status: "running" },
         eventId: "001",
         type: "psychiatrist.regenerate.started",
       },
@@ -1630,7 +2309,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
     ],
     "turn-e2e-regenerate-stopped": [
       {
-        data: { pair_id: "pair-e2e" },
+        data: { pair_id: "pair-e2e", status: "running" },
         eventId: "001",
         type: "psychiatrist.regenerate.started",
       },
@@ -1639,6 +2318,7 @@ function psychiatristEventFramesByTurn(): Record<string, PsychiatristSseFrame[]>
       {
         data: {
           pair_id: "pair-e2e-web",
+          status: "running",
           user_prompt: "Use current web sources for this memory.",
         },
         eventId: "000",
@@ -1670,7 +2350,7 @@ interface ControlledPsychiatristSseTransport {
   eventUrl: string;
   origin: string;
   requestedUrls: string[];
-  sendTerminal: () => void;
+  sendMalformedTerminalAndClose: () => void;
 }
 
 async function createControlledPsychiatristSseTransport(input: {
@@ -1681,6 +2361,7 @@ async function createControlledPsychiatristSseTransport(input: {
   let clientClosed = false;
   const requestedUrls: string[] = [];
   const server: Server = createServer((request, response) => {
+    clientClosed = false;
     requestedUrls.push(request.url ?? "");
     activeResponse = response;
     response.on("close", () => {
@@ -1699,6 +2380,7 @@ async function createControlledPsychiatristSseTransport(input: {
       "real-001",
       {
         pair_id: input.pairId,
+        status: "running",
         user_prompt: "Exercise the real SSE transport.",
       },
     ));
@@ -1751,7 +2433,7 @@ async function createControlledPsychiatristSseTransport(input: {
     eventUrl: origin + eventPath,
     origin,
     requestedUrls,
-    sendTerminal: () => {
+    sendMalformedTerminalAndClose: () => {
       if (activeResponse === undefined || clientClosed) {
         throw new Error("Controlled Psychiatrist SSE response is not open.");
       }
@@ -1761,10 +2443,10 @@ async function createControlledPsychiatristSseTransport(input: {
         "real-004",
         {
           pair_id: input.pairId,
-          source_citations: [],
-          text: "Real SSE terminal answer.",
+          text: 42,
         },
       ));
+      activeResponse.end();
     },
   };
 }
@@ -1793,7 +2475,7 @@ function sseEvent(
 }
 
 test("toggles selected reader text as a persisted flashback", async ({ page }) => {
-  createReaderFixture();
+  await createReaderFixture();
   const selectedText = "Curated markdown body";
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1809,7 +2491,8 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
-  expect((await createResponse).ok()).toBe(true);
+  const created = await createResponse;
+  expect(created.status(), await created.text()).toBe(200);
 
   await page.reload();
   await waitForReaderReady(page);
@@ -1827,7 +2510,8 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
-  expect((await removeResponse).ok()).toBe(true);
+  const removed = await removeResponse;
+  expect(removed.status(), await removed.text()).toBe(200);
 
   await page.reload();
   await waitForReaderReady(page);
@@ -1837,10 +2521,121 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
 });
 
+test("keeps a warning-committed flashback and revalidates its authoritative id", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const selectedText = "Curated markdown body";
+  const warningMessage =
+    "Flashback change was saved, but export durability could not be confirmed.";
+  await page.route("**/api/flashbacks", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const payload = route.request().postDataJSON() as {
+      selection: {
+        endOffset: number;
+        prefix: string;
+        startOffset: number;
+        suffix: string;
+        text: string;
+      };
+    };
+    expect(payload.selection.text).toBe(selectedText);
+    const canonicalSelection = {
+      endOffset: "# Fixture Reader\n\n".length + selectedText.length,
+      prefix: "",
+      startOffset: "# Fixture Reader\n\n".length,
+      suffix: " with saved flashback.",
+      text: selectedText,
+    };
+    await mutateE2eFixtureState("flashback_warning_insert");
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        result: {
+          operation: "flashbacked",
+          flashbacks: [{
+            ...canonicalSelection,
+            id: "flashback-warning-response",
+            contentHash: null,
+            createdAt: "2026-05-09T00:02:00.000Z",
+          }],
+          durability: {
+            status: "unconfirmed",
+            warning: {
+              code: "flashback_export_durability_unconfirmed",
+              message: warningMessage,
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(warningMessage);
+  await expect(page.locator("mark#flashback-warning-authoritative")).toContainText(
+    selectedText,
+  );
+  await expect(page.locator("mark#flashback-warning-response")).toHaveCount(0);
+  expect(await readE2eFlashbackIds()).toContain("flashback-warning-authoritative");
+});
+
+test("keeps a warning-committed unflashback removed after authoritative revalidation", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  const selectedText = "saved flashback";
+  const warningMessage =
+    "Flashback change was saved, but export durability could not be confirmed.";
+  await page.route("**/api/flashbacks", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await mutateE2eFixtureState("flashback_warning_unflashback");
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        result: {
+          operation: "unflashbacked",
+          flashbacks: [],
+          durability: {
+            status: "unconfirmed",
+            warning: {
+              code: "flashback_export_durability_unconfirmed",
+              message: warningMessage,
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(warningMessage);
+  await expect(page.locator("mark#flashback-fixture")).toHaveCount(0);
+  await expect(page.locator("mark#flashback-deep-authoritative")).toBeVisible();
+  await expect(page.locator("mark#flashback-deep")).toHaveCount(0);
+  expect(await readE2eFlashbackIds()).not.toContain("flashback-fixture");
+});
+
 test("creates a Moment from a right-rail table of contents button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -1862,13 +2657,13 @@ test("creates a Moment from a right-rail table of contents button", async ({
       .getByRole("navigation", { name: "Table of contents" })
       .getByRole("button", { name: "Moment Details" }),
   ).toHaveAttribute("aria-pressed", "true");
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 });
 
 test("toggles a Moment off from the right-rail table of contents button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -1884,7 +2679,7 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   await tocButton.click();
   expect((await createResponse).status()).toBe(201);
   await expect(tocButton).toHaveAttribute("aria-pressed", "true");
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 
   const deleteResponse = page.waitForResponse(
     (response) =>
@@ -1895,13 +2690,71 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   await tocButton.click();
   expect((await deleteResponse).status()).toBe(204);
   await expect(tocButton).toHaveAttribute("aria-pressed", "false");
-  expect(readMomentAnchors()).not.toContain("details");
+  expect(await readMomentAnchors()).not.toContain("details");
+});
+
+test("preserves right-rail tab and scroll state while toggling a Moment", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1440, height: 700 });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const rightRailScroll = page.locator(".trauma-shell-right-rail > div");
+  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  const tocScroll = toc.locator("ol");
+  const allTab = page.getByRole("button", { exact: true, name: "All" });
+  await allTab.click();
+  await expect(allTab).toHaveAttribute("aria-pressed", "true");
+
+  const before = await page.evaluate(() => {
+    const rightRail = document.querySelector<HTMLElement>(
+      ".trauma-shell-right-rail > div",
+    );
+    const tocList = document.querySelector<HTMLElement>(
+      'nav[aria-label="Table of contents"] ol',
+    );
+    if (rightRail === null || tocList === null) {
+      throw new Error("Reader right-rail scroll containers are missing");
+    }
+    rightRail.scrollTop = Math.min(80, rightRail.scrollHeight - rightRail.clientHeight);
+    tocList.scrollTop = Math.min(120, tocList.scrollHeight - tocList.clientHeight);
+    return {
+      rightRail: rightRail.scrollTop,
+      toc: tocList.scrollTop,
+    };
+  });
+  expect(before.rightRail).toBeGreaterThan(0);
+  expect(before.toc).toBeGreaterThan(0);
+
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/moments") &&
+      response.request().method() === "POST",
+  );
+  await toc
+    .getByRole("button", { name: "Moment Section 20" })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  expect((await createResponse).status()).toBe(201);
+  await expect(
+    toc.getByRole("button", { name: "Moment Section 20" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(allTab).toHaveAttribute("aria-pressed", "true");
+
+  const after = {
+    rightRail: await rightRailScroll.evaluate((element) => element.scrollTop),
+    toc: await tocScroll.evaluate((element) => element.scrollTop),
+  };
+  expect(Math.abs(after.rightRail - before.rightRail)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.toc - before.toc)).toBeLessThanOrEqual(1);
 });
 
 test("creates a Moment from a reader heading affordance button", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -1918,13 +2771,13 @@ test("creates a Moment from a reader heading affordance button", async ({
 
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 });
 
 test("opens Moment rows at the reader section and deletes from the Moments menu", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1939,7 +2792,7 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
     .getByRole("button", { name: "Moment Details" })
     .click();
   expect((await createResponse).status()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
 
   await page.goto("/moments");
   await page.getByRole("link", { name: /Fixture Reader.*Details/s }).click();
@@ -1947,10 +2800,6 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   await expectReaderTargetNearTop(page, "#details");
 
   await page.goto("/moments");
-  page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe('Delete moment "Details"?');
-    void dialog.accept();
-  });
   const deleteResponse = page.waitForResponse(
     (response) =>
       /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
@@ -1958,16 +2807,100 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   );
   await page.getByRole("button", { name: "Moment actions for Details" }).click();
   await page.getByRole("menuitem", { name: "Delete moment" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete moment Details confirmation",
+  });
+  await expect(confirmation).toContainText(
+    'Delete moment "Details"? This action cannot be undone.',
+  );
+  await confirmation.getByRole("button", { name: "Delete moment" }).click();
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(page.getByRole("heading", { name: "Details" })).toHaveCount(0);
-  expect(readMomentAnchors()).not.toContain("details");
+  expect(await readMomentAnchors()).not.toContain("details");
+});
+
+test("moves keyboard focus to the next Moment after deleting a row", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await seedMomentDeleteFocusRows();
+  await page.goto("/moments");
+
+  const rows = page.locator("[data-collection-row]");
+  await expect(rows).toHaveCount(2);
+  const nextMomentLink = page.locator(
+    '[data-collection-row="moment-focus-older"] [data-collection-primary-link]',
+  );
+  await expect(nextMomentLink).toBeVisible();
+  const actions = rows.first().getByRole("button", {
+    name: /^Moment actions for /,
+  });
+  await actions.click();
+  const deleteItem = page.getByRole("menuitem", { name: "Delete moment" });
+  await expect(deleteItem).toBeFocused();
+  await deleteItem.press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: /^Delete moment .* confirmation$/,
+  });
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+  );
+  await confirmation.getByRole("button", { name: "Delete moment" }).press("Enter");
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: /^Moment actions for / })).toHaveCount(0);
+  await expect(nextMomentLink).toBeFocused();
+});
+
+test("moves keyboard focus to the next Flashback after deleting a row", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.goto("/flashbacks");
+
+  const rows = page.locator("[data-collection-row]");
+  await expect(rows).toHaveCount(2);
+  const nextFlashbackLink = page.locator(
+    '[data-collection-row="flashback-fixture"] [data-collection-primary-link]',
+  );
+  await expect(nextFlashbackLink).toBeVisible();
+  const actions = rows.first().getByRole("button", {
+    name: /^Flashback actions for /,
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.evaluate((button: HTMLButtonElement) => button.click());
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  const deleteItem = page.getByRole("menuitem", { name: "Delete flashback" });
+  await expect(deleteItem).toBeFocused();
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/flashbacks") &&
+      response.request().method() === "POST",
+  );
+  await deleteItem.press("Enter");
+
+  expect((await deleteResponse).status()).toBe(200);
+  await expect(page.getByRole("menu", { name: /^Flashback actions for / }))
+    .toHaveCount(0);
+  await expect(nextFlashbackLink).toBeFocused();
 });
 
 test("opens reader right-rail Flashback shortcuts at the reader flashback mark", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 700 });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
@@ -1983,38 +2916,81 @@ test("opens reader right-rail Flashback shortcuts at the reader flashback mark",
   await expectReaderTargetNearTop(page, "#flashback-deep");
 });
 
-test("creates a Moment from the selection menu when the range contains a section", async ({
+test("creates a Moment from the keyboard-operable selection toolbar", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await selectReaderSection(page, "details");
 
-  const menu = page.getByRole("menu", {
+  const toolbar = page.getByRole("toolbar", {
     name: "Reader text selection actions",
   });
-  await expect(
-    menu.getByRole("button", { name: "Moment selected section" }),
-  ).toBeVisible();
+  const flashbackButton = toolbar.getByRole("button", {
+    name: "Flashback selection",
+  });
+  const momentButton = toolbar.getByRole("button", {
+    name: "Moment selected section",
+  });
+  await expect(flashbackButton).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(momentButton).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(flashbackButton).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(momentButton).toBeFocused();
 
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/moments") &&
       response.request().method() === "POST",
   );
-  await menu.getByRole("button", { name: "Moment selected section" }).click();
+  await momentButton.click();
 
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
-  expect(readMomentAnchors()).toContain("details");
+  expect(await readMomentAnchors()).toContain("details");
+});
+
+test("keeps Space from scrolling before opening the selected-text toolbar on keyup", async ({
+  page,
+}) => {
+  await createReaderFixture();
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const readerContent = page.locator("[data-reader-content]");
+  const selectedText =
+    "Reader spacer paragraph 8 keeps lower anchors below the first viewport.";
+  await readerContent.focus();
+  await readerContent.getByText(selectedText, { exact: true }).scrollIntoViewIfNeeded();
+  await setReaderTextSelection(page, selectedText, false);
+
+  const initialScrollY = await page.evaluate(() => Math.round(window.scrollY));
+  expect(initialScrollY).toBeGreaterThan(0);
+  const toolbar = page.getByRole("toolbar", {
+    name: "Reader text selection actions",
+  });
+  await expect(toolbar).toHaveCount(0);
+
+  await page.keyboard.down(" ");
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(initialScrollY);
+  await expect(toolbar).toHaveCount(0);
+
+  await page.keyboard.up(" ");
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar).toHaveCount(1);
 });
 
 test("shows reader toc scroll blur fades only for available scroll directions", async ({
   page,
 }) => {
-  createReaderFixture();
+  await createReaderFixture();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
@@ -2102,6 +3078,61 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
   await expect(bottomFade).toHaveCount(0);
 });
 
+test("suspends reader heading layout reads while the right rail is hidden", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.addInitScript(() => {
+    const original = Element.prototype.getBoundingClientRect;
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads = 0;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.hasAttribute("data-reader-section-anchor")) {
+        const measuredWindow = window as Window & {
+          __readerHeadingRectReads?: number;
+        };
+        measuredWindow.__readerHeadingRectReads =
+          (measuredWindow.__readerHeadingRectReads ?? 0) + 1;
+      }
+      return original.call(this);
+    };
+  });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const resetMeasurementCount = () => page.evaluate(() => {
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads = 0;
+  });
+  const readMeasurementCount = () => page.evaluate(() =>
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads ?? 0
+  );
+  const settleAnimationFrames = () => page.evaluate(() =>
+    new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    })
+  );
+
+  await settleAnimationFrames();
+  await resetMeasurementCount();
+  await page.evaluate(() => window.dispatchEvent(new Event("scroll")));
+  await settleAnimationFrames();
+  expect(await readMeasurementCount()).toBe(0);
+
+  await resetMeasurementCount();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect.poll(readMeasurementCount).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 800, height: 900 });
+  await settleAnimationFrames();
+  await resetMeasurementCount();
+  await page.evaluate(() => window.dispatchEvent(new Event("scroll")));
+  await settleAnimationFrames();
+  expect(await readMeasurementCount()).toBe(0);
+});
+
 async function setReaderTheme(
   page: Page,
   brightness: "night" | "sun",
@@ -2117,239 +3148,24 @@ async function setReaderTheme(
   );
 }
 
-function createReaderFixture() {
-  runBunFixtureScript(`
-        import { mkdir, rm, writeFile } from "node:fs/promises";
-        import { dirname, join } from "node:path";
-        import { schema } from "./src/server/db/index.ts";
-        import { initializeDatabase } from "./src/server/db/connection.ts";
-        import { writeMemoryContent } from "./src/server/store/index.ts";
-
-        const configPath = join(process.cwd(), ".trauma/e2e/trauma.config.json");
-        const memoryId = "${READER_MEMORY_ID}";
-        const secondMemoryId = "${SECOND_READER_MEMORY_ID}";
-        const tocScrollMemoryId = "${TOC_SCROLL_MEMORY_ID}";
-        const config = {
-          storePath: "./project/store",
-          projectPath: "./project",
-          databasePath: "./runtime/trauma.sqlite",
-          backup: {
-            git: {
-              enabled: false,
-              remote: "origin",
-              branch: "main",
-              push: false,
-              commitMessageTemplate: "backup memory {memoryId}",
-            },
-          },
-        };
-        const resolvedConfig = {
-          configFilePath: configPath,
-          projectPath: join(process.cwd(), ".trauma/e2e/project"),
-          storePath: join(process.cwd(), ".trauma/e2e/project/store"),
-          databasePath: join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          backup: config.backup,
-        };
-        const readerMarkdown = [
-          "# Fixture Reader",
-          "",
-          "Curated markdown body with saved flashback.",
-          "",
-          "A [Reference link](https://example.com/reference) belongs to the reader content.",
-          "",
-          ...Array.from({ length: 16 }, (_, index) => [
-            \`Reader spacer paragraph \${index + 1} keeps lower anchors below the first viewport.\`,
-            "",
-          ]).flat(),
-          "## Details",
-          "",
-          "Details section keeps deep saved flashback in the lower reader body.",
-          "",
-          "| Kind | Value |",
-          "| --- | --- |",
-          "| reader | smoke |",
-          "",
-          ...Array.from({ length: 16 }, (_, index) => [
-            \`Reader trailing paragraph \${index + 1} keeps anchored sections scrollable to the top.\`,
-            "",
-          ]).flat(),
-        ].join("\\n");
-
-        await rm(join(process.cwd(), ".trauma/e2e"), { recursive: true, force: true });
-        await mkdir(dirname(configPath), { recursive: true });
-        await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-        async function insertMemory(memoryId, title, url) {
-          await connection.db.insert(schema.memories).values({
-            id: memoryId,
-            url,
-            title,
-            description: "Reader fixture",
-            faviconUrl: null,
-            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
-            extractionStatus: "success",
-            extractionError: null,
-            backupStatus: "disabled",
-            lastBackupAt: null,
-            lastBackupError: null,
-            createdAt: new Date("2026-05-09T00:00:00.000Z"),
-            updatedAt: new Date("2026-05-09T00:00:00.000Z"),
-          });
-        }
-
-        const connection = initializeDatabase(resolvedConfig);
-        try {
-          await insertMemory(memoryId, "Fixture Reader", "https://example.com/reader");
-          await insertMemory(secondMemoryId, "Second Fixture Reader", "https://example.com/second-reader");
-          await insertMemory(tocScrollMemoryId, "Long Contents Fixture", "https://example.com/long-contents");
-          const flashbackStartOffset = readerMarkdown.indexOf("saved flashback");
-          const deepFlashbackStartOffset = readerMarkdown.indexOf("deep saved flashback");
-          await connection.db.insert(schema.flashbacks).values([
-            {
-              id: "flashback-fixture",
-              memoryId,
-              text: "saved flashback",
-              prefix: "Curated markdown body with ",
-              suffix: ".",
-              startOffset: flashbackStartOffset,
-              endOffset: flashbackStartOffset + "saved flashback".length,
-              createdAt: new Date("2026-05-09T00:00:00.000Z"),
-              updatedAt: new Date("2026-05-09T00:00:00.000Z"),
-            },
-            {
-              id: "flashback-deep",
-              memoryId,
-              text: "deep saved flashback",
-              prefix: "Details section keeps ",
-              suffix: " in the lower reader body.",
-              startOffset: deepFlashbackStartOffset,
-              endOffset: deepFlashbackStartOffset + "deep saved flashback".length,
-              createdAt: new Date("2026-05-09T00:01:00.000Z"),
-              updatedAt: new Date("2026-05-09T00:01:00.000Z"),
-            },
-          ]);
-        } finally {
-          connection.close();
-        }
-
-        async function writeFixtureContent(memoryId, title, url, markdown) {
-          await writeMemoryContent({
-            config: resolvedConfig,
-            memoryId,
-            frontmatter: {
-              id: memoryId,
-              url,
-              title,
-              capturedAt: "2026-05-09T00:00:00.000Z",
-              extractionStatus: "success",
-            },
-            markdown,
-          });
-        }
-
-        await writeFixtureContent(
-          memoryId,
-          "Fixture Reader",
-          "https://example.com/reader",
-          readerMarkdown,
-        );
-        await writeFixtureContent(
-          secondMemoryId,
-          "Second Fixture Reader",
-          "https://example.com/second-reader",
-          [
-            "# Second Fixture Reader",
-            "",
-            "Second reader body.",
-            "",
-            "## Follow Up",
-            "",
-            "Ready-to-ready navigation should replace the rendered article.",
-          ].join("\\n"),
-        );
-        await writeFixtureContent(
-          tocScrollMemoryId,
-          "Long Contents Fixture",
-          "https://example.com/long-contents",
-          [
-            "# Long Contents Fixture",
-            "",
-            "This reader exists to make the right-rail table of contents overflow.",
-            "",
-            ...Array.from({ length: 48 }, (_, index) => [
-              \`## Section \${index + 1}\`,
-              "",
-              \`Body \${index + 1}.\`,
-            ]).flat(),
-          ].join("\\n"),
-        );
-  `);
+async function createReaderFixture(): Promise<void> {
+  await materializeE2eFixture("reader_base");
 }
 
-function seedReaderTranslationDefaults(input: {
-  model: string | null;
-  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
-}) {
-  runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
-
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-        );
-        const now = Date.parse("2026-05-28T00:00:00.000Z");
-        try {
-          database
-            .query(\`
-              insert into app_settings (
-                id,
-                translation_target_language,
-                codex_translation_model,
-                codex_translation_reasoning_effort,
-                created_at,
-                updated_at
-              ) values (?, ?, ?, ?, ?, ?)
-              on conflict(id) do update set
-                translation_target_language = excluded.translation_target_language,
-                codex_translation_model = excluded.codex_translation_model,
-                codex_translation_reasoning_effort = excluded.codex_translation_reasoning_effort,
-                updated_at = excluded.updated_at
-            \`)
-            .run(
-              "default",
-              "ja-JP",
-              ${JSON.stringify(input.model)},
-              ${JSON.stringify(input.reasoningEffort)},
-              now,
-              now,
-            );
-        } finally {
-          database.close();
-        }
-  `);
+async function seedMomentDeleteFocusRows(): Promise<void> {
+  await mutateE2eFixtureState("moment_delete_focus_rows");
 }
 
-function readMomentAnchors(): string[] {
-  const stdout = runBunFixtureScript(`
-        import { Database } from "bun:sqlite";
-        import { join } from "node:path";
+async function seedReaderTranslationDefaults(): Promise<void> {
+  await mutateE2eFixtureState("settings_translation_defaults");
+}
 
-        const database = new Database(
-          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
-          { readonly: true },
-        );
-        try {
-          database.exec("PRAGMA busy_timeout = 5000");
-          const rows = database
-            .query("select section_anchor from moments order by created_at asc")
-            .all();
-          console.log(JSON.stringify(rows.map((row) => row.section_anchor)));
-        } finally {
-          database.close();
-        }
-  `);
+async function readMomentAnchors(): Promise<string[]> {
+  return inspectE2eFixtureValues("moment_anchors");
+}
 
-  return JSON.parse(stdout.trim()) as string[];
+async function readE2eFlashbackIds(): Promise<string[]> {
+  return inspectE2eFixtureValues("flashback_ids");
 }
 
 async function waitForReaderReady(page: Page) {
@@ -2360,8 +3176,17 @@ async function waitForReaderReady(page: Page) {
 }
 
 async function selectReaderText(page: Page, text: string) {
+  await setReaderTextSelection(page, text, true);
+}
+
+async function setReaderTextSelection(
+  page: Page,
+  text: string,
+  notifyReader: boolean,
+) {
   await waitForReaderReady(page);
-  await page.locator("[data-reader-content]").evaluate((root, selectedText) => {
+  await page.locator("[data-reader-content]").evaluate((root, input) => {
+    const { notifyReader, selectedText } = input;
     const findTextNode = (node: Node): Text | undefined => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
       let current = walker.nextNode();
@@ -2391,8 +3216,10 @@ async function selectReaderText(page: Page, text: string) {
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  }, text);
+    if (notifyReader) {
+      root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    }
+  }, { notifyReader, selectedText: text });
 }
 
 async function selectReaderSection(page: Page, anchor: string) {

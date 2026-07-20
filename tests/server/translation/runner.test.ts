@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { MemoryBackupQueue } from "../../../src/server/backup";
+import type { DurableMemoryBackupQueue } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { createMemoryContentFixture } from "../../../src/server/store";
@@ -15,6 +15,12 @@ import {
   startTranslationJob,
 } from "../../../src/server/translation/runner";
 import {
+  BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES,
+  BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES,
+} from "../../../src/server/translation/prompt";
+import { splitFrontmatter } from "../../../src/server/translation/markdown-blocks";
+import { DEFAULT_TRANSLATION_WORKLOAD_LIMITS } from "../../../src/server/translation/limits";
+import {
   resolveTranslatedMemoryContentPath,
   resolveTranslatedMemoryProjectionPath,
 } from "../../../src/server/translation/paths";
@@ -23,14 +29,28 @@ import type {
   RawCodexChunkOutput,
   TranslationChunk,
 } from "../../../src/server/translation/types";
-import type {
-  TranslateChunkInput,
-  TranslationClient,
+import {
+  CodexAppServerError,
+  type TranslateChunkInput,
+  type TranslationClient,
 } from "../../../src/server/translation/codex-app-server";
+import type { TranslationCodexEventAdmissionLimits } from "../../../src/server/translation/event-admission";
+import {
+  CODEX_RUNTIME_ISOLATION_ENV,
+  LEGACY_CODEX_RUNTIME_ISOLATION_ENV,
+} from "../../../src/server/codex/runtime-isolation";
 
 const tempRoots: string[] = [];
 const now = new Date("2026-05-21T00:00:00.000Z");
 const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f905";
+
+function restoreEnvironment(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -39,13 +59,422 @@ afterEach(async () => {
 });
 
 describe("translation runner", () => {
+  it("does not reserve a production translation job without runtime isolation", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const previousShared = process.env[CODEX_RUNTIME_ISOLATION_ENV];
+    const previousLegacy = process.env[LEGACY_CODEX_RUNTIME_ISOLATION_ENV];
+    delete process.env[CODEX_RUNTIME_ISOLATION_ENV];
+    delete process.env[LEGACY_CODEX_RUNTIME_ISOLATION_ENV];
+    const jobId = "019e3906-0000-7000-8000-000000000099";
+
+    try {
+      await expect(
+        startTranslationJob({
+          config,
+          generateJobId: () => jobId,
+          memoryId,
+          now,
+          schedule: () => {
+            throw new Error("must not schedule an unisolated turn");
+          },
+        }),
+      ).rejects.toMatchObject({ code: "runtime_isolation_required" });
+
+      const connection = initializeDatabase(config);
+      try {
+        await expect(
+          connection.repositories.translations.getTranslationJob(jobId),
+        ).resolves.toBeNull();
+      } finally {
+        connection.close();
+      }
+    } finally {
+      restoreEnvironment(CODEX_RUNTIME_ISOLATION_ENV, previousShared);
+      restoreEnvironment(LEGACY_CODEX_RUNTIME_ISOLATION_ENV, previousLegacy);
+    }
+  });
+
+  it("starts a job through the atomic job-and-chunks repository operation", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    let atomicCreateCalls = 0;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000021",
+        memoryId,
+        now,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                createTranslationJob: async () => {
+                  throw new Error("non-atomic job creation must not be used");
+                },
+                createTranslationJobWithChunks: async (...args) => {
+                  atomicCreateCalls += 1;
+                  return translations.createTranslationJobWithChunks(...args);
+                },
+                insertTranslationChunks: async () => {
+                  throw new Error("separate chunk insertion must not be used");
+                },
+              },
+            },
+          };
+        },
+        schedule: () => undefined,
+      }),
+    ).resolves.toMatchObject({ status: "started" });
+    expect(atomicCreateCalls).toBe(1);
+  });
+
+  it("rejects an oversized indivisible source block before durable scheduling", async () => {
+    const config = await createConfig();
+    const markdown = `# Source\n\n\`\`\`text\n${"protected-code-line\n".repeat(700)}\`\`\`\n`;
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000112";
+    let scheduled = false;
+
+    await expect(
+      startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => {
+          scheduled = true;
+        },
+      }),
+    ).rejects.toMatchObject({
+      action: "open_source_reader",
+      code: "validation_failed",
+    });
+
+    expect(scheduled).toBe(false);
+    expect(client.inputs).toHaveLength(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it.each([
+    {
+      jobId: "019e3906-0000-7000-8000-000000000115",
+      label: "source bytes",
+      markdown: Buffer.from([0xff, 0xff]),
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: 1,
+      },
+    },
+    {
+      jobId: "019e3906-0000-7000-8000-000000000116",
+      label: "segment count",
+      markdown: "Short sentence. ".repeat(20_000),
+      workloadLimits: DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+    },
+    {
+      jobId: "019e3906-0000-7000-8000-000000000117",
+      label: "chunk count",
+      markdown: "Chunked sentence. ".repeat(700),
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxChunks: 1,
+      },
+    },
+  ])("rejects aggregate $label before client creation or durable scheduling", async ({
+    jobId,
+    markdown,
+    workloadLimits,
+  }) => {
+    const config = await createConfig();
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    let clientCreations = 0;
+    let scheduled = false;
+
+    await expect(
+      startTranslationJob({
+        config,
+        createClient: () => {
+          clientCreations += 1;
+          return new FakeTranslationClient();
+        },
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => {
+          scheduled = true;
+        },
+        workloadLimits,
+      }),
+    ).rejects.toMatchObject({
+      action: "open_source_reader",
+      code: "validation_failed",
+    });
+
+    expect(clientCreations).toBe(0);
+    expect(scheduled).toBe(false);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toBeNull();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rejects an oversized resumed source before decoding or creating a client", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const started = await startTranslationJob({
+      client: new FakeTranslationClient(),
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000118",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    await writeSourceContent(config, Buffer.from([0xff, 0xff]));
+    let clientCreations = 0;
+
+    await runTranslationJob(started.job_id, {
+      config,
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeTranslationClient();
+      },
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: 1,
+      },
+    });
+
+    expect(clientCreations).toBe(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation source exceeds the total source byte limit.",
+        },
+        status: "failed",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rechecks the source byte limit during commit reload without creating a client", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const started = await startTranslationJob({
+      client: new FakeTranslationClient(),
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000119",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let blockStitchingOnce = true;
+    await runTranslationJob(started.job_id, {
+      client: new FakeTranslationClient(),
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              transitionTranslationJobStatus: async (...args) => {
+                if (
+                  blockStitchingOnce &&
+                  args[1] === "running" &&
+                  args[2] === "stitching"
+                ) {
+                  blockStitchingOnce = false;
+                  return false;
+                }
+                return translations.transitionTranslationJobStatus(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    const sourcePath = join(
+      config.storePath,
+      "memories",
+      memoryId,
+      "CONTENT.md",
+    );
+    const sourceBytes = await readFile(sourcePath);
+    const transitionConnection = initializeDatabase(config);
+    try {
+      await transitionConnection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "committing",
+        { updatedAt: now },
+      );
+    } finally {
+      transitionConnection.close();
+    }
+
+    let chunkReads = 0;
+    let clientCreations = 0;
+    let backupCalls = 0;
+    const backupQueue: DurableMemoryBackupQueue = {
+      enqueue: async () => {
+        backupCalls += 1;
+        return { backupStatus: "queued" };
+      },
+      persistIntent: async () => {
+        backupCalls += 1;
+        return { backupStatus: "pending" };
+      },
+    };
+    await runTranslationJob(started.job_id, {
+      backupQueue,
+      config,
+      createClient: () => {
+        clientCreations += 1;
+        return new FakeTranslationClient();
+      },
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              getTranslationChunks: async (...args) => {
+                const chunks = await translations.getTranslationChunks(...args);
+                chunkReads += 1;
+                if (chunkReads === 2) {
+                  await writeFile(
+                    sourcePath,
+                    Buffer.concat([sourceBytes, Buffer.from([0xff])]),
+                  );
+                }
+                return chunks;
+              },
+            },
+          },
+        };
+      },
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxSourceBytes: sourceBytes.byteLength,
+      },
+    });
+
+    expect(chunkReads).toBe(2);
+    expect(clientCreations).toBe(0);
+    expect(backupCalls).toBe(0);
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation source exceeds the total source byte limit.",
+        },
+        status: "failed",
+      });
+    } finally {
+      verifyConnection.close();
+    }
+  });
+
+  it("stitches bounded paragraph and list fragments in exact Markdown order", async () => {
+    const config = await createConfig();
+    const markdown = [
+      "# Ordered source",
+      "",
+      Array.from(
+        { length: 700 },
+        (_, index) => `Paragraph marker ${String(index).padStart(4, "0")}.`,
+      ).join(" "),
+      "",
+      ...Array.from(
+        { length: 700 },
+        (_, index) => `- List marker ${String(index).padStart(4, "0")} remains ordered.`,
+      ),
+      "",
+    ].join("\n");
+    await writeSourceContent(config, markdown);
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000113",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.inputs.length).toBeGreaterThan(2);
+    expect(client.inputs.every((input) =>
+      Buffer.byteLength(input.prompt, "utf8") <=
+        BRILLIANT_MAX_TRANSLATION_PROMPT_BYTES
+    )).toBe(true);
+    const sourcePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
+    const outputPath = join(
+      config.storePath,
+      "memories",
+      memoryId,
+      "ja-JP",
+      "CONTENT.md",
+    );
+    const sourceBody = splitFrontmatter(await readFile(sourcePath, "utf8")).bodyMarkdown;
+    const outputBody = splitFrontmatter(await readFile(outputPath, "utf8")).bodyMarkdown;
+    expect(outputBody).toBe(sourceBody);
+  });
+
   it("starts a job, translates chunks, commits output, and reuses current output", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
     await createMemoryRow(config);
     const client = new FakeTranslationClient();
     const enqueued: unknown[] = [];
-    const backupQueue: MemoryBackupQueue = {
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
       enqueue: async (input) => {
         enqueued.push(input);
         return { backupStatus: "queued" };
@@ -117,6 +546,7 @@ describe("translation runner", () => {
         contentPaths: [
           `memories/${memoryId}/ja-JP/CONTENT.md`,
           `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+          `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
         ],
         memoryId,
         reason: "translation_update",
@@ -143,6 +573,103 @@ describe("translation runner", () => {
       status: "current",
       reader_url: `/memories/ja-JP/${memoryId}`,
     });
+  });
+
+  it("persists CRLF source spans in canonical reader coordinates", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      "First sentence.\r\n\r\nSecond sentence.",
+    );
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000114",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const projectionPath = resolveTranslatedMemoryProjectionPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const sidecar = JSON.parse(
+      await readFile(projectionPath.absolutePath, "utf8"),
+    ) as {
+      spans: Array<{
+        segmentId: string;
+        sourceMarkdownEnd: number;
+        sourceMarkdownStart: number;
+        sourceReaderEnd: number;
+        sourceReaderStart: number;
+        translatedReaderEnd: number;
+        translatedReaderStart: number;
+      }>;
+    };
+
+    expect(sidecar.spans).toHaveLength(2);
+    expect(sidecar.spans[1]).toMatchObject({
+      segmentId: "s000002",
+      sourceMarkdownEnd: 35,
+      sourceMarkdownStart: 19,
+      sourceReaderEnd: 32,
+      sourceReaderStart: 16,
+      translatedReaderEnd: 32,
+      translatedReaderStart: 16,
+    });
+  });
+
+  it("loads persisted chunk state once before translating a multi-chunk job", async () => {
+    const config = await createConfig();
+    await writeSourceContent(
+      config,
+      [
+        "# Brilliant Source",
+        ...Array.from({ length: 81 }, () => "Body."),
+      ].join("\n\n"),
+    );
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000022",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let chunkStateReads = 0;
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              getTranslationChunks: async (...args) => {
+                chunkStateReads += 1;
+                return translations.getTranslationChunks(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    expect(client.inputs).toHaveLength(2);
+    expect(chunkStateReads).toBe(2);
   });
 
   it("rejects request languages that differ from the configured target", async () => {
@@ -281,6 +808,140 @@ describe("translation runner", () => {
 
     client.completeTranslation();
     await runPromise;
+  });
+
+  it("interrupts and fails safely without retry after Codex event admission is exceeded", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new OversizedEventTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000031";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({ maxEventBytes: 128 }),
+      config,
+    });
+
+    expect(client.callCount).toBe(1);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-limit", turnId: "turn-limit" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "unknown",
+          message: "Translation failed.",
+        },
+        status: "failed",
+      });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(jobId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          retryCount: 0,
+          status: "failed",
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("accumulates the job event budget across reset chunk attempts", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new AdmissionRetryTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000032";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({
+        maxChunkAttemptEvents: 2,
+        maxJobEvents: 3,
+      }),
+      config,
+    });
+
+    expect(client.callCount).toBe(2);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-retry-2", turnId: "turn-retry-2" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: { action: "none", code: "unknown" },
+        status: "failed",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("lets cancellation win a race with Codex event admission failure", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000033";
+    const client = new CancelAfterEventLimitTranslationClient(async () => {
+      const connection = initializeDatabase(config);
+      try {
+        await connection.repositories.translations
+          .requestRunningTranslationJobCancellation(jobId, new Date());
+      } finally {
+        connection.close();
+      }
+    });
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      codexEventLimits: tinyCodexEventLimits({ maxEventBytes: 128 }),
+      config,
+    });
+
+    expect(client.callCount).toBe(1);
+    expect(client.cancelCalls).toEqual([
+      { threadId: "thread-limit", turnId: "turn-limit" },
+    ]);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
   });
 
   it("preserves academic Markdown syntax while committing segment translations", async () => {
@@ -540,6 +1201,227 @@ describe("translation runner", () => {
     expect(events).not.toContain("translation.job.completed");
   });
 
+  it("does not overwrite cancellation accepted while terminalizing a failure", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000031";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new DiagnosticFailingTranslationClient("diagnostic");
+    let cancellationInjected = false;
+    const injectCancellation = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!cancellationInjected && targetStatus === "failed") {
+        cancellationInjected = true;
+        await translations.requestRunningTranslationJobCancellation(
+          jobId,
+          new Date(),
+        );
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.failed");
+  });
+
+  it("does not overwrite cancellation accepted while terminalizing stale source", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000032";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new FakeTranslationClient();
+    let cancellationInjected = false;
+    const injectCancellation = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!cancellationInjected && targetStatus === "stale") {
+        cancellationInjected = true;
+        await translations.requestRunningTranslationJobCancellation(
+          jobId,
+          new Date(),
+        );
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await writeSourceContent(config, "# Brilliant Source\n\nChanged.");
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectCancellation(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).toContain("translation.job.canceled");
+    expect(events).not.toContain("translation.job.stale");
+  });
+
+  it("does not emit completion when the complete CAS loses a terminal race", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const jobId = "019e3906-0000-7000-8000-000000000033";
+    const events: string[] = [];
+    const unsubscribe = translationEventBus.subscribe(jobId, (event) => {
+      events.push(event.type);
+    });
+    const client = new FakeTranslationClient();
+    let terminalRaceInjected = false;
+    const injectTerminalRace = async (
+      targetStatus: string,
+      translations: ReturnType<typeof initializeDatabase>["repositories"]["translations"],
+    ) => {
+      if (!terminalRaceInjected && targetStatus === "complete") {
+        terminalRaceInjected = true;
+        await translations.updateTranslationJobStatus(jobId, "canceled", {
+          completedAt: new Date(),
+          error: null,
+          updatedAt: new Date(),
+        });
+      }
+    };
+
+    try {
+      const started = await startTranslationJob({
+        client,
+        config,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: () => undefined,
+      });
+      await runTranslationJob(started.job_id, {
+        client,
+        config,
+        openConnection: (connectionConfig) => {
+          const connection = initializeDatabase(connectionConfig);
+          const translations = connection.repositories.translations;
+          return {
+            ...connection,
+            repositories: {
+              ...connection.repositories,
+              translations: {
+                ...translations,
+                updateTranslationJobStatus: async (...args) => {
+                  await injectTerminalRace(args[1], translations);
+                  return translations.updateTranslationJobStatus(...args);
+                },
+                transitionTranslationJobStatus: async (...args) => {
+                  await injectTerminalRace(args[2], translations);
+                  return translations.transitionTranslationJobStatus(...args);
+                },
+              },
+            },
+          };
+        },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    const connection = initializeDatabase(config);
+    try {
+      await expect(connection.repositories.translations.getTranslationJob(jobId))
+        .resolves.toMatchObject({ status: "canceled" });
+    } finally {
+      connection.close();
+    }
+    expect(events).not.toContain("translation.job.completed");
+    expect(events).not.toContain("translation.job.failed");
+  });
+
   it("does not retry a failed chunk after cancellation is requested", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -577,6 +1459,41 @@ describe("translation runner", () => {
       connection.close();
     }
     expect(client.callCount).toBe(1);
+  });
+
+  it("persists a safe projection of Codex failures", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const secret = "/Users/alice/.codex/auth.json token=unique-secret";
+    const client = new DiagnosticFailingTranslationClient(secret);
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000099",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    const connection = initializeDatabase(config);
+    try {
+      const job = await connection.repositories.translations.getTranslationJob(
+        started.job_id,
+      );
+      expect(job).toMatchObject({
+        status: "failed",
+        error: {
+          code: "app_server_protocol_error",
+          message: "Codex app-server returned an invalid response.",
+        },
+      });
+      expect(JSON.stringify(job)).not.toContain(secret);
+    } finally {
+      connection.close();
+    }
   });
 
   it("feeds validation diagnostics into the next chunk retry prompt", async () => {
@@ -729,6 +1646,161 @@ describe("translation runner", () => {
     }
   });
 
+  it("fails oversized translated output without retrying or persisting the payload", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, "# x");
+    await createMemoryRow(config);
+    const client = new OversizedOutputTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000110";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, { client, config });
+
+    expect(client.callCount).toBe(1);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: { code: "validation_failed" },
+        status: "failed",
+      });
+      const chunks = await connection.repositories.translations
+        .getTranslationChunks(jobId);
+      expect(chunks).toEqual([
+        expect.objectContaining({
+          projectionSpansJson: null,
+          retryCount: 0,
+          status: "failed",
+          translatedMarkdown: null,
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+    await expect(
+      readFile(
+        join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+        "utf8",
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails aggregate multi-chunk output before persisting the overflowing chunk", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, "Chunked sentence. ".repeat(700));
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000120";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const sourceBytes = await readFile(
+      join(config.storePath, "memories", memoryId, "CONTENT.md"),
+    );
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxOutputBytes: sourceBytes.byteLength - 1,
+      },
+    });
+
+    expect(client.inputs.length).toBeGreaterThan(1);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation output exceeds the total output byte limit.",
+        },
+        status: "failed",
+      });
+      const chunks = await connection.repositories.translations
+        .getTranslationChunks(jobId);
+      expect(chunks.filter((chunk) => chunk.status === "complete").length)
+        .toBeGreaterThan(0);
+      expect(chunks).toContainEqual(expect.objectContaining({
+        projectionSpansJson: null,
+        retryCount: 0,
+        status: "failed",
+        translatedMarkdown: null,
+      }));
+    } finally {
+      connection.close();
+    }
+    await expect(
+      readFile(
+        join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+        "utf8",
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails a prompt byte-limit violation before client send without retrying", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000111";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      promptByteLimit: 1,
+    });
+
+    expect(client.inputs).toHaveLength(0);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+        },
+        status: "failed",
+      });
+      await expect(
+        connection.repositories.translations.getTranslationChunks(jobId),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          retryCount: 0,
+          status: "failed",
+          translatedMarkdown: null,
+        }),
+      ]);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("closes a translation client when the scheduled run owns it", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
@@ -750,6 +1822,67 @@ describe("translation runner", () => {
       config,
     });
 
+    expect(client.closeCalls).toBe(1);
+  });
+
+  it("closes owned probe clients before queueing and runs queued jobs with a fresh client", async () => {
+    const queued: Array<{
+      config: ResolvedTraumaConfig;
+      jobId: string;
+      options: Parameters<typeof runTranslationJob>[1];
+      probeClient: CloseTrackingTranslationClient;
+    }> = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const config = await createConfig();
+      await writeSourceContent(config);
+      await createMemoryRow(config);
+      const probeClient = new CloseTrackingTranslationClient();
+      const jobId = `019e3906-0000-7000-8000-00000000010${index}`;
+      await startTranslationJob({
+        config,
+        createClient: () => probeClient,
+        generateJobId: () => jobId,
+        memoryId,
+        now,
+        schedule: (scheduledJobId, options) => {
+          expect(probeClient.closeCalls).toBe(1);
+          expect(options).not.toHaveProperty("client");
+          queued.push({ config, jobId: scheduledJobId, options, probeClient });
+        },
+      });
+    }
+
+    expect(queued).toHaveLength(3);
+    expect(queued.every(({ probeClient }) => probeClient.closeCalls === 1)).toBe(true);
+    const executionClient = new CloseTrackingTranslationClient();
+    const first = queued[0]!;
+    await runTranslationJob(first.jobId, {
+      ...first.options,
+      createClient: () => executionClient,
+    });
+    expect(executionClient.inputs).toHaveLength(1);
+    expect(executionClient.closeCalls).toBe(1);
+  });
+
+  it("does not double-close an owned probe client when scheduling fails", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new CloseTrackingTranslationClient();
+
+    await expect(
+      startTranslationJob({
+        config,
+        createClient: () => client,
+        generateJobId: () => "019e3906-0000-7000-8000-000000000109",
+        memoryId,
+        now,
+        schedule: () => {
+          throw new Error("queue unavailable");
+        },
+      }),
+    ).rejects.toThrow("queue unavailable");
     expect(client.closeCalls).toBe(1);
   });
 
@@ -780,7 +1913,8 @@ describe("translation runner", () => {
     await writeSourceContent(config);
     await createMemoryRow(config);
     const client = new FakeTranslationClient();
-    const backupQueue: MemoryBackupQueue = {
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async () => ({ backupStatus: "pending" }),
       enqueue: async () => {
         throw new Error("backup queue is unavailable");
       },
@@ -917,7 +2051,7 @@ describe("translation runner", () => {
                       ...args,
                     );
                 },
-                createTranslationJob: async () => {
+                createTranslationJobWithChunks: async () => {
                   throw new Error("UNIQUE constraint failed: translation_jobs");
                 },
               },
@@ -980,7 +2114,7 @@ describe("translation runner", () => {
                       ...args,
                     );
                 },
-                createTranslationJob: async () => {
+                createTranslationJobWithChunks: async () => {
                   throw new Error("UNIQUE constraint failed: translation_jobs");
                 },
               },
@@ -1065,6 +2199,301 @@ describe("translation runner", () => {
       verifyConnection.close();
     }
   });
+
+  it("resumes same-version completed chunks without translating them twice", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const persistedIntents: unknown[] = [];
+    const enqueuedBackups: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        persistedIntents.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        enqueuedBackups.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000024",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    let blockStitchingOnce = true;
+
+    await runTranslationJob(started.job_id, {
+      backupQueue,
+      client,
+      config,
+      openConnection: (connectionConfig) => {
+        const connection = initializeDatabase(connectionConfig);
+        const translations = connection.repositories.translations;
+        return {
+          ...connection,
+          repositories: {
+            ...connection.repositories,
+            translations: {
+              ...translations,
+              transitionTranslationJobStatus: async (...args) => {
+                if (
+                  blockStitchingOnce &&
+                  args[1] === "running" &&
+                  args[2] === "stitching"
+                ) {
+                  blockStitchingOnce = false;
+                  return false;
+                }
+                return translations.transitionTranslationJobStatus(...args);
+              },
+            },
+          },
+        };
+      },
+    });
+
+    expect(client.inputs).toHaveLength(1);
+    const interruptedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        interruptedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "running" });
+      await expect(
+        interruptedConnection.repositories.translations.getTranslationChunks(started.job_id),
+      ).resolves.toEqual([
+        expect.objectContaining({ chunkIndex: 0, status: "complete" }),
+      ]);
+    } finally {
+      interruptedConnection.close();
+    }
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    expect(client.inputs).toHaveLength(1);
+    expect(persistedIntents).toHaveLength(1);
+    expect(enqueuedBackups).toHaveLength(1);
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.toContain("華麗なソース");
+    const completedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        completedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      completedConnection.close();
+    }
+  });
+
+  it.each([
+    {
+      mismatch: "prompt policy version",
+      mutation: "update translation_jobs set prompt_policy_version = 'brilliant-old'",
+    },
+    {
+      mismatch: "chunker version",
+      mutation: "update translation_jobs set chunker_version = 'chunker-segments-v1'",
+    },
+    {
+      mismatch: "runtime chunk count",
+      mutation: "update translation_jobs set chunk_count = 2",
+    },
+    {
+      mismatch: "persisted chunk count",
+      mutation: "delete from translation_chunks",
+    },
+    {
+      mismatch: "chunk index manifest",
+      mutation: "update translation_chunks set chunk_index = 1",
+    },
+    {
+      mismatch: "block id manifest",
+      mutation: "update translation_chunks set block_ids_json = '[\"changed-block\"]'",
+    },
+    {
+      mismatch: "source chunk hash",
+      mutation: "update translation_chunks set source_chunk_hash = 'sha256:changed-chunk'",
+    },
+  ])("terminalizes a resume with incompatible $mismatch and allows a fresh job", async ({ mutation }) => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const backupCalls: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        backupCalls.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        backupCalls.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000025",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const mutationConnection = initializeDatabase(config);
+    try {
+      mutationConnection.sqlite.run(`${mutation} where job_id = '${started.job_id}'`);
+    } finally {
+      mutationConnection.close();
+    }
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    expect(client.inputs).toEqual([]);
+    expect(backupCalls).toEqual([]);
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    const failedConnection = initializeDatabase(config);
+    try {
+      await expect(
+        failedConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        error: {
+          action: "start_fresh_translation",
+          code: "translation_unavailable",
+          message: "Translation job is incompatible with the current translation runtime.",
+        },
+        status: "failed",
+      });
+    } finally {
+      failedConnection.close();
+    }
+
+    await expect(startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000026",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    })).resolves.toMatchObject({
+      job_id: "019e3906-0000-7000-8000-000000000026",
+      status: "started",
+    });
+  });
+
+  it("replays a committing job after an orphan output write and backs up the completed projection", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config);
+    await createMemoryRow(config);
+    const client = new FakeTranslationClient();
+    const persistedIntents: unknown[] = [];
+    const enqueuedBackups: unknown[] = [];
+    const backupQueue: DurableMemoryBackupQueue = {
+      persistIntent: async (input) => {
+        persistedIntents.push(input);
+        return { backupStatus: "pending" };
+      },
+      enqueue: async (input) => {
+        enqueuedBackups.push(input);
+        return { backupStatus: "queued" };
+      },
+    };
+    const started = await startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      generateJobId: () => "019e3906-0000-7000-8000-000000000023",
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const outputPath = resolveTranslatedMemoryContentPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const projectionPath = resolveTranslatedMemoryProjectionPath({
+      config,
+      langCode: "ja-JP",
+      memoryId,
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.translations.updateTranslationJobStatus(
+        started.job_id,
+        "committing",
+        { updatedAt: now },
+      );
+    } finally {
+      connection.close();
+    }
+    await mkdir(dirname(outputPath.absolutePath), { recursive: true });
+    await writeFile(outputPath.absolutePath, "# Orphan output\n", "utf8");
+
+    const scheduledJobIds: string[] = [];
+    await expect(startTranslationJob({
+      backupQueue,
+      client,
+      config,
+      memoryId,
+      now,
+      schedule: (jobId) => {
+        scheduledJobIds.push(jobId);
+      },
+    })).resolves.toMatchObject({
+      status: "active",
+      job_id: started.job_id,
+      job_status: "committing",
+    });
+    expect(scheduledJobIds).toEqual([started.job_id]);
+
+    await runTranslationJob(started.job_id, { backupQueue, client, config });
+
+    const expectedBackup = {
+      contentPaths: [
+        outputPath.relativePath,
+        projectionPath.relativePath,
+        `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
+      ],
+      memoryId,
+      reason: "translation_update",
+    };
+    expect(persistedIntents).toEqual([expectedBackup]);
+    expect(enqueuedBackups).toEqual([expectedBackup]);
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.toContain("華麗なソース");
+    await expect(readFile(outputPath.absolutePath, "utf8"))
+      .resolves.not.toContain("Orphan output");
+    await expect(readFile(projectionPath.absolutePath, "utf8"))
+      .resolves.toContain(`"jobId": "${started.job_id}"`);
+    const verifyConnection = initializeDatabase(config);
+    try {
+      await expect(
+        verifyConnection.repositories.translations.getTranslationJob(started.job_id),
+      ).resolves.toMatchObject({
+        status: "complete",
+        outputPath: outputPath.relativePath,
+      });
+    } finally {
+      verifyConnection.close();
+    }
+  });
 });
 
 class FakeTranslationClient implements TranslationClient {
@@ -1082,6 +2511,22 @@ class FakeTranslationClient implements TranslationClient {
           "Brilliant Source",
           "華麗なソース",
         ).replaceAll("Body.", "本文。"),
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class IdentityTranslationClient extends FakeTranslationClient {
+  override async translateChunk(
+    input: TranslateChunkInput,
+  ): Promise<RawCodexChunkOutput> {
+    this.inputs.push(input);
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment) => ({
+        id: segment.id,
+        translated_text: segment.text,
       })),
       warnings: [],
     };
@@ -1154,6 +2599,97 @@ class InterruptibleTranslationClient implements TranslationClient {
   waitUntilTurnStarted(): Promise<void> {
     return this.turnStarted;
   }
+}
+
+class OversizedEventTranslationClient implements TranslationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    input.onEvent?.({ type: "thread.started", threadId: "thread-limit" });
+    input.onEvent?.({ type: "turn.started", turnId: "turn-limit" });
+    input.onEvent?.({ type: "delta", text: "界".repeat(64) });
+    return validTranslationOutput(input);
+  }
+}
+
+class AdmissionRetryTranslationClient implements TranslationClient {
+  readonly cancelCalls: Array<{ threadId: string; turnId: string }> = [];
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async cancelTurn(input: { threadId: string; turnId: string }): Promise<void> {
+    this.cancelCalls.push(input);
+  }
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    input.onEvent?.({
+      type: "thread.started",
+      threadId: `thread-retry-${this.callCount}`,
+    });
+    input.onEvent?.({
+      type: "turn.started",
+      turnId: `turn-retry-${this.callCount}`,
+    });
+    if (this.callCount === 1) {
+      return {
+        chunk_index: input.chunk.chunkIndex,
+        segments: [],
+        warnings: [],
+      };
+    }
+    return validTranslationOutput(input);
+  }
+}
+
+class CancelAfterEventLimitTranslationClient extends OversizedEventTranslationClient {
+  constructor(private readonly requestCancel: () => Promise<void>) {
+    super();
+  }
+
+  override async translateChunk(
+    input: TranslateChunkInput,
+  ): Promise<RawCodexChunkOutput> {
+    const output = await super.translateChunk(input);
+    await this.requestCancel();
+    return output;
+  }
+}
+
+function validTranslationOutput(input: TranslateChunkInput): RawCodexChunkOutput {
+  return {
+    chunk_index: input.chunk.chunkIndex,
+    segments: input.chunk.segments.map((segment) => ({
+      id: segment.id,
+      translated_text: segment.text.replaceAll(
+        "Brilliant Source",
+        "華麗なソース",
+      ).replaceAll("Body.", "本文。"),
+    })),
+    warnings: [],
+  };
+}
+
+function tinyCodexEventLimits(
+  overrides: Partial<TranslationCodexEventAdmissionLimits>,
+): TranslationCodexEventAdmissionLimits {
+  return {
+    maxChunkAttemptBytes: 1_000_000,
+    maxChunkAttemptEvents: 1_000,
+    maxEventBytes: 1_000_000,
+    maxJobBytes: 1_000_000,
+    maxJobEvents: 1_000,
+    ...overrides,
+  };
 }
 
 class GraceTimeoutTranslationClient implements TranslationClient {
@@ -1374,6 +2910,39 @@ class EmptySegmentRetryTranslationClient implements TranslationClient {
   }
 }
 
+class OversizedOutputTranslationClient implements TranslationClient {
+  callCount = 0;
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(input: TranslateChunkInput): Promise<RawCodexChunkOutput> {
+    this.callCount += 1;
+    return {
+      chunk_index: input.chunk.chunkIndex,
+      segments: input.chunk.segments.map((segment, index) => ({
+        id: segment.id,
+        translated_text: index === 0
+          ? "x".repeat(BRILLIANT_MAX_TRANSLATED_SEGMENT_BYTES + 1)
+          : segment.text,
+      })),
+      warnings: [],
+    };
+  }
+}
+
+class DiagnosticFailingTranslationClient implements TranslationClient {
+  constructor(private readonly diagnostic: string) {}
+
+  async probe(): Promise<void> {}
+
+  async translateChunk(): Promise<RawCodexChunkOutput> {
+    throw new CodexAppServerError(
+      "app_server_protocol_error",
+      this.diagnostic,
+    );
+  }
+}
+
 class CloseTrackingTranslationClient extends FakeTranslationClient {
   closeCalls = 0;
 
@@ -1414,10 +2983,14 @@ async function createMemoryRow(config: ResolvedTraumaConfig): Promise<void> {
 
 async function writeSourceContent(
   config: ResolvedTraumaConfig,
-  markdown = "# Brilliant Source\n\nBody.",
+  markdown: string | Uint8Array = "# Brilliant Source\n\nBody.",
 ): Promise<void> {
   const filePath = join(config.storePath, "memories", memoryId, "CONTENT.md");
   await mkdir(dirname(filePath), { recursive: true });
+  if (typeof markdown !== "string") {
+    await writeFile(filePath, markdown);
+    return;
+  }
   await writeFile(
     filePath,
     createMemoryContentFixture({

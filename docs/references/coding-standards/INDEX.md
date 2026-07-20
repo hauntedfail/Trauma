@@ -1,12 +1,8 @@
 # Coding Standards Index
 
-This directory defines Trauma's implementation rules. Read the files that match
-the code you are changing.
-
-The project uses ECC common rules and TypeScript extensions as strict defaults.
-When a generic ECC rule conflicts with Trauma's stack, these local rules win.
-The most important stack-specific override is that Trauma is SolidStart/Solid,
-not React.
+This directory defines TRAUMA's self-contained implementation rules. Read only
+the files that match the code being changed. Generic external guidance is
+subordinate to these repository-local rules and the current architecture.
 
 ## Rule Levels
 
@@ -46,10 +42,3 @@ The rules are grounded in the official docs for the active stack:
   behavior.
 - Drizzle codebase-first migrations, relations, transactions, and `sql`
   template usage.
-
-## Review Feedback Loop
-
-Valid review feedback should first become a test, static check, tool
-configuration, or workflow automation when possible. Use
-[Review feedback policy](review-feedback-policy.md) to decide when prose docs
-are justified.

@@ -1,59 +1,85 @@
 # Architecture Overview
 
-TRAUMA is a single-user, local-first bookmark management app that can also run
-on a single VPS or home server with persistent local disk.
+TRAUMA is a single-user, local-first bookmark manager that can also run as one
+self-hosted instance on a VPS or home server with persistent local disk.
 
-The app uses a SolidStart monolith: UI, route handlers, server functions, and
-server modules live in one TypeScript project. The monolith is intentional. The
-project is a sub-project and should stay light to operate.
+The app is an intentional SolidStart monolith. UI, route handlers, server
+functions, and server modules live in one TypeScript project to keep operation
+and maintenance light.
 
 ## Runtime Shape
 
-- One Bun process.
+- One Bun application process.
 - One SolidStart app.
-- One SQLite metadata database.
-- One markdown store rooted at `storePath`.
-- One built-in git backup queue for markdown content.
+- One SQLite database for relational runtime state.
+- One file-backed memory store rooted at `storePath`.
+- One in-process sequential git backup queue for selected store artifacts.
+- An optional, separately operated Codex app-server for Brilliant translation
+  and Psychiatrist turns.
 
-Avoid introducing separate API services, external queues, managed databases, or
-serverless-first assumptions unless a later design explicitly changes the
-foundation.
+The one-process rule is fail-closed. A process-lifetime lease protects the
+effective `databasePath`, `storePath`, and `projectPath` before storage opens.
+Overlapping paths and filesystem aliases contend; disjoint sibling trees can
+run independently. Maintenance commands use the same ownership boundary.
+
+Those three storage-root paths are restart-scoped. Manual path changes are
+rejected before the new storage opens. A root-changing backup recovery reserves
+both the current and previous roots, returns its own request and database
+borrows, then suspends storage admission only when no other admitted work is
+active. A busy runtime rejects the recovery without changing config. After
+successful suspension, or an ownership-integrity failure during suspension,
+restart the TRAUMA process before any further storage work.
+
+Direct database initialization holds the same database-family ownership for the
+returned connection lifetime. This also serializes migration and WAL setup when
+`initializeDatabase` is used outside the server runtime. Lease refresh may add
+inode identities only for the originally admitted primary and sidecar paths;
+path retargeting and newly introduced hardlink aliases fail before ownership
+can expand.
+
+Avoid separate API services, external queues, managed databases, or
+serverless-first assumptions unless a current design explicitly changes this
+shape.
 
 ## Module Boundaries
 
-Server-side code should be organized around these responsibilities:
+Server-side code is organized around these responsibilities:
 
-- `config`: load and validate `trauma.config.json`.
-- `db`: Drizzle schema and repository functions over SQLite.
-- `importer`: fetch URLs and extract readable content.
-- `store`: create and read memory markdown files.
-- `backup`: enqueue and run built-in git backup work.
-- `reader`: render markdown through the curated reader pipeline.
-- `ui shell`: route-level layouts, navigation, filters, composer, and reader UI.
+- `config`: load and validate `trauma.config.json` and operator environment.
+- `db`: Drizzle schema, migrations, and repositories over SQLite.
+- `importer`: fetch public URLs and extract readable content.
+- `store`: resolve, create, read, and remove memory-store artifacts.
+- `backup`: validate backup identity and enqueue explicit store paths for git.
+- `reader`: render untrusted Markdown through the curated reader pipeline.
+- `translation`: run durable Brilliant jobs through Codex app-server.
+- `psychiatrist`: run memory-scoped turns and persist thread artifacts.
+- `ui shell`: shared navigation, responsive chrome, filters, popovers, and
+  route-owned surfaces.
 
-Each module should expose a narrow API. UI code should not reach into storage,
-backup, or importer internals directly; it should call route loaders, server
-functions, or repository-level interfaces.
+Each module exposes a narrow API. UI code does not reach into storage, backup,
+importer, translation, Psychiatrist, or database internals; it uses route
+loaders, actions, server functions, or domain interfaces.
 
 ## Dependency Direction
 
-Preferred dependency direction:
-
 ```text
-UI routes/actions
-  -> application/server functions
-    -> importer | store | backup | reader | db repositories
-      -> config | filesystem | SQLite | git
+UI routes and actions
+  -> application and server functions
+    -> domain services and repositories
+      -> config | filesystem | SQLite | git | Codex app-server
 ```
 
-Keep filesystem writes inside `store` and git operations inside `backup`.
-Keep SQL details inside `db`.
+Keep SQL inside `db`, store-path writes inside owning server modules, git
+operations inside `backup`, and Codex protocol details behind their adapters.
 
 ## Explicit Non-Goals
 
-- Next.js.
-- PostgreSQL in the initial implementation.
+- Next.js or React-specific routing assumptions.
+- PostgreSQL or managed database services.
 - Serverless or edge runtime compatibility.
-- Authentication or user ownership.
+- TRAUMA user accounts, sessions, public signup, or multi-user ownership.
 - External queue infrastructure.
 - Generic lifecycle hooks.
+
+Codex app-server authentication used by optional backend features is not a
+TRAUMA user-authentication system.

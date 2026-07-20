@@ -1,6 +1,6 @@
 # Technology Stack Reference
 
-This reference records the selected initial stack and explicit exclusions.
+This reference records the selected current stack and explicit exclusions.
 
 ## Selected Stack
 
@@ -13,6 +13,8 @@ This reference records the selected initial stack and explicit exclusions.
 - Database: SQLite through Drizzle's Bun SQLite support.
 - Web content extraction: Defuddle with linkedom for server-side DOM parsing.
 - Browser-assisted import: local Chrome Manifest V3 extension built with Bun.
+- Optional AI backend transport: a separately operated Codex app-server over
+  its Unix listener.
 - Unit/integration testing: Vitest.
 - E2E testing: Playwright.
 
@@ -58,19 +60,23 @@ This is not a serverless-first application.
 ## Rationale
 
 SolidStart keeps routing, SSR, server functions, and UI in one lightweight app.
-Bun keeps the runtime/package manager surface small. SQLite and markdown files
-keep operational cost low and work naturally with a single persistent disk.
+Bun keeps the runtime/package manager surface small. SQLite and the file-backed
+memory store keep operational cost low and work naturally with one persistent
+disk.
 
 Drizzle is used to keep the schema and query layer type-safe while remaining
 close to SQL.
 
 ## Exclusions
 
-Do not introduce these into the initial implementation:
+Do not introduce these into the current architecture without an explicit
+design change:
 
 - Next.js.
 - PostgreSQL or managed database services.
 - Redis or external job queues.
 - Serverless/edge-only deployment assumptions.
 - React-specific component or routing assumptions.
-- Authentication/user ownership.
+- TRAUMA user accounts, browser sessions, public signup, or multi-user
+  ownership. Codex app-server login is an integration credential, not product
+  user authentication.

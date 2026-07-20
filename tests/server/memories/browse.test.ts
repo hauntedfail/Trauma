@@ -9,10 +9,7 @@ import {
   createInitialBrowseMemoryPageRequest,
   parseBrowseQuery,
 } from "../../../src/components/memories/browse-data";
-import {
-  loadBrowseMemories,
-  loadBrowseMemoryPage,
-} from "../../../src/server/memories/browse";
+import { loadBrowseMemoryPage } from "../../../src/server/memories/browse";
 
 const previousConfigPath = process.env.TRAUMA_CONFIG_PATH;
 const previousBrowseFixtures = process.env.TRAUMA_BROWSE_FIXTURES;
@@ -27,7 +24,6 @@ describe("browse memory loader error policy", () => {
     const cwd = mkdtempSync(join(tmpdir(), "trauma-missing-config-"));
 
     await withCwd(cwd, async () => {
-      await expect(loadBrowseMemories()).rejects.toThrow(/Missing trauma config/);
       await expect(
         loadBrowseMemoryPage(
           createInitialBrowseMemoryPageRequest(parseBrowseQuery("")),
@@ -50,7 +46,7 @@ describe("browse memory loader error policy", () => {
 
     expect(firstPage).toMatchObject({
       memories: [
-        { id: "memory-foundation", flashbacks: [] },
+        { id: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901", flashbacks: [] },
         { id: "memory-ops", flashbacks: [] },
       ],
       nextCursor: { createdAt: "2026-05-08", id: "memory-ops" },
@@ -71,12 +67,18 @@ describe("browse memory loader error policy", () => {
 
     const output = runBunScript(
       `
-        import { loadBrowseMemories } from "./src/server/memories/browse.ts";
+        import {
+          createInitialBrowseMemoryPageRequest,
+          parseBrowseQuery,
+        } from "./src/components/memories/browse-data.ts";
+        import { loadBrowseMemoryPage } from "./src/server/memories/browse.ts";
 
         process.chdir(process.env.TRAUMA_TEST_CWD);
         process.env.TRAUMA_CONFIG_PATH = process.env.TRAUMA_TEST_CONFIG_PATH;
 
-        const result = await loadBrowseMemories();
+        const result = await loadBrowseMemoryPage(
+          createInitialBrowseMemoryPageRequest(parseBrowseQuery("")),
+        );
         process.stdout.write(JSON.stringify(result));
       `,
       {
@@ -85,36 +87,7 @@ describe("browse memory loader error policy", () => {
       },
     );
 
-    expect(JSON.parse(output)).toEqual([]);
-  });
-
-  it("starts the backup retry queue while loading browse memories", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "trauma-browse-retry-cwd-"));
-    const configRoot = mkdtempSync(join(tmpdir(), "trauma-browse-retry-config-"));
-    const configPath = writeConfig(configRoot);
-
-    const output = runBunScript(
-      `
-        import { loadBrowseMemories } from "./src/server/memories/browse.ts";
-
-        process.chdir(process.env.TRAUMA_TEST_CWD);
-        process.env.TRAUMA_CONFIG_PATH = process.env.TRAUMA_TEST_CONFIG_PATH;
-
-        const starts = [];
-        await loadBrowseMemories({
-          startBackupQueue: (config) => {
-            starts.push(config.projectPath);
-          },
-        });
-        process.stdout.write(JSON.stringify(starts));
-      `,
-      {
-        TRAUMA_TEST_CONFIG_PATH: configPath,
-        TRAUMA_TEST_CWD: cwd,
-      },
-    );
-
-    expect(JSON.parse(output)).toEqual([join(configRoot, "data")]);
+    expect(JSON.parse(output)).toEqual({ memories: [], nextCursor: null });
   });
 
   it("starts the backup retry queue while loading browse memory pages", async () => {
@@ -281,7 +254,7 @@ describe("browse memory loader error policy", () => {
     });
   });
 
-  it("includes current translated flashbacks in browse rows and hides stale translated output hashes", () => {
+  it("matches current translated flashbacks in paged filters and hides stale output hashes", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-browse-translated-"));
     const configPath = writeConfig(root);
     const output = runBunScript(
@@ -290,7 +263,11 @@ describe("browse memory loader error policy", () => {
         import { dirname, join } from "node:path";
         import { schema } from "./src/server/db/index.ts";
         import { initializeDatabase } from "./src/server/db/connection.ts";
-        import { loadBrowseMemories } from "./src/server/memories/browse.ts";
+        import {
+          createInitialBrowseMemoryPageRequest,
+          parseBrowseQuery,
+        } from "./src/components/memories/browse-data.ts";
+        import { loadBrowseMemoryPage } from "./src/server/memories/browse.ts";
         import {
           createMemoryContentFixture,
           writeMemoryContent,
@@ -447,8 +424,19 @@ describe("browse memory loader error policy", () => {
           dbConnection.close();
         }
 
-        const result = await loadBrowseMemories();
-        process.stdout.write(JSON.stringify(result));
+        const current = await loadBrowseMemoryPage({
+          ...createInitialBrowseMemoryPageRequest(
+            parseBrowseQuery("?flashback=translated-current"),
+          ),
+          limit: 1,
+        });
+        const stale = await loadBrowseMemoryPage({
+          ...createInitialBrowseMemoryPageRequest(
+            parseBrowseQuery("?flashback=translated-stale"),
+          ),
+          limit: 1,
+        });
+        process.stdout.write(JSON.stringify({ current, stale }));
       `,
       {
         TRAUMA_TEST_CONFIG_PATH: configPath,
@@ -456,20 +444,18 @@ describe("browse memory loader error policy", () => {
       },
     );
 
-    expect(JSON.parse(output)).toEqual([
-      expect.objectContaining({
-        id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f206",
-        flashbacks: [
+    expect(JSON.parse(output)).toEqual({
+      current: {
+        memories: [
           expect.objectContaining({
-            id: "translated-current",
-            variantKind: "translation",
-            langCode: "ja-JP",
-            translationOutputHash: expect.stringMatching(/^sha256:/),
-            text: "翻訳されたflashback対象。",
+            id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f206",
+            flashbacks: [],
           }),
         ],
-      }),
-    ]);
+        nextCursor: null,
+      },
+      stale: { memories: [], nextCursor: null },
+    });
   });
 });
 

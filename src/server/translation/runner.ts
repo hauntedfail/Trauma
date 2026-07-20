@@ -1,7 +1,7 @@
 import { MemoryContentStoreError } from "../store";
 import {
   getMemoryBackupQueue,
-  type MemoryBackupQueue,
+  type DurableMemoryBackupQueue,
 } from "../backup";
 import {
   loadRuntimeTraumaConfig,
@@ -13,11 +13,16 @@ import {
   type TraumaDatabaseConnection,
   type TraumaRepositories,
 } from "../db";
+import type {
+  TranslationChunkRecord,
+  TranslationJobRecord,
+} from "../db/repositories";
 import { generateMemoryId } from "../memories/id";
 import { createTranslationChunks } from "./chunker";
 import {
   CodexAppServerClient,
   CodexAppServerError,
+  safeCodexAppServerErrorMessage,
   type TranslationClient,
 } from "./codex-app-server";
 import {
@@ -25,7 +30,17 @@ import {
   resolveCurrentTranslationReadOnly,
 } from "./current-translation";
 import { translationEventBus } from "./events";
+import {
+  TranslationCodexEventAdmission,
+  type TranslationCodexEventAdmissionLimits,
+} from "./event-admission";
 import { createSha256ContentHash } from "./hash";
+import {
+  assertTranslationSourceAdmission,
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  TranslationOutputAdmission,
+  type TranslationWorkloadLimits,
+} from "./limits";
 import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
 import {
   BRILLIANT_CHUNKER_VERSION,
@@ -51,8 +66,13 @@ import {
   type TranslationJobFailedData,
   type TranslationJobSnapshotError,
   type TranslationJobStaleData,
+  type TranslationJobStatus,
 } from "./types";
 import { isSupportedLanguageCode, type SupportedLanguageCode } from "./languages";
+import {
+  CODEX_RUNTIME_ISOLATION_ERROR,
+  isCodexRuntimeIsolationReady,
+} from "../codex/runtime-isolation";
 
 export type StartTranslationJobResult =
   | {
@@ -98,7 +118,7 @@ export interface TranslationJobSnapshot {
 }
 
 interface StartTranslationJobInput {
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   client?: TranslationClient;
   config?: ResolvedTraumaConfig;
   createClient?: () => TranslationClient;
@@ -110,15 +130,20 @@ interface StartTranslationJobInput {
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
   reasoningEffort?: string | null;
   schedule?: (jobId: string, options: TranslationRunOptions) => void;
+  workloadLimits?: TranslationWorkloadLimits;
 }
 
 interface TranslationRunOptions {
-  backupQueue?: MemoryBackupQueue;
+  backupQueue?: DurableMemoryBackupQueue;
   cancelGraceMs?: number;
   closeClientAfterRun?: boolean;
   client?: TranslationClient;
+  codexEventLimits?: TranslationCodexEventAdmissionLimits;
   config?: ResolvedTraumaConfig;
+  createClient?: () => TranslationClient;
   openConnection?: (config: ResolvedTraumaConfig) => TraumaDatabaseConnection;
+  promptByteLimit?: number;
+  workloadLimits?: TranslationWorkloadLimits;
 }
 
 let queue: Promise<void> = Promise.resolve();
@@ -159,7 +184,6 @@ export async function startTranslationJob(
   const now = input.now ?? new Date();
   const connection = openConnection(config);
   let ownedClient: TranslationClient | undefined;
-  let ownedClientScheduled = false;
   try {
     const memory = await connection.repositories.memories.findById(input.memoryId);
     if (memory === undefined) {
@@ -192,6 +216,9 @@ export async function startTranslationJob(
 
     const source = await loadTranslationSourceSnapshot({
       config,
+      maxSourceBytes:
+        (input.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
+          .maxSourceBytes,
       memoryId: input.memoryId,
     });
     const current = await resolveCurrentTranslationReadOnly({
@@ -221,6 +248,18 @@ export async function startTranslationJob(
       });
     }
 
+    if (
+      !isCodexRuntimeIsolationReady({
+        hasInjectedClient:
+          input.client !== undefined || input.createClient !== undefined,
+      })
+    ) {
+      throw new TranslationApiError(
+        CODEX_RUNTIME_ISOLATION_ERROR.code,
+        "Brilliant translation requires an externally isolated Codex runtime.",
+      );
+    }
+
     const active = await connection.repositories.translations.findActiveTranslationJob(
       input.memoryId,
       langCode,
@@ -232,6 +271,10 @@ export async function startTranslationJob(
       return createActiveTranslationResult(active, input.memoryId, langCode);
     }
 
+    assertTranslationSourceAdmission(
+      source.byteSize,
+      input.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+    );
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const jobId = input.generateJobId === undefined
       ? generateMemoryId(now)
@@ -242,6 +285,7 @@ export async function startTranslationJob(
       langCode,
       memoryId: input.memoryId,
       source,
+      workloadLimits: input.workloadLimits,
     });
     if (chunks.length === 0) {
       throw new TranslationApiError(
@@ -249,6 +293,12 @@ export async function startTranslationJob(
         "Source CONTENT.md has no translatable content.",
         "open_source_reader",
       );
+    }
+    for (const chunk of chunks) {
+      buildTranslationPrompt({
+        chunk,
+        targetLanguage: langCode,
+      });
     }
 
     const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
@@ -276,18 +326,27 @@ export async function startTranslationJob(
     }
     let job;
     try {
-      job = await connection.repositories.translations.createTranslationJob({
-        chunkCount: chunks.length,
-        chunkerVersion: BRILLIANT_CHUNKER_VERSION,
-        jobId,
-        langCode,
-        memoryId: input.memoryId,
-        model: selection.model,
-        now,
-        promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
-        reasoningEffort: selection.reasoningEffort,
-        sourceHash: source.sourceHash,
-      });
+      job = await connection.repositories.translations.createTranslationJobWithChunks(
+        {
+          chunkCount: chunks.length,
+          chunkerVersion: BRILLIANT_CHUNKER_VERSION,
+          jobId,
+          langCode,
+          memoryId: input.memoryId,
+          model: selection.model,
+          now,
+          promptPolicyVersion: BRILLIANT_PROMPT_POLICY_VERSION,
+          reasoningEffort: selection.reasoningEffort,
+          sourceHash: source.sourceHash,
+        },
+        chunks.map((chunk) => ({
+          blockIds: chunk.blockIds,
+          chunkIndex: chunk.chunkIndex,
+          now,
+          sourceChunkHash: chunk.sourceChunkHash,
+          status: "pending",
+        })),
+      );
     } catch (error) {
       const racedActive = isTranslationActiveUniquenessError(error)
         ? await connection.repositories.translations.findActiveTranslationJob(
@@ -299,22 +358,9 @@ export async function startTranslationJob(
       if (racedActive === null) {
         throw error;
       }
-      if (input.client === undefined) {
-        await closeTranslationClient(client);
-      }
       assertReusableActiveJob(racedActive);
       return createActiveTranslationResult(racedActive, input.memoryId, langCode);
     }
-    await connection.repositories.translations.insertTranslationChunks(
-      jobId,
-      chunks.map((chunk) => ({
-        blockIds: chunk.blockIds,
-        chunkIndex: chunk.chunkIndex,
-        now,
-        sourceChunkHash: chunk.sourceChunkHash,
-        status: "pending",
-      })),
-    );
     translationEventBus.emit({
       data: { chunk_count: chunks.length },
       jobId,
@@ -334,14 +380,16 @@ export async function startTranslationJob(
     }
 
     const schedule = input.schedule ?? enqueueTranslationJobRun;
+    if (ownedClient !== undefined) {
+      await closeTranslationClient(ownedClient);
+      ownedClient = undefined;
+    }
     schedule(job.jobId, {
       backupQueue: input.backupQueue,
-      closeClientAfterRun: input.client === undefined,
-      client,
       config,
       openConnection,
+      workloadLimits: input.workloadLimits,
     });
-    ownedClientScheduled = input.client === undefined;
 
     return {
       status: "started",
@@ -352,11 +400,11 @@ export async function startTranslationJob(
       event_url: createTranslationEventUrl(jobId),
     };
   } catch (error) {
-    if (ownedClient !== undefined && !ownedClientScheduled) {
-      await closeTranslationClient(ownedClient);
-    }
     throw mapStartError(error);
   } finally {
+    if (ownedClient !== undefined) {
+      await closeTranslationClient(ownedClient);
+    }
     connection.close();
   }
 }
@@ -387,10 +435,26 @@ export async function runTranslationJob(
   jobId: string,
   options: TranslationRunOptions = {},
 ): Promise<void> {
+  if (
+    !isCodexRuntimeIsolationReady({
+      hasInjectedClient:
+        options.client !== undefined || options.createClient !== undefined,
+    })
+  ) {
+    throw new TranslationApiError(
+      CODEX_RUNTIME_ISOLATION_ERROR.code,
+      "Brilliant translation requires an externally isolated Codex runtime.",
+    );
+  }
   const config = options.config ?? loadRuntimeTraumaConfig();
+  const workloadLimits =
+    options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS;
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
-  const client = options.client ?? new CodexAppServerClient();
+  let client = options.client;
+  const codexEventAdmission = new TranslationCodexEventAdmission(
+    options.codexEventLimits,
+  );
   const closeClientAfterRun = options.client === undefined ||
     options.closeClientAfterRun === true;
   const connection = openConnection(config);
@@ -424,19 +488,29 @@ export async function runTranslationJob(
 
     const source = await loadTranslationSourceSnapshot({
       config,
+      maxSourceBytes:
+        workloadLimits.maxSourceBytes,
       memoryId: job.memoryId,
     });
     if (source.sourceHash !== job.sourceHash) {
-      await markJobFailed({
+      const markedStale = await markJobFailed({
         connection,
         error: {
           code: "stale_source",
           message: "Source CONTENT.md changed while translation was running.",
           action: "open_source_reader",
         },
+        expectedStatus: activeStatus,
         jobId,
         status: "stale",
       });
+      if (!markedStale) {
+        await cancelIfRequestedAfterFinalizationRace(
+          connection.repositories,
+          job,
+        );
+        return;
+      }
       translationEventBus.emit({
         data: {
           reason: "source_changed",
@@ -451,6 +525,10 @@ export async function runTranslationJob(
       return;
     }
 
+    assertTranslationSourceAdmission(
+      source.byteSize,
+      workloadLimits,
+    );
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const runtimeChunks = createTranslationChunks({
       blocks: manifest.blocks,
@@ -458,25 +536,48 @@ export async function runTranslationJob(
       langCode: job.langCode,
       memoryId: job.memoryId,
       source,
+      workloadLimits: options.workloadLimits,
     });
+    const persistedChunks = await connection.repositories.translations
+      .getTranslationChunks(jobId);
+    assertTranslationResumeCompatible({
+      job,
+      persistedChunks,
+      runtimeChunks,
+    });
+    const outputAdmission = new TranslationOutputAdmission({
+      initialBytes: Buffer.byteLength(manifest.frontmatter, "utf8"),
+      maxOutputBytes: workloadLimits.maxOutputBytes,
+    });
+    for (const chunk of persistedChunks) {
+      if (chunk.status === "complete" && chunk.translatedMarkdown !== null) {
+        outputAdmission.admitChunk(chunk.chunkIndex, chunk.translatedMarkdown);
+      }
+    }
+    const persistedChunksByIndex = new Map(
+      persistedChunks.map((chunk) => [chunk.chunkIndex, chunk] as const),
+    );
     for (const chunk of runtimeChunks) {
       if (await isCancellationRequested(connection.repositories, jobId)) {
         await cancelJob(connection.repositories, job);
         return;
       }
-      const record = (await connection.repositories.translations.getTranslationChunks(jobId))
-        .find((candidate) => candidate.chunkIndex === chunk.chunkIndex);
+      const record = persistedChunksByIndex.get(chunk.chunkIndex);
       if (record?.status === "complete" || record?.status === "purged") {
         continue;
       }
+      client ??= options.createClient?.() ?? new CodexAppServerClient();
       const chunkResult = await translateAndPersistChunk({
         cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
         chunk,
         client,
+        codexEventAdmission,
         connection,
         jobLangCode: job.langCode,
         jobMemoryId: job.memoryId,
         model: job.model,
+        outputAdmission,
+        promptByteLimit: options.promptByteLimit,
         reasoningEffort: job.reasoningEffort,
       });
       if (
@@ -538,16 +639,19 @@ export async function runTranslationJob(
       backupQueue,
       chunks: await connection.repositories.translations.getTranslationChunks(jobId),
       config,
+      flashbacks: connection.repositories.flashbacks,
       job,
+      maxSourceBytes:
+        workloadLimits.maxSourceBytes,
+      maxOutputBytes: workloadLimits.maxOutputBytes,
       repository: connection.repositories.translations,
     });
-    if ((result as { status?: string }).status === "stale") {
-      const stale = result as Extract<typeof result, { status: "stale" }>;
+    if ("status" in result && result.status === "stale") {
       translationEventBus.emit<TranslationJobStaleData>({
         data: {
           reason: "source_changed",
-          job_source_hash: stale.jobSourceHash,
-          current_source_hash: stale.currentSourceHash,
+          job_source_hash: result.jobSourceHash,
+          current_source_hash: result.currentSourceHash,
         },
         jobId,
         langCode: job.langCode,
@@ -556,12 +660,18 @@ export async function runTranslationJob(
       });
       return;
     }
-    const committed = result as Exclude<typeof result, { status: "stale" }>;
+    if ("status" in result && result.status === "superseded") {
+      await cancelIfRequestedAfterFinalizationRace(
+        connection.repositories,
+        job,
+      );
+      return;
+    }
     translationEventBus.emit<TranslationJobCompletedData>({
       data: {
-        output_hash: committed.outputHash,
-        output_path: committed.outputPath,
-        reader_url: committed.readerUrl,
+        output_hash: result.outputHash,
+        output_path: result.outputPath,
+        reader_url: result.readerUrl,
       },
       jobId,
       langCode: job.langCode,
@@ -572,10 +682,53 @@ export async function runTranslationJob(
     await failRunningJob(connection, jobId, error);
   } finally {
     connection.close();
-    if (closeClientAfterRun) {
+    if (closeClientAfterRun && client !== undefined) {
       await closeTranslationClient(client);
     }
   }
+}
+
+function assertTranslationResumeCompatible(input: {
+  job: TranslationJobRecord;
+  persistedChunks: TranslationChunkRecord[];
+  runtimeChunks: ReturnType<typeof createTranslationChunks>;
+}): void {
+  if (
+    input.job.promptPolicyVersion !== BRILLIANT_PROMPT_POLICY_VERSION ||
+    input.job.chunkerVersion !== BRILLIANT_CHUNKER_VERSION ||
+    input.job.chunkCount !== input.runtimeChunks.length ||
+    input.persistedChunks.length !== input.runtimeChunks.length
+  ) {
+    throw incompatibleTranslationResumeError();
+  }
+
+  const persistedByIndex = new Map(
+    input.persistedChunks.map((chunk) => [chunk.chunkIndex, chunk] as const),
+  );
+  for (const runtimeChunk of input.runtimeChunks) {
+    const persistedChunk = persistedByIndex.get(runtimeChunk.chunkIndex);
+    if (
+      persistedChunk === undefined ||
+      persistedChunk.status === "purged" ||
+      persistedChunk.sourceChunkHash !== runtimeChunk.sourceChunkHash ||
+      !sameStrings(persistedChunk.blockIds, runtimeChunk.blockIds)
+    ) {
+      throw incompatibleTranslationResumeError();
+    }
+  }
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length &&
+    left.every((value, index) => value === right[index]);
+}
+
+function incompatibleTranslationResumeError(): TranslationApiError {
+  return new TranslationApiError(
+    "translation_unavailable",
+    "Translation job is incompatible with the current translation runtime.",
+    "start_fresh_translation",
+  );
 }
 
 function scheduleRecoverableActiveJob(
@@ -589,6 +742,7 @@ function scheduleRecoverableActiveJob(
     backupQueue: input.backupQueue,
     config,
     openConnection,
+    workloadLimits: input.workloadLimits,
   });
 }
 
@@ -704,10 +858,13 @@ async function translateAndPersistChunk(input: {
   cancelGraceMs: number;
   chunk: ReturnType<typeof createTranslationChunks>[number];
   client: TranslationClient;
+  codexEventAdmission: TranslationCodexEventAdmission;
   connection: TraumaDatabaseConnection;
   jobLangCode: string;
   jobMemoryId: string;
   model: string | null;
+  outputAdmission: TranslationOutputAdmission;
+  promptByteLimit?: number;
   reasoningEffort: CodexReasoningEffort | null;
 }): Promise<{ status: "completed" } | { status: "canceled" }> {
   let attempt = 0;
@@ -742,9 +899,12 @@ async function translateAndPersistChunk(input: {
         : "translation.chunk.retrying",
     });
 
+    let inFlightTurn: InFlightTranslationTurn | undefined;
     try {
+      const attemptAdmission = input.codexEventAdmission.startChunkAttempt();
       const prompt = buildTranslationPrompt({
         chunk: input.chunk,
+        maxPromptBytes: input.promptByteLimit,
         ...(attempt > 0 && latestPersistedError !== undefined
           ? {
             retryContext: {
@@ -755,7 +915,7 @@ async function translateAndPersistChunk(input: {
           : {}),
         targetLanguage: input.jobLangCode as SupportedLanguageCode,
       });
-      const inFlightTurn: InFlightTranslationTurn = {
+      inFlightTurn = {
         client: input.client,
       };
       inFlightTranslationTurns.set(input.chunk.jobId, inFlightTurn);
@@ -768,10 +928,14 @@ async function translateAndPersistChunk(input: {
         reasoningEffort: input.reasoningEffort,
         onEvent: (event) => {
           if (event.type === "thread.started") {
-            inFlightTurn.threadId = event.threadId;
+            inFlightTurn!.threadId = event.threadId;
           } else if (event.type === "turn.started") {
-            inFlightTurn.turnId = event.turnId;
-          } else if (event.type === "delta") {
+            inFlightTurn!.turnId = event.turnId;
+          }
+          if (!attemptAdmission.admit(event)) {
+            return false;
+          }
+          if (event.type === "delta") {
             translationEventBus.emit({
               chunkIndex: input.chunk.chunkIndex,
               data: { text: event.text },
@@ -799,6 +963,7 @@ async function translateAndPersistChunk(input: {
               type: "translation.codex.item.completed",
             });
           }
+          return true;
         },
       });
       const rawOutputResult = rawOutputPromise.then(
@@ -828,6 +993,9 @@ async function translateAndPersistChunk(input: {
       }
       if (turnResult.status === "failed") {
         throw turnResult.error;
+      }
+      if (input.codexEventAdmission.error !== undefined) {
+        throw input.codexEventAdmission.error;
       }
       const rawOutput = turnResult.output;
       if (
@@ -859,6 +1027,10 @@ async function translateAndPersistChunk(input: {
         output: rawOutput,
       });
       const translatedMarkdown = stringifyCodexChunkOutput(output);
+      input.outputAdmission.admitChunk(
+        input.chunk.chunkIndex,
+        translatedMarkdown,
+      );
       await input.connection.repositories.translations.updateTranslationChunk(
         input.chunk.jobId,
         input.chunk.chunkIndex,
@@ -880,8 +1052,14 @@ async function translateAndPersistChunk(input: {
         type: "translation.chunk.completed",
       });
       return { status: "completed" };
-    } catch (error) {
-      inFlightTranslationTurns.delete(input.chunk.jobId);
+    } catch (caughtError) {
+      const error = input.codexEventAdmission.error ?? caughtError;
+      if (isCodexEventLimitError(error)) {
+        await interruptTranslationTurnBestEffort(inFlightTurn);
+      }
+      if (inFlightTranslationTurns.get(input.chunk.jobId) === inFlightTurn) {
+        inFlightTranslationTurns.delete(input.chunk.jobId);
+      }
       if (
         await isCancellationRequested(
           input.connection.repositories,
@@ -890,7 +1068,10 @@ async function translateAndPersistChunk(input: {
       ) {
         return { status: "canceled" };
       }
-      const willRetry = attempt < BRILLIANT_MAX_RETRIES;
+      const willRetry =
+        !isCodexEventLimitError(error) &&
+        !isNonRetryableTranslationOutput(error) &&
+        attempt < BRILLIANT_MAX_RETRIES;
       const persistedError = toPersistedError(error);
       latestPersistedError = persistedError;
       await input.connection.repositories.translations.updateTranslationChunk(
@@ -943,13 +1124,28 @@ async function failRunningJob(
   if (job === null) {
     return;
   }
+  if (job.status === "cancel_requested") {
+    await cancelJob(connection.repositories, job);
+    return;
+  }
+  if (!isActiveTranslationJobStatus(job.status)) {
+    return;
+  }
   const persistedError = toPersistedError(error);
-  await markJobFailed({
+  const markedFailed = await markJobFailed({
     connection,
     error: persistedError,
+    expectedStatus: job.status,
     jobId,
     status: "failed",
   });
+  if (!markedFailed) {
+    await cancelIfRequestedAfterFinalizationRace(
+      connection.repositories,
+      job,
+    );
+    return;
+  }
   translationEventBus.emit<TranslationJobFailedData>({
     data: { error: persistedError },
     jobId,
@@ -962,11 +1158,13 @@ async function failRunningJob(
 async function markJobFailed(input: {
   connection: TraumaDatabaseConnection;
   error: TranslationJobSnapshotError;
+  expectedStatus: ActiveTranslationJobStatus;
   jobId: string;
   status: "failed" | "stale";
-}): Promise<void> {
-  await input.connection.repositories.translations.updateTranslationJobStatus(
+}): Promise<boolean> {
+  return input.connection.repositories.translations.transitionTranslationJobStatus(
     input.jobId,
+    input.expectedStatus,
     input.status,
     {
       completedAt: new Date(),
@@ -1040,9 +1238,10 @@ function waitForTimer(
 async function cancelJob(
   repositories: TraumaRepositories,
   job: { jobId: string; langCode: string; memoryId: string },
-): Promise<void> {
-  await repositories.translations.updateTranslationJobStatus(
+): Promise<boolean> {
+  const canceled = await repositories.translations.transitionTranslationJobStatus(
     job.jobId,
+    "cancel_requested",
     "canceled",
     {
       completedAt: new Date(),
@@ -1050,6 +1249,9 @@ async function cancelJob(
       updatedAt: new Date(),
     },
   );
+  if (!canceled) {
+    return false;
+  }
   translationEventBus.emit({
     data: {},
     jobId: job.jobId,
@@ -1057,6 +1259,7 @@ async function cancelJob(
     memoryId: job.memoryId,
     type: "translation.job.canceled",
   });
+  return true;
 }
 
 async function cancelIfRequestedAfterFinalizationRace(
@@ -1066,6 +1269,17 @@ async function cancelIfRequestedAfterFinalizationRace(
   if (await isCancellationRequested(repositories, job.jobId)) {
     await cancelJob(repositories, job);
   }
+}
+
+type ActiveTranslationJobStatus = Extract<
+  TranslationJobStatus,
+  "running" | "stitching" | "committing"
+>;
+
+function isActiveTranslationJobStatus(
+  status: TranslationJobStatus,
+): status is ActiveTranslationJobStatus {
+  return status === "running" || status === "stitching" || status === "committing";
 }
 
 async function resolveCodexTranslationSelection(input: {
@@ -1153,10 +1367,21 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     };
   }
   if (error instanceof CodexAppServerError) {
+    if (error.code === "event_limit_exceeded") {
+      return {
+        code: "unknown",
+        message: "Translation failed.",
+        action: "none",
+      };
+    }
+    const code = translationCodexErrorCode(error.code);
     return {
-      code: error.code,
-      message: error.message,
-      action: codexErrorAction(error.code),
+      code,
+      message: safeCodexAppServerErrorMessage(
+        error,
+        "Translation failed.",
+      ),
+      action: codexErrorAction(code),
     };
   }
   if (error instanceof TranslationOutputSchemaError) {
@@ -1170,7 +1395,7 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
     return {
       code: "validation_failed",
       message: error.message,
-      action: "retry",
+      action: error.retryable ? "retry" : "none",
       diagnostics: error.diagnostics,
     };
   }
@@ -1183,9 +1408,38 @@ function toPersistedError(error: unknown): TranslationJobSnapshotError {
   }
   return {
     code: "unknown",
-    message: error instanceof Error ? error.message : "Translation failed.",
+    message: "Translation failed.",
     action: "retry",
   };
+}
+
+function isCodexEventLimitError(error: unknown): boolean {
+  return error instanceof CodexAppServerError &&
+    error.code === "event_limit_exceeded";
+}
+
+function isNonRetryableTranslationOutput(error: unknown): boolean {
+  return error instanceof TranslationOutputValidationError && !error.retryable;
+}
+
+async function interruptTranslationTurnBestEffort(
+  inFlight: InFlightTranslationTurn | undefined,
+): Promise<void> {
+  if (
+    inFlight?.client.cancelTurn === undefined ||
+    inFlight.threadId === undefined ||
+    inFlight.turnId === undefined
+  ) {
+    return;
+  }
+  try {
+    await inFlight.client.cancelTurn({
+      threadId: inFlight.threadId,
+      turnId: inFlight.turnId,
+    });
+  } catch {
+    // Admission failure remains authoritative when best-effort interruption fails.
+  }
 }
 
 function toPersistableError(error: TranslationJobSnapshotError) {
@@ -1215,10 +1469,11 @@ function isPersistableErrorCode(
 
 function mapStartError(error: unknown): Error {
   if (error instanceof CodexAppServerError) {
+    const code = translationCodexErrorCode(error.code);
     return new TranslationApiError(
-      error.code,
-      error.message,
-      codexErrorAction(error.code),
+      code,
+      safeCodexAppServerErrorMessage(error, "Translation failed."),
+      codexErrorAction(code),
     );
   }
   if (
@@ -1231,10 +1486,23 @@ function mapStartError(error: unknown): Error {
       "open_source_reader",
     );
   }
+  if (error instanceof TranslationOutputValidationError && !error.retryable) {
+    return new TranslationApiError(
+      "validation_failed",
+      error.message,
+      "open_source_reader",
+    );
+  }
   if (error instanceof TraumaConfigError || error instanceof TranslationApiError) {
     return error;
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function translationCodexErrorCode(
+  code: CodexAppServerError["code"],
+): Exclude<CodexAppServerError["code"], "event_limit_exceeded"> {
+  return code === "event_limit_exceeded" ? "unknown" : code;
 }
 
 export function createTranslationEventUrl(jobId: string): string {

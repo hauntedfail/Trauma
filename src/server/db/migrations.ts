@@ -33,6 +33,8 @@ export function applyRuntimeMigrations(
   runtimeMigrations: RuntimeMigration[],
   sourceLabel = "runtime",
 ): void {
+  validateRuntimeMigrationManifest(runtimeMigrations, sourceLabel);
+
   sqlite.run(
     `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
       id integer primary key autoincrement,
@@ -46,34 +48,9 @@ export function applyRuntimeMigrations(
       `SELECT created_at, hash FROM ${MIGRATIONS_TABLE} ORDER BY created_at ASC`,
     )
     .all();
-  const appliedMigrationByCreatedAt = new Map(
-    appliedMigrations.map((migration) => [migration.created_at, migration]),
-  );
-  const bundledMigrationByCreatedAt = new Map(
-    runtimeMigrations.map((migration) => [migration.folderMillis, migration]),
-  );
+  validateAppliedMigrationHistory(appliedMigrations, runtimeMigrations, sourceLabel);
 
-  for (const appliedMigration of appliedMigrations) {
-    if (!bundledMigrationByCreatedAt.has(appliedMigration.created_at)) {
-      throw new Error(
-        `Database has an unknown or newer ${sourceLabel} migration: ${appliedMigration.created_at}. ` +
-          "Run this database with a runtime that includes that migration.",
-      );
-    }
-  }
-
-  for (const migration of runtimeMigrations) {
-    const appliedMigration = appliedMigrationByCreatedAt.get(migration.folderMillis);
-    if (appliedMigration !== undefined) {
-      if (appliedMigration.hash !== migration.hash) {
-        throw new Error(
-          `${sourceLabel} migration hash mismatch for ${migration.folderMillis}. ` +
-            "The local database was migrated with different SQL.",
-        );
-      }
-      continue;
-    }
-
+  for (const migration of runtimeMigrations.slice(appliedMigrations.length)) {
     if (migration.bps) {
       applyBreakpointedMigration(sqlite, migration.sql, () => {
         recordMigration(sqlite, migration.hash, migration.folderMillis);
@@ -88,6 +65,79 @@ export function applyRuntimeMigrations(
     });
 
     apply();
+  }
+}
+
+function validateRuntimeMigrationManifest(
+  runtimeMigrations: RuntimeMigration[],
+  sourceLabel: string,
+): void {
+  let previousFolderMillis: number | undefined;
+
+  for (const migration of runtimeMigrations) {
+    if (
+      !Number.isSafeInteger(migration.folderMillis) ||
+      (previousFolderMillis !== undefined &&
+        migration.folderMillis <= previousFolderMillis)
+    ) {
+      throw new Error(
+        `${sourceLabel} migration manifest must have unique, strictly increasing folderMillis values. ` +
+          `Found ${migration.folderMillis} after ${previousFolderMillis ?? "the start"}.`,
+      );
+    }
+
+    previousFolderMillis = migration.folderMillis;
+  }
+}
+
+function validateAppliedMigrationHistory(
+  appliedMigrations: AppliedMigrationRow[],
+  runtimeMigrations: RuntimeMigration[],
+  sourceLabel: string,
+): void {
+  const runtimeMigrationByCreatedAt = new Map(
+    runtimeMigrations.map((migration) => [migration.folderMillis, migration]),
+  );
+
+  for (const appliedMigration of appliedMigrations) {
+    if (!runtimeMigrationByCreatedAt.has(appliedMigration.created_at)) {
+      throw new Error(
+        `Database has an unknown or newer ${sourceLabel} migration: ${appliedMigration.created_at}. ` +
+          "Run this database with a runtime that includes that migration.",
+      );
+    }
+  }
+
+  const seenCreatedAt = new Set<number>();
+  for (const appliedMigration of appliedMigrations) {
+    if (seenCreatedAt.has(appliedMigration.created_at)) {
+      throw new Error(
+        `Database has a duplicate ${sourceLabel} migration record: ${appliedMigration.created_at}. ` +
+          "Applied migrations must form a contiguous prefix of the runtime migrations.",
+      );
+    }
+    seenCreatedAt.add(appliedMigration.created_at);
+  }
+
+  for (const [index, appliedMigration] of appliedMigrations.entries()) {
+    const expectedMigration = runtimeMigrations[index];
+    if (
+      expectedMigration === undefined ||
+      appliedMigration.created_at !== expectedMigration.folderMillis
+    ) {
+      throw new Error(
+        `${sourceLabel} migration history gap before ${appliedMigration.created_at}. ` +
+          `Expected migration ${expectedMigration?.folderMillis ?? "none"}; ` +
+          "applied migrations must form a contiguous prefix of the runtime migrations.",
+      );
+    }
+
+    if (appliedMigration.hash !== expectedMigration.hash) {
+      throw new Error(
+        `${sourceLabel} migration hash mismatch for ${expectedMigration.folderMillis}. ` +
+          "The local database was migrated with different SQL.",
+      );
+    }
   }
 }
 

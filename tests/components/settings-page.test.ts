@@ -1,13 +1,28 @@
 import { readFileSync } from "node:fs";
 
 import { createComponent, renderToString } from "solid-js/web";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { SettingsPage } from "../../src/components/settings/SettingsPage";
+import type {
+  CodexModelInfo,
+} from "../../src/server/translation/codex-app-server";
+import {
+  CodexCatalogFeedback,
+  SettingsPage,
+  captureCodexCatalogRetryFocusIntent,
+  readSafeVerificationUrl,
+  restoreCodexAuthSetupFocus,
+} from "../../src/components/settings/SettingsPage";
+import {
+  createCodexModelCatalogController,
+  type CodexModelCatalogState,
+} from "../../src/components/settings/codex-model-catalog-state";
 import {
   submitCodexTranslationDefaults,
+  submitTranslationDefaults,
   submitReadCodexModels,
   pollCodexAuthSetup,
+  submitCancelCodexAuthSetup,
   submitDeleteOpenAiAuth,
   submitEnableOpenAiAuth,
   submitReadCodexAuth,
@@ -21,6 +36,215 @@ const settingsPageSource = readFileSync(
 );
 
 describe("settings page", () => {
+  it("restores supported logout focus without overriding the user", async () => {
+    const target = {
+      disabled: false,
+      focus: vi.fn(),
+      isConnected: true,
+    } as unknown as HTMLButtonElement;
+    const ownsCurrentFocus = vi.fn(() => true);
+
+    restoreCodexAuthSetupFocus({
+      focusOwnership: { actionOwnsFocus: true, ownsCurrentFocus },
+      getTarget: () => target,
+    });
+    await Promise.resolve();
+
+    expect(ownsCurrentFocus).toHaveBeenCalledOnce();
+    expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+
+    vi.mocked(target.focus).mockClear();
+    ownsCurrentFocus.mockReturnValue(false);
+    restoreCodexAuthSetupFocus({
+      focusOwnership: { actionOwnsFocus: true, ownsCurrentFocus },
+      getTarget: () => target,
+    });
+    await Promise.resolve();
+
+    expect(target.focus).not.toHaveBeenCalled();
+  });
+
+  it("offers an accessible in-page retry while the Codex catalog recovers", async () => {
+    const retry = () => undefined;
+    const failedHtml = renderToString(() =>
+      createComponent(CodexCatalogFeedback, {
+        error: "Catalog temporarily unavailable.",
+        pending: false,
+        retry,
+      })
+    );
+    const retryingHtml = renderToString(() =>
+      createComponent(CodexCatalogFeedback, {
+        error: "Catalog temporarily unavailable.",
+        pending: true,
+        retry,
+      })
+    );
+
+    expect(failedHtml).toContain('role="alert"');
+    expect(failedHtml).toContain("Catalog temporarily unavailable.");
+    expect(failedHtml).toContain(">Retry</button>");
+    expect(retryingHtml).toContain("disabled");
+    expect(retryingHtml).toContain("Retrying...");
+
+    const savedModel = createModel("saved-model", "Saved model");
+    const restoredModel = createModel("restored-model", "Restored model");
+    let state: CodexModelCatalogState = {
+      error: "",
+      models: [savedModel],
+      pending: false,
+    };
+    const requests: Array<{
+      reject: (error: unknown) => void;
+      resolve: (catalog: { models: typeof state.models }) => void;
+      signal: AbortSignal;
+    }> = [];
+    const readCatalog = ({ signal }: { signal: AbortSignal }) =>
+      new Promise<{ models: typeof state.models }>((resolve, reject) => {
+        requests.push({ reject, resolve, signal });
+      });
+    const controller = createCodexModelCatalogController({
+      initialModels: state.models,
+      onStateChange: (next) => {
+        state = next;
+      },
+      readCatalog,
+    });
+
+    const initial = controller.refresh();
+    expect(requests).toHaveLength(1);
+    requests[0]!.reject(new Error("Catalog temporarily unavailable."));
+    await initial;
+    expect(state).toEqual({
+      error: "Catalog temporarily unavailable.",
+      models: [savedModel],
+      pending: false,
+    });
+
+    const retryRequest = controller.refresh();
+    const duplicateRetry = controller.refresh();
+    expect(requests).toHaveLength(2);
+    expect(duplicateRetry).toBe(retryRequest);
+    expect(state).toEqual({
+      error: "Catalog temporarily unavailable.",
+      models: [savedModel],
+      pending: true,
+    });
+    requests[1]!.resolve({ models: [restoredModel] });
+    await retryRequest;
+    expect(state).toEqual({
+      error: "",
+      models: [restoredModel],
+      pending: false,
+    });
+
+    const recoveredHtml = renderToString(() =>
+      createComponent(SettingsPage, {
+        initialCodexModelCatalog: { models: state.models },
+        initialSettings: {
+          translationTargetLanguage: "en-US",
+          codexTranslationModel: "saved-model",
+          codexTranslationReasoningEffort: "high",
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
+        },
+      })
+    );
+    expect(recoveredHtml).toContain("Restored model");
+    expect(recoveredHtml).toContain('value="restored-model"');
+    expect(recoveredHtml).toContain('value="saved-model"');
+    expect(recoveredHtml).toContain('value="high"');
+    expectSelectedOption(recoveredHtml, "saved-model");
+    expectSelectedOption(recoveredHtml, "high");
+  });
+
+  it("aborts catalog loading and ignores a stale completion after disposal", async () => {
+    const updates: CodexModelCatalogState[] = [];
+    let resolveCatalog: ((catalog: { models: ReturnType<typeof createModel>[] }) => void) =
+      () => undefined;
+    let requestSignal: AbortSignal | undefined;
+    const controller = createCodexModelCatalogController({
+      initialModels: [],
+      onStateChange: (state) => updates.push(state),
+      readCatalog: ({ signal }) => {
+        requestSignal = signal;
+        return new Promise((resolve) => {
+          resolveCatalog = resolve;
+        });
+      },
+    });
+
+    const request = controller.refresh();
+    const updateCountBeforeDispose = updates.length;
+    controller.dispose();
+    expect(requestSignal?.aborted).toBe(true);
+    resolveCatalog({ models: [createModel("stale-model", "Stale model")] });
+    await request;
+
+    expect(updates).toHaveLength(updateCountBeforeDispose);
+  });
+
+  it("does not steal focus when the user moves away during a catalog retry", () => {
+    const retryButton = {} as HTMLButtonElement;
+    const body = {} as HTMLBodyElement;
+    const anotherControl = {} as HTMLButtonElement;
+    let activeElement: Element | null = retryButton;
+    const shouldRestoreFocus = captureCodexCatalogRetryFocusIntent(
+      retryButton,
+      () => activeElement,
+      () => body,
+    );
+
+    activeElement = anotherControl;
+    expect(shouldRestoreFocus()).toBe(false);
+
+    activeElement = retryButton;
+    const retryStillOwnedFocus = captureCodexCatalogRetryFocusIntent(
+      retryButton,
+      () => activeElement,
+      () => body,
+    );
+    activeElement = body;
+    expect(retryStillOwnedFocus()).toBe(true);
+  });
+
+  it("renders only credential-free HTTPS device verification links", () => {
+    expect(readSafeVerificationUrl("https://example.com/device"))
+      .toBe("https://example.com/device");
+    for (const value of [
+      "javascript:alert(1)",
+      "data:text/html,unsafe",
+      "http://example.com/device",
+      "https://user:secret@example.com/device",
+    ]) {
+      expect(readSafeVerificationUrl(value)).toBeUndefined();
+    }
+
+    const html = renderToString(() =>
+      createComponent(SettingsPage, {
+        initialSettings: {
+          translationTargetLanguage: "ja-JP",
+          codexTranslationModel: null,
+          codexTranslationReasoningEffort: null,
+          openaiAuth: {
+            status: "login_started",
+            provider: "codex",
+            loginId: "login-unsafe",
+            verificationUrl: "javascript:alert(1)",
+            userCode: "SAFE-CODE",
+          },
+        },
+      }),
+    );
+    expect(html).toContain("SAFE-CODE");
+    expect(html).toContain("Check status");
+    expect(html).toContain("Cancel setup");
+    expect(html).not.toContain("javascript:");
+  });
+
   it("renders translation language options and disabled OpenAI auth controls", () => {
     const html = renderToString(() =>
       createComponent(SettingsPage, {
@@ -94,6 +318,7 @@ describe("settings page", () => {
     expect(html).toContain("gpt-5.5");
     expect(html).toContain("high");
     expect(html).toContain("Delete auth");
+    expect(html).toContain('aria-haspopup="dialog"');
   });
 
   it("exposes settings in desktop and phone navigation", () => {
@@ -158,6 +383,19 @@ describe("settings page", () => {
         });
       }
 
+      if (String(input).includes("translation-defaults")) {
+        return jsonResponse({
+          translationTargetLanguage: "en-US",
+          codexTranslationModel: "gpt-5.5",
+          codexTranslationReasoningEffort: "high",
+          openaiAuth: {
+            status: "setup_required",
+            provider: "codex",
+            reason: "codex_app_server_unavailable",
+          },
+        });
+      }
+
       return jsonResponse({
         status: "disabled",
         provider: "codex",
@@ -181,6 +419,18 @@ describe("settings page", () => {
       codexTranslationModel: "gpt-5.5",
       codexTranslationReasoningEffort: "high",
     });
+    await expect(
+      submitTranslationDefaults({
+        fetch,
+        language: "en-US",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
     await expect(submitEnableOpenAiAuth({ fetch })).resolves.toEqual({
       status: "login_started",
       provider: "codex",
@@ -189,7 +439,7 @@ describe("settings page", () => {
       userCode: "ABCD-EFGH",
     });
     await expect(
-      submitDeleteOpenAiAuth({ confirm: () => true, fetch }),
+      submitDeleteOpenAiAuth({ fetch }),
     ).resolves.toEqual({
       status: "disabled",
       provider: "codex",
@@ -200,9 +450,101 @@ describe("settings page", () => {
       ["http://localhost/api/settings/translation-language", "PATCH"],
       ["http://localhost/api/settings/codex-models", "GET"],
       ["http://localhost/api/settings/translation-codex-defaults", "PATCH"],
+      ["http://localhost/api/settings/translation-defaults", "PATCH"],
       ["http://localhost/api/settings/codex-auth/device-code", "POST"],
       ["http://localhost/api/settings/codex-auth", "DELETE"],
     ]);
+  });
+
+  it.each([
+    ["invalid JSON", () => new Response("not-json", { status: 200 })],
+    ["a null root", () => jsonResponse(null)],
+    ["an empty object", () => jsonResponse({})],
+    ["a null models field", () => jsonResponse({ models: null })],
+    [
+      "a malformed model row",
+      () => jsonResponse({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: "yes",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    ],
+    [
+      "an unknown reasoning effort",
+      () => jsonResponse({
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "extreme",
+            supportedReasoningEfforts: ["medium", "extreme"],
+          },
+        ],
+      }),
+    ],
+  ])("rejects %s from a successful Codex model request", async (_label, response) => {
+    await expect(submitReadCodexModels({
+      fetch: async () => response(),
+    })).rejects.toThrow("Codex model catalog response was invalid.");
+  });
+
+  it("accepts future Codex catalog and model fields", async () => {
+    await expect(submitReadCodexModels({
+      fetch: async () => jsonResponse({
+        future_catalog_field: { enabled: true },
+        models: [
+          {
+            id: "frontier",
+            model: "gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Frontier model",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            future_model_field: 1,
+            supportedReasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+          },
+        ],
+      }),
+    })).resolves.toMatchObject({
+      models: [{ model: "gpt-5.5" }],
+    });
+  });
+
+  it("preserves non-2xx Codex catalog messages", async () => {
+    await expect(submitReadCodexModels({
+      fetch: async () => new Response(JSON.stringify({
+        message: "Catalog temporarily unavailable.",
+      }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    })).rejects.toThrow("Catalog temporarily unavailable.");
+  });
+
+  it("forwards cancellation to Codex catalog requests", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | null | undefined;
+
+    await expect(submitReadCodexModels({
+      fetch: async (_input, init) => {
+        requestSignal = init?.signal;
+        return jsonResponse({ models: [createModel("frontier", "Frontier")] });
+      },
+      signal: controller.signal,
+    })).resolves.toMatchObject({ models: [{ model: "frontier" }] });
+
+    expect(requestSignal).toBe(controller.signal);
   });
 
   it("surfaces Codex auth device-code failures", async () => {
@@ -226,10 +568,13 @@ describe("settings page", () => {
 
   it("reads Codex auth status through the settings API", async () => {
     const requests: Request[] = [];
+    const controller = new AbortController();
 
     await expect(
       submitReadCodexAuth({
+        signal: controller.signal,
         fetch: async (input, init) => {
+          expect(init?.signal).toBe(controller.signal);
           requests.push(new Request(new URL(String(input), "http://localhost"), init));
           return jsonResponse({
             status: "enabled",
@@ -247,6 +592,58 @@ describe("settings page", () => {
     expect(requests.map((request) => [request.url, request.method])).toEqual([
       ["http://localhost/api/settings/codex-auth", "GET"],
     ]);
+  });
+
+  it("aborts an in-flight Codex auth status read without projecting a failure", async () => {
+    const controller = new AbortController();
+    let resolveStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let requestSignal: AbortSignal | null | undefined;
+    const polling = pollCodexAuthSetup({
+      intervalMs: 0,
+      maxAttempts: 1,
+      signal: controller.signal,
+      fetch: async (_input, init) => {
+        requestSignal = init?.signal;
+        resolveStarted();
+        return new Promise<Response>((_resolve, reject) => {
+          controller.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+
+    await started;
+    controller.abort();
+
+    await expect(polling).resolves.toBeUndefined();
+    expect(requestSignal).toBe(controller.signal);
+  });
+
+  it("treats AbortError as polling cancellation but preserves other failures", async () => {
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async () => {
+          throw new DOMException("Aborted", "AbortError");
+        },
+        intervalMs: 0,
+        maxAttempts: 1,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      pollCodexAuthSetup({
+        fetch: async () => {
+          throw new Error("auth network failed");
+        },
+        intervalMs: 0,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("auth network failed");
   });
 
   it("polls Codex auth setup until device-code login is enabled", async () => {
@@ -288,28 +685,74 @@ describe("settings page", () => {
     ]);
   });
 
-  it("wires pending Codex auth setup to the polling helper", () => {
-    expect(settingsPageSource).toContain("pollCodexAuthSetup");
-    expect(settingsPageSource).toContain("refreshCodexAuthAfterLogin");
-  });
-
-  it("does not delete OpenAI auth when confirmation is rejected", async () => {
-    const requests: Request[] = [];
+  it("returns the last canonical auth state when polling is exhausted", async () => {
+    let reads = 0;
+    const pending = {
+      status: "login_started" as const,
+      provider: "codex" as const,
+      loginId: "login-timeout",
+      verificationUrl: "https://example.com/device",
+      userCode: "TIME-OUT",
+    };
 
     await expect(
-      submitDeleteOpenAiAuth({
-        confirm: () => false,
+      pollCodexAuthSetup({
+        fetch: async () => {
+          reads += 1;
+          return jsonResponse(pending);
+        },
+        intervalMs: 0,
+        maxAttempts: 2,
+      }),
+    ).resolves.toEqual(pending);
+    expect(reads).toBe(2);
+  });
+
+  it("cancels pending Codex device setup through its mutation route", async () => {
+    const requests: Request[] = [];
+    await expect(
+      submitCancelCodexAuthSetup({
         fetch: async (input, init) => {
           requests.push(new Request(new URL(String(input), "http://localhost"), init));
           return jsonResponse({
-            status: "disabled",
+            status: "canceled",
             provider: "codex",
-            logoutStatus: "logged_out",
+            loginId: "login-1",
           });
         },
       }),
-    ).resolves.toBeUndefined();
-    expect(requests).toEqual([]);
+    ).resolves.toMatchObject({ status: "canceled", loginId: "login-1" });
+    expect(requests.map((request) => [request.url, request.method])).toEqual([
+      ["http://localhost/api/settings/codex-auth/device-code/cancel", "POST"],
+    ]);
+  });
+
+  it("wires pending Codex auth setup to the polling helper", () => {
+    expect(settingsPageSource).toContain("pollCodexAuthSetup");
+    expect(settingsPageSource).toContain("refreshCodexAuthAfterLogin");
+    expect(settingsPageSource).toContain(
+      'props.initialSettings.openaiAuth.status === "login_started"',
+    );
+    expect(settingsPageSource).toContain("cancelOpenAiAuthSetup");
+    expect(settingsPageSource).toContain("refreshCodexAuthStatus");
+    expect(settingsPageSource).toContain("controller.signal.aborted");
+    expect(settingsPageSource).toContain("!actionTracker.isCurrent(action)");
+    expect(settingsPageSource.indexOf("abortCodexAuthPolls();")).toBeLessThan(
+      settingsPageSource.indexOf("await submitCancelCodexAuthSetup()"),
+    );
+  });
+
+  it("tracks concurrent settings actions without a shared pending slot", () => {
+    expect(settingsPageSource).toContain("createAsyncActionTracker");
+    expect(settingsPageSource).toContain("pendingActions().has(action)");
+    expect(settingsPageSource).not.toContain(
+      'const [pending, setPending] = createSignal("")',
+    );
+  });
+
+  it("keeps destructive auth confirmation in the shared UI layer", () => {
+    expect(settingsPageSource).toContain("ConfirmationPopup");
+    expect(settingsPageSource).not.toContain("window.confirm");
   });
 
   it("keeps Codex auth enabled and surfaces the server message when logout is unsupported", () => {
@@ -318,6 +761,24 @@ describe("settings page", () => {
     expect(settingsPageSource).toContain("Codex auth logout is unsupported.");
   });
 });
+
+function createModel(model: string, displayName: string): CodexModelInfo {
+  return {
+    id: model,
+    model,
+    displayName,
+    description: `${displayName} description`,
+    isDefault: false,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: ["low", "medium", "high"],
+  };
+}
+
+function expectSelectedOption(html: string, value: string): void {
+  expect(html).toMatch(
+    new RegExp(`<option(?=[^>]*value="${value}")(?=[^>]*selected)[^>]*>`),
+  );
+}
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {

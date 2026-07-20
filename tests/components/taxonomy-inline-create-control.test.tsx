@@ -4,12 +4,17 @@ import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
 import {
+  createTaxonomyOpenInstanceTracker,
   normalizeTaxonomyAddName,
   TaxonomyInlineCreateControl,
 } from "../../src/components/memories/TaxonomyInlineCreateControl";
 
 const inlineCreateSource = readFileSync(
   "src/components/memories/TaxonomyInlineCreateControl.tsx",
+  "utf8",
+);
+const taxonomyAddSource = readFileSync(
+  "src/components/memories/TaxonomyAddControl.tsx",
   "utf8",
 );
 
@@ -39,5 +44,27 @@ describe("taxonomy inline create control", () => {
   it("supports caller-supplied name validation before submission", () => {
     expect(inlineCreateSource).toContain("validateName");
     expect(inlineCreateSource).toContain("validationError");
+  });
+
+  it("returns focus after keyboard dismissal without stealing outside-pointer focus", () => {
+    expect(inlineCreateSource).toContain("TaxonomyInlineCreateCloseReason");
+    expect(inlineCreateSource).toContain('reason !== "outside-pointer"');
+    expect(inlineCreateSource).toContain("restoreTaxonomyTriggerFocus");
+    expect(taxonomyAddSource).toContain("restoreTaxonomyAddTriggerFocus");
+    expect(taxonomyAddSource).toContain('reason !== "outside-pointer"');
+  });
+
+  it("does not let a settled submit adopt a dismissed or reopened instance", () => {
+    const tracker = createTaxonomyOpenInstanceTracker();
+    tracker.open();
+    const submittingInstanceStillOwned = tracker.capture();
+
+    expect(submittingInstanceStillOwned()).toBe(true);
+    tracker.close();
+    expect(submittingInstanceStillOwned()).toBe(false);
+
+    tracker.open();
+    expect(submittingInstanceStillOwned()).toBe(false);
+    expect(tracker.capture()()).toBe(true);
   });
 });

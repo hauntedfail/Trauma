@@ -4,13 +4,49 @@ import { getMemoryBackupQueue } from "~/server/backup";
 import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
 import { loadRuntimeTraumaConfig, TraumaConfigError } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
-import { validateImportUrl } from "~/server/importer";
-import { addMemory } from "~/server/memories/add-memory";
+import { readJsonMutationRequest } from "~/server/http/mutation-request";
+import { ImportAdmissionError, validateImportUrl } from "~/server/importer";
+import {
+  createRuntimeMemoryImporter,
+  type RuntimeMemoryImporter,
+} from "~/server/importer/runtime";
+import {
+  AddMemoryIdempotencyConflictError,
+  AddMemoryIdempotencyReplayError,
+  addMemory,
+} from "~/server/memories/add-memory";
+import { isMemoryId } from "~/server/memories/id";
+
+interface MemoryPostHandlerOptions {
+  createImporter?: () => RuntimeMemoryImporter;
+}
+
+export function createMemoryPostHandler(
+  options: MemoryPostHandlerOptions = {},
+) {
+  return async function postMemory(event: APIEvent): Promise<Response> {
+    return handleMemoryPost(event, options);
+  };
+}
 
 export async function POST(event: APIEvent): Promise<Response> {
-  const payload = await parseAddMemoryPayloadInternal(event.request);
+  return handleMemoryPost(event);
+}
+
+async function handleMemoryPost(
+  event: APIEvent,
+  options: MemoryPostHandlerOptions = {},
+): Promise<Response> {
+  const idempotencyKey = readAddMemoryIdempotencyKey(event.request);
+  if (!idempotencyKey.ok) {
+    return json({ error: idempotencyKey.error }, { status: 400 });
+  }
+  const importer = options.createImporter?.() ?? createRuntimeMemoryImporter();
+  const payload = await parseAddMemoryPayloadInternal(event.request, {
+    validateUrl: importer.validateUrl,
+  });
   if (!payload.ok) {
-    return json({ error: payload.error }, { status: 400 });
+    return json({ error: payload.error }, { status: payload.status ?? 400 });
   }
 
   let config;
@@ -27,10 +63,20 @@ export async function POST(event: APIEvent): Promise<Response> {
       config,
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
+      importer,
+      ...(idempotencyKey.value === undefined
+        ? {}
+        : { idempotencyKey: idempotencyKey.value }),
     });
 
     return json({ memory }, { status: 201 });
   } catch (error) {
+    if (
+      error instanceof AddMemoryIdempotencyConflictError ||
+      error instanceof AddMemoryIdempotencyReplayError
+    ) {
+      return json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof BackupEnvironmentFailsafeError) {
       return json(
         {
@@ -38,6 +84,15 @@ export async function POST(event: APIEvent): Promise<Response> {
           backupFailsafe: error.alert ?? null,
         },
         { status: 409 },
+      );
+    }
+    if (error instanceof ImportAdmissionError) {
+      return json(
+        { code: error.code, error: error.message },
+        {
+          status: 429,
+          headers: { "retry-after": String(error.retryAfterSeconds) },
+        },
       );
     }
 
@@ -49,7 +104,7 @@ export async function POST(event: APIEvent): Promise<Response> {
 
 type AddMemoryPayloadResult =
   | { ok: true; url: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 interface ParseAddMemoryPayloadOptions {
   validateUrl?: (url: string) => Promise<string>;
@@ -58,18 +113,32 @@ interface ParseAddMemoryPayloadOptions {
 
 const DEFAULT_ROUTE_URL_VALIDATION_TIMEOUT_MS = 10_000;
 
+function readAddMemoryIdempotencyKey(
+  request: Request,
+):
+  | { ok: true; value: string | undefined }
+  | { ok: false; error: string } {
+  const value = request.headers.get("idempotency-key");
+  if (value === null) {
+    return { ok: true, value: undefined };
+  }
+  if (!isMemoryId(value)) {
+    return { ok: false, error: "Idempotency-Key must be a UUID v7" };
+  }
+  return { ok: true, value };
+}
+
 export const parseAddMemoryPayload = parseAddMemoryPayloadInternal;
 
 async function parseAddMemoryPayloadInternal(
   request: Request,
   options: ParseAddMemoryPayloadOptions = {},
 ): Promise<AddMemoryPayloadResult> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return { ok: false, error: "request body must be JSON" };
+  const body = await readJsonMutationRequest(request);
+  if (!body.ok) {
+    return body;
   }
+  const payload = body.payload;
 
   if (!isRecord(payload)) {
     return { ok: false, error: "request body must be an object" };

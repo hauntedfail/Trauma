@@ -8,11 +8,13 @@ import { transformAsync, type PluginItem } from "@babel/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createMemoryPostHandler,
   parseAddMemoryPayload,
   POST,
 } from "../../../src/routes/api/memories";
 import { loadTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
+import { ImportAdmissionError } from "../../../src/server/importer";
 
 const tempDirs: string[] = [];
 
@@ -26,6 +28,61 @@ afterEach(async () => {
 const repositoryRoot = process.cwd();
 
 describe("memories API route", () => {
+  it("maps import admission overflow to a stable retryable response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-api-memory-busy-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await writeNoBackupConfig(root);
+    let importCalls = 0;
+    const handler = createMemoryPostHandler({
+      createImporter: () => ({
+        validateUrl: async (url) => new URL(url).toString(),
+        importUrl: async () => {
+          importCalls += 1;
+          throw new ImportAdmissionError();
+        },
+      }),
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: "https://example.com/busy" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toEqual({
+      code: "import_busy",
+      error: "memory import is busy",
+    });
+    expect(importCalls).toBe(1);
+  });
+
+  it("rejects malformed idempotency keys before configuration or filesystem work", async () => {
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": "../../arbitrary-memory",
+          },
+          body: JSON.stringify({ url: "https://example.com/article" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Idempotency-Key must be a UUID v7",
+    });
+  });
+
   it("trims padded URLs before route validation", async () => {
     const observedUrls: string[] = [];
     const result = await parseAddMemoryPayload(
@@ -109,9 +166,47 @@ describe("memories API route", () => {
       error: "Backup location changed",
       backupFailsafe: {
         kind: "backup_path_drift",
-        currentProjectPath: config.projectPath,
-        currentStorePath: config.storePath,
+        availableActions: ["revert", "migrate"],
       },
+    });
+    expect(JSON.stringify(body)).not.toContain(config.projectPath);
+    expect(JSON.stringify(body)).not.toContain(config.storePath);
+  });
+
+  it("maps a terminal idempotency replay without a memory to a stable conflict", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-api-memory-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await writeConfig(root);
+    const config = loadTraumaConfig();
+    const connection = initializeDatabase(config);
+    const idempotencyKey = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812";
+    try {
+      await connection.repositories.memories.reserveCreationIdempotency({
+        idempotencyKey,
+        requestUrl: "http://93.184.216.34/article",
+        createdAt: new Date("2026-05-13T00:00:00.000Z"),
+      });
+    } finally {
+      connection.close();
+    }
+
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/memories", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": idempotencyKey,
+          },
+          body: JSON.stringify({ url: "http://93.184.216.34/article" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Idempotency-Key no longer refers to an existing memory",
     });
   });
 
@@ -133,7 +228,7 @@ describe("memories API route", () => {
     });
 
     expect(transformed?.code).toContain(
-      "parseAddMemoryPayloadInternal(event.request)",
+      "parseAddMemoryPayloadInternal(event.request, {",
     );
     expect(transformed?.code).toContain(
       "async function parseAddMemoryPayloadInternal",
@@ -162,6 +257,31 @@ async function writeConfig(root: string) {
         backup: {
           git: {
             enabled: true,
+            remote: "origin",
+            branch: "main",
+            push: false,
+            commitMessageTemplate: "backup memory {memoryId}",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
+async function writeNoBackupConfig(root: string) {
+  await writeFile(
+    join(root, "trauma.config.json"),
+    JSON.stringify(
+      {
+        projectPath: "./data",
+        storePath: "./data/storage",
+        databasePath: "./.trauma/trauma.sqlite",
+        backup: {
+          git: {
+            enabled: false,
             remote: "origin",
             branch: "main",
             push: false,

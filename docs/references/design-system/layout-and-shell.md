@@ -36,8 +36,8 @@ Current desktop contract:
 - Position: sticky, full viewport height.
 - Border: right border only.
 - Internal layout: `flex flex-col gap-1.5`.
-- Brand/home mark: use a `36px` mark with `px-2.5` so its centre aligns with
-  the `40px` navigation icon column.
+- Brand/home mark: use the `30px` rail/tablet mark inside the `40px` icon
+  column. The phone header uses `28px`; Local archive uses `26px`.
 
 Navigation item contract:
 
@@ -48,7 +48,7 @@ Navigation item contract:
 - Text line-height: at least `1.2` so descenders such as `g`, `q`, `p`, and
   `y` are not clipped.
 - Shape: rounded full pill for hit area only; active state must not add a
-  selected pill fill or surrounding primary-colour flashback.
+  selected pill fill or surrounding primary-colour highlight.
 - Active route, all themes: use the filled icon variant and bold visible tab
   label.
 - Active route, paper themes on desktop rail: draw the hand-written underline
@@ -61,8 +61,9 @@ Navigation item contract:
 - Tablet icon rail and phone bottom tabs must not render the paper underline.
 - Disabled/future routes: disabled button, low opacity, no live link.
 
-The rail may show future controls such as Backup and Settings, but they must
-remain disabled until their routes exist.
+Memories, Flashbacks, Moments, and Settings are live rail routes. Categories and
+Tags are desktop shortcuts to right-rail filters. Backup remains disabled until
+its route or action contract exists.
 
 ## Add Memory Action
 
@@ -84,14 +85,16 @@ sufficient.
 ## Local Archive Surface
 
 The local archive row sits at the bottom of the left rail. It is not an auth
-profile and must not imply account management.
+profile and must not imply account management. It is a static status surface,
+not a button or menu trigger.
 
 Current contract:
 
-- Transparent background by default.
-- Rounded full hover target.
+- Transparent background with no hover or pressed treatment.
+- Rounded rail layout without interactive semantics or a trailing action icon.
 - `40px` mark/avatar cell.
-- Text shows local archive status and storage location.
+- Text shows local archive status and a non-sensitive on-device label. Do not
+  expose or guess the configured store path in browser-visible shell chrome.
 
 ## Theme Controls
 
@@ -175,14 +178,16 @@ Current islands:
 
 Route-specific content may be inserted above these browse filters when a route
 has a strong contextual aid. The current example is the reader table of
-contents on `/memories/:id`. This content is registered through the shell right
-rail context, appears before browse filters, and is cleared when the route
+contents on ready source and translated memory routes. This content is
+registered through the shell right rail context, appears before browse filters,
+and is cleared when the route
 unmounts. Do not show reader TOC content on `/memories`, `/flashbacks`, or other
 non-reader routes.
 
 Long right-rail aids must not grow the application layout by item count. TOC and
-Flashback shortcut lists render their item bodies as bounded scroll regions. The rail
-itself remains viewport-bound, and each long list owns its own scrolling.
+Flashback shortcut lists render their item bodies as bounded scroll regions.
+The rail itself remains viewport-bound, and each long list owns its own
+scrolling.
 
 ## Tablet And Mobile
 
@@ -229,11 +234,11 @@ Phone:
 - Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
   tab layout.
 - The phone tab bar renders every primary rail item: Memories, Flashbacks,
-  Categories, Tags, Backup, Add memory, Theme, and Settings.
+  Moments, Categories, Tags, Backup, Add memory, Theme, and Settings.
 - When all tabs do not fit, only the tab bar scrolls horizontally. Do not drop
   tabs or reintroduce navigation/filter drawers.
-- Future or unavailable sections are rendered as disabled tabs rather than live
-  links to routes that do not exist.
+- Categories, Tags, and Backup render as disabled tabs rather than links to
+  routes that do not exist. Settings is a live route.
 - Phone tab icons use a dedicated larger icon slot than the compact tablet rail.
 - Phone tab text labels are visually hidden. Keep accessible names on the tabs,
   but do not render visible text in the bottom bar.
@@ -261,6 +266,6 @@ Reader image contract:
 
 Route frame classes belong to the route surface, not the shell. The shell owns
 columns, global navigation, bottom phone tabs, global composer popover state,
-and the right rail slot. Route files own
-headers, search controls, read-state tabs, empty states, reader content, and
+and the right rail slot. Route files own headers, search controls, read-state
+tabs, empty states, reader content, and
 route-specific loading states.

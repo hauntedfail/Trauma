@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import { emptyActiveTocRange } from "../../src/components/reader/toc-reading-range";
 import {
+  bindReaderTocScrollSpy,
   isSameActiveTocRange,
+  READER_TOC_DESKTOP_MEDIA_QUERY,
   readReaderHeadingPositions,
 } from "../../src/components/reader/toc-scroll-spy";
 
@@ -76,6 +78,92 @@ describe("isSameActiveTocRange", () => {
         { leadId: "b", rangeIds: ["a", "b"] },
       ),
     ).toBe(false);
+  });
+});
+
+describe("bindReaderTocScrollSpy", () => {
+  it("measures only while the desktop right rail is visible", () => {
+    const listeners = new Map<string, Set<EventListener>>();
+    const mediaListeners = new Set<EventListener>();
+    const mediaQuery = {
+      matches: false,
+      addEventListener: (_type: string, listener: EventListener) => {
+        mediaListeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: EventListener) => {
+        mediaListeners.delete(listener);
+      },
+    } as unknown as MediaQueryList;
+    const target = {
+      addEventListener: (
+        type: string,
+        listener: EventListener,
+      ) => {
+        const registered = listeners.get(type) ?? new Set<EventListener>();
+        registered.add(listener);
+        listeners.set(type, registered);
+      },
+      removeEventListener: (type: string, listener: EventListener) => {
+        listeners.get(type)?.delete(listener);
+      },
+      matchMedia: (query: string) => {
+        expect(query).toBe(READER_TOC_DESKTOP_MEDIA_QUERY);
+        return mediaQuery;
+      },
+    } as unknown as Window;
+    let scheduled = 0;
+    let cancelled = 0;
+    const binding = bindReaderTocScrollSpy({
+      cancel: () => {
+        cancelled += 1;
+      },
+      schedule: () => {
+        scheduled += 1;
+      },
+      target,
+    });
+    const dispatch = (type: string) => {
+      for (const listener of listeners.get(type) ?? []) {
+        listener(new Event(type));
+      }
+    };
+    const setDesktop = (matches: boolean) => {
+      Object.defineProperty(mediaQuery, "matches", {
+        configurable: true,
+        value: matches,
+      });
+      for (const listener of mediaListeners) {
+        listener(new Event("change"));
+      }
+    };
+
+    expect(binding.isEnabled()).toBe(false);
+    expect(scheduled).toBe(0);
+    dispatch("scroll");
+    expect(scheduled).toBe(0);
+
+    setDesktop(true);
+    expect(binding.isEnabled()).toBe(true);
+    expect(scheduled).toBe(1);
+    dispatch("scroll");
+    dispatch("resize");
+    dispatch("hashchange");
+    expect(scheduled).toBe(4);
+
+    setDesktop(false);
+    expect(binding.isEnabled()).toBe(false);
+    expect(cancelled).toBe(1);
+    dispatch("scroll");
+    expect(scheduled).toBe(4);
+
+    setDesktop(true);
+    expect(scheduled).toBe(5);
+    binding.dispose();
+    expect(binding.isEnabled()).toBe(false);
+    expect(cancelled).toBe(2);
+    expect(mediaListeners.size).toBe(0);
+    dispatch("scroll");
+    expect(scheduled).toBe(5);
   });
 });
 

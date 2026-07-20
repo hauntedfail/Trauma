@@ -4,12 +4,16 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CODEX_WIRE_MAX_FRAME_BYTES,
+  CODEX_WIRE_MAX_MESSAGE_BYTES,
+  CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES,
   type CodexAppServerEvent,
   CodexAppServerClient,
   CodexAppServerError,
+  WebSocketFrameDecoder,
   parseCodexAppServerEndpoint,
 } from "../../../src/server/translation/codex-app-server";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
@@ -17,10 +21,12 @@ import { createTranslationSegmentManifest } from "../../../src/server/translatio
 import type { TranslationChunk } from "../../../src/server/translation/types";
 
 const originalSocketPath = process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
+const originalRequestTimeout = process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
 const originalRuntimeDir = process.env.TRAUMA_CODEX_RUNTIME_DIR;
 const tempRoots: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   if (originalSocketPath === undefined) {
     delete process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
   } else {
@@ -31,12 +37,46 @@ afterEach(async () => {
   } else {
     process.env.TRAUMA_CODEX_RUNTIME_DIR = originalRuntimeDir;
   }
+  if (originalRequestTimeout === undefined) {
+    delete process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
+  } else {
+    process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = originalRequestTimeout;
+  }
   await Promise.all(
     tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
   );
 });
 
 describe("Codex app-server endpoint parsing", () => {
+  it("rejects oversized WebSocket frame declarations before buffering payloads", () => {
+    const decoder = new WebSocketFrameDecoder(() => undefined);
+    const header = Buffer.alloc(10);
+    header[0] = 0x81;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(CODEX_WIRE_MAX_FRAME_BYTES + 1), 2);
+
+    expect(() => decoder.push(header)).toThrowError(
+      /WebSocket frame was too large/u,
+    );
+  });
+
+  it("caps aggregate fragmented WebSocket messages", () => {
+    const decoder = new WebSocketFrameDecoder(() => undefined);
+    const firstSize = Math.floor(CODEX_WIRE_MAX_MESSAGE_BYTES / 2) + 1;
+    const secondSize = CODEX_WIRE_MAX_MESSAGE_BYTES - firstSize + 1;
+    decoder.push(encodeServerWebSocketPayloadFrame({
+      fin: false,
+      opcode: 0x1,
+      payload: Buffer.alloc(firstSize, 0x61),
+    }));
+
+    expect(() => decoder.push(encodeServerWebSocketPayloadFrame({
+      fin: true,
+      opcode: 0x0,
+      payload: Buffer.alloc(secondSize, 0x62),
+    }))).toThrowError(/WebSocket message was too large/u);
+  });
+
   it("accepts explicitly configured Unix sockets", () => {
     expect(parseCodexAppServerEndpoint("unix:///tmp/trauma-codex.sock"))
       .toEqual({
@@ -62,6 +102,184 @@ describe("Codex app-server endpoint parsing", () => {
       .toThrow(CodexAppServerError);
   });
 
+  it("sanitizes an error emitted before socket.connect returns", async () => {
+    let socket: net.Socket | undefined;
+    const destroy = vi.spyOn(net.Socket.prototype, "destroy").mockImplementation(
+      function (this: net.Socket) {
+        return this;
+      },
+    );
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("error", new Error("connect ENOENT /tmp/private-codex.sock"));
+      queueMicrotask(() => {
+        this.emit("error", new Error("second connect failure"));
+        this.emit("close");
+      });
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/missing-codex.sock",
+      socketPath: "/tmp/missing-codex.sock",
+    });
+
+    await expect(client.checkAuth()).rejects.toEqual(expect.objectContaining({
+      name: "CodexAppServerError",
+      code: "app_server_unavailable",
+      message: "Cannot connect to Codex app-server Unix socket.",
+    }));
+    await waitFor(() => socket?.listenerCount("close") === 0);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(socket?.listenerCount("connect")).toBe(0);
+    expect(socket?.listenerCount("error")).toBe(0);
+    expect(socket?.listenerCount("close")).toBe(0);
+    await client.close();
+  });
+
+  it("does not lose an error emitted immediately after socket connect", async () => {
+    let socket: net.Socket | undefined;
+    const destroy = vi.spyOn(net.Socket.prototype, "destroy").mockImplementation(
+      function (this: net.Socket) {
+        return this;
+      },
+    );
+    vi.spyOn(net.Socket.prototype, "write").mockImplementation(() => true);
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("connect");
+      this.emit("error", new Error("connect reset /tmp/private-codex.sock"));
+      this.emit("close");
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/reset-codex.sock",
+      socketPath: "/tmp/reset-codex.sock",
+    });
+
+    await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+      expect.objectContaining({
+        name: "CodexAppServerError",
+        code: "app_server_unavailable",
+      }),
+    );
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(socket?.listenerCount("error")).toBe(0);
+    expect(socket?.listenerCount("close")).toBe(0);
+    await client.close();
+  });
+
+  it("sanitizes a synchronous socket.connect failure", async () => {
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      throw new Error("connect rejected /tmp/private-codex.sock");
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/rejected-codex.sock",
+      socketPath: "/tmp/rejected-codex.sock",
+    });
+
+    await expect(client.checkAuth()).rejects.toEqual(expect.objectContaining({
+      name: "CodexAppServerError",
+      code: "app_server_unavailable",
+      message: "Cannot connect to Codex app-server Unix socket.",
+    }));
+    expect(socket?.destroyed).toBe(true);
+    await client.close();
+  });
+
+  it("rejects a real missing Unix socket without leaking its path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-missing-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "missing.sock");
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: `unix://${socketPath}`,
+      socketPath,
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth(), 1_000)).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "app_server_unavailable",
+          message: "Cannot connect to Codex app-server Unix socket.",
+        }),
+      );
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects and destroys a Unix socket that closes before connecting", async () => {
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("close");
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/closed-codex.sock",
+      socketPath: "/tmp/closed-codex.sock",
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "app_server_unavailable",
+          message: "Cannot connect to Codex app-server Unix socket.",
+        }),
+      );
+      expect(socket?.destroyed).toBe(true);
+    } finally {
+      socket?.destroy();
+      await client.close();
+    }
+  });
+
+  it("times out and destroys a Unix socket that never finishes connecting", async () => {
+    process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = "20";
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/stalled-codex.sock",
+      socketPath: "/tmp/stalled-codex.sock",
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "timeout",
+          message: "Codex app-server Unix socket connection timed out.",
+        }),
+      );
+      expect(socket?.destroyed).toBe(true);
+    } finally {
+      socket?.destroy();
+      await client.close();
+    }
+  });
+
   it("translates a chunk through the Unix-socket app-server wire protocol", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-"));
     tempRoots.push(root);
@@ -77,7 +295,9 @@ describe("Codex app-server endpoint parsing", () => {
       const events: string[] = [];
       const output = await client.translateChunk({
         chunk: createChunk(),
-        onEvent: (event) => events.push(event.type),
+        onEvent: (event) => {
+          events.push(event.type);
+        },
         prompt: "translate chunk",
       });
 
@@ -103,6 +323,69 @@ describe("Codex app-server endpoint parsing", () => {
     }
   });
 
+  it("stops a translation turn when its event consumer applies backpressure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-translation-backpressure-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, []);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "delta";
+        },
+        prompt: "translate chunk",
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+
+      expect(events.filter((event) => event.type === "delta")).toHaveLength(1);
+      expect(events).not.toContainEqual({
+        itemId: "item-1",
+        type: "item.completed",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not re-enter a rejected translation callback from the turn/start response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-translation-backpressure-race-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      sendTurnStartedBeforeTurnStartResponse: true,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.translateChunk({
+        chunk: createChunk(),
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "turn.started";
+        },
+        prompt: "translate chunk",
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+
+      expect(events.filter((event) => event.type === "turn.started"))
+        .toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("keeps a notification-derived translation turn id when the turn/start response omits it", async () => {
     const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-notified-translation-turn-"));
     tempRoots.push(root);
@@ -123,7 +406,9 @@ describe("Codex app-server endpoint parsing", () => {
 
       const output = await client.translateChunk({
         chunk: createChunk(),
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
         prompt: "translate chunk",
       });
 
@@ -196,6 +481,27 @@ describe("Codex app-server endpoint parsing", () => {
 
       await expect(client.checkAuth()).rejects.toMatchObject({
         code: "app_server_unavailable",
+      });
+      await waitFor(() => server.activeSocketCount() === 0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects oversized WebSocket upgrade headers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-upgrade-large-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startOversizedUpgradeHeaderServer(socketPath);
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.checkAuth()).rejects.toMatchObject({
+        code: "app_server_protocol_error",
       });
       await waitFor(() => server.activeSocketCount() === 0);
     } finally {
@@ -518,7 +824,9 @@ describe("Codex app-server endpoint parsing", () => {
       const result = await client.runConversationTurn({
         cwdPurpose: "psychiatrist",
         input: "What does the memory say?",
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
       });
 
       expect(result).toEqual({
@@ -558,6 +866,35 @@ describe("Codex app-server endpoint parsing", () => {
       expect(events).toContainEqual({ type: "turn.started", turnId: "turn-1" });
       await expect(readFile(join(runtimeRoot, "psychiatrist-thread-1")))
         .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a conversation turn when its event consumer applies backpressure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-backpressure-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      conversationFinalText: "Must not complete after rejected delta.",
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+      const events: CodexAppServerEvent[] = [];
+
+      await expect(client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "Generate an answer.",
+        onEvent: (event) => {
+          events.push(event);
+          return event.type !== "delta";
+        },
+      })).rejects.toMatchObject({ code: "event_limit_exceeded" });
+      expect(events.filter((event) => event.type === "delta")).toHaveLength(1);
     } finally {
       await server.close();
     }
@@ -641,7 +978,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Continue from local pair history.",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-expired",
         }),
       ).resolves.toMatchObject({
@@ -796,7 +1135,9 @@ describe("Codex app-server endpoint parsing", () => {
       await client.runConversationTurn({
         cwdPurpose: "psychiatrist",
         input: "Explain this.",
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event);
+        },
       });
 
       expect(events).toContainEqual({ type: "delta", text: "visible delta" });
@@ -849,7 +1190,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Follow up",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-1",
         }),
       ).resolves.toMatchObject({
@@ -891,7 +1234,9 @@ describe("Codex app-server endpoint parsing", () => {
         client.runConversationTurn({
           cwdPurpose: "psychiatrist",
           input: "Follow up",
-          onEvent: (event) => events.push(event),
+          onEvent: (event) => {
+            events.push(event);
+          },
           threadId: "thread-1",
         }),
       ).resolves.toMatchObject({
@@ -969,6 +1314,33 @@ describe("Codex app-server endpoint parsing", () => {
         "account/login/cancel",
         "account/logout",
       ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,unsafe",
+    "http://example.com/device",
+    "https://user:secret@example.com/device",
+  ])("rejects unsafe device verification URL %s", async (verificationUrl) => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-auth-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "app-server.sock");
+    const server = await startFakeAppServer(socketPath, [], {
+      deviceVerificationUrl: verificationUrl,
+    });
+    try {
+      const client = new CodexAppServerClient({
+        kind: "unix_socket",
+        raw: `unix://${socketPath}`,
+        socketPath,
+      });
+
+      await expect(client.startDeviceCodeLogin()).rejects.toMatchObject({
+        code: "app_server_unavailable",
+      });
     } finally {
       await server.close();
     }
@@ -1460,6 +1832,39 @@ async function startRejectingUpgradeServer(socketPath: string): Promise<{
   };
 }
 
+async function startOversizedUpgradeHeaderServer(socketPath: string): Promise<{
+  activeSocketCount: () => number;
+  close: () => Promise<void>;
+}> {
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.once("data", () => {
+      socket.write([
+        "HTTP/1.1 101 Switching Protocols",
+        `X-Oversized: ${"a".repeat(CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES)}`,
+        "",
+        "",
+      ].join("\r\n"));
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return {
+    activeSocketCount: () => sockets.size,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
 function handleClientMessage(
   socket: net.Socket,
   receivedMethods: string[],
@@ -1510,7 +1915,8 @@ function handleClientMessage(
         result: {
           loginId: "login-1",
           userCode: "ABCD-EFGH",
-          verificationUrl: "https://example.com/device",
+          verificationUrl:
+            options.deviceVerificationUrl ?? "https://example.com/device",
         },
       });
       if (options.authNotificationsAfterLogin === true) {
@@ -1863,6 +2269,7 @@ interface FakeAppServerOptions {
   conversationSourceCitations?: Array<{ sourceId: string; title: string; url: string }>;
   conversationWebSourceRequired?: boolean;
   controlFrames?: string[];
+  deviceVerificationUrl?: string;
   fragmentAccountReadResponse?: boolean;
   modelListResponse?: unknown;
   omitTurnStartResponseTurnId?: boolean;
@@ -1908,6 +2315,24 @@ async function waitFor(
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs = 100): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("promise did not settle before timeout"));
+    }, timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 interface FocusedProtocolFixture {
@@ -1977,15 +2402,39 @@ function encodeServerWebSocketFrame(input: {
   opcode: number;
   text: string;
 }): Buffer {
-  const payload = Buffer.from(input.text, "utf8");
+  return encodeServerWebSocketPayloadFrame({
+    fin: input.fin,
+    opcode: input.opcode,
+    payload: Buffer.from(input.text, "utf8"),
+  });
+}
+
+function encodeServerWebSocketPayloadFrame(input: {
+  fin: boolean;
+  opcode: number;
+  payload: Buffer;
+}): Buffer {
+  const { payload } = input;
   const first = (input.fin ? 0x80 : 0) | input.opcode;
   if (payload.length < 126) {
     return Buffer.concat([Buffer.from([first, payload.length]), payload]);
   }
-  return Buffer.concat([
-    Buffer.from([first, 126, (payload.length >> 8) & 0xff, payload.length & 0xff]),
-    payload,
-  ]);
+  if (payload.length <= 0xffff) {
+    return Buffer.concat([
+      Buffer.from([
+        first,
+        126,
+        (payload.length >> 8) & 0xff,
+        payload.length & 0xff,
+      ]),
+      payload,
+    ]);
+  }
+  const header = Buffer.alloc(10);
+  header[0] = first;
+  header[1] = 127;
+  header.writeBigUInt64BE(BigInt(payload.length), 2);
+  return Buffer.concat([header, payload]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

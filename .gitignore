@@ -1,5 +1,8 @@
 .superpowers/
 .eda/
+.tmp/
+app.config.timestamp_*.js
+.claude/settings.local.json
 node_modules/
 .vinxi/
 .output/

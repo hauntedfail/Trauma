@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { TraumaConfigError } from "./errors";
+import { assertRuntimeProcessLeaseCoversConfig } from "../runtime/process-lease";
 import type {
   ConfigValidationResult,
   LoadTraumaConfigOptions,
@@ -56,10 +57,12 @@ export function loadTraumaConfig(
 export function loadRuntimeTraumaConfig(
   options: Omit<LoadTraumaConfigOptions, "configPath"> = {},
 ): ResolvedTraumaConfig {
-  return loadTraumaConfig({
+  const config = loadTraumaConfig({
     ...options,
     configPath: process.env.TRAUMA_CONFIG_PATH,
   });
+  assertRuntimeProcessLeaseCoversConfig(config);
+  return config;
 }
 
 export function validateTraumaConfig(
@@ -150,11 +153,37 @@ export function validateTraumaConfig(
     },
   };
 
-  if (!isChildPath(resolvedConfig.projectPath, resolvedConfig.storePath)) {
+  const effectiveProjectPath = resolveEffectivePath(
+    resolvedConfig.projectPath,
+    "projectPath",
+    errors,
+  );
+  const effectiveStorePath = resolveEffectivePath(
+    resolvedConfig.storePath,
+    "storePath",
+    errors,
+  );
+  const effectiveDatabasePath = resolveEffectivePath(
+    resolvedConfig.databasePath,
+    "databasePath",
+    errors,
+  );
+
+  if (
+    !isChildPath(resolvedConfig.projectPath, resolvedConfig.storePath) ||
+    (effectiveProjectPath !== undefined &&
+      effectiveStorePath !== undefined &&
+      !isChildPath(effectiveProjectPath, effectiveStorePath))
+  ) {
     errors.push("storePath must be inside projectPath");
   }
 
-  if (isInsideOrSame(resolvedConfig.storePath, resolvedConfig.databasePath)) {
+  if (
+    isInsideOrSame(resolvedConfig.storePath, resolvedConfig.databasePath) ||
+    (effectiveStorePath !== undefined &&
+      effectiveDatabasePath !== undefined &&
+      isInsideOrSame(effectiveStorePath, effectiveDatabasePath))
+  ) {
     errors.push("databasePath must be outside storePath");
   }
 
@@ -167,6 +196,47 @@ export function validateTraumaConfig(
 
 function resolveConfigPath(configDir: string, pathValue: string) {
   return isAbsolute(pathValue) ? resolve(pathValue) : resolve(configDir, pathValue);
+}
+
+function resolveEffectivePath(
+  path: string,
+  label: string,
+  errors: string[],
+): string | undefined {
+  let existingPrefix = path;
+  const missingSuffix: string[] = [];
+
+  while (true) {
+    try {
+      lstatSync(existingPrefix);
+    } catch (error) {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        errors.push(
+          `${label} could not be resolved safely: ${formatUnknownError(error)}`,
+        );
+        return undefined;
+      }
+
+      const parent = dirname(existingPrefix);
+      if (parent === existingPrefix) {
+        errors.push(`${label} could not be resolved safely`);
+        return undefined;
+      }
+
+      missingSuffix.unshift(basename(existingPrefix));
+      existingPrefix = parent;
+      continue;
+    }
+
+    try {
+      return resolve(realpathSync(existingPrefix), ...missingSuffix);
+    } catch (error) {
+      errors.push(
+        `${label} could not be resolved safely: ${formatUnknownError(error)}`,
+      );
+      return undefined;
+    }
+  }
 }
 
 function rejectLiteralTildePath(

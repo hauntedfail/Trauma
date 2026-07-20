@@ -1,8 +1,8 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import type { ResolvedTraumaConfig } from "../config";
+import { publishFileAtomically } from "../files/atomic-write";
 import type {
   PsychiatristContextSection,
   PsychiatristContextSnapshotManifest,
@@ -15,6 +15,11 @@ import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
 } from "./stream-store";
+import {
+  sanitizePsychiatristSourceCitations,
+  sanitizePsychiatristWireSourceCitations,
+} from "./source-citations";
+import { withMemoryArtifactMutation } from "../memories/mutation-reservation";
 
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -71,13 +76,27 @@ export async function createPsychiatristThread(input: {
 }): Promise<void> {
   validateSafeId(input.manifest.memoryId);
   validateSafeId(input.manifest.threadId);
-  const directory = threadDirectory(input.config, input.manifest);
-  await mkdir(directory, { recursive: true });
-  await writeJsonAtomic(
-    join(directory, "THREAD.json"),
-    serializeThreadManifest(input.manifest),
+  await withMemoryArtifactMutation(
+    {
+      memoryId: input.manifest.memoryId,
+      storePath: input.config.storePath,
+    },
+    async (reservation) => {
+      const directory = threadDirectory(input.config, input.manifest);
+      reservation.assertWritable();
+      await mkdir(directory, { recursive: true });
+      reservation.assertWritable();
+      await writeJsonAtomic(
+        join(directory, "THREAD.json"),
+        serializeThreadManifest(input.manifest),
+      );
+      reservation.assertWritable();
+      await writeFileAtomic(
+        join(directory, "THREAD.md"),
+        renderThreadMarkdown([]),
+      );
+    },
   );
-  await writeFileAtomic(join(directory, "THREAD.md"), renderThreadMarkdown([]));
 }
 
 export async function appendPendingPair(input: {
@@ -90,71 +109,77 @@ export async function appendPendingPair(input: {
 }): Promise<void> {
   validateSafeId(input.pairId);
   validateSafeId(input.turnId);
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    const pairDirectoryPath = pairDirectory(
+      input.config,
+      loaded.manifest,
+      input.pairId,
+    );
+    await mkdir(pairDirectoryPath, { recursive: true });
+    const promptPath = posix.join(
+      "memories",
+      loaded.manifest.memoryId,
+      "threads",
+      input.threadId,
+      "pairs",
+      input.pairId,
+      "PROMPT.md",
+    );
+    const contextPath = posix.join(
+      "memories",
+      loaded.manifest.memoryId,
+      "threads",
+      input.threadId,
+      "pairs",
+      input.pairId,
+      "CONTEXT.json",
+    );
+    await writeFileAtomic(join(pairDirectoryPath, "PROMPT.md"), input.prompt);
+    await writeJsonAtomic(join(pairDirectoryPath, "CONTEXT.json"), {
+      categories: input.contextSnapshot.categories ?? [],
+      content_hash: input.contextSnapshot.contentHash,
+      context_snapshot_id: input.contextSnapshot.contextSnapshotId,
+      lang_code: input.contextSnapshot.langCode,
+      memory_id: input.contextSnapshot.memoryId,
+      policy_version: input.contextSnapshot.policyVersion,
+      relative_path: input.contextSnapshot.relativePath ?? "",
+      selected_section_anchors: input.contextSnapshot.selectedSectionAnchors,
+      selected_section_hashes: input.contextSnapshot.selectedSectionHashes,
+      sections: (input.contextSnapshot.sections ?? []).map((section) => ({
+        anchor: section.anchor,
+        end_offset: section.endOffset,
+        level: section.level,
+        markdown: section.markdown,
+        path: section.path,
+        start_offset: section.startOffset,
+        title: section.title,
+      })),
+      source_url: input.contextSnapshot.sourceUrl ?? "",
+      tags: input.contextSnapshot.tags ?? [],
+      title: input.contextSnapshot.title ?? "",
+      translation_output_hash: input.contextSnapshot.translationOutputHash,
+      user_prompt: input.contextSnapshot.userPrompt,
+      variant_kind: input.contextSnapshot.variantKind,
+    });
+    await appendPairRevision(input.config, loaded.manifest, {
+      context_snapshot_path: contextPath,
+      created_at: new Date().toISOString(),
+      pair_id: input.pairId,
+      revision_kind: "pending",
+      status: "pending",
+      stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      updated_at: new Date().toISOString(),
+      user_prompt: input.prompt,
+    });
+    await rewriteThreadMarkdown(input.config, loaded.manifest);
+    void promptPath;
   });
-  const pairDirectoryPath = pairDirectory(input.config, loaded.manifest, input.pairId);
-  await mkdir(pairDirectoryPath, { recursive: true });
-  const promptPath = posix.join(
-    "memories",
-    loaded.manifest.memoryId,
-    "threads",
-    input.threadId,
-    "pairs",
-    input.pairId,
-    "PROMPT.md",
-  );
-  const contextPath = posix.join(
-    "memories",
-    loaded.manifest.memoryId,
-    "threads",
-    input.threadId,
-    "pairs",
-    input.pairId,
-    "CONTEXT.json",
-  );
-  await writeFileAtomic(join(pairDirectoryPath, "PROMPT.md"), input.prompt);
-  await writeJsonAtomic(join(pairDirectoryPath, "CONTEXT.json"), {
-    categories: input.contextSnapshot.categories ?? [],
-    content_hash: input.contextSnapshot.contentHash,
-    context_snapshot_id: input.contextSnapshot.contextSnapshotId,
-    lang_code: input.contextSnapshot.langCode,
-    memory_id: input.contextSnapshot.memoryId,
-    policy_version: input.contextSnapshot.policyVersion,
-    relative_path: input.contextSnapshot.relativePath ?? "",
-    selected_section_anchors: input.contextSnapshot.selectedSectionAnchors,
-    selected_section_hashes: input.contextSnapshot.selectedSectionHashes,
-    sections: (input.contextSnapshot.sections ?? []).map((section) => ({
-      anchor: section.anchor,
-      end_offset: section.endOffset,
-      level: section.level,
-      markdown: section.markdown,
-      path: section.path,
-      start_offset: section.startOffset,
-      title: section.title,
-    })),
-    source_url: input.contextSnapshot.sourceUrl ?? "",
-    tags: input.contextSnapshot.tags ?? [],
-    title: input.contextSnapshot.title ?? "",
-    translation_output_hash: input.contextSnapshot.translationOutputHash,
-    user_prompt: input.contextSnapshot.userPrompt,
-    variant_kind: input.contextSnapshot.variantKind,
-  });
-  await appendPairRevision(input.config, loaded.manifest, {
-    context_snapshot_path: contextPath,
-    created_at: new Date().toISOString(),
-    pair_id: input.pairId,
-    revision_kind: "pending",
-    status: "pending",
-    stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
-    thread_id: input.threadId,
-    turn_id: input.turnId,
-    updated_at: new Date().toISOString(),
-    user_prompt: input.prompt,
-  });
-  await rewriteThreadMarkdown(input.config, loaded.manifest);
-  void promptPath;
 }
 
 export async function appendAssistantResponse(input: {
@@ -205,11 +230,13 @@ export async function appendAssistantResponse(input: {
       pair_id: input.pairId,
       response_markdown_path: responsePath,
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, pending.turnId),
       thread_id: input.threadId,
@@ -271,11 +298,13 @@ export async function appendRegeneratedAssistantResponse(input: {
       regenerated_from_turn_id: existing.turnId,
       response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
       thread_id: input.threadId,
@@ -331,11 +360,13 @@ export async function appendRetriedAssistantResponse(input: {
       pair_id: input.pairId,
       response_markdown_path: pairResponseRelativePath(loaded.manifest, input.pairId),
       revision_kind: "completed",
-      source_citations: input.citations.map((citation) => ({
-        source_id: citation.sourceId,
-        title: citation.title,
-        url: citation.url,
-      })),
+      source_citations: sanitizePsychiatristSourceCitations(input.citations).map(
+        (citation) => ({
+          source_id: citation.sourceId,
+          title: citation.title,
+          url: citation.url,
+        }),
+      ),
       status: "completed",
       stream_path: turnStreamRelativePath(loaded.manifest, input.turnId),
       thread_id: input.threadId,
@@ -431,18 +462,20 @@ export async function recordPsychiatristTurnStarted(input: {
   threadId: string;
   turnId: string;
 }): Promise<void> {
-  const loaded = await loadPsychiatristThread({
-    config: input.config,
-    threadId: input.threadId,
-  });
-  await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
-    pair_id: input.pairId,
-    policy_version: loaded.manifest.policyVersion,
-    regenerate_from_turn_id: input.regenerateFromTurnId,
-    started_at: new Date().toISOString(),
-    status: "started",
-    thread_id: input.threadId,
-    turn_id: input.turnId,
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = await loadPsychiatristThread({
+      config: input.config,
+      threadId: input.threadId,
+    });
+    await writeJsonAtomic(join(threadDirectory(input.config, loaded.manifest), "turns", `${input.turnId}.json`), {
+      pair_id: input.pairId,
+      policy_version: loaded.manifest.policyVersion,
+      regenerate_from_turn_id: input.regenerateFromTurnId,
+      started_at: new Date().toISOString(),
+      status: "started",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+    });
   });
 }
 
@@ -722,10 +755,32 @@ async function repairCompletedPairArtifacts(input: {
   let latestCompletedAt = input.manifest.updatedAt;
   for (const row of latestRowsByPairId.values()) {
     if (
+      (input.targetTurnId !== undefined && row.turn_id !== input.targetTurnId) ||
+      input.activeTurnIds.has(row.turn_id)
+    ) {
+      continue;
+    }
+    const responsePath = join(
+      pairDirectory(input.config, input.manifest, row.pair_id),
+      "RESPONSE.md",
+    );
+    if (
+      row.revision_kind === "completed" &&
+      row.status === "completed" &&
+      row.assistant_response !== undefined
+    ) {
+      const existingResponse = await readOptionalFile(responsePath);
+      if (existingResponse !== row.assistant_response) {
+        await writeFileAtomic(responsePath, row.assistant_response);
+        changed = true;
+      }
+    } else if (await removeFileIfPresent(responsePath)) {
+      changed = true;
+    }
+    if (
       row.revision_kind !== "completed" ||
       row.status !== "completed" ||
       row.assistant_response === undefined ||
-      (input.targetTurnId !== undefined && row.turn_id !== input.targetTurnId) ||
       input.activeTurnIds.has(row.turn_id)
     ) {
       continue;
@@ -777,8 +832,10 @@ async function repairCompletedPairArtifacts(input: {
         event: {
           data: {
             pair_id: row.pair_id,
-            source_citations: (row.source_citations ?? []).map((citation) => ({
-              source_id: citation.source_id,
+            source_citations: sanitizePsychiatristWireSourceCitations(
+              row.source_citations,
+            ).map((citation) => ({
+              source_id: citation.sourceId,
               title: citation.title,
               url: citation.url,
             })),
@@ -804,6 +861,29 @@ async function repairCompletedPairArtifacts(input: {
     await rewriteThreadMarkdown(input.config, input.manifest);
   }
   return changed;
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function removeFileIfPresent(path: string): Promise<boolean> {
+  try {
+    await rm(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function repairCanceledTurnReplays(input: {
@@ -1152,24 +1232,26 @@ export async function markPsychiatristThreadStale(input: {
   memoryId?: string;
   threadId: string;
 }): Promise<void> {
-  const loaded = input.memoryId === undefined
-    ? await loadPsychiatristThread({
-      config: input.config,
-      threadId: input.threadId,
-    })
-    : await loadPsychiatristThreadForMemory({
-      config: input.config,
-      memoryId: input.memoryId,
-      threadId: input.threadId,
-    });
-  await writeJsonAtomic(
-    join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
-    serializeThreadManifest({
-      ...loaded.manifest,
-      status: "stale",
-      updatedAt: new Date().toISOString(),
-    }),
-  );
+  return withThreadMutationLock(input.config, input.threadId, async () => {
+    const loaded = input.memoryId === undefined
+      ? await loadPsychiatristThread({
+        config: input.config,
+        threadId: input.threadId,
+      })
+      : await loadPsychiatristThreadForMemory({
+        config: input.config,
+        memoryId: input.memoryId,
+        threadId: input.threadId,
+      });
+    await writeJsonAtomic(
+      join(threadDirectory(input.config, loaded.manifest), "THREAD.json"),
+      serializeThreadManifest({
+        ...loaded.manifest,
+        status: "stale",
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  });
 }
 
 function parseContextSnapshot(value: unknown): PsychiatristContextSnapshotManifest {
@@ -1305,11 +1387,7 @@ function reducePairRows(rows: PairRevisionRow[]): PsychiatristThreadPair[] {
         ? {}
         : {
           assistant: {
-            citations: (row.source_citations ?? []).map((citation) => ({
-              sourceId: citation.source_id,
-              title: citation.title,
-              url: citation.url,
-            })),
+            citations: sanitizePsychiatristWireSourceCitations(row.source_citations),
             completedAt: row.updated_at,
             content: row.assistant_response,
           },
@@ -1332,11 +1410,23 @@ async function hydratePairRetryActions(
   pairs: PsychiatristThreadPair[],
 ): Promise<PsychiatristThreadPair[]> {
   const terminalTurns = await readTerminalTurns(config, manifest);
-  return Promise.all(pairs.map(async (pair) => {
+  const terminalTurnsByPairId = new Map<
+    string,
+    (typeof terminalTurns)[number][]
+  >();
+  for (const turn of terminalTurns) {
+    const turns = terminalTurnsByPairId.get(turn.pairId) ?? [];
+    turns.push(turn);
+    terminalTurnsByPairId.set(turn.pairId, turns);
+  }
+  for (const turns of terminalTurnsByPairId.values()) {
+    turns.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  return pairs.map((pair) => {
     const completedAt = pair.assistant?.completedAt;
-    const retryTurn = terminalTurns
-      .filter((turn) =>
-        turn.pairId === pair.pairId &&
+    const retryTurn = (terminalTurnsByPairId.get(pair.pairId) ?? [])
+      .find((turn) =>
         (
           pair.assistant === undefined
             ? turn.regenerateFromTurnId === undefined
@@ -1347,8 +1437,7 @@ async function hydratePairRetryActions(
           completedAt === undefined ||
           turn.updatedAt > completedAt
         )
-      )
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+      );
     if (retryTurn === undefined) {
       return pair;
     }
@@ -1379,7 +1468,7 @@ async function hydratePairRetryActions(
       };
     }
     return pair;
-  }));
+  });
 }
 
 async function readTerminalTurns(
@@ -1646,7 +1735,20 @@ async function withThreadMutationLock<T>(
   threadMutationQueues.set(key, queued);
   await previous.catch(() => undefined);
   try {
-    return await operation();
+    const manifest = await findThreadManifest(config, threadId);
+    if (manifest === undefined) {
+      throw new PsychiatristThreadStoreError(
+        "thread_not_found",
+        "Psychiatrist thread was not found.",
+      );
+    }
+    return await withMemoryArtifactMutation(
+      { memoryId: manifest.memoryId, storePath: config.storePath },
+      async (reservation) => {
+        reservation.assertWritable();
+        return operation();
+      },
+    );
   } finally {
     release();
     if (threadMutationQueues.get(key) === queued) {
@@ -1763,9 +1865,7 @@ async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
 
 async function writeFileAtomic(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = join(dirname(path), `.${randomUUID()}.tmp`);
-  await writeFile(temporaryPath, content, "utf8");
-  await rename(temporaryPath, path);
+  await publishFileAtomically(path, content);
 }
 
 function validateSafeId(id: string): void {

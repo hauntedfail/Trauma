@@ -81,6 +81,7 @@ export type TranslationErrorCode =
   | "missing_source_content"
   | "auth_required"
   | "setup_required"
+  | "runtime_isolation_required"
   | "app_server_unavailable"
   | "app_server_protocol_error"
   | "stale_source"
@@ -341,10 +342,4 @@ export interface TranslationJobStaleData {
 
 export interface TranslationJobFailedData {
   error: TranslationJobSnapshotError;
-}
-
-export interface TranslationChunkFailedData {
-  error: TranslationJobSnapshotError;
-  retry_count: number;
-  will_retry: boolean;
 }

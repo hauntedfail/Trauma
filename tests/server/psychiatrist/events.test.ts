@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import { createPsychiatristTurnEventsHandler } from "../../../src/server/psychia
 import {
   appendPsychiatristStreamEvent,
   loadPsychiatristStreamReplay,
+  subscribePsychiatristStream,
 } from "../../../src/server/psychiatrist/stream-store";
 import {
   appendAssistantResponse,
@@ -26,11 +27,32 @@ import type {
   PsychiatristStreamEvent,
   PsychiatristThreadManifest,
 } from "../../../src/server/psychiatrist/types";
+import {
+  ensureRuntimeProcessLease,
+  runtimeLeaseInputsForConfig,
+  RuntimeStorageBusyError,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../../../src/server/runtime/process-lease";
+import { createRuntimeConfig } from "../runtime/runtime-lease-test-helpers";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const MEMORY_ID_2 = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f002";
 const THREAD_ID = "019e8a00-0000-7000-8000-000000000001";
 const TURN_ID = "019e8a00-0000-7000-8000-000000000003";
+
+function tinyStreamLimits(overrides: {
+  maxDeltaBytes?: number;
+  maxFinalAnswerBytes?: number;
+  maxStreamBytes?: number;
+  maxStreamRows?: number;
+} = {}) {
+  return {
+    maxDeltaBytes: overrides.maxDeltaBytes ?? 1_024,
+    maxFinalAnswerBytes: overrides.maxFinalAnswerBytes ?? 1_024,
+    maxStreamBytes: overrides.maxStreamBytes ?? 64 * 1_024,
+    maxStreamRows: overrides.maxStreamRows ?? 16,
+  };
+}
 
 describe("Psychiatrist stream store", () => {
   afterEach(() => {
@@ -102,6 +124,163 @@ describe("Psychiatrist stream store", () => {
       "000000000002",
       "000000000003",
     ]);
+  });
+
+  it("sanitizes citations from legacy persisted terminal replay events", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-legacy-replay-"));
+    const streamPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "streams",
+      `${TURN_ID}.jsonl`,
+    );
+    await mkdir(join(streamPath, ".."), { recursive: true });
+    await writeFile(streamPath, `${JSON.stringify({
+      data: {
+        pair_id: "pair-1",
+        source_citations: [
+          {
+            source_id: "legacy-public",
+            title: "Public source",
+            url: "https://example.com/release?token=secret#section",
+          },
+          {
+            source_id: "legacy-local",
+            title: "Internal source",
+            url: "https://printer.local/status?token=secret",
+          },
+        ],
+        text: "Legacy cited answer.",
+      },
+      eventId: "000000000001",
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      timestamp: 1,
+      turnId: TURN_ID,
+      type: "psychiatrist.answer.completed",
+    })}\n`, "utf8");
+
+    const replay = await loadPsychiatristStreamReplay({
+      config: { storePath },
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    expect(replay).toEqual([
+      expect.objectContaining({
+        data: {
+          pair_id: "pair-1",
+          source_citations: [
+            {
+              source_id: "source-1",
+              title: "Public source",
+              url: "https://example.com/release",
+            },
+          ],
+          text: "Legacy cited answer.",
+        },
+        eventId: "000000000001",
+      }),
+    ]);
+  });
+
+  it("rejects oversized delta and final text before persistence or publication", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-stream-limits-"));
+    const published: PsychiatristStreamEvent[] = [];
+    const unsubscribe = subscribePsychiatristStream({
+      onEvent: (event) => published.push(event),
+      turnId: TURN_ID,
+    });
+    try {
+      await expect(appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { text: "界界" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.answer.delta",
+        },
+        limits: tinyStreamLimits({ maxDeltaBytes: 5 }),
+      })).rejects.toMatchObject({
+        code: "event_limit_exceeded",
+        kind: "event_bytes",
+      });
+      await expect(appendPsychiatristStreamEvent({
+        config: { storePath },
+        event: {
+          data: { pair_id: "pair-1", text: "界界" },
+          memoryId: MEMORY_ID,
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          type: "psychiatrist.answer.completed",
+        },
+        limits: tinyStreamLimits({ maxFinalAnswerBytes: 5 }),
+      })).rejects.toMatchObject({
+        code: "event_limit_exceeded",
+        kind: "final_answer_bytes",
+      });
+      expect(published).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("bounds turn stream rows and rejects oversized legacy replay before reading it", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-replay-limits-"));
+    const oneRow = tinyStreamLimits({ maxStreamRows: 1 });
+    await appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "first" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+      limits: oneRow,
+    });
+    await expect(appendPsychiatristStreamEvent({
+      config: { storePath },
+      event: {
+        data: { text: "second" },
+        memoryId: MEMORY_ID,
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        type: "psychiatrist.answer.delta",
+      },
+      limits: oneRow,
+    })).rejects.toMatchObject({
+      code: "event_limit_exceeded",
+      kind: "stream_rows",
+    });
+
+    const legacyTurnId = "019e8a00-0000-7000-8000-000000000004";
+    const legacyPath = join(
+      storePath,
+      "memories",
+      MEMORY_ID,
+      "threads",
+      THREAD_ID,
+      "streams",
+      `${legacyTurnId}.jsonl`,
+    );
+    await mkdir(join(legacyPath, ".."), { recursive: true });
+    await writeFile(legacyPath, `${"x".repeat(64)}\n`, "utf8");
+    await expect(loadPsychiatristStreamReplay({
+      config: { storePath },
+      limits: tinyStreamLimits({ maxStreamBytes: 32 }),
+      memoryId: MEMORY_ID,
+      threadId: THREAD_ID,
+      turnId: legacyTurnId,
+    })).rejects.toMatchObject({
+      code: "event_limit_exceeded",
+      kind: "stream_bytes",
+    });
   });
 
   it("serializes concurrent appends so event ids remain unique", async () => {
@@ -1324,6 +1503,155 @@ describe("Psychiatrist stream store", () => {
     await expect(readChunk(reader!)).resolves.toContain("Stored delta");
     await expect(readChunk(reader!)).resolves.toContain("psychiatrist.answer.completed");
     await expect(reader!.read()).resolves.toMatchObject({ done: true });
+  });
+
+  it("holds a short runtime borrow while initial live replay is loading", async () => {
+    const { config } = await createRuntimeConfig();
+    const lease = ensureRuntimeProcessLease(config);
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    let resolveReplay: ((events: PsychiatristStreamEvent[]) => void) | undefined;
+    const replayPromise = new Promise<PsychiatristStreamEvent[]>((resolve) => {
+      resolveReplay = resolve;
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config,
+      loadReplay: async () => await replayPromise,
+      subscribe: () => () => undefined,
+    });
+
+    try {
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+          { turnId: TURN_ID },
+        ),
+      );
+      const reader = response.body!.getReader();
+      let blocked = false;
+      try {
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config));
+      } catch (error) {
+        expect(error).toBeInstanceOf(RuntimeStorageBusyError);
+        blocked = true;
+      }
+
+      resolveReplay?.([
+        streamEvent("000000000001", "psychiatrist.answer.completed", {
+          pair_id: "pair-1",
+        }),
+      ]);
+      await expect(readChunk(reader)).resolves.toContain(
+        "psychiatrist.answer.completed",
+      );
+      if (blocked) {
+        expect(
+          suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+        ).toBe(true);
+      }
+      expect(blocked).toBe(true);
+    } finally {
+      resolveReplay?.([]);
+      lease.release();
+    }
+  });
+
+  it("bounds live events while replay is loading instead of buffering a slow consumer", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-backpressure-"));
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    let onLiveEvent: ((event: PsychiatristStreamEvent) => void) | undefined;
+    let resolveReplay: ((events: PsychiatristStreamEvent[]) => void) | undefined;
+    let unsubscribeCount = 0;
+    const replayPromise = new Promise<PsychiatristStreamEvent[]>((resolve) => {
+      resolveReplay = resolve;
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+      loadReplay: async () => await replayPromise,
+      sseLimits: { maxPendingBytes: 4_096, maxPendingEvents: 1 },
+      subscribe: (input) => {
+        onLiveEvent = input.onEvent;
+        return () => {
+          unsubscribeCount += 1;
+        };
+      },
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const reader = response.body!.getReader();
+    onLiveEvent?.(streamEvent("000000000001", "psychiatrist.answer.delta", {
+      text: "first",
+    }));
+    onLiveEvent?.(streamEvent("000000000002", "psychiatrist.answer.delta", {
+      text: "second",
+    }));
+    resolveReplay?.([]);
+
+    await expect(reader.read()).rejects.toMatchObject({
+      code: "event_limit_exceeded",
+      kind: "sse_pending_events",
+    });
+    expect(unsubscribeCount).toBe(1);
+  });
+
+  it("pulls inactive replay one event at a time without joining the full body", async () => {
+    const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-sse-pull-"));
+    const handler = createPsychiatristTurnEventsHandler({
+      config: { storePath },
+      loadReplay: async () => [
+        streamEvent("000000000001", "psychiatrist.turn.started", { status: "running" }),
+        streamEvent("000000000002", "psychiatrist.answer.completed", {
+          pair_id: "pair-1",
+        }),
+      ],
+    });
+
+    const response = await handler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+        { turnId: TURN_ID },
+      ),
+    );
+    const reader = response.body!.getReader();
+    const first = await readChunk(reader);
+    const second = await readChunk(reader);
+
+    expect(first).toContain("psychiatrist.turn.started");
+    expect(first).not.toContain("psychiatrist.answer.completed");
+    expect(second).toContain("psychiatrist.answer.completed");
+    await expect(reader.read()).resolves.toMatchObject({ done: true });
   });
 
   it("unsubscribes live streams when replay loading fails", async () => {

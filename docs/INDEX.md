@@ -1,59 +1,62 @@
 # TRAUMA Documentation Index
 
-This directory is the working documentation set for TRAUMA.
-
-The approved foundation spec remains the design record:
-
-- [Foundation design](superpowers/specs/2026-05-09-trauma-foundation-design.md)
-- [Execution workflows](workflows/README.md)
-
-Use the documents below for day-to-day implementation context. They are derived
-from the foundation design and should stay aligned with it.
+This is the authoritative map for current TRAUMA implementation context. Read
+the smallest owning document for the work. When prose and executable behavior
+disagree, verify the code and tests, then correct the owning semantic document.
 
 ## Architecture
 
 - [Overview](architecture/overview.md): runtime shape, module boundaries, and
-  dependency rules.
-- [Data and storage](architecture/data-and-storage.md): SQLite metadata,
-  markdown store, flashback persistence, and ownership of canonical state.
-- [Flows](architecture/flows.md): add memory, extraction fallback, flashback,
-  and git backup flows.
-- [UI and routing](architecture/ui-and-routing.md): canonical routes, shell
-  layout, filters, flashback browse, composer, and reader behavior.
+  dependency direction.
+- [Data and storage](architecture/data-and-storage.md): canonical ownership
+  across SQLite, memory-store artifacts, translations, and Psychiatrist.
+- [Runtime flows](architecture/flows.md): add memory, Flashbacks, Moments,
+  translation, Psychiatrist, and git backup.
+- [UI and routing](architecture/ui-and-routing.md): canonical routes, shell,
+  browse/filter state, reader behavior, and responsive navigation.
 
 ## References
 
 - [Technology stack](references/technology-stack.md): selected stack,
-  exclusions, and rationale.
-- [Design system](references/design-system/INDEX.md): front-end tokens,
-  themes, shell layout, route surfaces, icons, interactions, and verification.
-- [Configuration](references/configuration.md): `trauma.config.json` shape,
-  validation rules, and operational meaning.
-- [Coding standards](references/coding-standards/INDEX.md): map of
-  TypeScript, SolidStart, Bun, Drizzle, security, testing, and anti-pattern
-  rules for implementation work, including review feedback triage.
-- [Glossary](references/glossary.md): domain language and status terms.
+  deployment target, exclusions, and rationale.
+- [Design system](references/design-system/INDEX.md): tokens, themes, layout,
+  route surfaces, icons, interaction, accessibility, and visual verification.
+- [Configuration](references/configuration.md): `trauma.config.json`, path and
+  backup rules, browser import, and Codex app-server environment.
+- [Coding standards](references/coding-standards/INDEX.md): TypeScript,
+  SolidStart, Bun, Drizzle, security, testing, and review-feedback rules.
+- [Glossary](references/glossary.md): product terms and persisted status fields.
 
-## Operations
+## Operations And Quality
 
-- [Local/self-hosting model](operations/local-self-hosting.md): expected
-  deployment shape, persistent disk assumptions, and git backup behavior.
+- [Local/self-hosting](operations/local-self-hosting.md): persistent-disk
+  operation, backup recovery, access control, and Psychiatrist isolation.
+- [Verification](quality/verification.md): verification commands, current risk
+  coverage, and the completion bar.
 
-## Quality
+## Work
 
-- [Verification](quality/verification.md): E2E-first strategy and focused
-  unit/integration coverage.
+- [Backlog](../Backlog.md): concise durable open work.
+- [Execution workflow policy](workflows/README.md): how temporary task plans and
+  completed history are handled.
+- [Historical workflow index](workflows/archive/README.md): completed task
+  families and their current semantic owners.
 
-## Workflows
+## Historical Records
 
-- [Task execution workflows](workflows/README.md): task-scoped worker handoff
-  files for implementation PRs.
+- [Foundation design, 2026-05-09](superpowers/specs/2026-05-09-trauma-foundation-design.md):
+  superseded pre-implementation record retained for historical context only.
+
+Historical records are not implementation specifications. Current architecture,
+reference, operations, quality docs, code, and tests take precedence.
 
 ## Documentation Rules
 
-- Keep `AGENTS.md` as a short map, not a design document.
-- Put system boundaries and dependency rules under `docs/architecture/`.
-- Put exact contracts, config shapes, and terminology under `docs/references/`.
-- Put runtime/deployment procedures under `docs/operations/`.
-- Put testing and verification expectations under `docs/quality/`.
-- Update the foundation spec only when changing an approved foundation decision.
+- Keep `AGENTS.md`, `CLAUDE.md`, and `README.md` as short entry points.
+- Put durable system behavior in the owning architecture, reference,
+  operations, or quality document.
+- Keep one owner for a contract and link to it instead of copying it.
+- Track open outcomes in `Backlog.md`; delete completed task plans after moving
+  durable requirements to semantic docs.
+- Use Git history for execution chronology, review transcripts, commit lists,
+  and superseded implementation plans.

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFlashbackMarkers,
+  mapMarkdownSourceRangeToReaderRange,
+  projectMarkdownToReaderText,
   readRenderedMarkdownRangeText,
   resolveFlashbackSelection,
   stripFlashbackMarkers,
@@ -666,6 +668,53 @@ describe("flashback markdown markers", () => {
     ).toBe("line\ntarget");
   });
 
+  it.each([
+    ["an ordinary space", "alpha beta", "alpha beta"],
+    ["a single trailing space", "line \nnext", "line \nnext"],
+    ["two spaces inside a line", "alpha  beta", "alpha  beta"],
+    [
+      "a long non-trailing space run",
+      `alpha${" ".repeat(4_096)}beta`,
+      `alpha${" ".repeat(4_096)}beta`,
+    ],
+    ["two trailing spaces before LF", "line  \nnext", "line\nnext"],
+    ["three trailing spaces before CRLF", "line   \r\nnext", "line\nnext"],
+    ["two trailing spaces at EOF", "line  ", "line"],
+    ["a backslash break before LF", "line\\\nnext", "line\nnext"],
+    ["a backslash break before CRLF", "line\\\r\nnext", "line\nnext"],
+  ])("preserves reader projection semantics for %s", (_, markdown, expected) => {
+    expect(projectMarkdownToReaderText(markdown).text).toBe(expected);
+  });
+
+  it("maps source ranges equivalently across representative Markdown projections", () => {
+    const corpus = [
+      "Plain text with two sentences. Next sentence.",
+      "# Heading\n\n- first item\n- second item\n",
+      "Read [the docs](https://example.com) &amp; continue.",
+      "<section>Visible <strong>HTML</strong></section>\n",
+      "| Left | Right |\n| --- | --- |\n| A | B |\n",
+      "Escaped \\*literal\\* and `protected code`.\n",
+      "First sentence.\r\n\r\nSecond sentence.",
+    ];
+
+    for (const markdown of corpus) {
+      const projection = projectMarkdownToReaderText(markdown);
+      const maximumSourceOffset = projection.sourceEndOffsets.at(-1) ?? 0;
+      for (let startOffset = 0; startOffset < maximumSourceOffset; startOffset += 1) {
+        for (
+          let endOffset = startOffset + 1;
+          endOffset <= maximumSourceOffset;
+          endOffset += 1
+        ) {
+          const range = { endOffset, startOffset };
+          expect(mapMarkdownSourceRangeToReaderRange(projection, range)).toEqual(
+            scanProjectedSpanForSourceRange(projection, range),
+          );
+        }
+      }
+    }
+  });
+
   it("skips sanitized raw HTML block contents before resolving duplicate text", () => {
     const markdown = "<script>target</script> target";
 
@@ -998,3 +1047,28 @@ describe("flashback markdown markers", () => {
     ).toThrow("Selected markdown code cannot be flashbacked");
   });
 });
+
+function scanProjectedSpanForSourceRange(
+  projection: ReturnType<typeof projectMarkdownToReaderText>,
+  range: { endOffset: number; startOffset: number },
+): { endOffset: number; startOffset: number } | undefined {
+  let startOffset: number | undefined;
+  let endOffset: number | undefined;
+  for (let index = 0; index < projection.text.length; index += 1) {
+    const sourceStartOffset = projection.sourceOffsets[index];
+    const sourceEndOffset = projection.sourceEndOffsets[index];
+    if (
+      sourceStartOffset === undefined ||
+      sourceEndOffset === undefined ||
+      sourceStartOffset < range.startOffset ||
+      sourceEndOffset > range.endOffset
+    ) {
+      continue;
+    }
+    startOffset ??= index;
+    endOffset = index + 1;
+  }
+  return startOffset === undefined || endOffset === undefined
+    ? undefined
+    : { endOffset, startOffset };
+}

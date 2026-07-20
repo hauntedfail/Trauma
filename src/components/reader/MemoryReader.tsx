@@ -31,9 +31,15 @@ import type { ReaderTocEntry } from "../../server/reader/markdown-renderer";
 import type { FlashbackBrowseRow } from "../../server/db/repositories";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
 import {
-  getFlashbackBrowseRows,
+  getFlashbackBrowsePage,
+  revalidateFlashbackBrowsePage,
   revalidateFlashbackBrowseRows,
 } from "../flashbacks/flashbacks-loader";
+import {
+  CollectionPageRetry,
+  createCollectionPageRetryController,
+} from "../collections/CollectionPageRetry";
+import { settleCollectionPage } from "../collections/page-state";
 import { MemoryActionMenu } from "../memories/MemoryActionMenu";
 import { MemoryReadStatusControl } from "../memories/MemoryReadStatusControl";
 import { revalidateBrowseMemoryWorkspace } from "../memories/browse-loader";
@@ -55,9 +61,16 @@ import {
   type ActiveTocRange,
 } from "./toc-reading-range";
 import {
+  bindReaderTocScrollSpy,
   isSameActiveTocRange,
   readReaderHeadingPositions,
+  type ReaderTocScrollSpyBinding,
 } from "./toc-scroll-spy";
+import {
+  collectResolvedReaderMomentTargetIds,
+  findReaderMomentForSection,
+  resolveReaderMomentTarget,
+} from "./reader-moment-targets";
 import {
   createMomentForSection,
   type ReaderMomentSection,
@@ -65,7 +78,8 @@ import {
 import { deleteMomentById } from "../moments/moment-action-requests";
 import {
   canStartFlashbackToggle,
-  isExplicitFlashbackKeyboardToggle,
+  shouldHandleFlashbackKeyboardToggle,
+  shouldPreventFlashbackSpaceDefault,
 } from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
@@ -74,6 +88,8 @@ import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
 } from "./flashback-failure";
+import { readFlashbackBackupWarning } from "./flashback-backup-warning";
+import { readFlashbackDurabilityWarning } from "./flashback-durability-warning";
 import {
   readerArticle,
   readerFrame,
@@ -93,10 +109,17 @@ import {
   ScrollableUrlLink,
 } from "../url/ScrollableUrlText";
 import {
-  submitCodexTranslationDefaults,
   submitReadCodexModels,
+  submitTranslationDefaults,
 } from "../settings/settings-submit";
 import { revalidateSettingsState } from "../settings/settings-loader";
+import { captureAsyncActionFocusIntent } from "../async-action-focus";
+import {
+  createReaderGenerationGuard,
+  type ReaderGenerationSnapshot,
+} from "./reader-generation";
+
+export { findReaderMomentForSection, resolveReaderMomentTarget };
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -163,6 +186,8 @@ const noTocScrollState: TocScrollState = {
 
 const readerTocScrollContent =
   "max-h-[min(44vh,24rem)] overflow-y-auto overscroll-contain pr-1";
+const readerFlashbackScrollContent =
+  "grid max-h-[min(44vh,24rem)] gap-3 overflow-y-auto overscroll-contain pr-1";
 const readerContextMenuClass =
   "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
 const readerSourceLinkClass =
@@ -171,21 +196,27 @@ const readerSourceLinkClass =
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
     props.result.status === "ready" ? props.result : undefined;
+  const readyResultIdentity = () => {
+    const result = readyResult();
+    return result === undefined
+      ? undefined
+      : `${result.memory.id}\u0000${result.content.langCode ?? ""}`;
+  };
   const stateMessage = () =>
     props.result.status === "ready" ? "" : props.result.message;
 
   return (
     <Show
       keyed
-      when={readyResult()}
+      when={readyResultIdentity()}
       fallback={<ReaderState message={stateMessage()} />}
     >
-      {(result) => (
+      {(_identity) => (
         <ReadyMemoryReader
           categoryOptions={props.categoryOptions ?? []}
           flashbackRows={props.flashbackRows}
           navigate={props.navigate}
-          result={result}
+          result={readyResult()!}
           tagOptions={props.tagOptions ?? []}
           translationModel={props.translationModel}
           translationReasoningEffort={props.translationReasoningEffort}
@@ -211,8 +242,24 @@ function ReadyMemoryReader(props: {
   let bodyContentRef: HTMLDivElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
+  let translationModelSelectRef: HTMLSelectElement | undefined;
   let sectionLongPressTimer: number | undefined;
   const navigate = props.navigate ?? useNavigate();
+  const readerGenerationGuard = createReaderGenerationGuard({
+    langCode: props.result.content.langCode,
+    memoryId: props.result.memory.id,
+  });
+  const captureReaderGeneration = (): ReaderGenerationSnapshot =>
+    readerGenerationGuard.activate({
+      langCode: props.result.content.langCode,
+      memoryId: props.result.memory.id,
+    });
+  const isCurrentReaderGeneration = (
+    snapshot: ReaderGenerationSnapshot,
+  ): boolean =>
+    readerGenerationGuard.isCurrent(snapshot) &&
+    props.result.memory.id === snapshot.memoryId &&
+    props.result.content.langCode === snapshot.langCode;
   const sourceUrl = () => props.result.memory.url;
   const sourceHref = () => toSafeReaderSourceHref(sourceUrl());
   const readerContent = createMemo(() =>
@@ -247,6 +294,8 @@ function ReadyMemoryReader(props: {
   const [errorMessage, setErrorMessage] = createSignal("");
   const [translationProgress, setTranslationProgress] =
     createSignal<TranslationProgressState>();
+  const [translationSubmitPending, setTranslationSubmitPending] =
+    createSignal(false);
   const [translationDialogOpen, setTranslationDialogOpen] = createSignal(false);
   const [translationDefaultLanguage, setTranslationDefaultLanguage] =
     createSignal<SupportedLanguageCode | "">(props.translationTargetLanguage ?? "");
@@ -269,14 +318,36 @@ function ReadyMemoryReader(props: {
     CodexModelCatalog["models"]
   >([]);
   const [translationCatalogError, setTranslationCatalogError] = createSignal("");
+  const [translationCatalogPending, setTranslationCatalogPending] =
+    createSignal(false);
   const { setRightRailContent } = useRightRailContent();
   let translationEventSource: EventSource | undefined;
+  let translationCatalogRequest: {
+    generation: number;
+    promise: Promise<"error" | "ignored" | "success">;
+  } | undefined;
+  let translationRequestGeneration = 0;
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
   const closeSectionMenu = () => setSectionMenu(undefined);
   const closeReaderMenus = () => {
     closeSelectionMenu();
     closeSectionMenu();
+  };
+  const focusReaderContent = () => {
+    queueMicrotask(() => {
+      if (contentRef?.isConnected === true) {
+        contentRef.focus({ preventScroll: true });
+      }
+    });
+  };
+  const dismissSelectionMenu = () => {
+    closeSelectionMenu();
+    focusReaderContent();
+  };
+  const dismissSectionMenu = () => {
+    closeSectionMenu();
+    focusReaderContent();
   };
   const resetTranslationFormToDefaults = () => {
     setTranslationFormLanguage(translationDefaultLanguage());
@@ -297,45 +368,47 @@ function ReadyMemoryReader(props: {
     }
   });
   createEffect(() => {
-    props.result.memory.id;
+    readerGenerationGuard.activate({
+      langCode: props.result.content.langCode,
+      memoryId: props.result.memory.id,
+    });
     setCategories([...props.result.memory.categories]);
     setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
-    setPendingMomentKey("");
-    setPendingSelectionKey("");
-    setErrorMessage("");
-    setTranslationProgress(undefined);
-    translationEventSource?.close();
-    translationEventSource = undefined;
-    closeReaderMenus();
   });
-  createEffect(() => {
-    setRightRailContent(
-      <ReaderRightRailContent
-        activeTocRange={activeTocRange}
-        currentFlashbacks={currentFlashbacks()}
-        flashbackRows={props.flashbackRows}
-        moments={moments()}
-        memoryId={props.result.memory.id}
-        onCreateMoment={(section) => void toggleMoment(section)}
-        onOpenSectionMenu={openSectionMenu}
-        pendingMomentKey={pendingMomentKey()}
-        toc={props.result.rendered.toc}
-      />,
-    );
-  });
-
   onCleanup(() => {
-    translationEventSource?.close();
+    readerGenerationGuard.invalidate();
+    translationRequestGeneration += 1;
+    const activeTranslationEventSource = translationEventSource;
+    translationEventSource = undefined;
+    activeTranslationEventSource?.close();
     setRightRailContent(undefined);
   });
 
   onMount(() => {
+    setRightRailContent(
+      <ReaderRightRailContent
+        activeTocRange={activeTocRange}
+        currentFlashbacks={currentFlashbacks}
+        flashbackRows={props.flashbackRows}
+        moments={moments}
+        memoryId={props.result.memory.id}
+        onCreateMoment={(section) => void toggleMoment(section)}
+        onOpenSectionMenu={openSectionMenu}
+        pendingMomentKey={pendingMomentKey}
+        toc={props.result.rendered.toc}
+      />,
+    );
     setIsReaderClientReady(true);
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (
+        event.key === "Escape" &&
+        (selectionMenu() !== undefined || sectionMenu() !== undefined)
+      ) {
+        event.preventDefault();
         closeReaderMenus();
+        focusReaderContent();
       }
     };
     const closeOnPointerDown = (event: PointerEvent) => {
@@ -404,15 +477,22 @@ function ReadyMemoryReader(props: {
   };
   const commitSelectionMenu = () => {
     const menu = selectionMenu();
-    if (menu === undefined || bodyContentRef === undefined) {
+    const container = bodyContentRef;
+    const readerGeneration = captureReaderGeneration();
+    if (
+      menu === undefined ||
+      container === undefined ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
 
     closeSelectionMenu();
     void toggleReaderSelection({
-      container: bodyContentRef,
-      langCode: props.result.content.langCode,
-      memoryId: props.result.memory.id,
+      container,
+      isCurrent: () => isCurrentReaderGeneration(readerGeneration),
+      langCode: readerGeneration.langCode,
+      memoryId: readerGeneration.memoryId,
       pendingSelectionKey: pendingSelectionKey(),
       selection: menu.selection,
       setErrorMessage,
@@ -420,8 +500,8 @@ function ReadyMemoryReader(props: {
       onFlashbacksChanged: setCurrentFlashbacks,
       onSuccess: () =>
         revalidateAfterFlashbackToggle(
-          props.result.memory.id,
-          props.result.content.langCode,
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
         ),
     });
   };
@@ -443,64 +523,156 @@ function ReadyMemoryReader(props: {
     closeSectionMenu();
     void toggleMoment(menu.section);
   };
-  const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
-    if (!isExplicitFlashbackKeyboardToggle(event)) {
+  const readKeyboardSelectionContext = (event: KeyboardEvent) => ({
+    hasReaderSelection: readReaderSelection(contentRef) !== undefined,
+    targetIsReaderContent: event.target === contentRef,
+  });
+  const handleKeyboardSelectionKeyDown = (event: KeyboardEvent) => {
+    if (!shouldPreventFlashbackSpaceDefault(
+      event,
+      readKeyboardSelectionContext(event),
+    )) {
       return;
     }
 
     event.preventDefault();
+  };
+  const handleKeyboardSelectionToggle = (event: KeyboardEvent) => {
+    if (!shouldHandleFlashbackKeyboardToggle(
+      event,
+      readKeyboardSelectionContext(event),
+    )) {
+      return;
+    }
+
     openSelectionMenu();
   };
   const deleteMemory = async (memoryId: string): Promise<void> => {
-    await deleteReaderMemory({
-      langCode: props.result.content.langCode,
-      memoryId,
-      navigate,
-    });
+    const readerGeneration = captureReaderGeneration();
+    if (
+      memoryId !== readerGeneration.memoryId ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
+      return;
+    }
+
+    try {
+      await deleteReaderMemory({
+        isCurrent: () => isCurrentReaderGeneration(readerGeneration),
+        langCode: readerGeneration.langCode,
+        memoryId: readerGeneration.memoryId,
+        navigate: (path) => {
+          if (isCurrentReaderGeneration(readerGeneration)) {
+            navigate(path);
+          }
+        },
+        revalidate: async (deletedMemoryId, langCode) => {
+          if (
+            !isCurrentReaderGeneration(readerGeneration) ||
+            deletedMemoryId !== readerGeneration.memoryId ||
+            langCode !== readerGeneration.langCode
+          ) {
+            return;
+          }
+
+          await revalidateAfterMemoryDeletion(deletedMemoryId, langCode);
+        },
+      });
+    } catch (error) {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        throw error;
+      }
+    }
   };
   const attachCategory = async (input: {
     memoryId: string;
     name: string;
   }): Promise<void> => {
-    const category = await attachReaderCategoryByName(input);
-    setCategories((current) => mergeReaderTaxonomyItem(current, category));
-    void Promise.all([
-      revalidateBrowseMemoryWorkspace(),
-      revalidateReaderMemory(input.memoryId, props.result.content.langCode),
-    ]);
+    const readerGeneration = captureReaderGeneration();
+    if (
+      input.memoryId !== readerGeneration.memoryId ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
+      return;
+    }
+
+    try {
+      const category = await attachReaderCategoryByName({
+        memoryId: readerGeneration.memoryId,
+        name: input.name,
+      });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
+      setCategories((current) => mergeReaderTaxonomyItem(current, category));
+      void Promise.all([
+        revalidateBrowseMemoryWorkspace(),
+        revalidateReaderMemory(
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
+        ),
+      ]);
+    } catch (error) {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        throw error;
+      }
+    }
   };
   const attachTag = async (name: string): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
     setErrorMessage("");
     try {
       const tag = await attachReaderTagByName({
-        memoryId: props.result.memory.id,
+        memoryId: readerGeneration.memoryId,
         name,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setTags((current) => mergeReaderTaxonomyItem(current, tag));
       void revalidateAfterReaderTaxonomyChange(
-        props.result.memory.id,
-        props.result.content.langCode,
+        readerGeneration.memoryId,
+        readerGeneration.langCode,
       );
     } catch (error) {
-      setErrorMessage("Failed to add tag.");
-      throw error;
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage("Failed to add tag.");
+        throw error;
+      }
     }
   };
   const detachTag = async (name: string): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
     setErrorMessage("");
     try {
       const tag = await detachReaderTagByName({
-        memoryId: props.result.memory.id,
+        memoryId: readerGeneration.memoryId,
         name,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setTags((current) => current.filter((item) => item.id !== tag.id));
       void revalidateAfterReaderTaxonomyChange(
-        props.result.memory.id,
-        props.result.content.langCode,
+        readerGeneration.memoryId,
+        readerGeneration.langCode,
       );
     } catch (error) {
-      setErrorMessage("Failed to remove tag.");
-      throw error;
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage("Failed to remove tag.");
+        throw error;
+      }
     }
   };
   const isTranslatedReader = () => props.result.content.langCode !== undefined;
@@ -542,18 +714,77 @@ function ReadyMemoryReader(props: {
     return translationCatalogModels().find((model) => model.isDefault)
       ?.supportedReasoningEfforts ?? [];
   });
-  const refreshTranslationCatalog = async (): Promise<void> => {
-    setTranslationCatalogError("");
-    try {
-      const catalog = await submitReadCodexModels();
-      setTranslationCatalogModels(catalog.models);
-    } catch (error) {
-      setTranslationCatalogError(
-        error instanceof Error
-          ? error.message
-          : "Codex model catalog is unavailable.",
-      );
+  const refreshTranslationCatalog = (): Promise<
+    "error" | "ignored" | "success"
+  > => {
+    const readerGeneration = captureReaderGeneration();
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return Promise.resolve("ignored");
     }
+    if (translationCatalogRequest?.generation === readerGeneration.generation) {
+      return translationCatalogRequest.promise;
+    }
+
+    setTranslationCatalogPending(true);
+    const request = (async () => {
+      try {
+        const catalog = await submitReadCodexModels();
+        if (!isCurrentReaderGeneration(readerGeneration)) {
+          return "ignored" as const;
+        }
+
+        setTranslationCatalogModels(catalog.models);
+        setTranslationCatalogError("");
+        return "success" as const;
+      } catch (error) {
+        if (isCurrentReaderGeneration(readerGeneration)) {
+          setTranslationCatalogError(
+            error instanceof Error
+              ? error.message
+              : "Codex model catalog is unavailable.",
+          );
+          return "error" as const;
+        }
+        return "ignored" as const;
+      }
+    })();
+    translationCatalogRequest = {
+      generation: readerGeneration.generation,
+      promise: request,
+    };
+    void request.finally(() => {
+      if (translationCatalogRequest?.promise === request) {
+        translationCatalogRequest = undefined;
+        if (isCurrentReaderGeneration(readerGeneration)) {
+          setTranslationCatalogPending(false);
+        }
+      }
+    });
+
+    return request;
+  };
+  const retryTranslationCatalog = (retryButton: HTMLButtonElement): void => {
+    const readerGeneration = captureReaderGeneration();
+    const shouldRestoreFocus = captureAsyncActionFocusIntent(retryButton);
+    void refreshTranslationCatalog().then((outcome) => {
+      queueMicrotask(() => {
+        if (
+          outcome === "ignored" ||
+          !translationDialogOpen() ||
+          !isCurrentReaderGeneration(readerGeneration) ||
+          !shouldRestoreFocus()
+        ) {
+          return;
+        }
+
+        const focusTarget = outcome === "success"
+          ? translationModelSelectRef
+          : retryButton;
+        if (focusTarget?.isConnected === true && !focusTarget.disabled) {
+          focusTarget.focus({ preventScroll: true });
+        }
+      });
+    });
   };
   const handleTranslationPopoverOpenChange = (open: boolean): void => {
     setTranslationDialogOpen(open);
@@ -567,11 +798,28 @@ function ReadyMemoryReader(props: {
       void refreshTranslationCatalog();
     }
   };
-  const connectTranslationProgress = (eventUrl: string, jobId: string) => {
-    translationEventSource?.close();
+  const connectTranslationProgress = (
+    eventUrl: string,
+    jobId: string,
+    readerGeneration: ReaderGenerationSnapshot,
+  ) => {
+    if (!isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+
+    const previousEventSource = translationEventSource;
+    translationEventSource = undefined;
+    previousEventSource?.close();
     const eventSource = new EventSource(eventUrl);
     translationEventSource = eventSource;
+    const isCurrentTranslationEventSource = (): boolean =>
+      translationEventSource === eventSource &&
+      isCurrentReaderGeneration(readerGeneration);
     const onProgress = (event: MessageEvent) => {
+      if (!isCurrentTranslationEventSource()) {
+        return;
+      }
+
       const envelope = parseTranslationEventEnvelope(event.data);
       if (envelope === undefined) {
         return;
@@ -592,14 +840,14 @@ function ReadyMemoryReader(props: {
 
       if (isCompletedTranslationEnvelope(envelope)) {
         const readerUrl = readTranslationReaderUrl(envelope);
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
         if (readerUrl !== undefined) {
           navigate(readerUrl);
         }
       } else if (isTerminalTranslationEnvelope(envelope)) {
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
       }
     };
 
@@ -607,9 +855,13 @@ function ReadyMemoryReader(props: {
       eventSource.addEventListener(eventName, onProgress);
     }
     eventSource.onerror = () => {
+      if (!isCurrentTranslationEventSource()) {
+        return;
+      }
+
       if (eventSource.readyState === EventSource.CLOSED) {
-        eventSource.close();
         translationEventSource = undefined;
+        eventSource.close();
         setTranslationProgress({
           eventUrl,
           jobId,
@@ -632,6 +884,9 @@ function ReadyMemoryReader(props: {
     close: () => void,
   ): JSX.EventHandler<HTMLFormElement, SubmitEvent> => (event) => {
     event.preventDefault();
+    if (translationSubmitPending()) {
+      return;
+    }
     const langCode = translationFormLanguage();
     if (langCode === "") {
       return;
@@ -652,11 +907,22 @@ function ReadyMemoryReader(props: {
     model: string | null;
     reasoningEffort: CodexReasoningEffort | null;
   }): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
     const langCode = input.langCode;
-    if (langCode === undefined || !canStartTranslation(langCode)) {
+    if (
+      translationSubmitPending() ||
+      langCode === undefined ||
+      !canStartTranslation(langCode) ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
+    const requestGeneration = ++translationRequestGeneration;
+    const isCurrentTranslationRequest = (): boolean =>
+      requestGeneration === translationRequestGeneration &&
+      isCurrentReaderGeneration(readerGeneration);
 
+    setTranslationSubmitPending(true);
     setErrorMessage("");
     setTranslationProgress({
       eventUrl: "",
@@ -666,22 +932,38 @@ function ReadyMemoryReader(props: {
       status: "starting",
     });
     try {
-      const settings = await submitCodexTranslationDefaults({
+      const settings = await submitTranslationDefaults({
+        language: input.langCode,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
+      if (!isCurrentTranslationRequest()) {
+        return;
+      }
+
+      const persistedLanguage = settings.translationTargetLanguage;
       const persistedModel = settings.codexTranslationModel;
       const persistedReasoningEffort = settings.codexTranslationReasoningEffort;
-      setTranslationDefaultLanguage(input.langCode);
+      setTranslationDefaultLanguage(persistedLanguage);
       setTranslationDefaultModel(persistedModel ?? "");
       setTranslationDefaultEffort(persistedReasoningEffort ?? "");
       void revalidateSettingsState();
       const result = await startReaderTranslation({
-        langCode,
-        memoryId: props.result.memory.id,
+        langCode: persistedLanguage,
+        memoryId: readerGeneration.memoryId,
         model: persistedModel,
         reasoningEffort: persistedReasoningEffort,
       });
+      if (!isCurrentTranslationRequest()) {
+        return;
+      }
+      if (
+        result.memory_id !== readerGeneration.memoryId ||
+        result.lang_code !== persistedLanguage
+      ) {
+        throw new Error("Translation response did not match the active reader.");
+      }
+
       if (result.status === "current") {
         setTranslationProgress(undefined);
         input.close();
@@ -699,15 +981,25 @@ function ReadyMemoryReader(props: {
         status: "running",
       });
       input.close();
-      connectTranslationProgress(result.event_url, result.job_id);
+      connectTranslationProgress(
+        result.event_url,
+        result.job_id,
+        readerGeneration,
+      );
     } catch (error) {
-      setTranslationProgress({
-        eventUrl: "",
-        jobId: "",
-        message: error instanceof Error ? error.message : "Translation failed.",
-        preview: "",
-        status: "failed",
-      });
+      if (isCurrentTranslationRequest()) {
+        setTranslationProgress({
+          eventUrl: "",
+          jobId: "",
+          message: error instanceof Error ? error.message : "Translation failed.",
+          preview: "",
+          status: "failed",
+        });
+      }
+    } finally {
+      if (requestGeneration === translationRequestGeneration) {
+        setTranslationSubmitPending(false);
+      }
     }
   };
   createEffect(() => {
@@ -736,7 +1028,8 @@ function ReadyMemoryReader(props: {
     );
   };
   let activeTocRangeFrame: number | undefined;
-  const scheduleActiveTocRange = (): void => {
+  let activeTocScrollSpy: ReaderTocScrollSpyBinding | undefined;
+  const requestActiveTocRange = (): void => {
     if (typeof window === "undefined" || activeTocRangeFrame !== undefined) {
       return;
     }
@@ -746,6 +1039,19 @@ function ReadyMemoryReader(props: {
       recomputeActiveTocRange();
     });
   };
+  const scheduleActiveTocRange = (): void => {
+    if (activeTocScrollSpy?.isEnabled() === true) {
+      requestActiveTocRange();
+    }
+  };
+  const cancelActiveTocRange = (): void => {
+    if (activeTocRangeFrame === undefined) {
+      return;
+    }
+
+    window.cancelAnimationFrame(activeTocRangeFrame);
+    activeTocRangeFrame = undefined;
+  };
   createEffect(() => {
     props.result.memory.id;
     readerBodyHtml();
@@ -754,71 +1060,84 @@ function ReadyMemoryReader(props: {
     }
   });
   onMount(() => {
-    const passive: AddEventListenerOptions = { passive: true };
-    window.addEventListener("scroll", scheduleActiveTocRange, passive);
-    window.addEventListener("resize", scheduleActiveTocRange, passive);
-    window.addEventListener("hashchange", scheduleActiveTocRange);
-    scheduleActiveTocRange();
+    activeTocScrollSpy = bindReaderTocScrollSpy({
+      cancel: cancelActiveTocRange,
+      schedule: requestActiveTocRange,
+      target: window,
+    });
     onCleanup(() => {
-      window.removeEventListener("scroll", scheduleActiveTocRange);
-      window.removeEventListener("resize", scheduleActiveTocRange);
-      window.removeEventListener("hashchange", scheduleActiveTocRange);
-      if (activeTocRangeFrame !== undefined) {
-        window.cancelAnimationFrame(activeTocRangeFrame);
-        activeTocRangeFrame = undefined;
-      }
+      activeTocScrollSpy?.dispose();
+      activeTocScrollSpy = undefined;
+      cancelActiveTocRange();
     });
   });
   const toggleMoment = async (
     section: ReaderMomentSection,
   ): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
     const sectionKey = getReaderMomentKey(section);
-    if (pendingMomentKey().length > 0) {
+    if (
+      pendingMomentKey().length > 0 ||
+      !isCurrentReaderGeneration(readerGeneration)
+    ) {
       return;
     }
 
+    const readerToc = props.result.rendered.toc;
     setErrorMessage("");
     setPendingMomentKey(sectionKey);
     try {
       const existingMoment = findReaderMomentForSection(
         moments(),
-        props.result.rendered.toc,
+        readerToc,
         section,
       );
       if (existingMoment !== undefined) {
         await deleteMomentById({ momentId: existingMoment.id });
+        if (!isCurrentReaderGeneration(readerGeneration)) {
+          return;
+        }
+
         setMoments((current) =>
           current.filter((moment) => moment.id !== existingMoment.id),
         );
         await Promise.all([
           revalidateMomentBrowseRows(),
           revalidateReaderMemory(
-            props.result.memory.id,
-            props.result.content.langCode,
+            readerGeneration.memoryId,
+            readerGeneration.langCode,
           ),
         ]);
         return;
       }
 
       const result = await createMomentForSection({
-        langCode: props.result.content.langCode,
-        memoryId: props.result.memory.id,
+        langCode: readerGeneration.langCode,
+        memoryId: readerGeneration.memoryId,
         section,
       });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+
       setMoments((current) =>
         mergeReaderMomentItem(current, result.moment),
       );
       await Promise.all([
         revalidateMomentBrowseRows(),
         revalidateReaderMemory(
-          props.result.memory.id,
-          props.result.content.langCode,
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
         ),
       ]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Moment failed");
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setErrorMessage(error instanceof Error ? error.message : "Moment failed");
+      }
     } finally {
-      setPendingMomentKey("");
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setPendingMomentKey("");
+      }
     }
   };
   const handleReaderContentClick = (event: MouseEvent) => {
@@ -937,9 +1256,9 @@ function ReadyMemoryReader(props: {
           <Show when={translationProgress()}>
             {(progress) => (
               <section
-                aria-live="polite"
+                aria-live={progress().status === "failed" ? "assertive" : "polite"}
                 class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev/50 px-4 py-3 text-sm font-bold text-trauma-text-secondary backdrop-blur"
-                role="status"
+                role={progress().status === "failed" ? "alert" : "status"}
               >
                 <div class="flex items-center gap-2 text-trauma-text-primary">
                   <CodexIcon size={16} />
@@ -962,6 +1281,7 @@ function ReadyMemoryReader(props: {
             data-reader-content
             data-reader-ready={isReaderClientReady() ? "true" : undefined}
             onClick={handleReaderContentClick}
+            onKeyDown={handleKeyboardSelectionKeyDown}
             onKeyUp={handleKeyboardSelectionToggle}
             onMouseUp={openSelectionMenu}
             onPointerCancel={clearSectionLongPress}
@@ -1020,12 +1340,17 @@ function ReadyMemoryReader(props: {
                     )}
                   >
                     {({ close }) => (
-                      <form class="grid gap-3" onSubmit={submitTranslationDialog(close)}>
+                      <form
+                        aria-busy={translationSubmitPending()}
+                        class="grid gap-3"
+                        onSubmit={submitTranslationDialog(close)}
+                      >
                         <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
                           Language
                           <select
                             aria-label="Language"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormLanguage()}
                             onChange={(event) =>
                               setTranslationFormLanguage(
@@ -1046,8 +1371,10 @@ function ReadyMemoryReader(props: {
                         <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
                           Model
                           <select
+                            ref={translationModelSelectRef}
                             aria-label="Model"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormModel()}
                             onChange={(event) =>
                               setTranslationFormModel(event.currentTarget.value)
@@ -1089,6 +1416,7 @@ function ReadyMemoryReader(props: {
                           <select
                             aria-label="Reasoning effort"
                             class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             value={translationFormEffort()}
                             onChange={(event) =>
                               setTranslationFormEffort(
@@ -1129,14 +1457,36 @@ function ReadyMemoryReader(props: {
                         </label>
                         <Show when={translationCatalogError()}>
                           {(value) => (
-                            <p class="mb-0 text-xs font-bold text-trauma-text-muted">
-                              {value()}
-                            </p>
+                            <div
+                              aria-busy={translationCatalogPending()}
+                              aria-live="assertive"
+                              class="grid justify-items-start gap-2"
+                              role="alert"
+                            >
+                              <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                                {value()}
+                              </p>
+                              <button
+                                aria-label={translationCatalogPending()
+                                  ? "Retrying model catalog..."
+                                  : "Retry model catalog"}
+                                class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary disabled:opacity-60"
+                                disabled={translationCatalogPending()}
+                                type="button"
+                                onClick={(event) =>
+                                  retryTranslationCatalog(event.currentTarget)}
+                              >
+                                {translationCatalogPending()
+                                  ? "Retrying..."
+                                  : "Retry"}
+                              </button>
+                            </div>
                           )}
                         </Show>
                         <div class="flex justify-end gap-2">
                           <button
                             class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                            disabled={translationSubmitPending()}
                             type="button"
                             onClick={close}
                           >
@@ -1144,6 +1494,7 @@ function ReadyMemoryReader(props: {
                           </button>
                           <button
                             class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
+                            disabled={translationSubmitPending()}
                             type="submit"
                           >
                             Translate
@@ -1180,6 +1531,7 @@ function ReadyMemoryReader(props: {
                 menuRef={(element) => {
                   selectionMenuRef = element;
                 }}
+                onDismiss={dismissSelectionMenu}
                 position={menu().position}
               >
                 <button
@@ -1216,6 +1568,7 @@ function ReadyMemoryReader(props: {
                 menuRef={(element) => {
                   sectionMenuRef = element;
                 }}
+                onDismiss={dismissSectionMenu}
                 position={menu().position}
               >
                 <button
@@ -1233,7 +1586,7 @@ function ReadyMemoryReader(props: {
           </Show>
           <Show when={errorMessage()}>
             {(message) => (
-              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="status">
+              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="alert">
                 {message()}
               </p>
             )}
@@ -1290,7 +1643,7 @@ function ReaderTaxonomyChips(props: {
         kind="tag"
         mode="chips"
       />
-      <span class="relative inline-grid">
+      <div class="relative inline-grid">
         <TaxonomyAddControl
           attachedItems={props.tags}
           id={`memory-${props.memoryId}-tags-add`}
@@ -1300,7 +1653,7 @@ function ReaderTaxonomyChips(props: {
           onDetachName={props.onRemoveTag}
           onError={props.onTaxonomyError}
         />
-      </span>
+      </div>
     </div>
   );
 }
@@ -1703,6 +2056,7 @@ function messageForTranslationError(
 
 export async function deleteReaderMemory(input: {
   fetch?: FetchFunction;
+  isCurrent?: () => boolean;
   langCode?: SupportedLanguageCode;
   memoryId: string;
   navigate: (path: string) => void;
@@ -1717,16 +2071,23 @@ export async function deleteReaderMemory(input: {
       fetch: input.fetch,
     });
   } catch (error) {
-    if (isBackupFailsafeMemoryActionError(error)) {
+    if (
+      isBackupFailsafeMemoryActionError(error) &&
+      (input.isCurrent?.() ?? true)
+    ) {
       void revalidateBackupFailsafeAlert();
     }
     throw error;
   }
+  if (!(input.isCurrent?.() ?? true)) {
+    return;
+  }
+
+  input.navigate("/memories");
   await (input.revalidate ?? revalidateAfterMemoryDeletion)(
     input.memoryId,
     input.langCode,
   );
-  input.navigate("/memories");
 }
 
 export async function attachReaderCategoryByName(input: {
@@ -1954,17 +2315,74 @@ function ReaderContextMenu(props: {
   children: JSX.Element;
   label: string;
   menuRef: (element: HTMLDivElement) => void;
+  onDismiss: () => void;
   position: ReaderSelectionMenuPosition;
 }) {
   return (
     <div
-      ref={props.menuRef}
+      ref={(element) => {
+        props.menuRef(element);
+        queueMicrotask(() => {
+          if (
+            element.isConnected &&
+            !focusReaderToolbarButton(element, 0)
+          ) {
+            element.focus({ preventScroll: true });
+          }
+        });
+      }}
       aria-label={props.label}
+      aria-orientation="horizontal"
       class={readerContextMenuClass}
-      role="menu"
+      role="toolbar"
       style={{
         left: `${props.position.left}px`,
         top: `${props.position.top}px`,
+      }}
+      tabIndex={-1}
+      onFocusIn={(event) => {
+        if (event.target instanceof HTMLButtonElement) {
+          const buttons = getReaderToolbarButtons(event.currentTarget);
+          const focusedIndex = buttons.indexOf(event.target);
+          buttons.forEach((button, index) => {
+            button.tabIndex = index === focusedIndex ? 0 : -1;
+          });
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onDismiss();
+          return;
+        }
+        if (
+          event.key !== "ArrowRight" &&
+          event.key !== "ArrowLeft" &&
+          event.key !== "Home" &&
+          event.key !== "End"
+        ) {
+          return;
+        }
+
+        const buttons = getReaderToolbarButtons(event.currentTarget);
+        if (buttons.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+        const currentIndex = buttons.findIndex(
+          (button) => button === document.activeElement,
+        );
+        let nextIndex = 0;
+        if (event.key === "End") {
+          nextIndex = buttons.length - 1;
+        } else if (event.key === "ArrowRight") {
+          nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % buttons.length;
+        } else if (event.key === "ArrowLeft") {
+          nextIndex = currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1;
+        }
+        focusReaderToolbarButton(event.currentTarget, nextIndex);
       }}
     >
       {props.children}
@@ -1972,30 +2390,51 @@ function ReaderContextMenu(props: {
   );
 }
 
+function getReaderToolbarButtons(toolbar: HTMLDivElement): HTMLButtonElement[] {
+  return [...toolbar.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+}
+
+function focusReaderToolbarButton(
+  toolbar: HTMLDivElement,
+  index: number,
+): boolean {
+  const buttons = getReaderToolbarButtons(toolbar);
+  if (buttons.length === 0) {
+    return false;
+  }
+
+  const nextIndex = Math.min(Math.max(index, 0), buttons.length - 1);
+  buttons.forEach((button, buttonIndex) => {
+    button.tabIndex = buttonIndex === nextIndex ? 0 : -1;
+  });
+  buttons[nextIndex]?.focus({ preventScroll: true });
+  return true;
+}
+
 function ReaderRightRailContent(props: {
   activeTocRange: Accessor<ActiveTocRange>;
-  currentFlashbacks: ReaderFlashbackItem[];
+  currentFlashbacks: Accessor<ReaderFlashbackItem[]>;
   flashbackRows?: FlashbackBrowseRow[];
-  moments: ReaderMomentItem[];
+  moments: Accessor<ReaderMomentItem[]>;
   memoryId: string;
   onCreateMoment: (section: ReaderMomentSection) => void;
   onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
-  pendingMomentKey: string;
+  pendingMomentKey: Accessor<string>;
   toc: ReaderTocEntry[];
 }) {
   return (
     <div class="grid gap-4">
       <ReaderToc
         activeTocRange={props.activeTocRange}
-        moments={props.moments}
+        moments={props.moments()}
         onCreateMoment={props.onCreateMoment}
         onOpenSectionMenu={props.onOpenSectionMenu}
-        pendingMomentKey={props.pendingMomentKey}
+        pendingMomentKey={props.pendingMomentKey()}
         toc={props.toc}
       />
       <ReaderFlashbackTabs
         allFlashbacks={props.flashbackRows}
-        currentFlashbacks={props.currentFlashbacks}
+        currentFlashbacks={props.currentFlashbacks()}
         memoryId={props.memoryId}
       />
     </div>
@@ -2008,25 +2447,74 @@ export function ReaderFlashbackTabs(props: {
   initialTab?: "all" | "memory";
   memoryId: string;
 }) {
+  let allPageRegionRef: HTMLDivElement | undefined;
   const [activeTab, setActiveTab] = createSignal<"all" | "memory">(
     props.initialTab ?? "memory",
   );
   const [shouldLoadAll, setShouldLoadAll] = createSignal(props.initialTab === "all");
-  const lazyAllFlashbacks = createAsync(async () => {
+  const [allCursor, setAllCursor] = createSignal<string | null>(null);
+  const [cursorHistory, setCursorHistory] = createSignal<readonly (string | null)[]>(
+    [],
+  );
+  const lazyAllPageState = createAsync(async () => {
     if (props.allFlashbacks !== undefined || !shouldLoadAll()) {
       return undefined;
     }
 
-    return getFlashbackBrowseRows();
+    const requestedCursor = allCursor();
+    return settleCollectionPage(requestedCursor, () =>
+      getFlashbackBrowsePage({ cursor: requestedCursor }),
+    );
   });
-  const allRows = createMemo(() => props.allFlashbacks ?? lazyAllFlashbacks() ?? []);
+  const currentAllPageState = createMemo(() => {
+    const state = lazyAllPageState();
+    return state?.cursor === allCursor() ? state : undefined;
+  });
+  const allPageRetry = createCollectionPageRetryController({
+    getCurrentCursor: allCursor,
+    isPageReady: (requestedCursor) => {
+      const state = lazyAllPageState();
+      return state?.cursor === requestedCursor && state.status === "ready";
+    },
+    revalidatePage: revalidateFlashbackBrowsePage,
+  });
+  const allPage = createMemo(() => {
+    if (props.allFlashbacks !== undefined) {
+      return { flashbacks: props.allFlashbacks, nextCursor: null };
+    }
+    const state = currentAllPageState();
+    return state?.status === "ready" ? state.page : undefined;
+  });
+  const allRows = createMemo(() => allPage()?.flashbacks ?? []);
   const isLoadingAll = () =>
     props.allFlashbacks === undefined &&
     shouldLoadAll() &&
-    lazyAllFlashbacks() === undefined;
+    currentAllPageState() === undefined;
+  const hasAllPageError = () => currentAllPageState()?.status === "error";
   const activateAllTab = (): void => {
     setShouldLoadAll(true);
     setActiveTab("all");
+  };
+  const goToFirstAllPage = (): void => {
+    setCursorHistory([]);
+    setAllCursor(null);
+  };
+  const goToPreviousAllPage = (): void => {
+    const history = cursorHistory();
+    if (history.length === 0) {
+      return;
+    }
+    const previousCursor = history[history.length - 1] ?? null;
+    setCursorHistory(history.slice(0, -1));
+    setAllCursor(previousCursor);
+  };
+  const goToNextAllPage = (): void => {
+    const nextCursor = allPage()?.nextCursor;
+    if (nextCursor === undefined || nextCursor === null) {
+      return;
+    }
+    setCursorHistory((history) => [...history, allCursor()]);
+    setAllCursor(nextCursor);
   };
 
   return (
@@ -2053,21 +2541,55 @@ export function ReaderFlashbackTabs(props: {
       <Show
         when={activeTab() === "memory"}
         fallback={
-          <FlashbackShortcutList
-            emptyLabel="No flashbacks yet"
-            flashbacks={allRows().map((flashback) => ({
-              id: flashback.id,
-              href: buildMemoryVariantAnchorHref({
-                anchorId: flashback.id,
-                langCode: flashback.langCode,
-                memoryId: flashback.memoryId,
-              }),
-              prefix: flashback.prefix,
-              suffix: flashback.suffix,
-              text: flashback.text,
-            }))}
-            isLoading={isLoadingAll()}
-          />
+          <div
+            ref={allPageRegionRef}
+            aria-busy={isLoadingAll() || allPageRetry.isRetryingCurrentPage()}
+            aria-label="All flashbacks page"
+            class="grid gap-3"
+            role="region"
+            tabIndex={-1}
+          >
+            <Show
+              when={!hasAllPageError() && !allPageRetry.isRetryingCurrentPage()}
+              fallback={
+                <div role="alert">
+                  <p class="mb-0 text-sm font-bold text-trauma-danger">
+                    Failed to load flashbacks.
+                  </p>
+                  <CollectionPageRetry
+                    getFocusTarget={() => allPageRegionRef}
+                    onRetry={allPageRetry.retryCurrentPage}
+                    subject="all flashbacks"
+                  />
+                </div>
+              }
+            >
+              <FlashbackShortcutList
+                class={readerFlashbackScrollContent}
+                emptyLabel="No flashbacks on this page"
+                flashbacks={allRows().map((flashback) => ({
+                  id: flashback.id,
+                  href: buildMemoryVariantAnchorHref({
+                    anchorId: flashback.id,
+                    langCode: flashback.langCode,
+                    memoryId: flashback.memoryId,
+                  }),
+                  prefix: flashback.prefix,
+                  suffix: flashback.suffix,
+                  text: flashback.text,
+                }))}
+                isLoading={isLoadingAll()}
+              />
+            </Show>
+            <ReaderFlashbackPageControls
+              canGoFirst={allCursor() !== null || cursorHistory().length > 0}
+              canGoNext={allPage()?.nextCursor !== null && allPage() !== undefined}
+              canGoPrevious={cursorHistory().length > 0}
+              onFirst={goToFirstAllPage}
+              onNext={goToNextAllPage}
+              onPrevious={goToPreviousAllPage}
+            />
+          </div>
         }
       >
         <FlashbackShortcutList
@@ -2083,6 +2605,46 @@ export function ReaderFlashbackTabs(props: {
         />
       </Show>
     </section>
+  );
+}
+
+function ReaderFlashbackPageControls(props: {
+  canGoFirst: boolean;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  onFirst: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const buttonClass =
+    "rounded-full border border-trauma-border px-3 py-1.5 text-xs font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-not-allowed disabled:opacity-60";
+  return (
+    <nav aria-label="All Flashback pages" class="grid grid-cols-3 gap-2">
+      <button
+        class={buttonClass}
+        disabled={!props.canGoFirst}
+        type="button"
+        onClick={props.onFirst}
+      >
+        First
+      </button>
+      <button
+        class={buttonClass}
+        disabled={!props.canGoPrevious}
+        type="button"
+        onClick={props.onPrevious}
+      >
+        Previous
+      </button>
+      <button
+        class={buttonClass}
+        disabled={!props.canGoNext}
+        type="button"
+        onClick={props.onNext}
+      >
+        Next
+      </button>
+    </nav>
   );
 }
 
@@ -2229,6 +2791,9 @@ function ReaderToc(props: {
   toc: ReaderTocEntry[];
 }) {
   let scrollRef: HTMLOListElement | undefined;
+  const activeMomentTargetIds = createMemo(() =>
+    collectResolvedReaderMomentTargetIds(props.moments, props.toc)
+  );
   const [tocScrollState, setTocScrollState] =
     createSignal<TocScrollState>(noTocScrollState);
   const [readingBand, setReadingBand] = createSignal<{
@@ -2363,7 +2928,7 @@ function ReaderToc(props: {
             class={`${readerTocScrollContent} relative m-0 grid gap-2.5 pl-0`}
             onScroll={updateTocScrollHint}
           >
-            <div
+            <li
               class="trauma-toc-reading-band"
               classList={{
                 "trauma-toc-reading-band-animated": readingBandAnimated(),
@@ -2374,14 +2939,11 @@ function ReaderToc(props: {
                 height: `${readingBand().height}px`,
               }}
               aria-hidden="true"
+              role="presentation"
             />
             {props.toc.map((entry) => (
               <ReaderTocEntryRow
-                active={props.moments.some(
-                  (moment) =>
-                    resolveReaderMomentTarget(moment, props.toc)?.id ===
-                      entry.id,
-                )}
+                active={activeMomentTargetIds().has(entry.id)}
                 activeTocRange={props.activeTocRange}
                 entry={entry}
                 onCreateMoment={props.onCreateMoment}
@@ -2408,32 +2970,6 @@ function ReaderToc(props: {
   );
 }
 
-export function resolveReaderMomentTarget(
-  moment: ReaderMomentItem,
-  toc: ReaderTocEntry[],
-): ReaderTocEntry | undefined {
-  const exact = toc.find((entry) =>
-    entry.id === moment.sectionAnchor &&
-    entry.path === moment.sectionPath
-  );
-  if (exact !== undefined) {
-    return exact;
-  }
-
-  const pathMatches = toc.filter((entry) => entry.path === moment.sectionPath);
-  return pathMatches.length === 1 ? pathMatches[0] : undefined;
-}
-
-export function findReaderMomentForSection(
-  moments: ReaderMomentItem[],
-  toc: ReaderTocEntry[],
-  section: ReaderMomentSection,
-): ReaderMomentItem | undefined {
-  return moments.find((moment) =>
-    resolveReaderMomentTarget(moment, toc)?.id === section.id
-  );
-}
-
 function syncReaderSectionMomentButtons(input: {
   container: HTMLElement | undefined;
   moments: ReaderMomentItem[];
@@ -2443,6 +2979,11 @@ function syncReaderSectionMomentButtons(input: {
     return;
   }
 
+  const activeMomentTargetIds = collectResolvedReaderMomentTargetIds(
+    input.moments,
+    input.toc,
+  );
+
   for (const button of input.container.querySelectorAll<HTMLButtonElement>(
     "button[data-reader-moment-trigger='true']",
   )) {
@@ -2451,7 +2992,7 @@ function syncReaderSectionMomentButtons(input: {
       ? undefined
       : readReaderSection(sectionElement);
     const active = section !== undefined &&
-      findReaderMomentForSection(input.moments, input.toc, section) !== undefined;
+      activeMomentTargetIds.has(section.id);
     button.setAttribute("aria-pressed", String(active));
   }
 }
@@ -2513,7 +3054,7 @@ function ReaderTocEntryRow(props: {
       <button
         aria-label={`Moment ${props.entry.text}`}
         aria-pressed={props.active}
-        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
+        class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
         title={props.active ? "Remove moment" : "Save moment"}
         disabled={props.pending}
         type="button"
@@ -2539,6 +3080,7 @@ function ReaderTocEntryRow(props: {
 
 async function toggleReaderSelection(input: {
   container: HTMLDivElement;
+  isCurrent: () => boolean;
   langCode?: SupportedLanguageCode;
   memoryId: string;
   onFlashbacksChanged: (flashbacks: ReaderFlashbackItem[]) => void;
@@ -2548,7 +3090,10 @@ async function toggleReaderSelection(input: {
   setErrorMessage: (message: string) => void;
   setPendingSelectionKey: (key: string) => void;
 }) {
-  if (!canStartFlashbackToggle(input.pendingSelectionKey)) {
+  if (
+    !canStartFlashbackToggle(input.pendingSelectionKey) ||
+    !input.isCurrent()
+  ) {
     return;
   }
 
@@ -2583,8 +3128,15 @@ async function toggleReaderSelection(input: {
         selection: toPayload(selection),
       }),
     });
+    if (!input.isCurrent()) {
+      return;
+    }
 
     const failure = await readFlashbackFailure(response);
+    if (!input.isCurrent()) {
+      return;
+    }
+
     if (failure !== undefined) {
       if (shouldRevalidateBackupFailsafeAfterFlashbackFailure(failure)) {
         void revalidateBackupFailsafeAlert();
@@ -2593,6 +3145,10 @@ async function toggleReaderSelection(input: {
       throw new Error(failure.message);
     }
     const payload = await readFlashbackToggleSuccess(response);
+    if (!input.isCurrent()) {
+      return;
+    }
+
     if (optimisticFlashbackId !== undefined) {
       syncOptimisticFlashbackMark({
         container: input.container,
@@ -2603,13 +3159,26 @@ async function toggleReaderSelection(input: {
         pendingId: optimisticFlashbackId,
       });
     }
+    const backupWarning = readFlashbackBackupWarning(payload);
+    const durabilityWarning = readFlashbackDurabilityWarning(payload);
+    const warning = durabilityWarning ?? backupWarning;
+    if (warning !== undefined) {
+      input.setErrorMessage(warning.message);
+    }
+    if (backupWarning !== undefined) {
+      void revalidateBackupFailsafeAlert();
+    }
     input.onFlashbacksChanged(payload.result.flashbacks);
     void Promise.resolve(input.onSuccess()).catch(() => undefined);
   } catch {
-    input.container.innerHTML = previousHtml;
-    input.setErrorMessage("Flashback failed");
+    if (input.isCurrent()) {
+      input.container.innerHTML = previousHtml;
+      input.setErrorMessage("Flashback failed");
+    }
   } finally {
-    input.setPendingSelectionKey("");
+    if (input.isCurrent()) {
+      input.setPendingSelectionKey("");
+    }
   }
 }
 

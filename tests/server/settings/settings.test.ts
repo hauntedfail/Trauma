@@ -6,11 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { initializeDatabase } from "../../../src/server/db";
 import {
-  deleteSettingsOpenAiAuth,
-  enableSettingsOpenAiAuth,
   getSettings,
   getTranslationSettings,
   updateCodexTranslationDefaults,
+  updateTranslationDefaults,
   updateTranslationTargetLanguage,
   UnsupportedTranslationLanguageError,
 } from "../../../src/server/settings/settings";
@@ -150,6 +149,73 @@ describe("settings service", () => {
     });
   });
 
+  it("persists translation language, model, and effort in one settings update", async () => {
+    const config = await makeConfig();
+
+    await expect(
+      updateTranslationDefaults({
+        config,
+        language: "en-US",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.5",
+      codexTranslationReasoningEffort: "high",
+    });
+  });
+
+  it("updates all translation defaults through one repository operation", async () => {
+    const config = await makeConfig();
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.settings.updateTranslationDefaults({
+          language: "fr-FR",
+          model: "gpt-5.5",
+          reasoningEffort: "high",
+          updatedAt: new Date("2026-05-15T00:00:00.000Z"),
+        }),
+      ).resolves.toMatchObject({
+        translationTargetLanguage: "fr-FR",
+        codexTranslationModel: "gpt-5.5",
+        codexTranslationReasoningEffort: "high",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("does not persist any combined default when its language is invalid", async () => {
+    const config = await makeConfig();
+    await updateTranslationDefaults({
+      config,
+      language: "en-US",
+      model: "gpt-5.3",
+      reasoningEffort: "medium",
+    });
+
+    await expect(
+      updateTranslationDefaults({
+        config,
+        language: "xx-XX",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      }),
+    ).rejects.toBeInstanceOf(UnsupportedTranslationLanguageError);
+    await expect(getSettings({ config })).resolves.toMatchObject({
+      translationTargetLanguage: "en-US",
+      codexTranslationModel: "gpt-5.3",
+      codexTranslationReasoningEffort: "medium",
+    });
+  });
+
   it("preserves omitted Codex translation defaults when updating through the repository", async () => {
     const config = await makeConfig();
     const connection = initializeDatabase(config);
@@ -192,116 +258,6 @@ describe("settings service", () => {
     ).rejects.toBeInstanceOf(UnsupportedTranslationLanguageError);
   });
 
-  it("returns not configured when enabling OpenAI auth without a real provider", async () => {
-    const config = await makeConfig();
-
-    await expect(
-      enableSettingsOpenAiAuth({
-        config,
-        now: new Date("2026-05-15T00:00:00.000Z"),
-      }),
-    ).resolves.toEqual({
-      status: "not_configured",
-      message: "OpenAI auth provider is not configured.",
-    });
-
-    const connection = initializeDatabase(config);
-    try {
-      expect(
-        connection.sqlite
-          .prepare("select count(*) as count from openai_auth_credentials")
-          .get(),
-      ).toEqual({ count: 0 });
-    } finally {
-      connection.close();
-    }
-  });
-
-  it("keeps existing OpenAI auth idempotent without overwriting auth state", async () => {
-    const config = await makeConfig();
-    const connection = initializeDatabase(config);
-    try {
-      await connection.repositories.settings.createOpenAiAuthCredential({
-        provider: "codex",
-        credentialReference: "external-openai-auth",
-        now: new Date("2026-05-15T00:00:00.000Z"),
-      });
-    } finally {
-      connection.close();
-    }
-
-    const first = await enableSettingsOpenAiAuth({
-      config,
-      now: new Date("2026-05-16T00:00:00.000Z"),
-    });
-    const second = await enableSettingsOpenAiAuth({
-      config,
-      now: new Date("2026-05-17T00:00:00.000Z"),
-    });
-
-    expect(first).toEqual({
-      status: "enabled",
-      alreadyEnabled: true,
-      message: "OpenAI auth is already enabled.",
-    });
-    expect(second).toEqual({
-      status: "enabled",
-      alreadyEnabled: true,
-      message: "OpenAI auth is already enabled.",
-    });
-
-    const verifyConnection = initializeDatabase(config);
-    try {
-      expect(
-        verifyConnection.sqlite
-          .prepare("select provider, credential_reference, created_at, updated_at from openai_auth_credentials")
-          .all(),
-      ).toEqual([
-        {
-          provider: "codex",
-          credential_reference: "external-openai-auth",
-          created_at: new Date("2026-05-15T00:00:00.000Z").getTime(),
-          updated_at: new Date("2026-05-15T00:00:00.000Z").getTime(),
-        },
-      ]);
-    } finally {
-      verifyConnection.close();
-    }
-  });
-
-  it("deletes OpenAI auth without deleting app settings", async () => {
-    const config = await makeConfig();
-    await updateTranslationTargetLanguage("fr-FR", { config });
-    const connection = initializeDatabase(config);
-    try {
-      await connection.repositories.settings.createOpenAiAuthCredential({
-        provider: "codex",
-        credentialReference: "external-openai-auth",
-        now: new Date("2026-05-15T00:00:00.000Z"),
-      });
-    } finally {
-      connection.close();
-    }
-
-    await expect(deleteSettingsOpenAiAuth({ config })).resolves.toEqual({
-      status: "disabled",
-      alreadyDisabled: false,
-    });
-    await expect(deleteSettingsOpenAiAuth({ config })).resolves.toEqual({
-      status: "disabled",
-      alreadyDisabled: true,
-    });
-    await expect(getSettings({ config })).resolves.toEqual({
-      translationTargetLanguage: "fr-FR",
-      codexTranslationModel: null,
-      codexTranslationReasoningEffort: null,
-      openaiAuth: {
-        status: "setup_required",
-        provider: "codex",
-        reason: "codex_app_server_unavailable",
-      },
-    });
-  });
 });
 
 async function makeConfig() {

@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +19,7 @@ import {
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
+import { acquireBackupFailsafeActionLease } from "../../../src/server/backup/failsafe-action-coordination";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -22,6 +30,11 @@ import {
   createPsychiatristThread,
   recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
+import {
+  ensureRuntimeProcessLease,
+  runtimeLeaseInputsForConfig,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../../../src/server/runtime/process-lease";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
 const capturedAt = "2026-05-09T08:00:00.000Z";
@@ -98,6 +111,100 @@ describe("git backup runner", () => {
     ]);
   });
 
+  it("orders an ordinary git writer behind an active failsafe recovery lease", async () => {
+    const root = await makeRoot("trauma-git-backup-failsafe-lease-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Deferred writer\n", "utf8");
+    initializeGitRepository(projectPath);
+
+    const connection = initializeDatabase(config);
+    try {
+      const alertTime = new Date(capturedAt);
+      await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+        id: "active",
+        kind: "backup_push_failed",
+        severity: "critical",
+        message: "Backup push failed",
+        previousProjectPath: null,
+        previousStorePath: null,
+        currentProjectPath: projectPath,
+        currentStorePath: storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        error: "remote unavailable",
+        createdAt: alertTime,
+        updatedAt: alertTime,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const releaseRecovery = await acquireBackupFailsafeActionLease(
+      config.databasePath,
+    );
+    const backup = runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    const followingLease = acquireBackupFailsafeActionLease(config.databasePath);
+
+    releaseRecovery();
+    const releaseFollowing = await followingLease;
+    let commitSubjectBeforeFollowingLease: string | null = null;
+    try {
+      commitSubjectBeforeFollowingLease = git(projectPath, [
+        "log",
+        "-1",
+        "--pretty=%s",
+      ]).trim();
+    } catch {
+      // An absent commit proves the writer was not ordered ahead of this lease.
+    }
+    releaseFollowing();
+    await backup;
+
+    expect(commitSubjectBeforeFollowingLease).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
+  it("rejects a queued git writer before side effects after storage suspension", async () => {
+    const root = await makeRoot("trauma-git-backup-suspended-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Must not commit\n", "utf8");
+    initializeGitRepository(projectPath);
+    const lease = ensureRuntimeProcessLease(config);
+    const releaseRecovery = await acquireBackupFailsafeActionLease(
+      config.databasePath,
+    );
+    const backup = runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    try {
+      expect(
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+      ).toBe(true);
+      releaseRecovery();
+      await expect(backup).rejects.toThrow(/storage admission is suspended/);
+      expect(() => git(projectPath, ["rev-parse", "--verify", "HEAD"]))
+        .toThrow();
+    } finally {
+      releaseRecovery();
+      lease.release();
+    }
+  });
+
   it("stages only configured store content paths and creates a backup commit", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");
@@ -127,6 +234,158 @@ describe("git backup runner", () => {
         .split(/\r?\n/)
         .filter(Boolean),
     ).toEqual([`store/${contentPath}`]);
+  });
+
+  it("does not execute ambient hooks during a normal backup commit and push", async () => {
+    const root = await makeRoot("trauma-git-backup-hooks-");
+    const remotePath = join(root, "remote.git");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    const globalConfigPath = join(root, "global.gitconfig");
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Hook isolation\n", "utf8");
+    git(root, ["init", "--bare", remotePath]);
+    initializeGitRepository(projectPath);
+    git(projectPath, ["config", "--unset", "core.hooksPath"]);
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    await installExecutableGitHooks({
+      hooks: ["pre-commit", "commit-msg", "post-commit", "pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(root, [
+      "config",
+      "--file",
+      globalConfigPath,
+      "core.hooksPath",
+      hooksPath,
+    ]);
+
+    await withGlobalGitConfig(globalConfigPath, () =>
+      runGitBackupJob({
+        config: createConfig({ root, projectPath, storePath, push: true }),
+        job: createJob({ contentPaths: [contentPath] }),
+      })
+    );
+
+    expect(existsSync(markerPath)).toBe(false);
+    expect(hasRemoteMain(remotePath)).toBe(true);
+  });
+
+  it("never stages internal operation recovery directories", async () => {
+    const root = await makeRoot("trauma-git-backup-internal-store-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const operationPath = `.operations/${memoryId}.json`;
+    const stagedDeletionPath = `.delete-staging/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await mkdir(join(storePath, ".operations"), { recursive: true });
+    await mkdir(join(storePath, ".delete-staging", memoryId), {
+      recursive: true,
+    });
+    await writeFile(join(storePath, contentPath), "# Canonical\n", "utf8");
+    await writeFile(join(storePath, operationPath), "{}\n", "utf8");
+    await writeFile(join(storePath, stagedDeletionPath), "# Staged\n", "utf8");
+    initializeGitRepository(projectPath);
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({
+        contentPaths: [contentPath, operationPath, stagedDeletionPath],
+      }),
+    });
+
+    expect(
+      git(projectPath, ["show", "--name-only", "--pretty=format:", "HEAD"])
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([`store/${contentPath}`]);
+    expect(git(projectPath, ["status", "--short"]).trim().split(/\r?\n/).sort())
+      .toEqual([
+        "?? store/.delete-staging/",
+        "?? store/.operations/",
+      ]);
+  });
+
+  it("uses bounded Git commands for a large Psychiatrist retry path set", async () => {
+    const root = await makeRoot("trauma-git-backup-scale-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const threadBase = `memories/${memoryId}/threads/scale-thread`;
+    const turnsDirectory = join(storePath, threadBase, "turns");
+    const streamsDirectory = join(storePath, threadBase, "streams");
+    await mkdir(turnsDirectory, { recursive: true });
+    await mkdir(streamsDirectory, { recursive: true });
+    initializeGitRepository(projectPath);
+
+    const itemCount = 192;
+    const addedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/turns/turn-${index.toString().padStart(4, "0")}.json`,
+    );
+    const deletedTrackedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/streams/stream-${index.toString().padStart(4, "0")}.jsonl`,
+    );
+    const missingUntrackedPaths = Array.from(
+      { length: itemCount },
+      (_, index) => `${threadBase}/pairs/missing-${index.toString().padStart(4, "0")}/RESPONSE.md`,
+    );
+    await Promise.all(deletedTrackedPaths.map((path) =>
+      writeFile(join(storePath, path), "{}\n", "utf8")
+    ));
+    git(projectPath, ["add", "--", "store"]);
+    git(projectPath, ["commit", "-m", "seed tracked psychiatrist artifacts"]);
+    await Promise.all(deletedTrackedPaths.map((path) => rm(join(storePath, path))));
+    await Promise.all(addedPaths.map((path) =>
+      writeFile(join(storePath, path), "{}\n", "utf8")
+    ));
+
+    const commands: string[][] = [];
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({
+        contentPaths: [
+          ...addedPaths,
+          ...deletedTrackedPaths,
+          ...missingUntrackedPaths,
+        ],
+        reason: "psychiatrist_thread_update",
+      }),
+      observeGitCommand: (args) => commands.push([...args]),
+    });
+
+    expect(commands.map(([command]) => command)).toEqual([
+      "ls-files",
+      "add",
+      "diff",
+      "commit",
+    ]);
+    expect(Math.max(...commands.map((args) => args.length))).toBeLessThanOrEqual(6);
+    expect(commands.flat()).not.toContain(addedPaths[0]);
+    expect(commands.flat()).not.toContain(deletedTrackedPaths[0]);
+    expect(commands.flat()).not.toContain(missingUntrackedPaths[0]);
+
+    const committed = git(projectPath, [
+      "show",
+      "--no-renames",
+      "--name-status",
+      "--pretty=format:",
+      "HEAD",
+    ]).trim().split(/\r?\n/).filter(Boolean).sort();
+    expect(committed).toEqual([
+      ...addedPaths.map((path) => `A\tstore/${path}`),
+      ...deletedTrackedPaths.map((path) => `D\tstore/${path}`),
+    ].sort());
+    for (const path of missingUntrackedPaths) {
+      expect(committed).not.toContain(`A\tstore/${path}`);
+      expect(committed).not.toContain(`D\tstore/${path}`);
+    }
   });
 
   it("stages deleted store content paths and creates a deletion backup commit", async () => {
@@ -401,6 +660,39 @@ describe("git backup runner", () => {
     ).toEqual([`store/${contentPath}`]);
   });
 
+  it("does not execute an ambient pre-push hook when retrying an existing commit", async () => {
+    const root = await makeRoot("trauma-git-backup-retry-hooks-");
+    const remotePath = join(root, "remote.git");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const hooksPath = join(root, "ambient-hooks");
+    const markerPath = join(root, "ambient-hooks-ran");
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Retry hook isolation\n", "utf8");
+    initializeGitRepository(projectPath);
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: false }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    git(root, ["init", "--bare", remotePath]);
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    await installExecutableGitHooks({
+      hooks: ["pre-push"],
+      hooksPath,
+      markerPath,
+    });
+    git(projectPath, ["config", "core.hooksPath", hooksPath]);
+
+    await runGitBackupJob({
+      config: createConfig({ root, projectPath, storePath, push: true }),
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    expect(existsSync(markerPath)).toBe(false);
+    expect(hasRemoteMain(remotePath)).toBe(true);
+  });
+
   it("records a failsafe alert when an existing remote push fails", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const projectPath = join(root, "project");
@@ -475,6 +767,105 @@ describe("git backup runner", () => {
 });
 
 describe("git memory backup queue", () => {
+  it("isolates a poisoned retry candidate and continues with later memories", async () => {
+    const root = await makeRoot("trauma-git-backup-retry-isolation-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const poisonedMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef800";
+    const healthyContentPath = `memories/${memoryId}/CONTENT.md`;
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, healthyContentPath), "# Healthy retry\n", "utf8");
+    initializeGitRepository(projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath,
+        storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        createdAt: new Date(capturedAt),
+        updatedAt: new Date(capturedAt),
+      });
+      for (const candidate of [
+        { id: poisonedMemoryId, contentPath: "../outside/CONTENT.md" },
+        { id: memoryId, contentPath: healthyContentPath },
+      ]) {
+        await connection.repositories.memories.create({
+          id: candidate.id,
+          url: `https://example.com/${candidate.id}`,
+          title: candidate.id,
+          description: null,
+          faviconUrl: null,
+          contentPath: candidate.contentPath,
+          extractionStatus: "success",
+          extractionError: null,
+          backupStatus: "pending",
+          lastBackupAt: null,
+          lastBackupError: null,
+          createdAt: new Date(capturedAt),
+          updatedAt: new Date(capturedAt),
+        });
+      }
+      await connection.repositories.flashbacks.replaceForMemoryVariant({
+        memoryId,
+        variant: { kind: "source" },
+        flashbacks: [{
+          id: "retry-flashback",
+          memoryId,
+          variantKind: "source",
+          langCode: null,
+          translationOutputHash: null,
+          text: "Healthy",
+          prefix: "",
+          suffix: " retry",
+          startOffset: 2,
+          endOffset: 9,
+          contentHash: null,
+          createdAt: new Date(capturedAt),
+          updatedAt: new Date(capturedAt),
+        }],
+      });
+    } finally {
+      connection.close();
+    }
+
+    const processed: Array<{ memoryId: string; flashbackExport: string }> = [];
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async ({ job }) => {
+        processed.push({
+          memoryId: job.memoryId,
+          flashbackExport: await readFile(
+            join(storePath, "memories", job.memoryId, "FLASHBACKS.json"),
+            "utf8",
+          ),
+        });
+      },
+    });
+    await expect(queue.retryEligibleBackups()).resolves.toBe(1);
+    await queue.drain();
+
+    expect(processed).toEqual([{
+      memoryId,
+      flashbackExport: expect.stringContaining("retry-flashback"),
+    }]);
+    const check = initializeDatabase(config);
+    try {
+      await expect(check.repositories.memories.findById(poisonedMemoryId))
+        .resolves.toMatchObject({
+          backupStatus: "failed",
+          lastBackupError: "backup retry scheduling failed",
+        });
+      await expect(check.repositories.memories.findById(memoryId))
+        .resolves.toMatchObject({ backupStatus: "success" });
+    } finally {
+      check.close();
+    }
+  });
+
   it("recovers a durable intent after simulated process loss without running an incomplete job", async () => {
     const root = await makeRoot("trauma-git-backup-intent-");
     const projectPath = join(root, "project");
@@ -665,6 +1056,41 @@ describe("git memory backup queue", () => {
     );
   });
 
+  it("redacts credentials before persisting backup worker failures", async () => {
+    const root = await makeRoot("trauma-git-backup-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    await seedBackupQueueMemory({ config, contentPath });
+    const credential = ["worker", "credential"].join("-");
+    const queue = createGitMemoryBackupQueue({
+      config,
+      runJob: async () => {
+        throw new Error(
+          `git push failed for https://backup-user:${credential}@example.com/private.git token=${credential}`,
+        );
+      },
+    });
+
+    await queue.enqueue({
+      memoryId,
+      contentPaths: [contentPath],
+      reason: "memory_creation",
+    });
+    await queue.drain();
+
+    const connection = initializeDatabase(config);
+    try {
+      const stored = await connection.repositories.memories.findById(memoryId);
+      expect(stored?.lastBackupError).toContain("[redacted]");
+      expect(stored?.lastBackupError).not.toContain(credential);
+      expect(stored?.lastBackupError?.length).toBeLessThanOrEqual(4_096);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("marks backup failure without removing the memory row or markdown content", async () => {
     const root = await makeRoot("trauma-git-backup-");
     const output = runBunScript(
@@ -773,7 +1199,7 @@ describe("git memory backup queue", () => {
     const output = runBunScript(
       `
         import { execFileSync } from "node:child_process";
-        import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+        import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
         import { createGitMemoryBackupQueue } from "./src/server/backup/index.ts";
         import { initializeDatabase } from "./src/server/db/index.ts";
@@ -816,10 +1242,6 @@ describe("git memory backup queue", () => {
         writeFileSync(
           join(config.storePath, "memories", ids.failed, "ja-JP", "CONTENT.md"),
           "# 翻訳済みバックアップ候補\\n",
-        );
-        writeFileSync(
-          join(config.storePath, "memories", ids.failed, "ja-JP", "TRANSLATION_MAP.json"),
-          JSON.stringify({ version: 1, memoryId: ids.failed, spans: [] }, null, 2) + "\\n",
         );
         writeFileSync(
           join(config.storePath, "memories", ids.failed, "ja-JP", "FLASHBACKS.json"),
@@ -1024,6 +1446,29 @@ describe("git memory backup queue", () => {
               updatedAt: now,
             },
           );
+          await connection.repositories.translations.replaceProjectionSpansForJob(
+            "retry-translation-ja",
+            [{
+              blockId: "b000001",
+              createdAt: now,
+              jobId: "retry-translation-ja",
+              langCode: "ja-JP",
+              memoryId: ids.failed,
+              outputHash: "sha256:retry-output",
+              segmentId: "s000001",
+              sourceHash: "sha256:retry-source",
+              sourceMarkdownEnd: 4,
+              sourceMarkdownStart: 0,
+              sourceReaderEnd: 4,
+              sourceReaderStart: 0,
+              spanIndex: 0,
+              translatedMarkdownEnd: 4,
+              translatedMarkdownStart: 0,
+              translatedReaderEnd: 4,
+              translatedReaderStart: 0,
+              updatedAt: now,
+            }],
+          );
         } finally {
           connection.close();
         }
@@ -1052,7 +1497,22 @@ describe("git memory backup queue", () => {
           const rows = check.sqlite
             .prepare("select id, backup_status as backupStatus, last_backup_error as lastBackupError from memories order by id")
             .all();
-          process.stdout.write(JSON.stringify({ retryCount, processed, rows }));
+          const projectionMap = JSON.parse(readFileSync(
+            join(
+              config.storePath,
+              "memories",
+              ids.failed,
+              "ja-JP",
+              "TRANSLATION_MAP.json",
+            ),
+            "utf8",
+          ));
+          process.stdout.write(JSON.stringify({
+            projectionMap,
+            retryCount,
+            processed,
+            rows,
+          }));
         } finally {
           check.close();
         }
@@ -1085,9 +1545,22 @@ describe("git memory backup queue", () => {
       `,
       root,
     );
-    const { retryCount, processed, rows } = JSON.parse(output);
+    const { projectionMap, retryCount, processed, rows } = JSON.parse(output);
 
     expect(retryCount).toBe(3);
+    expect(projectionMap).toMatchObject({
+      jobId: "retry-translation-ja",
+      langCode: "ja-JP",
+      memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef812",
+      outputHash: "sha256:retry-output",
+      sourceHash: "sha256:retry-source",
+      spans: [expect.objectContaining({
+        blockId: "b000001",
+        segmentId: "s000001",
+        spanIndex: 0,
+      })],
+      version: 1,
+    });
     expect(processed).toEqual([
       {
         memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef811",
@@ -2159,6 +2632,12 @@ function createJob(input: {
 
 function initializeGitRepository(projectPath: string) {
   git(projectPath, ["init", "--initial-branch=main"]);
+  git(projectPath, ["config", "commit.gpgSign", "false"]);
+  git(projectPath, [
+    "config",
+    "core.hooksPath",
+    join(projectPath, ".git", "trauma-test-hooks"),
+  ]);
   git(projectPath, ["config", "user.name", "Trauma Tests"]);
   git(projectPath, ["config", "user.email", "trauma@example.invalid"]);
 }
@@ -2228,4 +2707,38 @@ function createChildEnv() {
   delete env.GIT_WORK_TREE;
   delete env.GIT_INDEX_FILE;
   return env;
+}
+
+async function installExecutableGitHooks(input: {
+  hooks: readonly string[];
+  hooksPath: string;
+  markerPath: string;
+}): Promise<void> {
+  await mkdir(input.hooksPath, { recursive: true });
+  await Promise.all(input.hooks.map(async (hook) => {
+    const hookPath = join(input.hooksPath, hook);
+    await writeFile(
+      hookPath,
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(hook)} >> ${JSON.stringify(input.markerPath)}\n`,
+      "utf8",
+    );
+    await chmod(hookPath, 0o755);
+  }));
+}
+
+async function withGlobalGitConfig<T>(
+  configPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = configPath;
+  try {
+    return await operation();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  }
 }

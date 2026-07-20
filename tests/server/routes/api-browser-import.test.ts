@@ -5,12 +5,18 @@ import { join } from "node:path";
 import type { APIEvent } from "@solidjs/start/server";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { OPTIONS, POST } from "../../../src/routes/api/browser-import";
+import {
+  createBrowserImportPostHandler,
+  OPTIONS,
+  POST,
+} from "../../../src/routes/api/browser-import";
+import { createNonQueuingAdmissionLimiter } from "../../../src/server/concurrency/non-queuing-admission";
 import { loadTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
+const browserImportToken = "0123456789abcdef0123456789abcdef";
 
 afterEach(async () => {
   process.env = { ...originalEnv };
@@ -20,6 +26,97 @@ afterEach(async () => {
 });
 
 describe("browser import API route", () => {
+  it("rejects excess work before reading the capture body", async () => {
+    process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
+    const admissionLimiter = createNonQueuingAdmissionLimiter(1);
+    const release = admissionLimiter.tryAcquire();
+    let bodyReaderCalls = 0;
+    const request = {
+      body: {
+        getReader() {
+          bodyReaderCalls += 1;
+          throw new Error("busy requests must not read the body");
+        },
+      },
+      headers: new Headers({
+        origin: "chrome-extension://extension-id",
+        authorization: `Bearer ${browserImportToken}`,
+        "content-type": "application/json",
+      }),
+    } as unknown as Request;
+    const handler = createBrowserImportPostHandler({ admissionLimiter });
+
+    const response = await handler(
+      createApiEvent(request),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toEqual({
+      code: "browser_import_busy",
+      error: "browser import is busy",
+    });
+    expect(bodyReaderCalls).toBe(0);
+    release?.();
+  });
+
+  it("releases browser-import admission on validation failure", async () => {
+    process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
+    const admissionLimiter = createNonQueuingAdmissionLimiter(1);
+    const handler = createBrowserImportPostHandler({ admissionLimiter });
+
+    const response = await handler(
+      createApiEvent(
+        new Request("http://localhost/api/browser-import", {
+          method: "POST",
+          headers: {
+            origin: "chrome-extension://extension-id",
+            authorization: `Bearer ${browserImportToken}`,
+            "content-type": "application/json",
+          },
+          body: "not-json",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    const release = admissionLimiter.tryAcquire();
+    expect(release).toBeTypeOf("function");
+    release?.();
+  });
+
+  it("releases browser-import admission when body reading is aborted", async () => {
+    process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
+    const admissionLimiter = createNonQueuingAdmissionLimiter(1);
+    const handler = createBrowserImportPostHandler({ admissionLimiter });
+    const request = {
+      body: {
+        getReader() {
+          return {
+            read: async () => {
+              throw new DOMException("request aborted", "AbortError");
+            },
+          };
+        },
+      },
+      headers: new Headers({
+        origin: "chrome-extension://extension-id",
+        authorization: `Bearer ${browserImportToken}`,
+        "content-type": "application/json",
+      }),
+    } as unknown as Request;
+
+    await expect(handler(createApiEvent(request))).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    const release = admissionLimiter.tryAcquire();
+    expect(release).toBeTypeOf("function");
+    release?.();
+  });
+
   it("rejects requests when browser import is disabled", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "false";
 
@@ -43,7 +140,7 @@ describe("browser import API route", () => {
 
   it("rejects ordinary website origins before body processing", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await POST(
       createApiEvent(
@@ -51,7 +148,7 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "https://evil.example",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body: "{}",
@@ -68,7 +165,7 @@ describe("browser import API route", () => {
 
   it("rejects invalid tokens and exposes CORS only to extension origins", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await POST(
       createApiEvent(
@@ -95,7 +192,7 @@ describe("browser import API route", () => {
 
   it("answers extension preflight requests", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
 
     const response = await OPTIONS(
       createApiEvent(
@@ -117,7 +214,7 @@ describe("browser import API route", () => {
 
   it("rejects streamed request bodies as soon as the byte cap is exceeded", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
     process.env.TRAUMA_BROWSER_IMPORT_MAX_BYTES = "100000";
     const encoder = new TextEncoder();
     let pulledChunks = 0;
@@ -143,7 +240,7 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "chrome-extension://extension-id",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body,
@@ -162,7 +259,7 @@ describe("browser import API route", () => {
 
   it("maps backup failsafe errors to JSON responses with CORS", async () => {
     process.env.TRAUMA_BROWSER_IMPORT_ENABLED = "true";
-    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = "token";
+    process.env.TRAUMA_BROWSER_IMPORT_TOKEN = browserImportToken;
     const root = await makeRoot();
     const configPath = await writeConfig(root);
     process.env.TRAUMA_CONFIG_PATH = configPath;
@@ -174,11 +271,11 @@ describe("browser import API route", () => {
           method: "POST",
           headers: {
             origin: "chrome-extension://extension-id",
-            authorization: "Bearer token",
+            authorization: `Bearer ${browserImportToken}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            sourceUrl: "https://example.com/article",
+            sourceUrl: "https://93.184.216.34/article",
             canonicalUrl: null,
             title: "Captured",
             description: null,
@@ -204,10 +301,10 @@ describe("browser import API route", () => {
       error: "Backup location changed",
       backupFailsafe: {
         kind: "backup_path_drift",
-        currentProjectPath: join(root, "new-data"),
-        currentStorePath: join(root, "new-data/storage"),
+        availableActions: ["revert", "migrate"],
       },
     });
+    expect(JSON.stringify(body)).not.toContain(join(root, "new-data"));
   });
 });
 

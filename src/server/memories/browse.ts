@@ -7,7 +7,6 @@ import type {
   ListMemoryBrowsePageInput,
   MemoryBrowsePageResult,
   MemoryBrowsePageRow,
-  MemoryBrowseRow,
 } from "../db/repositories";
 import { filterRenderableFlashbackRows } from "../flashbacks/browse";
 import { browseFixtureMemories } from "../../components/memories/browse-fixtures";
@@ -22,38 +21,12 @@ import {
   type BrowseQuery,
 } from "../../components/memories/browse-data";
 import { normalizeBrowseLimit } from "../browse/limits";
+import { collectFilteredCursorPage } from "../browse/filtered-page";
 
 const MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS = 20;
 
 export interface LoadBrowseMemoriesOptions {
   startBackupQueue?: (config: ResolvedTraumaConfig) => void;
-}
-
-export async function loadBrowseMemories(
-  options: LoadBrowseMemoriesOptions = {},
-): Promise<BrowseMemory[]> {
-  "use server";
-
-  if (process.env.TRAUMA_BROWSE_FIXTURES === "1") {
-    return browseFixtureMemories;
-  }
-
-  let connection: ReturnType<typeof initializeDatabase> | undefined;
-  try {
-    const config = loadRuntimeTraumaConfig();
-    (options.startBackupQueue ?? startBackupQueue)(config);
-    connection = initializeDatabase(config);
-    const rows = await connection.repositories.memories.listForBrowse();
-    return (
-      await filterBrowseMemoryFlashbacks({
-        config,
-        rows,
-        translationRepository: connection.repositories.translations,
-      })
-    ).map(toBrowseMemory);
-  } finally {
-    connection?.close();
-  }
 }
 
 export async function loadBrowseMemoryPage(
@@ -139,53 +112,24 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   repositoryInput: ListMemoryBrowsePageInput;
 }): Promise<MemoryBrowsePageResult> {
   const limit = normalizeBrowseLimit(input.repositoryInput.limit);
-  const rows: MemoryBrowsePageRow[] = [];
-  let cursor = input.repositoryInput.cursor;
-  let nextCursor: MemoryBrowsePageResult["nextCursor"] = null;
-  let rounds = 0;
-
-  while (rows.length < limit) {
-    rounds += 1;
-    const page = await input.repositories.memories.listForBrowsePage({
-      ...input.repositoryInput,
-      cursor,
-      limit: limit - rows.length,
-    });
-
-    if (page.rows.length === 0) {
-      nextCursor = null;
-      break;
-    }
-
-    rows.push(
-      ...(await filterPageRowsByRenderableFlashbacks({
+  return collectFilteredCursorPage({
+    cursor: input.repositoryInput.cursor,
+    filterRows: (rows: MemoryBrowsePageRow[]) =>
+      filterPageRowsByRenderableFlashbacks({
         config: input.config,
         query: input.query,
         repositories: input.repositories,
-        rows: page.rows,
-      })),
-    );
-
-    if (rows.length >= limit) {
-      nextCursor = page.nextCursor;
-      break;
-    }
-
-    nextCursor = page.nextCursor;
-    if (page.nextCursor === null) {
-      break;
-    }
-    if (
-      rows.length > 0 &&
-      rounds >= MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS
-    ) {
-      break;
-    }
-
-    cursor = page.nextCursor;
-  }
-
-  return { rows, nextCursor };
+        rows,
+      }),
+    limit,
+    loadPage: ({ cursor, limit: pageLimit }) =>
+      input.repositories.memories.listForBrowsePage({
+        ...input.repositoryInput,
+        cursor,
+        limit: pageLimit,
+      }),
+    maxFetchRounds: MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS,
+  });
 }
 
 function shouldApplyRenderableFlashbackBrowseFilters(query: BrowseQuery): boolean {
@@ -288,46 +232,6 @@ function toRepositoryCursor(
   return {
     createdAt,
     id: cursor.id,
-  };
-}
-
-async function filterBrowseMemoryFlashbacks(input: {
-  config: ResolvedTraumaConfig;
-  rows: MemoryBrowseRow[];
-  translationRepository: ReturnType<typeof initializeDatabase>["repositories"]["translations"];
-}): Promise<MemoryBrowseRow[]> {
-  const renderableFlashbackIds = new Set(
-    (
-      await filterRenderableFlashbackRows({
-        config: input.config,
-        rows: input.rows.flatMap((row) => row.flashbacks),
-        translationRepository: input.translationRepository,
-      })
-    ).map((flashback) => flashback.id),
-  );
-
-  return input.rows.map((row) => ({
-    ...row,
-    flashbacks: row.flashbacks.filter((flashback) =>
-      renderableFlashbackIds.has(flashback.id),
-    ),
-  }));
-}
-
-function toBrowseMemory(row: MemoryBrowseRow): BrowseMemory {
-  return {
-    ...row,
-    flashbacks: row.flashbacks.map((flashback) => ({
-      id: flashback.id,
-      memoryId: flashback.memoryId,
-      variantKind: flashback.variantKind,
-      langCode: flashback.langCode,
-      translationOutputHash: flashback.translationOutputHash,
-      text: flashback.text,
-      prefix: flashback.prefix,
-      suffix: flashback.suffix,
-      createdAt: flashback.createdAt,
-    })),
   };
 }
 

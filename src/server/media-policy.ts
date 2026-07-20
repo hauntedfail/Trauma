@@ -5,11 +5,13 @@ import { isBlockedHostname, normalizeHostname } from "./importer/host-policy";
 export const READER_IFRAME_SANDBOX =
   "allow-scripts allow-presentation";
 
-export function resolveSafeImageUrl(pageUrl: string, value: string): string | null {
-  return resolveSafePublicHttpsUrl(pageUrl, value);
-}
+const READER_IFRAME_HOSTNAMES = new Set([
+  "www.youtube.com",
+  "www.youtube-nocookie.com",
+  "player.vimeo.com",
+]);
 
-export function resolveSafeIframeUrl(pageUrl: string, value: string): string | null {
+export function resolveSafeImageUrl(pageUrl: string, value: string): string | null {
   return resolveSafePublicHttpsUrl(pageUrl, value);
 }
 
@@ -20,7 +22,10 @@ export function isSafeReaderIframeUrl(value: string | undefined): boolean {
 
   try {
     const parsed = new URL(value);
-    return isSafePublicHttpsUrl(parsed);
+    return (
+      isSafePublicHttpsUrl(parsed) &&
+      READER_IFRAME_HOSTNAMES.has(normalizeHostname(parsed.hostname))
+    );
   } catch {
     return false;
   }

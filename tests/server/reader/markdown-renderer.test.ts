@@ -1,8 +1,65 @@
-import { describe, expect, it } from "vitest";
+import hljs from "highlight.js";
+import { describe, expect, it, vi } from "vitest";
 
 import { renderMemoryMarkdown } from "../../../src/server/reader/markdown-renderer";
 
 describe("renderMemoryMarkdown", () => {
+  it("bounds syntax highlighting across an entire render", () => {
+    const highlight = vi.spyOn(hljs, "highlight");
+    const highlightAuto = vi.spyOn(hljs, "highlightAuto");
+    const codeBlock = "const value = 1;\n".repeat(700);
+
+    try {
+      const result = renderMemoryMarkdown([
+        "```ts",
+        codeBlock,
+        "```",
+        "",
+        "```ts",
+        codeBlock,
+        "```",
+        "",
+        "```",
+        "const unlabeled = true;",
+        "```",
+      ].join("\n"));
+
+      expect(highlight).toHaveBeenCalledTimes(1);
+      expect(highlightAuto).not.toHaveBeenCalled();
+      expect(result.html).toContain("const unlabeled = true;");
+    } finally {
+      highlight.mockRestore();
+      highlightAuto.mockRestore();
+    }
+  });
+
+  it("renders oversized and unknown code as escaped plain text", () => {
+    const highlight = vi.spyOn(hljs, "highlight");
+    const highlightAuto = vi.spyOn(hljs, "highlightAuto");
+    const oversized = `<script>${"x".repeat(20_000)}&`;
+
+    try {
+      const result = renderMemoryMarkdown([
+        "```ts",
+        oversized,
+        "```",
+        "",
+        "```unknown-reader-language",
+        "<unknown>&",
+        "```",
+      ].join("\n"));
+
+      expect(highlight).not.toHaveBeenCalled();
+      expect(highlightAuto).not.toHaveBeenCalled();
+      expect(result.html).toContain("&lt;script&gt;");
+      expect(result.html).toContain("&lt;unknown&gt;&amp;");
+      expect(result.html).not.toContain("<script>");
+    } finally {
+      highlight.mockRestore();
+      highlightAuto.mockRestore();
+    }
+  });
+
   it("renders curated markdown features and table of contents", () => {
     const result = renderMemoryMarkdown([
       "# Reader Title",
@@ -100,17 +157,24 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("token:secret");
   });
 
-  it("allows controlled HTTPS iframes through the shared reader policy", () => {
+  it("allows only exact built-in reader iframe provider hosts", () => {
     const result = renderMemoryMarkdown([
-      '<iframe src="https://embed.example.test/player" title="Allowed video" referrerpolicy="unsafe-url" sandbox="allow-forms" onclick="evil()" width="640" height="360"></iframe>',
-      '<iframe src="http://embed.example.test/player" title="HTTP blocked"></iframe>',
+      '<iframe src="https://www.youtube.com/embed/video" title="YouTube video" referrerpolicy="unsafe-url" sandbox="allow-forms" onclick="evil()" width="640" height="360"></iframe>',
+      '<iframe src="https://www.youtube-nocookie.com/embed/video" title="YouTube no-cookie video"></iframe>',
+      '<iframe src="https://player.vimeo.com/video/123" title="Vimeo video"></iframe>',
+      '<iframe src="https://embed.example.test/player" title="Generic host blocked"></iframe>',
+      '<iframe src="https://www.youtube.com.evil.example/embed/video" title="Suffix spoof blocked"></iframe>',
+      '<iframe src="https://youtube.com/embed/video" title="Unlisted host blocked"></iframe>',
+      '<iframe src="http://www.youtube.com/embed/video" title="HTTP blocked"></iframe>',
       '<iframe src="https://localhost/player" title="Local blocked"></iframe>',
-      '<iframe srcdoc="<p>inline</p>" src="https://embed.example.test/inline" title="Srcdoc blocked"></iframe>',
+      '<iframe srcdoc="<p>inline</p>" src="https://www.youtube.com/embed/inline" title="Srcdoc blocked"></iframe>',
     ].join("\n"));
 
     expect(result.html).toContain(
-      '<iframe src="https://embed.example.test/player" title="Allowed video"',
+      '<iframe src="https://www.youtube.com/embed/video" title="YouTube video"',
     );
+    expect(result.html).toContain("https://www.youtube-nocookie.com/embed/video");
+    expect(result.html).toContain("https://player.vimeo.com/video/123");
     expect(result.html).toContain('width="640"');
     expect(result.html).toContain('height="360"');
     expect(result.html).toContain('sandbox="allow-scripts allow-presentation"');
@@ -121,7 +185,10 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).not.toContain("onclick");
     expect(result.html).not.toContain("allow-forms");
     expect(result.html).not.toContain(" allow=");
-    expect(result.html).not.toContain("http://embed.example.test");
+    expect(result.html).not.toContain("embed.example.test");
+    expect(result.html).not.toContain("www.youtube.com.evil.example");
+    expect(result.html).not.toContain("https://youtube.com");
+    expect(result.html).not.toContain("http://www.youtube.com");
     expect(result.html).not.toContain("localhost");
     expect(result.html).not.toContain("srcdoc");
     expect(result.html).not.toContain("Srcdoc blocked");
@@ -139,12 +206,18 @@ describe("renderMemoryMarkdown", () => {
     expect(result.html).toContain("<picture>");
     expect(result.html).toContain('<source type="image/avif"');
     expect(result.html).toContain(
-      'srcset="https://cdn.example.test/photo-480.avif 480w, https://cdn.example.test/photo-960.avif 960w"',
+      `srcset="${readerMediaUrl("https://cdn.example.test/photo-480.avif")} 480w, ${readerMediaUrl("https://cdn.example.test/photo-960.avif")} 960w"`,
     );
     expect(result.html).toContain('sizes="(width &lt;= 48rem) 90vw, 48rem"');
-    expect(result.html).toContain('src="https://cdn.example.test/photo-960.jpg"');
+    expect(result.html).toContain(
+      `src="${readerMediaUrl("https://cdn.example.test/photo-960.jpg")}"`,
+    );
+    expect(result.html).toContain(
+      `srcset="${readerMediaUrl("https://cdn.example.test/photo-480.jpg")} 480w, ${readerMediaUrl("https://cdn.example.test/photo-960.jpg")} 960w"`,
+    );
     expect(result.html).toContain('loading="lazy"');
     expect(result.html).toContain('decoding="async"');
+    expect(result.html).not.toContain('src="https://cdn.example.test');
   });
 
   it("preserves descriptor-less responsive image candidates", () => {
@@ -157,8 +230,12 @@ describe("renderMemoryMarkdown", () => {
 
     expect(result.html).toContain("<picture>");
     expect(result.html).toContain('<source type="image/avif"');
-    expect(result.html).toContain('srcset="https://cdn.example.test/photo.avif"');
-    expect(result.html).toContain('src="https://cdn.example.test/photo.jpg"');
+    expect(result.html).toContain(
+      `srcset="${readerMediaUrl("https://cdn.example.test/photo.avif")}"`,
+    );
+    expect(result.html).toContain(
+      `src="${readerMediaUrl("https://cdn.example.test/photo.jpg")}"`,
+    );
   });
 
   it("strips unsafe responsive image candidates", () => {
@@ -167,8 +244,12 @@ describe("renderMemoryMarkdown", () => {
       '<source srcset="javascript:alert(1) 320w" type="image/webp">',
     ].join(""));
 
-    expect(result.html).toContain('src="https://cdn.example.test/photo.jpg"');
-    expect(result.html).toContain('srcset="https://cdn.example.test/photo-640.jpg 640w"');
+    expect(result.html).toContain(
+      `src="${readerMediaUrl("https://cdn.example.test/photo.jpg")}"`,
+    );
+    expect(result.html).toContain(
+      `srcset="${readerMediaUrl("https://cdn.example.test/photo-640.jpg")} 640w"`,
+    );
     expect(result.html).not.toContain("javascript:");
     expect(result.html).not.toContain("data:image");
     expect(result.html).not.toContain("<source");
@@ -183,8 +264,12 @@ describe("renderMemoryMarkdown", () => {
       '<picture><source srcset="https://localhost/a.png 320w, https://cdn.example.test/a.png 640w"><img src="https://127.0.0.1/a.png" alt="unsafe responsive"></picture>',
     ].join("\n"));
 
-    expect(result.html).toContain("https://cdn.example.test/pixel.png");
-    expect(result.html).toContain("https://cdn.example.test/a.png 640w");
+    expect(result.html).toContain(
+      readerMediaUrl("https://cdn.example.test/pixel.png"),
+    );
+    expect(result.html).toContain(
+      `${readerMediaUrl("https://cdn.example.test/a.png")} 640w`,
+    );
     expect(result.html).not.toContain("https://localhost");
     expect(result.html).not.toContain("93.184.216.34");
     expect(result.html).not.toContain("http://cdn.example.test");
@@ -197,14 +282,22 @@ describe("renderMemoryMarkdown", () => {
       '<picture><source srcset="/assets/diagram-480.webp 480w, https://localhost/bad.webp 960w" type="image/webp"><img src="/assets/diagram.jpg" srcset="/assets/diagram-480.jpg 480w" alt="Diagram"></picture>',
     ].join("\n"), { sourceUrl: "https://example.com/articles/source" });
 
-    expect(result.html).toContain('src="https://example.com/assets/diagram.png"');
     expect(result.html).toContain(
-      'srcset="https://example.com/assets/diagram-480.webp 480w"',
+      `src="${readerMediaUrl("https://example.com/assets/diagram.png")}"`,
     );
-    expect(result.html).toContain('src="https://example.com/assets/diagram.jpg"');
     expect(result.html).toContain(
-      'srcset="https://example.com/assets/diagram-480.jpg 480w"',
+      `srcset="${readerMediaUrl("https://example.com/assets/diagram-480.webp")} 480w"`,
+    );
+    expect(result.html).toContain(
+      `src="${readerMediaUrl("https://example.com/assets/diagram.jpg")}"`,
+    );
+    expect(result.html).toContain(
+      `srcset="${readerMediaUrl("https://example.com/assets/diagram-480.jpg")} 480w"`,
     );
     expect(result.html).not.toContain("https://localhost");
   });
 });
+
+function readerMediaUrl(url: string): string {
+  return `/api/reader-media?url=${encodeURIComponent(url)}`;
+}

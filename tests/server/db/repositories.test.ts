@@ -296,9 +296,7 @@ describe("memory and taxonomy repositories", () => {
           });
 
           connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-lower", "harness", now.getTime(), now.getTime());
-          connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("tag-upper", "Harness", now.getTime(), now.getTime());
           connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-lower", "work", now.getTime(), now.getTime());
-          connection.sqlite.prepare("insert into categories (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("category-upper", "Work", now.getTime(), now.getTime());
 
           const tag = await connection.repositories.taxonomy.createAndAttachTagToMemory({
             id: "tag-new",
@@ -332,11 +330,89 @@ describe("memory and taxonomy repositories", () => {
     );
 
     expect(JSON.parse(output)).toMatchObject({
-      tag: { id: "tag-upper", name: "Harness" },
-      category: { id: "category-upper", name: "Work" },
-      memoryTags: [{ tagId: "tag-lower" }, { tagId: "tag-upper" }],
-      memoryCategories: [{ categoryId: "category-upper" }],
+      tag: { id: "tag-lower", name: "harness" },
+      category: { id: "category-lower", name: "work" },
+      memoryTags: [{ tagId: "tag-lower" }],
+      memoryCategories: [{ categoryId: "category-lower" }],
     });
+  });
+
+  it("serializes case-variant taxonomy creation across independent connections", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const first = initializeDatabase(config);
+        const second = initializeDatabase(config);
+        try {
+          const now = new Date("2026-07-17T00:00:00.000Z");
+          const [tagUpper, tagLower, categoryUpper, categoryLower] =
+            await Promise.all([
+              first.repositories.taxonomy.createTag({
+                id: "tag-race-upper",
+                name: "Harness",
+                now,
+              }),
+              second.repositories.taxonomy.createTag({
+                id: "tag-race-lower",
+                name: "harness",
+                now,
+              }),
+              first.repositories.taxonomy.createCategory({
+                id: "category-race-upper",
+                name: "Research",
+                now,
+              }),
+              second.repositories.taxonomy.createCategory({
+                id: "category-race-lower",
+                name: "research",
+                now,
+              }),
+            ]);
+          process.stdout.write(JSON.stringify({
+            categoryIds: [categoryUpper.id, categoryLower.id],
+            categoryRows: first.sqlite
+              .prepare("select id, name from categories where lower(name) = 'research'")
+              .all(),
+            tagIds: [tagUpper.id, tagLower.id],
+            tagRows: first.sqlite
+              .prepare("select id, name from tags where lower(name) = 'harness'")
+              .all(),
+          }));
+        } finally {
+          first.close();
+          second.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    const result = JSON.parse(output);
+    expect(new Set(result.tagIds).size).toBe(1);
+    expect(result.tagRows).toHaveLength(1);
+    expect(new Set(result.categoryIds).size).toBe(1);
+    expect(result.categoryRows).toHaveLength(1);
   });
 
   it("rolls back taxonomy creation when create-and-attach fails", () => {
@@ -539,7 +615,10 @@ describe("memory and taxonomy repositories", () => {
             createdAt: later,
             updatedAt: later,
           });
-          const listed = await connection.repositories.moments.listForBrowse();
+          const listed = await connection.repositories.moments.listPageForBrowse({
+            cursor: null,
+            limit: 100,
+          });
           const deleted = await connection.repositories.moments.deleteById("moment-1");
           const missingDeleted = await connection.repositories.moments.deleteById("missing-moment");
 
@@ -596,6 +675,372 @@ describe("memory and taxonomy repositories", () => {
       deleted: true,
       missingDeleted: false,
       count: 0,
+    });
+  });
+
+  it("keyset-paginates Flashbacks and Moments by created_at then id without gaps", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f199";
+          const tied = new Date("2026-07-17T00:00:00.000Z");
+          const older = new Date("2026-07-16T00:00:00.000Z");
+          await connection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/keyset",
+            title: "Keyset Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/" + memoryId + "/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: older,
+            updatedAt: older,
+          });
+
+          for (const [id, createdAt] of [
+            ["flashback-a", tied],
+            ["flashback-c", tied],
+            ["flashback-b", tied],
+            ["flashback-older", older],
+          ]) {
+            connection.sqlite.prepare(
+              "insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+              id,
+              memoryId,
+              id,
+              "",
+              "",
+              0,
+              id.length,
+              createdAt.getTime(),
+              createdAt.getTime(),
+            );
+          }
+          for (const [id, createdAt] of [
+            ["moment-a", tied],
+            ["moment-c", tied],
+            ["moment-b", tied],
+            ["moment-older", older],
+          ]) {
+            connection.sqlite.prepare(
+              "insert into moments (id, memory_id, section_anchor, section_title, section_level, section_path, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+              id,
+              memoryId,
+              id,
+              id,
+              2,
+              id,
+              createdAt.getTime(),
+              createdAt.getTime(),
+            );
+          }
+
+          const flashbackFirst = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: null,
+            limit: 2,
+          });
+          const flashbackLast = flashbackFirst.at(-1);
+          const flashbackSecond = await connection.repositories.flashbacks.listRecentForBrowse({
+            cursor: flashbackLast === undefined
+              ? null
+              : { createdAt: new Date(flashbackLast.createdAt), id: flashbackLast.id },
+            limit: 2,
+          });
+          const momentFirst = await connection.repositories.moments.listPageForBrowse({
+            cursor: null,
+            limit: 2,
+          });
+          const momentLast = momentFirst.at(-1);
+          const momentSecond = await connection.repositories.moments.listPageForBrowse({
+            cursor: momentLast === undefined
+              ? null
+              : { createdAt: new Date(momentLast.createdAt), id: momentLast.id },
+            limit: 2,
+          });
+
+          process.stdout.write(JSON.stringify({
+            flashbacks: [...flashbackFirst, ...flashbackSecond].map((row) => row.id),
+            moments: [...momentFirst, ...momentSecond].map((row) => row.id),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      flashbacks: ["flashback-c", "flashback-b", "flashback-a", "flashback-older"],
+      moments: ["moment-c", "moment-b", "moment-a", "moment-older"],
+    });
+  });
+
+  it("serializes concurrent Moment path creates and crossed anchor moves", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = {
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: true,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        };
+        const firstConnection = initializeDatabase(config);
+        const secondConnection = initializeDatabase(config);
+
+        try {
+          const busyTimeouts = [firstConnection, secondConnection].map(
+            (connection) => connection.sqlite.prepare("PRAGMA busy_timeout").get().timeout,
+          );
+          const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f107";
+          const now = new Date("2026-05-10T01:00:00.000Z");
+          const later = new Date("2026-05-10T02:00:00.000Z");
+          await firstConnection.repositories.memories.create({
+            id: memoryId,
+            url: "https://example.com/concurrent-moment",
+            title: "Concurrent Moment Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${memoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const [first, second] = await Promise.all([
+            firstConnection.repositories.moments.create({
+              id: "moment-concurrent-first",
+              memoryId,
+              sectionAnchor: "first-anchor",
+              sectionTitle: "First title",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 10,
+              contentHash: "first-hash",
+              createdAt: now,
+              updatedAt: now,
+            }),
+            secondConnection.repositories.moments.create({
+              id: "moment-concurrent-second",
+              memoryId,
+              sectionAnchor: "second-anchor",
+              sectionTitle: "Second title",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 12,
+              contentHash: "second-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+          ]);
+
+          const crossedMemoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f108";
+          await firstConnection.repositories.memories.create({
+            id: crossedMemoryId,
+            url: "https://example.com/crossed-moment",
+            title: "Crossed Moment Memory",
+            description: null,
+            faviconUrl: null,
+            contentPath: \`memories/\${crossedMemoryId}/CONTENT.md\`,
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            lastBackupAt: null,
+            lastBackupError: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await firstConnection.repositories.moments.create({
+            id: "moment-cross-owner-one",
+            memoryId: crossedMemoryId,
+            sectionAnchor: "cross-anchor-one",
+            sectionTitle: "Cross one",
+            sectionLevel: 2,
+            sectionPath: "1/1",
+            sectionStartOffset: 0,
+            sectionEndOffset: 10,
+            contentHash: "cross-one-hash",
+            createdAt: now,
+            updatedAt: now,
+          });
+          await firstConnection.repositories.moments.create({
+            id: "moment-cross-owner-two",
+            memoryId: crossedMemoryId,
+            sectionAnchor: "cross-anchor-two",
+            sectionTitle: "Cross two",
+            sectionLevel: 2,
+            sectionPath: "2/1",
+            sectionStartOffset: 20,
+            sectionEndOffset: 30,
+            contentHash: "cross-two-hash",
+            createdAt: now,
+            updatedAt: now,
+          });
+          const [crossedFirst, crossedSecond] = await Promise.all([
+            firstConnection.repositories.moments.create({
+              id: "moment-cross-request-one",
+              memoryId: crossedMemoryId,
+              sectionAnchor: "cross-anchor-two",
+              sectionTitle: "Cross one current",
+              sectionLevel: 2,
+              sectionPath: "1/1",
+              sectionStartOffset: 0,
+              sectionEndOffset: 12,
+              contentHash: "cross-one-current-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+            secondConnection.repositories.moments.create({
+              id: "moment-cross-request-two",
+              memoryId: crossedMemoryId,
+              sectionAnchor: "cross-anchor-one",
+              sectionTitle: "Cross two current",
+              sectionLevel: 2,
+              sectionPath: "2/1",
+              sectionStartOffset: 20,
+              sectionEndOffset: 32,
+              contentHash: "cross-two-current-hash",
+              createdAt: later,
+              updatedAt: later,
+            }),
+          ]);
+
+          process.stdout.write(JSON.stringify({
+            busyTimeouts,
+            first,
+            second,
+            rows: firstConnection.sqlite
+              .prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath, content_hash as contentHash from moments")
+              .all()
+              .filter((row) => row.id.startsWith("moment-concurrent")),
+            crossedFirst,
+            crossedSecond,
+            crossedRows: firstConnection.sqlite
+              .prepare("select id, section_anchor as sectionAnchor, section_title as sectionTitle, section_path as sectionPath, content_hash as contentHash from moments where memory_id = ? order by section_path")
+              .all(crossedMemoryId),
+          }));
+        } finally {
+          secondConnection.close();
+          firstConnection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      busyTimeouts: [5000, 5000],
+      first: {
+        alreadyExists: false,
+        moment: {
+          id: "moment-concurrent-first",
+          sectionAnchor: "first-anchor",
+        },
+      },
+      second: {
+        alreadyExists: true,
+        moment: {
+          id: "moment-concurrent-first",
+          sectionAnchor: "second-anchor",
+          sectionTitle: "Second title",
+          sectionPath: "1/1",
+          contentHash: "second-hash",
+        },
+      },
+      rows: [
+        {
+          id: "moment-concurrent-first",
+          sectionAnchor: "second-anchor",
+          sectionTitle: "Second title",
+          sectionPath: "1/1",
+          contentHash: "second-hash",
+        },
+      ],
+      crossedFirst: {
+        alreadyExists: true,
+        moment: {
+          id: "moment-cross-owner-one",
+          sectionAnchor: "cross-anchor-two",
+          sectionPath: "1/1",
+        },
+      },
+      crossedSecond: {
+        alreadyExists: false,
+        moment: {
+          id: "moment-cross-request-two",
+          sectionAnchor: "cross-anchor-one",
+          sectionPath: "2/1",
+        },
+      },
+      crossedRows: [
+        {
+          id: "moment-cross-owner-one",
+          sectionAnchor: "cross-anchor-two",
+          sectionTitle: "Cross one current",
+          sectionPath: "1/1",
+          contentHash: "cross-one-current-hash",
+        },
+        {
+          id: "moment-cross-request-two",
+          sectionAnchor: "cross-anchor-one",
+          sectionTitle: "Cross two current",
+          sectionPath: "2/1",
+          contentHash: "cross-two-current-hash",
+        },
+      ],
     });
   });
 
@@ -845,11 +1290,12 @@ describe("memory and taxonomy repositories", () => {
     });
   });
 
-  it("uses insert-ignore semantics for duplicate Moment anchors", () => {
+  it("uses the Moment path identity inside an immediate transaction", () => {
     expect(repositorySource).toContain(".onConflictDoNothing({");
     expect(repositorySource).toContain(
-      "target: [schema.moments.memoryId, schema.moments.sectionAnchor]",
+      "target: [schema.moments.memoryId, schema.moments.sectionPath]",
     );
+    expect(repositorySource).toContain('{ behavior: "immediate" }');
   });
 
   it("keeps reader aggregates scoped to metadata and active-variant relations", () => {
@@ -871,27 +1317,6 @@ describe("memory and taxonomy repositories", () => {
     expect(aggregateSource).not.toContain("flashbacks:");
     expect(aggregateSource).not.toContain("backupStatus:");
     expect(aggregateSource).not.toContain("extractionError:");
-  });
-
-  it("selects only browse-list columns for memory rows and nested labels", () => {
-    const browseStart = repositorySource.indexOf(
-      "const rows = await db.query.memories.findMany",
-    );
-    const browseEnd = repositorySource.indexOf(
-      "return rows.map((memory)",
-      browseStart,
-    );
-    expect(browseStart).toBeGreaterThanOrEqual(0);
-    expect(browseEnd).toBeGreaterThan(browseStart);
-
-    const browseSource = repositorySource.slice(browseStart, browseEnd);
-    expect(browseSource).toContain("extractionStatus: true");
-    expect(browseSource).toContain("flashbacks: {");
-    expect(browseSource).toContain("category: {");
-    expect(browseSource).toContain("tag: {");
-    expect(browseSource).not.toContain("contentPath:");
-    expect(browseSource).not.toContain("backupStatus:");
-    expect(browseSource).not.toContain("lastBackupError:");
   });
 
   it("paginates memory browse rows with server-side filters and escaped search", () => {

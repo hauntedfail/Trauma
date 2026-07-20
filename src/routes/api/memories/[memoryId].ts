@@ -1,16 +1,26 @@
 import type { APIEvent } from "@solidjs/start/server";
 
 import { getMemoryBackupQueue, type MemoryBackupQueue } from "~/server/backup";
-import { BackupEnvironmentFailsafeError } from "~/server/backup/environment";
+import {
+  BackupEnvironmentFailsafeError,
+  toAlertDetails,
+  toPublicAlertView,
+} from "~/server/backup/environment";
 import {
   loadRuntimeTraumaConfig,
   TraumaConfigError,
   type ResolvedTraumaConfig,
 } from "~/server/config";
 import { initializeDatabase } from "~/server/db";
+import { guardMutationRequest } from "~/server/http/mutation-request";
 import { deleteMemory } from "~/server/memories/delete-memory";
 
 export async function DELETE(event: APIEvent): Promise<Response> {
+  const guard = guardMutationRequest(event.request);
+  if (!guard.ok) {
+    return json({ error: guard.error }, { status: guard.status });
+  }
+
   const memoryId = event.params.memoryId?.trim();
   if (memoryId === undefined || memoryId === "") {
     return json({ error: "memoryId must be a non-empty string" }, { status: 400 });
@@ -56,7 +66,13 @@ export async function DELETE(event: APIEvent): Promise<Response> {
       return json(
         {
           error: "failed to delete memory",
-          ...(backupFailsafe === undefined ? {} : { backupFailsafe }),
+          ...(backupFailsafe === undefined
+            ? {}
+            : {
+                backupFailsafe: toPublicAlertView(
+                  toAlertDetails(backupFailsafe),
+                ),
+              }),
         },
         { status: 500 },
       );

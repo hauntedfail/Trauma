@@ -1,14 +1,32 @@
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { MemoryBackupQueue } from "../backup";
+import type { DurableMemoryBackupQueue } from "../backup";
 import type { ResolvedTraumaConfig } from "../config";
+import {
+  publishFileAtomically,
+  syncDirectoryBestEffort,
+} from "../files/atomic-write";
 import type {
+  FlashbackRepository,
   TranslationChunkRecord,
   TranslationJobRecord,
   TranslationRepository,
 } from "../db/repositories";
+import { withTranslatedFlashbackProjectionMutationLock } from "../flashbacks/coordination";
+import {
+  clearFlashbackExportReconciliationIntent,
+  persistFlashbackExportReconciliationIntent,
+} from "../flashbacks/export-intent";
+import {
+  getTranslatedFlashbackMetadataExportPath,
+  writeFlashbackMetadataExport,
+} from "../flashbacks/export";
 import { createSha256ContentHash } from "./hash";
+import {
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  TranslationOutputAdmission,
+} from "./limits";
 import {
   parseMarkdownTranslationBlocks,
   splitFrontmatter,
@@ -17,14 +35,18 @@ import {
   createTranslatedReaderUrl,
   resolveTranslatedMemoryContentPath,
   resolveTranslatedMemoryProjectionPath,
-  resolveTranslatedMemoryTempPath,
 } from "./paths";
 import type { SupportedLanguageCode } from "./languages";
 import { loadTranslationSourceSnapshot } from "./source-loader";
 import {
   buildTranslationProjectionSpans,
-  serializeTranslationProjectionSidecar,
+  writeTranslationProjectionSidecarAtomically,
+  type TranslationProjectionSidecar,
 } from "./projection-map";
+import {
+  withMemoryArtifactMutation,
+  type MemoryArtifactMutationReservation,
+} from "../memories/mutation-reservation";
 
 export interface TranslationCommitResult {
   outputHash: string;
@@ -38,28 +60,78 @@ export interface StaleTranslationCommitResult {
   status: "stale";
 }
 
-export async function commitTranslatedContent(input: {
-  backupQueue: MemoryBackupQueue;
+export interface SupersededTranslationCommitResult {
+  status: "superseded";
+}
+
+type CommitTranslatedContentInput = {
+  backupQueue: DurableMemoryBackupQueue;
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
+  flashbacks: Pick<FlashbackRepository, "listForMemoryVariant">;
   job: TranslationJobRecord;
+  maxOutputBytes?: number;
+  maxSourceBytes?: number;
   now?: Date;
+  publishProjectionSidecar?: (
+    absolutePath: string,
+    sidecar: TranslationProjectionSidecar,
+  ) => Promise<void>;
   repository: TranslationRepository;
-}): Promise<TranslationCommitResult | StaleTranslationCommitResult> {
+};
+
+export async function commitTranslatedContent(
+  input: CommitTranslatedContentInput,
+): Promise<
+  | TranslationCommitResult
+  | StaleTranslationCommitResult
+  | SupersededTranslationCommitResult
+> {
+  return withTranslatedFlashbackProjectionMutationLock(
+    {
+      langCode: input.job.langCode,
+      memoryId: input.job.memoryId,
+      storePath: input.config.storePath,
+    },
+    () => withMemoryArtifactMutation(
+      { memoryId: input.job.memoryId, storePath: input.config.storePath },
+      (reservation) => commitTranslatedContentReserved(input, reservation),
+    ),
+  );
+}
+
+async function commitTranslatedContentReserved(
+  input: CommitTranslatedContentInput,
+  reservation: MemoryArtifactMutationReservation,
+): Promise<
+  | TranslationCommitResult
+  | StaleTranslationCommitResult
+  | SupersededTranslationCommitResult
+> {
   const source = await loadTranslationSourceSnapshot({
     config: input.config,
+    maxSourceBytes: input.maxSourceBytes,
     memoryId: input.job.memoryId,
   });
   const now = input.now ?? new Date();
   if (source.sourceHash !== input.job.sourceHash) {
-    await input.repository.updateTranslationJobStatus(input.job.jobId, "stale", {
-      error: {
-        code: "stale_source",
-        message: "Source CONTENT.md changed while translation was running.",
-        action: "open_source_reader",
+    reservation.assertWritable();
+    const markedStale = await input.repository.transitionTranslationJobStatus(
+      input.job.jobId,
+      "committing",
+      "stale",
+      {
+        error: {
+          code: "stale_source",
+          message: "Source CONTENT.md changed while translation was running.",
+          action: "open_source_reader",
+        },
+        updatedAt: now,
       },
-      updatedAt: now,
-    });
+    );
+    if (!markedStale) {
+      return { status: "superseded" };
+    }
     return {
       currentSourceHash: source.sourceHash,
       jobSourceHash: input.job.sourceHash,
@@ -67,14 +139,43 @@ export async function commitTranslatedContent(input: {
     };
   }
 
-  const body = stitchCompletedChunks(input.chunks);
   const { frontmatter } = splitFrontmatter(source.sourceMarkdown);
+  const body = stitchCompletedChunks(input.chunks, {
+    initialBytes: Buffer.byteLength(frontmatter, "utf8"),
+    maxOutputBytes:
+      input.maxOutputBytes ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS.maxOutputBytes,
+  });
   const output = `${frontmatter}${body}`;
   validateFinalTranslatedContent({
     body,
     expectedFrontmatter: frontmatter,
     output,
   });
+  const intendedOutputPath = resolveTranslatedMemoryContentPath({
+    config: input.config,
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  const projectionPath = resolveTranslatedMemoryProjectionPath({
+    config: input.config,
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  const flashbackExportPath = getTranslatedFlashbackMetadataExportPath({
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
+  reservation.assertWritable();
+  await input.backupQueue.persistIntent({
+    contentPaths: [
+      intendedOutputPath.relativePath,
+      projectionPath.relativePath,
+      flashbackExportPath,
+    ],
+    memoryId: input.job.memoryId,
+    reason: "translation_update",
+  });
+  reservation.assertWritable();
   const outputPath = await writeTranslatedContentAtomically({
     config: input.config,
     jobId: input.job.jobId,
@@ -94,14 +195,13 @@ export async function commitTranslatedContent(input: {
     outputHash,
     sourceHash: input.job.sourceHash,
   });
-  const projectionPath = resolveTranslatedMemoryProjectionPath({
-    config: input.config,
-    langCode: input.job.langCode,
-    memoryId: input.job.memoryId,
-  });
-  await writeFile(
+  reservation.assertWritable();
+  await (
+    input.publishProjectionSidecar ??
+    writeTranslationProjectionSidecarAtomically
+  )(
     projectionPath.absolutePath,
-    serializeTranslationProjectionSidecar({
+    {
       jobId: input.job.jobId,
       langCode: input.job.langCode as SupportedLanguageCode,
       memoryId: input.job.memoryId,
@@ -109,20 +209,68 @@ export async function commitTranslatedContent(input: {
       sourceHash: input.job.sourceHash,
       spans: projectionSpans,
       version: 1,
-    }),
-    "utf8",
+    },
   );
+  reservation.assertWritable();
   await input.repository.replaceProjectionSpansForJob(
     input.job.jobId,
     projectionSpans,
   );
 
-  await input.repository.updateTranslationJobStatus(input.job.jobId, "complete", {
-    completedAt: now,
+  const flashbackVariant = {
+    kind: "translation" as const,
+    langCode: input.job.langCode as SupportedLanguageCode,
     outputHash,
-    outputPath: outputPath.relativePath,
-    updatedAt: now,
+  };
+  reservation.assertWritable();
+  await persistFlashbackExportReconciliationIntent({
+    config: input.config,
+    memoryId: input.job.memoryId,
+    variant: flashbackVariant,
   });
+  reservation.assertWritable();
+  const markedComplete = await input.repository.transitionTranslationJobStatus(
+    input.job.jobId,
+    "committing",
+    "complete",
+    {
+      completedAt: now,
+      outputHash,
+      outputPath: outputPath.relativePath,
+      updatedAt: now,
+    },
+  );
+  if (!markedComplete) {
+    return { status: "superseded" };
+  }
+  let confirmedFlashbackExportPath: string | undefined;
+  try {
+    reservation.assertWritable();
+    const flashbacks = await input.flashbacks.listForMemoryVariant({
+      memoryId: input.job.memoryId,
+      variant: flashbackVariant,
+    });
+    confirmedFlashbackExportPath = await writeFlashbackMetadataExport({
+      config: input.config,
+      flashbacks,
+      memoryId: input.job.memoryId,
+      variant: flashbackVariant,
+    });
+    try {
+      await clearFlashbackExportReconciliationIntent({
+        config: input.config,
+        memoryId: input.job.memoryId,
+        variant: flashbackVariant,
+      });
+    } catch {
+      // A confirmed export makes a retained or deletion-uncertain intent safe:
+      // startup reconciliation is idempotent and will clear it after replay.
+    }
+  } catch (error) {
+    // Translation completion is already authoritative. Keep the durable intent
+    // for startup reconciliation instead of rolling the completed job back.
+    console.warn("failed to reconcile translated flashback export", error);
+  }
   try {
     await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
   } catch (error) {
@@ -130,7 +278,13 @@ export async function commitTranslatedContent(input: {
   }
   try {
     await input.backupQueue.enqueue({
-      contentPaths: [outputPath.relativePath, projectionPath.relativePath],
+      contentPaths: [
+        outputPath.relativePath,
+        projectionPath.relativePath,
+        ...(confirmedFlashbackExportPath === undefined
+          ? []
+          : [confirmedFlashbackExportPath]),
+      ],
       memoryId: input.job.memoryId,
       reason: "translation_update",
     });
@@ -149,19 +303,33 @@ export async function commitTranslatedContent(input: {
 }
 
 export function stitchCompletedChunks(
-  chunks: readonly TranslationChunkRecord[],
+  chunks: readonly Pick<
+    TranslationChunkRecord,
+    "chunkIndex" | "status" | "translatedMarkdown"
+  >[],
+  options: {
+    initialBytes?: number;
+    maxOutputBytes?: number;
+  } = {},
 ): string {
-  return [...chunks]
-    .sort((left, right) => left.chunkIndex - right.chunkIndex)
-    .map((chunk) => {
-      if (chunk.status !== "complete" || chunk.translatedMarkdown === null) {
-        throw new TranslationStitchingError(
-          `chunk ${chunk.chunkIndex} is not complete`,
-        );
-      }
-      return chunk.translatedMarkdown;
-    })
-    .join("");
+  const admission = new TranslationOutputAdmission({
+    initialBytes: options.initialBytes,
+    maxOutputBytes:
+      options.maxOutputBytes ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS.maxOutputBytes,
+  });
+  const translatedChunks: string[] = [];
+  for (const chunk of [...chunks].sort(
+    (left, right) => left.chunkIndex - right.chunkIndex,
+  )) {
+    if (chunk.status !== "complete" || chunk.translatedMarkdown === null) {
+      throw new TranslationStitchingError(
+        `chunk ${chunk.chunkIndex} is not complete`,
+      );
+    }
+    admission.admitChunk(chunk.chunkIndex, chunk.translatedMarkdown);
+    translatedChunks.push(chunk.translatedMarkdown);
+  }
+  return translatedChunks.join("");
 }
 
 export function validateFinalTranslatedContent(input: {
@@ -197,42 +365,12 @@ export async function writeTranslatedContentAtomically(input: {
   memoryId: string;
 }) {
   const outputPath = resolveTranslatedMemoryContentPath(input);
-  const temporaryPath = resolveTranslatedMemoryTempPath(input);
-  let moved = false;
-
-  try {
-    await mkdir(dirname(outputPath.absolutePath), { recursive: true });
-    const file = await open(temporaryPath, "w");
-    try {
-      await file.writeFile(input.markdown, "utf8");
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    await rename(temporaryPath, outputPath.absolutePath);
-    moved = true;
-    await syncDirectoryBestEffort(dirname(outputPath.absolutePath));
-  } finally {
-    if (!moved) {
-      await rm(temporaryPath, { force: true });
-    }
-  }
+  const directory = dirname(outputPath.absolutePath);
+  await mkdir(directory, { recursive: true });
+  await syncDirectoryBestEffort(dirname(directory));
+  await publishFileAtomically(outputPath.absolutePath, input.markdown);
 
   return outputPath;
-}
-
-async function syncDirectoryBestEffort(directoryPath: string): Promise<void> {
-  try {
-    const directory = await open(directoryPath, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-  } catch {
-    // Some platforms/filesystems do not allow fsync on directories. The file
-    // fsync plus atomic same-directory rename remains the hard requirement.
-  }
 }
 
 export class TranslationStitchingError extends Error {

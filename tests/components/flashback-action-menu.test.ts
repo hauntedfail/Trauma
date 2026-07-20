@@ -121,4 +121,69 @@ describe("Flashback action menu", () => {
     expect(source).toContain("revalidateBackupFailsafeAlert");
     expect(source).toContain("shouldRevalidateBackupFailsafeAfterFlashbackFailure");
   });
+
+  it("keeps a successful delete successful while returning its backup warning", async () => {
+    const warning = await deleteFlashbackBySelection({
+      flashback,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            result: {
+              flashbacks: [],
+              backup: {
+                status: "pending",
+                warning: {
+                  code: "backup_enqueue_failed",
+                  message: "Flashback was saved, but backup enqueue failed.",
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    expect(warning).toEqual({
+      status: "pending",
+      code: "backup_enqueue_failed",
+      message: "Flashback was saved, but backup enqueue failed.",
+    });
+  });
+
+  it("keeps a committed durability warning on the successful delete path", async () => {
+    const warning = await deleteFlashbackBySelection({
+      flashback,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            result: {
+              operation: "unflashbacked",
+              flashbacks: [],
+              durability: {
+                status: "unconfirmed",
+                warning: {
+                  code: "flashback_export_durability_unconfirmed",
+                  message:
+                    "Flashback change was saved, but export durability could not be confirmed.",
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    expect(warning).toEqual({
+      code: "flashback_export_durability_unconfirmed",
+      message:
+        "Flashback change was saved, but export durability could not be confirmed.",
+      status: "unconfirmed",
+    });
+  });
 });

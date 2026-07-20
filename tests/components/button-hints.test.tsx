@@ -99,14 +99,13 @@ describe("button hover hints", () => {
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
     expect(appShellSource).toContain('title="Theme settings"');
-    expect(appShellSource).toContain('title="Local archive"');
     expect(appShellSource).toContain('hint="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
     expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
     expect(memoryBrowseSource).toContain("TaxonomyAddControl");
     expect(taxonomyAddControlSource).toContain("title={label()}");
     expect(addMemoryFormSource).toContain(
-      'hint={isSubmitting() ? "Saving..." : props.submitLabel}',
+      'hint={props.submission.isSubmitting() ? "Saving..." : props.submitLabel}',
     );
     expect(readerSource).toContain('title="Flashback selection"');
     expect(readerSource).toContain('title="Moment section"');

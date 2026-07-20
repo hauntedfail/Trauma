@@ -19,6 +19,8 @@ export interface PsychiatristTranscriptPair {
   userPrompt: string;
 }
 
+export const PSYCHIATRIST_MAX_PROCESS_ROWS_PER_PAIR = 8;
+
 export function toPsychiatristTranscriptPairs(
   pairs: readonly PsychiatristThreadPairResponse[],
 ): PsychiatristTranscriptPair[] {
@@ -70,7 +72,7 @@ export function applyPsychiatristStreamEvent(
     }
     if (event.type === "psychiatrist.process.delta") {
       const text = readSafeProcessText(event.data);
-      return text === undefined ? pair : { ...pair, process: [...pair.process, text] };
+      return text === undefined ? pair : appendProcessText(pair, text);
     }
     if (event.type === "psychiatrist.answer.delta") {
       const text = readAnswerText(event.data) ?? "";
@@ -97,6 +99,7 @@ export function applyPsychiatristStreamEvent(
     ) {
       return {
         ...pair,
+        process: [],
         ...(event.type === "psychiatrist.regenerate.started"
           ? { draftAnswer: "", draftOriginalTurnId: pair.turnId, draftTurnId: event.turnId }
           : {}),
@@ -199,7 +202,11 @@ function readSafeProcessText(data: unknown): string | undefined {
   if (!isRecord(data) || typeof data.text !== "string") {
     return undefined;
   }
-  const normalized = data.text.toLowerCase();
+  const text = data.text.replace(/\s+/g, " ").trim();
+  if (text === "") {
+    return undefined;
+  }
+  const normalized = text.toLowerCase();
   if (
     normalized.includes("chain-of-thought") ||
     normalized.includes("chain of thought") ||
@@ -210,7 +217,30 @@ function readSafeProcessText(data: unknown): string | undefined {
   ) {
     return undefined;
   }
-  return data.text;
+  return text;
+}
+
+function appendProcessText(
+  pair: PsychiatristTranscriptPair,
+  text: string,
+): PsychiatristTranscriptPair {
+  if (pair.process.at(-1) === text) {
+    return pair;
+  }
+  if (pair.process.length < PSYCHIATRIST_MAX_PROCESS_ROWS_PER_PAIR) {
+    return { ...pair, process: [...pair.process, text] };
+  }
+  const first = pair.process[0];
+  return {
+    ...pair,
+    process: first === undefined
+      ? [text]
+      : [
+          first,
+          ...pair.process.slice(-(PSYCHIATRIST_MAX_PROCESS_ROWS_PER_PAIR - 2)),
+          text,
+        ],
+  };
 }
 
 function readUserPrompt(data: unknown): string | undefined {

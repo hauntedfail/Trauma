@@ -4,6 +4,7 @@ import {
   BrowserImportError,
   importBrowserCapture,
   type BrowserImportPayload,
+  type ImportBrowserCaptureInput,
 } from "../../../src/server/browser-import";
 
 describe("browser capture import", () => {
@@ -24,7 +25,7 @@ describe("browser capture import", () => {
     });
     const observedUrls: string[] = [];
 
-    const memory = await importBrowserCapture({
+    const memory = await importCapture({
       payload,
       config: createConfig(),
       db: {} as never,
@@ -50,7 +51,7 @@ describe("browser capture import", () => {
 
   it("rejects empty Defuddle markdown without building a browser-capture markdown fallback", async () => {
     await expect(
-      importBrowserCapture({
+      importCapture({
         payload: createPayload({
           articleHtml: `<article>
             <h1>Captured Article</h1>
@@ -80,7 +81,7 @@ describe("browser capture import", () => {
 
   it("bounds browser capture extraction time before persisting a memory", async () => {
     await expect(
-      importBrowserCapture({
+      importCapture({
         payload: createPayload({
           articleHtml: `<article>
             <h1>Captured Article</h1>
@@ -115,7 +116,7 @@ describe("browser capture import", () => {
     });
     const observedMarkdown: string[] = [];
 
-    const memory = await importBrowserCapture({
+    const memory = await importCapture({
       payload,
       config: createConfig(),
       db: {} as never,
@@ -145,7 +146,7 @@ describe("browser capture import", () => {
     const startedAt = Date.now();
 
     await expect(
-      importBrowserCapture({
+      importCapture({
         payload: createPayload({
           articleHtml: `<article>
             <h1>Captured Article</h1>
@@ -186,7 +187,7 @@ describe("browser capture import", () => {
   it("falls back to the captured source URL when canonical URL is private", async () => {
     const observedUrls: string[] = [];
 
-    const memory = await importBrowserCapture({
+    const memory = await importCapture({
       payload: createPayload({
         canonicalUrl: "http://127.0.0.1/admin",
         articleHtml: `<article>
@@ -215,7 +216,7 @@ describe("browser capture import", () => {
   it("falls back to the captured source URL when canonical URL is a different public IP", async () => {
     const observedUrls: string[] = [];
 
-    const memory = await importBrowserCapture({
+    const memory = await importCapture({
       payload: createPayload({
         canonicalUrl: "https://93.184.216.34/canonical",
         articleHtml: `<article>
@@ -249,9 +250,63 @@ describe("browser capture import", () => {
     expect(observedUrls).toEqual(["https://example.com/source"]);
   });
 
+  it("rejects source hostnames that resolve to a private address", async () => {
+    await expect(
+      importCapture({
+        payload: createPayload({
+          sourceUrl: "https://split-horizon.example/article",
+        }),
+        config: createConfig(),
+        db: {} as never,
+        backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+        resolveHostname: async () => ["127.0.0.1"],
+        extractArticle: async () => ({
+          title: "Captured Article",
+          description: null,
+          faviconUrl: null,
+          markdown: "# Captured Article\n\nPrivate content must not be imported.",
+          wordCount: 8,
+        }),
+        createMemory: async () => ({ id: "must-not-be-created" }),
+      }),
+    ).rejects.toEqual(new BrowserImportError("source URL is not allowed"));
+  });
+
+  it("falls back to a validated source when canonical DNS becomes private", async () => {
+    const observedUrls: string[] = [];
+    let resolutionCount = 0;
+
+    await importCapture({
+      payload: createPayload({
+        canonicalUrl: "https://example.com/canonical",
+      }),
+      config: createConfig(),
+      db: {} as never,
+      backupQueue: { enqueue: async () => ({ backupStatus: "pending" }) },
+      resolveHostname: async () => {
+        resolutionCount += 1;
+        return resolutionCount === 1 ? ["93.184.216.34"] : ["127.0.0.1"];
+      },
+      extractArticle: async () => ({
+        title: "Captured Article",
+        description: null,
+        faviconUrl: null,
+        markdown: "# Captured Article\n\nOnly validated public URLs may persist.",
+        wordCount: 8,
+      }),
+      createMemory: async (input) => {
+        observedUrls.push(input.url);
+        return { id: "memory-id" };
+      },
+    });
+
+    expect(resolutionCount).toBe(2);
+    expect(observedUrls).toEqual(["https://example.com/source"]);
+  });
+
   it("rejects localhost subdomain source URLs", async () => {
     await expect(
-      importBrowserCapture({
+      importCapture({
         payload: createPayload({
           sourceUrl: "http://app.localhost:5173/article",
           articleHtml: `<article>
@@ -271,6 +326,13 @@ describe("browser capture import", () => {
     ).rejects.toEqual(new BrowserImportError("source URL is not allowed"));
   });
 });
+
+function importCapture(input: ImportBrowserCaptureInput) {
+  return importBrowserCapture({
+    resolveHostname: async () => ["93.184.216.34"],
+    ...input,
+  });
+}
 
 function createPayload(
   overrides: Partial<BrowserImportPayload> = {},

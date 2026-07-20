@@ -9,7 +9,10 @@ import {
   BackupEnvironmentFailsafeError,
   assertBackupEnvironmentReady,
   ensureBackupEnvironment,
+  fingerprintGitRemote,
   getBackupFailsafeStatus,
+  redactOperationalError,
+  recordBackupPushFailureAlert,
 } from "../../../src/server/backup/environment";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
@@ -54,6 +57,62 @@ describe("backup environment failsafe", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("fingerprints credentialed remotes and redacts persisted push diagnostics", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const secret = "unique-backup-secret";
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, [
+      "remote",
+      "add",
+      "origin",
+      `https://backup-user:${secret}@example.com/private.git`,
+    ]);
+    const connection = initializeDatabase(config);
+    connection.close();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await recordBackupPushFailureAlert(
+      config,
+      `fatal: https://backup-user:${secret}@example.com/private.git token=${secret}`,
+    );
+
+    const check = initializeDatabase(config);
+    try {
+      const alert =
+        await check.repositories.backupEnvironment.getBackupFailsafeAlert();
+      expect(alert?.gitRemoteUrl).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(alert?.error).toContain("[redacted]");
+      expect(JSON.stringify(alert)).not.toContain(secret);
+
+      const status = await getBackupFailsafeStatus({
+        config,
+        db: check.db,
+        now: () => now,
+      });
+      expect(status.alert).toMatchObject({
+        kind: "backup_push_failed",
+        availableActions: ["migrate"],
+      });
+      expect(JSON.stringify(status.alert)).not.toContain(secret);
+      expect(JSON.stringify(status.alert)).not.toContain(root);
+    } finally {
+      check.close();
+    }
+  });
+
+  it("redacts credentials before bounding long operational errors", () => {
+    const credential = "s".repeat(4_096);
+    const redacted = redactOperationalError(
+      `fatal: https://backup-user:${credential}@example.com/private.git`,
+    );
+
+    expect(redacted.length).toBeLessThanOrEqual(4_096);
+    expect(redacted).toContain("https://[redacted]@example.com/private.git");
+    expect(redacted).not.toContain(credential.slice(0, 64));
   });
 
   it("creates a critical alert when existing content has no trusted stamp", async () => {
@@ -177,7 +236,7 @@ describe("backup environment failsafe", () => {
         projectPath: config.projectPath,
         storePath: config.storePath,
         gitRemote: "origin",
-        gitRemoteUrl: previousRemoteUrl,
+        gitRemoteUrl: fingerprintGitRemote(previousRemoteUrl),
         gitBranch: "main",
         createdAt: now,
         updatedAt: now,
@@ -196,6 +255,87 @@ describe("backup environment failsafe", () => {
         previousStorePath: null,
         currentProjectPath: config.projectPath,
         currentStorePath: config.storePath,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("accepts an unchanged fingerprinted backup remote identity", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const remoteUrl = join(root, "current.git");
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, ["remote", "add", "origin", remoteUrl]);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: fingerprintGitRemote(remoteUrl),
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      })).resolves.toEqual({ ok: true });
+      await expect(
+        connection.repositories.backupEnvironment.getBackupEnvironmentStamp(),
+      ).resolves.toMatchObject({
+        gitRemoteUrl: fingerprintGitRemote(remoteUrl),
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("treats the legacy redacted remote marker as unknown and fails closed", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    const remoteUrl = join(root, "current.git");
+    await writeContent(config.storePath, "memory-1");
+    initializeGitRepository(config.projectPath);
+    runGit(config.projectPath, ["remote", "add", "origin", remoteUrl]);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: "redacted:migration-0016",
+        gitBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await ensureBackupEnvironment({
+        config,
+        db: connection.db,
+        now: () => now,
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        alert: {
+          kind: "backup_path_drift",
+          previousProjectPath: null,
+          previousStorePath: null,
+        },
+      });
+      await expect(
+        connection.repositories.backupEnvironment.getBackupEnvironmentStamp(),
+      ).resolves.toMatchObject({
+        gitRemoteUrl: "redacted:migration-0016",
       });
     } finally {
       connection.close();
@@ -240,6 +380,76 @@ describe("backup environment failsafe", () => {
         currentStorePath: config.storePath,
         error: expect.stringContaining("memory-1"),
       });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("checks backup identity after a journaled missing file is marked pending", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        ...createMemoryRow(),
+        backupStatus: "success",
+      });
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.repositories.memories.updateBackupStatus({
+        id: "memory-1",
+        backupStatus: "pending",
+        lastBackupAt: null,
+        lastBackupError: null,
+        updatedAt: now,
+      });
+
+      await expect(assertBackupEnvironmentReady({
+        config,
+        db: connection.db,
+      })).resolves.toBeUndefined();
+      await expect(
+        connection.repositories.backupEnvironment.getBackupFailsafeAlert(),
+      ).resolves.toBeUndefined();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("rejects deletion recovery when the checked-out backup branch drifted", async () => {
+    const root = await makeRoot();
+    const config = createConfig(root);
+    await mkdir(config.projectPath, { recursive: true });
+    initializeGitRepository(config.projectPath);
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create(createMemoryRow());
+      await connection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
+        id: "default",
+        projectPath: config.projectPath,
+        storePath: config.storePath,
+        gitRemote: config.backup.git.remote,
+        gitRemoteUrl: null,
+        gitBranch: config.backup.git.branch,
+        createdAt: now,
+        updatedAt: now,
+      });
+      runGit(config.projectPath, ["symbolic-ref", "HEAD", "refs/heads/other"]);
+
+      await expect(assertBackupEnvironmentReady({
+        config,
+        db: connection.db,
+      })).rejects.toBeInstanceOf(BackupEnvironmentFailsafeError);
     } finally {
       connection.close();
     }
@@ -319,8 +529,9 @@ describe("backup environment failsafe", () => {
 
       expect(status.alert).toMatchObject({
         kind: "backup_path_drift",
-        currentProjectPath: config.projectPath,
+        availableActions: ["migrate"],
       });
+      expect(JSON.stringify(status.alert)).not.toContain(root);
     } finally {
       connection.close();
     }

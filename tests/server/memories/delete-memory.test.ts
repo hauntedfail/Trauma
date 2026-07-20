@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename as renameFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,11 +17,16 @@ import {
   runGitBackupJob,
   type MemoryBackupQueue,
 } from "../../../src/server/backup";
-import { BackupEnvironmentFailsafeError } from "../../../src/server/backup/environment";
+import {
+  BackupEnvironmentFailsafeError,
+  ensureBackupEnvironment,
+} from "../../../src/server/backup/environment";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
 import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
+import { addMemory } from "../../../src/server/memories/add-memory";
 import { deleteMemory } from "../../../src/server/memories/delete-memory";
+import { recoverInterruptedMemoryOperations } from "../../../src/server/memories/operation-journal";
 import { createMemoryContentFixture, writeMemoryContent } from "../../../src/server/store";
 import {
   resolveTranslatedMemoryContentPath,
@@ -36,6 +49,67 @@ afterEach(async () => {
 });
 
 describe("delete memory service", () => {
+  it("refuses to delete content owned by a different memory row", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    const otherMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef992";
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: otherMemoryId,
+      frontmatter: {
+        id: otherMemoryId,
+        url: "https://example.com/other",
+        title: "Other memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Other memory\n\nMust remain.",
+    });
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: otherMemoryId,
+        url: "https://example.com/other",
+        title: "Other memory",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${otherMemoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        read: false,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: routeNow,
+        updatedAt: routeNow,
+      });
+      connection.sqlite
+        .prepare("update memories set content_path = ? where id = ?")
+        .run(`memories/${otherMemoryId}/CONTENT.md`, routeMemoryId);
+
+      await expect(deleteMemory({
+        config,
+        db: connection.db,
+        memoryId: routeMemoryId,
+      })).resolves.toEqual({
+        status: "failed",
+        error: "memory content path is not owned by the requested memory",
+      });
+      expect(
+        connection.sqlite
+          .prepare("select count(*) as count from memories where id in (?, ?)")
+          .get(routeMemoryId, otherMemoryId),
+      ).toEqual({ count: 2 });
+    } finally {
+      connection.close();
+    }
+    await expect(readFile(
+      join(config.storePath, "memories", otherMemoryId, "CONTENT.md"),
+      "utf8",
+    )).resolves.toContain("Must remain.");
+  });
+
   it("queues deleted memory content and Flashback export paths for git backup", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
@@ -317,16 +391,9 @@ describe("delete memory service", () => {
     git(config.projectPath, ["remote", "add", "origin", missingRemotePath]);
     const stampConnection = initializeDatabase(config);
     try {
-      await stampConnection.repositories.backupEnvironment.upsertBackupEnvironmentStamp({
-        id: "default",
-        projectPath: config.projectPath,
-        storePath: config.storePath,
-        gitRemote: config.backup.git.remote,
-        gitRemoteUrl: missingRemotePath,
-        gitBranch: config.backup.git.branch,
-        createdAt: routeNow,
-        updatedAt: routeNow,
-      });
+      await expect(
+        ensureBackupEnvironment({ config, db: stampConnection.db }),
+      ).resolves.toMatchObject({ ok: true });
     } finally {
       stampConnection.close();
     }
@@ -553,6 +620,105 @@ describe("delete memory service", () => {
     }
   });
 
+  it("syncs both rename parents and the staging parent after removal", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    const syncedDirectories: string[] = [];
+
+    try {
+      await expect(deleteMemory({
+        config,
+        db: connection.db,
+        fileSystem: {
+          openDirectory: async (path) => ({
+            close: async () => undefined,
+            sync: async () => {
+              syncedDirectories.push(path);
+            },
+          }),
+        },
+        memoryId: routeMemoryId,
+      })).resolves.toEqual({ status: "deleted" });
+    } finally {
+      connection.close();
+    }
+
+    expect(syncedDirectories).toEqual([
+      config.storePath,
+      join(config.storePath, "memories"),
+      join(config.storePath, ".delete-staging"),
+      join(config.storePath, ".delete-staging"),
+    ]);
+  });
+
+  it("restores content and preserves the row when rename durability cannot be confirmed", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    let syncCount = 0;
+
+    try {
+      const result = await deleteMemory({
+        config,
+        db: connection.db,
+        fileSystem: {
+          openDirectory: async () => ({
+            close: async () => undefined,
+            sync: async () => {
+              syncCount += 1;
+              if (syncCount === 2) {
+                throw Object.assign(new Error("directory fsync failed"), {
+                  code: "EIO",
+                });
+              }
+            },
+          }),
+        },
+        memoryId: routeMemoryId,
+      });
+
+      expect(result).toEqual({
+        status: "failed",
+        error: "directory fsync failed",
+      });
+      await expect(connection.repositories.memories.findById(routeMemoryId))
+        .resolves.toMatchObject({ id: routeMemoryId });
+    } finally {
+      connection.close();
+    }
+    await expect(readFile(
+      join(config.storePath, "memories", routeMemoryId, "CONTENT.md"),
+      "utf8",
+    )).resolves.toContain("# Route Memory");
+  });
+
   it("restores staged content when database deletion fails", async () => {
     const root = await makeRoot();
     const config = loadRouteConfig(await writeRouteConfig(root));
@@ -592,6 +758,10 @@ describe("delete memory service", () => {
         status: "failed",
         error: "database delete failed",
       });
+      await expect(recoverInterruptedMemoryOperations({
+        config,
+        memories: connection.repositories.memories,
+      })).resolves.toBe(0);
     } finally {
       connection.close();
     }
@@ -622,6 +792,165 @@ describe("delete memory service", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("keeps recovery behind a deletion paused after journal persistence", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const connection = initializeDatabase(config);
+    const renameEntered = deferred<void>();
+    const releaseRename = deferred<void>();
+    let recoverySettled = false;
+    let deletion: Promise<Awaited<ReturnType<typeof deleteMemory>>> | undefined;
+    let recovery: Promise<number> | undefined;
+
+    try {
+      deletion = deleteMemory({
+        config,
+        db: connection.db,
+        fileSystem: {
+          rename: async (source, destination) => {
+            renameEntered.resolve();
+            await releaseRename.promise;
+            await renameFile(source, destination);
+          },
+        },
+        memoryId: routeMemoryId,
+      });
+      await renameEntered.promise;
+
+      const journalPath = join(
+        config.storePath,
+        ".operations",
+        `${routeMemoryId}.json`,
+      );
+      await expect(access(journalPath)).resolves.toBeNull();
+      recovery = recoverInterruptedMemoryOperations({
+        config,
+        memories: connection.repositories.memories,
+      }).finally(() => {
+        recoverySettled = true;
+      });
+
+      await flushAsyncWork();
+      expect(recoverySettled).toBe(false);
+      await expect(access(journalPath)).resolves.toBeNull();
+    } finally {
+      releaseRename.resolve();
+      await deletion;
+      await recovery;
+      connection.close();
+    }
+
+    await expect(deletion).resolves.toEqual({ status: "deleted" });
+    await expect(recovery).resolves.toBe(0);
+  });
+
+  it("makes an add request wait instead of restoring a staged active deletion", async () => {
+    const root = await makeRoot();
+    const config = loadRouteConfig(await writeRouteConfig(root));
+    await seedRouteMemory(config);
+    await writeMemoryContent({
+      config,
+      memoryId: routeMemoryId,
+      frontmatter: {
+        id: routeMemoryId,
+        url: `https://example.com/${routeMemoryId}`,
+        title: "Route Memory",
+        capturedAt: routeNow.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown: "# Route Memory\n\nContent.",
+    });
+    const deletionConnection = initializeDatabase(config);
+    const addConnection = initializeDatabase(config);
+    const databaseDeleteEntered = deferred<void>();
+    const releaseDatabaseDelete = deferred<void>();
+    const addedMemoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef992";
+    let importerStarted = false;
+    let deletion: Promise<Awaited<ReturnType<typeof deleteMemory>>> | undefined;
+    let addition: ReturnType<typeof addMemory> | undefined;
+
+    try {
+      deletion = deleteMemory({
+        config,
+        db: deletionConnection.db,
+        memoryId: routeMemoryId,
+        repositories: {
+          memories: {
+            findDeletionTarget: (memoryId) =>
+              deletionConnection.repositories.memories.findDeletionTarget(memoryId),
+            deleteMemoryRecord: async (memoryId) => {
+              databaseDeleteEntered.resolve();
+              await releaseDatabaseDelete.promise;
+              return deletionConnection.repositories.memories.deleteMemoryRecord(memoryId);
+            },
+          },
+        },
+      });
+      await databaseDeleteEntered.promise;
+
+      addition = addMemory({
+        url: "https://example.com/concurrent-add",
+        config,
+        db: addConnection.db,
+        importer: {
+          importUrl: async () => {
+            importerStarted = true;
+            return {
+              status: "success",
+              url: "https://example.com/concurrent-add",
+              title: "Concurrent add",
+              description: null,
+              faviconUrl: null,
+              markdown: "# Concurrent add",
+            };
+          },
+        },
+        backupQueue: {
+          enqueue: async () => {
+            throw new Error("backup should be disabled");
+          },
+        },
+        generateId: () => addedMemoryId,
+        now: () => routeNow,
+      });
+
+      await flushAsyncWork();
+      expect(importerStarted).toBe(false);
+      await expect(access(join(
+        config.storePath,
+        ".operations",
+        `${routeMemoryId}.json`,
+      ))).resolves.toBeNull();
+      await expect(access(join(
+        config.storePath,
+        "memories",
+        routeMemoryId,
+      ))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      releaseDatabaseDelete.resolve();
+      await deletion;
+      await addition;
+      deletionConnection.close();
+      addConnection.close();
+    }
+
+    await expect(deletion).resolves.toEqual({ status: "deleted" });
+    await expect(addition).resolves.toMatchObject({ id: addedMemoryId });
   });
 });
 
@@ -739,4 +1068,16 @@ async function writeTranslatedArtifacts(
     translatedFlashbackPath,
     projectionPath.relativePath,
   ];
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await new Promise<void>((resolveFlush) => setImmediate(resolveFlush));
 }

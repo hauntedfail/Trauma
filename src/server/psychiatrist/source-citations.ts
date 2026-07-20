@@ -1,15 +1,18 @@
-import ipaddr from "ipaddr.js";
-
+import { projectPublicPsychiatristCitationUrl } from "../../psychiatrist/source-citation-url";
 import type { PsychiatristSourceCitation } from "./types";
 
 const MAX_CITATIONS = 8;
 const MAX_TITLE_CHARS = 160;
-const MAX_URL_CHARS = 2048;
+type PsychiatristWireSourceCitation = {
+  source_id: string;
+  title: string;
+  url: string;
+};
 
 export function sanitizePsychiatristSourceCitations(
   citations: readonly PsychiatristSourceCitation[] | undefined,
 ): PsychiatristSourceCitation[] {
-  if (citations === undefined) {
+  if (!Array.isArray(citations)) {
     return [];
   }
   const safe: PsychiatristSourceCitation[] = [];
@@ -17,7 +20,10 @@ export function sanitizePsychiatristSourceCitations(
     if (safe.length >= MAX_CITATIONS) {
       break;
     }
-    const url = sanitizeSourceUrl(citation.url);
+    if (!isSourceCitation(citation)) {
+      continue;
+    }
+    const url = projectPublicPsychiatristCitationUrl(citation.url);
     if (url === undefined) {
       continue;
     }
@@ -30,46 +36,41 @@ export function sanitizePsychiatristSourceCitations(
   return safe;
 }
 
-function sanitizeSourceUrl(value: string): string | undefined {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return undefined;
+export function sanitizePsychiatristWireSourceCitations(
+  citations: readonly PsychiatristWireSourceCitation[] | undefined,
+): PsychiatristSourceCitation[] {
+  if (!Array.isArray(citations)) {
+    return [];
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return undefined;
-  }
-  if (isUnsafeCitationHost(url.hostname)) {
-    return undefined;
-  }
-  url.username = "";
-  url.password = "";
-  url.search = "";
-  url.hash = "";
-  const projected = url.toString();
-  return projected.length > MAX_URL_CHARS ? undefined : projected;
-}
-
-function isUnsafeCitationHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
-  if (host === "" || host === "localhost" || host.endsWith(".localhost")) {
-    return true;
-  }
-  const address = parseIpAddress(host);
-  return address === undefined ? false : address.range() !== "unicast";
-}
-
-function parseIpAddress(host: string): ReturnType<typeof ipaddr.process> | undefined {
-  const candidate = host.replace(/^\[/, "").replace(/\]$/, "");
-  try {
-    return ipaddr.process(candidate);
-  } catch {
-    return undefined;
-  }
+  return sanitizePsychiatristSourceCitations(citations.flatMap((citation) => {
+    if (
+      !isRecord(citation) ||
+      typeof citation.source_id !== "string" ||
+      typeof citation.title !== "string" ||
+      typeof citation.url !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      sourceId: citation.source_id,
+      title: citation.title,
+      url: citation.url,
+    }];
+  }));
 }
 
 function sanitizeSourceTitle(value: string): string {
   const title = value.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS);
   return title === "" ? "Source" : title;
+}
+
+function isSourceCitation(value: unknown): value is PsychiatristSourceCitation {
+  return isRecord(value) &&
+    typeof value.sourceId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.url === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
