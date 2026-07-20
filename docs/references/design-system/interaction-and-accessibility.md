@@ -198,12 +198,10 @@ an interaction state and respect readability.
 Async failures use an assertive `role="alert"` region. Successful settings or
 save feedback uses a polite `role="status"` region. Do not rely on colour or
 visual placement alone to announce completion or failure. Reader model-catalog
-failures follow the same assertive alert contract. Aborted Codex-auth polling is
-cancellation rather than failure and must not announce stale feedback.
-
-Settings model-catalog failures keep the current model and reasoning selections
-intact and expose an in-page Retry action. Only one catalog request may be in
-flight; Retry and dependent controls remain disabled while it is pending, and
-unmounted or superseded requests must not publish stale results. A successful
-retry may move focus from the removed Retry control to Model only when the user
-has not moved focus elsewhere.
+failures follow the same alert contract, keep current selections intact, and
+expose a Retry action. Only one catalog request may be in flight; Retry and
+dependent controls remain disabled while it is pending, and unmounted or
+superseded requests must not publish stale results. A successful retry may move
+focus from the removed Retry control to Model only when the user has not moved
+focus elsewhere. Aborted Codex-auth polling is cancellation rather than failure
+and must not announce stale feedback.

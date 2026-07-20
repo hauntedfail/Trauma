@@ -82,8 +82,9 @@ Use focused tests for the smallest affected boundary:
   serialized event admission, retry/job cumulative budgets, replay/SSE
   backpressure, cancellation races, stitching, projections, and current-output
   resolution. It also covers probe-client closure before queueing and absolute
-  per-segment/per-chunk UTF-8 output admission. Shared Codex byte-limit changes also run the adjacent Psychiatrist
-  event-persistence and SSE suites.
+  per-segment, per-chunk, and complete-document UTF-8 output admission. Shared
+  Codex byte-limit changes also run the adjacent Psychiatrist event-persistence
+  and SSE suites.
 - `tests/server/psychiatrist/**` plus `tests/skills/**`: runtime isolation,
   prompt policy, file-backed thread state, events, citations, route semantics,
   and shared active-plus-reserved turn capacity.
