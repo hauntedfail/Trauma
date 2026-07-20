@@ -31,7 +31,10 @@ import {
   type AsyncActionToken,
 } from "./action-state";
 import { createCodexModelCatalogController } from "./codex-model-catalog-state";
-import { captureAsyncActionFocusIntent } from "../async-action-focus";
+import {
+  captureAsyncActionFocusIntent,
+  type AsyncActionFocusOwnership,
+} from "../async-action-focus";
 import { RouteHeader } from "../layout/RouteHeader";
 import { ConfirmationPopup } from "../ui/ConfirmationPopup";
 
@@ -93,6 +96,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   const authPollControllers = new Set<AbortController>();
+  let codexAuthSetupButton: HTMLButtonElement | undefined;
   let codexModelSelect: HTMLSelectElement | undefined;
   let settingsPageActive = true;
   const codexCatalogController = createCodexModelCatalogController({
@@ -383,7 +387,9 @@ export function SettingsPage(props: SettingsPageProps) {
     }
   };
 
-  const deleteOpenAiAuth = async (): Promise<boolean> => {
+  const deleteOpenAiAuth = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     const action = beginAction("openai-auth");
     try {
       const response = await submitDeleteOpenAiAuth();
@@ -407,6 +413,10 @@ export function SettingsPage(props: SettingsPageProps) {
         status: "disabled",
         provider: "codex",
         reason: "logged_out",
+      });
+      restoreCodexAuthSetupFocus({
+        focusOwnership,
+        getTarget: () => codexAuthSetupButton,
       });
       setActionMessage(action, "Codex auth was deleted.");
       void revalidateSettingsState();
@@ -569,6 +579,7 @@ export function SettingsPage(props: SettingsPageProps) {
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <button
+              ref={codexAuthSetupButton}
               class={secondaryButtonClass}
               disabled={
                 codexAuth().status === "enabled" ||
@@ -707,6 +718,23 @@ export function captureCodexCatalogRetryFocusIntent(
     readActiveElement,
     readBody,
   );
+}
+
+export function restoreCodexAuthSetupFocus(input: {
+  focusOwnership: AsyncActionFocusOwnership;
+  getTarget: () => HTMLButtonElement | undefined;
+}): void {
+  queueMicrotask(() => {
+    const target = input.getTarget();
+    if (
+      target?.isConnected !== true ||
+      target.disabled ||
+      !input.focusOwnership.ownsCurrentFocus()
+    ) {
+      return;
+    }
+    target.focus({ preventScroll: true });
+  });
 }
 
 export function readSafeVerificationUrl(value: string): string | undefined {

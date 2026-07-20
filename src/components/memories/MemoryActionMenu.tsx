@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 
+import type { AsyncActionFocusOwnership } from "../async-action-focus";
 import { TrashIcon } from "../icons";
 import {
   KebabActionMenu,
@@ -19,7 +20,10 @@ export interface MemoryActionMenuProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
   memoryId: string;
   memoryTitle: string;
-  onDelete?: (memoryId: string) => Promise<void> | void;
+  onDelete?: (
+    memoryId: string,
+    focusOwnership: AsyncActionFocusOwnership,
+  ) => Promise<void> | void;
   onAttachCategoryByName?: (input: {
     memoryId: string;
     name: string;
@@ -32,10 +36,12 @@ export interface MemoryActionMenuProps {
 export function MemoryActionMenu(props: MemoryActionMenuProps) {
   const [error, setError] = createSignal("");
 
-  const deleteMemory = async (): Promise<boolean> => {
+  const deleteMemory = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     setError("");
     try {
-      await props.onDelete?.(props.memoryId);
+      await props.onDelete?.(props.memoryId, focusOwnership);
       return true;
     } catch {
       setError("Failed to delete memory.");
@@ -73,8 +79,8 @@ export function MemoryActionMenu(props: MemoryActionMenuProps) {
             disabled={props.disabled}
             id={`memory-${props.memoryId}-delete-confirmation`}
             label={`Delete memory ${props.memoryTitle} confirmation`}
-            onConfirm={async () => {
-              const deleted = await deleteMemory();
+            onConfirm={async (focusOwnership) => {
+              const deleted = await deleteMemory(focusOwnership);
               if (deleted) {
                 close();
               }

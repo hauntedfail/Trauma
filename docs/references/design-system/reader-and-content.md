@@ -265,7 +265,10 @@ Interaction contract:
   disabled. Initial readiness hands focus to the prompt only when the same dock
   opening is still active and focus remains on Close. User focus movement,
   panel close, and background reconciliation never steal focus; load failure
-  leaves Retry keyboard-reachable.
+  leaves Retry keyboard-reachable. A retry started from the focused Retry
+  control first hands focus to stable Close while the error action unmounts,
+  then hands it to the enabled prompt only after the same retry succeeds and
+  focus still remains on Close.
 - Opening the dock, completing its initial thread load, or appending a new user
   prompt scrolls the transcript to its bottom. Streaming output follows only
   when the transcript was within 48 px of the bottom before that update; a user

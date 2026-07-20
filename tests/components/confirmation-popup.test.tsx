@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 
 import { createComponent, renderToString } from "solid-js/web";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { ConfirmationPopup } from "../../src/components/ui/ConfirmationPopup";
+import {
+  ConfirmationPopup,
+  restoreFailedConfirmationFocus,
+} from "../../src/components/ui/ConfirmationPopup";
 
 const confirmationPopupSource = readFileSync(
   "src/components/ui/ConfirmationPopup.tsx",
@@ -41,7 +44,48 @@ describe("confirmation popup", () => {
     expect(confirmationPopupSource).toContain("<Popup");
     expect(confirmationPopupSource).toContain("onClose={resetConfirmation}");
     expect(confirmationPopupSource).toContain("confirmationAttempt += 1");
+    expect(confirmationPopupSource).toContain("revokeActiveFocusOwnership?.()");
     expect(confirmationPopupSource).toContain("onClick={close}");
     expect(confirmationPopupSource).not.toContain("window.confirm");
+  });
+
+  it("preserves ownership only for a successful action close", () => {
+    const successBranch = confirmationPopupSource.indexOf(
+      "if (result === false)",
+    );
+    const clearOwnership = confirmationPopupSource.indexOf(
+      "revokeActiveFocusOwnership = undefined;\n          close();",
+    );
+
+    expect(clearOwnership).toBeGreaterThan(successBranch);
+  });
+
+  it("preserves focused-confirm intent while an async confirmation is pending", () => {
+    expect(confirmationPopupSource).toContain("captureAsyncActionFocusIntent");
+    expect(confirmationPopupSource).toContain("confirmButtonRef");
+    expect(confirmationPopupSource).toContain("restoreFailedConfirmationFocus");
+    expect(confirmationPopupSource).toContain("if (shouldRestoreConfirmFocus)");
+  });
+
+  it("does not consult mutable focus ownership after the popup has closed", async () => {
+    const ownsCurrentFocus = vi.fn(() => true);
+    const confirmButton = {
+      disabled: false,
+      focus: vi.fn(),
+      isConnected: true,
+    } as unknown as HTMLButtonElement;
+
+    restoreFailedConfirmationFocus({
+      confirmButton,
+      focusOwnership: {
+        actionOwnsFocus: true,
+        ownsCurrentFocus,
+      },
+      isCurrent: () => false,
+    });
+    await Promise.resolve();
+
+    expect(ownsCurrentFocus).not.toHaveBeenCalled();
+    expect(confirmButton.focus).not.toHaveBeenCalled();
   });
 });

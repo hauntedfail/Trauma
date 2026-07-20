@@ -708,13 +708,21 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       setLiveStatusMessage(errorText);
     }
   };
-  const retryThreadLoad = async () => {
+  const retryThreadLoad = async (actionControl?: HTMLElement) => {
     if (threadLoadState() === "loading") {
       return;
     }
+    const actionOwnsFocus = actionControl !== undefined &&
+      document.activeElement === actionControl;
+    const focusGeneration = actionOwnsFocus
+      ? openFocusGeneration
+      : undefined;
+    if (focusGeneration !== undefined) {
+      closeButtonRef?.focus({ preventScroll: true });
+    }
     if (turnPhase() !== "stopping" || pendingStopReconciliation === undefined) {
       malformedTerminalReconciliation = undefined;
-      await loadThread();
+      await loadThread({ focusGeneration });
       return;
     }
     const pairId = runningPairId();
@@ -725,6 +733,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
       readerRequest: request,
       turnId,
     });
+    if (focusGeneration !== undefined) {
+      queuePromptFocusHandoff(request, focusGeneration);
+    }
   };
   const moveTranscriptWindow = (nextEndExclusive: number) => {
     if (nextEndExclusive === transcriptWindow().endExclusive) {
@@ -1115,7 +1126,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                   <button
                     type="button"
                     class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
-                    onClick={() => void retryThreadLoad()}
+                    onClick={(event) => void retryThreadLoad(event.currentTarget)}
                   >
                     Retry thread load
                   </button>

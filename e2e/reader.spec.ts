@@ -1325,7 +1325,10 @@ test("keeps psychiatrist actions disabled until thread loading succeeds and can 
   page,
 }) => {
   createReaderFixture();
-  await installPsychiatristMock(page, { threadFailures: 1 });
+  const mock = await installPsychiatristMock(page, {
+    deferThreadRequests: [2],
+    threadFailures: 1,
+  });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
@@ -1344,9 +1347,39 @@ test("keeps psychiatrist actions disabled until thread loading succeeds and can 
 
   await page.getByRole("button", { name: "Retry thread load" }).click();
 
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(close).toBeFocused();
+  mock.releaseThread?.();
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
     .toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeFocused();
   await expect(page.getByRole("button", { name: "Retry thread load" })).toHaveCount(0);
+});
+
+test("does not steal Psychiatrist retry focus moved by the user", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const mock = await installPsychiatristMock(page, {
+    deferThreadRequests: [2],
+    threadFailures: 1,
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
+  await trigger.click();
+  await page.getByRole("button", { name: "Retry thread load" }).click();
+
+  await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await trigger.focus();
+  mock.releaseThread?.();
+
+  await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
+    .toBeEnabled();
+  await expect(trigger).toBeFocused();
 });
 
 test("native-disables every Regenerate action while a psychiatrist turn is busy", async ({
@@ -2673,6 +2706,83 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
   expect(readMomentAnchors()).not.toContain("details");
 });
 
+test("moves keyboard focus to the next Moment after deleting a row", async ({
+  page,
+}) => {
+  createReaderFixture();
+  seedMomentDeleteFocusRows();
+  await page.goto("/moments");
+
+  const rows = page.locator("[data-collection-row]");
+  await expect(rows).toHaveCount(2);
+  const nextMomentLink = page.locator(
+    '[data-collection-row="moment-focus-older"] [data-collection-primary-link]',
+  );
+  await expect(nextMomentLink).toBeVisible();
+  const actions = rows.first().getByRole("button", {
+    name: /^Moment actions for /,
+  });
+  await actions.click();
+  const deleteItem = page.getByRole("menuitem", { name: "Delete moment" });
+  await expect(deleteItem).toBeFocused();
+  await deleteItem.press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: /^Delete moment .* confirmation$/,
+  });
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      /\/api\/moments\/[^/]+$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "DELETE",
+  );
+  await confirmation.getByRole("button", { name: "Delete moment" }).press("Enter");
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: /^Moment actions for / })).toHaveCount(0);
+  await expect(nextMomentLink).toBeFocused();
+});
+
+test("moves keyboard focus to the next Flashback after deleting a row", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.goto("/flashbacks");
+
+  const rows = page.locator("[data-collection-row]");
+  await expect(rows).toHaveCount(2);
+  const nextFlashbackLink = page.locator(
+    '[data-collection-row="flashback-fixture"] [data-collection-primary-link]',
+  );
+  await expect(nextFlashbackLink).toBeVisible();
+  const actions = rows.first().getByRole("button", {
+    name: /^Flashback actions for /,
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.evaluate((button: HTMLButtonElement) => button.click());
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  const deleteItem = page.getByRole("menuitem", { name: "Delete flashback" });
+  await expect(deleteItem).toBeFocused();
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/flashbacks") &&
+      response.request().method() === "POST",
+  );
+  await deleteItem.press("Enter");
+
+  expect((await deleteResponse).status()).toBe(200);
+  await expect(page.getByRole("menu", { name: /^Flashback actions for / }))
+    .toHaveCount(0);
+  await expect(nextFlashbackLink).toBeFocused();
+});
+
 test("opens reader right-rail Flashback shortcuts at the reader flashback mark", async ({
   page,
 }) => {
@@ -3090,6 +3200,52 @@ function createReaderFixture() {
             ]).flat(),
           ].join("\\n"),
         );
+  `);
+}
+
+function seedMomentDeleteFocusRows() {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        const memoryId = "${READER_MEMORY_ID}";
+        try {
+          database.query(
+            \`insert into moments (
+              id, memory_id, section_anchor, section_title, section_level,
+              section_path, created_at, updated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?)\`,
+          ).run(
+            "moment-focus-newer",
+            memoryId,
+            "details",
+            "Details",
+            2,
+            "1/1",
+            Date.parse("2026-05-09T00:01:00.000Z"),
+            Date.parse("2026-05-09T00:01:00.000Z"),
+          );
+          database.query(
+            \`insert into moments (
+              id, memory_id, section_anchor, section_title, section_level,
+              section_path, created_at, updated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?)\`,
+          ).run(
+            "moment-focus-older",
+            memoryId,
+            "fixture-reader",
+            "Fixture Reader",
+            1,
+            "1",
+            Date.parse("2026-05-09T00:00:00.000Z"),
+            Date.parse("2026-05-09T00:00:00.000Z"),
+          );
+        } finally {
+          database.close();
+        }
   `);
 }
 

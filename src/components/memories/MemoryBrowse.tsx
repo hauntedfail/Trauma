@@ -17,6 +17,10 @@ import {
   createCollectionPageRetryController,
   type CollectionPageRetryOutcome,
 } from "../collections/CollectionPageRetry";
+import type { AsyncActionFocusOwnership } from "../async-action-focus";
+import {
+  captureCollectionRowRemovalFocus,
+} from "../collections/collection-row-removal-focus";
 import { FlashbackExcerpt } from "../flashbacks/FlashbackExcerpt";
 import {
   buildBrowseHref,
@@ -497,6 +501,7 @@ export function MemoryBrowse() {
                         selectedFlashbackId={query().flashback}
                         isKeyboardSelected={selectedMemoryId() === memory.id}
                         view={query().view}
+                        getPageRegion={() => pageRegionRef}
                         onOpenLinkMount={(element) => {
                           memoryLinkRefs.set(memory.id, element);
                         }}
@@ -664,10 +669,12 @@ export function MemoryItem(props: {
   memory: BrowseMemory;
   selectedFlashbackId: string;
   view: "list" | "grid";
+  getPageRegion?: () => HTMLElement | undefined;
   onDeleted?: (memoryId: string) => void;
   onMemoryMutated?: () => void;
   onOpenLinkMount?: (link: HTMLAnchorElement) => void;
 }) {
+  let rowRef: HTMLElement | undefined;
   const displayFlashback = createMemo(() =>
     getMemoryDisplayFlashback(
       props.memory,
@@ -740,13 +747,28 @@ export function MemoryItem(props: {
     }
   };
 
-  const deleteMemory = async (memoryId: string): Promise<void> => {
+  const deleteMemory = async (
+    memoryId: string,
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<void> => {
     setActionError("");
     try {
+      const pageRegion = props.getPageRegion?.();
+      const restoreFocus = rowRef === undefined || pageRegion === undefined
+        ? undefined
+        : captureCollectionRowRemovalFocus({
+            focusOwnership,
+            pageRegion,
+            row: rowRef,
+          });
       await deleteBrowseMemory({ memoryId });
       props.onDeleted?.(memoryId);
+      restoreFocus?.();
       props.onMemoryMutated?.();
-      void revalidateAfterMemoryDeletion(memoryId);
+      void revalidateAfterMemoryDeletion(memoryId).then(
+        () => restoreFocus?.(),
+        () => restoreFocus?.(),
+      );
     } catch (error) {
       if (isBackupFailsafeMemoryActionError(error)) {
         void revalidateBackupFailsafeAlert();
@@ -758,7 +780,9 @@ export function MemoryItem(props: {
 
   return (
     <article
+      ref={rowRef}
       class={`${cardBase} relative cursor-pointer no-underline ${isSelected() ? "bg-trauma-bg-tint ring-1 ring-inset ring-trauma-border-strong" : ""} ${props.view === "grid" ? "min-h-[310px] border-r border-trauma-border" : ""}`}
+      data-collection-row={props.memory.id}
       data-keyboard-selected={isSelected() ? "true" : "false"}
     >
       <a
@@ -766,6 +790,7 @@ export function MemoryItem(props: {
         aria-disabled={isSelectedFlashbackHydrating() ? "true" : undefined}
         class="absolute inset-0 z-0 no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-trauma-accent"
         data-memory-row-link="true"
+        data-collection-primary-link="true"
         href={isSelectedFlashbackHydrating() ? undefined : href()}
         ref={(element) => props.onOpenLinkMount?.(element)}
       />

@@ -7,6 +7,9 @@ import {
   createCollectionPageRetryController,
 } from "~/components/collections/CollectionPageRetry";
 import {
+  captureCollectionRowRemovalFocus,
+} from "~/components/collections/collection-row-removal-focus";
+import {
   buildCollectionPageHref,
   readCollectionPageCursor,
   settleCollectionPage,
@@ -69,14 +72,25 @@ export default function FlashbacksIndex() {
 
     return page.flashbacks.filter((row) => !removedFlashbackIds().has(row.id));
   });
-  const deleteFlashback = async (flashback: FlashbackActionMenuItem) => {
+  const deleteFlashback = async (
+    flashback: FlashbackActionMenuItem,
+    restoreFocus?: () => void,
+  ) => {
     await deleteFlashbackBySelection({ flashback });
     setRemovedFlashbackIds((current) => new Set([...current, flashback.id]));
-    await Promise.all([
-      revalidateFlashbackBrowseRows(),
-      revalidateBrowseMemoryWorkspace(),
-      revalidateReaderMemory(flashback.memoryId, flashback.langCode ?? undefined),
-    ]);
+    restoreFocus?.();
+    try {
+      await Promise.all([
+        revalidateFlashbackBrowseRows(),
+        revalidateBrowseMemoryWorkspace(),
+        revalidateReaderMemory(
+          flashback.memoryId,
+          flashback.langCode ?? undefined,
+        ),
+      ]);
+    } finally {
+      restoreFocus?.();
+    }
   };
 
   return (
@@ -130,10 +144,17 @@ export default function FlashbacksIndex() {
               }
             >
               <For each={readyFlashbackRows()}>
-                  {(flashback) => (
-                    <article class={cardBase} data-collection-row={flashback.id}>
+                {(flashback) => {
+                  let rowRef: HTMLElement | undefined;
+                  return (
+                    <article
+                      ref={rowRef}
+                      class={cardBase}
+                      data-collection-row={flashback.id}
+                    >
                       <a
                         class="grid min-w-0 gap-2 no-underline"
+                        data-collection-primary-link="true"
                         href={buildMemoryVariantAnchorHref({
                           anchorId: flashback.id,
                           langCode: flashback.langCode,
@@ -153,11 +174,24 @@ export default function FlashbacksIndex() {
                       <div class="pt-0.5">
                         <FlashbackActionMenu
                           flashback={flashback}
-                          onDelete={deleteFlashback}
+                          onDelete={(selectedFlashback, focusOwnership) => {
+                            const pageRegion = pageRegionRef;
+                            return deleteFlashback(
+                              selectedFlashback,
+                              rowRef === undefined || pageRegion === undefined
+                                ? undefined
+                                : captureCollectionRowRemovalFocus({
+                                    focusOwnership,
+                                    pageRegion,
+                                    row: rowRef,
+                                  }),
+                            );
+                          }}
                         />
                       </div>
                     </article>
-                  )}
+                  );
+                }}
               </For>
             </Show>
           </Show>

@@ -235,6 +235,121 @@ test("aborts an in-flight Codex auth poll without restoring stale controls", asy
   await expect(page.getByRole("button", { name: "Enabled" })).toHaveCount(0);
 });
 
+test("moves supported logout focus to setup without overriding the user", async ({
+  page,
+}) => {
+  const settingsStateQueryId =
+    "src_components_settings_settings-loader_ts--getSettingsState_query";
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => {
+    releaseRevalidation = resolve;
+  });
+  let releaseSecondDelete: (() => void) | undefined;
+  const secondDeleteGate = new Promise<void>((resolve) => {
+    releaseSecondDelete = resolve;
+  });
+  let markSecondDeleteStarted: (() => void) | undefined;
+  const secondDeleteStarted = new Promise<void>((resolve) => {
+    markSecondDeleteStarted = resolve;
+  });
+  let deleteRequestCount = 0;
+  await page.route("**/api/settings/codex-auth/device-code", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "enabled",
+        provider: "codex",
+        message: "Codex ChatGPT sign-in is enabled.",
+      }),
+    });
+  });
+  await page.route("**/api/settings/codex-auth", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    deleteRequestCount += 1;
+    if (deleteRequestCount === 2) {
+      markSecondDeleteStarted?.();
+      await secondDeleteGate;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "disabled",
+        provider: "codex",
+        logoutStatus: "logged_out",
+      }),
+    });
+  });
+
+  try {
+    await page.goto("/settings");
+    await page.route(
+      (url) =>
+        url.pathname === "/_server/" &&
+        url.searchParams.get("id") === settingsStateQueryId,
+      async (route) => {
+        await revalidationGate;
+        await route.continue();
+      },
+    );
+
+    const setup = page.getByRole("button", { name: "Start setup" });
+    const enabled = page.getByRole("button", { name: "Enabled" });
+    await expect(async () => {
+      if (await enabled.count() === 0) {
+        await setup.click();
+      }
+      await expect(enabled).toBeVisible({ timeout: 500 });
+    }).toPass({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Delete auth" }).click();
+    let confirmation = page.getByRole("dialog", {
+      name: "Delete Codex auth confirmation",
+    });
+    await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+    await confirmation.getByRole("button", { name: "Delete auth" }).press("Enter");
+
+    await expect(setup).toBeEnabled();
+    await expect(setup).toBeFocused();
+    expect(deleteRequestCount).toBe(1);
+
+    await expect(async () => {
+      if (await enabled.count() === 0) {
+        await setup.click();
+      }
+      await expect(enabled).toBeVisible({ timeout: 500 });
+    }).toPass({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Delete auth" }).click();
+    confirmation = page.getByRole("dialog", {
+      name: "Delete Codex auth confirmation",
+    });
+    await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+    await confirmation.getByRole("button", { name: "Delete auth" }).press("Enter");
+    await secondDeleteStarted;
+    await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+
+    const themeTrigger = page.getByRole("button", { name: "Theme" });
+    await themeTrigger.click();
+    await expect(confirmation).toHaveCount(0);
+    await expect(themeTrigger).toBeFocused();
+    const deleteResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/settings/codex-auth") &&
+        response.request().method() === "DELETE",
+    );
+    releaseSecondDelete?.();
+
+    expect((await deleteResponse).status()).toBe(200);
+    await expect(setup).toBeEnabled();
+    await expect(themeTrigger).toBeFocused();
+    expect(deleteRequestCount).toBe(2);
+  } finally {
+    releaseSecondDelete?.();
+    releaseRevalidation?.();
+  }
+});
+
 function seedCodexTranslationDefaults(input: {
   model: string | null;
   reasoningEffort:

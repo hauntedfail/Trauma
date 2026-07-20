@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { createComponent, renderToString } from "solid-js/web";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   CodexModelInfo,
@@ -11,6 +11,7 @@ import {
   SettingsPage,
   captureCodexCatalogRetryFocusIntent,
   readSafeVerificationUrl,
+  restoreCodexAuthSetupFocus,
 } from "../../src/components/settings/SettingsPage";
 import {
   createCodexModelCatalogController,
@@ -35,6 +36,34 @@ const settingsPageSource = readFileSync(
 );
 
 describe("settings page", () => {
+  it("restores supported logout focus without overriding the user", async () => {
+    const target = {
+      disabled: false,
+      focus: vi.fn(),
+      isConnected: true,
+    } as unknown as HTMLButtonElement;
+    const ownsCurrentFocus = vi.fn(() => true);
+
+    restoreCodexAuthSetupFocus({
+      focusOwnership: { actionOwnsFocus: true, ownsCurrentFocus },
+      getTarget: () => target,
+    });
+    await Promise.resolve();
+
+    expect(ownsCurrentFocus).toHaveBeenCalledOnce();
+    expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+
+    vi.mocked(target.focus).mockClear();
+    ownsCurrentFocus.mockReturnValue(false);
+    restoreCodexAuthSetupFocus({
+      focusOwnership: { actionOwnsFocus: true, ownsCurrentFocus },
+      getTarget: () => target,
+    });
+    await Promise.resolve();
+
+    expect(target.focus).not.toHaveBeenCalled();
+  });
+
   it("offers an accessible in-page retry while the Codex catalog recovers", async () => {
     const retry = () => undefined;
     const failedHtml = renderToString(() =>

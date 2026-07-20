@@ -2,10 +2,14 @@ import { createAsync, useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
+import type { AsyncActionFocusOwnership } from "../async-action-focus";
 import {
   CollectionPageRetry,
   createCollectionPageRetryController,
 } from "../collections/CollectionPageRetry";
+import {
+  captureCollectionRowRemovalFocus,
+} from "../collections/collection-row-removal-focus";
 import {
   buildCollectionPageHref,
   readCollectionPageCursor,
@@ -66,13 +70,19 @@ export function MomentBrowse() {
   const deleteMoment = async (
     momentId: string,
     memoryId: string,
+    restoreFocus?: () => void,
   ): Promise<void> => {
     await deleteMomentById({ momentId });
     setDeletedMomentIds((current) => new Set([...current, momentId]));
-    await Promise.all([
-      revalidateMomentBrowseRows(),
-      revalidateReaderMemory(memoryId),
-    ]);
+    restoreFocus?.();
+    try {
+      await Promise.all([
+        revalidateMomentBrowseRows(),
+        revalidateReaderMemory(memoryId),
+      ]);
+    } finally {
+      restoreFocus?.();
+    }
   };
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
@@ -122,6 +132,7 @@ export function MomentBrowse() {
               <For each={rows()}>
                 {(moment) => (
                   <MomentRow
+                    getPageRegion={() => pageRegionRef}
                     moment={moment}
                     onDeleteMoment={deleteMoment}
                   />
@@ -140,9 +151,15 @@ export function MomentBrowse() {
 }
 
 function MomentRow(props: {
+  getPageRegion: () => HTMLElement | undefined;
   moment: MomentBrowseRow;
-  onDeleteMoment: (momentId: string, memoryId: string) => Promise<void>;
+  onDeleteMoment: (
+    momentId: string,
+    memoryId: string,
+    restoreFocus?: () => void,
+  ) => Promise<void>;
 }) {
+  let rowRef: HTMLElement | undefined;
   const href = () =>
     buildMemoryAnchorHref({
       anchorId: props.moment.targetAnchor,
@@ -150,8 +167,16 @@ function MomentRow(props: {
     });
 
   return (
-    <article class={rowBase} data-collection-row={props.moment.id}>
-      <a class="grid min-w-0 gap-2" href={href()}>
+    <article
+      ref={rowRef}
+      class={rowBase}
+      data-collection-row={props.moment.id}
+    >
+      <a
+        class="grid min-w-0 gap-2"
+        data-collection-primary-link="true"
+        href={href()}
+      >
         <header class="grid min-w-0 gap-1">
           <p class="mb-0 text-[13px] font-bold text-trauma-text-muted">
             {props.moment.memoryTitle}
@@ -180,9 +205,20 @@ function MomentRow(props: {
         <MomentActionMenu
           momentId={props.moment.id}
           sectionTitle={props.moment.sectionTitle}
-          onDelete={(momentId) =>
-            props.onDeleteMoment(momentId, props.moment.memoryId)
-          }
+          onDelete={(momentId, focusOwnership) => {
+            const pageRegion = props.getPageRegion();
+            return props.onDeleteMoment(
+              momentId,
+              props.moment.memoryId,
+              rowRef === undefined || pageRegion === undefined
+                ? undefined
+                : captureCollectionRowRemovalFocus({
+                    focusOwnership,
+                    pageRegion,
+                    row: rowRef,
+                  }),
+            );
+          }}
         />
       </div>
     </article>

@@ -403,7 +403,7 @@ test("deletes a memory from the browse list through the public DELETE route", as
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
   createBrowseDeleteFixture(memoryId);
-  await page.goto("/memories");
+  await page.goto("/memories?q=reader+mode");
 
   const deletedMemoryLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
@@ -415,21 +415,348 @@ test("deletes a memory from the browse list through the public DELETE route", as
       response.url().endsWith(`/api/memories/${memoryId}`) &&
       response.request().method() === "DELETE",
   );
-  await page
-    .getByRole("button", { name: "Memory actions for Reader Mode Notes" })
-    .click();
-  await page.getByRole("menuitem", { name: "Delete memory" }).click();
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  const deleteItem = page.getByRole("menuitem", { name: "Delete memory" });
+  await expect(deleteItem).toBeFocused();
+  await deleteItem.press("Enter");
   const confirmation = page.getByRole("dialog", {
     name: "Delete memory Reader Mode Notes confirmation",
   });
   await expect(confirmation).toContainText(
     'Delete memory "Reader Mode Notes"? This action cannot be undone.',
   );
-  await confirmation.getByRole("button", { name: "Delete memory" }).click();
+  const cancel = confirmation.getByRole("button", { name: "Cancel" });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await expect(cancel).toBeFocused();
+  await cancel.press("Tab");
+  await expect(confirm).toBeFocused();
+  await confirm.press("Enter");
 
   expect((await deleteResponse).status()).toBe(204);
   await expect(deletedMemoryLink).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Memory page results" }))
+    .toBeFocused();
   await expect(page.getByText("Failed to delete memory.")).toHaveCount(0);
+});
+
+test("moves keyboard focus to the next memory after deleting a row", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  createBrowseDeleteFixture(memoryId);
+  await page.goto("/memories");
+
+  const nextMemoryLink = page.getByRole("link", {
+    name: "Open memory Local Hosting Checklist",
+  });
+  await expect(nextMemoryLink).toBeVisible();
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(nextMemoryLink).toBeFocused();
+});
+
+test("restores confirm focus when an async memory deletion fails", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  createBrowseDeleteFixture(memoryId);
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "fixture delete failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await expect(confirm).toBeFocused();
+  await confirm.press("Enter");
+  await deleteStarted;
+
+  await expect(confirm).toBeDisabled();
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+  releaseDelete?.();
+
+  await expect(
+    page
+      .getByRole("menu", { name: "Memory actions for Reader Mode Notes" })
+      .getByRole("alert"),
+  ).toHaveText("Failed to delete memory.");
+  await expect(confirmation).toBeVisible();
+  await expect(confirm).toBeEnabled();
+  await expect(confirm).toBeFocused();
+});
+
+test("keeps user focus when an async confirmation fails after dismissal", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  createBrowseDeleteFixture(memoryId);
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "fixture delete failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  const confirm = confirmation.getByRole("button", { name: "Delete memory" });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await confirm.press("Enter");
+  await deleteStarted;
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+
+  const outsideSearch = page.getByRole("searchbox", { name: "Search memories" });
+  await outsideSearch.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(outsideSearch).toBeFocused();
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  releaseDelete?.();
+
+  expect((await deleteResponse).status()).toBe(500);
+  await expect(
+    page
+      .locator("article", { hasText: "Reader Mode Notes" })
+      .getByRole("alert"),
+  ).toHaveText("Failed to delete memory.");
+  await expect(outsideSearch).toBeFocused();
+});
+
+test("does not restore row focus after a pending confirmation is dismissed", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  createBrowseDeleteFixture(memoryId);
+  let releaseDelete: (() => void) | undefined;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  let markDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  await page.route(`**/api/memories/${memoryId}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    markDeleteStarted?.();
+    await deleteGate;
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/memories?q=reader+mode");
+
+  const actions = page.getByRole("button", {
+    name: "Memory actions for Reader Mode Notes",
+  });
+  await expect(async () => {
+    if (await actions.getAttribute("aria-expanded") !== "true") {
+      await actions.click();
+    }
+    await expect(actions).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+  const confirmation = page.getByRole("dialog", {
+    name: "Delete memory Reader Mode Notes confirmation",
+  });
+  await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+  await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+  await deleteStarted;
+  await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body))
+    .toBe(true);
+  const deleteResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}`) &&
+      response.request().method() === "DELETE",
+  );
+  releaseDelete?.();
+
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Memory page results" }))
+    .not.toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body))
+    .toBe(true);
+});
+
+test("skips a connected next memory link in a deferred hydration state", async ({
+  page,
+}) => {
+  const memoryPageQueryId =
+    "src_components_memories_browse-loader_ts--getBrowseMemoryPage_query";
+  await page.goto("/memories");
+
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => {
+    releaseRevalidation = resolve;
+  });
+  await page.route(
+    (url) =>
+      url.pathname === "/_server/" &&
+      url.searchParams.get("id") === memoryPageQueryId,
+    async (route) => {
+      await revalidationGate;
+      await route.continue();
+    },
+  );
+  await page.route("**/api/memories/memory-ops", async (route) => {
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.continue();
+  });
+
+  try {
+    const previousLink = page.getByRole("link", {
+      name: "Open memory Reader Mode Notes",
+    });
+    const hydratingNextLink = page
+      .locator("article", { hasText: "Browse Shell Sketch" })
+      .locator("[data-collection-primary-link]");
+    await hydratingNextLink.evaluate((link) => {
+      // Match MemoryBrowse while selected-flashback hydration is deferred.
+      link.setAttribute("aria-disabled", "true");
+      link.removeAttribute("href");
+    });
+    await expect(hydratingNextLink).toHaveAttribute("aria-disabled", "true");
+    await expect(hydratingNextLink).not.toHaveAttribute("href", /.+/);
+
+    const actions = page.getByRole("button", {
+      name: "Memory actions for Local Hosting Checklist",
+    });
+    await expect(async () => {
+      if (await actions.getAttribute("aria-expanded") !== "true") {
+        await actions.click();
+      }
+      await expect(actions).toHaveAttribute("aria-expanded", "true", {
+        timeout: 500,
+      });
+    }).toPass({ timeout: 5_000 });
+    await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
+    const confirmation = page.getByRole("dialog", {
+      name: "Delete memory Local Hosting Checklist confirmation",
+    });
+    await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
+    const deleteResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/memories/memory-ops") &&
+        response.request().method() === "DELETE",
+    );
+    await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
+
+    expect((await deleteResponse).status()).toBe(204);
+    await expect(previousLink).toBeFocused();
+  } finally {
+    releaseRevalidation?.();
+  }
 });
 
 test("renders category, tag, and flashback shortcut sections in the right panel", async ({ page }) => {

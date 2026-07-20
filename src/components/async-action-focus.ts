@@ -1,3 +1,8 @@
+export interface AsyncActionFocusOwnership {
+  actionOwnsFocus: boolean;
+  ownsCurrentFocus: () => boolean;
+}
+
 export function captureAsyncActionFocusIntent(
   actionControl: HTMLElement,
   readActiveElement: () => Element | null = () =>
@@ -6,11 +11,16 @@ export function captureAsyncActionFocusIntent(
     typeof document === "undefined" ? undefined : document.body,
 ): () => boolean {
   const actionOwnedFocus = readActiveElement() === actionControl;
+  let focusOwnershipRevoked = false;
   return () => {
-    if (!actionOwnedFocus) {
+    if (!actionOwnedFocus || focusOwnershipRevoked) {
       return false;
     }
     const activeElement = readActiveElement();
-    return activeElement === actionControl || activeElement === readBody();
+    const ownsFocus = activeElement === actionControl || activeElement === readBody();
+    if (!ownsFocus) {
+      focusOwnershipRevoked = true;
+    }
+    return ownsFocus;
   };
 }

@@ -1,6 +1,10 @@
 import { Show, createSignal } from "solid-js";
 
 import type { SupportedLanguageCode } from "../../settings/languages";
+import {
+  captureAsyncActionFocusIntent,
+  type AsyncActionFocusOwnership,
+} from "../async-action-focus";
 import { TrashIcon } from "../icons";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import {
@@ -35,7 +39,10 @@ export interface FlashbackActionMenuProps {
   disabled?: boolean;
   flashback: FlashbackActionMenuItem;
   initialOpen?: boolean;
-  onDelete?: (flashback: FlashbackActionMenuItem) => Promise<void> | void;
+  onDelete?: (
+    flashback: FlashbackActionMenuItem,
+    focusOwnership: AsyncActionFocusOwnership,
+  ) => Promise<void> | void;
 }
 
 export interface DeleteFlashbackBySelectionInput {
@@ -55,11 +62,13 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
       ? `Flashback actions for ${props.flashback.text}`
       : `Flashback actions for ${props.flashback.memoryTitle}`;
 
-  const deleteFlashback = async (): Promise<boolean> => {
+  const deleteFlashback = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     setError("");
     try {
       if (props.onDelete !== undefined) {
-        await props.onDelete(props.flashback);
+        await props.onDelete(props.flashback, focusOwnership);
       } else {
         await deleteFlashbackBySelection({ flashback: props.flashback });
       }
@@ -86,7 +95,14 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              void deleteFlashback().then((deleted) => {
+              const ownsCurrentFocus = captureAsyncActionFocusIntent(
+                event.currentTarget,
+              );
+              const focusOwnership = {
+                actionOwnsFocus: ownsCurrentFocus(),
+                ownsCurrentFocus,
+              } satisfies AsyncActionFocusOwnership;
+              void deleteFlashback(focusOwnership).then((deleted) => {
                 if (deleted) {
                   close();
                 }

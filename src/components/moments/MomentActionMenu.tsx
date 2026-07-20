@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 
+import type { AsyncActionFocusOwnership } from "../async-action-focus";
 import {
   KebabActionMenu,
   kebabActionMenuDangerItemClass,
@@ -12,17 +13,22 @@ export interface MomentActionMenuProps {
   disabled?: boolean;
   initialOpen?: boolean;
   momentId: string;
-  onDelete?: (momentId: string) => Promise<void> | void;
+  onDelete?: (
+    momentId: string,
+    focusOwnership: AsyncActionFocusOwnership,
+  ) => Promise<void> | void;
   sectionTitle: string;
 }
 
 export function MomentActionMenu(props: MomentActionMenuProps) {
   const [error, setError] = createSignal("");
 
-  const deleteMoment = async (): Promise<boolean> => {
+  const deleteMoment = async (
+    focusOwnership: AsyncActionFocusOwnership,
+  ): Promise<boolean> => {
     setError("");
     try {
-      await props.onDelete?.(props.momentId);
+      await props.onDelete?.(props.momentId, focusOwnership);
       return true;
     } catch {
       setError("Failed to delete moment.");
@@ -46,8 +52,8 @@ export function MomentActionMenu(props: MomentActionMenuProps) {
             disabled={props.disabled}
             id={`moment-${props.momentId}-delete-confirmation`}
             label={`Delete moment ${props.sectionTitle} confirmation`}
-            onConfirm={async () => {
-              const deleted = await deleteMoment();
+            onConfirm={async (focusOwnership) => {
+              const deleted = await deleteMoment(focusOwnership);
               if (deleted) {
                 close();
               }

@@ -95,13 +95,31 @@ Rules:
 - Reader flashback keyboard toggling must remain explicit and must not trigger
   during ordinary text navigation.
 - Confirmation popovers must treat Cancel, Escape, and outside pointer
-  dismissal as the same cancel/reset path.
+  dismissal as the same cancel/reset path. Dismissal revokes pending focus
+  ownership even if focus later falls back to `body`; completion must not
+  reclaim focus after the user closes the confirmation.
+- A focused asynchronous Confirm action keeps focus on the pending dialog
+  surface while its controls are disabled. If confirmation fails or returns
+  `false`, focus returns to Confirm unless the user moved focus or closed the
+  dialog.
 - Opening a shared popover moves focus to its first enabled control. Escape and
   explicit completion return focus to the opener; outside-pointer dismissal
   leaves focus with the newly targeted surface.
 - Popup menus use `menuitem` controls with roving focus. Arrow Up/Down wrap,
   Home/End move to the bounds, Escape returns to the opener, and Tab closes the
   menu after focus leaves it.
+- Successful keyboard deletion moves focus from the removed row to the next
+  row's focusable primary link, then the previous row's. Revalidation resolves
+  those row IDs again, then checks the row now occupying the removed row's
+  ordinal before using the focusable results region. Disabled, inert, missing-
+  href, or negative-tab-index links are skipped.
+- Deletion controls explicitly transfer focus ownership before they become
+  disabled. Only the latest deletion in a results region may restore focus;
+  focus the helper placed on a surviving row or the region remains owned across
+  revalidation, while user focus movement is never reclaimed.
+- When a successful destructive setting removes its opener, focus moves to its
+  stable enabled successor only while the action still owns focus. Codex auth
+  logout uses `Start setup`; unsupported logout keeps the existing trigger.
 - Reader selection and section actions use a labelled horizontal toolbar.
   Arrow Left/Right wrap, Home/End move to the bounds, and Escape returns focus
   to the reader content.
