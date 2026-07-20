@@ -11,6 +11,7 @@ import { createMemoryContentFixture } from "../../../src/server/store";
 import { loadTranslationSourceSnapshot } from "../../../src/server/translation/source-loader";
 import {
   commitTranslatedContent,
+  stitchCompletedChunks,
   validateFinalTranslatedContent,
 } from "../../../src/server/translation/stitching";
 
@@ -434,6 +435,20 @@ describe("translation stitching and atomic commit", () => {
         output: "---\nid: test\n---\n\n\n",
       }),
     ).toThrow("Translated document body is empty.");
+  });
+
+  it("rejects aggregate chunk bytes before allocating the stitched document", () => {
+    const chunks = [
+      { chunkIndex: 0, status: "complete" as const, translatedMarkdown: "abc" },
+      { chunkIndex: 1, status: "complete" as const, translatedMarkdown: "defg" },
+    ];
+
+    expect(() =>
+      stitchCompletedChunks(chunks, {
+        initialBytes: 4,
+        maxOutputBytes: 10,
+      })
+    ).toThrow("Translation output exceeds the total output byte limit.");
   });
 });
 

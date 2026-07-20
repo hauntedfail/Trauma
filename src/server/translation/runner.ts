@@ -38,6 +38,7 @@ import { createSha256ContentHash } from "./hash";
 import {
   assertTranslationSourceAdmission,
   DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  TranslationOutputAdmission,
   type TranslationWorkloadLimits,
 } from "./limits";
 import { parseMarkdownTranslationBlocks } from "./markdown-blocks";
@@ -446,6 +447,8 @@ export async function runTranslationJob(
     );
   }
   const config = options.config ?? loadRuntimeTraumaConfig();
+  const workloadLimits =
+    options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS;
   const openConnection = options.openConnection ?? initializeDatabase;
   const backupQueue = options.backupQueue ?? getMemoryBackupQueue(config);
   let client = options.client;
@@ -486,8 +489,7 @@ export async function runTranslationJob(
     const source = await loadTranslationSourceSnapshot({
       config,
       maxSourceBytes:
-        (options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
-          .maxSourceBytes,
+        workloadLimits.maxSourceBytes,
       memoryId: job.memoryId,
     });
     if (source.sourceHash !== job.sourceHash) {
@@ -525,7 +527,7 @@ export async function runTranslationJob(
 
     assertTranslationSourceAdmission(
       source.byteSize,
-      options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+      workloadLimits,
     );
     const manifest = parseMarkdownTranslationBlocks(source.sourceMarkdown);
     const runtimeChunks = createTranslationChunks({
@@ -543,6 +545,15 @@ export async function runTranslationJob(
       persistedChunks,
       runtimeChunks,
     });
+    const outputAdmission = new TranslationOutputAdmission({
+      initialBytes: Buffer.byteLength(manifest.frontmatter, "utf8"),
+      maxOutputBytes: workloadLimits.maxOutputBytes,
+    });
+    for (const chunk of persistedChunks) {
+      if (chunk.status === "complete" && chunk.translatedMarkdown !== null) {
+        outputAdmission.admitChunk(chunk.chunkIndex, chunk.translatedMarkdown);
+      }
+    }
     const persistedChunksByIndex = new Map(
       persistedChunks.map((chunk) => [chunk.chunkIndex, chunk] as const),
     );
@@ -565,6 +576,7 @@ export async function runTranslationJob(
         jobLangCode: job.langCode,
         jobMemoryId: job.memoryId,
         model: job.model,
+        outputAdmission,
         promptByteLimit: options.promptByteLimit,
         reasoningEffort: job.reasoningEffort,
       });
@@ -629,8 +641,8 @@ export async function runTranslationJob(
       config,
       job,
       maxSourceBytes:
-        (options.workloadLimits ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS)
-          .maxSourceBytes,
+        workloadLimits.maxSourceBytes,
+      maxOutputBytes: workloadLimits.maxOutputBytes,
       repository: connection.repositories.translations,
     });
     if ("status" in result && result.status === "stale") {
@@ -850,6 +862,7 @@ async function translateAndPersistChunk(input: {
   jobLangCode: string;
   jobMemoryId: string;
   model: string | null;
+  outputAdmission: TranslationOutputAdmission;
   promptByteLimit?: number;
   reasoningEffort: CodexReasoningEffort | null;
 }): Promise<{ status: "completed" } | { status: "canceled" }> {
@@ -1013,6 +1026,10 @@ async function translateAndPersistChunk(input: {
         output: rawOutput,
       });
       const translatedMarkdown = stringifyCodexChunkOutput(output);
+      input.outputAdmission.admitChunk(
+        input.chunk.chunkIndex,
+        translatedMarkdown,
+      );
       await input.connection.repositories.translations.updateTranslationChunk(
         input.chunk.jobId,
         input.chunk.chunkIndex,

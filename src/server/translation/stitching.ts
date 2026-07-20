@@ -14,6 +14,10 @@ import type {
 } from "../db/repositories";
 import { createSha256ContentHash } from "./hash";
 import {
+  DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  TranslationOutputAdmission,
+} from "./limits";
+import {
   parseMarkdownTranslationBlocks,
   splitFrontmatter,
 } from "./markdown-blocks";
@@ -55,6 +59,7 @@ type CommitTranslatedContentInput = {
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
   job: TranslationJobRecord;
+  maxOutputBytes?: number;
   maxSourceBytes?: number;
   now?: Date;
   publishProjectionSidecar?: (
@@ -116,8 +121,12 @@ async function commitTranslatedContentReserved(
     };
   }
 
-  const body = stitchCompletedChunks(input.chunks);
   const { frontmatter } = splitFrontmatter(source.sourceMarkdown);
+  const body = stitchCompletedChunks(input.chunks, {
+    initialBytes: Buffer.byteLength(frontmatter, "utf8"),
+    maxOutputBytes:
+      input.maxOutputBytes ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS.maxOutputBytes,
+  });
   const output = `${frontmatter}${body}`;
   validateFinalTranslatedContent({
     body,
@@ -226,19 +235,33 @@ async function commitTranslatedContentReserved(
 }
 
 export function stitchCompletedChunks(
-  chunks: readonly TranslationChunkRecord[],
+  chunks: readonly Pick<
+    TranslationChunkRecord,
+    "chunkIndex" | "status" | "translatedMarkdown"
+  >[],
+  options: {
+    initialBytes?: number;
+    maxOutputBytes?: number;
+  } = {},
 ): string {
-  return [...chunks]
-    .sort((left, right) => left.chunkIndex - right.chunkIndex)
-    .map((chunk) => {
-      if (chunk.status !== "complete" || chunk.translatedMarkdown === null) {
-        throw new TranslationStitchingError(
-          `chunk ${chunk.chunkIndex} is not complete`,
-        );
-      }
-      return chunk.translatedMarkdown;
-    })
-    .join("");
+  const admission = new TranslationOutputAdmission({
+    initialBytes: options.initialBytes,
+    maxOutputBytes:
+      options.maxOutputBytes ?? DEFAULT_TRANSLATION_WORKLOAD_LIMITS.maxOutputBytes,
+  });
+  const translatedChunks: string[] = [];
+  for (const chunk of [...chunks].sort(
+    (left, right) => left.chunkIndex - right.chunkIndex,
+  )) {
+    if (chunk.status !== "complete" || chunk.translatedMarkdown === null) {
+      throw new TranslationStitchingError(
+        `chunk ${chunk.chunkIndex} is not complete`,
+      );
+    }
+    admission.admitChunk(chunk.chunkIndex, chunk.translatedMarkdown);
+    translatedChunks.push(chunk.translatedMarkdown);
+  }
+  return translatedChunks.join("");
 }
 
 export function validateFinalTranslatedContent(input: {

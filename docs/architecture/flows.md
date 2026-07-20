@@ -230,8 +230,12 @@ remain compatible for their current clients.
    client is called. Prompt overflow cannot reach the app-server WebSocket and
    terminally fails the chunk without automatic retry.
    Translated text is admitted by UTF-8 bytes before projection or payload
-   persistence: at most 1 MiB per segment and 4 MiB across one chunk. Overflow
-   is a terminal, non-auto-retried `validation_failed` attempt.
+   persistence: at most 1 MiB per segment, 4 MiB across one chunk, and 56 MiB
+   for the complete translated `CONTENT.md`, including preserved frontmatter.
+   The runner counts resumed chunks and rejects aggregate overflow before the
+   next chunk is persisted; final stitching rechecks the same bound before
+   joining or publishing output. Overflow is a terminal, non-auto-retried
+   `validation_failed` attempt.
    Codex events pass fixed serialized UTF-8 admission before any delta reaches
    replay or SSE. The 4,096-event/4-MiB chunk-attempt budget resets for each
    attempt; the 262,144-event/32-MiB job budget accumulates across every chunk

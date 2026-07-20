@@ -1692,6 +1692,67 @@ describe("translation runner", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("fails aggregate multi-chunk output before persisting the overflowing chunk", async () => {
+    const config = await createConfig();
+    await writeSourceContent(config, "Chunked sentence. ".repeat(700));
+    await createMemoryRow(config);
+    const client = new IdentityTranslationClient();
+    const jobId = "019e3906-0000-7000-8000-000000000120";
+    const started = await startTranslationJob({
+      client,
+      config,
+      generateJobId: () => jobId,
+      memoryId,
+      now,
+      schedule: () => undefined,
+    });
+    const sourceBytes = await readFile(
+      join(config.storePath, "memories", memoryId, "CONTENT.md"),
+    );
+
+    await runTranslationJob(started.job_id, {
+      client,
+      config,
+      workloadLimits: {
+        ...DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+        maxOutputBytes: sourceBytes.byteLength - 1,
+      },
+    });
+
+    expect(client.inputs.length).toBeGreaterThan(1);
+    const connection = initializeDatabase(config);
+    try {
+      await expect(
+        connection.repositories.translations.getTranslationJob(jobId),
+      ).resolves.toMatchObject({
+        error: {
+          action: "none",
+          code: "validation_failed",
+          message: "Translation output exceeds the total output byte limit.",
+        },
+        status: "failed",
+      });
+      const chunks = await connection.repositories.translations
+        .getTranslationChunks(jobId);
+      expect(chunks.filter((chunk) => chunk.status === "complete").length)
+        .toBeGreaterThan(0);
+      expect(chunks).toContainEqual(expect.objectContaining({
+        projectionSpansJson: null,
+        retryCount: 0,
+        status: "failed",
+        translatedMarkdown: null,
+      }));
+    } finally {
+      connection.close();
+    }
+    await expect(
+      readFile(
+        join(config.storePath, "memories", memoryId, "ja-JP", "CONTENT.md"),
+        "utf8",
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("fails a prompt byte-limit violation before client send without retrying", async () => {
     const config = await createConfig();
     await writeSourceContent(config);

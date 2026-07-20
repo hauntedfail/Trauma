@@ -125,10 +125,11 @@
   overflow before streaming UTF-8 decoding, Markdown or frontmatter parsing,
   document-type inference, or incremental raw-byte hashing. Resume and final
   commit reloads must receive the same workload source-byte limit.
-- MUST reject translated output above 1 MiB per segment or 4 MiB per chunk by
-  serialized UTF-8 bytes before projection or translated payload persistence.
-  Absolute output overflow is terminal for that chunk attempt and is not
-  automatically retried.
+- MUST reject translated output above 1 MiB per segment, 4 MiB per chunk, or
+  56 MiB for the complete translated `CONTENT.md` by serialized UTF-8 bytes.
+  Count preserved frontmatter and resumed chunks, reject aggregate overflow
+  before chunk persistence, and recheck before final stitching or publication.
+  Absolute output overflow is terminal and is not automatically retried.
 - MUST admit Brilliant translation Codex events against fixed server-side
   serialized UTF-8 budgets: 64 KiB per event, 4,096 events or 4 MiB per chunk
   attempt, and 262,144 events or 32 MiB for the whole job. Job admission is

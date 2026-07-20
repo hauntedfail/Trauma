@@ -10,9 +10,11 @@ import {
   assertTranslationManifestAdmission,
   assertTranslationSourceAdmission,
   BRILLIANT_MAX_TRANSLATION_CHUNKS,
+  BRILLIANT_MAX_TRANSLATION_OUTPUT_BYTES,
   BRILLIANT_MAX_TRANSLATION_SEGMENTS,
   BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES,
   DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
+  TranslationOutputAdmission,
 } from "../../../src/server/translation/limits";
 import { parseMarkdownTranslationBlocks } from "../../../src/server/translation/markdown-blocks";
 import {
@@ -24,6 +26,7 @@ import type { TranslationSourceSnapshot } from "../../../src/server/translation/
 describe("translation chunker", () => {
   it("enforces the exact aggregate translation admission boundaries", () => {
     expect(BRILLIANT_MAX_TRANSLATION_SOURCE_BYTES).toBe(20 * 1_024 * 1_024);
+    expect(BRILLIANT_MAX_TRANSLATION_OUTPUT_BYTES).toBe(56 * 1_024 * 1_024);
     expect(BRILLIANT_MAX_TRANSLATION_SEGMENTS).toBe(16_384);
     expect(BRILLIANT_MAX_TRANSLATION_CHUNKS).toBe(4_096);
 
@@ -75,6 +78,27 @@ describe("translation chunker", () => {
         expect((error as Error).message).toMatch(/translation.*limit/i);
       }
     }
+  });
+
+  it("rejects aggregate translated UTF-8 bytes without corrupting admission state", () => {
+    const admission = new TranslationOutputAdmission({
+      initialBytes: 1,
+      maxOutputBytes: 8,
+    });
+
+    admission.admitChunk(0, "界");
+    admission.admitChunk(1, "界");
+    expect(admission.admittedBytes).toBe(7);
+
+    try {
+      admission.admitChunk(2, "é");
+      throw new Error("expected aggregate translation output admission to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TranslationOutputValidationError);
+      expect((error as TranslationOutputValidationError).retryable).toBe(false);
+      expect((error as Error).message).toMatch(/translation output.*limit/i);
+    }
+    expect(admission.admittedBytes).toBe(7);
   });
 
   it("groups contiguous block ids and hashes each chunk", () => {
