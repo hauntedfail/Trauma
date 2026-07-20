@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CODEX_WIRE_MAX_FRAME_BYTES,
@@ -21,10 +21,12 @@ import { createTranslationSegmentManifest } from "../../../src/server/translatio
 import type { TranslationChunk } from "../../../src/server/translation/types";
 
 const originalSocketPath = process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
+const originalRequestTimeout = process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
 const originalRuntimeDir = process.env.TRAUMA_CODEX_RUNTIME_DIR;
 const tempRoots: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   if (originalSocketPath === undefined) {
     delete process.env.TRAUMA_CODEX_APP_SERVER_SOCKET_PATH;
   } else {
@@ -34,6 +36,11 @@ afterEach(async () => {
     delete process.env.TRAUMA_CODEX_RUNTIME_DIR;
   } else {
     process.env.TRAUMA_CODEX_RUNTIME_DIR = originalRuntimeDir;
+  }
+  if (originalRequestTimeout === undefined) {
+    delete process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS;
+  } else {
+    process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = originalRequestTimeout;
   }
   await Promise.all(
     tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
@@ -93,6 +100,184 @@ describe("Codex app-server endpoint parsing", () => {
       .toThrow(CodexAppServerError);
     expect(() => parseCodexAppServerEndpoint("stdio://"))
       .toThrow(CodexAppServerError);
+  });
+
+  it("sanitizes an error emitted before socket.connect returns", async () => {
+    let socket: net.Socket | undefined;
+    const destroy = vi.spyOn(net.Socket.prototype, "destroy").mockImplementation(
+      function (this: net.Socket) {
+        return this;
+      },
+    );
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("error", new Error("connect ENOENT /tmp/private-codex.sock"));
+      queueMicrotask(() => {
+        this.emit("error", new Error("second connect failure"));
+        this.emit("close");
+      });
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/missing-codex.sock",
+      socketPath: "/tmp/missing-codex.sock",
+    });
+
+    await expect(client.checkAuth()).rejects.toEqual(expect.objectContaining({
+      name: "CodexAppServerError",
+      code: "app_server_unavailable",
+      message: "Cannot connect to Codex app-server Unix socket.",
+    }));
+    await waitFor(() => socket?.listenerCount("close") === 0);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(socket?.listenerCount("connect")).toBe(0);
+    expect(socket?.listenerCount("error")).toBe(0);
+    expect(socket?.listenerCount("close")).toBe(0);
+    await client.close();
+  });
+
+  it("does not lose an error emitted immediately after socket connect", async () => {
+    let socket: net.Socket | undefined;
+    const destroy = vi.spyOn(net.Socket.prototype, "destroy").mockImplementation(
+      function (this: net.Socket) {
+        return this;
+      },
+    );
+    vi.spyOn(net.Socket.prototype, "write").mockImplementation(() => true);
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("connect");
+      this.emit("error", new Error("connect reset /tmp/private-codex.sock"));
+      this.emit("close");
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/reset-codex.sock",
+      socketPath: "/tmp/reset-codex.sock",
+    });
+
+    await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+      expect.objectContaining({
+        name: "CodexAppServerError",
+        code: "app_server_unavailable",
+      }),
+    );
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(socket?.listenerCount("error")).toBe(0);
+    expect(socket?.listenerCount("close")).toBe(0);
+    await client.close();
+  });
+
+  it("sanitizes a synchronous socket.connect failure", async () => {
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      throw new Error("connect rejected /tmp/private-codex.sock");
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/rejected-codex.sock",
+      socketPath: "/tmp/rejected-codex.sock",
+    });
+
+    await expect(client.checkAuth()).rejects.toEqual(expect.objectContaining({
+      name: "CodexAppServerError",
+      code: "app_server_unavailable",
+      message: "Cannot connect to Codex app-server Unix socket.",
+    }));
+    expect(socket?.destroyed).toBe(true);
+    await client.close();
+  });
+
+  it("rejects a real missing Unix socket without leaking its path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "trauma-codex-app-server-missing-"));
+    tempRoots.push(root);
+    const socketPath = join(root, "missing.sock");
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: `unix://${socketPath}`,
+      socketPath,
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth(), 1_000)).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "app_server_unavailable",
+          message: "Cannot connect to Codex app-server Unix socket.",
+        }),
+      );
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects and destroys a Unix socket that closes before connecting", async () => {
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      this.emit("close");
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/closed-codex.sock",
+      socketPath: "/tmp/closed-codex.sock",
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "app_server_unavailable",
+          message: "Cannot connect to Codex app-server Unix socket.",
+        }),
+      );
+      expect(socket?.destroyed).toBe(true);
+    } finally {
+      socket?.destroy();
+      await client.close();
+    }
+  });
+
+  it("times out and destroys a Unix socket that never finishes connecting", async () => {
+    process.env.TRAUMA_CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = "20";
+    let socket: net.Socket | undefined;
+    vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (
+      this: net.Socket,
+    ) {
+      socket = this;
+      return this;
+    });
+    const client = new CodexAppServerClient({
+      kind: "unix_socket",
+      raw: "unix:///tmp/stalled-codex.sock",
+      socketPath: "/tmp/stalled-codex.sock",
+    });
+
+    try {
+      await expect(settleWithin(client.checkAuth())).rejects.toEqual(
+        expect.objectContaining({
+          name: "CodexAppServerError",
+          code: "timeout",
+          message: "Codex app-server Unix socket connection timed out.",
+        }),
+      );
+      expect(socket?.destroyed).toBe(true);
+    } finally {
+      socket?.destroy();
+      await client.close();
+    }
   });
 
   it("translates a chunk through the Unix-socket app-server wire protocol", async () => {
@@ -2130,6 +2315,24 @@ async function waitFor(
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs = 100): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("promise did not settle before timeout"));
+    }, timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 interface FocusedProtocolFixture {

@@ -1076,19 +1076,18 @@ async function openUnixWebSocketConnection(
   if (endpoint.socketPath === undefined) {
     throw new CodexAppServerError("setup_required", "Missing Unix socket path.");
   }
-  const socket = net.createConnection(endpoint.socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", () => {
-      reject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Cannot connect to Codex app-server Unix socket.",
-        ),
-      );
-    });
-  });
+  const socketPath = endpoint.socketPath;
+  let socket: net.Socket;
+  try {
+    socket = new net.Socket();
+  } catch {
+    throw new CodexAppServerError(
+      "app_server_unavailable",
+      "Cannot connect to Codex app-server Unix socket.",
+    );
+  }
 
+  let phase: "connecting" | "upgrading" | "open" | "closed" = "connecting";
   let streamClosed = false;
   const closeWith = (error: CodexAppServerError) => {
     if (streamClosed) {
@@ -1097,18 +1096,35 @@ async function openUnixWebSocketConnection(
     streamClosed = true;
     onClose(error);
   };
+  const closeOpenStream = (
+    error: CodexAppServerError,
+    options: { destroy: boolean } = { destroy: true },
+  ) => {
+    if (phase !== "open") {
+      return;
+    }
+    phase = "closed";
+    closeWith(error);
+    if (options.destroy) {
+      socket.destroy();
+    }
+  };
+  let rejectOpening: (error: CodexAppServerError) => void = () => undefined;
   const decoder = new WebSocketFrameDecoder(
     (text) => onMessage(parseWireMessage(text)),
     (payload) => {
       socket.write(encodeClientWebSocketPongFrame(payload));
     },
     (payload) => {
-      closeWith(
-        new CodexAppServerError(
-          "stream_disconnected",
-          "Codex app-server WebSocket stream closed.",
-        ),
+      const error = new CodexAppServerError(
+        "stream_disconnected",
+        "Codex app-server WebSocket stream closed.",
       );
+      if (phase === "connecting" || phase === "upgrading") {
+        rejectOpening(error);
+        return;
+      }
+      closeOpenStream(error, { destroy: false });
       if (!socket.destroyed) {
         socket.write(encodeClientWebSocketCloseFrame(payload), () => {
           socket.end();
@@ -1116,17 +1132,22 @@ async function openUnixWebSocketConnection(
       }
     },
   );
-  const pushFrameData = (chunk: Buffer) => {
+  const pushFrameData = (chunk: Buffer): boolean => {
     try {
       decoder.push(chunk);
+      return true;
     } catch (error) {
-      closeWith(toCodexWireProtocolError(error));
-      socket.destroy();
+      const protocolError = toCodexWireProtocolError(error);
+      if (phase === "connecting" || phase === "upgrading") {
+        rejectOpening(protocolError);
+      } else {
+        closeOpenStream(protocolError);
+      }
+      return false;
     }
   };
   const key = randomBytes(16).toString("base64");
-  const upgraded = waitForWebSocketUpgrade(socket, key, pushFrameData);
-  socket.write([
+  const upgradeRequest = [
     "GET / HTTP/1.1",
     "Host: localhost",
     "Upgrade: websocket",
@@ -1135,151 +1156,221 @@ async function openUnixWebSocketConnection(
     "Sec-WebSocket-Version: 13",
     "",
     "",
-  ].join("\r\n"));
-
-  await upgraded;
-  socket.resume();
-  socket.on("error", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream failed.",
-      ),
-    );
-  });
-  socket.on("end", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream closed.",
-      ),
-    );
-  });
-  socket.on("close", () => {
-    closeWith(
-      new CodexAppServerError(
-        "stream_disconnected",
-        "Codex app-server Unix socket stream closed.",
-      ),
-    );
-  });
-
-  return {
+  ].join("\r\n");
+  const connection: CodexWireConnection = {
     close: () => socket.destroy(),
     send: (message) => socket.write(encodeClientWebSocketTextFrame(JSON.stringify(message))),
   };
-}
-
-function waitForWebSocketUpgrade(
-  socket: net.Socket,
-  key: string,
-  onFrameData: (chunk: Buffer) => void,
-): Promise<void> {
   return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let settled = false;
-    const cleanup = (keepDataListener: boolean) => {
-      if (!keepDataListener) {
-        socket.off("data", onData);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let stopReading: () => void = () => undefined;
+    const clearOpeningTimeout = () => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+        timeout = undefined;
       }
+    };
+    const cleanupAll = () => {
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
       socket.off("error", onError);
-      socket.off("close", onClose);
-      socket.off("end", onClose);
+      socket.off("end", onEnd);
+      socket.off("close", onSocketClose);
+      stopReading();
     };
-    const settleResolve = () => {
-      if (settled) {
+    const failOpening = (
+      error: CodexAppServerError,
+      options: { socketClosed?: boolean } = {},
+    ) => {
+      if (phase !== "connecting" && phase !== "upgrading") {
         return;
       }
-      settled = true;
-      cleanup(true);
-      socket.resume();
-      resolve();
-    };
-    const settleReject = (error: CodexAppServerError) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup(false);
-      socket.destroy();
+      phase = "closed";
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
+      socket.off("end", onEnd);
+      stopReading();
       reject(error);
+      socket.destroy();
+      if (options.socketClosed === true) {
+        cleanupAll();
+      }
+    };
+    rejectOpening = failOpening;
+    const openingUnavailableError = (closed: boolean): CodexAppServerError =>
+      new CodexAppServerError(
+        "app_server_unavailable",
+        phase === "connecting"
+          ? "Cannot connect to Codex app-server Unix socket."
+          : closed
+            ? "Codex app-server Unix socket closed during WebSocket upgrade."
+            : "Codex app-server Unix socket failed during WebSocket upgrade.",
+      );
+    const finishOpening = () => {
+      if (phase !== "upgrading") {
+        return;
+      }
+      phase = "open";
+      clearOpeningTimeout();
+      socket.off("connect", onConnect);
+      socket.resume();
+      resolve(connection);
+    };
+    const onConnect = () => {
+      if (phase !== "connecting") {
+        return;
+      }
+      phase = "upgrading";
+      try {
+        socket.write(upgradeRequest);
+      } catch {
+        failOpening(openingUnavailableError(false));
+      }
     };
     const onError = () => {
-      settleReject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Codex app-server Unix socket failed during WebSocket upgrade.",
-        ),
-      );
-    };
-    const onClose = () => {
-      settleReject(
-        new CodexAppServerError(
-          "app_server_unavailable",
-          "Codex app-server Unix socket closed during WebSocket upgrade.",
-        ),
-      );
-    };
-    const onData = (chunk: Buffer) => {
-      if (settled) {
-        onFrameData(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(false));
         return;
       }
-      buffer = Buffer.concat([buffer, chunk]);
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) {
-        if (buffer.length > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
-          settleReject(
-            new CodexAppServerError(
-              "app_server_protocol_error",
-              "Codex app-server WebSocket upgrade headers were too large.",
-            ),
-          );
-        }
+      if (phase === "open") {
+        closeOpenStream(
+          new CodexAppServerError(
+            "stream_disconnected",
+            "Codex app-server Unix socket stream failed.",
+          ),
+        );
+      }
+    };
+    const onEnd = () => {
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(true));
         return;
       }
-      if (headerEnd + 4 > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
-        settleReject(
+      if (phase === "open") {
+        closeOpenStream(
+          new CodexAppServerError(
+            "stream_disconnected",
+            "Codex app-server Unix socket stream closed.",
+          ),
+        );
+      }
+    };
+    const onSocketClose = () => {
+      if (phase === "connecting" || phase === "upgrading") {
+        failOpening(openingUnavailableError(true), { socketClosed: true });
+        return;
+      }
+      if (phase === "open") {
+        phase = "closed";
+        closeWith(
+          new CodexAppServerError(
+            "stream_disconnected",
+            "Codex app-server Unix socket stream closed.",
+          ),
+        );
+      }
+      cleanupAll();
+    };
+    socket.on("connect", onConnect);
+    socket.on("error", onError);
+    socket.on("end", onEnd);
+    socket.on("close", onSocketClose);
+    stopReading = observeWebSocketUpgrade(
+      socket,
+      key,
+      pushFrameData,
+      finishOpening,
+      failOpening,
+    );
+    timeout = setTimeout(() => {
+      failOpening(
+        new CodexAppServerError(
+          "timeout",
+          "Codex app-server Unix socket connection timed out.",
+        ),
+      );
+    }, readRequestTimeoutMs());
+    try {
+      socket.connect(socketPath);
+    } catch {
+      failOpening(openingUnavailableError(false));
+    }
+  });
+}
+
+function observeWebSocketUpgrade(
+  socket: net.Socket,
+  key: string,
+  onFrameData: (chunk: Buffer) => boolean,
+  onReady: () => void,
+  onFailure: (error: CodexAppServerError) => void,
+): () => void {
+  let buffer = Buffer.alloc(0);
+  let upgraded = false;
+  const onData = (chunk: Buffer) => {
+    const data = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    if (upgraded) {
+      onFrameData(data);
+      return;
+    }
+    buffer = Buffer.concat([buffer, data]);
+    const headerEnd = buffer.indexOf("\r\n\r\n");
+    if (headerEnd === -1) {
+      if (buffer.length > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+        onFailure(
           new CodexAppServerError(
             "app_server_protocol_error",
             "Codex app-server WebSocket upgrade headers were too large.",
           ),
         );
-        return;
       }
-      const header = buffer.slice(0, headerEnd).toString("utf8");
-      if (!/^HTTP\/1\.1 101\b/i.test(header)) {
-        settleReject(
-          new CodexAppServerError(
-            "app_server_unavailable",
-            "Codex app-server did not accept WebSocket upgrade.",
-          ),
-        );
-        return;
-      }
-      const expectedAccept = createHash("sha1")
-        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-        .digest("base64");
-      if (!header.toLowerCase().includes(`sec-websocket-accept: ${expectedAccept.toLowerCase()}`)) {
-        settleReject(
-          new CodexAppServerError(
-            "app_server_unavailable",
-            "Codex app-server WebSocket accept key did not match.",
-          ),
-        );
-        return;
-      }
-      const remaining = buffer.slice(headerEnd + 4);
-      if (remaining.length > 0) {
-        onFrameData(remaining);
-      }
-      settleResolve();
-    };
-    socket.on("data", onData);
-    socket.once("error", onError);
-    socket.once("close", onClose);
-    socket.once("end", onClose);
-  });
+      return;
+    }
+    if (headerEnd + 4 > CODEX_WIRE_MAX_UPGRADE_HEADER_BYTES) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_protocol_error",
+          "Codex app-server WebSocket upgrade headers were too large.",
+        ),
+      );
+      return;
+    }
+    const header = buffer.slice(0, headerEnd).toString("utf8");
+    if (!/^HTTP\/1\.1 101\b/i.test(header)) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_unavailable",
+          "Codex app-server did not accept WebSocket upgrade.",
+        ),
+      );
+      return;
+    }
+    const expectedAccept = createHash("sha1")
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest("base64");
+    if (
+      !header.toLowerCase().includes(
+        `sec-websocket-accept: ${expectedAccept.toLowerCase()}`,
+      )
+    ) {
+      onFailure(
+        new CodexAppServerError(
+          "app_server_unavailable",
+          "Codex app-server WebSocket accept key did not match.",
+        ),
+      );
+      return;
+    }
+    const remaining = buffer.slice(headerEnd + 4);
+    buffer = Buffer.alloc(0);
+    upgraded = true;
+    if (remaining.length > 0 && !onFrameData(remaining)) {
+      return;
+    }
+    onReady();
+  };
+  socket.on("data", onData);
+  return () => socket.off("data", onData);
 }
 
 function encodeClientWebSocketTextFrame(text: string): Buffer {
