@@ -2259,7 +2259,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("closes the SQLite handle when initialization fails", () => {
+  it("closes the SQLite and migration-lease handles when initialization fails", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -2272,10 +2272,13 @@ describe("db foundation", () => {
             throw new Error("TRAUMA_TEST_DB_ROOT is required");
           }
 
-          let closeCalls = 0;
+          const databasePath = join(root, ".trauma/trauma.sqlite");
+          let applicationCloseCalls = 0;
           const originalClose = Database.prototype.close;
           Database.prototype.close = function close(...args) {
-            closeCalls += 1;
+            if (this.filename === databasePath) {
+              applicationCloseCalls += 1;
+            }
             return originalClose.apply(this, args);
           };
 
@@ -2285,7 +2288,7 @@ describe("db foundation", () => {
                 configFilePath: join(root, "trauma.config.json"),
                 projectPath: join(root, "data"),
                 storePath: join(root, "data/store"),
-                databasePath: join(root, ".trauma/trauma.sqlite"),
+                databasePath,
                 backup: {
                   git: {
                     enabled: true,
@@ -2298,9 +2301,9 @@ describe("db foundation", () => {
               },
               { migrationsFolder: join(root, "missing-migrations") },
             );
-            process.stdout.write(JSON.stringify({ failed: false, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: false, applicationCloseCalls }));
           } catch {
-            process.stdout.write(JSON.stringify({ failed: true, closeCalls }));
+            process.stdout.write(JSON.stringify({ failed: true, applicationCloseCalls }));
           } finally {
             Database.prototype.close = originalClose;
           }
@@ -2316,7 +2319,7 @@ describe("db foundation", () => {
 
     expect(JSON.parse(output)).toEqual({
       failed: true,
-      closeCalls: 1,
+      applicationCloseCalls: 1,
     });
   });
 });

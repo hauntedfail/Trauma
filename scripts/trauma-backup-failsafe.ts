@@ -6,32 +6,44 @@ import {
   readActiveBackupFailsafeAlert,
   revertBackupFailsafeConfig,
 } from "../src/server/backup/failsafe";
+import { withRuntimeProcessLease } from "../src/server/runtime/process-lease";
 
 type Command = "status" | "revert" | "migrate" | "delete-missing-record";
 
 export async function runBackupFailsafeCli(args: readonly string[]) {
   const parsed = parseArgs(args);
   const config = loadTraumaConfig({ configPath: parsed.configPath });
-  const connection = initializeDatabase(config);
-  try {
-    if (parsed.command === "status") {
-      const alert = await readActiveBackupFailsafeAlert(connection.db);
-      return alert === null
-        ? "No active backup failsafe alert.\n"
-        : `${JSON.stringify(alert, null, 2)}\n`;
-    }
+  return withRuntimeProcessLease(config, async () => {
+    const connection = initializeDatabase(config);
+    try {
+      if (parsed.command === "status") {
+        const alert = await readActiveBackupFailsafeAlert(connection.db);
+        return alert === null
+          ? "No active backup failsafe alert.\n"
+          : `${JSON.stringify(alert, null, 2)}\n`;
+      }
 
-    if (parsed.command === "revert") {
-      const result = await revertBackupFailsafeConfig({
-        config,
-        db: connection.db,
-        apply: parsed.apply,
-      });
-      return `${result.summary}\n`;
-    }
+      if (parsed.command === "revert") {
+        const result = await revertBackupFailsafeConfig({
+          config,
+          db: connection.db,
+          apply: parsed.apply,
+        });
+        return `${result.summary}\n`;
+      }
 
-    if (parsed.command === "delete-missing-record") {
-      const result = await deleteMissingBackupContentRecord({
+      if (parsed.command === "delete-missing-record") {
+        const result = await deleteMissingBackupContentRecord({
+          config,
+          db: connection.db,
+          apply: parsed.apply,
+        });
+        const alert = await readActiveBackupFailsafeAlert(connection.db);
+        const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
+        return `${result.summary}\n${suffix}`;
+      }
+
+      const result = await migrateBackupFailsafeContent({
         config,
         db: connection.db,
         apply: parsed.apply,
@@ -39,19 +51,10 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
       const alert = await readActiveBackupFailsafeAlert(connection.db);
       const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
       return `${result.summary}\n${suffix}`;
+    } finally {
+      connection.close();
     }
-
-    const result = await migrateBackupFailsafeContent({
-      config,
-      db: connection.db,
-      apply: parsed.apply,
-    });
-    const alert = await readActiveBackupFailsafeAlert(connection.db);
-    const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
-    return `${result.summary}\n${suffix}`;
-  } finally {
-    connection.close();
-  }
+  });
 }
 
 function parseArgs(args: readonly string[]) {

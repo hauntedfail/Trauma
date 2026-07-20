@@ -2,6 +2,10 @@ import { randomBytes } from "node:crypto";
 
 import { defineConfig, devices } from "@playwright/test";
 
+import { ensureE2eServerBootFixture } from "./e2e/server-bootstrap";
+
+ensureE2eServerBootFixture();
+
 const host = "127.0.0.1";
 const port = 4173;
 const hmrBasePort = 24681;

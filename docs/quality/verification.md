@@ -68,7 +68,9 @@ fixed `.trauma/e2e` runtime. Playwright supplies a fresh control token and the
 exact literal-loopback bind host, config, browse-fixture, import-fixture, and
 control signals; the framework-reported socket peer must also be loopback. Keep
 this boundary limited to named fixture actions; never add raw scripts, SQL,
-paths, or Git arguments to its request schema.
+paths, or Git arguments to its request schema. Runtime integration coverage
+also proves that fixture reset preserves lease identity, exclusion, and
+connection-lifetime release behavior.
 
 ## Focused Test Ownership
 
@@ -106,8 +108,9 @@ deterministic and avoid server startup.
 
 ## Startup And Release
 
-`bun run dev:smoke` boots a server on an explicit host/port, probes
-`/memories`, and fails on bind fallback, early exit, or timeout. Use it after
+`bun run dev:smoke` boots a server on an explicit host/port and requires exact
+`GET /` to return the canonical `302 Location: /memories` without following the
+redirect. It fails on bind fallback, early exit, or timeout. Use it after
 runtime, config, build-tool, or startup-script changes.
 
 CI and tagged releases run `bun run verify` and `bun run test:e2e`. Failed E2E

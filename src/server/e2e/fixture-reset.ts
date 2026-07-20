@@ -2,34 +2,39 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { executeBuiltInGit } from "../backup/git-command";
+import { loadTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
 import type { ResetFixtureRequest } from "./control-types";
 import {
   createFixtureConfig,
-  E2E_CONFIG_FILE,
-  E2E_DATABASE_PATH,
   E2E_PROJECT_PATH,
-  E2E_ROOT,
-  E2E_STORE_PATH,
-  loadE2eConfig,
+  resolveE2eFixtureLayout,
 } from "./fixture-support";
 
 export async function resetE2eFixture(
   fixture: ResetFixtureRequest["fixture"],
+  options: { root?: string } = {},
 ): Promise<void> {
+  const layout = resolveE2eFixtureLayout(options.root);
   const config = createFixtureConfig(fixture === "backup_git");
-  await rm(E2E_ROOT, { recursive: true, force: true });
+  await rm(layout.root, { recursive: true, force: true });
   await Promise.all([
-    mkdir(E2E_STORE_PATH, { recursive: true }),
-    mkdir(dirname(E2E_DATABASE_PATH), { recursive: true }),
+    mkdir(layout.storePath, { recursive: true }),
+    mkdir(dirname(layout.databasePath), { recursive: true }),
   ]);
-  await writeFile(E2E_CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await writeFile(
+    layout.configFile,
+    `${JSON.stringify(config, null, 2)}\n`,
+    "utf8",
+  );
 
   if (fixture === "backup_git") {
-    await initializeFixtureGitRepository();
+    await initializeFixtureGitRepository(layout.projectPath);
   }
 
-  const connection = initializeDatabase(loadE2eConfig());
+  const connection = initializeDatabase(
+    loadTraumaConfig({ configPath: layout.configFile }),
+  );
   connection.close();
 }
 
@@ -56,14 +61,16 @@ export async function inspectFixtureGitState(
   };
 }
 
-async function initializeFixtureGitRepository(): Promise<void> {
-  await runFixtureGit(["init", "--initial-branch=main"]);
+async function initializeFixtureGitRepository(
+  projectPath: string,
+): Promise<void> {
+  await runFixtureGit(["init", "--initial-branch=main"], projectPath);
   for (const [key, value] of [
     ["user.name", "TRAUMA E2E"],
     ["user.email", "trauma-e2e@example.invalid"],
     ["commit.gpgSign", "false"],
   ] as const) {
-    await runFixtureGit(["config", key, value]);
+    await runFixtureGit(["config", key, value], projectPath);
   }
 }
 
@@ -75,9 +82,12 @@ function createFixtureGitEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-async function runFixtureGit(args: readonly string[]): Promise<string> {
+async function runFixtureGit(
+  args: readonly string[],
+  projectPath = E2E_PROJECT_PATH,
+): Promise<string> {
   const result = await executeBuiltInGit(args, {
-    cwd: E2E_PROJECT_PATH,
+    cwd: projectPath,
     env: createFixtureGitEnvironment(),
   });
   return String(result.stdout);

@@ -2,7 +2,7 @@
  * Dev startup smoke check.
  *
  * Boots `vinxi dev` with a deterministic host and port and probes
- * `/memories` in fixtures mode, then shuts the server down. Exits
+ * exactly `/` in fixtures mode, then shuts the server down. Exits
  * non-zero if the requested port is occupied, the server cannot
  * bind, the server exits early, the server falls back to a different
  * port, or the probe never succeeds within the timeout.
@@ -10,6 +10,9 @@
 
 import { spawn } from "node:child_process";
 import { createServer, isIP } from "node:net";
+
+import { DEV_SMOKE_RUNTIME_FIXTURE_CONTEXT } from "../src/server/runtime/fixture-mode";
+import { isExpectedDevSmokeResponse } from "./dev-smoke-response";
 
 interface SmokeOptions {
   readonly host: string;
@@ -40,11 +43,6 @@ function readPort(name: string, fallback: number): number {
   return value;
 }
 
-function readString(name: string, fallback: string): string {
-  const raw = process.env[name];
-  return raw && raw.length > 0 ? raw : fallback;
-}
-
 function readFirstString(names: ReadonlyArray<string>, fallback: string): string {
   for (const name of names) {
     const raw = process.env[name];
@@ -70,10 +68,20 @@ function buildOptions(): SmokeOptions {
     host: readFirstString(["TRAUMA_DEV_HOST", "HOST"], "127.0.0.1"),
     port: readFirstPort(["TRAUMA_DEV_PORT", "PORT"], 3000),
     hmrPort: readPort("TRAUMA_HMR_PORT", 24678),
-    path: readString("TRAUMA_DEV_SMOKE_PATH", "/memories"),
+    path: readSmokePath(),
     timeoutMs: readNumber("TRAUMA_DEV_SMOKE_TIMEOUT_MS", 90_000),
     pollIntervalMs: readNumber("TRAUMA_DEV_SMOKE_POLL_MS", 500),
   };
+}
+
+function readSmokePath(): "/" {
+  const configured = process.env.TRAUMA_DEV_SMOKE_PATH?.trim();
+  if (configured !== undefined && configured !== "" && configured !== "/") {
+    throw new Error(
+      `TRAUMA_DEV_SMOKE_PATH no longer accepts custom paths; expected /, received ${configured}`,
+    );
+  }
+  return "/";
 }
 
 function bracketHost(host: string): string {
@@ -111,8 +119,8 @@ async function ensurePortFree(host: string, port: number): Promise<void> {
 
 async function probe(url: string, signal: AbortSignal): Promise<boolean> {
   try {
-    const response = await fetch(url, { signal });
-    return response.status >= 200 && response.status < 500;
+    const response = await fetch(url, { redirect: "manual", signal });
+    return isExpectedDevSmokeResponse(response);
   } catch {
     return false;
   }
@@ -171,6 +179,11 @@ async function waitForReady(
 }
 
 async function run(options: SmokeOptions): Promise<void> {
+  if (!isLoopbackSmokeHost(options.host)) {
+    throw new Error(
+      `Dev smoke fixture mode requires a loopback host, received ${options.host}`,
+    );
+  }
   const url = buildProbeUrl(options);
   // eslint-disable-next-line no-console
   console.log(`[dev-smoke] starting ${url} (hmr ${options.hmrPort})`);
@@ -185,8 +198,11 @@ async function run(options: SmokeOptions): Promise<void> {
         ...process.env,
         HOST: options.host,
         PORT: String(options.port),
+        TRAUMA_CONFIG_PATH: "",
+        TRAUMA_DATABASE_PATH: "",
         TRAUMA_HMR_PORT: String(options.hmrPort),
         TRAUMA_BROWSE_FIXTURES: "1",
+        TRAUMA_RUNTIME_FIXTURE_CONTEXT: DEV_SMOKE_RUNTIME_FIXTURE_CONTEXT,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -235,6 +251,15 @@ async function run(options: SmokeOptions): Promise<void> {
   if (earlyExitCode !== null && earlyExitCode !== 0) {
     throw new Error(`Dev server exited with code ${earlyExitCode}`);
   }
+}
+
+function isLoopbackSmokeHost(host: string): boolean {
+  const normalized = host.trim().toLocaleLowerCase("en-US");
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "localhost"
+  );
 }
 
 run(buildOptions()).catch((error: unknown) => {

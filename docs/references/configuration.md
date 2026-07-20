@@ -73,6 +73,19 @@ bun run db:migrate --config /path/to/trauma.config.json
 `db:migrate` deliberately uses the same hash, compatibility, foreign-key, and
 atomicity checks as application startup. `TRAUMA_DATABASE_PATH` remains a
 Drizzle tooling override and does not bypass the runtime config contract.
+The command acquires database-family ownership before creating or opening the
+SQLite file and holds it until the connection closes. Stop the server and any
+other maintenance process first; an active owner makes the command exit without
+creating the database.
+
+`databasePath`, `projectPath`, and `storePath` are restart-scoped. Manual edits
+to those fields are rejected before a running server opens the new storage;
+restart TRAUMA to adopt them. Other JSON settings follow their owning runtime
+loader and are not covered by this storage-root rule.
+
+A root-changing backup recovery revalidates its alert, reserves both current and
+previous roots, and suspends storage admission before rewriting config. Restart
+TRAUMA after the response, including when a post-suspension action fails.
 
 ## Backup Environment Failsafe
 
@@ -91,10 +104,15 @@ mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config trauma.co
 mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json
 ```
 
+Stop the TRAUMA app before running these commands; maintenance CLIs acquire the
+same database, store, and project root-set leases as the server and fail closed
+when a configured or previous failsafe root is active.
+
 Both commands are dry-run by default. Add `--apply` only after checking the
-summary. An applied config revert writes and syncs a same-directory temporary
-file before atomic replacement. A write, sync, or rename failure leaves the
-previous config intact and removes the temporary file.
+summary. Restart the app when the command exits. An applied config revert
+writes and syncs a same-directory temporary file before atomic replacement. A
+write, sync, or rename failure leaves the previous config intact and removes the
+temporary file.
 
 If the stamp and configured paths still match but SQLite says a memory was
 successfully backed up while its `CONTENT.md` is missing, outside the configured

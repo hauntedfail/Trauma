@@ -17,6 +17,21 @@ and maintenance light.
 - An optional, separately operated Codex app-server for Brilliant translation
   and Psychiatrist turns.
 
+The one-process rule is fail-closed. A process-lifetime lease protects the
+effective `databasePath`, `storePath`, and `projectPath` before storage opens.
+Overlapping paths and filesystem aliases contend; disjoint sibling trees can
+run independently. Maintenance commands use the same ownership boundary.
+
+Those three storage-root paths are restart-scoped. Manual path changes are
+rejected before the new storage opens. A root-changing backup recovery reserves
+both the current and previous roots, then suspends storage admission immediately
+before mutation. TRAUMA must be restarted after suspension, whether the action
+succeeds or fails.
+
+Direct database initialization holds the same database-family ownership for the
+returned connection lifetime. This also serializes migration and WAL setup when
+`initializeDatabase` is used outside the server runtime.
+
 Avoid separate API services, external queues, managed databases, or
 serverless-first assumptions unless a current design explicitly changes this
 shape.

@@ -13,6 +13,7 @@ interface PackageJson {
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
 const playwrightConfig = readFileSync("playwright.config.ts", "utf8");
 const appConfig = readFileSync("app.config.ts", "utf8");
+const middleware = readFileSync("src/middleware.ts", "utf8");
 const devSmokeScript = readFileSync("scripts/dev-smoke.ts", "utf8");
 const envExample = readFileSync(".env.example", "utf8");
 
@@ -41,11 +42,34 @@ describe("runtime command contract", () => {
 
   it("runs trusted-host validation before application routing", () => {
     expect(appConfig).toContain('middleware: "./src/middleware.ts"');
+    const requestHandler = middleware.slice(middleware.indexOf("onRequest(event)"));
+    expect(requestHandler).toContain("ensureRuntimeProcessLeaseFromLoader");
+    expect(requestHandler).toContain("isRuntimeLeaseFixtureBypassAllowed");
+    expect(requestHandler.indexOf("isTrustedRequestHost")).toBeLessThan(
+      requestHandler.indexOf("ensureRuntimeProcessLeaseFromLoader"),
+    );
   });
 
   it("runs the smoke-check Vinxi child process through Bun runtime", () => {
     expect(devSmokeScript).toContain('"--bun",');
     expect(devSmokeScript).toContain('"x", "vinxi", "dev"');
+    expect(devSmokeScript).toContain("TRAUMA_RUNTIME_FIXTURE_CONTEXT");
+    expect(devSmokeScript).toContain('TRAUMA_CONFIG_PATH: ""');
+  });
+
+  it("rejects legacy custom dev-smoke probe paths", () => {
+    const result = spawnSync(process.execPath, ["run", "scripts/dev-smoke.ts"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRAUMA_DEV_SMOKE_PATH: "/health",
+      },
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "TRAUMA_DEV_SMOKE_PATH no longer accepts custom paths",
+    );
   });
 
   it("keeps esbuild on each toolchain's compatible release line", () => {

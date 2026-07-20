@@ -16,6 +16,27 @@ Expected runtime:
 The deployment target is a local machine, VPS, or home server. The
 server must have persistent disk access.
 
+TRAUMA enforces the one-process operating model before a request can open
+runtime storage. One lease owns the complete effective database, artifact
+store, and backup project root set for the Bun process lifetime. Overlapping
+paths, symlinks, and hardlinks contend; disjoint sibling trees remain
+independent. A conflict reports the recorded owner PID and roots. Stop the
+active owner instead of deleting lease state.
+
+The stable coordinator lives at
+`<OS-account-home>/.local/state/trauma/runtime-leases/coordinator.sqlite`,
+outside application data and built-in backup. Do not version, copy, or delete
+it while TRAUMA or a maintenance command is running. Crash-stale state is
+cleaned automatically by the next owner. If startup reports an unsupported
+coordinator schema, stop every TRAUMA process and maintenance command, verify
+none remains, move the `runtime-leases` directory aside, and start the current
+version again.
+
+Coordination covers processes under the same OS account on one host filesystem
+namespace. Separate hosts, UIDs, or containers do not share it, and unusual
+FUSE or bind-mount aliases are outside the guarantee. Run one TRAUMA process or
+container, enforce a single replica, and do not overlap maintenance jobs.
+
 ## Data Ownership
 
 Canonical ownership is defined by the
@@ -79,19 +100,34 @@ the shell or the command that needs them.
 Standard commands:
 
 - `bun run dev` — start the dev server.
-- `bun run dev:smoke` — boot the dev server, probe `/memories`, then exit.
+- `bun run dev:smoke` — boot the dev server, probe the canonical
+  `GET /` redirect to `/memories`, then exit.
   Fails if the requested port is occupied, the server cannot bind, exits
   early, falls back to a different port, or does not respond within the
   timeout.
 - `bun run start` — serve the production build.
 
-The smoke check sets `TRAUMA_BROWSE_FIXTURES=1` so it does not depend on a
-real `trauma.config.json`. Run the smoke check before relying on the dev
-server in CI or scripted environments.
+Stop the running app before invoking a maintenance CLI that opens the configured
+runtime, including `bun run db:migrate` and
+`scripts/trauma-backup-failsafe.ts`. Dry-run and status modes also participate
+in the lease because database initialization can apply pending migrations.
+Start the app again after the command exits.
+
+The smoke launcher supplies an internal multi-signal fixture context so its
+loopback `GET /` probe does not depend on a real `trauma.config.json`. The probe
+does not follow the redirect and accepts only `302 Location: /memories`. The
+fixture flag alone never bypasses the runtime lease. Other paths, query strings,
+non-loopback requests, and all mutating methods still require the configured
+runtime lease. Run the smoke check before relying on the dev server in CI or
+scripted environments.
 
 `bun run test:e2e` boots its own dev server with explicit `HOST=127.0.0.1`,
 `PORT=4173`, and `TRAUMA_HMR_PORT=24681`, so it can run alongside
-`bun run dev` without HMR port collisions and is unaffected by `.env`.
+`bun run dev` without HMR port collisions and is unaffected by `.env`. Its
+fixed `.trauma/e2e` config acquires ordinary database, project, and store
+leases; E2E control is not a runtime-lease bypass. The Playwright harness
+preseeds only the config and directories required for server readiness. Named
+fixture actions reset data inside that same logical leased root.
 
 ## Access Control
 

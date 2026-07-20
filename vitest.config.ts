@@ -19,6 +19,7 @@ export default defineConfig({
       GIT_CONFIG_GLOBAL: emptyGlobalGitConfig,
     },
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    setupFiles: ["tests/setup/runtime-lease.ts"],
     testTimeout: 10_000,
   },
 });

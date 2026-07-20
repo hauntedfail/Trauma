@@ -2,6 +2,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { TraumaConfigError } from "./errors";
+import { assertRuntimeProcessLeaseCoversConfig } from "../runtime/process-lease";
 import type {
   ConfigValidationResult,
   LoadTraumaConfigOptions,
@@ -56,10 +57,12 @@ export function loadTraumaConfig(
 export function loadRuntimeTraumaConfig(
   options: Omit<LoadTraumaConfigOptions, "configPath"> = {},
 ): ResolvedTraumaConfig {
-  return loadTraumaConfig({
+  const config = loadTraumaConfig({
     ...options,
     configPath: process.env.TRAUMA_CONFIG_PATH,
   });
+  assertRuntimeProcessLeaseCoversConfig(config);
+  return config;
 }
 
 export function validateTraumaConfig(
