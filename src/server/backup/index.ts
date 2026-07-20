@@ -126,7 +126,7 @@ export function getMemoryBackupQueue(
   config: ResolvedTraumaConfig,
 ): DurableMemoryBackupQueue {
   if (!config.backup.git.enabled) {
-    startDisabledBackupOperationRecovery(config);
+    void startDisabledBackupOperationRecovery(config);
     return createNoopMemoryBackupQueue();
   }
 
@@ -148,10 +148,11 @@ export function getMemoryBackupQueue(
 
 function startDisabledBackupOperationRecovery(
   config: ResolvedTraumaConfig,
-): void {
+): Promise<void> {
   const key = createQueueConfigKey(config);
-  if (startupOperationRecoveryByConfigKey.has(key)) {
-    return;
+  const existing = startupOperationRecoveryByConfigKey.get(key);
+  if (existing !== undefined) {
+    return existing;
   }
   const recovery = (async () => {
     const connection = initializeDatabase(config);
@@ -175,6 +176,19 @@ function startDisabledBackupOperationRecovery(
       "failed to recover interrupted memory operations during startup",
     );
   });
+  return recovery;
+}
+
+export function waitForDisabledBackupOperationRecovery(
+  config: ResolvedTraumaConfig,
+): Promise<void> {
+  const recovery = startupOperationRecoveryByConfigKey.get(
+    createQueueConfigKey(config),
+  );
+  if (recovery === undefined) {
+    throw new Error("Disabled backup operation recovery has not started.");
+  }
+  return recovery;
 }
 
 export function createGitMemoryBackupQueue(

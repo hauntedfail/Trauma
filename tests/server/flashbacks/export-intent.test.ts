@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createGitMemoryBackupQueue,
   getMemoryBackupQueue,
+  waitForDisabledBackupOperationRecovery,
 } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase, schema } from "../../../src/server/db";
@@ -210,8 +211,8 @@ describe("Flashback export reconciliation intent", () => {
     await persistSourceIntent(fixture);
 
     getMemoryBackupQueue(fixture.config);
+    await waitForDisabledBackupOperationRecovery(fixture.config);
 
-    await waitForPath(fixture.exportPath);
     await expect(readExportIds(fixture)).resolves.toEqual([]);
     await expect(readIntentFilenames(fixture)).resolves.toEqual([]);
   });
@@ -378,21 +379,6 @@ async function readIntentFilenames(fixture: Fixture): Promise<string[]> {
   ));
 }
 
-async function waitForPath(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      await access(path);
-      return;
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "ENOENT") {
-        throw error;
-      }
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 5));
-  }
-  throw new Error(`Timed out waiting for ${path}`);
-}
-
 function runRecoveryInFreshProcess(config: ResolvedTraumaConfig): number {
   const output = execFileSync(process.execPath, [
     "-e",
@@ -448,8 +434,4 @@ function failingExportFileSystem() {
     rename,
     rm: (path: string, options: { force: boolean }) => rm(path, options),
   };
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }
