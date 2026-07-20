@@ -35,32 +35,44 @@ export function initializeDatabase(
   config: ResolvedTraumaConfig,
   options: InitializeDatabaseOptions = {},
 ): TraumaDatabaseConnection {
-  const runtimeLeaseInputs = runtimeLeaseInputsForConfig(config);
+  const databasePath = config.databasePath;
+  const projectPath = config.projectPath;
+  const storePath = config.storePath;
+  const fixedConfig: ResolvedTraumaConfig = {
+    backup: config.backup,
+    configFilePath: config.configFilePath,
+    databasePath,
+    projectPath,
+    storePath,
+  };
+  const runtimeLeaseInputs = runtimeLeaseInputsForConfig(fixedConfig);
   const runtimeLeaseBorrow = borrowRuntimeProcessLeaseForResources(
     runtimeLeaseInputs,
   );
   const initializationLease = runtimeLeaseBorrow !== undefined
     ? undefined
-    : acquireDatabaseInitializationLease(config);
+    : acquireDatabaseInitializationLease(fixedConfig);
   let openedDatabase: BunDatabase | undefined;
   let connectionOwnsLease = false;
   let retainLease = false;
   try {
     // No filesystem mutation occurs before either a covering in-process
     // runtime lease or a standalone initialization lease is held.
-    mkdirSync(dirname(config.databasePath), { recursive: true });
-    const databaseDescriptor = openSync(config.databasePath, "a", 0o600);
+    initializationLease?.refresh();
+    runtimeLeaseBorrow?.assertCovers(runtimeLeaseInputs);
+    mkdirSync(dirname(databasePath), { recursive: true });
+    const databaseDescriptor = openSync(databasePath, "a", 0o600);
     closeSync(databaseDescriptor);
     initializationLease?.refresh();
     runtimeLeaseBorrow?.assertCovers(runtimeLeaseInputs);
 
     const Database = loadDatabaseConstructor();
-    const sqlite = new Database(config.databasePath, { create: true });
+    const sqlite = new Database(databasePath, { create: true });
     openedDatabase = sqlite;
     sqlite.run("PRAGMA foreign_keys = ON;");
     sqlite.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};`);
     sqlite.run("PRAGMA journal_mode = WAL;");
-    materializeWalSidecars(sqlite, config.databasePath);
+    materializeWalSidecars(sqlite, databasePath);
     initializationLease?.refresh();
     runtimeLeaseBorrow?.assertCovers(runtimeLeaseInputs);
 

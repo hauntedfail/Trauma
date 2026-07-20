@@ -70,7 +70,12 @@ control signals; the framework-reported socket peer must also be loopback. Keep
 this boundary limited to named fixture actions; never add raw scripts, SQL,
 paths, or Git arguments to its request schema. Runtime integration coverage
 also proves that fixture reset preserves lease identity, exclusion, and
-connection-lifetime release behavior.
+connection-lifetime release behavior. Before Playwright starts its server, the
+bootstrap validates any existing config and requires its resolved database,
+project, and store roots to match the fixed fixture layout. Invalid config,
+layout symlinks, non-file SQLite family entries, and SQLite hardlink aliases
+fail without rewriting the prior config; valid non-path backup settings remain
+until the authenticated fixture reset canonicalizes them.
 
 ## Focused Test Ownership
 

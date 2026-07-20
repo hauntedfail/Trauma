@@ -30,7 +30,10 @@ succeeds or fails.
 
 Direct database initialization holds the same database-family ownership for the
 returned connection lifetime. This also serializes migration and WAL setup when
-`initializeDatabase` is used outside the server runtime.
+`initializeDatabase` is used outside the server runtime. Lease refresh may add
+inode identities only for the originally admitted primary and sidecar paths;
+path retargeting and newly introduced hardlink aliases fail before ownership
+can expand.
 
 Avoid separate API services, external queues, managed databases, or
 serverless-first assumptions unless a current design explicitly changes this

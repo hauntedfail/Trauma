@@ -1,6 +1,10 @@
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { ResolvedTraumaConfig } from "../config";
 import { runtimeDatabaseLeaseInputs } from "./runtime-database-resources";
 import { RuntimeProcessLeaseError } from "./runtime-lease-errors";
+import { formatUnknownError, isErrorWithCode } from "./runtime-lease-sqlite";
 import {
   acquireMigrationCoordinatorLease,
   releaseCoordinatorLease,
@@ -13,6 +17,7 @@ import type {
 import {
   mergeCanonicalRuntimeResources,
   resolveRuntimeResourceLeasePlan,
+  runtimeResourcesAreIdentical,
   runtimeResourcesOverlap,
 } from "./runtime-resource-identity";
 
@@ -21,12 +26,20 @@ const INITIALIZATION_LEASE_REGISTRY = Symbol.for(
 );
 
 interface SharedInitializationLease {
+  admittedPlan: RuntimeLeasePlan;
+  configuredDatabasePath: string;
   databasePath: string;
+  initialFamilyFiles: ReadonlyMap<string, DatabaseFamilyFileState>;
   plan: RuntimeLeasePlan;
   references: number;
   releasePending: boolean;
   releaseOwner: () => void;
   state: ReturnType<typeof acquireMigrationCoordinatorLease>;
+}
+
+interface DatabaseFamilyFileState {
+  anchor: string;
+  links: bigint;
 }
 
 export interface DatabaseInitializationLease extends ProcessLease {
@@ -41,16 +54,27 @@ export interface DatabaseInitializationLease extends ProcessLease {
 export function acquireDatabaseInitializationLease(
   config: ResolvedTraumaConfig,
 ): DatabaseInitializationLease {
+  const databasePath = config.databasePath;
+  const configuredDatabasePath = resolve(databasePath);
   const primary = resolveRuntimeResourceLeasePlan([
-    { resourceLabel: "databasePath", resourcePath: config.databasePath },
+    { resourceLabel: "databasePath", resourcePath: databasePath },
   ]).resources[0];
   if (primary === undefined) {
     throw new Error("databasePath runtime resource is unavailable");
   }
   const plan = resolveRuntimeResourceLeasePlan(
-    runtimeDatabaseLeaseInputs(config.databasePath),
+    runtimeDatabaseLeaseInputs(databasePath),
   );
   const registry = readInitializationLeaseRegistry();
+  const retargeted = [...registry].find(
+    (entry) => entry.configuredDatabasePath === configuredDatabasePath &&
+      !entry.plan.resources.some((held) =>
+        plan.resources.some((candidate) => runtimeResourcesOverlap(held, candidate))
+      ),
+  );
+  if (retargeted !== undefined) {
+    throw changedDatabaseFamilyError(configuredDatabasePath);
+  }
   const overlapping = [...registry].find((entry) =>
     entry.plan.resources.some((held) =>
       plan.resources.some((candidate) => runtimeResourcesOverlap(held, candidate))
@@ -70,12 +94,16 @@ export function acquireDatabaseInitializationLease(
       );
     }
     overlapping.references += 1;
-    return createInitializationLeaseHandle(overlapping, config);
+    return createInitializationLeaseHandle(overlapping);
   }
 
+  const initialFamilyFiles = readDatabaseFamilyFiles(databasePath);
   const state = acquireMigrationCoordinatorLease(plan);
   const entry: SharedInitializationLease = {
+    admittedPlan: plan,
+    configuredDatabasePath,
     databasePath: primary.resourcePath,
+    initialFamilyFiles,
     plan,
     references: 1,
     releasePending: false,
@@ -92,12 +120,11 @@ export function acquireDatabaseInitializationLease(
     registry.delete(entry);
   };
   registry.add(entry);
-  return createInitializationLeaseHandle(entry, config);
+  return createInitializationLeaseHandle(entry);
 }
 
 function createInitializationLeaseHandle(
   entry: SharedInitializationLease,
-  config: ResolvedTraumaConfig,
 ): DatabaseInitializationLease {
   let released = false;
   return {
@@ -112,8 +139,10 @@ function createInitializationLeaseHandle(
         throw new Error("Cannot refresh a released TRAUMA database initialization lease");
       }
       const fresh = resolveRuntimeResourceLeasePlan(
-        runtimeDatabaseLeaseInputs(config.databasePath),
+        runtimeDatabaseLeaseInputs(entry.configuredDatabasePath),
       );
+      assertFreshDatabaseFamilyWasAdmitted(entry, fresh);
+      assertNoNewDatabaseFamilyHardlinks(entry);
       const enriched = mergeCanonicalRuntimeResources(
         entry.plan,
         fresh.resources,
@@ -145,6 +174,72 @@ function createInitializationLeaseHandle(
       }
     },
   };
+}
+
+function assertFreshDatabaseFamilyWasAdmitted(
+  entry: SharedInitializationLease,
+  fresh: RuntimeLeasePlan,
+): void {
+  for (const resource of fresh.resources) {
+    const admitted = entry.admittedPlan.resources.some(
+      (candidate) =>
+        candidate.resourcePath === resource.resourcePath &&
+        runtimeResourcesAreIdentical(candidate, resource),
+    );
+    if (!admitted) {
+      throw changedDatabaseFamilyError(entry.configuredDatabasePath);
+    }
+  }
+}
+
+function assertNoNewDatabaseFamilyHardlinks(
+  entry: SharedInitializationLease,
+): void {
+  const current = readDatabaseFamilyFiles(entry.configuredDatabasePath);
+  for (const [path, state] of current) {
+    if (state.links <= BigInt(1)) {
+      continue;
+    }
+    const admitted = entry.initialFamilyFiles.get(path);
+    if (
+      admitted === undefined ||
+      admitted.anchor !== state.anchor ||
+      admitted.links !== state.links
+    ) {
+      throw changedDatabaseFamilyError(entry.configuredDatabasePath);
+    }
+  }
+}
+
+function readDatabaseFamilyFiles(
+  databasePath: string,
+): ReadonlyMap<string, DatabaseFamilyFileState> {
+  const files = new Map<string, DatabaseFamilyFileState>();
+  for (const input of runtimeDatabaseLeaseInputs(databasePath)) {
+    try {
+      const stats = statSync(input.resourcePath, { bigint: true });
+      files.set(input.resourcePath, {
+        anchor: `${stats.dev.toString()}:${stats.ino.toString()}`,
+        links: stats.nlink,
+      });
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        continue;
+      }
+      throw new RuntimeProcessLeaseError(
+        `TRAUMA could not verify database initialization resource ` +
+          `${input.resourcePath}: ${formatUnknownError(error)}`,
+      );
+    }
+  }
+  return files;
+}
+
+function changedDatabaseFamilyError(databasePath: string): RuntimeProcessLeaseError {
+  return new RuntimeProcessLeaseError(
+    `TRAUMA database initialization resource changed after ownership was acquired ` +
+      `for ${databasePath}; stop and inspect the database path before retrying`,
+  );
 }
 
 function readInitializationLeaseRegistry(): Set<SharedInitializationLease> {

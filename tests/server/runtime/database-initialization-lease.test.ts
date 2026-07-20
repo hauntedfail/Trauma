@@ -1,6 +1,6 @@
-import { accessSync, readdirSync } from "node:fs";
+import { accessSync, readdirSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { link, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -132,6 +132,75 @@ describe("database initialization lease", () => {
     await expectBlockedUntilRelease(config, symlinkConfig);
   });
 
+  it.each(["", "-wal", "-shm", "-journal"])(
+    "rejects a post-acquisition %s symlink retarget without expanding ownership",
+    async (suffix) => {
+      const { config, root } = await createRuntimeConfig();
+      const lease = acquireDatabaseInitializationLease(config);
+      const familyPath = `${config.databasePath}${suffix}`;
+      const outsidePath = join(root, `outside-${suffix.slice(1) || "primary"}.sqlite`);
+      const rootSetBefore = readCoordinatorRootSet("migration");
+      const identityBefore = lease.identity;
+      await mkdir(dirname(familyPath), { recursive: true });
+      await writeFile(outsidePath, "outside", "utf8");
+      await symlink(outsidePath, familyPath, "file");
+
+      try {
+        expect(() => lease.refresh()).toThrow(
+          /database initialization resource changed after ownership was acquired/,
+        );
+        expect(lease.identity).toBe(identityBefore);
+        expect(readCoordinatorRootSet("migration")).toBe(rootSetBefore);
+        expect(await readFile(outsidePath, "utf8")).toBe("outside");
+      } finally {
+        await rm(familyPath, { force: true });
+        lease.release();
+      }
+    },
+  );
+
+  it("keeps refresh pinned to the initially reserved database path", async () => {
+    const { config, root } = await createRuntimeConfig();
+    const mutableConfig = { ...config };
+    const lease = acquireDatabaseInitializationLease(mutableConfig);
+    const rootSetBefore = readCoordinatorRootSet("migration");
+    const identityBefore = lease.identity;
+    const outsidePath = join(root, "mutated-runtime", "outside.sqlite");
+    mutableConfig.databasePath = outsidePath;
+
+    try {
+      lease.refresh();
+      expect(lease.identity).toBe(identityBefore);
+      expect(readCoordinatorRootSet("migration")).toBe(rootSetBefore);
+      expect(() => accessSync(outsidePath)).toThrow();
+    } finally {
+      lease.release();
+    }
+  });
+
+  it("rejects a post-acquisition hardlink materialization without expanding ownership", async () => {
+    const { config, root } = await createRuntimeConfig();
+    const lease = acquireDatabaseInitializationLease(config);
+    const outsidePath = join(root, "outside-hardlink.sqlite");
+    const rootSetBefore = readCoordinatorRootSet("migration");
+    const identityBefore = lease.identity;
+    await mkdir(dirname(config.databasePath), { recursive: true });
+    await writeFile(outsidePath, "outside", "utf8");
+    await link(outsidePath, config.databasePath);
+
+    try {
+      expect(() => lease.refresh()).toThrow(
+        /database initialization resource changed after ownership was acquired/,
+      );
+      expect(lease.identity).toBe(identityBefore);
+      expect(readCoordinatorRootSet("migration")).toBe(rootSetBefore);
+      expect(await readFile(outsidePath, "utf8")).toBe("outside");
+    } finally {
+      await rm(config.databasePath, { force: true });
+      lease.release();
+    }
+  });
+
   it("retains standalone ownership until the returned connection closes", async () => {
     const { config } = await createRuntimeConfig();
     const connection = initializeDatabase(config, { runMigrations: false });
@@ -141,6 +210,33 @@ describe("database initialization lease", () => {
 
     const afterClose = acquireRuntimeProcessLease(config);
     afterClose.release();
+  });
+
+  it("enriches an admitted missing database and its WAL sidecars during initialization", async () => {
+    const { config } = await createRuntimeConfig();
+    const owner = acquireDatabaseInitializationLease(config);
+    const identityBefore = owner.identity;
+    const connection = initializeDatabase(config, { runMigrations: false });
+
+    try {
+      expect(owner.identity).not.toBe(identityBefore);
+      for (const path of [
+        config.databasePath,
+        `${config.databasePath}-wal`,
+        `${config.databasePath}-shm`,
+      ]) {
+        expect(() => accessSync(path)).not.toThrow();
+        expect(
+          owner.resources.some((resource) =>
+            resource.resourcePath === realpathSync.native(path) &&
+            resource.identities.some((identity) => identity.suffix.length === 0)
+          ),
+        ).toBe(true);
+      }
+    } finally {
+      connection.close();
+      owner.release();
+    }
   });
 
   it("shares standalone ownership until every same-path connection closes", async () => {
@@ -369,6 +465,21 @@ function readCoordinatorOwner(
          FROM coordinator_leases WHERE purpose = ?1`,
       )
       .get(purpose) ?? undefined;
+  } finally {
+    database.close();
+  }
+}
+
+function readCoordinatorRootSet(
+  purpose: "migration" | "runtime",
+): string | undefined {
+  const database = new Database(resolveRuntimeLeaseCoordinatorPath());
+  try {
+    return database
+      .query<{ rootSet: string }, ["migration" | "runtime"]>(
+        "SELECT root_set AS rootSet FROM coordinator_leases WHERE purpose = ?1",
+      )
+      .get(purpose)?.rootSet;
   } finally {
     database.close();
   }
