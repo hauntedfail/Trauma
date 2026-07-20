@@ -53,6 +53,27 @@ path components after resolving symbolic links. Missing trailing directories or
 files remain valid so a clean first start can create them. Invalid or
 unresolvable effective path relationships are startup errors.
 
+## Database Migrations
+
+Application startup applies committed migrations through TRAUMA's checked
+runtime runner. To apply the same migrations without starting the server, use:
+
+```bash
+bun run db:migrate
+```
+
+The command loads `trauma.config.json` from the current directory, or the path
+set by `TRAUMA_CONFIG_PATH`, and fails if that config is missing or invalid. An
+explicit config path can be supplied without changing the process environment:
+
+```bash
+bun run db:migrate --config /path/to/trauma.config.json
+```
+
+`db:migrate` deliberately uses the same hash, compatibility, foreign-key, and
+atomicity checks as application startup. `TRAUMA_DATABASE_PATH` remains a
+Drizzle tooling override and does not bypass the runtime config contract.
+
 ## Backup Environment Failsafe
 
 When git backup is enabled, TRAUMA stores a backup environment stamp in SQLite

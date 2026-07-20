@@ -1,8 +1,11 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 interface PackageJson {
+  devDependencies: Record<string, string>;
   overrides?: Record<string, string>;
   scripts: Record<string, string>;
 }
@@ -50,6 +53,29 @@ describe("runtime command contract", () => {
     expect(packageJson.scripts.audit).toBe(
       "bun audit --ignore GHSA-67mh-4wv8-2f99 --ignore GHSA-g7r4-m6w7-qqqr",
     );
+  });
+
+  it("declares build and test tools that repository code imports directly", () => {
+    expect(packageJson.devDependencies).toEqual(
+      expect.objectContaining({
+        "@babel/core": expect.stringMatching(/\S/),
+        "vite-plugin-solid": expect.stringMatching(/\S/),
+      }),
+    );
+  });
+
+  it("isolates Git-backed tests from host-global signing configuration", () => {
+    const gitSigning = spawnSync(
+      "git",
+      ["config", "--global", "--get", "commit.gpgSign"],
+      { encoding: "utf8" },
+    );
+
+    expect(process.env.GIT_CONFIG_GLOBAL).toBe(
+      resolve("tests/fixtures/empty.gitconfig"),
+    );
+    expect(gitSigning.status).not.toBe(0);
+    expect(gitSigning.stdout).toBe("");
   });
 
   it("documents operator-facing environment variables in .env.example", () => {

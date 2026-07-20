@@ -16,7 +16,7 @@ in [Backlog.md](Backlog.md).
 | `bun run dev:smoke` | Verify development-server startup |
 | `bun run verify` | Run typecheck, tests, and build |
 | `bun run test:e2e` | Run the Playwright E2E suite |
-| `bun run db:generate` / `bun run db:migrate` | Generate or apply Drizzle migrations |
+| `bun run db:generate` / `bun run db:migrate` | Generate Drizzle files or apply checked runtime migrations |
 
 Keep this file as an index. Current behavior belongs in semantic docs; completed
 execution history belongs in Git.

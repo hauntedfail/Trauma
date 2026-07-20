@@ -17,7 +17,7 @@
     "test:e2e": "playwright test",
     "build:extension": "bun run scripts/build-browser-extension.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "bun run scripts/migrate-database.ts",
     "verify": "bun run docs:check && bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
@@ -46,6 +46,7 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
     "@playwright/test": "^1.56.1",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.3.0",
@@ -59,6 +60,7 @@
     "drizzle-kit": "^0.31.8",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
+    "vite-plugin-solid": "^2.11.12",
     "vitest": "^4.0.15"
   },
   "overrides": {
