@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { DurableMemoryBackupQueue } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import type {
+  FlashbackRepository,
   TranslationJobRecord,
   TranslationRepository,
 } from "../../../src/server/db/repositories";
@@ -140,6 +141,7 @@ describe("memory artifact mutation reservations", () => {
         backupQueue,
         chunks: [],
         config: { storePath } as ResolvedTraumaConfig,
+        flashbacks: {} as FlashbackRepository,
         job: { memoryId } as TranslationJobRecord,
         repository: {} as TranslationRepository,
       })).rejects.toBeInstanceOf(MemoryDeletionReservedError);

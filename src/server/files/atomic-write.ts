@@ -50,6 +50,21 @@ export interface AtomicPublishFileSystem {
   rm: (path: string, options: { force: boolean }) => Promise<void>;
 }
 
+export class AtomicFilePublicationUncertainError extends Error {
+  override readonly cause: unknown;
+  readonly code?: string;
+
+  constructor(
+    public readonly targetPath: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "AtomicFilePublicationUncertainError";
+    this.cause = cause;
+    this.code = isNodeError(cause) ? cause.code : undefined;
+  }
+}
+
 const defaultFileSystem: AtomicWriteFileSystem = {
   open: (path, flags, mode) => open(path, flags, mode),
   openDirectory: (path) => open(path, "r"),
@@ -210,7 +225,11 @@ export async function publishFileAtomically(
 
     await fileSystem.rename(temporaryPath, targetPath);
     published = true;
-    await syncDirectoryBestEffort(directoryPath, fileSystem);
+    try {
+      await syncDirectoryBestEffort(directoryPath, fileSystem);
+    } catch (error) {
+      throw new AtomicFilePublicationUncertainError(targetPath, error);
+    }
   } catch (error) {
     operationError = error;
     throw error;

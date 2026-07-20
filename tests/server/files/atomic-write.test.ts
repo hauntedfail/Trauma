@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  AtomicFilePublicationUncertainError,
   createFileAtomically,
   publishFileAtomically,
   writeFileAtomically,
@@ -130,14 +131,22 @@ describe("durable atomic file publication", () => {
     const targetPath = join(root, "CONTENT.md");
     const error = Object.assign(new Error("directory sync failed"), { code: "EIO" });
 
-    await expect(
-      publishFileAtomically(targetPath, "translated\n", {
-        fileSystem: createInstrumentedPublishFileSystem({
-          calls: [],
-          directorySyncError: error,
-        }),
+    const publication = publishFileAtomically(targetPath, "translated\n", {
+      fileSystem: createInstrumentedPublishFileSystem({
+        calls: [],
+        directorySyncError: error,
       }),
-    ).rejects.toThrow("directory sync failed");
+    });
+
+    await expect(publication).rejects.toMatchObject({
+      cause: error,
+      name: "AtomicFilePublicationUncertainError",
+      targetPath,
+    });
+    await expect(publication).rejects.toBeInstanceOf(
+      AtomicFilePublicationUncertainError,
+    );
+    expect(await readFile(targetPath, "utf8")).toBe("translated\n");
   });
 
   it("allows only an unsupported parent-directory sync operation", async () => {

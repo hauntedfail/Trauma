@@ -47,7 +47,8 @@ The current store tree is:
 Some files are created only when their feature is used. All resolved paths must
 remain inside the configured `storePath` and the owning memory subtree.
 
-`{storePath}/.operations/` contains short-lived create/delete journals, and
+`{storePath}/.operations/` contains short-lived create/delete journals and
+variant-specific Flashback export reconciliation intents, while
 `{storePath}/.delete-staging/` contains directories moved during deletion.
 They are internal crash-recovery state, not memory artifacts or backup inputs.
 A deletion journal is cleared only after content, backup, and SQLite state have
@@ -188,11 +189,32 @@ export and enqueues it for backup:
 {storePath}/memories/{memoryId}/{langCode}/FLASHBACKS.json
 ```
 
-Failure before SQLite and export publication fails the toggle and restores the
-previous authoritative ranges where necessary. Once both are durably
-published, backup enqueue or backup-status failure does not undo the toggle.
-The API returns the normal success fields plus an optional `backup` warning and
-`pending` or `failed` status, and startup recovery retries that memory.
+Before mutating SQLite, the server durably records a variant-specific export
+reconciliation intent. Failure before export rename restores the previous
+authoritative ranges where necessary; the retained intent makes that rollback
+recoverable too. Once both SQLite and the export are durably published, the
+intent is cleared. Backup enqueue or backup-status failure does not undo the
+toggle. The API returns the normal success fields plus an optional `backup`
+warning and `pending` or `failed` status.
+
+Export publication syncs newly created directory entries, temporary-file
+bytes, and the final export directory. If final directory sync fails after the
+atomic rename, TRAUMA verifies the exact deterministic target bytes and retries
+that sync without rewriting. Any remaining post-rename uncertainty keeps the
+next SQLite rows authoritative and returns HTTP success with the public
+`flashback_export_durability_unconfirmed` warning; internal paths and
+confirmation diagnostics are not exposed. Reader and collection callers keep
+their committed optimistic state and revalidate from SQLite instead of retrying
+or restoring stale UI. Startup reconciliation runs with git backup enabled or
+disabled, rereads the active variant rows, and republishes the deterministic
+export, including an empty row list after unflashback. Toggle and recovery hold
+the same store/memory/artifact-variant lock across SQLite read and publication,
+so an older recovery snapshot cannot overwrite a newer toggle. Translation
+completion joins that same per-language lock, records an export intent before
+making the new output hash current, publishes the new hash's projection
+(including an empty list), and includes `FLASHBACKS.json` in translation backup.
+An older retained intent therefore cannot republish the previous translation
+after a newer translation becomes authoritative.
 
 ## Moments
 

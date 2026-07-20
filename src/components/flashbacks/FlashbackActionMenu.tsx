@@ -16,6 +16,10 @@ import {
   type FlashbackBackupWarning,
 } from "../reader/flashback-backup-warning";
 import {
+  readFlashbackDurabilityWarning,
+  type FlashbackDurabilityWarning,
+} from "../reader/flashback-durability-warning";
+import {
   KebabActionMenu,
   kebabActionMenuDangerItemClass,
   kebabActionMenuErrorClass,
@@ -125,7 +129,7 @@ export function FlashbackActionMenu(props: FlashbackActionMenuProps) {
 
 export async function deleteFlashbackBySelection(
   input: DeleteFlashbackBySelectionInput,
-): Promise<FlashbackBackupWarning | undefined> {
+): Promise<FlashbackBackupWarning | FlashbackDurabilityWarning | undefined> {
   const requestFetch = input.fetch ?? fetch;
   const response = await requestFetch("/api/flashbacks", {
     method: "POST",
@@ -158,18 +162,20 @@ export async function deleteFlashbackBySelection(
     throw new Error(failure.message);
   }
 
-  const backupWarning = await readSuccessBackupWarning(response);
-  if (backupWarning !== undefined) {
+  const warning = await readSuccessWarning(response);
+  if (warning?.code === "backup_enqueue_failed") {
     void revalidateBackupFailsafeAlert();
   }
-  return backupWarning;
+  return warning;
 }
 
-async function readSuccessBackupWarning(
+async function readSuccessWarning(
   response: Response,
-): Promise<FlashbackBackupWarning | undefined> {
+): Promise<FlashbackBackupWarning | FlashbackDurabilityWarning | undefined> {
   try {
-    return readFlashbackBackupWarning(await response.json());
+    const payload: unknown = await response.json();
+    return readFlashbackDurabilityWarning(payload) ??
+      readFlashbackBackupWarning(payload);
   } catch {
     return undefined;
   }

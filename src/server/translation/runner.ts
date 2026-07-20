@@ -639,6 +639,7 @@ export async function runTranslationJob(
       backupQueue,
       chunks: await connection.repositories.translations.getTranslationChunks(jobId),
       config,
+      flashbacks: connection.repositories.flashbacks,
       job,
       maxSourceBytes:
         workloadLimits.maxSourceBytes,

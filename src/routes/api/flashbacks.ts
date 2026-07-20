@@ -12,6 +12,7 @@ import {
   type FlashbackToggleOperation,
   type ToggleMemoryFlashbackResult,
 } from "~/server/flashbacks/toggle";
+import type { FlashbackMetadataExportFileSystem } from "~/server/flashbacks/export";
 import { readJsonMutationRequest } from "~/server/http/mutation-request";
 import {
   MemoryContentStoreError,
@@ -45,7 +46,12 @@ const SELECTION_KEYS = [
   "endOffset",
 ] as const;
 
-export async function POST(event: APIEvent): Promise<Response> {
+export async function POST(
+  event: APIEvent,
+  options: {
+    flashbackExportFileSystem?: FlashbackMetadataExportFileSystem;
+  } = {},
+): Promise<Response> {
   const payload = await parseFlashbackTogglePayloadInternal(event.request);
   if (!payload.ok) {
     return json({ error: payload.error }, { status: payload.status ?? 400 });
@@ -81,6 +87,9 @@ export async function POST(event: APIEvent): Promise<Response> {
       config,
       db: connection.db,
       backupQueue: getMemoryBackupQueue(config),
+      ...(options.flashbackExportFileSystem === undefined
+        ? {}
+        : { flashbackExportFileSystem: options.flashbackExportFileSystem }),
     });
 
     return json({ result }, { status: 200 });

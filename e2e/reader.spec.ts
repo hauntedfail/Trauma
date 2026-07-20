@@ -2490,7 +2490,8 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toBeVisible();
-  expect((await createResponse).ok()).toBe(true);
+  const created = await createResponse;
+  expect(created.status(), await created.text()).toBe(200);
 
   await page.reload();
   await waitForReaderReady(page);
@@ -2508,7 +2509,8 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
   await expect(
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
-  expect((await removeResponse).ok()).toBe(true);
+  const removed = await removeResponse;
+  expect(removed.status(), await removed.text()).toBe(200);
 
   await page.reload();
   await waitForReaderReady(page);
@@ -2516,6 +2518,124 @@ test("toggles selected reader text as a persisted flashback", async ({ page }) =
     page.locator("mark[data-flashback-id]", { hasText: selectedText }),
   ).toHaveCount(0);
   await expect(page.locator("[data-reader-content]").getByText(selectedText)).toBeVisible();
+});
+
+test("keeps a warning-committed flashback and revalidates its authoritative id", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const selectedText = "Curated markdown body";
+  const warningMessage =
+    "Flashback change was saved, but export durability could not be confirmed.";
+  await page.route("**/api/flashbacks", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const payload = route.request().postDataJSON() as {
+      selection: {
+        endOffset: number;
+        prefix: string;
+        startOffset: number;
+        suffix: string;
+        text: string;
+      };
+    };
+    expect(payload.selection.text).toBe(selectedText);
+    const canonicalSelection = {
+      endOffset: "# Fixture Reader\n\n".length + selectedText.length,
+      prefix: "",
+      startOffset: "# Fixture Reader\n\n".length,
+      suffix: " with saved flashback.",
+      text: selectedText,
+    };
+    writeE2eFlashback({
+      ...canonicalSelection,
+      id: "flashback-warning-authoritative",
+    });
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        result: {
+          operation: "flashbacked",
+          flashbacks: [{
+            ...canonicalSelection,
+            id: "flashback-warning-response",
+            contentHash: null,
+            createdAt: "2026-05-09T00:02:00.000Z",
+          }],
+          durability: {
+            status: "unconfirmed",
+            warning: {
+              code: "flashback_export_durability_unconfirmed",
+              message: warningMessage,
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(warningMessage);
+  await expect(page.locator("mark#flashback-warning-authoritative")).toContainText(
+    selectedText,
+  );
+  await expect(page.locator("mark#flashback-warning-response")).toHaveCount(0);
+  expect(readE2eFlashbackIds()).toContain("flashback-warning-authoritative");
+});
+
+test("keeps a warning-committed unflashback removed after authoritative revalidation", async ({
+  page,
+}) => {
+  createReaderFixture();
+  const selectedText = "saved flashback";
+  const warningMessage =
+    "Flashback change was saved, but export durability could not be confirmed.";
+  await page.route("**/api/flashbacks", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    deleteE2eFlashback("flashback-fixture");
+    replaceE2eFlashbackId(
+      "flashback-deep",
+      "flashback-deep-authoritative",
+    );
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        result: {
+          operation: "unflashbacked",
+          flashbacks: [],
+          durability: {
+            status: "unconfirmed",
+            warning: {
+              code: "flashback_export_durability_unconfirmed",
+              message: warningMessage,
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await selectReaderText(page, selectedText);
+  await page.getByRole("button", { name: "Flashback selection" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(warningMessage);
+  await expect(page.locator("mark#flashback-fixture")).toHaveCount(0);
+  await expect(page.locator("mark#flashback-deep-authoritative")).toBeVisible();
+  await expect(page.locator("mark#flashback-deep")).toHaveCount(0);
+  expect(readE2eFlashbackIds()).not.toContain("flashback-fixture");
 });
 
 test("creates a Moment from a right-rail table of contents button", async ({
@@ -3307,6 +3427,123 @@ function readMomentAnchors(): string[] {
             .query("select section_anchor from moments order by created_at asc")
             .all();
           console.log(JSON.stringify(rows.map((row) => row.section_anchor)));
+        } finally {
+          database.close();
+        }
+  `);
+
+  return JSON.parse(stdout.trim()) as string[];
+}
+
+function writeE2eFlashback(input: {
+  endOffset: number;
+  id: string;
+  prefix: string;
+  startOffset: number;
+  suffix: string;
+  text: string;
+}) {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const input = ${JSON.stringify(input)};
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        try {
+          database.exec("PRAGMA busy_timeout = 5000");
+          const now = Date.parse("2026-05-09T00:02:00.000Z");
+          database
+            .query(\`
+              insert into flashbacks (
+                id,
+                memory_id,
+                variant_kind,
+                lang_code,
+                translation_output_hash,
+                text,
+                prefix,
+                suffix,
+                start_offset,
+                end_offset,
+                content_hash,
+                created_at,
+                updated_at
+              ) values (?, ?, 'source', null, null, ?, ?, ?, ?, ?, null, ?, ?)
+            \`)
+            .run(
+              input.id,
+              "${READER_MEMORY_ID}",
+              input.text,
+              input.prefix,
+              input.suffix,
+              input.startOffset,
+              input.endOffset,
+              now,
+              now,
+            );
+        } finally {
+          database.close();
+        }
+  `);
+}
+
+function deleteE2eFlashback(id: string) {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        try {
+          database.exec("PRAGMA busy_timeout = 5000");
+          database.query("delete from flashbacks where id = ?").run(${JSON.stringify(id)});
+        } finally {
+          database.close();
+        }
+  `);
+}
+
+function replaceE2eFlashbackId(oldId: string, newId: string) {
+  runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+        );
+        try {
+          database.exec("PRAGMA busy_timeout = 5000");
+          database
+            .query("update flashbacks set id = ?, updated_at = ? where id = ?")
+            .run(
+              ${JSON.stringify(newId)},
+              Date.parse("2026-05-09T00:03:00.000Z"),
+              ${JSON.stringify(oldId)},
+            );
+        } finally {
+          database.close();
+        }
+  `);
+}
+
+function readE2eFlashbackIds(): string[] {
+  const stdout = runBunFixtureScript(`
+        import { Database } from "bun:sqlite";
+        import { join } from "node:path";
+
+        const database = new Database(
+          join(process.cwd(), ".trauma/e2e/runtime/trauma.sqlite"),
+          { readonly: true },
+        );
+        try {
+          database.exec("PRAGMA busy_timeout = 5000");
+          const rows = database
+            .query("select id from flashbacks order by id asc")
+            .all();
+          console.log(JSON.stringify(rows.map((row) => row.id)));
         } finally {
           database.close();
         }

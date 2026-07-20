@@ -122,10 +122,13 @@ Flashback ranges without rewriting `CONTENT.md`.
    active language when translated.
 4. The server resolves the selection against current active-variant reader text
    and fails closed if the content or translation hash is stale.
-5. It persists backup intent before creating, deleting, shrinking, or splitting
-   SQLite rows so only the intended ranges change.
-6. It rewrites the active variant's deterministic `FLASHBACKS.json` export.
-7. It enqueues that export for backup.
+5. It durably persists backup intent and a variant-specific export
+   reconciliation intent before changing SQLite rows.
+6. Under the shared artifact-variant lock, it creates, deletes, shrinks, or
+   splits only the intended SQLite ranges and rewrites deterministic
+   `FLASHBACKS.json`.
+7. It clears the reconciliation intent only after confirmed export publication,
+   then enqueues that export for backup.
 
 Offsets use canonical reader text and a `sha256:<hex>` content hash. Translated
 rows are additionally scoped by language and translation output hash. A stale
@@ -134,8 +137,11 @@ and export publication rolls back or clearly fails the optimistic UI. Once
 both are durable, backup enqueue or status failure keeps the toggle successful,
 returns an explicit backup warning with `pending` or `failed` status, and does
 not restore the old rows or export. Backup failsafe metadata also refreshes the
-global alert. Startup retry regenerates a missing or stale export from its
-authoritative SQLite rows before backup.
+global alert. Post-rename durability uncertainty is a committed success with an
+explicit warning: Reader and collection clients preserve the new interaction
+state and revalidate authoritative SQLite projections. Startup reconciliation
+runs independently of git backup state, regenerates non-empty or empty exports,
+and rereads rows while holding the same artifact-variant lock used by toggles.
 
 ## Moment Toggle
 
@@ -257,23 +263,29 @@ remain compatible for their current clients.
    compare-and-set guards, then rechecks the source hash.
 8. Completed chunks are stitched in order and the final Markdown/frontmatter
    structure is validated.
-9. Backup intent for `CONTENT.md` and `TRANSLATION_MAP.json` is persisted before
-   either terminal artifact is written.
+9. Backup intent for `CONTENT.md`, `TRANSLATION_MAP.json`, and the translated
+   `FLASHBACKS.json` projection is persisted before terminal artifacts are
+   written.
 10. The terminal artifact/SQLite publication holds the memory mutation
-    reservation and rechecks it immediately before each write. The translated
-    `CONTENT.md` is file-synced and atomically renamed into its
-   language directory. TRAUMA hashes the written bytes, writes
-   `TRANSLATION_MAP.json`, replaces SQLite projection spans, and marks the job
-   complete with output path/hash.
+    reservation and the same per-language Flashback projection lock used by
+    toggle/recovery. It rechecks the reservation immediately before each write.
+    The translated `CONTENT.md` is file-synced and atomically renamed into its
+    language directory. TRAUMA hashes the written bytes, writes
+    `TRANSLATION_MAP.json`, replaces SQLite projection spans, and records a
+    Flashback reconciliation intent before marking the job complete with output
+    path/hash.
 11. Completed chunk payloads are purged best-effort. Translation content and
-    projection export are enqueued for backup; enqueue failure does not undo a
-    completed translation.
+    both projections are published and enqueued for backup. The Flashback
+    projection is written for the new output hash even when it has no rows, and
+    its intent is cleared only after confirmed publication. Export or enqueue
+    failure does not undo a completed translation; a retained intent is replayed
+    on startup.
 
 A crash after the atomic output rename but before projection or SQLite
 completion leaves the durable job in `committing` with its chunks intact. The
 next start for the same source and language reschedules that job; replay rewrites
-the output and projection, completes SQLite state, and repeats backup intent and
-enqueue.
+the output and projections, completes SQLite state, and repeats backup intent
+and enqueue.
 
 In-process replay retains at most 500 events and 4 MiB, evicting the oldest
 events by both limits while preserving order. The SSE endpoint pulls the durable

@@ -89,6 +89,7 @@ import {
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
 } from "./flashback-failure";
 import { readFlashbackBackupWarning } from "./flashback-backup-warning";
+import { readFlashbackDurabilityWarning } from "./flashback-durability-warning";
 import {
   readerArticle,
   readerFrame,
@@ -3159,8 +3160,12 @@ async function toggleReaderSelection(input: {
       });
     }
     const backupWarning = readFlashbackBackupWarning(payload);
+    const durabilityWarning = readFlashbackDurabilityWarning(payload);
+    const warning = durabilityWarning ?? backupWarning;
+    if (warning !== undefined) {
+      input.setErrorMessage(warning.message);
+    }
     if (backupWarning !== undefined) {
-      input.setErrorMessage(backupWarning.message);
       void revalidateBackupFailsafeAlert();
     }
     input.onFlashbacksChanged(payload.result.flashbacks);

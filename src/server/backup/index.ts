@@ -26,8 +26,9 @@ import { BACKUP_STATUSES, type BackupStatus } from "./status";
 import {
   getSourceFlashbackMetadataExportPath,
   getTranslatedFlashbackMetadataExportPath,
-  writeFlashbackMetadataExport,
 } from "../flashbacks/export";
+import { recoverFlashbackExportReconciliationIntents } from "../flashbacks/export-intent";
+import { reconcileFlashbackMetadataExport } from "../flashbacks/reconciliation";
 import {
   sourceFlashbackVariant,
   type FlashbackVariant,
@@ -158,6 +159,10 @@ function startDisabledBackupOperationRecovery(
       await recoverInterruptedMemoryOperations({
         config,
         memories: connection.repositories.memories,
+      });
+      await recoverFlashbackExportReconciliationIntents({
+        config,
+        repositories: connection.repositories,
       });
     } finally {
       connection.close();
@@ -453,6 +458,10 @@ export function createGitMemoryBackupQueue(
           memories: connection.repositories.memories,
           now,
         });
+        await recoverFlashbackExportReconciliationIntents({
+          config: input.config,
+          repositories: connection.repositories,
+        });
         await assertBackupEnvironmentReady({
           config: input.config,
           db: connection.db,
@@ -631,25 +640,9 @@ async function recoverFlashbackExportIfNeeded(input: {
   memoryId: string;
   variant: FlashbackVariant;
 }): Promise<void> {
-  const rows = await input.flashbacks.listForMemoryVariant({
-    memoryId: input.memoryId,
-    variant: input.variant,
-  });
-  const relativePath = input.variant.kind === "source"
-    ? getSourceFlashbackMetadataExportPath(input.memoryId)
-    : getTranslatedFlashbackMetadataExportPath({
-      langCode: input.variant.langCode,
-      memoryId: input.memoryId,
-    });
-  if (
-    rows.length === 0 &&
-    !(await pathExists(resolve(input.config.storePath, relativePath)))
-  ) {
-    return;
-  }
-  await writeFlashbackMetadataExport({
+  await reconcileFlashbackMetadataExport({
     config: input.config,
-    flashbacks: rows,
+    flashbacks: input.flashbacks,
     memoryId: input.memoryId,
     variant: input.variant,
   });

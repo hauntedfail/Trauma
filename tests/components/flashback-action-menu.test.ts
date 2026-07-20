@@ -152,4 +152,38 @@ describe("Flashback action menu", () => {
       message: "Flashback was saved, but backup enqueue failed.",
     });
   });
+
+  it("keeps a committed durability warning on the successful delete path", async () => {
+    const warning = await deleteFlashbackBySelection({
+      flashback,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            result: {
+              operation: "unflashbacked",
+              flashbacks: [],
+              durability: {
+                status: "unconfirmed",
+                warning: {
+                  code: "flashback_export_durability_unconfirmed",
+                  message:
+                    "Flashback change was saved, but export durability could not be confirmed.",
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    expect(warning).toEqual({
+      code: "flashback_export_durability_unconfirmed",
+      message:
+        "Flashback change was saved, but export durability could not be confirmed.",
+      status: "unconfirmed",
+    });
+  });
 });

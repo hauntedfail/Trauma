@@ -8,10 +8,20 @@ import {
   syncDirectoryBestEffort,
 } from "../files/atomic-write";
 import type {
+  FlashbackRepository,
   TranslationChunkRecord,
   TranslationJobRecord,
   TranslationRepository,
 } from "../db/repositories";
+import { withTranslatedFlashbackProjectionMutationLock } from "../flashbacks/coordination";
+import {
+  clearFlashbackExportReconciliationIntent,
+  persistFlashbackExportReconciliationIntent,
+} from "../flashbacks/export-intent";
+import {
+  getTranslatedFlashbackMetadataExportPath,
+  writeFlashbackMetadataExport,
+} from "../flashbacks/export";
 import { createSha256ContentHash } from "./hash";
 import {
   DEFAULT_TRANSLATION_WORKLOAD_LIMITS,
@@ -58,6 +68,7 @@ type CommitTranslatedContentInput = {
   backupQueue: DurableMemoryBackupQueue;
   config: ResolvedTraumaConfig;
   chunks: TranslationChunkRecord[];
+  flashbacks: Pick<FlashbackRepository, "listForMemoryVariant">;
   job: TranslationJobRecord;
   maxOutputBytes?: number;
   maxSourceBytes?: number;
@@ -76,9 +87,16 @@ export async function commitTranslatedContent(
   | StaleTranslationCommitResult
   | SupersededTranslationCommitResult
 > {
-  return withMemoryArtifactMutation(
-    { memoryId: input.job.memoryId, storePath: input.config.storePath },
-    (reservation) => commitTranslatedContentReserved(input, reservation),
+  return withTranslatedFlashbackProjectionMutationLock(
+    {
+      langCode: input.job.langCode,
+      memoryId: input.job.memoryId,
+      storePath: input.config.storePath,
+    },
+    () => withMemoryArtifactMutation(
+      { memoryId: input.job.memoryId, storePath: input.config.storePath },
+      (reservation) => commitTranslatedContentReserved(input, reservation),
+    ),
   );
 }
 
@@ -143,11 +161,16 @@ async function commitTranslatedContentReserved(
     langCode: input.job.langCode,
     memoryId: input.job.memoryId,
   });
+  const flashbackExportPath = getTranslatedFlashbackMetadataExportPath({
+    langCode: input.job.langCode,
+    memoryId: input.job.memoryId,
+  });
   reservation.assertWritable();
   await input.backupQueue.persistIntent({
     contentPaths: [
       intendedOutputPath.relativePath,
       projectionPath.relativePath,
+      flashbackExportPath,
     ],
     memoryId: input.job.memoryId,
     reason: "translation_update",
@@ -194,6 +217,17 @@ async function commitTranslatedContentReserved(
     projectionSpans,
   );
 
+  const flashbackVariant = {
+    kind: "translation" as const,
+    langCode: input.job.langCode as SupportedLanguageCode,
+    outputHash,
+  };
+  reservation.assertWritable();
+  await persistFlashbackExportReconciliationIntent({
+    config: input.config,
+    memoryId: input.job.memoryId,
+    variant: flashbackVariant,
+  });
   reservation.assertWritable();
   const markedComplete = await input.repository.transitionTranslationJobStatus(
     input.job.jobId,
@@ -209,6 +243,34 @@ async function commitTranslatedContentReserved(
   if (!markedComplete) {
     return { status: "superseded" };
   }
+  let confirmedFlashbackExportPath: string | undefined;
+  try {
+    reservation.assertWritable();
+    const flashbacks = await input.flashbacks.listForMemoryVariant({
+      memoryId: input.job.memoryId,
+      variant: flashbackVariant,
+    });
+    confirmedFlashbackExportPath = await writeFlashbackMetadataExport({
+      config: input.config,
+      flashbacks,
+      memoryId: input.job.memoryId,
+      variant: flashbackVariant,
+    });
+    try {
+      await clearFlashbackExportReconciliationIntent({
+        config: input.config,
+        memoryId: input.job.memoryId,
+        variant: flashbackVariant,
+      });
+    } catch {
+      // A confirmed export makes a retained or deletion-uncertain intent safe:
+      // startup reconciliation is idempotent and will clear it after replay.
+    }
+  } catch (error) {
+    // Translation completion is already authoritative. Keep the durable intent
+    // for startup reconciliation instead of rolling the completed job back.
+    console.warn("failed to reconcile translated flashback export", error);
+  }
   try {
     await input.repository.purgeCompletedTranslationChunks(input.job.jobId, now);
   } catch (error) {
@@ -216,7 +278,13 @@ async function commitTranslatedContentReserved(
   }
   try {
     await input.backupQueue.enqueue({
-      contentPaths: [outputPath.relativePath, projectionPath.relativePath],
+      contentPaths: [
+        outputPath.relativePath,
+        projectionPath.relativePath,
+        ...(confirmedFlashbackExportPath === undefined
+          ? []
+          : [confirmedFlashbackExportPath]),
+      ],
       memoryId: input.job.memoryId,
       reason: "translation_update",
     });

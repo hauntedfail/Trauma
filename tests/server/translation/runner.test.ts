@@ -546,6 +546,7 @@ describe("translation runner", () => {
         contentPaths: [
           `memories/${memoryId}/ja-JP/CONTENT.md`,
           `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+          `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
         ],
         memoryId,
         reason: "translation_update",
@@ -2465,7 +2466,11 @@ describe("translation runner", () => {
     await runTranslationJob(started.job_id, { backupQueue, client, config });
 
     const expectedBackup = {
-      contentPaths: [outputPath.relativePath, projectionPath.relativePath],
+      contentPaths: [
+        outputPath.relativePath,
+        projectionPath.relativePath,
+        `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
+      ],
       memoryId,
       reason: "translation_update",
     };

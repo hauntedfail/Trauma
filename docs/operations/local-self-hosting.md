@@ -51,6 +51,12 @@ alert so the operator can choose `revert` or `migrate` explicitly.
 Backup work is asynchronous. A failed backup does not invalidate memory or
 Flashback creation, a completed translation, a saved Psychiatrist answer, or
 other durable store writes. Failures are recorded and surfaced through metadata.
+Flashback export reconciliation is separate from git: startup replays retained
+export intents from SQLite even when git backup is disabled or its failsafe is
+active. Translation completion also republishes the current language's
+`FLASHBACKS.json` under the shared language lock and includes it in the
+translation backup set, so an older output-hash projection cannot survive a
+newly completed translation.
 
 When push is enabled, a missing configured remote name is treated as local-only
 backup and does not warn. A configured remote that exists but fails to push

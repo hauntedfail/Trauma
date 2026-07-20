@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -260,6 +269,99 @@ describe("flashbacks API route", () => {
     }
   });
 
+  it("returns exact committed durability warning JSON without internal diagnostics", async () => {
+    const root = await makeRoot();
+    const configPath = await writeConfig(root, { backupEnabled: false });
+    process.env.TRAUMA_CONFIG_PATH = configPath;
+    const config = loadTraumaConfig({ configPath });
+    const markdown = "Alpha target beta.";
+    const connection = initializeDatabase(config);
+    try {
+      await connection.repositories.memories.create({
+        id: memoryId,
+        url: "https://example.com/flashback-warning",
+        title: "Flashback warning",
+        description: null,
+        faviconUrl: null,
+        contentPath: `memories/${memoryId}/CONTENT.md`,
+        extractionStatus: "success",
+        extractionError: null,
+        backupStatus: "disabled",
+        lastBackupAt: null,
+        lastBackupError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await connection.db.insert(schema.flashbacks).values({
+        id: "flashback-warning-existing",
+        memoryId,
+        text: "target",
+        prefix: "Alpha ",
+        suffix: " beta.",
+        startOffset: 6,
+        endOffset: 12,
+        contentHash: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+    await writeMemoryContent({
+      config,
+      memoryId,
+      frontmatter: {
+        id: memoryId,
+        url: "https://example.com/flashback-warning",
+        title: "Flashback warning",
+        capturedAt: now.toISOString(),
+        extractionStatus: "success",
+      },
+      markdown,
+    });
+
+    const response = await POST(
+      createApiEvent(
+        new Request("http://localhost/api/flashbacks", {
+          method: "POST",
+          body: JSON.stringify({
+            memoryId,
+            operation: "unflashback",
+            selection: {
+              text: "target",
+              prefix: "Alpha ",
+              suffix: " beta.",
+              startOffset: 6,
+              endOffset: 12,
+            },
+          }),
+        }),
+      ),
+      { flashbackExportFileSystem: unconfirmedExportFileSystem() },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      result: {
+        operation: "unflashbacked",
+        durability: {
+          status: "unconfirmed",
+          warning: {
+            code: "flashback_export_durability_unconfirmed",
+            message:
+              "Flashback change was saved, but export durability could not be confirmed.",
+          },
+        },
+        flashbacks: [],
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(config.storePath);
+    expect(JSON.stringify(body)).not.toContain("targetMatchesExpected");
+    expect(JSON.stringify(body)).not.toContain("private sync failure");
+    expect(JSON.stringify(body)).not.toContain("cause");
+  });
+
   it("rejects translated flashback content when the file no longer matches the resolved output hash", async () => {
     const root = await makeRoot();
     const configPath = await writeConfig(root, { backupEnabled: false });
@@ -295,6 +397,28 @@ describe("flashbacks API route", () => {
     });
   });
 });
+
+function unconfirmedExportFileSystem() {
+  return {
+    mkdir: (path: string, options: { recursive: true }) => mkdir(path, options),
+    open: (path: string, flags: "wx", mode: number) => open(path, flags, mode),
+    openDirectory: async (path: string) => {
+      const handle = await open(path, "r");
+      return {
+        close: () => handle.close(),
+        sync: async () => {
+          throw Object.assign(new Error("private sync failure"), {
+            code: "EIO",
+          });
+        },
+      };
+    },
+    readFile: (path: string, encoding: BufferEncoding) => readFile(path, encoding),
+    realpath,
+    rename,
+    rm: (path: string, options: { force: boolean }) => rm(path, options),
+  };
+}
 
 async function expectPayloadError(payload: unknown, error: string): Promise<void> {
   await expect(

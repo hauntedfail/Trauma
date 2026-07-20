@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DurableMemoryBackupQueue } from "../../../src/server/backup";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { initializeDatabase } from "../../../src/server/db";
+import { writeFlashbackMetadataExport } from "../../../src/server/flashbacks/export";
+import { reconcileFlashbackMetadataExport } from "../../../src/server/flashbacks/reconciliation";
 import { createMemoryContentFixture } from "../../../src/server/store";
+import { writeTranslationProjectionSidecarAtomically } from "../../../src/server/translation/projection-map";
 import { loadTranslationSourceSnapshot } from "../../../src/server/translation/source-loader";
 import {
   commitTranslatedContent,
@@ -26,7 +29,7 @@ afterEach(async () => {
 });
 
 describe("translation stitching and atomic commit", () => {
-  it("writes translated CONTENT.md, purges chunks, and enqueues backup", async () => {
+  it("writes and backs up the current translated flashback projection without a stale recovery race", async () => {
     const config = await createConfig();
     await writeSourceContent(config);
     const source = await loadTranslationSourceSnapshot({ config, memoryId });
@@ -58,6 +61,41 @@ describe("translation stitching and atomic commit", () => {
         lastBackupError: null,
         createdAt: now,
         updatedAt: now,
+      });
+      const staleOutputHash = `sha256:${"1".repeat(64)}`;
+      const staleFlashback = {
+        id: "stale-translated-flashback",
+        memoryId,
+        variantKind: "translation" as const,
+        langCode: "ja-JP" as const,
+        translationOutputHash: staleOutputHash,
+        text: "古い翻訳",
+        prefix: "",
+        suffix: "",
+        startOffset: 0,
+        endOffset: 4,
+        contentHash: staleOutputHash,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await connection.repositories.flashbacks.replaceForMemoryVariant({
+        flashbacks: [staleFlashback],
+        memoryId,
+        variant: {
+          kind: "translation",
+          langCode: "ja-JP",
+          outputHash: staleOutputHash,
+        },
+      });
+      await writeFlashbackMetadataExport({
+        config,
+        flashbacks: [staleFlashback],
+        memoryId,
+        variant: {
+          kind: "translation",
+          langCode: "ja-JP",
+          outputHash: staleOutputHash,
+        },
       });
       const job = await connection.repositories.translations.createTranslationJob({
         chunkCount: 2,
@@ -136,26 +174,85 @@ describe("translation stitching and atomic commit", () => {
         { updatedAt: now },
       );
 
-      const result = await commitTranslatedContent({
+      const projectionPublicationReached = deferred<void>();
+      const releaseProjectionPublication = deferred<void>();
+      const raceOrder: string[] = [];
+      const commit = commitTranslatedContent({
         backupQueue,
         chunks: await connection.repositories.translations.getTranslationChunks(
           "job-stitch",
         ),
         config,
+        flashbacks: connection.repositories.flashbacks,
         job,
         now,
+        publishProjectionSidecar: async (absolutePath, sidecar) => {
+          raceOrder.push("translation-paused");
+          projectionPublicationReached.resolve();
+          await releaseProjectionPublication.promise;
+          await writeTranslationProjectionSidecarAtomically(
+            absolutePath,
+            sidecar,
+          );
+        },
         repository: connection.repositories.translations,
       });
+      await projectionPublicationReached.promise;
+      const staleRecovery = reconcileFlashbackMetadataExport({
+        beforeWrite: () => {
+          raceOrder.push("recovery-write");
+        },
+        config,
+        flashbacks: connection.repositories.flashbacks,
+        memoryId,
+        resolveAuthoritativeVariant: async () => {
+          const current = await connection.repositories.translations
+            .getTranslationJob(job.jobId);
+          return current?.status === "complete" && current.outputHash !== null
+            ? {
+                kind: "translation" as const,
+                langCode: "ja-JP" as const,
+                outputHash: current.outputHash,
+              }
+            : undefined;
+        },
+        variant: {
+          kind: "translation",
+          langCode: "ja-JP",
+          outputHash: staleOutputHash,
+        },
+        writeEmptyIfMissing: true,
+      });
+      await Promise.resolve();
+      expect(raceOrder).toEqual(["translation-paused"]);
+      releaseProjectionPublication.resolve();
+      const [result] = await Promise.all([commit, staleRecovery]);
+      expect(raceOrder).toEqual(["translation-paused", "recovery-write"]);
 
       expect(result).toMatchObject({
         outputPath: `memories/${memoryId}/ja-JP/CONTENT.md`,
         readerUrl: `/memories/ja-JP/${memoryId}`,
+      });
+      if (!("outputHash" in result)) {
+        throw new Error("Expected the translation commit to complete.");
+      }
+      await expect(readFile(
+        join(config.storePath, `memories/${memoryId}/ja-JP/FLASHBACKS.json`),
+        "utf8",
+      )).resolves.toSatisfy((content: string) => {
+        const payload = JSON.parse(content) as {
+          flashbacks: unknown[];
+          variant: { translationOutputHash: string };
+        };
+        return payload.flashbacks.length === 0 &&
+          payload.variant.translationOutputHash === result.outputHash;
       });
       expect(enqueued).toEqual([
         {
           contentPaths: [
             `memories/${memoryId}/ja-JP/CONTENT.md`,
             `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+            `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
           ],
           memoryId,
           reason: "translation_update",
@@ -274,6 +371,7 @@ describe("translation stitching and atomic commit", () => {
             "job-purge-fails",
           ),
           config,
+          flashbacks: connection.repositories.flashbacks,
           job,
           now,
           repository,
@@ -303,6 +401,7 @@ describe("translation stitching and atomic commit", () => {
           contentPaths: [
             `memories/${memoryId}/ja-JP/CONTENT.md`,
             `memories/${memoryId}/ja-JP/TRANSLATION_MAP.json`,
+            `memories/${memoryId}/ja-JP/FLASHBACKS.json`,
           ],
           memoryId,
           reason: "translation_update",
@@ -398,6 +497,7 @@ describe("translation stitching and atomic commit", () => {
             job.jobId,
           ),
           config,
+          flashbacks: connection.repositories.flashbacks,
           job: { ...job, status: "committing" },
           now,
           publishProjectionSidecar: async () => {
@@ -489,4 +589,12 @@ async function createConfig(): Promise<ResolvedTraumaConfig> {
       },
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
