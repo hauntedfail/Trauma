@@ -275,7 +275,7 @@ describe("browser import API route", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            sourceUrl: "https://example.com/article",
+            sourceUrl: "https://93.184.216.34/article",
             canonicalUrl: null,
             title: "Captured",
             description: null,
