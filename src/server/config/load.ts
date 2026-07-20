@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { TraumaConfigError } from "./errors";
 import { assertRuntimeProcessLeaseCoversConfig } from "../runtime/process-lease";

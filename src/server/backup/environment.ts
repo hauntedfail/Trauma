@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, readdir } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
@@ -554,11 +554,6 @@ async function isSamePath(left: string | null, right: string) {
   } catch {
     return resolve(left) === resolve(right);
   }
-}
-
-function isInside(parent: string, child: string) {
-  const path = relative(resolve(parent), resolve(child));
-  return path !== "" && !path.startsWith("..") && !isAbsolute(path);
 }
 
 async function readGitRemoteUrl(config: ResolvedTraumaConfig) {

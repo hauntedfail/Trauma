@@ -95,7 +95,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("lists memory browse rows from SQLite metadata and relations", () => {
+  it("lists paged memory browse rows from SQLite metadata and relations", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `
@@ -154,12 +154,17 @@ describe("db foundation", () => {
             connection.sqlite.prepare("insert into tags (id, name, created_at, updated_at) values (?, ?, ?, ?)").run("sqlite", "sqlite", now, now);
             connection.sqlite.prepare("insert into memory_categories (memory_id, category_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "research", now, now);
             connection.sqlite.prepare("insert into memory_tags (memory_id, tag_id, created_at, updated_at) values (?, ?, ?, ?)").run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "sqlite", now, now);
-            connection.sqlite
-              .prepare("insert into flashbacks (id, memory_id, text, prefix, suffix, start_offset, end_offset, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-              .run("f-real", "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003", "repository flashback", "from", "sqlite", 0, 20, now, now);
-
-            const memories = await connection.repositories.memories.listForBrowse();
-            process.stdout.write(JSON.stringify(memories));
+            const page = await connection.repositories.memories.listForBrowsePage({
+              categoryId: "",
+              cursor: null,
+              flashbackId: "",
+              limit: 30,
+              readState: "all",
+              searchFields: [],
+              searchTerms: [],
+              tagId: "",
+            });
+            process.stdout.write(JSON.stringify(page));
           } finally {
             connection.close();
           }
@@ -173,39 +178,22 @@ describe("db foundation", () => {
       },
     );
 
-    const memories = JSON.parse(output);
-    expect(memories[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(memories[0]?.flashbacks[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(memories).toEqual([
-      {
+    const page = JSON.parse(output);
+    expect(page.rows[0]?.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(page).toEqual({
+      rows: [{
         id: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
         title: "Real SQLite Memory",
         url: "https://example.com/real-memory",
         description: "Saved from the repository",
-        capturedAt: memories[0].capturedAt,
+        capturedAt: page.rows[0].capturedAt,
         read: false,
         extractionStatus: "success",
         categories: [{ id: "research", name: "Research" }],
         tags: [{ id: "sqlite", name: "sqlite" }],
-        flashbacks: [
-          {
-            id: "f-real",
-            memoryId: "018f04a2-3c6f-7c88-9a8b-8c99a9b7f003",
-            memoryTitle: "Real SQLite Memory",
-            variantKind: "source",
-            langCode: null,
-            translationOutputHash: null,
-            text: "repository flashback",
-            prefix: "from",
-            suffix: "sqlite",
-            startOffset: 0,
-            endOffset: 20,
-            contentHash: null,
-            createdAt: memories[0].flashbacks[0].createdAt,
-          },
-        ],
-      },
-    ]);
+      }],
+      nextCursor: null,
+    });
   });
 
   it("applies migrations when launched outside the project cwd", () => {

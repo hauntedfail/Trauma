@@ -59,5 +59,3 @@ export type E2eControlResult =
   | Record<string, never>
   | { values: string[] }
   | { state: E2ePersistenceState };
-
-export type E2eControlResponse = { ok: true } & E2eControlResult;

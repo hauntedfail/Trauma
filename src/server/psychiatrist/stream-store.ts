@@ -93,13 +93,6 @@ export async function appendPsychiatristStreamEvent<TData>(input: {
   }
 }
 
-export function publishPsychiatristStreamEvent(event: PsychiatristStreamEvent): void {
-  const projected = projectPersistedStreamEvent(event);
-  if (projected !== undefined) {
-    publishStreamEvent(projected);
-  }
-}
-
 export function subscribePsychiatristStream(input: {
   onEvent: StreamSubscriber;
   turnId: string;
@@ -357,9 +350,6 @@ function projectSafeStreamEvent<TData>(
       };
     }
   }
-  const _exhaustive: never = event.type;
-  void _exhaustive;
-  return undefined;
 }
 
 function projectPersistedStreamEvent(
@@ -522,8 +512,4 @@ function validateSafeId(id: string): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }

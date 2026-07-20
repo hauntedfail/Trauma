@@ -272,7 +272,7 @@ function sanitizeReaderHtml(html: string, options: RenderMemoryMarkdownOptions) 
 function addReaderHeadingMomentButtons(html: string) {
   return html.replace(
     /<(h[1-3])([^>]*\bdata-reader-section-anchor="[^"]+"[^>]*)>/g,
-    (match: string, tagName: string, attributes: string) => {
+    (_match: string, tagName: string, attributes: string) => {
       const title = readHtmlAttribute(attributes, "data-reader-section-title")
         ?? "section";
       const outline = renderMomentIconSvgMarkup({

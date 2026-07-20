@@ -1056,31 +1056,6 @@ function readTestRemoteFingerprint(config: ReturnType<typeof loadTraumaConfig>) 
   }
 }
 
-async function seedPushFailureAlert(configPath: string) {
-  const config = loadTraumaConfig({ configPath });
-  const connection = initializeDatabase(config);
-  try {
-    await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
-      id: "active",
-      kind: "backup_push_failed",
-      severity: "critical",
-      message: "Backup push failed",
-      previousProjectPath: null,
-      previousStorePath: null,
-      currentProjectPath: config.projectPath,
-      currentStorePath: config.storePath,
-      gitRemote: "origin",
-      gitRemoteUrl: null,
-      gitBranch: "main",
-      error: "remote unavailable",
-      createdAt: now,
-      updatedAt: now,
-    });
-  } finally {
-    connection.close();
-  }
-}
-
 async function seedRepositoryMissingAlert(configPath: string) {
   const config = loadTraumaConfig({ configPath });
   const connection = initializeDatabase(config);

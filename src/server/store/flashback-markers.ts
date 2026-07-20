@@ -451,13 +451,6 @@ export function mapMarkdownSourceRangeToReaderRange(
   return mapSourceRangeToReaderRange(projectedMarkdown, range);
 }
 
-export function mapReaderRangeToMarkdownSourceRange(
-  projectedMarkdown: ProjectedMarkdownText,
-  range: MarkdownRange,
-): MarkdownRange | undefined {
-  return mapReaderRangeToSourceRange(projectedMarkdown, range);
-}
-
 function normalizeMarkdownLineEndings(markdown: string): string {
   return markdown.replace(/\r\n?/g, "\n");
 }
@@ -870,16 +863,6 @@ function rangeOverlapsProtectedProjection(
   return projectedMarkdown.protectedOffsets
     .slice(startOffset, endOffset)
     .some(Boolean);
-}
-
-function normalizeFlashbackMarkerRangesForProjection(
-  projectedMarkdown: ProjectedMarkdownText,
-  flashbacks: FlashbackMarkerRange[],
-): FlashbackMarkerRange[] {
-  return flashbacks.flatMap((flashback) => {
-    const normalized = normalizeFlashbackMarkerRange(projectedMarkdown, flashback);
-    return normalized === undefined ? [] : [normalized];
-  });
 }
 
 function normalizeFlashbackMarkerRange(

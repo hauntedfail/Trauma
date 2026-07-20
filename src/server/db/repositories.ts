@@ -5,7 +5,6 @@ import {
   sourceFlashbackVariant,
   toFlashbackVariantColumns,
   type FlashbackVariant,
-  type FlashbackVariantColumns,
 } from "../flashbacks/variant";
 import type { ExtractionStatus } from "../memory-status";
 import {
@@ -35,7 +34,6 @@ type Moment = typeof schema.moments.$inferSelect;
 type NewMoment = typeof schema.moments.$inferInsert;
 export type Flashback = typeof schema.flashbacks.$inferSelect;
 type AppSettings = typeof schema.appSettings.$inferSelect;
-type OpenAiAuthCredential = typeof schema.openaiAuthCredentials.$inferSelect;
 type TranslationJob = typeof schema.translationJobs.$inferSelect;
 type NewTranslationJob = typeof schema.translationJobs.$inferInsert;
 type TranslationChunk = typeof schema.translationChunks.$inferSelect;
@@ -85,19 +83,6 @@ export type ReaderMemoryAggregateRow = ReaderMemoryRow & {
   memoryCategories: { category: TaxonomyLabelRow }[];
   memoryTags: { tag: TaxonomyLabelRow }[];
 };
-
-export interface MemoryBrowseRow {
-  id: string;
-  title: string;
-  url: string;
-  description: string;
-  capturedAt: string;
-  read: boolean;
-  extractionStatus: ExtractionStatus;
-  categories: { id: string; name: string }[];
-  tags: { id: string; name: string }[];
-  flashbacks: FlashbackBrowseRow[];
-}
 
 export interface MemoryBrowsePageRow {
   id: string;
@@ -215,7 +200,6 @@ export interface MemoryRepository {
   }) => Promise<MemoryBackupStatusUpdate>;
   listBackupsEligibleForRetry: () => Promise<MemoryBackupRetryRow[]>;
   listForBrowsePage: (input: ListMemoryBrowsePageInput) => Promise<MemoryBrowsePageResult>;
-  listForBrowse: () => Promise<MemoryBrowseRow[]>;
 }
 
 export interface TaxonomyBrowseRow {
@@ -467,13 +451,6 @@ export interface SettingsRepository {
     language: SupportedLanguageCode;
     updatedAt: Date;
   }) => Promise<AppSettings>;
-  getOpenAiAuthCredential: () => Promise<OpenAiAuthCredential | undefined>;
-  createOpenAiAuthCredential: (input: {
-    provider: string;
-    credentialReference: string;
-    now: Date;
-  }) => Promise<OpenAiAuthCredential>;
-  deleteOpenAiAuthCredential: () => Promise<boolean>;
 }
 
 export interface TraumaRepositories {
@@ -977,91 +954,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           orderBy: [asc(schema.memories.updatedAt), asc(schema.memories.id)],
         }),
       listForBrowsePage: async (input) => listMemoryBrowsePage(db, input),
-      listForBrowse: async () => {
-        const rows = await db.query.memories.findMany({
-          columns: {
-            id: true,
-            title: true,
-            url: true,
-            description: true,
-            createdAt: true,
-            read: true,
-            extractionStatus: true,
-          },
-          orderBy: [desc(schema.memories.createdAt)],
-          with: {
-            flashbacks: {
-              columns: {
-                id: true,
-                variantKind: true,
-                langCode: true,
-                translationOutputHash: true,
-                text: true,
-                prefix: true,
-                suffix: true,
-                startOffset: true,
-                endOffset: true,
-                contentHash: true,
-                createdAt: true,
-              },
-              orderBy: [desc(schema.flashbacks.createdAt)],
-            },
-            memoryCategories: {
-              with: {
-                category: {
-                  columns: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-            memoryTags: {
-              with: {
-                tag: {
-                  columns: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        return rows.map((memory) => ({
-          id: memory.id,
-          title: memory.title,
-          url: memory.url,
-          description: memory.description ?? "",
-          capturedAt: formatDate(memory.createdAt),
-          read: memory.read,
-          extractionStatus: memory.extractionStatus,
-          categories: memory.memoryCategories.map(({ category }) => ({
-            id: category.id,
-            name: category.name,
-          })),
-          tags: memory.memoryTags.map(({ tag }) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-          flashbacks: memory.flashbacks.map((flashback) => ({
-            id: flashback.id,
-            memoryId: memory.id,
-            memoryTitle: memory.title,
-            variantKind: flashback.variantKind,
-            langCode: flashback.langCode,
-            translationOutputHash: flashback.translationOutputHash,
-            text: flashback.text,
-            prefix: flashback.prefix,
-            suffix: flashback.suffix,
-            startOffset: flashback.startOffset,
-            endOffset: flashback.endOffset,
-            contentHash: flashback.contentHash,
-            createdAt: formatDateTime(flashback.createdAt),
-          })),
-        }));
-      },
     },
     taxonomy: {
       createTag: async (input) => {
@@ -1683,38 +1575,6 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
         updateSettingsTranslationDefaults(db, input),
       updateCodexTranslationDefaults: async (input) =>
         updateSettingsTranslationDefaults(db, input),
-      getOpenAiAuthCredential: async () =>
-        db.query.openaiAuthCredentials.findFirst({
-          where: eq(schema.openaiAuthCredentials.id, "default"),
-        }),
-      createOpenAiAuthCredential: async (input) => {
-        await db
-          .insert(schema.openaiAuthCredentials)
-          .values({
-            id: "default",
-            provider: input.provider,
-            credentialReference: input.credentialReference,
-            createdAt: input.now,
-            updatedAt: input.now,
-          })
-          .onConflictDoNothing({ target: schema.openaiAuthCredentials.id })
-          .run();
-        const credential = await db.query.openaiAuthCredentials.findFirst({
-          where: eq(schema.openaiAuthCredentials.id, "default"),
-        });
-        if (credential === undefined) {
-          throw new MemoryRepositoryError("Cannot create OpenAI auth state.");
-        }
-        return credential;
-      },
-      deleteOpenAiAuthCredential: async () => {
-        const deleted = await db
-          .delete(schema.openaiAuthCredentials)
-          .where(eq(schema.openaiAuthCredentials.id, "default"))
-          .returning({ id: schema.openaiAuthCredentials.id })
-          .get();
-        return deleted !== undefined;
-      },
     },
   };
 }

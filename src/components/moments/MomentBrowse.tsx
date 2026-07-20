@@ -2,7 +2,6 @@ import { createAsync, useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
-import type { AsyncActionFocusOwnership } from "../async-action-focus";
 import {
   CollectionPageRetry,
   createCollectionPageRetryController,

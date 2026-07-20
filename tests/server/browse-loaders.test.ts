@@ -15,10 +15,7 @@ import {
   loadFlashbackBrowseRows,
   loadRecentFlashbackBrowseRows,
 } from "../../src/server/flashbacks/browse";
-import {
-  loadBrowseMemories,
-  loadBrowseMemoryPage,
-} from "../../src/server/memories/browse";
+import { loadBrowseMemoryPage } from "../../src/server/memories/browse";
 import { loadMomentBrowseRows } from "../../src/server/moments/browse";
 import {
   createMemoryContentFixture,
@@ -402,7 +399,7 @@ describe("server browse loaders", () => {
     ]);
   });
 
-  it("filters stale flashbacks from memory browse aggregates", async () => {
+  it("filters stale flashbacks from paged memory browse IDs", async () => {
     const config = await createRuntimeConfig();
     await seedMemory(config);
     const markdown = "# Loader Memory\n\nA selected text.";
@@ -453,16 +450,25 @@ describe("server browse loaders", () => {
       connection.close();
     }
 
-    await expect(loadBrowseMemories()).resolves.toMatchObject([
-      {
-        id: memoryId,
-        flashbacks: [
-          {
-            id: "renderable-memory-flashback",
-          },
-        ],
-      },
-    ]);
+    await expect(
+      loadBrowseMemoryPage({
+        ...createInitialBrowseMemoryPageRequest(
+          parseBrowseQuery("?flashback=renderable-memory-flashback"),
+        ),
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      memories: [{ id: memoryId, flashbacks: [] }],
+      nextCursor: null,
+    });
+    await expect(
+      loadBrowseMemoryPage({
+        ...createInitialBrowseMemoryPageRequest(
+          parseBrowseQuery("?flashback=stale-memory-flashback"),
+        ),
+        limit: 1,
+      }),
+    ).resolves.toEqual({ memories: [], nextCursor: null });
   });
 
   it("loads memory browse pages without validating or returning flashbacks", async () => {

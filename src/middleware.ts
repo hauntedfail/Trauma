@@ -49,6 +49,8 @@ export default createMiddleware({
         throw error;
       }
     }
+
+    return undefined;
   },
   onBeforeResponse(event) {
     releaseRuntimeRequestAdmission(event);

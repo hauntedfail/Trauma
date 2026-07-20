@@ -7,8 +7,6 @@ import { isSupportedLanguageCode, type SupportedLanguageCode } from "./languages
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SAFE_TEMP_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
-
 export interface ResolvedTranslatedContentPath {
   absolutePath: string;
   memoryId: string;
@@ -45,28 +43,6 @@ export function resolveTranslatedMemoryContentPath(input: {
     memoryId: input.memoryId,
     relativePath,
   };
-}
-
-export function resolveTranslatedMemoryTempPath(input: {
-  config: Pick<ResolvedTraumaConfig, "storePath">;
-  jobId: string;
-  langCode: string;
-  memoryId: string;
-}): string {
-  const resolvedPath = resolveTranslatedMemoryContentPath(input);
-  if (!SAFE_TEMP_ID_PATTERN.test(input.jobId)) {
-    throw new MemoryContentStoreError(
-      `translation jobId must be safe inside a temp filename: ${input.jobId}`,
-      "invalid_memory_id",
-    );
-  }
-
-  const tempPath = join(
-    dirname(resolvedPath.absolutePath),
-    `.CONTENT.${input.jobId}.tmp`,
-  );
-  assertInsideStore(input.config.storePath, tempPath);
-  return tempPath;
 }
 
 export function resolveTranslatedMemoryProjectionPath(input: {

@@ -1,9 +1,6 @@
 import { loadTraumaConfig } from "../config";
 import { writeMemoryContent } from "../store";
-import {
-  createFixtureConfig,
-  E2E_CONFIG_FILE,
-} from "./fixture-layout";
+import { E2E_CONFIG_FILE } from "./fixture-layout";
 
 export {
   createFixtureConfig,

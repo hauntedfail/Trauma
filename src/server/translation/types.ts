@@ -343,9 +343,3 @@ export interface TranslationJobStaleData {
 export interface TranslationJobFailedData {
   error: TranslationJobSnapshotError;
 }
-
-export interface TranslationChunkFailedData {
-  error: TranslationJobSnapshotError;
-  retry_count: number;
-  will_retry: boolean;
-}

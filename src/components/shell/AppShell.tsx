@@ -46,7 +46,6 @@ import {
   toggleBrowseSearchFieldFilter,
   type BrowseSearchField,
   type BrowseFlashback,
-  type BrowseQuery,
   type BrowseTaxonomySummaryItem,
 } from "../memories/browse-data";
 import { FlashbackShortcutList } from "../flashbacks/FlashbackShortcutList";
@@ -76,8 +75,6 @@ interface AppShellProps {
   children: JSX.Element;
 }
 
-const buttonBase =
-  "inline-flex min-h-[38px] items-center justify-center rounded-lg border border-trauma-border-strong px-3 py-2 font-bold";
 const surfaceInput =
   "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
 const sideSurface =

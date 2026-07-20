@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import type { ResolvedTraumaConfig } from "../config";
 import type {
   MemoryRepository,
-  ReaderMemoryAggregateRow,
   TranslationRepository,
 } from "../db/repositories";
 import { renderMemoryMarkdown } from "../reader/markdown-renderer";

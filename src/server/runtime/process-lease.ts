@@ -260,18 +260,6 @@ export async function withRuntimeProcessLease<T>(
   }
 }
 
-export async function withRuntimeResourceLeases<T>(
-  resources: readonly RuntimeResourceLeaseInput[],
-  operation: () => T | Promise<T>,
-): Promise<T> {
-  const lease = acquireRuntimeResourceLeases(resources);
-  try {
-    return await operation();
-  } finally {
-    lease.release();
-  }
-}
-
 export function resolveRuntimeProcessLeasePaths(
   config: ResolvedTraumaConfig,
   additionalResources: readonly RuntimeResourceLeaseInput[] = [],

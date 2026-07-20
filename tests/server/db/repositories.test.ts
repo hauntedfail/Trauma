@@ -1319,27 +1319,6 @@ describe("memory and taxonomy repositories", () => {
     expect(aggregateSource).not.toContain("extractionError:");
   });
 
-  it("selects only browse-list columns for memory rows and nested labels", () => {
-    const browseStart = repositorySource.indexOf(
-      "const rows = await db.query.memories.findMany",
-    );
-    const browseEnd = repositorySource.indexOf(
-      "return rows.map((memory)",
-      browseStart,
-    );
-    expect(browseStart).toBeGreaterThanOrEqual(0);
-    expect(browseEnd).toBeGreaterThan(browseStart);
-
-    const browseSource = repositorySource.slice(browseStart, browseEnd);
-    expect(browseSource).toContain("extractionStatus: true");
-    expect(browseSource).toContain("flashbacks: {");
-    expect(browseSource).toContain("category: {");
-    expect(browseSource).toContain("tag: {");
-    expect(browseSource).not.toContain("contentPath:");
-    expect(browseSource).not.toContain("backupStatus:");
-    expect(browseSource).not.toContain("lastBackupError:");
-  });
-
   it("paginates memory browse rows with server-side filters and escaped search", () => {
     const root = createTempRoot(tempRoots);
     const output = runBunScript(

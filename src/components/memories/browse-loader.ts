@@ -1,6 +1,6 @@
 import { query, revalidate } from "@solidjs/router";
 
-import { loadBrowseMemories, loadBrowseMemoryPage } from "~/server/memories/browse";
+import { loadBrowseMemoryPage } from "~/server/memories/browse";
 import { loadBrowseTaxonomy } from "~/server/taxonomy/browse";
 import {
   createInitialBrowseMemoryPageRequest,
@@ -9,21 +9,11 @@ import {
   type BrowseQuery,
 } from "./browse-data";
 
-export const getBrowseMemories = query(async () => {
-  "use server";
-
-  return loadBrowseMemories();
-}, "browse-memories");
-
 export const getBrowseMemoryPage = query(async (request: BrowseMemoryPageRequest) => {
   "use server";
 
   return loadBrowseMemoryPage(request);
 }, "browse-memory-page");
-
-export function revalidateBrowseMemories() {
-  return revalidate(getBrowseMemories.key);
-}
 
 export function revalidateBrowseMemoryPages() {
   return revalidate(getBrowseMemoryPage.key);
@@ -47,7 +37,6 @@ export function revalidateBrowseTaxonomy() {
 
 export async function revalidateBrowseMemoryWorkspace() {
   await Promise.all([
-    revalidateBrowseMemories(),
     revalidateBrowseMemoryPages(),
     revalidateBrowseTaxonomy(),
   ]);

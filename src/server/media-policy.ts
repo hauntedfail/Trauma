@@ -15,11 +15,6 @@ export function resolveSafeImageUrl(pageUrl: string, value: string): string | nu
   return resolveSafePublicHttpsUrl(pageUrl, value);
 }
 
-export function resolveSafeIframeUrl(pageUrl: string, value: string): string | null {
-  const resolved = resolveSafePublicHttpsUrl(pageUrl, value);
-  return resolved !== null && isSafeReaderIframeUrl(resolved) ? resolved : null;
-}
-
 export function isSafeReaderIframeUrl(value: string | undefined): boolean {
   if (value === undefined) {
     return false;
