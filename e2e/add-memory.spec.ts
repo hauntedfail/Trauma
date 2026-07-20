@@ -33,6 +33,7 @@ test("adds an extracted memory through the public composer and persists every st
   expect(persisted).toMatchObject({
     backupStatus: "success",
     commitCount: 1,
+    contentPath: `memories/${memory.id}/CONTENT.md`,
     extractionError: null,
     extractionStatus: "success",
     gitStatus: "",
@@ -67,6 +68,7 @@ test("persists a link-only memory when the deterministic import response fails",
   expect(persisted).toMatchObject({
     backupStatus: "success",
     commitCount: 1,
+    contentPath: `memories/${memory.id}/CONTENT.md`,
     extractionError: "fetch failed: HTTP 503",
     extractionStatus: "link_only",
     gitStatus: "",
@@ -156,6 +158,7 @@ interface PersistenceState {
   backupStatus: string | null;
   commitCount: number;
   commitMessage: string | null;
+  contentPath: string | null;
   extractionError: string | null;
   extractionStatus: string | null;
   fileContent: string | null;

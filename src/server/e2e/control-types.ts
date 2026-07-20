@@ -44,6 +44,7 @@ export interface E2ePersistenceState {
   backupStatus: string | null;
   commitCount: number;
   commitMessage: string | null;
+  contentPath: string | null;
   extractionError: string | null;
   extractionStatus: string | null;
   fileContent: string | null;

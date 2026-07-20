@@ -65,9 +65,10 @@ uses the production SSRF validation and pinned-fetch importer.
 
 Mutable browser fixtures use the loopback-only `/api/e2e-control` route and the
 fixed `.trauma/e2e` runtime. Playwright supplies a fresh control token and the
-exact config, browse-fixture, import-fixture, and control signals. Keep this
-boundary limited to named fixture actions; never add raw scripts, SQL, paths, or
-Git arguments to its request schema.
+exact literal-loopback bind host, config, browse-fixture, import-fixture, and
+control signals; the framework-reported socket peer must also be loopback. Keep
+this boundary limited to named fixture actions; never add raw scripts, SQL,
+paths, or Git arguments to its request schema.
 
 ## Focused Test Ownership
 

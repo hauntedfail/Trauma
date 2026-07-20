@@ -13,6 +13,7 @@ import {
 
 const validToken = "0123456789abcdef0123456789abcdef";
 const validEnv = {
+  HOST: "127.0.0.1",
   TRAUMA_BROWSE_FIXTURES: "1",
   TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
   TRAUMA_E2E_CONTROL: "1",
@@ -73,6 +74,51 @@ describe("E2E fixture control route", () => {
       action: "reset_fixture",
       fixture: "read_only",
     }));
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing bind host", undefined],
+    ["all-interface IPv4 bind", "0.0.0.0"],
+    ["all-interface IPv6 bind", "::"],
+    ["non-loopback bind", "192.0.2.10"],
+  ])("returns 404 for %s despite forged loopback request metadata", async (
+    _label,
+    host,
+  ) => {
+    const execute = vi.fn();
+    const handler = createE2eControlPostHandler({
+      env: { ...validEnv, HOST: host },
+      execute,
+    });
+
+    const response = await handler(eventFor({
+      action: "reset_fixture",
+      fixture: "read_only",
+    }));
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing client address", null],
+    ["non-loopback client address", "203.0.113.10"],
+  ])("returns 404 for a %s despite forged loopback request metadata", async (
+    _label,
+    clientAddress,
+  ) => {
+    const execute = vi.fn();
+    const handler = createE2eControlPostHandler({ env: validEnv, execute });
+
+    const response = await handler(eventFor(
+      { action: "reset_fixture", fixture: "read_only" },
+      { clientAddress },
+    ));
 
     expect(response.status).toBe(404);
     expect(await response.text()).toBe("");
@@ -182,6 +228,7 @@ describe("E2E fixture control route", () => {
 function eventFor(
   payload: unknown,
   options: {
+    clientAddress?: string | null;
     contentLength?: number;
     fetchSite?: string;
     host?: string;
@@ -221,6 +268,9 @@ function eventFor(
     response: new Response(),
     locals: {},
     nativeEvent: {},
+    clientAddress: options.clientAddress === undefined
+      ? "127.0.0.1"
+      : options.clientAddress ?? undefined,
   } as unknown as APIEvent;
 }
 
@@ -229,6 +279,7 @@ function persistenceState(memoryId: string) {
     backupStatus: null,
     commitCount: 0,
     commitMessage: null,
+    contentPath: null,
     extractionError: null,
     extractionStatus: null,
     fileContent: null,

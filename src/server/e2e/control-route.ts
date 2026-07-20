@@ -24,7 +24,11 @@ export function createE2eControlPostHandler(
 ) {
   return async function postE2eControl(event: APIEvent): Promise<Response> {
     const env = options.env ?? process.env;
-    if (!isAuthorizedE2eControlRequest(event.request, env)) {
+    if (!isAuthorizedE2eControlRequest(
+      event.request,
+      env,
+      event.clientAddress,
+    )) {
       return new Response(null, { status: 404 });
     }
 

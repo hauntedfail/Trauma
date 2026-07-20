@@ -118,6 +118,7 @@ function isPersistenceState(value: unknown): value is E2ePersistenceState {
     "backupStatus",
     "commitCount",
     "commitMessage",
+    "contentPath",
     "extractionError",
     "extractionStatus",
     "fileContent",
@@ -136,6 +137,7 @@ function isPersistenceState(value: unknown): value is E2ePersistenceState {
     [
       value.backupStatus,
       value.commitMessage,
+      value.contentPath,
       value.extractionError,
       value.extractionStatus,
       value.fileContent,

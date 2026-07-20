@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
@@ -147,11 +148,16 @@ export async function inspectE2ePersistenceState(
 
   let commitCount = 0;
   let commitMessage: string | null = null;
+  let contentPath: ReturnType<typeof resolveMemoryContentPath> | null = null;
   let fileContent: string | null = null;
   let gitStatus: string | null = null;
   let trackedContent: string | null = null;
   if (memory !== undefined) {
-    const contentPath = resolveMemoryContentPath(config, memoryId);
+    contentPath = resolveStoredE2eContentPath(
+      config,
+      memoryId,
+      memory.contentPath,
+    );
     fileContent = await readFile(contentPath.absolutePath, "utf8");
     try {
       const gitState = await inspectFixtureGitState(contentPath.relativePath);
@@ -168,6 +174,7 @@ export async function inspectE2ePersistenceState(
     backupStatus: memory?.backupStatus ?? null,
     commitCount,
     commitMessage,
+    contentPath: contentPath?.relativePath ?? null,
     extractionError: memory?.extractionError ?? null,
     extractionStatus: memory?.extractionStatus ?? null,
     fileContent,
@@ -176,5 +183,29 @@ export async function inspectE2ePersistenceState(
     title: memory?.title ?? null,
     trackedContent,
     url: memory?.url ?? null,
+  };
+}
+
+export function resolveStoredE2eContentPath(
+  config: { storePath: string },
+  memoryId: string,
+  storedContentPath: string,
+): ReturnType<typeof resolveMemoryContentPath> {
+  const expectedPath = resolveMemoryContentPath(config, memoryId);
+  if (storedContentPath !== expectedPath.relativePath) {
+    throw new Error(
+      "stored memory content path is not owned by the requested memory",
+    );
+  }
+
+  const absolutePath = resolve(config.storePath, storedContentPath);
+  if (absolutePath !== expectedPath.absolutePath) {
+    throw new Error("stored memory content path escapes the E2E store");
+  }
+
+  return {
+    absolutePath,
+    memoryId,
+    relativePath: storedContentPath,
   };
 }
