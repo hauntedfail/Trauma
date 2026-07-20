@@ -1352,6 +1352,216 @@ describe("db foundation", () => {
     });
   });
 
+  it("rejects a missing migration record before replaying an older migration body", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            applyBundledMigrations(sqlite);
+
+            const memoryId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f040";
+            const translationHash = "sha256:" + "a".repeat(64);
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, read, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(memoryId, "https://example.com", "Example", "memories/" + memoryId + "/CONTENT.md", "success", "pending", 0, 1, 1);
+            sqlite.prepare("insert into flashbacks (id, memory_id, variant_kind, lang_code, translation_output_hash, text, prefix, suffix, start_offset, end_offset, content_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translated-flashback", memoryId, "translation", "ja-JP", translationHash, "translated", "", "", 0, 10, null, 2, 2);
+
+            sqlite.prepare("delete from __drizzle_migrations where created_at = ?")
+              .run(${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS});
+
+            let rejected = false;
+            let message = "";
+            try {
+              applyBundledMigrations(sqlite);
+            } catch (error) {
+              rejected = true;
+              message = error instanceof Error ? error.message : String(error);
+            }
+
+            process.stdout.write(JSON.stringify({
+              rejected,
+              message,
+              flashback: sqlite.prepare("select variant_kind as variantKind, lang_code as langCode, translation_output_hash as translationOutputHash from flashbacks where id = ?")
+                .get("translated-flashback"),
+              flashbackIndexes: sqlite.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'flashbacks' and name like 'flashbacks_created_at%' order by name")
+                .all(),
+              missingRecordCount: sqlite.prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      rejected: true,
+      message: expect.stringContaining("migration history gap"),
+      flashback: {
+        variantKind: "translation",
+        langCode: "ja-JP",
+        translationOutputHash: `sha256:${"a".repeat(64)}`,
+      },
+      flashbackIndexes: [{ name: "flashbacks_created_at_id_idx" }],
+      missingRecordCount: 0,
+    });
+  });
+
+  it("rejects duplicate applied migration records", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyBundledMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            applyBundledMigrations(sqlite);
+            const duplicatedMigration = readBundledMigrations().find(
+              (migration) => migration.folderMillis === ${VARIANT_LOCAL_FLASHBACKS_MIGRATION_FOLDER_MILLIS},
+            );
+            if (!duplicatedMigration) {
+              throw new Error("missing bundled 0013 migration");
+            }
+            sqlite.prepare("insert into __drizzle_migrations (hash, created_at) values (?, ?)")
+              .run(duplicatedMigration.hash, duplicatedMigration.folderMillis);
+
+            try {
+              applyBundledMigrations(sqlite);
+              process.stdout.write(JSON.stringify({ rejected: false }));
+            } catch (error) {
+              process.stdout.write(JSON.stringify({
+                rejected: true,
+                message: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toMatchObject({
+      rejected: true,
+      message: expect.stringContaining("duplicate bundled migration"),
+    });
+  });
+
+  it("rejects invalid runtime migration manifests before mutating SQLite", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const manifests = [
+            {
+              name: "duplicate",
+              migrations: [
+                { sql: ["create table manifest_duplicate_first (id integer)"], folderMillis: 1, hash: "first", bps: false },
+                { sql: ["create table manifest_duplicate_second (id integer)"], folderMillis: 1, hash: "second", bps: false },
+              ],
+            },
+            {
+              name: "out-of-order",
+              migrations: [
+                { sql: ["create table manifest_out_of_order_first (id integer)"], folderMillis: 2, hash: "first", bps: false },
+                { sql: ["create table manifest_out_of_order_second (id integer)"], folderMillis: 1, hash: "second", bps: false },
+              ],
+            },
+          ];
+          const results = [];
+
+          for (const manifest of manifests) {
+            const sqlite = new Database(join(root, manifest.name + ".sqlite"));
+            try {
+              let rejected = false;
+              let message = "";
+              try {
+                applyRuntimeMigrations(sqlite, manifest.migrations, "test-manifest");
+              } catch (error) {
+                rejected = true;
+                message = error instanceof Error ? error.message : String(error);
+              }
+
+              results.push({
+                name: manifest.name,
+                rejected,
+                message,
+                tables: sqlite.prepare("select name from sqlite_master where type = 'table' and (name = '__drizzle_migrations' or name like 'manifest_%') order by name").all(),
+              });
+            } finally {
+              sqlite.close();
+            }
+          }
+
+          process.stdout.write(JSON.stringify(results));
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual([
+      {
+        name: "duplicate",
+        rejected: true,
+        message: expect.stringContaining("strictly increasing folderMillis"),
+        tables: [],
+      },
+      {
+        name: "out-of-order",
+        rejected: true,
+        message: expect.stringContaining("strictly increasing folderMillis"),
+        tables: [],
+      },
+    ]);
+  });
+
   it("upgrades databases that already recorded the original 0001 migration", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(

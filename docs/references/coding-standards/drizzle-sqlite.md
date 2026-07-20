@@ -51,10 +51,13 @@
   `__drizzle_migrations` table must use a rowid-compatible integer primary key,
   not PostgreSQL-style `SERIAL`.
 - MUST validate bundled runtime migration state before exposing the database.
-  Every applied migration row must correspond to a bundled migration, and every
-  matching row must have the expected hash. Unknown, newer, or hash-mismatched
-  rows must fail loudly instead of letting older runtime code operate on a
-  different schema.
+  Runtime manifests must have unique, strictly increasing `folderMillis`
+  values before SQLite is mutated. Applied rows, ordered by `created_at`, must
+  be a unique, contiguous prefix of the bundled migrations and every row must
+  have the expected hash. Unknown, newer, duplicate, hash-mismatched, or
+  gap-bearing histories must fail loudly before any migration body runs instead
+  of letting runtime code operate on or replay migrations against a different
+  schema.
 - MUST treat migration execution and migration recording as one atomic unit.
   If a migration body succeeds but writing `__drizzle_migrations` fails, the
   schema changes must roll back with the failed record write.
