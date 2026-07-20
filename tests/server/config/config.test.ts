@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -129,12 +136,106 @@ describe("loadTraumaConfig", () => {
     );
   });
 
+  it("rejects a storePath symlink whose target is outside projectPath", () => {
+    const root = createTempRoot();
+    const projectPath = join(root, "data");
+    const outsideStorePath = join(root, "outside-store");
+    mkdirSync(projectPath, { recursive: true });
+    mkdirSync(outsideStorePath, { recursive: true });
+    symlinkSync(outsideStorePath, join(projectPath, "store"), "dir");
+    const configPath = writeConfig(root, {
+      storePath: "./data/store",
+      projectPath: "./data",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /storePath must be inside projectPath/,
+    );
+  });
+
+  it("rejects a nested storePath symlink that escapes a symlinked projectPath", () => {
+    const root = createTempRoot();
+    const effectiveProjectPath = join(root, "effective-project");
+    const outsideStorePath = join(root, "outside-store");
+    mkdirSync(effectiveProjectPath, { recursive: true });
+    mkdirSync(outsideStorePath, { recursive: true });
+    symlinkSync(effectiveProjectPath, join(root, "project"), "dir");
+    symlinkSync(outsideStorePath, join(effectiveProjectPath, "store"), "dir");
+    const configPath = writeConfig(root, {
+      storePath: "./project/store",
+      projectPath: "./project",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /storePath must be inside projectPath/,
+    );
+  });
+
+  it("allows a missing storePath below a symlinked projectPath", () => {
+    const root = createTempRoot();
+    const effectiveProjectPath = join(root, "effective-project");
+    mkdirSync(effectiveProjectPath, { recursive: true });
+    symlinkSync(effectiveProjectPath, join(root, "project"), "dir");
+    const configPath = writeConfig(root, {
+      storePath: "./project/store/not-created-yet",
+      projectPath: "./project",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    const config = loadTraumaConfig({ configPath });
+
+    expect(config.projectPath).toBe(join(root, "project"));
+    expect(config.storePath).toBe(join(root, "project/store/not-created-yet"));
+  });
+
+  it("still rejects lexically separate aliases of the same project tree", () => {
+    const root = createTempRoot();
+    const effectiveProjectPath = join(root, "effective-project");
+    mkdirSync(join(effectiveProjectPath, "store"), { recursive: true });
+    symlinkSync(effectiveProjectPath, join(root, "project"), "dir");
+    const configPath = writeConfig(root, {
+      storePath: "./effective-project/store",
+      projectPath: "./project",
+      databasePath: "./.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /storePath must be inside projectPath/,
+    );
+  });
+
   it("rejects databasePath inside storePath", () => {
     const root = createTempRoot();
     const configPath = writeConfig(root, {
       storePath: "./data/store",
       projectPath: "./data",
       databasePath: "./data/store/.trauma/trauma.sqlite",
+      backup: { git: gitConfig },
+    });
+
+    expect(() => loadTraumaConfig({ configPath })).toThrow(
+      /databasePath must be outside storePath/,
+    );
+  });
+
+  it("rejects a databasePath symlink whose target is inside storePath", () => {
+    const root = createTempRoot();
+    const storePath = join(root, "data/store");
+    const databasePath = join(storePath, "trauma.sqlite");
+    mkdirSync(storePath, { recursive: true });
+    writeFileSync(databasePath, "", "utf8");
+    mkdirSync(join(root, ".trauma"), { recursive: true });
+    symlinkSync(databasePath, join(root, ".trauma/trauma.sqlite"), "file");
+    const configPath = writeConfig(root, {
+      storePath: "./data/store",
+      projectPath: "./data",
+      databasePath: "./.trauma/trauma.sqlite",
       backup: { git: gitConfig },
     });
 

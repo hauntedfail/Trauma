@@ -48,7 +48,10 @@ as `/Users/name/trauma-data` or a config-relative path such as `./data`.
 - `databasePath` must be outside `storePath`, which keeps the SQLite database
   outside TRAUMA's built-in store-backup scope.
 
-Invalid path relationships are startup errors.
+Path relationships are checked against the effective locations of all existing
+path components after resolving symbolic links. Missing trailing directories or
+files remain valid so a clean first start can create them. Invalid or
+unresolvable effective path relationships are startup errors.
 
 ## Backup Environment Failsafe
 
