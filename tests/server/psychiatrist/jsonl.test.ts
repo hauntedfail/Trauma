@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   appendJsonlRow,
+  JsonlAppendAmbiguousError,
   JsonlLimitError,
   readJsonlRows,
   type JsonlFileSystem,
@@ -48,6 +49,39 @@ describe("durable bounded JSONL", () => {
       "sync-directory",
       "close-directory",
     ]);
+  });
+
+  it("retries an ambiguous first publication without appending the row twice", async () => {
+    const directory = await makeTempDirectory();
+    const path = join(directory, "events.jsonl");
+    const calls: string[] = [];
+
+    await appendJsonlRow(path, { id: 1 }, {
+      fileSystem: instrumentedFileSystem(calls, {
+        directorySyncFailures: 1,
+      }),
+    });
+
+    expect(await readFile(path, "utf8")).toBe('{"id":1}\n');
+    expect(calls.filter((call) => call === "write-file")).toHaveLength(1);
+    expect(calls.filter((call) => call === "sync-directory")).toHaveLength(2);
+  });
+
+  it("reports a typed ambiguous outcome when directory publication cannot be confirmed", async () => {
+    const directory = await makeTempDirectory();
+    const path = join(directory, "events.jsonl");
+    const calls: string[] = [];
+
+    const error = await appendJsonlRow(path, { id: 1 }, {
+      fileSystem: instrumentedFileSystem(calls, {
+        directorySyncFailures: 2,
+      }),
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(JsonlAppendAmbiguousError);
+    expect(await readFile(path, "utf8")).toBe('{"id":1}\n');
+    expect(calls.filter((call) => call === "write-file")).toHaveLength(1);
+    expect(calls.filter((call) => call === "sync-directory")).toHaveLength(2);
   });
 
   it("repairs a torn tail and syncs the repaired append as one publication", async () => {
@@ -99,7 +133,11 @@ async function makeTempDirectory(): Promise<string> {
   return directory;
 }
 
-function instrumentedFileSystem(calls: string[]): JsonlFileSystem {
+function instrumentedFileSystem(
+  calls: string[],
+  options: { directorySyncFailures?: number } = {},
+): JsonlFileSystem {
+  let remainingDirectorySyncFailures = options.directorySyncFailures ?? 0;
   return {
     open: async (path, flags) => {
       const handle = await open(path, flags);
@@ -139,6 +177,12 @@ function instrumentedFileSystem(calls: string[]): JsonlFileSystem {
         },
         sync: async () => {
           calls.push("sync-directory");
+          if (remainingDirectorySyncFailures > 0) {
+            remainingDirectorySyncFailures -= 1;
+            const error = new Error("Injected directory sync failure.") as NodeJS.ErrnoException;
+            error.code = "EIO";
+            throw error;
+          }
           await handle.sync();
         },
       };

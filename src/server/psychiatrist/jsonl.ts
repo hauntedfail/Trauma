@@ -16,6 +16,10 @@ interface ValidatedAppendState {
   signature: string;
 }
 
+type JsonlAppendPublicationOutcome =
+  | { status: "durable" }
+  | { cause: unknown; status: "ambiguous" };
+
 interface JsonlFileHandle {
   close: () => Promise<void>;
   read: (
@@ -59,6 +63,16 @@ export class JsonlLimitError extends Error {
   ) {
     super(message);
     this.name = "JsonlLimitError";
+  }
+}
+
+export class JsonlAppendAmbiguousError extends Error {
+  constructor(
+    public readonly initialCause: Error,
+    public readonly reconciliationCause: Error,
+  ) {
+    super("JSONL append publication could not be confirmed.");
+    this.name = "JsonlAppendAmbiguousError";
   }
 }
 
@@ -146,7 +160,18 @@ export async function appendJsonlRow(
     await file.close();
   }
   if (signature === undefined) {
-    await syncDirectoryBestEffort(dirname(path), fileSystem);
+    const publication = await publishNewJsonlFile(dirname(path), fileSystem);
+    if (publication.status === "ambiguous") {
+      await reconcileFirstAppendPublication({
+        appendedBytes,
+        byteLength,
+        fileSystem,
+        initialCause: publication.cause,
+        limits: options.limits,
+        path,
+        serializedRow,
+      });
+    }
   }
 
   const updatedSignature = await readFileSignature(path, fileSystem);
@@ -157,6 +182,70 @@ export async function appendJsonlRow(
       signature: updatedSignature,
     });
   }
+}
+
+async function publishNewJsonlFile(
+  directoryPath: string,
+  fileSystem: JsonlFileSystem,
+): Promise<JsonlAppendPublicationOutcome> {
+  try {
+    await syncDirectoryBestEffort(directoryPath, fileSystem);
+    return { status: "durable" };
+  } catch (cause) {
+    return { cause, status: "ambiguous" };
+  }
+}
+
+async function reconcileFirstAppendPublication(input: {
+  appendedBytes: number;
+  byteLength: number;
+  fileSystem: JsonlFileSystem;
+  initialCause: unknown;
+  limits: JsonlLimits | undefined;
+  path: string;
+  serializedRow: string;
+}): Promise<void> {
+  let content: string;
+  try {
+    content = await readJsonlContent(
+      input.path,
+      input.limits,
+      input.fileSystem,
+    );
+  } catch (error) {
+    throw new JsonlAppendAmbiguousError(
+      toDiagnosticError(input.initialCause, "Initial directory sync failed."),
+      toDiagnosticError(error, "JSONL append reconciliation read failed."),
+    );
+  }
+  const contentBytes = Buffer.from(content, "utf8");
+  const serializedBytes = Buffer.from(input.serializedRow, "utf8");
+  const appendEnd = input.byteLength + input.appendedBytes;
+  if (
+    contentBytes.length < appendEnd ||
+    !contentBytes.subarray(input.byteLength, appendEnd).equals(serializedBytes)
+  ) {
+    throw new JsonlAppendAmbiguousError(
+      toDiagnosticError(input.initialCause, "Initial directory sync failed."),
+      new Error(
+        "The file does not contain the fsynced JSONL append at its expected offset.",
+      ),
+    );
+  }
+  const publication = await publishNewJsonlFile(
+    dirname(input.path),
+    input.fileSystem,
+  );
+  if (publication.status === "ambiguous") {
+    throw new JsonlAppendAmbiguousError(
+      toDiagnosticError(input.initialCause, "Initial directory sync failed."),
+      toDiagnosticError(publication.cause, "Directory sync retry failed."),
+    );
+  }
+}
+
+function toDiagnosticError(value: unknown, fallbackMessage: string): Error {
+  return value instanceof Error ? value : new Error(fallbackMessage);
 }
 
 async function readJsonlContent(
