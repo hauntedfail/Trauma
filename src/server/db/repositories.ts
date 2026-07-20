@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
 import {
@@ -1850,40 +1850,28 @@ function buildMemoryBrowsePageWhere(
   return and(...filters);
 }
 
-function buildFlashbackBrowseCursorWhere(
+export function buildFlashbackBrowseCursorWhere(
   cursor: FlashbackBrowseCursor | null,
 ): SQL | undefined {
   if (cursor === null) {
     return undefined;
   }
 
-  return (
-    or(
-      lt(schema.flashbacks.createdAt, cursor.createdAt),
-      and(
-        eq(schema.flashbacks.createdAt, cursor.createdAt),
-        lt(schema.flashbacks.id, cursor.id),
-      ),
-    ) ?? sql`0 = 1`
-  );
+  return sql`(${schema.flashbacks.createdAt}, ${schema.flashbacks.id}) < (${
+    sql.param(cursor.createdAt, schema.flashbacks.createdAt)
+  }, ${sql.param(cursor.id, schema.flashbacks.id)})`;
 }
 
-function buildMomentBrowseCursorWhere(
+export function buildMomentBrowseCursorWhere(
   cursor: MomentBrowseCursor | null,
 ): SQL | undefined {
   if (cursor === null) {
     return undefined;
   }
 
-  return (
-    or(
-      lt(schema.moments.createdAt, cursor.createdAt),
-      and(
-        eq(schema.moments.createdAt, cursor.createdAt),
-        lt(schema.moments.id, cursor.id),
-      ),
-    ) ?? sql`0 = 1`
-  );
+  return sql`(${schema.moments.createdAt}, ${schema.moments.id}) < (${
+    sql.param(cursor.createdAt, schema.moments.createdAt)
+  }, ${sql.param(cursor.id, schema.moments.id)})`;
 }
 
 function memoryHasCategoryId(categoryId: string): SQL {

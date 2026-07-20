@@ -194,7 +194,7 @@ export const flashbacks = sqliteTable(
   },
   (table) => [
     index("flashbacks_memory_id_idx").on(table.memoryId),
-    index("flashbacks_created_at_idx").on(table.createdAt),
+    index("flashbacks_created_at_id_idx").on(table.createdAt, table.id),
     index("flashbacks_memory_variant_idx").on(
       table.memoryId,
       table.variantKind,
@@ -241,7 +241,7 @@ export const moments = sqliteTable(
       table.sectionPath,
     ),
     index("moments_memory_id_idx").on(table.memoryId),
-    index("moments_created_at_idx").on(table.createdAt),
+    index("moments_created_at_id_idx").on(table.createdAt, table.id),
     check(
       "moments_section_anchor_check",
       sql`length(${table.sectionAnchor}) > 0`,

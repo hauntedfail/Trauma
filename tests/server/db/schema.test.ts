@@ -18,6 +18,7 @@ const MOMENT_PATH_IDENTITY_MIGRATION_FOLDER_MILLIS = 1784223792512;
 const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
 const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
 const CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS = 1784238332412;
+const COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS = 1784534032874;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -628,6 +629,175 @@ describe("db foundation", () => {
       indexNames: expect.arrayContaining(["memories_created_at_id_idx"]),
       migrationRecorded: 1,
     });
+  });
+
+  it("uses composite indexes for Flashback and Moment browse ordering", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { desc, eq } from "drizzle-orm";
+          import { drizzle } from "drizzle-orm/bun-sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+          import {
+            buildFlashbackBrowseCursorWhere,
+            buildMomentBrowseCursorWhere,
+          } from "./src/server/db/repositories.ts";
+          import * as schema from "./src/server/db/schema.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS},
+            );
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const previousIndexes = {
+              flashbacks: sqlite
+                .prepare("PRAGMA index_list('flashbacks')")
+                .all()
+                .map((row) => row.name),
+              moments: sqlite
+                .prepare("PRAGMA index_list('moments')")
+                .all()
+                .map((row) => row.name),
+            };
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+            const db = drizzle({ client: sqlite, schema });
+
+            const explain = (sql) => sqlite
+              .prepare(\`EXPLAIN QUERY PLAN \${sql}\`)
+              .all(51)
+              .map((row) => row.detail);
+            const explainQuery = (query) => sqlite
+              .prepare(\`EXPLAIN QUERY PLAN \${query.sql}\`)
+              .all(...query.params)
+              .map((row) => row.detail);
+            const flashbackCursorQuery = db
+              .select({ id: schema.flashbacks.id, title: schema.memories.title })
+              .from(schema.flashbacks)
+              .innerJoin(schema.memories, eq(schema.flashbacks.memoryId, schema.memories.id))
+              .where(buildFlashbackBrowseCursorWhere({
+                createdAt: new Date(42),
+                id: "flashback-cursor",
+              }))
+              .orderBy(desc(schema.flashbacks.createdAt), desc(schema.flashbacks.id))
+              .limit(51)
+              .toSQL();
+            const momentCursorQuery = db
+              .select({ id: schema.moments.id, title: schema.memories.title })
+              .from(schema.moments)
+              .innerJoin(schema.memories, eq(schema.moments.memoryId, schema.memories.id))
+              .where(buildMomentBrowseCursorWhere({
+                createdAt: new Date(42),
+                id: "moment-cursor",
+              }))
+              .orderBy(desc(schema.moments.createdAt), desc(schema.moments.id))
+              .limit(51)
+              .toSQL();
+
+            process.stdout.write(JSON.stringify({
+              previousIndexes,
+              flashbacks: explain(\`
+                select flashbacks.id, memories.title
+                from flashbacks
+                inner join memories on flashbacks.memory_id = memories.id
+                order by flashbacks.created_at desc, flashbacks.id desc
+                limit ?
+              \`),
+              moments: explain(\`
+                select moments.id, memories.title
+                from moments
+                inner join memories on moments.memory_id = memories.id
+                order by moments.created_at desc, moments.id desc
+                limit ?
+              \`),
+              flashbackCursor: explainQuery(flashbackCursorQuery),
+              momentCursor: explainQuery(momentCursorQuery),
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              migrationRecorded: sqlite
+                .prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    const plans = JSON.parse(output) as {
+      previousIndexes: {
+        flashbacks: string[];
+        moments: string[];
+      };
+      flashbacks: string[];
+      moments: string[];
+      flashbackCursor: string[];
+      momentCursor: string[];
+      foreignKeyViolations: unknown[];
+      migrationRecorded: number;
+    };
+
+    expect(plans.previousIndexes.flashbacks).toContain(
+      "flashbacks_created_at_idx",
+    );
+    expect(plans.previousIndexes.moments).toContain("moments_created_at_idx");
+    expect(plans.flashbacks).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SCAN flashbacks USING INDEX flashbacks_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.moments).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SCAN moments USING INDEX moments_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.flashbackCursor).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SEARCH flashbacks USING INDEX flashbacks_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect(plans.momentCursor).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "SEARCH moments USING INDEX moments_created_at_id_idx",
+        ),
+      ]),
+    );
+    expect([
+      ...plans.flashbacks,
+      ...plans.moments,
+      ...plans.flashbackCursor,
+      ...plans.momentCursor,
+    ]).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("TEMP B-TREE")]),
+    );
+    expect(plans.foreignKeyViolations).toEqual([]);
+    expect(plans.migrationRecorded).toBe(1);
   });
 
   it("scrubs legacy backup remote credentials and push diagnostics", () => {
