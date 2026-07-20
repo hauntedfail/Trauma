@@ -22,6 +22,7 @@ import {
   PsychiatristEventLimitError,
   type PsychiatristSseLimits,
 } from "./limits";
+import { borrowRuntimeProcessLeaseForResources } from "../runtime/process-lease";
 
 type LoadPsychiatristStreamReplay = typeof loadPsychiatristStreamReplay;
 type SubscribePsychiatristStream = typeof subscribePsychiatristStream;
@@ -343,18 +344,26 @@ function createLiveEventStream(input: {
         liveBufferBytes += bytes.byteLength;
         pump?.();
       };
-      unsubscribe = input.subscribe({
-        onEvent: enqueueLive,
-        turnId: input.turnId,
-      });
       try {
-        const loadedReplay = await input.loadReplay({
-          afterEventId: input.afterEventId,
-          config: input.config,
-          memoryId: input.memoryId,
-          threadId: input.threadId,
-          turnId: input.turnId,
-        });
+        const runtimeBorrow = borrowRuntimeProcessLeaseForResources([
+          { resourceLabel: "storePath", resourcePath: input.config.storePath },
+        ]);
+        let loadedReplay: PsychiatristStreamEvent[];
+        try {
+          unsubscribe = input.subscribe({
+            onEvent: enqueueLive,
+            turnId: input.turnId,
+          });
+          loadedReplay = await input.loadReplay({
+            afterEventId: input.afterEventId,
+            config: input.config,
+            memoryId: input.memoryId,
+            threadId: input.threadId,
+            turnId: input.turnId,
+          });
+        } finally {
+          runtimeBorrow?.release();
+        }
         if (closed) {
           return;
         }

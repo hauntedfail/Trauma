@@ -51,6 +51,13 @@ import type {
   CodexConversationTurnInput,
   CodexConversationTurnResult,
 } from "../../../src/server/translation/codex-app-server";
+import {
+  ensureRuntimeProcessLease,
+  runtimeLeaseInputsForConfig,
+  RuntimeStorageBusyError,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../../../src/server/runtime/process-lease";
+import { createRuntimeConfig } from "../runtime/runtime-lease-test-helpers";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const MEMORY_ID_2 = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f002";
@@ -1106,6 +1113,67 @@ describe("Psychiatrist thread API routes", () => {
       turn_id: TURN_ID,
     });
     expect(JSON.stringify(replay)).not.toContain("/private/");
+  });
+
+  it("holds runtime storage admission until a detached message turn finishes", async () => {
+    const { config } = await createRuntimeConfig();
+    await createPsychiatristThread({
+      config,
+      manifest: manifest(),
+    });
+    const activeTurns = new ActivePsychiatristTurnRegistry();
+    const client = new ControlledSuccessfulConversationClient();
+    const lease = ensureRuntimeProcessLease(config);
+    const handler = createSendPsychiatristMessageHandler({
+      activeTurns,
+      backupQueue: {
+        enqueue: async (_input, finalizer) => {
+          const result = { backupStatus: "queued" } as const;
+          await finalizer?.(result);
+          return result;
+        },
+        persistIntent: async () => ({ backupStatus: "pending" }),
+      },
+      buildContext: async () => context(),
+      client,
+      config,
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+
+    try {
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+            body: JSON.stringify({ message: "Hold storage while answering." }),
+            method: "POST",
+          }),
+          { threadId: THREAD_ID },
+        ),
+      );
+      expect(response.status).toBe(202);
+      await client.started;
+
+      let blocked = false;
+      try {
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config));
+      } catch (error) {
+        expect(error).toBeInstanceOf(RuntimeStorageBusyError);
+        blocked = true;
+      }
+
+      client.complete();
+      await waitFor(() => activeTurns.getByTurnId(TURN_ID) === undefined);
+      if (blocked) {
+        expect(
+          suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+        ).toBe(true);
+      }
+      expect(blocked).toBe(true);
+    } finally {
+      client.complete();
+      activeTurns.clear();
+      lease.release();
+    }
   });
 
   it("uses the current translated reader context for a translation-scoped thread", async () => {
@@ -3346,6 +3414,79 @@ describe("Psychiatrist thread API routes", () => {
     });
   });
 
+  it("holds runtime storage admission until a detached regenerate turn finishes", async () => {
+    const { config } = await createRuntimeConfig();
+    await createPsychiatristThread({ config, manifest: manifest() });
+    const backupQueue = {
+      enqueue: async (_input: unknown, finalizer?: (result: { backupStatus: "queued" }) => Promise<void>) => {
+        const result = { backupStatus: "queued" } as const;
+        await finalizer?.(result);
+        return result;
+      },
+      persistIntent: async () => ({ backupStatus: "pending" } as const),
+    };
+    const lease = ensureRuntimeProcessLease(config);
+    const sendHandler = createSendPsychiatristMessageHandler({
+      backupQueue,
+      buildContext: async () => context(),
+      client: new FakeConversationClient("Original answer."),
+      config,
+      generateId: createIdGenerator([PAIR_ID, TURN_ID]),
+    });
+    await sendHandler(
+      createApiEvent(
+        new Request(`http://localhost/api/psychiatrist-threads/${THREAD_ID}/messages`, {
+          body: JSON.stringify({ message: "What changed?" }),
+          method: "POST",
+        }),
+        { threadId: THREAD_ID },
+      ),
+    );
+    await waitFor(async () => {
+      const loaded = await loadPsychiatristThread({ config, threadId: THREAD_ID });
+      return loaded.pairs[0]?.status === "completed" &&
+        activePsychiatristTurns.getByThreadId(THREAD_ID) === undefined;
+    });
+
+    const activeTurns = new ActivePsychiatristTurnRegistry();
+    const client = new ControlledSuccessfulConversationClient();
+    const regenerateTurnId = "019e8a00-0000-7000-8000-000000000004";
+    const regenerate = createRegeneratePsychiatristResponseHandler({
+      activeTurns,
+      backupQueue,
+      client,
+      config,
+      generateId: () => regenerateTurnId,
+    });
+
+    try {
+      const response = await regenerate(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-pairs/${PAIR_ID}/regenerate`, {
+            body: regenerateBody(),
+            method: "POST",
+          }),
+          { pairId: PAIR_ID },
+        ),
+      );
+      expect(response.status).toBe(202);
+      await client.started;
+      expect(() =>
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config))
+      ).toThrow(RuntimeStorageBusyError);
+
+      client.complete();
+      await waitFor(() => activeTurns.getByTurnId(regenerateTurnId) === undefined);
+      expect(
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+      ).toBe(true);
+    } finally {
+      client.complete();
+      activeTurns.clear();
+      lease.release();
+    }
+  });
+
   it("rejects regenerate requests whose variant scope does not match the stored pair", async () => {
     const storePath = await mkdtemp(join(tmpdir(), "trauma-psychiatrist-regenerate-scope-"));
     await createPsychiatristThread({
@@ -5228,6 +5369,42 @@ class ControlledFailingConversationClient implements CodexConversationClient {
       this.failTurn = resolve;
     });
     throw new Error("runtime failed after cancellation");
+  }
+}
+
+class ControlledSuccessfulConversationClient implements CodexConversationClient {
+  private finish: (() => void) | undefined;
+  readonly started: Promise<void>;
+  private markStarted: (() => void) | undefined;
+
+  constructor() {
+    this.started = new Promise<void>((resolve) => {
+      this.markStarted = resolve;
+    });
+  }
+
+  async cancelTurn(): Promise<void> {
+    this.complete();
+  }
+
+  complete(): void {
+    this.finish?.();
+  }
+
+  async probe(): Promise<void> {
+    return undefined;
+  }
+
+  async runConversationTurn(): Promise<CodexConversationTurnResult> {
+    this.markStarted?.();
+    await new Promise<void>((resolve) => {
+      this.finish = resolve;
+    });
+    return {
+      outputText: "Finished safely.",
+      threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+    };
   }
 }
 

@@ -19,6 +19,7 @@ import {
   runGitBackupJob,
   type MemoryBackupJob,
 } from "../../../src/server/backup";
+import { acquireBackupFailsafeActionLease } from "../../../src/server/backup/failsafe-action-coordination";
 import { initializeDatabase } from "../../../src/server/db";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
 import { PSYCHIATRIST_PROMPT_POLICY_VERSION } from "../../../src/server/psychiatrist/prompt";
@@ -29,6 +30,11 @@ import {
   createPsychiatristThread,
   recordPsychiatristTurnStarted,
 } from "../../../src/server/psychiatrist/thread-store";
+import {
+  ensureRuntimeProcessLease,
+  runtimeLeaseInputsForConfig,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../../../src/server/runtime/process-lease";
 
 const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef801";
 const capturedAt = "2026-05-09T08:00:00.000Z";
@@ -103,6 +109,100 @@ describe("git backup runner", () => {
       "start:second-memory",
       "end:second-memory",
     ]);
+  });
+
+  it("orders an ordinary git writer behind an active failsafe recovery lease", async () => {
+    const root = await makeRoot("trauma-git-backup-failsafe-lease-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Deferred writer\n", "utf8");
+    initializeGitRepository(projectPath);
+
+    const connection = initializeDatabase(config);
+    try {
+      const alertTime = new Date(capturedAt);
+      await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+        id: "active",
+        kind: "backup_push_failed",
+        severity: "critical",
+        message: "Backup push failed",
+        previousProjectPath: null,
+        previousStorePath: null,
+        currentProjectPath: projectPath,
+        currentStorePath: storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        error: "remote unavailable",
+        createdAt: alertTime,
+        updatedAt: alertTime,
+      });
+    } finally {
+      connection.close();
+    }
+
+    const releaseRecovery = await acquireBackupFailsafeActionLease(
+      config.databasePath,
+    );
+    const backup = runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+    const followingLease = acquireBackupFailsafeActionLease(config.databasePath);
+
+    releaseRecovery();
+    const releaseFollowing = await followingLease;
+    let commitSubjectBeforeFollowingLease: string | null = null;
+    try {
+      commitSubjectBeforeFollowingLease = git(projectPath, [
+        "log",
+        "-1",
+        "--pretty=%s",
+      ]).trim();
+    } catch {
+      // An absent commit proves the writer was not ordered ahead of this lease.
+    }
+    releaseFollowing();
+    await backup;
+
+    expect(commitSubjectBeforeFollowingLease).toBe(
+      `backup memory ${memoryId}`,
+    );
+  });
+
+  it("rejects a queued git writer before side effects after storage suspension", async () => {
+    const root = await makeRoot("trauma-git-backup-suspended-");
+    const projectPath = join(root, "project");
+    const storePath = join(projectPath, "store");
+    const contentPath = `memories/${memoryId}/CONTENT.md`;
+    const config = createConfig({ root, projectPath, storePath, push: false });
+    await mkdir(join(storePath, "memories", memoryId), { recursive: true });
+    await writeFile(join(storePath, contentPath), "# Must not commit\n", "utf8");
+    initializeGitRepository(projectPath);
+    const lease = ensureRuntimeProcessLease(config);
+    const releaseRecovery = await acquireBackupFailsafeActionLease(
+      config.databasePath,
+    );
+    const backup = runGitBackupJob({
+      config,
+      job: createJob({ contentPaths: [contentPath] }),
+    });
+
+    try {
+      expect(
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+      ).toBe(true);
+      releaseRecovery();
+      await expect(backup).rejects.toThrow(/storage admission is suspended/);
+      expect(() => git(projectPath, ["rev-parse", "--verify", "HEAD"]))
+        .toThrow();
+    } finally {
+      releaseRecovery();
+      lease.release();
+    }
   });
 
   it("stages only configured store content paths and creates a backup commit", async () => {

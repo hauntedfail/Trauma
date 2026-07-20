@@ -12,7 +12,10 @@ import {
   resolveRuntimeLeaseCoordinatorPath,
   transitionCoordinatorLease,
 } from "./runtime-lease-coordinator";
-import { RuntimeProcessLeaseCoverageError } from "./runtime-lease-errors";
+import {
+  RuntimeProcessLeaseCoverageError,
+  RuntimeStorageBusyError,
+} from "./runtime-lease-errors";
 import {
   extendRuntimeResourceLeasePlan,
   mergeCanonicalRuntimeResources,
@@ -47,6 +50,7 @@ export { runtimeDatabaseLeaseInputs } from "./runtime-database-resources";
 export {
   RuntimeProcessLeaseCoverageError,
   RuntimeProcessLeaseError,
+  RuntimeStorageBusyError,
 } from "./runtime-lease-errors";
 export type {
   ProcessLease,
@@ -142,24 +146,54 @@ export function reserveRuntimeProcessLeaseResources(
   lease.expand(additionalResources);
 }
 
+export function reserveRuntimeProcessLeaseResourcesIfActive(
+  currentResources: readonly RuntimeResourceLeaseInput[],
+  additionalResources: readonly RuntimeResourceLeaseInput[],
+): boolean {
+  if ((readRuntimeLeaseRegistry().activeLeases?.size ?? 0) === 0) {
+    return false;
+  }
+  reserveRuntimeProcessLeaseResources(currentResources, additionalResources);
+  return true;
+}
+
 export function suspendRuntimeStorageAdmission(
   currentResources: readonly RuntimeResourceLeaseInput[],
 ): void {
+  if (!suspendRuntimeStorageAdmissionIfIdle(currentResources)) {
+    throw new RuntimeProcessLeaseCoverageError(
+      "TRAUMA cannot suspend storage admission without an active runtime lease",
+    );
+  }
+}
+
+/**
+ * Closes process-local storage admission only when every admitted request,
+ * database connection, and detached task has returned its borrow. The check
+ * and invalidation are synchronous, so another borrower cannot enter between
+ * them. Direct library use without a runtime owner returns false.
+ */
+export function suspendRuntimeStorageAdmissionIfIdle(
+  currentResources: readonly RuntimeResourceLeaseInput[],
+): boolean {
+  const activeLeases = [...(readRuntimeLeaseRegistry().activeLeases ?? [])];
   const lease = findAdmittingRuntimeLease(currentResources);
   if (lease === undefined) {
-    const activeLeases = [...(readRuntimeLeaseRegistry().activeLeases ?? [])];
+    if (activeLeases.length === 0) {
+      return false;
+    }
     activeLeases[0]?.assertCovers(currentResources);
     throw new RuntimeProcessLeaseCoverageError(
       "TRAUMA cannot suspend storage admission without an active runtime lease",
     );
   }
-  try {
-    lease.assertCovers(currentResources);
-  } finally {
-    // Once suspension is requested, any ownership-integrity failure must leave
-    // local admission closed rather than allowing more storage work.
-    lease.invalidateActiveCoverage();
+  if (!lease.suspendIfIdle(currentResources)) {
+    throw new RuntimeStorageBusyError(
+      "TRAUMA storage is busy with another request or background task. " +
+        "Retry the recovery after current work finishes.",
+    );
   }
+  return true;
 }
 
 function requireAdmittingRuntimeLease(
@@ -393,10 +427,6 @@ function wrapRuntimeLease(
         reservedPlan = nextPlan;
       }
     },
-    invalidateActiveCoverage() {
-      assertNotReleaseRequested(releaseRequested, "invalidate active coverage for");
-      activePlan = undefined;
-    },
     reserves(inputs) {
       if (releaseRequested || released) {
         return false;
@@ -409,6 +439,29 @@ function wrapRuntimeLease(
             runtimeResourcesAreIdentical(resource, canonical),
         );
       });
+    },
+    suspendIfIdle(inputs) {
+      assertNotReleaseRequested(releaseRequested, "suspend storage admission for");
+      if (activePlan === undefined) {
+        throw new RuntimeProcessLeaseCoverageError(
+          "TRAUMA storage admission is suspended after a root-changing recovery. " +
+            "Restart TRAUMA before accessing storage again.",
+        );
+      }
+      try {
+        assertCoverage(inputs);
+        if (borrowers !== 0) {
+          return false;
+        }
+        activePlan = undefined;
+        return true;
+      } catch (error) {
+        // Ownership or coverage integrity is no longer trustworthy. Keep new
+        // storage work closed until process restart even though recovery did
+        // not proceed.
+        activePlan = undefined;
+        throw error;
+      }
     },
     release() {
       if (releaseRequested) {

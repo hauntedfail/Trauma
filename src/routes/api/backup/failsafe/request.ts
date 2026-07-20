@@ -22,7 +22,22 @@ export async function readConfirmedJsonRequest(request: Request) {
   }
 
   if (isRecord(body.payload) && body.payload.confirm === true) {
-    return { ok: true as const };
+    if (
+      typeof body.payload.generation !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(body.payload.generation)
+    ) {
+      return {
+        ok: false as const,
+        response: json(
+          { error: "alert generation is required" },
+          { status: 400 },
+        ),
+      };
+    }
+    return {
+      ok: true as const,
+      generation: body.payload.generation,
+    };
   }
 
   return {

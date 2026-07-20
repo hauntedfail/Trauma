@@ -15,17 +15,26 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
   const [pendingAction, setPendingAction] =
     createSignal<BackupFailsafeActionName | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [restartRequired, setRestartRequired] = createSignal(false);
 
   const submit = async (action: BackupFailsafeActionName) => {
     setPendingAction(action);
     setError(null);
     try {
-      const result = await submitBackupFailsafeAction({ action });
+      const result = await submitBackupFailsafeAction({
+        action,
+        generation: props.alert.generation,
+      });
+      if (result.restartRequired) {
+        setRestartRequired(true);
+      }
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      globalThis.location?.reload();
+      if (shouldReloadAfterBackupFailsafeAction(result)) {
+        globalThis.location?.reload();
+      }
     } catch {
       setError("Backup failsafe action request failed.");
     } finally {
@@ -52,7 +61,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
               <button
                 type="button"
                 class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
-                disabled={pendingAction() !== null}
+                disabled={pendingAction() !== null || restartRequired()}
                 onClick={() => void submit("revert")}
               >
                 Revert config
@@ -62,7 +71,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
               <button
                 type="button"
                 class="min-h-10 rounded-lg border border-red-200 px-3 py-2 font-bold text-white"
-                disabled={pendingAction() !== null}
+                disabled={pendingAction() !== null || restartRequired()}
                 onClick={() => void submit("migrate")}
               >
                 {props.alert.kind === "backup_push_failed"
@@ -77,7 +86,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
             <button
               type="button"
               class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
-              disabled={pendingAction() !== null}
+              disabled={pendingAction() !== null || restartRequired()}
               onClick={() => void submit("delete-missing-record")}
             >
               Delete missing memory record
@@ -87,6 +96,9 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
         <Show when={error()}>
           {(message) => <p class="text-sm font-bold text-red-100">{message()}</p>}
         </Show>
+        <Show when={restartRequired()}>
+          <BackupFailsafeRestartNotice />
+        </Show>
       </div>
     </section>
   );
@@ -94,6 +106,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
 
 export async function submitBackupFailsafeAction(input: {
   action: BackupFailsafeActionName;
+  generation: string;
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
 }) {
   const request = input.fetch ?? fetch;
@@ -104,24 +117,44 @@ export async function submitBackupFailsafeAction(input: {
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ confirm: true }),
+      body: JSON.stringify({
+        confirm: true,
+        generation: input.generation,
+      }),
     });
   } catch {
     return {
       ok: false as const,
       error: "Backup failsafe action request failed.",
+      restartRequired: false,
     };
   }
 
+  const body = await readJson(response);
+  const restartRequired = readRestartRequired(body);
   if (!response.ok) {
-    const body = await readJson(response);
     return {
       ok: false as const,
       error: readError(body) ?? `Backup failsafe action failed (${response.status}).`,
+      restartRequired,
     };
   }
 
-  return { ok: true as const };
+  return { ok: true as const, restartRequired };
+}
+
+export function shouldReloadAfterBackupFailsafeAction(
+  result: { ok: boolean; restartRequired: boolean },
+): boolean {
+  return result.ok && !result.restartRequired;
+}
+
+export function BackupFailsafeRestartNotice() {
+  return (
+    <p class="text-sm font-extrabold text-red-100" role="status">
+      Restart the TRAUMA process/server before continuing.
+    </p>
+  );
 }
 
 async function readJson(response: Response) {
@@ -134,6 +167,10 @@ async function readJson(response: Response) {
 
 function readError(value: unknown) {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
+}
+
+function readRestartRequired(value: unknown): boolean {
+  return isRecord(value) && value.restartRequired === true;
 }
 
 function describeBackupFailsafeAlert(alert: BackupFailsafeAlertView) {

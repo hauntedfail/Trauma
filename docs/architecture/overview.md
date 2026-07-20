@@ -24,9 +24,11 @@ run independently. Maintenance commands use the same ownership boundary.
 
 Those three storage-root paths are restart-scoped. Manual path changes are
 rejected before the new storage opens. A root-changing backup recovery reserves
-both the current and previous roots, then suspends storage admission immediately
-before mutation. TRAUMA must be restarted after suspension, whether the action
-succeeds or fails.
+both the current and previous roots, returns its own request and database
+borrows, then suspends storage admission only when no other admitted work is
+active. A busy runtime rejects the recovery without changing config. After
+successful suspension, or an ownership-integrity failure during suspension,
+restart the TRAUMA process before any further storage work.
 
 Direct database initialization holds the same database-family ownership for the
 returned connection lifetime. This also serializes migration and WAL setup when

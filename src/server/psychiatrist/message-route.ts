@@ -70,6 +70,7 @@ import type {
   PsychiatristThreadPair,
   PsychiatristWebSourcePolicy,
 } from "./types";
+import { borrowRuntimeProcessLeaseForResources } from "../runtime/process-lease";
 
 export const PSYCHIATRIST_MAX_USER_MESSAGE_CHARS = 4_000;
 type BuildContext = typeof buildPsychiatristMemoryContext;
@@ -260,7 +261,22 @@ export async function handleSendPsychiatristMessageRequest(
     prompt: payload.message,
   });
 
+  let runtimeBorrow;
+  try {
+    runtimeBorrow = borrowRuntimeProcessLeaseForResources([
+      { resourceLabel: "storePath", resourcePath: config.storePath },
+    ]);
+  } catch {
+    activeTurns.releaseThread(threadId);
+    return safeErrorResponse(
+      "storage_unavailable",
+      "TRAUMA storage is unavailable. Restart TRAUMA and retry.",
+      503,
+    );
+  }
+
   let pendingPairPersisted = false;
+  let runtimeBorrowTransferred = false;
   try {
     await appendPendingPair({
       config,
@@ -303,23 +319,30 @@ export async function handleSendPsychiatristMessageRequest(
       turnId,
       variantKind: context.variantKind,
     });
-    runDetachedPsychiatristTask(() => runPsychiatristTurn({
-      appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
-      activeTurns,
-      appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
-      backupQueue: input.backupQueue ?? resolveBackupQueue(config),
-      client,
-      config,
-      context: selectedContext,
-      pairId,
-      payload,
-      thread,
-      threadId,
-      turnId,
-      webSourcePolicy,
-      ownsClient,
-      limits: input.limits ?? PSYCHIATRIST_TURN_LIMITS,
-    }));
+    runDetachedPsychiatristTask(async () => {
+      try {
+        await runPsychiatristTurn({
+          appendAssistantResponse: input.appendAssistantResponse ?? appendAssistantResponseToStore,
+          activeTurns,
+          appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
+          backupQueue: input.backupQueue ?? resolveBackupQueue(config),
+          client,
+          config,
+          context: selectedContext,
+          pairId,
+          payload,
+          thread,
+          threadId,
+          turnId,
+          webSourcePolicy,
+          ownsClient,
+          limits: input.limits ?? PSYCHIATRIST_TURN_LIMITS,
+        });
+      } finally {
+        runtimeBorrow?.release();
+      }
+    });
+    runtimeBorrowTransferred = true;
     return jsonResponse(toStartedResponse({
       manifest: thread.manifest,
       pairId,
@@ -358,6 +381,10 @@ export async function handleSendPsychiatristMessageRequest(
       });
     }
     return formatMessageError(error);
+  } finally {
+    if (!runtimeBorrowTransferred) {
+      runtimeBorrow?.release();
+    }
   }
 }
 

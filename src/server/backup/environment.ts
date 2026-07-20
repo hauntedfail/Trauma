@@ -5,13 +5,21 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 
 import type { ResolvedTraumaConfig } from "../config";
 import { initializeDatabase } from "../db";
-import { createRepositories, type BackupFailsafeAlert } from "../db/repositories";
+import {
+  createRepositories,
+  type BackupFailsafeAlert,
+  type TraumaDatabase,
+} from "../db/repositories";
 import * as schema from "../db/schema";
-import type { TraumaDatabase } from "../db/repositories";
 import {
   findInconsistentSuccessfulBackupContent,
   formatContentInconsistencyError,
 } from "./content-integrity";
+import { withBackupFailsafeActionLease } from "./failsafe-action-coordination";
+import {
+  backupFailsafeAlertGenerationWhere,
+  getBackupFailsafeAlertGeneration,
+} from "./failsafe-alert-generation";
 import { executeBuiltInGit } from "./git-command";
 
 export type BackupFailsafeAlertKind =
@@ -35,6 +43,7 @@ export interface BackupFailsafeAlertDetails {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  generation: string;
 }
 
 export type BackupFailsafeRecoveryAction =
@@ -51,6 +60,7 @@ export interface BackupFailsafeAlertView {
   availableActions: BackupFailsafeRecoveryAction[];
   createdAt: string;
   updatedAt: string;
+  generation: string;
 }
 
 export type BackupEnvironmentResult =
@@ -67,6 +77,14 @@ const STAMP_ID = "default";
 const ALERT_ID = "active";
 
 export async function ensureBackupEnvironment(
+  input: EnsureBackupEnvironmentInput,
+): Promise<BackupEnvironmentResult> {
+  return withBackupFailsafeActionLease(input.config.databasePath, () =>
+    ensureBackupEnvironmentWithLease(input)
+  );
+}
+
+async function ensureBackupEnvironmentWithLease(
   input: EnsureBackupEnvironmentInput,
 ): Promise<BackupEnvironmentResult> {
   if (!input.config.backup.git.enabled) {
@@ -92,6 +110,13 @@ export async function ensureBackupEnvironment(
     stamp.gitRemoteUrl === currentGitRemoteUrl &&
     stamp.gitBranch === input.config.backup.git.branch &&
     currentGitBranch === input.config.backup.git.branch;
+
+  if (
+    existingAlert?.kind === "backup_push_failed" &&
+    (stamp === undefined || !pathsMatch || !gitIdentityMatches)
+  ) {
+    return { ok: false, alert: toAlertDetails(existingAlert) };
+  }
 
   if (stamp === undefined && hasMemoryData) {
     return createAndReportPathAlert({
@@ -159,8 +184,19 @@ export async function ensureBackupEnvironment(
     existingAlert !== undefined &&
     existingAlert.kind !== "backup_push_failed"
   ) {
-    await repositories.backupEnvironment.clearBackupFailsafeAlert();
-    return { ok: true };
+    if (await clearAlertGeneration(input.db, existingAlert)) {
+      return { ok: true };
+    }
+
+    const replacement =
+      await repositories.backupEnvironment.getBackupFailsafeAlert();
+    if (replacement === undefined) {
+      return { ok: true };
+    }
+    const replacementDetails = toAlertDetails(replacement);
+    return replacement.kind === "backup_push_failed"
+      ? { ok: true, alert: replacementDetails }
+      : { ok: false, alert: replacementDetails };
   }
 
   return {
@@ -208,52 +244,72 @@ export async function hasConfiguredRemote(config: ResolvedTraumaConfig) {
   return (await readGitRemoteUrl(config)) !== null;
 }
 
+export async function readCurrentBackupGitIdentity(
+  config: ResolvedTraumaConfig,
+): Promise<{ branch: string | null; remoteUrl: string | null }> {
+  const [branch, remoteUrl] = await Promise.all([
+    readGitBranch(config.projectPath),
+    readGitRemoteUrl(config),
+  ]);
+  return { branch, remoteUrl };
+}
+
 export async function recordBackupPushFailureAlert(
   config: ResolvedTraumaConfig,
   error: string,
 ): Promise<void> {
-  await withBackupConnection(config, async (db) => {
-    const now = new Date();
-    const remoteUrl = await readGitRemoteUrl(config);
-    const repositories = createRepositories(db);
-    const alert = await repositories.backupEnvironment.upsertBackupFailsafeAlert({
-      id: ALERT_ID,
-      kind: "backup_push_failed",
-      severity: "critical",
-      message: "Backup push failed",
-      previousProjectPath: null,
-      previousStorePath: null,
-      currentProjectPath: config.projectPath,
-      currentStorePath: config.storePath,
-      gitRemote: config.backup.git.remote,
-      gitRemoteUrl: remoteUrl,
-      gitBranch: config.backup.git.branch,
-      error: redactOperationalError(error),
-      createdAt: now,
-      updatedAt: now,
-    });
-    console.warn(formatPushFailureWarning(toAlertDetails(alert)));
-  });
-}
-
-export async function clearBackupFailsafeAlert(
-  config: ResolvedTraumaConfig,
-): Promise<void> {
-  await withBackupConnection(config, async (db) => {
-    await createRepositories(db).backupEnvironment.clearBackupFailsafeAlert();
-  });
+  await withBackupFailsafeActionLease(config.databasePath, () =>
+    withBackupConnection(config, async (db) => {
+      const now = new Date();
+      const remoteUrl = await readGitRemoteUrl(config);
+      const repositories = createRepositories(db);
+      const alert = await repositories.backupEnvironment
+        .upsertBackupFailsafeAlert({
+          id: ALERT_ID,
+          kind: "backup_push_failed",
+          severity: "critical",
+          message: "Backup push failed",
+          previousProjectPath: null,
+          previousStorePath: null,
+          currentProjectPath: config.projectPath,
+          currentStorePath: config.storePath,
+          gitRemote: config.backup.git.remote,
+          gitRemoteUrl: remoteUrl,
+          gitBranch: config.backup.git.branch,
+          error: redactOperationalError(error),
+          createdAt: now,
+          updatedAt: now,
+        });
+      console.warn(formatPushFailureWarning(toAlertDetails(alert)));
+    })
+  );
 }
 
 export async function clearBackupPushFailureAlert(
   config: ResolvedTraumaConfig,
 ): Promise<void> {
-  await withBackupConnection(config, async (db) => {
-    const repositories = createRepositories(db);
-    const alert = await repositories.backupEnvironment.getBackupFailsafeAlert();
-    if (alert?.kind === "backup_push_failed") {
-      await repositories.backupEnvironment.clearBackupFailsafeAlert();
-    }
-  });
+  await withBackupFailsafeActionLease(config.databasePath, () =>
+    withBackupConnection(config, async (db) => {
+      const repositories = createRepositories(db);
+      const alert =
+        await repositories.backupEnvironment.getBackupFailsafeAlert();
+      if (alert?.kind === "backup_push_failed") {
+        await clearAlertGeneration(db, alert);
+      }
+    })
+  );
+}
+
+async function clearAlertGeneration(
+  db: TraumaDatabase,
+  expectedAlert: BackupFailsafeAlert,
+) {
+  const cleared = await db
+    .delete(schema.backupFailsafeAlerts)
+    .where(backupFailsafeAlertGenerationWhere(expectedAlert))
+    .returning({ id: schema.backupFailsafeAlerts.id })
+    .get();
+  return cleared !== undefined;
 }
 
 async function createAndReportPathAlert(input: {
@@ -345,17 +401,19 @@ async function recordBackupRepositoryMissingAlert(
   config: ResolvedTraumaConfig,
   error: string,
 ): Promise<void> {
-  await withBackupConnection(config, async (db) => {
-    const result = await createAndReportRepositoryAlert({
-      config,
-      db,
-      now: new Date(),
-      error,
-    });
-    if (result.ok) {
-      throw new BackupEnvironmentFailsafeError(error);
-    }
-  });
+  await withBackupFailsafeActionLease(config.databasePath, () =>
+    withBackupConnection(config, async (db) => {
+      const result = await createAndReportRepositoryAlert({
+        config,
+        db,
+        now: new Date(),
+        error,
+      });
+      if (result.ok) {
+        throw new BackupEnvironmentFailsafeError(error);
+      }
+    })
+  );
 }
 
 async function upsertCurrentStamp(input: {
@@ -558,6 +616,7 @@ export function toAlertDetails(
     severity: alert.severity,
     createdAt: formatDateTime(alert.createdAt),
     updatedAt: formatDateTime(alert.updatedAt),
+    generation: getBackupFailsafeAlertGeneration(alert),
   };
 }
 
@@ -587,6 +646,7 @@ export function toPublicAlertView(
     availableActions,
     createdAt: alert.createdAt,
     updatedAt: alert.updatedAt,
+    generation: alert.generation,
   };
 }
 
@@ -608,8 +668,7 @@ export function formatPathDriftWarning(
     "",
     `mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config ${configPath}`,
     `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath}`,
-    `mise exec -- bun run scripts/trauma-backup-failsafe.ts revert --config ${configPath} --apply`,
-    `mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config ${configPath} --apply`,
+    "The dry run prints the alert generation required by --apply.",
   ].join("\n");
 }
 
@@ -634,7 +693,7 @@ function formatContentIntegrityWarning(
   if (isMissingContentAlert(alert)) {
     lines.push(
       `mise exec -- bun run scripts/trauma-backup-failsafe.ts delete-missing-record --config ${configPath}`,
-      `mise exec -- bun run scripts/trauma-backup-failsafe.ts delete-missing-record --config ${configPath} --apply`,
+      "The dry run prints the alert generation required by --apply.",
     );
   }
 

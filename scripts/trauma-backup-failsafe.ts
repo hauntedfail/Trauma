@@ -1,6 +1,7 @@
 import { loadTraumaConfig } from "../src/server/config";
 import { initializeDatabase } from "../src/server/db";
 import {
+  type BackupFailsafeActionResult,
   deleteMissingBackupContentRecord,
   migrateBackupFailsafeContent,
   readActiveBackupFailsafeAlert,
@@ -15,6 +16,13 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
   const config = loadTraumaConfig({ configPath: parsed.configPath });
   return withRuntimeProcessLease(config, async () => {
     const connection = initializeDatabase(config);
+    let connectionClosed = false;
+    const closeConnection = () => {
+      if (!connectionClosed) {
+        connection.close();
+        connectionClosed = true;
+      }
+    };
     try {
       if (parsed.command === "status") {
         const alert = await readActiveBackupFailsafeAlert(connection.db);
@@ -28,8 +36,12 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
           config,
           db: connection.db,
           apply: parsed.apply,
+          beforeRootChange: closeConnection,
+          expectedGeneration: parsed.generation,
         });
-        return `${result.summary}\n`;
+        return parsed.apply
+          ? `${result.summary}\n`
+          : formatBackupFailsafeDryRunApproval(result);
       }
 
       if (parsed.command === "delete-missing-record") {
@@ -37,7 +49,11 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
           config,
           db: connection.db,
           apply: parsed.apply,
+          expectedGeneration: parsed.generation,
         });
+        if (!parsed.apply) {
+          return formatBackupFailsafeDryRunApproval(result);
+        }
         const alert = await readActiveBackupFailsafeAlert(connection.db);
         const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
         return `${result.summary}\n${suffix}`;
@@ -47,12 +63,16 @@ export async function runBackupFailsafeCli(args: readonly string[]) {
         config,
         db: connection.db,
         apply: parsed.apply,
+        expectedGeneration: parsed.generation,
       });
+      if (!parsed.apply) {
+        return formatBackupFailsafeDryRunApproval(result);
+      }
       const alert = await readActiveBackupFailsafeAlert(connection.db);
       const suffix = alert === null ? "Alert cleared.\n" : "Alert remains active.\n";
       return `${result.summary}\n${suffix}`;
     } finally {
-      connection.close();
+      closeConnection();
     }
   });
 }
@@ -61,12 +81,13 @@ function parseArgs(args: readonly string[]) {
   const command = args[0];
   if (!isCommand(command)) {
     throw new Error(
-      "Usage: trauma-backup-failsafe.ts <status|revert|migrate|delete-missing-record> --config <path> [--apply]",
+      "Usage: trauma-backup-failsafe.ts <status|revert|migrate|delete-missing-record> --config <path> [--apply --generation <token>]",
     );
   }
 
   let configPath: string | undefined;
   let apply = false;
+  let generation: string | undefined;
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -78,6 +99,11 @@ function parseArgs(args: readonly string[]) {
       index += 1;
       continue;
     }
+    if (arg === "--generation") {
+      generation = args[index + 1];
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -85,7 +111,23 @@ function parseArgs(args: readonly string[]) {
     throw new Error("--config is required");
   }
 
-  return { command, configPath, apply };
+  if (apply && (generation === undefined || !/^[a-f0-9]{64}$/u.test(generation))) {
+    throw new Error("--generation is required with --apply");
+  }
+  if (!apply && generation !== undefined) {
+    throw new Error("--generation can only be used with --apply");
+  }
+
+  return { command, configPath, apply, generation };
+}
+
+export function formatBackupFailsafeDryRunApproval(
+  result: Pick<BackupFailsafeActionResult, "dryRun" | "generation" | "summary">,
+) {
+  if (!result.dryRun) {
+    throw new Error("backup failsafe approval output requires a dry-run result");
+  }
+  return `${result.summary}\ngeneration: ${result.generation}\n`;
 }
 
 function isCommand(value: string | undefined): value is Command {

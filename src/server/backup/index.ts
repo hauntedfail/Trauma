@@ -21,6 +21,11 @@ import {
   withGitPathspecFile,
 } from "./git-pathspec";
 import { executeBuiltInGit } from "./git-command";
+import { withBackupFailsafeActionLease } from "./failsafe-action-coordination";
+import {
+  borrowRuntimeProcessLeaseForResources,
+  runtimeLeaseInputsForConfig,
+} from "../runtime/process-lease";
 import { isInternalBackupStorePath } from "../store/internal-directories";
 import { BACKUP_STATUSES, type BackupStatus } from "./status";
 import {
@@ -760,6 +765,21 @@ function validateRetryContentPath(
 }
 
 export async function runGitBackupJob(
+  input: RunGitBackupJobInput,
+): Promise<void> {
+  return withBackupFailsafeActionLease(input.config.databasePath, async () => {
+    const runtimeBorrow = borrowRuntimeProcessLeaseForResources(
+      runtimeLeaseInputsForConfig(input.config),
+    );
+    try {
+      await runGitBackupJobUnderLease(input);
+    } finally {
+      runtimeBorrow?.release();
+    }
+  });
+}
+
+async function runGitBackupJobUnderLease(
   input: RunGitBackupJobInput,
 ): Promise<void> {
   if (!input.config.backup.git.enabled) {

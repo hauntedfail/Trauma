@@ -142,7 +142,9 @@ the checked-out branch with this stamp.
 
 `backup_failsafe_alerts` stores the one active critical backup alert. Its kind
 distinguishes path drift, missing repository, push failure, and content
-inconsistency so only safe recovery actions are offered.
+inconsistency so only safe recovery actions are offered. Recovery confirmation
+uses an opaque generation derived from the complete persisted alert; replacing
+or consuming the alert invalidates an older confirmation.
 
 `app_settings` stores singleton local preferences such as translation language,
 Codex model, and reasoning effort. These defaults seed future translation jobs;

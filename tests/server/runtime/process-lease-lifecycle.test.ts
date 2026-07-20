@@ -22,7 +22,8 @@ import {
   resolveRuntimeProcessLeasePaths,
   reserveRuntimeProcessLeaseResources,
   runtimeLeaseInputsForConfig,
-  suspendRuntimeStorageAdmission,
+  suspendRuntimeStorageAdmissionIfIdle,
+  RuntimeStorageBusyError,
   withRuntimeProcessLease,
 } from "../../../src/server/runtime/process-lease";
 import {
@@ -199,7 +200,6 @@ describe("runtime process lease lifecycle", () => {
       storePath: join(root, "previous-project", "store"),
     };
     const lease = ensureRuntimeProcessLease(config);
-    const activeConnection = initializeDatabase(config, { runMigrations: false });
     const previousRoots = runtimeLeaseInputsForConfig(previousConfig).filter(
       ({ resourceLabel }) => resourceLabel !== "databasePath",
     );
@@ -207,11 +207,9 @@ describe("runtime process lease lifecycle", () => {
       runtimeLeaseInputsForConfig(config),
       previousRoots,
     );
-    suspendRuntimeStorageAdmission(runtimeLeaseInputsForConfig(config));
-
     expect(
-      activeConnection.sqlite.query<{ value: number }, []>("SELECT 1 AS value").get(),
-    ).toEqual({ value: 1 });
+      suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+    ).toBe(true);
     expect(() => initializeDatabase(config, { runMigrations: false })).toThrow(
       /storage admission is suspended/,
     );
@@ -222,13 +220,39 @@ describe("runtime process lease lifecycle", () => {
     await expectRuntimeRejected(config, /already active/);
     await expectRuntimeRejected(contenderConfig, /already active/);
 
-    activeConnection.close();
     lease.release();
     const afterRestart = spawnWorker(contenderConfig, "once");
     await expect(afterRestart.nextStdout()).resolves.toMatchObject({ type: "acquired" });
     await expect(afterRestart.nextStdout()).resolves.toMatchObject({ type: "initialized" });
     await expect(afterRestart.nextStdout()).resolves.toMatchObject({ type: "released" });
     await expect(afterRestart.exit).resolves.toBe(0);
+  });
+
+  it("keeps admission active when an independent borrower blocks suspension", async () => {
+    const { config } = await createRuntimeConfig();
+    const resources = runtimeLeaseInputsForConfig(config);
+    const lease = ensureRuntimeProcessLease(config);
+    const independentBorrow = lease.borrow(resources);
+
+    expect(() => suspendRuntimeStorageAdmissionIfIdle(resources)).toThrow(
+      RuntimeStorageBusyError,
+    );
+    expect(lease.admits(resources)).toBe(true);
+    const postFailureBorrow = lease.borrow(resources);
+    postFailureBorrow.release();
+
+    independentBorrow.release();
+    expect(suspendRuntimeStorageAdmissionIfIdle(resources)).toBe(true);
+    expect(lease.admits(resources)).toBe(false);
+    expect(() => lease.borrow(resources)).toThrow(/storage admission is suspended/);
+    lease.release();
+  });
+
+  it("reports that direct library use has no runtime admission to suspend", async () => {
+    const { config } = await createRuntimeConfig();
+    expect(
+      suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+    ).toBe(false);
   });
 
   it("fails expansion before changing ownership when a previous root is live", async () => {

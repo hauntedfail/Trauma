@@ -523,7 +523,16 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           where: eq(schema.backupFailsafeAlerts.id, "active"),
         }),
       upsertBackupFailsafeAlert: async (input) => {
-        await db
+        const existing = await db.query.backupFailsafeAlerts.findFirst({
+          where: eq(schema.backupFailsafeAlerts.id, input.id),
+        });
+        if (
+          existing !== undefined &&
+          hasSameBackupFailsafeAlertContent(existing, input)
+        ) {
+          return existing;
+        }
+        const alert = await db
           .insert(schema.backupFailsafeAlerts)
           .values(input)
           .onConflictDoUpdate({
@@ -543,8 +552,12 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
               updatedAt: input.updatedAt,
             },
           })
-          .run();
-        return input;
+          .returning()
+          .get();
+        if (alert === undefined) {
+          throw new Error("failed to persist backup failsafe alert");
+        }
+        return alert;
       },
       clearBackupFailsafeAlert: async () => {
         await db
@@ -1704,6 +1717,26 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
       },
     },
   };
+}
+
+function hasSameBackupFailsafeAlertContent(
+  left: BackupFailsafeAlert,
+  right: BackupFailsafeAlert,
+) {
+  return (
+    left.id === right.id &&
+    left.kind === right.kind &&
+    left.severity === right.severity &&
+    left.message === right.message &&
+    left.previousProjectPath === right.previousProjectPath &&
+    left.previousStorePath === right.previousStorePath &&
+    left.currentProjectPath === right.currentProjectPath &&
+    left.currentStorePath === right.currentStorePath &&
+    left.gitRemote === right.gitRemote &&
+    left.gitRemoteUrl === right.gitRemoteUrl &&
+    left.gitBranch === right.gitBranch &&
+    left.error === right.error
+  );
 }
 
 function selectFlashbackBrowseRows(db: TraumaDatabase) {

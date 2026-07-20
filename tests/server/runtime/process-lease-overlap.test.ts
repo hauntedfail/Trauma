@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { runBackupFailsafeCli } from "../../../scripts/trauma-backup-failsafe";
 import type { ResolvedTraumaConfig } from "../../../src/server/config";
+import { initializeDatabase } from "../../../src/server/db";
 import { acquireRuntimeProcessLease } from "../../../src/server/runtime/process-lease";
 import {
   createRuntimeConfig,
@@ -306,6 +307,49 @@ describe("runtime process lease overlap", () => {
     await expect(restarted.nextStdout()).resolves.toEqual(initialized);
     await expect(restarted.nextStdout()).resolves.toMatchObject({ type: "released" });
     await expect(restarted.exit).resolves.toBe(0);
+  });
+
+  it("reserves previous failsafe roots before migration reads them", async () => {
+    const { config, configPath } = await createRuntimeConfig();
+    const root = dirname(config.configFilePath);
+    const previousConfig: ResolvedTraumaConfig = {
+      ...config,
+      configFilePath: join(root, "previous.config.json"),
+      databasePath: join(root, "previous-runtime", "trauma.sqlite"),
+      projectPath: join(root, "previous-project"),
+      storePath: join(root, "previous-project", "store"),
+    };
+    const connection = initializeDatabase(config);
+    try {
+      const now = new Date("2026-07-21T00:00:00.000Z");
+      await connection.repositories.backupEnvironment.upsertBackupFailsafeAlert({
+        id: "active",
+        kind: "backup_path_drift",
+        severity: "critical",
+        message: "Backup location changed",
+        previousProjectPath: previousConfig.projectPath,
+        previousStorePath: previousConfig.storePath,
+        currentProjectPath: config.projectPath,
+        currentStorePath: config.storePath,
+        gitRemote: "origin",
+        gitRemoteUrl: null,
+        gitBranch: "main",
+        error: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      connection.close();
+    }
+    const previousOwner = await startLeaseOwner(previousConfig);
+
+    try {
+      await expect(
+        runBackupFailsafeCli(["migrate", "--config", configPath]),
+      ).rejects.toThrow(/already active/);
+    } finally {
+      await releaseLeaseOwner(previousOwner);
+    }
   });
 
   it("blocks the migration CLI before database side effects until the runtime releases", async () => {

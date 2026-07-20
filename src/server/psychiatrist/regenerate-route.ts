@@ -64,6 +64,7 @@ import type {
   PsychiatristThreadPair,
   PsychiatristWebSourcePolicy,
 } from "./types";
+import { borrowRuntimeProcessLeaseForResources } from "../runtime/process-lease";
 
 type RegeneratePayload =
   | {
@@ -234,6 +235,21 @@ export async function handleRegeneratePsychiatristResponseRequest(
       ? { allowed: true, reason: "user_approved_for_turn" }
       : { allowed: false, reason: "default_denied" };
 
+  let runtimeBorrow;
+  try {
+    runtimeBorrow = borrowRuntimeProcessLeaseForResources([
+      { resourceLabel: "storePath", resourcePath: config.storePath },
+    ]);
+  } catch {
+    activeTurns.releaseThread(loaded.manifest.threadId);
+    return safeErrorResponse(
+      "storage_unavailable",
+      "TRAUMA storage is unavailable. Restart TRAUMA and retry.",
+      503,
+    );
+  }
+
+  let runtimeBorrowTransferred = false;
   try {
     await recordPsychiatristTurnStarted({
       config,
@@ -266,24 +282,31 @@ export async function handleRegeneratePsychiatristResponseRequest(
       turnId,
       variantKind: loaded.contextSnapshot.variantKind,
     });
-    runDetachedPsychiatristTask(() => runRegenerateTurn({
-      appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
-        appendRegeneratedAssistantResponse,
-      activeTurns,
-      appendRetriedAssistantResponse: input.appendRetriedAssistantResponse ??
-        appendRetriedAssistantResponse,
-      appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
-      backupQueue: input.backupQueue ?? getMemoryBackupQueue(config),
-      client,
-      config,
-      loaded,
-      ownsClient,
-      pairId,
-      turnMode,
-      turnId,
-      webSourcePolicy,
-      limits: input.limits ?? PSYCHIATRIST_TURN_LIMITS,
-    }));
+    runDetachedPsychiatristTask(async () => {
+      try {
+        await runRegenerateTurn({
+          appendRegeneratedAssistantResponse: input.appendRegeneratedAssistantResponse ??
+            appendRegeneratedAssistantResponse,
+          activeTurns,
+          appendRetriedAssistantResponse: input.appendRetriedAssistantResponse ??
+            appendRetriedAssistantResponse,
+          appendStreamEvent: input.appendStreamEvent ?? appendPsychiatristStreamEvent,
+          backupQueue: input.backupQueue ?? getMemoryBackupQueue(config),
+          client,
+          config,
+          loaded,
+          ownsClient,
+          pairId,
+          turnMode,
+          turnId,
+          webSourcePolicy,
+          limits: input.limits ?? PSYCHIATRIST_TURN_LIMITS,
+        });
+      } finally {
+        runtimeBorrow?.release();
+      }
+    });
+    runtimeBorrowTransferred = true;
   } catch (error) {
     activeTurns.unregister(turnId);
     activeTurns.releaseThread(loaded.manifest.threadId);
@@ -292,6 +315,10 @@ export async function handleRegeneratePsychiatristResponseRequest(
       "Psychiatrist regenerate request failed.",
       500,
     );
+  } finally {
+    if (!runtimeBorrowTransferred) {
+      runtimeBorrow?.release();
+    }
   }
 
   const eventUrl = psychiatristTurnEventsUrl({

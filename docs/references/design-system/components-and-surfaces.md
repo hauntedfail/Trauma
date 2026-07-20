@@ -269,6 +269,9 @@ Rules:
 - Keep it visible above route content.
 - Use state/severity tokens rather than route-specific styling.
 - Keep recovery actions concrete and aligned with server behaviour.
+- When a config revert suspends storage, disable every recovery action and show
+  a persistent instruction to restart the TRAUMA process/server. Do not reload
+  the page into the suspended process.
 
 ## Empty, Loading, And Error States
 

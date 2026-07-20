@@ -27,6 +27,13 @@ import type {
   PsychiatristStreamEvent,
   PsychiatristThreadManifest,
 } from "../../../src/server/psychiatrist/types";
+import {
+  ensureRuntimeProcessLease,
+  runtimeLeaseInputsForConfig,
+  RuntimeStorageBusyError,
+  suspendRuntimeStorageAdmissionIfIdle,
+} from "../../../src/server/runtime/process-lease";
+import { createRuntimeConfig } from "../runtime/runtime-lease-test-helpers";
 
 const MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f001";
 const MEMORY_ID_2 = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f002";
@@ -1496,6 +1503,70 @@ describe("Psychiatrist stream store", () => {
     await expect(readChunk(reader!)).resolves.toContain("Stored delta");
     await expect(readChunk(reader!)).resolves.toContain("psychiatrist.answer.completed");
     await expect(reader!.read()).resolves.toMatchObject({ done: true });
+  });
+
+  it("holds a short runtime borrow while initial live replay is loading", async () => {
+    const { config } = await createRuntimeConfig();
+    const lease = ensureRuntimeProcessLease(config);
+    activePsychiatristTurns.register({
+      client: {
+        cancelTurn: async () => undefined,
+        probe: async () => undefined,
+        runConversationTurn: async () => ({
+          outputText: "",
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+        }),
+      },
+      memoryId: MEMORY_ID,
+      pairId: "019e8a00-0000-7000-8000-000000000002",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    let resolveReplay: ((events: PsychiatristStreamEvent[]) => void) | undefined;
+    const replayPromise = new Promise<PsychiatristStreamEvent[]>((resolve) => {
+      resolveReplay = resolve;
+    });
+    const handler = createPsychiatristTurnEventsHandler({
+      config,
+      loadReplay: async () => await replayPromise,
+      subscribe: () => () => undefined,
+    });
+
+    try {
+      const response = await handler(
+        createApiEvent(
+          new Request(`http://localhost/api/psychiatrist-turns/${TURN_ID}/events`),
+          { turnId: TURN_ID },
+        ),
+      );
+      const reader = response.body!.getReader();
+      let blocked = false;
+      try {
+        suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config));
+      } catch (error) {
+        expect(error).toBeInstanceOf(RuntimeStorageBusyError);
+        blocked = true;
+      }
+
+      resolveReplay?.([
+        streamEvent("000000000001", "psychiatrist.answer.completed", {
+          pair_id: "pair-1",
+        }),
+      ]);
+      await expect(readChunk(reader)).resolves.toContain(
+        "psychiatrist.answer.completed",
+      );
+      if (blocked) {
+        expect(
+          suspendRuntimeStorageAdmissionIfIdle(runtimeLeaseInputsForConfig(config)),
+        ).toBe(true);
+      }
+      expect(blocked).toBe(true);
+    } finally {
+      resolveReplay?.([]);
+      lease.release();
+    }
   });
 
   it("bounds live events while replay is loading instead of buffering a slow consumer", async () => {

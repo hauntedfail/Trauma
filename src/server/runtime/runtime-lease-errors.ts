@@ -15,3 +15,12 @@ export class RuntimeProcessLeaseCoverageError extends Error {
     this.name = "RuntimeProcessLeaseCoverageError";
   }
 }
+
+export class RuntimeStorageBusyError extends Error {
+  readonly code = "TRAUMA_RUNTIME_STORAGE_BUSY";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeStorageBusyError";
+  }
+}

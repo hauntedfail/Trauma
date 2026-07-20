@@ -417,8 +417,51 @@ with one tracked-index snapshot per readiness check rather than starting a git
 process per memory.
 
 Recovery is retry-safe. Existing migration targets are accepted only when their
-bytes match the source. A push failure after local migration preserves the local
-commit and remains retryable after remote repair.
+bytes match the source. Each migrated file is copied into an owned
+same-directory temporary file, synced, and published atomically without
+overwriting an existing destination; the directory entry is synced before the
+action continues when the filesystem supports directory sync. A retry removes
+only the exact temporary path owned by the approved alert generation, accepts
+an already-published destination only when its bytes match the synced snapshot,
+and rejects a true conflict. Migration requires disjoint previous/current trees,
+does not traverse `.git`, and rejects symlinked or non-directory destination
+components before rechecking canonical containment at publication.
+
+Failsafe dry runs and applied actions capture the active alert generation inside
+a fair process-local exclusive lease keyed by the persisted config database.
+Applied actions revalidate that generation before side effects and clear it with a
+compare-and-delete, so concurrent or stale confirmations cannot consume a
+replacement alert. Ordinary Git backup writers and environment alert/stamp
+writers participate in the same lease, preventing local `HEAD` or alert changes
+during recovery. A stale web confirmation returns `409`; the CLI fails and
+leaves the current alert available for a fresh dry run.
+
+Git writers acquire that action lease before a runtime storage borrow. A writer
+queued behind root-changing recovery therefore fails before Git side effects
+once storage admission is suspended. Long-lived Psychiatrist turns keep a
+dedicated borrow through terminal persistence and backup enqueue; live SSE keeps
+one only while loading its initial replay. Translation workers hold their
+database borrow for the complete active run.
+
+Recovery also reserves current and previous project/store roots through the
+cross-process runtime lease before reading old content. Config revert returns
+its own request and database borrows, then synchronously suspends admission only
+when no other borrower remains. A busy runtime returns `409` without rewriting
+config. Successful suspension permits only the atomic config write and requires
+a process restart; no database or store access follows in that process. Content
+migration does not change configured roots and does not suspend admission.
+
+A push failure after local migration preserves the local commit and previous
+environment stamp, leaves a durable push-failure alert, and remains retryable
+after remote repair. Recovery validates the exact repository root, remote
+fingerprint, checked-out branch, and `HEAD` before Git mutation and after the
+idempotent push. Only then does it update the environment stamp and clear the
+approved alert in one SQLite transaction. When push is configured, Git push
+cannot share a transaction with SQLite: a process failure
+after the remote accepts the push but before the SQLite transaction leaves the
+alert active, and retrying the already-pushed commit safely completes the stamp
+update. The runtime root-set lease coordinates separately running servers and
+maintenance CLIs; the action lease orders work inside one process.
 
 Missing, out-of-scope, or untracked content recorded as successfully backed up
 is a content-integrity failure, not path drift. Only a rechecked `missing_file`

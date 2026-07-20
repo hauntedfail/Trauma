@@ -84,8 +84,11 @@ restart TRAUMA to adopt them. Other JSON settings follow their owning runtime
 loader and are not covered by this storage-root rule.
 
 A root-changing backup recovery revalidates its alert, reserves both current and
-previous roots, and suspends storage admission before rewriting config. Restart
-TRAUMA after the response, including when a post-suspension action fails.
+previous roots, and returns its own request and database borrows. It rewrites
+config only when no other admitted request or background task remains. A busy
+runtime returns `409` with config unchanged; retry after current work finishes.
+After storage suspension, restart the TRAUMA process even if the config write
+fails.
 
 ## Backup Environment Failsafe
 
@@ -108,11 +111,31 @@ Stop the TRAUMA app before running these commands; maintenance CLIs acquire the
 same database, store, and project root-set leases as the server and fail closed
 when a configured or previous failsafe root is active.
 
-Both commands are dry-run by default. Add `--apply` only after checking the
-summary. Restart the app when the command exits. An applied config revert
-writes and syncs a same-directory temporary file before atomic replacement. A
-write, sync, or rename failure leaves the previous config intact and removes the
-temporary file.
+Both commands are dry-run by default and print the opaque alert `generation`
+approved by that summary. Apply only that generation after reviewing it:
+
+```bash
+mise exec -- bun run scripts/trauma-backup-failsafe.ts migrate --config trauma.config.json --apply --generation <generation-from-dry-run>
+```
+
+Restart the app when the command exits. In the web UI, a successful config
+revert leaves a terminal process-restart notice instead of reloading the same
+process. An applied config revert writes and
+syncs a same-directory temporary file before atomic replacement. A write, sync,
+or rename failure leaves the previous config intact and removes the temporary
+file.
+
+Applied recovery is generation-scoped: if another confirmation or environment
+check already consumed or replaced the displayed alert, the stale action fails
+and must be reviewed again. Backup content migration also uses synced
+same-directory temporary files and no-overwrite atomic publication, so a process
+interruption cannot leave a partial final file that blocks a safe retry. Previous
+and current migration trees must be disjoint; symlinked or non-directory
+destination components and source `.git` internals are never traversed or
+published. A failed push leaves the previous stamp unchanged. After remote or
+branch repair, retry recovery pushes first, revalidates the repository root,
+branch, remote fingerprint, and `HEAD`, then records that identity and clears
+the approved alert in one transaction.
 
 If the stamp and configured paths still match but SQLite says a memory was
 successfully backed up while its `CONTENT.md` is missing, outside the configured

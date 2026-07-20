@@ -33,8 +33,10 @@ export interface RuntimeProcessLease extends ProcessLease {
     resources: readonly RuntimeResourceLeaseInput[],
   ) => RuntimeProcessLeaseBorrow;
   expand: (resources: readonly RuntimeResourceLeaseInput[]) => void;
-  invalidateActiveCoverage: () => void;
   reserves: (resources: readonly RuntimeResourceLeaseInput[]) => boolean;
+  suspendIfIdle: (
+    resources: readonly RuntimeResourceLeaseInput[],
+  ) => boolean;
 }
 
 export interface RuntimeProcessLeaseBorrow {
