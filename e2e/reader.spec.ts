@@ -2854,6 +2854,61 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
   await expect(bottomFade).toHaveCount(0);
 });
 
+test("suspends reader heading layout reads while the right rail is hidden", async ({
+  page,
+}) => {
+  createReaderFixture();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.addInitScript(() => {
+    const original = Element.prototype.getBoundingClientRect;
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads = 0;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.hasAttribute("data-reader-section-anchor")) {
+        const measuredWindow = window as Window & {
+          __readerHeadingRectReads?: number;
+        };
+        measuredWindow.__readerHeadingRectReads =
+          (measuredWindow.__readerHeadingRectReads ?? 0) + 1;
+      }
+      return original.call(this);
+    };
+  });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  const resetMeasurementCount = () => page.evaluate(() => {
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads = 0;
+  });
+  const readMeasurementCount = () => page.evaluate(() =>
+    (window as Window & { __readerHeadingRectReads?: number })
+      .__readerHeadingRectReads ?? 0
+  );
+  const settleAnimationFrames = () => page.evaluate(() =>
+    new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    })
+  );
+
+  await settleAnimationFrames();
+  await resetMeasurementCount();
+  await page.evaluate(() => window.dispatchEvent(new Event("scroll")));
+  await settleAnimationFrames();
+  expect(await readMeasurementCount()).toBe(0);
+
+  await resetMeasurementCount();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect.poll(readMeasurementCount).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 800, height: 900 });
+  await settleAnimationFrames();
+  await resetMeasurementCount();
+  await page.evaluate(() => window.dispatchEvent(new Event("scroll")));
+  await settleAnimationFrames();
+  expect(await readMeasurementCount()).toBe(0);
+});
+
 async function setReaderTheme(
   page: Page,
   brightness: "night" | "sun",

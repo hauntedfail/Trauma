@@ -61,9 +61,16 @@ import {
   type ActiveTocRange,
 } from "./toc-reading-range";
 import {
+  bindReaderTocScrollSpy,
   isSameActiveTocRange,
   readReaderHeadingPositions,
+  type ReaderTocScrollSpyBinding,
 } from "./toc-scroll-spy";
+import {
+  collectResolvedReaderMomentTargetIds,
+  findReaderMomentForSection,
+  resolveReaderMomentTarget,
+} from "./reader-moment-targets";
 import {
   createMomentForSection,
   type ReaderMomentSection,
@@ -110,6 +117,8 @@ import {
   createReaderGenerationGuard,
   type ReaderGenerationSnapshot,
 } from "./reader-generation";
+
+export { findReaderMomentForSection, resolveReaderMomentTarget };
 
 interface MemoryReaderProps {
   categoryOptions?: readonly BrowseTaxonomySummaryItem[];
@@ -1018,7 +1027,8 @@ function ReadyMemoryReader(props: {
     );
   };
   let activeTocRangeFrame: number | undefined;
-  const scheduleActiveTocRange = (): void => {
+  let activeTocScrollSpy: ReaderTocScrollSpyBinding | undefined;
+  const requestActiveTocRange = (): void => {
     if (typeof window === "undefined" || activeTocRangeFrame !== undefined) {
       return;
     }
@@ -1028,6 +1038,19 @@ function ReadyMemoryReader(props: {
       recomputeActiveTocRange();
     });
   };
+  const scheduleActiveTocRange = (): void => {
+    if (activeTocScrollSpy?.isEnabled() === true) {
+      requestActiveTocRange();
+    }
+  };
+  const cancelActiveTocRange = (): void => {
+    if (activeTocRangeFrame === undefined) {
+      return;
+    }
+
+    window.cancelAnimationFrame(activeTocRangeFrame);
+    activeTocRangeFrame = undefined;
+  };
   createEffect(() => {
     props.result.memory.id;
     readerBodyHtml();
@@ -1036,19 +1059,15 @@ function ReadyMemoryReader(props: {
     }
   });
   onMount(() => {
-    const passive: AddEventListenerOptions = { passive: true };
-    window.addEventListener("scroll", scheduleActiveTocRange, passive);
-    window.addEventListener("resize", scheduleActiveTocRange, passive);
-    window.addEventListener("hashchange", scheduleActiveTocRange);
-    scheduleActiveTocRange();
+    activeTocScrollSpy = bindReaderTocScrollSpy({
+      cancel: cancelActiveTocRange,
+      schedule: requestActiveTocRange,
+      target: window,
+    });
     onCleanup(() => {
-      window.removeEventListener("scroll", scheduleActiveTocRange);
-      window.removeEventListener("resize", scheduleActiveTocRange);
-      window.removeEventListener("hashchange", scheduleActiveTocRange);
-      if (activeTocRangeFrame !== undefined) {
-        window.cancelAnimationFrame(activeTocRangeFrame);
-        activeTocRangeFrame = undefined;
-      }
+      activeTocScrollSpy?.dispose();
+      activeTocScrollSpy = undefined;
+      cancelActiveTocRange();
     });
   });
   const toggleMoment = async (
@@ -2771,6 +2790,9 @@ function ReaderToc(props: {
   toc: ReaderTocEntry[];
 }) {
   let scrollRef: HTMLOListElement | undefined;
+  const activeMomentTargetIds = createMemo(() =>
+    collectResolvedReaderMomentTargetIds(props.moments, props.toc)
+  );
   const [tocScrollState, setTocScrollState] =
     createSignal<TocScrollState>(noTocScrollState);
   const [readingBand, setReadingBand] = createSignal<{
@@ -2920,11 +2942,7 @@ function ReaderToc(props: {
             />
             {props.toc.map((entry) => (
               <ReaderTocEntryRow
-                active={props.moments.some(
-                  (moment) =>
-                    resolveReaderMomentTarget(moment, props.toc)?.id ===
-                      entry.id,
-                )}
+                active={activeMomentTargetIds().has(entry.id)}
                 activeTocRange={props.activeTocRange}
                 entry={entry}
                 onCreateMoment={props.onCreateMoment}
@@ -2951,32 +2969,6 @@ function ReaderToc(props: {
   );
 }
 
-export function resolveReaderMomentTarget(
-  moment: ReaderMomentItem,
-  toc: ReaderTocEntry[],
-): ReaderTocEntry | undefined {
-  const exact = toc.find((entry) =>
-    entry.id === moment.sectionAnchor &&
-    entry.path === moment.sectionPath
-  );
-  if (exact !== undefined) {
-    return exact;
-  }
-
-  const pathMatches = toc.filter((entry) => entry.path === moment.sectionPath);
-  return pathMatches.length === 1 ? pathMatches[0] : undefined;
-}
-
-export function findReaderMomentForSection(
-  moments: ReaderMomentItem[],
-  toc: ReaderTocEntry[],
-  section: ReaderMomentSection,
-): ReaderMomentItem | undefined {
-  return moments.find((moment) =>
-    resolveReaderMomentTarget(moment, toc)?.id === section.id
-  );
-}
-
 function syncReaderSectionMomentButtons(input: {
   container: HTMLElement | undefined;
   moments: ReaderMomentItem[];
@@ -2986,6 +2978,11 @@ function syncReaderSectionMomentButtons(input: {
     return;
   }
 
+  const activeMomentTargetIds = collectResolvedReaderMomentTargetIds(
+    input.moments,
+    input.toc,
+  );
+
   for (const button of input.container.querySelectorAll<HTMLButtonElement>(
     "button[data-reader-moment-trigger='true']",
   )) {
@@ -2994,7 +2991,7 @@ function syncReaderSectionMomentButtons(input: {
       ? undefined
       : readReaderSection(sectionElement);
     const active = section !== undefined &&
-      findReaderMomentForSection(input.moments, input.toc, section) !== undefined;
+      activeMomentTargetIds.has(section.id);
     button.setAttribute("aria-pressed", String(active));
   }
 }
