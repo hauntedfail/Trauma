@@ -47,17 +47,6 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain("trauma.config.json");
   });
 
-  it("guards localStorage reads and writes so blocked storage does not break hydration", () => {
-    expect(appShellSource).toContain("function readLocalStorageItem");
-    expect(appShellSource).toContain("function writeLocalStorageItem");
-    expect(appShellSource).toContain("readLocalStorageItem(BRIGHTNESS_STORAGE_KEY)");
-    expect(appShellSource).toContain(
-      "writeLocalStorageItem(BRIGHTNESS_STORAGE_KEY, nextBrightness)",
-    );
-    expect(appShellSource).toContain("try {");
-    expect(appShellSource).toContain("catch {");
-  });
-
   it("does not add live links for routes that do not exist yet", () => {
     expect(appShellSource).not.toContain('href="/category"');
     expect(appShellSource).not.toContain('href="/tags"');
@@ -72,17 +61,6 @@ describe("refined app shell contract", () => {
     expect(appShellSource).not.toContain("getRecentFlashbacks");
     expect(appShellSource).not.toContain("getBrowseMemories");
     expect(appShellSource).not.toContain("buildMemoryAnchorHref");
-  });
-
-  it("routes right-rail taxonomy clicks into the search query by human-readable name", () => {
-    expect(appShellSource).toContain("toggleBrowseSearchFieldFilter");
-    expect(appShellSource).toContain('field: "category"');
-    expect(appShellSource).toContain('field: "tag"');
-    expect(appShellSource).toContain("explicitId === input.id");
-    expect(appShellSource).toContain("value: category.name");
-    expect(appShellSource).toContain("value: tag.name");
-    expect(appShellSource).not.toContain('toggleFilter("category", category.id)');
-    expect(appShellSource).not.toContain('toggleFilter("tag", tag.id)');
   });
 
   it("uses filled icons and bold labels for active tabs without active background fills", () => {

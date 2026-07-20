@@ -57,13 +57,16 @@ Install dependencies:
 bun install
 ```
 
-Create the local environment file from the example:
+Create the local configuration files from the examples:
 
 ```bash
 cp .env.example .env
+cp trauma.config.example.json trauma.config.json
 ```
 
-`.env` is gitignored. Keep it for local TRAUMA settings such as browser import.
+Both local files are gitignored. Keep `.env` for settings such as browser
+import, and edit `trauma.config.json` for local storage and backup paths. See
+[Configuration](docs/references/configuration.md) for the supported fields.
 The `dev`, `start`, and `preview` scripts default `HOST` to `127.0.0.1` unless
 you set another host in the shell.
 

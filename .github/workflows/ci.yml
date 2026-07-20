@@ -9,6 +9,7 @@ on:
       - "src/**"
       - "tests/**"
       - "e2e/**"
+      - "extensions/**"
       - "public/**"
       - "drizzle/**"
       - "scripts/**"
@@ -20,6 +21,7 @@ on:
       - "package.json"
       - "bun.lock"
       - "mise.toml"
+      - ".env.example"
       - "trauma.config.example.json"
   pull_request:
     branches:
@@ -29,6 +31,7 @@ on:
       - "src/**"
       - "tests/**"
       - "e2e/**"
+      - "extensions/**"
       - "public/**"
       - "drizzle/**"
       - "scripts/**"
@@ -40,6 +43,7 @@ on:
       - "package.json"
       - "bun.lock"
       - "mise.toml"
+      - ".env.example"
       - "trauma.config.example.json"
   workflow_dispatch:
 
