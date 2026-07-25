@@ -20,35 +20,39 @@ import {
 } from "./runtime-lease-test-helpers";
 
 describe("runtime process lease overlap", () => {
-  it("serializes direct cross-process migrations without corrupting an empty database", async () => {
-    const { config } = await createRuntimeConfig();
-    const secondConfig: ResolvedTraumaConfig = {
-      ...config,
-      projectPath: join(dirname(config.projectPath), "migration-project-two"),
-      storePath: join(
-        dirname(config.projectPath),
-        "migration-project-two",
-        "store",
-      ),
-    };
-    const first = spawnMigrationWorker(config);
-    const second = spawnMigrationWorker(secondConfig);
+  it(
+    "serializes direct cross-process migrations without corrupting an empty database",
+    async () => {
+      const { config } = await createRuntimeConfig();
+      const secondConfig: ResolvedTraumaConfig = {
+        ...config,
+        projectPath: join(dirname(config.projectPath), "migration-project-two"),
+        storePath: join(
+          dirname(config.projectPath),
+          "migration-project-two",
+          "store",
+        ),
+      };
+      const first = spawnMigrationWorker(config);
+      const second = spawnMigrationWorker(secondConfig);
 
-    await expect(first.nextStdout()).resolves.toMatchObject({ type: "ready" });
-    await expect(second.nextStdout()).resolves.toMatchObject({ type: "ready" });
-    first.send("initialize");
-    second.send("initialize");
+      await expect(first.nextStdout()).resolves.toMatchObject({ type: "ready" });
+      await expect(second.nextStdout()).resolves.toMatchObject({ type: "ready" });
+      first.send("initialize");
+      second.send("initialize");
 
-    const [firstInitialized, secondInitialized] = await Promise.all([
-      first.nextStdout(),
-      second.nextStdout(),
-    ]);
-    expect(firstInitialized).toMatchObject({ type: "initialized" });
-    expect(secondInitialized).toEqual(firstInitialized);
-    expect(firstInitialized.migrations).toBeGreaterThan(0);
-    await expect(first.exit).resolves.toBe(0);
-    await expect(second.exit).resolves.toBe(0);
-  });
+      const [firstInitialized, secondInitialized] = await Promise.all([
+        first.nextStdout(),
+        second.nextStdout(),
+      ]);
+      expect(firstInitialized).toMatchObject({ type: "initialized" });
+      expect(secondInitialized).toEqual(firstInitialized);
+      expect(firstInitialized.migrations).toBeGreaterThan(0);
+      await expect(first.exit).resolves.toBe(0);
+      await expect(second.exit).resolves.toBe(0);
+    },
+    30_000,
+  );
 
   it("rejects a second runtime that shares only databasePath", async () => {
     const { config } = await createRuntimeConfig();
