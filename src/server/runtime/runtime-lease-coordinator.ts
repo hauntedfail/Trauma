@@ -46,7 +46,10 @@ import type {
   RuntimeProcessLeaseResource,
 } from "./runtime-lease-types";
 
-const MIGRATION_LEASE_WAIT_MS = 5_000;
+// A cold migration can exceed SQLite's individual busy timeout on a loaded
+// host. Keep the coordinator wait bounded while allowing the active migrator
+// enough time to publish and release its lease.
+const MIGRATION_LEASE_WAIT_MS = 30_000;
 const MIGRATION_RETRY_INTERVAL_MS = 25;
 const MAX_COORDINATOR_CAS_ATTEMPTS = 8;
 

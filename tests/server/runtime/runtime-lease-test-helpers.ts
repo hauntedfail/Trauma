@@ -188,6 +188,10 @@ function createWorkerHandle(child: ChildProcessWithoutNullStreams) {
     kill(signal: NodeJS.Signals) {
       child.kill(signal);
     },
+    nextOutput: () => Promise.race([
+      stderr.next().then((event) => ({ channel: "stderr" as const, event })),
+      stdout.next().then((event) => ({ channel: "stdout" as const, event })),
+    ]),
     nextStderr: stderr.next,
     nextStdout: stdout.next,
     send(command: string) {

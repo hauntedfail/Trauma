@@ -41,17 +41,21 @@ describe("runtime process lease overlap", () => {
       first.send("initialize");
       second.send("initialize");
 
-      const [firstInitialized, secondInitialized] = await Promise.all([
-        first.nextStdout(),
-        second.nextStdout(),
+      const [firstResult, secondResult] = await Promise.all([
+        first.nextOutput(),
+        second.nextOutput(),
       ]);
+      expect(firstResult.channel).toBe("stdout");
+      expect(secondResult.channel).toBe("stdout");
+      const firstInitialized = firstResult.event;
+      const secondInitialized = secondResult.event;
       expect(firstInitialized).toMatchObject({ type: "initialized" });
       expect(secondInitialized).toEqual(firstInitialized);
       expect(firstInitialized.migrations).toBeGreaterThan(0);
       await expect(first.exit).resolves.toBe(0);
       await expect(second.exit).resolves.toBe(0);
     },
-    30_000,
+    60_000,
   );
 
   it("rejects a second runtime that shares only databasePath", async () => {
