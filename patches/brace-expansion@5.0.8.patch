@@ -1,0 +1,31 @@
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index be9df86be09c7655787a65c55ae6da01858894c3..b7e6168a347a682423bdb7a017a25f9c0893e529 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -260,4 +260,14 @@ function expand_(str, max, maxLength, isTop) {
+     }
+     return acc;
+ }
++// Keep the callable CommonJS export used by minimatch 5 and the synthetic
++// default export used by minimatch 9 while retaining the named API used by
++// current minimatch releases.
++module.exports = Object.assign(expand, {
++    __esModule: true,
++    default: expand,
++    expand,
++    EXPANSION_MAX: exports.EXPANSION_MAX,
++    EXPANSION_MAX_LENGTH: exports.EXPANSION_MAX_LENGTH,
++});
+ //# sourceMappingURL=index.js.map
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 6dc0392fc0feedb811e63d70a30be2736af17a3a..58b76476eee10316cd82b4c80dc15ee6e32caadb 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -256,4 +256,7 @@ function expand_(str, max, maxLength, isTop) {
+     }
+     return acc;
+ }
++// Preserve the legacy default export expected by older ESM consumers while
++// keeping the current named export.
++export default expand;
+ //# sourceMappingURL=index.js.map
