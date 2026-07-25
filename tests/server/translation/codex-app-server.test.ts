@@ -621,9 +621,9 @@ describe("Codex app-server endpoint parsing", () => {
       modelListResponse: {
         data: [
           {
-            id: "gpt-5.5",
-            model: "gpt-5.5",
-            displayName: "GPT-5.5",
+            id: "gpt-5.6-sol",
+            model: "gpt-5.6-sol",
+            displayName: "GPT-5.6-Sol",
             description: "Frontier model",
             hidden: false,
             isDefault: true,
@@ -632,6 +632,8 @@ describe("Codex app-server endpoint parsing", () => {
               { reasoningEffort: "low", description: "Fast" },
               { reasoningEffort: "medium", description: "Balanced" },
               { reasoningEffort: "high", description: "Deeper" },
+              { reasoningEffort: "max", description: "Maximum" },
+              { reasoningEffort: "ultra", description: "Delegated maximum" },
             ],
           },
           {
@@ -660,13 +662,19 @@ describe("Codex app-server endpoint parsing", () => {
       await expect(client.listModels()).resolves.toEqual({
         models: [
           {
-            id: "gpt-5.5",
-            model: "gpt-5.5",
-            displayName: "GPT-5.5",
+            id: "gpt-5.6-sol",
+            model: "gpt-5.6-sol",
+            displayName: "GPT-5.6-Sol",
             description: "Frontier model",
             isDefault: true,
             defaultReasoningEffort: "medium",
-            supportedReasoningEfforts: ["low", "medium", "high"],
+            supportedReasoningEfforts: [
+              "low",
+              "medium",
+              "high",
+              "max",
+              "ultra",
+            ],
           },
         ],
       });

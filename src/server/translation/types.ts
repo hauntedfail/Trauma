@@ -32,6 +32,8 @@ export const CODEX_REASONING_EFFORTS = [
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ] as const;
 
 export type TranslationJobStatus = (typeof TRANSLATION_JOB_STATUSES)[number];
