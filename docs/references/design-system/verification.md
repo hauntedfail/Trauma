@@ -104,6 +104,8 @@ tests cannot fully prove:
 - Source and translated reader routes.
 - `/memories` tablet.
 - `/memories` mobile.
+- `/moments` mobile with long source URLs.
+- `/settings` mobile.
 
 Check:
 
@@ -115,6 +117,10 @@ Check:
 - Phone `Primary tabs` render every rail item and use tab-bar-only horizontal
   scrolling when constrained.
 - Phone tab labels are visually hidden while role names remain available.
+- Settings cards and native selects remain within the phone viewport when model
+  or language option labels are long.
+- Moment rows keep long source URLs inside the phone viewport while the URL text
+  remains independently scrollable.
 - On phone, Memories read-state tabs stay as one sticky equal-width header row
   and the obsolete List/Grid view controls are absent.
 - Tablet uses the compact icon rail and does not duplicate brand/filter header

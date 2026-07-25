@@ -9,6 +9,47 @@ test.beforeEach(async () => {
   await resetE2eFixture("read_only");
 });
 
+test("keeps settings forms within the phone viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/settings/codex-models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [
+          {
+            id: "gpt-5.3-codex-spark",
+            model: "gpt-5.3-codex-spark",
+            displayName: "GPT-5.3-Codex-Spark",
+            description: "Ultra-fast coding model.",
+            isDefault: true,
+            defaultReasoningEffort: "low",
+            supportedReasoningEfforts: [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "ultra",
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/settings");
+  const model = page.getByRole("combobox", { name: "Model", exact: true });
+  await expect(model).toBeEnabled();
+  await model.selectOption("gpt-5.3-codex-spark");
+
+  expect(
+    await page.evaluate(() =>
+      document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth
+    ),
+  ).toBe(true);
+});
+
 test("recovers a malformed Codex catalog without losing saved defaults", async ({
   page,
 }) => {

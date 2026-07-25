@@ -56,13 +56,13 @@ type SettingsAction =
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const contentClass = "trauma-fluid-route-padding grid gap-5 py-7";
+const contentClass = "trauma-fluid-route-padding grid min-w-0 gap-5 py-7";
 const fieldClass =
-  "grid gap-3 rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5";
+  "grid min-w-0 gap-3 rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5";
 const labelClass = "text-[15px] font-extrabold text-trauma-text-primary";
 const hintClass = "mb-0 text-sm font-semibold text-trauma-text-muted";
 const selectClass =
-  "min-h-11 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 font-bold text-trauma-text-primary";
+  "min-h-11 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 font-bold text-trauma-text-primary";
 const primaryButtonClass =
   "inline-flex min-h-10 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-4 py-2 font-extrabold text-trauma-accent-ink";
 const secondaryButtonClass =

@@ -172,7 +172,7 @@ function MomentRow(props: {
       data-collection-row={props.moment.id}
     >
       <a
-        class="grid min-w-0 gap-2"
+        class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2"
         data-collection-primary-link="true"
         href={href()}
       >

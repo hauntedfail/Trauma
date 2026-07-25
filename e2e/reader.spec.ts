@@ -291,7 +291,10 @@ test("keeps sun reader links bright in normal and paper themes", async ({
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
     const sourceLinkColor = await page
-      .getByRole("link", { name: "https://example.com/reader" })
+      .getByRole("link", {
+        name:
+          "https://example.com/articles/a-very-long-reader-source-path-without-breakable-segments",
+      })
       .evaluate((link) => getComputedStyle(link).color);
     const proseLinkColor = await page
       .getByRole("link", { name: "Reference link" })
