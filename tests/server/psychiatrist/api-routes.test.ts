@@ -1000,7 +1000,8 @@ describe("Psychiatrist thread API routes", () => {
         turnId: TURN_ID,
       });
       return loaded.pairs[0]?.status === "completed" &&
-        replay.some((event) => event.type === "psychiatrist.answer.completed");
+        replay.some((event) => event.type === "psychiatrist.answer.completed") &&
+        enqueueReplayTypes.some(({ phase }) => phase === "after_finalizer");
     });
     const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     expect(loaded.pairs).toEqual([
@@ -3306,7 +3307,9 @@ describe("Psychiatrist thread API routes", () => {
         ),
         "utf8",
       );
-      return content === "Regenerated answer." && backupEnqueues.length === 1;
+      return content === "Regenerated answer." &&
+        backupEnqueues.length === 1 &&
+        enqueueReplayTypes.some(({ phase }) => phase === "after_finalizer");
     });
     const loaded = await loadPsychiatristThread({ config: { storePath }, threadId: THREAD_ID });
     expect(loaded.pairs).toEqual([
