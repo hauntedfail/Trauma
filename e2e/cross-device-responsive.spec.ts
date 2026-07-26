@@ -5,6 +5,9 @@ import {
   mutateE2eFixtureState,
 } from "./bun-fixture";
 
+const longMomentFixtureUrl =
+  "https://example.com/articles/a-very-long-reader-source-path-without-breakable-segments";
+
 const viewports = [
   { height: 844, kind: "phone", name: "phone narrow", width: 390 },
   { height: 932, kind: "phone", name: "phone wide", width: 430 },
@@ -50,6 +53,13 @@ test("keeps long Moment rows within the phone viewport", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Moments", exact: true }),
   ).toBeVisible();
+  const longMomentRow = page.locator(
+    '[data-collection-row="moment-focus-older"]',
+  );
+  await expect(longMomentRow).toBeVisible();
+  await expect(longMomentRow.getByText(longMomentFixtureUrl, { exact: true }))
+    .toBeVisible();
+
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth -
       document.documentElement.clientWidth

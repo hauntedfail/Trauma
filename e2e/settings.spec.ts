@@ -5,6 +5,11 @@ import {
   resetE2eFixture,
 } from "./bun-fixture";
 
+const longCodexModelId =
+  "gpt-5.3-codex-spark-with-deliberately-unbreakable-responsive-regression-identifier";
+const longCodexModelDisplayName =
+  "GPT-5.3-Codex-Spark-With-Deliberately-Unbreakable-Responsive-Regression-Identifier";
+
 test.beforeEach(async () => {
   await resetE2eFixture("read_only");
 });
@@ -17,9 +22,9 @@ test("keeps settings forms within the phone viewport", async ({ page }) => {
       body: JSON.stringify({
         models: [
           {
-            id: "gpt-5.3-codex-spark",
-            model: "gpt-5.3-codex-spark",
-            displayName: "GPT-5.3-Codex-Spark",
+            id: longCodexModelId,
+            model: longCodexModelId,
+            displayName: longCodexModelDisplayName,
             description: "Ultra-fast coding model.",
             isDefault: true,
             defaultReasoningEffort: "low",
@@ -40,7 +45,7 @@ test("keeps settings forms within the phone viewport", async ({ page }) => {
   await page.goto("/settings");
   const model = page.getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toBeEnabled();
-  await model.selectOption("gpt-5.3-codex-spark");
+  await model.selectOption(longCodexModelId);
 
   expect(
     await page.evaluate(() =>

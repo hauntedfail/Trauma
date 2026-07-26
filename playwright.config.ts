@@ -34,6 +34,7 @@ export default defineConfig({
       PORT: String(port),
       TRAUMA_BROWSE_FIXTURES: "1",
       // E2E must never inherit or mutate the user's live Codex auth session.
+      TRAUMA_CODEX_APP_SERVER_ENDPOINT: "unix://",
       TRAUMA_CODEX_APP_SERVER_SOCKET_PATH:
         ".trauma/e2e/missing-app-server-control.sock",
       TRAUMA_CONFIG_PATH: ".trauma/e2e/trauma.config.json",
