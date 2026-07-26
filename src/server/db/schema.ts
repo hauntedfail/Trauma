@@ -327,6 +327,7 @@ export const appSettings = sqliteTable(
     ...timestamps(),
   },
   () => [
+    // Unqualified names keep Drizzle __new_* table rebuild SQL valid after rename.
     check("app_settings_id_check", sql.raw(`"id" = 'default'`)),
     check(
       "app_settings_translation_target_language_check",
@@ -389,6 +390,7 @@ export const translationJobs = sqliteTable(
       table.langCode,
       table.updatedAt,
     ),
+    // Unqualified names keep Drizzle __new_* table rebuild SQL valid after rename.
     check(
       "translation_jobs_status_check",
       sql.raw(`"status" in (${translationJobStatusLiteralList})`),
