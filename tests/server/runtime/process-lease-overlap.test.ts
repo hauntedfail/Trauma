@@ -15,11 +15,27 @@ import {
   releaseLeaseOwner,
   spawnMiddlewareWorker,
   spawnMigrationWorker,
+  spawnOutputSequenceWorker,
   spawnWorker,
   startLeaseOwner,
 } from "./runtime-lease-test-helpers";
 
 describe("runtime process lease overlap", () => {
+  it("keeps the losing channel read observable after merged output wins", async () => {
+    const { config } = await createRuntimeConfig();
+    const worker = spawnOutputSequenceWorker(config);
+
+    await expect(worker.nextOutput()).resolves.toMatchObject({
+      channel: "stderr",
+      event: { type: "ready" },
+    });
+    worker.send("stdout");
+    await expect(worker.exit).resolves.toBe(0);
+    await expect(worker.nextStdout()).resolves.toMatchObject({
+      type: "released",
+    });
+  });
+
   it(
     "serializes direct cross-process migrations without corrupting an empty database",
     async () => {
