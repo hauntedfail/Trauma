@@ -44,19 +44,18 @@ const backupFailsafeAlertKindSqlList = sql.raw(
 const backupFailsafeSeveritySqlList = sql.raw(
   ["critical"].map(toSqlStringLiteral).join(", "),
 );
-const supportedLanguageSqlList = sql.raw(
-  SUPPORTED_TRANSLATION_LANGUAGES.map((language) =>
-    toSqlStringLiteral(language.code),
-  ).join(", "),
-);
-const translationJobStatusSqlList = sql.raw(
-  TRANSLATION_JOB_STATUSES.map(toSqlStringLiteral).join(", "),
-);
+const supportedLanguageLiteralList = SUPPORTED_TRANSLATION_LANGUAGES.map(
+  (language) => toSqlStringLiteral(language.code),
+).join(", ");
+const translationJobStatusLiteralList = TRANSLATION_JOB_STATUSES.map(
+  toSqlStringLiteral,
+).join(", ");
+const codexReasoningEffortLiteralList = CODEX_REASONING_EFFORTS.map(
+  toSqlStringLiteral,
+).join(", ");
+const supportedLanguageSqlList = sql.raw(supportedLanguageLiteralList);
 const translationChunkStatusSqlList = sql.raw(
   TRANSLATION_CHUNK_STATUSES.map(toSqlStringLiteral).join(", "),
-);
-const codexReasoningEffortSqlList = sql.raw(
-  CODEX_REASONING_EFFORTS.map(toSqlStringLiteral).join(", "),
 );
 
 function toSqlStringLiteral(value: string) {
@@ -327,15 +326,17 @@ export const appSettings = sqliteTable(
       .$type<CodexReasoningEffort>(),
     ...timestamps(),
   },
-  (table) => [
-    check("app_settings_id_check", sql`${table.id} = 'default'`),
+  () => [
+    check("app_settings_id_check", sql.raw(`"id" = 'default'`)),
     check(
       "app_settings_translation_target_language_check",
-      sql`${table.translationTargetLanguage} in (${supportedLanguageSqlList})`,
+      sql.raw(`"translation_target_language" in (${supportedLanguageLiteralList})`),
     ),
     check(
       "app_settings_codex_translation_reasoning_effort_check",
-      sql`${table.codexTranslationReasoningEffort} is null or ${table.codexTranslationReasoningEffort} in (${codexReasoningEffortSqlList})`,
+      sql.raw(
+        `"codex_translation_reasoning_effort" is null or "codex_translation_reasoning_effort" in (${codexReasoningEffortLiteralList})`,
+      ),
     ),
   ],
 );
@@ -390,21 +391,23 @@ export const translationJobs = sqliteTable(
     ),
     check(
       "translation_jobs_status_check",
-      sql`${table.status} in (${translationJobStatusSqlList})`,
+      sql.raw(`"status" in (${translationJobStatusLiteralList})`),
     ),
     check(
       "translation_jobs_source_hash_check",
-      sql`${table.sourceHash} glob 'sha256:*'`,
+      sql.raw(`"source_hash" glob 'sha256:*'`),
     ),
     check(
       "translation_jobs_output_hash_check",
-      sql`${table.outputHash} is null or ${table.outputHash} glob 'sha256:*'`,
+      sql.raw(`"output_hash" is null or "output_hash" glob 'sha256:*'`),
     ),
     check(
       "translation_jobs_reasoning_effort_check",
-      sql`${table.reasoningEffort} is null or ${table.reasoningEffort} in (${codexReasoningEffortSqlList})`,
+      sql.raw(
+        `"reasoning_effort" is null or "reasoning_effort" in (${codexReasoningEffortLiteralList})`,
+      ),
     ),
-    check("translation_jobs_chunk_count_check", sql`${table.chunkCount} >= 0`),
+    check("translation_jobs_chunk_count_check", sql.raw(`"chunk_count" >= 0`)),
   ],
 );
 
