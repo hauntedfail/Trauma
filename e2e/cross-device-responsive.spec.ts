@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+import {
+  materializeE2eFixture,
+  mutateE2eFixtureState,
+} from "./bun-fixture";
+
+const longMomentFixtureUrl =
+  "https://example.com/articles/a-very-long-reader-source-path-without-breakable-segments";
+
 const viewports = [
   { height: 844, kind: "phone", name: "phone narrow", width: 390 },
   { height: 932, kind: "phone", name: "phone wide", width: 430 },
@@ -35,6 +43,30 @@ for (const viewport of viewports) {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 }
+
+test("keeps long Moment rows within the phone viewport", async ({ page }) => {
+  await materializeE2eFixture("reader_base");
+  await mutateE2eFixtureState("moment_delete_focus_rows");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/moments");
+
+  await expect(
+    page.getByRole("heading", { name: "Moments", exact: true }),
+  ).toBeVisible();
+  const longMomentRow = page.locator(
+    '[data-collection-row="moment-focus-older"]',
+  );
+  await expect(longMomentRow).toBeVisible();
+  await expect(longMomentRow.getByText(longMomentFixtureUrl, { exact: true }))
+    .toBeVisible();
+
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth -
+      document.documentElement.clientWidth
+  );
+
+  expect(overflow).toBeLessThanOrEqual(1);
+});
 
 test("keeps phone primary actions reachable from the bottom tab bar", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

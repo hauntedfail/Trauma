@@ -31,6 +31,11 @@ unsafe because Vinxi, Vite, Nitro, and the database tools require different
 release lines. Recheck the reachability and remove each exception when its
 upstream dependency advances.
 
+The `brace-expansion` override keeps all transitive consumers on the patched
+5.0.8 implementation. Its Bun patch preserves the callable CommonJS and default
+ESM exports required by older `minimatch` releases; keep the patch until those
+consumers adopt the current named-export API.
+
 Run focused tests while iterating, then use the broad commands appropriate to
 the changed risk. Tests and E2E must use fixtures and temporary database,
 store, and git paths rather than external websites or real application data.

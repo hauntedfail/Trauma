@@ -150,6 +150,10 @@ export function spawnRuntimeCloseFailureWorker(config: ResolvedTraumaConfig) {
   return spawnFixture("runtime-close-failure-worker.ts", config);
 }
 
+export function spawnOutputSequenceWorker(config: ResolvedTraumaConfig) {
+  return spawnFixture("output-sequence-worker.ts", config);
+}
+
 function spawnFixture(
   fixture: string,
   config: ResolvedTraumaConfig,
@@ -176,6 +180,7 @@ function createWorkerHandle(child: ChildProcessWithoutNullStreams) {
   spawnedChildren.add(child);
   const stdout = createJsonLineReader(child.stdout);
   const stderr = createJsonLineReader(child.stderr);
+  const output = createLosslessWorkerOutput(stdout, stderr);
   const exit = new Promise<number | null>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code) => {
@@ -188,8 +193,9 @@ function createWorkerHandle(child: ChildProcessWithoutNullStreams) {
     kill(signal: NodeJS.Signals) {
       child.kill(signal);
     },
-    nextStderr: stderr.next,
-    nextStdout: stdout.next,
+    nextOutput: output.nextOutput,
+    nextStderr: output.nextStderr,
+    nextStdout: output.nextStdout,
     send(command: string) {
       child.stdin.write(`${command}\n`);
     },
@@ -238,6 +244,50 @@ function createJsonLineReader(stream: NodeJS.ReadableStream) {
       return new Promise<WorkerEvent>((resolve) => pending.push(resolve));
     },
   };
+}
+
+function createLosslessWorkerOutput(
+  stdout: ReturnType<typeof createJsonLineReader>,
+  stderr: ReturnType<typeof createJsonLineReader>,
+) {
+  const stdoutChannel = createLosslessChannel(stdout);
+  const stderrChannel = createLosslessChannel(stderr);
+  return {
+    nextOutput: async () => {
+      const channel = await Promise.race([
+        stderrChannel.peek().then(() => "stderr" as const),
+        stdoutChannel.peek().then(() => "stdout" as const),
+      ]);
+      const event = channel === "stderr"
+        ? await stderrChannel.consume()
+        : await stdoutChannel.consume();
+      return { channel, event };
+    },
+    nextStderr: stderrChannel.consume,
+    nextStdout: stdoutChannel.consume,
+  };
+}
+
+function createLosslessChannel(reader: ReturnType<typeof createJsonLineReader>) {
+  let pending: Promise<WorkerEvent> | undefined;
+  let retained: WorkerEvent | undefined;
+  const peek = () => {
+    if (retained !== undefined) {
+      return Promise.resolve(retained);
+    }
+    pending ??= reader.next().then((event) => {
+      retained = event;
+      return event;
+    });
+    return pending;
+  };
+  const consume = async () => {
+    const event = await peek();
+    retained = undefined;
+    pending = undefined;
+    return event;
+  };
+  return { consume, peek };
 }
 
 function resolveBunExecutable(): string {

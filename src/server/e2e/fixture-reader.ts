@@ -9,6 +9,9 @@ import {
   writeFixtureMemoryContent,
 } from "./fixture-support";
 
+const READER_URL =
+  "https://example.com/articles/a-very-long-reader-source-path-without-breakable-segments";
+
 export async function materializeReaderFixture(): Promise<void> {
   await resetE2eFixture("read_only");
   const config = loadE2eConfig();
@@ -40,7 +43,7 @@ export async function materializeReaderFixture(): Promise<void> {
   const connection = initializeDatabase(config);
   try {
     await connection.db.insert(schema.memories).values([
-      readerMemoryRow(READER_MEMORY_ID, "Fixture Reader", "https://example.com/reader", now),
+      readerMemoryRow(READER_MEMORY_ID, "Fixture Reader", READER_URL, now),
       readerMemoryRow(
         SECOND_READER_MEMORY_ID,
         "Second Fixture Reader",
@@ -89,7 +92,7 @@ export async function materializeReaderFixture(): Promise<void> {
       config,
       READER_MEMORY_ID,
       "Fixture Reader",
-      "https://example.com/reader",
+      READER_URL,
       readerMarkdown,
     ),
     writeFixtureMemoryContent(

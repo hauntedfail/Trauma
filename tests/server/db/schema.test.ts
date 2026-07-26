@@ -19,6 +19,7 @@ const SCRUB_MEMORY_BACKUP_ERRORS_MIGRATION_FOLDER_MILLIS = 1784232000000;
 const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
 const CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS = 1784238332412;
 const COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS = 1784534032874;
+const CODEX_REASONING_EFFORT_MIGRATION_FOLDER_MILLIS = 1785060493598;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -558,6 +559,139 @@ describe("db foundation", () => {
       message: expect.stringContaining(
         "app_settings_codex_translation_reasoning_effort_check",
       ),
+    });
+  });
+
+  it("upgrades persisted Codex reasoning effort constraints for settings and translation jobs", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+          import { applyRuntimeMigrations } from "./src/server/db/migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          const sqlite = new Database(join(root, "trauma.sqlite"));
+
+          try {
+            sqlite.run("PRAGMA foreign_keys = ON");
+            const migrations = readBundledMigrations();
+            const previousMigrations = migrations.filter(
+              (migration) => migration.folderMillis < ${CODEX_REASONING_EFFORT_MIGRATION_FOLDER_MILLIS},
+            );
+            applyRuntimeMigrations(sqlite, previousMigrations, "previous");
+
+            const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef341";
+            sqlite.prepare("insert into app_settings (id, translation_target_language, codex_translation_model, codex_translation_reasoning_effort, created_at, updated_at) values (?, ?, ?, ?, ?, ?)")
+              .run("default", "ja-JP", "gpt-5.5", "xhigh", 1, 1);
+            sqlite.prepare("insert into memories (id, url, title, content_path, extraction_status, backup_status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(memoryId, "https://example.com/reasoning", "Reasoning", "memories/" + memoryId + "/CONTENT.md", "success", "disabled", 1, 1);
+            sqlite.prepare("insert into translation_jobs (job_id, memory_id, lang_code, source_hash, model, reasoning_effort, prompt_policy_version, chunker_version, status, chunk_count, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translation-job-before", memoryId, "ja-JP", "sha256:before", "gpt-5.5", "xhigh", "policy", "chunker", "complete", 1, 1, 1);
+            sqlite.prepare("insert into translation_chunks (job_id, chunk_index, source_chunk_hash, block_ids_json, status, retry_count, translated_markdown, translated_hash, projection_spans_json, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translation-job-before", 7, "sha256:chunk-before", JSON.stringify(["block-before"]), "complete", 2, "translated before", "sha256:translated-before", JSON.stringify([{ spanIndex: 3 }]), null, 1, 1);
+            sqlite.prepare("insert into translation_projection_spans (job_id, span_index, memory_id, lang_code, source_hash, output_hash, segment_id, block_id, source_markdown_start, source_markdown_end, translated_markdown_start, translated_markdown_end, source_reader_start, source_reader_end, translated_reader_start, translated_reader_end, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translation-job-before", 3, memoryId, "ja-JP", "sha256:before", "sha256:translated-before", "segment-before", "block-before", 10, 20, 30, 45, 50, 70, 80, 105, 1, 1);
+
+            applyRuntimeMigrations(sqlite, migrations, "bundled");
+
+            sqlite.prepare("update app_settings set codex_translation_reasoning_effort = ? where id = 'default'")
+              .run("max");
+            sqlite.prepare("insert into translation_jobs (job_id, memory_id, lang_code, source_hash, model, reasoning_effort, prompt_policy_version, chunker_version, status, chunk_count, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run("translation-job-after", memoryId, "en-US", "sha256:after", "gpt-5.5", "ultra", "policy", "chunker", "complete", 0, 2, 2);
+
+            const unsupportedErrors = [];
+            try {
+              sqlite.prepare("update app_settings set codex_translation_reasoning_effort = ? where id = 'default'")
+                .run("extreme");
+            } catch (error) {
+              unsupportedErrors.push(error instanceof Error ? error.message : String(error));
+            }
+            try {
+              sqlite.prepare("insert into translation_jobs (job_id, memory_id, lang_code, source_hash, model, reasoning_effort, prompt_policy_version, chunker_version, status, chunk_count, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .run("translation-job-rejected", memoryId, "ko-KR", "sha256:rejected", "gpt-5.5", "extreme", "policy", "chunker", "complete", 0, 3, 3);
+            } catch (error) {
+              unsupportedErrors.push(error instanceof Error ? error.message : String(error));
+            }
+
+            process.stdout.write(JSON.stringify({
+              appSettings: sqlite.prepare("select codex_translation_model as model, codex_translation_reasoning_effort as reasoningEffort from app_settings where id = 'default'").get(),
+              translationJobs: sqlite.prepare("select job_id as jobId, memory_id as memoryId, reasoning_effort as reasoningEffort from translation_jobs order by job_id").all(),
+              translationChunks: sqlite.prepare("select job_id as jobId, chunk_index as chunkIndex, source_chunk_hash as sourceChunkHash, block_ids_json as blockIdsJson, status, retry_count as retryCount, translated_markdown as translatedMarkdown, translated_hash as translatedHash, projection_spans_json as projectionSpansJson from translation_chunks order by job_id, chunk_index").all(),
+              translationProjectionSpans: sqlite.prepare("select job_id as jobId, span_index as spanIndex, memory_id as memoryId, lang_code as langCode, source_hash as sourceHash, output_hash as outputHash, segment_id as segmentId, block_id as blockId, source_markdown_start as sourceMarkdownStart, source_markdown_end as sourceMarkdownEnd, translated_markdown_start as translatedMarkdownStart, translated_markdown_end as translatedMarkdownEnd, source_reader_start as sourceReaderStart, source_reader_end as sourceReaderEnd, translated_reader_start as translatedReaderStart, translated_reader_end as translatedReaderEnd from translation_projection_spans order by job_id, span_index").all(),
+              unsupportedErrors,
+              foreignKeyViolations: sqlite.prepare("PRAGMA foreign_key_check").all(),
+              migrationRecorded: sqlite
+                .prepare("select count(*) as count from __drizzle_migrations where created_at = ?")
+                .get(${CODEX_REASONING_EFFORT_MIGRATION_FOLDER_MILLIS}).count,
+            }));
+          } finally {
+            sqlite.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, TRAUMA_TEST_DB_ROOT: root },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      appSettings: { model: "gpt-5.5", reasoningEffort: "max" },
+      translationJobs: [
+        {
+          jobId: "translation-job-after",
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef341",
+          reasoningEffort: "ultra",
+        },
+        {
+          jobId: "translation-job-before",
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef341",
+          reasoningEffort: "xhigh",
+        },
+      ],
+      translationChunks: [
+        {
+          jobId: "translation-job-before",
+          chunkIndex: 7,
+          sourceChunkHash: "sha256:chunk-before",
+          blockIdsJson: JSON.stringify(["block-before"]),
+          status: "complete",
+          retryCount: 2,
+          translatedMarkdown: "translated before",
+          translatedHash: "sha256:translated-before",
+          projectionSpansJson: JSON.stringify([{ spanIndex: 3 }]),
+        },
+      ],
+      translationProjectionSpans: [
+        {
+          jobId: "translation-job-before",
+          spanIndex: 3,
+          memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef341",
+          langCode: "ja-JP",
+          sourceHash: "sha256:before",
+          outputHash: "sha256:translated-before",
+          segmentId: "segment-before",
+          blockId: "block-before",
+          sourceMarkdownStart: 10,
+          sourceMarkdownEnd: 20,
+          translatedMarkdownStart: 30,
+          translatedMarkdownEnd: 45,
+          sourceReaderStart: 50,
+          sourceReaderEnd: 70,
+          translatedReaderStart: 80,
+          translatedReaderEnd: 105,
+        },
+      ],
+      unsupportedErrors: [
+        expect.stringContaining(
+          "app_settings_codex_translation_reasoning_effort_check",
+        ),
+        expect.stringContaining("translation_jobs_reasoning_effort_check"),
+      ],
+      foreignKeyViolations: [],
+      migrationRecorded: 1,
     });
   });
 

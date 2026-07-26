@@ -15,40 +15,64 @@ import {
   releaseLeaseOwner,
   spawnMiddlewareWorker,
   spawnMigrationWorker,
+  spawnOutputSequenceWorker,
   spawnWorker,
   startLeaseOwner,
 } from "./runtime-lease-test-helpers";
 
 describe("runtime process lease overlap", () => {
-  it("serializes direct cross-process migrations without corrupting an empty database", async () => {
+  it("keeps the losing channel read observable after merged output wins", async () => {
     const { config } = await createRuntimeConfig();
-    const secondConfig: ResolvedTraumaConfig = {
-      ...config,
-      projectPath: join(dirname(config.projectPath), "migration-project-two"),
-      storePath: join(
-        dirname(config.projectPath),
-        "migration-project-two",
-        "store",
-      ),
-    };
-    const first = spawnMigrationWorker(config);
-    const second = spawnMigrationWorker(secondConfig);
+    const worker = spawnOutputSequenceWorker(config);
 
-    await expect(first.nextStdout()).resolves.toMatchObject({ type: "ready" });
-    await expect(second.nextStdout()).resolves.toMatchObject({ type: "ready" });
-    first.send("initialize");
-    second.send("initialize");
-
-    const [firstInitialized, secondInitialized] = await Promise.all([
-      first.nextStdout(),
-      second.nextStdout(),
-    ]);
-    expect(firstInitialized).toMatchObject({ type: "initialized" });
-    expect(secondInitialized).toEqual(firstInitialized);
-    expect(firstInitialized.migrations).toBeGreaterThan(0);
-    await expect(first.exit).resolves.toBe(0);
-    await expect(second.exit).resolves.toBe(0);
+    await expect(worker.nextOutput()).resolves.toMatchObject({
+      channel: "stderr",
+      event: { type: "ready" },
+    });
+    worker.send("stdout");
+    await expect(worker.exit).resolves.toBe(0);
+    await expect(worker.nextStdout()).resolves.toMatchObject({
+      type: "released",
+    });
   });
+
+  it(
+    "serializes direct cross-process migrations without corrupting an empty database",
+    async () => {
+      const { config } = await createRuntimeConfig();
+      const secondConfig: ResolvedTraumaConfig = {
+        ...config,
+        projectPath: join(dirname(config.projectPath), "migration-project-two"),
+        storePath: join(
+          dirname(config.projectPath),
+          "migration-project-two",
+          "store",
+        ),
+      };
+      const first = spawnMigrationWorker(config);
+      const second = spawnMigrationWorker(secondConfig);
+
+      await expect(first.nextStdout()).resolves.toMatchObject({ type: "ready" });
+      await expect(second.nextStdout()).resolves.toMatchObject({ type: "ready" });
+      first.send("initialize");
+      second.send("initialize");
+
+      const [firstResult, secondResult] = await Promise.all([
+        first.nextOutput(),
+        second.nextOutput(),
+      ]);
+      expect(firstResult.channel).toBe("stdout");
+      expect(secondResult.channel).toBe("stdout");
+      const firstInitialized = firstResult.event;
+      const secondInitialized = secondResult.event;
+      expect(firstInitialized).toMatchObject({ type: "initialized" });
+      expect(secondInitialized).toEqual(firstInitialized);
+      expect(firstInitialized.migrations).toBeGreaterThan(0);
+      await expect(first.exit).resolves.toBe(0);
+      await expect(second.exit).resolves.toBe(0);
+    },
+    60_000,
+  );
 
   it("rejects a second runtime that shares only databasePath", async () => {
     const { config } = await createRuntimeConfig();
