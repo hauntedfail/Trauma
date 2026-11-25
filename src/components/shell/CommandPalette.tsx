@@ -53,9 +53,11 @@ export function CommandPalette(props: CommandPaletteProps) {
   const [statusMessage, setStatusMessage] = createSignal("");
   const [isBusy, setIsBusy] = createSignal(false);
 
+  let dialogRef: HTMLDivElement | undefined;
   let searchInputRef: HTMLInputElement | undefined;
   let captureInputRef: HTMLInputElement | undefined;
   let searchSequence = 0;
+  let paletteSessionId = 0;
 
   const items = createMemo(() =>
     buildCommandPaletteItems({
@@ -100,6 +102,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   });
 
   createEffect(() => {
+    paletteSessionId += 1;
     if (!props.open) {
       return;
     }
@@ -173,6 +176,17 @@ export function CommandPalette(props: CommandPaletteProps) {
     });
   });
 
+  const listFocusableElements = (): HTMLElement[] => {
+    if (dialogRef === undefined) {
+      return [];
+    }
+    return Array.from(
+      dialogRef.querySelectorAll<HTMLElement>(
+        'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hasAttribute("disabled") && element.tabIndex >= 0);
+  };
+
   createEffect(() => {
     if (!props.open) {
       return;
@@ -183,6 +197,37 @@ export function CommandPalette(props: CommandPaletteProps) {
         event.preventDefault();
         event.stopPropagation();
         props.onClose(true);
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const focusables = listFocusableElements();
+        if (focusables.length === 0) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusables[0]!;
+        const last = focusables[focusables.length - 1]!;
+        const active = document.activeElement as HTMLElement | null;
+        if (event.shiftKey) {
+          if (
+            active === null ||
+            dialogRef === undefined ||
+            !dialogRef.contains(active) ||
+            active === first
+          ) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+          }
+        } else if (
+          active === null ||
+          dialogRef === undefined ||
+          !dialogRef.contains(active) ||
+          active === last
+        ) {
+          event.preventDefault();
+          first.focus({ preventScroll: true });
+        }
       }
     };
 
@@ -209,6 +254,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       return;
     }
 
+    const sessionId = paletteSessionId;
     setErrorMessage("");
     setStatusMessage("");
     setIsBusy(true);
@@ -221,6 +267,9 @@ export function CommandPalette(props: CommandPaletteProps) {
           createdMemoryId = memoryId;
         },
       });
+      if (sessionId !== paletteSessionId || !props.open) {
+        return;
+      }
       if (!result.ok) {
         setErrorMessage(result.error);
         return;
@@ -231,7 +280,9 @@ export function CommandPalette(props: CommandPaletteProps) {
       navigate(`/memories/${encodeURIComponent(targetId)}`);
     } finally {
       view.dispose();
-      setIsBusy(false);
+      if (sessionId === paletteSessionId) {
+        setIsBusy(false);
+      }
     }
   };
 
@@ -260,6 +311,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         return;
       }
       case "move-lane": {
+        const sessionId = paletteSessionId;
         setIsBusy(true);
         try {
           const todayCapEnabled = focusPlugins.isPluginEnabled(
@@ -282,14 +334,22 @@ export function CommandPalette(props: CommandPaletteProps) {
             triageState: item.triageState,
             todayCap,
           });
+          if (sessionId !== paletteSessionId || !props.open) {
+            return;
+          }
           if (!result.ok) {
             setErrorMessage(result.error);
             return;
           }
           await revalidateBrowseMemoryWorkspace();
+          if (sessionId !== paletteSessionId || !props.open) {
+            return;
+          }
           props.onClose(true);
         } finally {
-          setIsBusy(false);
+          if (sessionId === paletteSessionId) {
+            setIsBusy(false);
+          }
         }
         return;
       }
@@ -360,6 +420,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         }}
       >
         <div
+          ref={dialogRef}
           aria-label="Command palette"
           aria-modal="true"
           class="w-full max-w-[560px] overflow-hidden rounded-[20px] border border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary shadow-trauma-2"

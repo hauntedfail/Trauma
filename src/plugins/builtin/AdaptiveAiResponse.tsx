@@ -38,26 +38,65 @@ function extractAnchor(point: string): AdaptedBulletItem {
   return { body: cleaned };
 }
 
+const BULLET_LINE_PATTERN = /^([-*•]|\d+[.)])\s+/;
+
 export function restructureAiResponse(text: string): RestructuredAiResponse {
   const trimmed = text.trim();
   if (!trimmed) {
     return { shouldAdapt: false, tldr: "", bullets: [] };
   }
 
-  const lines = trimmed
-    .split(/\n+/)
+  const rawLines = trimmed.split(/\r?\n/);
+  const nonEmptyLines = rawLines
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-
-  const bulletLines = lines.filter((line) => /^([-*•]|\d+[.)])\s+/.test(line));
-  const proseLines = lines.filter((line) => !/^([-*•]|\d+[.)])\s+/.test(line));
+  const bulletLines = nonEmptyLines.filter((line) => BULLET_LINE_PATTERN.test(line));
 
   if (bulletLines.length >= 2) {
-    const tldr = proseLines[0] ?? bulletLines[0]!.replace(/^([-*•]|\d+[.)])\s+/, "");
+    const leadingProse: string[] = [];
+    const structuredItems: string[] = [];
+    let seenFirstBullet = false;
+    let sawBlankLine = false;
+
+    for (const rawLine of rawLines) {
+      const line = rawLine.trim();
+      if (line.length === 0) {
+        sawBlankLine = true;
+        continue;
+      }
+
+      if (BULLET_LINE_PATTERN.test(line)) {
+        seenFirstBullet = true;
+        sawBlankLine = false;
+        structuredItems.push(line);
+        continue;
+      }
+
+      if (!seenFirstBullet) {
+        leadingProse.push(line);
+        sawBlankLine = false;
+        continue;
+      }
+
+      if (!sawBlankLine && structuredItems.length > 0) {
+        // Continuation line belonging to the preceding bullet.
+        structuredItems[structuredItems.length - 1] = `${structuredItems[structuredItems.length - 1]} ${line}`;
+      } else {
+        // Intervening or concluding prose after a blank line: preserve it as an item
+        // so neither summary nor expanded views drop qualifications.
+        structuredItems.push(line);
+      }
+      sawBlankLine = false;
+    }
+
+    const tldr =
+      leadingProse[0] ?? structuredItems[0]!.replace(BULLET_LINE_PATTERN, "");
+    const extraLeadingItems = leadingProse.slice(1);
+
     return {
       shouldAdapt: true,
       tldr,
-      bullets: bulletLines.map(extractAnchor),
+      bullets: [...extraLeadingItems, ...structuredItems].map(extractAnchor),
     };
   }
 

@@ -245,6 +245,28 @@ export async function submitReaderPosition(input: {
   }
 }
 
+export async function submitReaderOpened(input: {
+  fetch?: FetchFunction;
+  memoryId: string;
+}): Promise<boolean> {
+  const requestFetch = input.fetch ?? fetch;
+  try {
+    const response = await requestFetch(
+      `/api/memories/${encodeURIComponent(input.memoryId)}/position`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ openOnly: true }),
+      },
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function submitReaderTriage(input: {
   fetch?: FetchFunction;
   memoryId: string;

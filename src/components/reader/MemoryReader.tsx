@@ -105,6 +105,7 @@ import {
   readReaderReadableBlockPositions,
   restoreReaderPositionInDom,
   shouldAutoMarkRead,
+  submitReaderOpened,
   submitReaderPosition,
   submitReaderTriage,
 } from "./reader-position";
@@ -634,6 +635,19 @@ function ReadyMemoryReader(props: {
     const activeTranslationEventSource = translationEventSource;
     translationEventSource = undefined;
     activeTranslationEventSource?.close();
+  });
+
+  let lastRecordedOpenedMemoryId: string | undefined;
+  createEffect(() => {
+    if (!isReaderClientReady()) {
+      return;
+    }
+    const memoryId = props.result.memory.id;
+    if (memoryId === lastRecordedOpenedMemoryId) {
+      return;
+    }
+    lastRecordedOpenedMemoryId = memoryId;
+    void submitReaderOpened({ memoryId });
   });
 
   onMount(() => {

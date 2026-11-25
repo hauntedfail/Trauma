@@ -1346,6 +1346,7 @@ export function MemoryItem(props: {
           : ""
       } ${props.view === "grid" && lane() === "library" ? "border-r border-trauma-border" : ""}`}
       data-collection-row={props.memory.id}
+      data-memory-id={props.memory.id}
       data-keyboard-selected={isSelected() ? "true" : "false"}
       role="listitem"
     >

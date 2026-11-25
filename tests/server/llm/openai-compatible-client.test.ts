@@ -487,4 +487,52 @@ describe("OpenAICompatibleClient", () => {
       ),
     ).toBe("Authorization: Bearer [REDACTED] api_key:[REDACTED] [REDACTED]");
   });
+
+  it("rejects truncated SSE streams even after emitting partial text", async () => {
+    const client = new OpenAICompatibleClient({
+      baseUrl: "https://sibyl.haunted.fail/llm/v1",
+      defaultModel: "magpie-chat",
+      fetch: async () =>
+        new Response(
+          sseStream([
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: "Partial answer" }, finish_reason: null }],
+            })}\n\n`,
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          },
+        ),
+    });
+
+    await expect(
+      client.runConversationTurn({
+        cwdPurpose: "psychiatrist",
+        input: "Explain this",
+      }),
+    ).rejects.toMatchObject({
+      name: "CodexAppServerError",
+      code: "stream_disconnected",
+    });
+  });
+
+  it("enforces requestTimeoutMs while reading stalled /models response bodies", async () => {
+    const client = new OpenAICompatibleClient({
+      baseUrl: "https://sibyl.haunted.fail/llm/v1",
+      defaultModel: "magpie-chat",
+      requestTimeoutMs: 40,
+      fetch: async () =>
+        ({
+          ok: true,
+          status: 200,
+          text: () => new Promise<string>(() => {}),
+        }) as unknown as Response,
+    });
+
+    await expect(client.listModels()).rejects.toMatchObject({
+      name: "CodexAppServerError",
+      code: "timeout",
+    });
+  });
 });

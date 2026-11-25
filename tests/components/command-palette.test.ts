@@ -219,5 +219,12 @@ describe("command palette model", () => {
     expect(commandPaletteSource).toContain('role="listbox"');
     expect(commandPaletteSource).not.toContain("category");
     expect(commandPaletteSource).not.toContain("tag");
+    expect(commandPaletteSource).toContain("paletteSessionId");
+    expect(commandPaletteSource).toContain('event.key === "Tab"');
+    const memoryBrowseSource = readFileSync(
+      "src/components/memories/MemoryBrowse.tsx",
+      "utf8",
+    );
+    expect(memoryBrowseSource).toContain("data-memory-id={props.memory.id}");
   });
 });

@@ -22,7 +22,10 @@ import {
 } from "../../components/memories/browse-data";
 import { normalizeBrowseLimit } from "../browse/limits";
 import { collectFilteredCursorPage } from "../browse/filtered-page";
-import { findMemoryIdsMatchingSearchTerm } from "../search";
+import {
+  backfillMemorySearchIndex,
+  findMemoryIdsMatchingSearchTerm,
+} from "../search";
 
 const MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS = 20;
 
@@ -122,6 +125,12 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   repositoryInput: ListMemoryBrowsePageInput;
   sqlite: ReturnType<typeof initializeDatabase>["sqlite"];
 }): Promise<MemoryBrowsePageResult> {
+  if (parseBrowseSearch(input.query.q).freeTerms.length > 0) {
+    await backfillMemorySearchIndex({
+      db: input.sqlite,
+      storePath: input.config.storePath,
+    });
+  }
   const limit = normalizeBrowseLimit(input.repositoryInput.limit);
   return collectFilteredCursorPage({
     cursor: input.repositoryInput.cursor,

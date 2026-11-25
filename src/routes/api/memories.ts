@@ -23,7 +23,11 @@ import {
   addMemory,
 } from "~/server/memories/add-memory";
 import { isMemoryId } from "~/server/memories/id";
-import { searchMemoryFts, type MemoryFtsMatch } from "~/server/search/fts";
+import {
+  backfillMemorySearchIndex,
+  searchMemoryFts,
+  type MemoryFtsMatch,
+} from "~/server/search";
 
 const DEFAULT_API_MEMORIES_LIMIT = 20;
 const MAX_API_MEMORIES_LIMIT = 100;
@@ -82,6 +86,10 @@ export async function GET(event: APIEvent): Promise<Response> {
     }
 
     if (parsedQuery.q.length > 0) {
+      await backfillMemorySearchIndex({
+        db: connection.sqlite,
+        storePath: config.storePath,
+      });
       const searchResult = await listMemoriesByFts({
         connection,
         q: parsedQuery.q,

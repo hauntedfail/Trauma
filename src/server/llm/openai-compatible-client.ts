@@ -176,15 +176,12 @@ export class OpenAICompatibleClient
   }
 
   async listModels(): Promise<CodexModelCatalog> {
-    const response = await this.fetchWithTimeout(`${this.baseUrl}/models`, {
-      method: "GET",
-      headers: this.buildHeaders(false),
-    });
-    if (!response.ok) {
-      throw await this.createHttpError(response);
-    }
-    const payload = await this.readJsonResponse(
-      response,
+    const payload = await this.fetchJsonWithTimeout(
+      `${this.baseUrl}/models`,
+      {
+        method: "GET",
+        headers: this.buildHeaders(false),
+      },
       "OpenAI-compatible provider returned invalid model catalog JSON.",
     );
     const catalog = parseOpenAIModelCatalog(payload, this.defaultModel);
@@ -395,27 +392,52 @@ export class OpenAICompatibleClient
     return fallback.model;
   }
 
-  private async fetchWithTimeout(
+  private async fetchJsonWithTimeout(
     url: string,
     init: RequestInit,
-  ): Promise<Response> {
+    fallbackErrorMessage: string,
+  ): Promise<unknown> {
     const controller = new AbortController();
     let timedOut = false;
+    let rejectOnTimeout: ((error: Error) => void) | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      rejectOnTimeout = reject;
+    });
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
+      rejectOnTimeout?.(
+        new CodexAppServerError(
+          "timeout",
+          "OpenAI-compatible provider request timed out.",
+        ),
+      );
     }, this.requestTimeoutMs);
+    const raceWithTimeout = <T,>(promise: Promise<T>): Promise<T> =>
+      Promise.race([promise, timeoutPromise]);
+
     try {
-      return await this.fetchImpl(url, {
-        ...init,
-        signal: controller.signal,
-      });
+      const response = await raceWithTimeout(
+        this.fetchImpl(url, {
+          ...init,
+          signal: controller.signal,
+        }),
+      );
+      if (!response.ok) {
+        throw await raceWithTimeout(this.createHttpError(response));
+      }
+      return await raceWithTimeout(
+        this.readJsonResponse(response, fallbackErrorMessage),
+      );
     } catch (error) {
       if (timedOut) {
         throw new CodexAppServerError(
           "timeout",
           "OpenAI-compatible provider request timed out.",
         );
+      }
+      if (error instanceof CodexAppServerError) {
+        throw error;
       }
       throw new CodexAppServerError(
         "app_server_unavailable",
@@ -599,7 +621,7 @@ export class OpenAICompatibleClient
     if (control.controller.signal.aborted) {
       throw this.abortErrorForControl(control);
     }
-    if (!sawDone && !sawFinishReason && outputText.length === 0) {
+    if (!sawDone && !sawFinishReason) {
       throw new CodexAppServerError(
         "stream_disconnected",
         "OpenAI-compatible stream ended before completing.",

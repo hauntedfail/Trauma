@@ -135,6 +135,24 @@ describe("built-in starter focus plugins", () => {
       anchor: "Chunking",
       body: "Break long walls of text into 3-point groups.",
     });
+
+    const qualifiedReply = restructureAiResponse(
+      [
+        "Intro summary.",
+        "- **Fact A**: First fact.",
+        "  Continuation of first fact.",
+        "- **Fact B**: Second fact.",
+        "",
+        "Final qualification that must not be dropped.",
+      ].join("\n"),
+    );
+    expect(qualifiedReply.shouldAdapt).toBe(true);
+    expect(qualifiedReply.tldr).toBe("Intro summary.");
+    expect(qualifiedReply.bullets).toEqual([
+      { anchor: "Fact A", body: "First fact. Continuation of first fact." },
+      { anchor: "Fact B", body: "Second fact." },
+      { body: "Final qualification that must not be dropped." },
+    ]);
   });
 
   it("removes EphemeralShelfBar while keeping ephemeral-shelf-triage TTL and cap settings", () => {

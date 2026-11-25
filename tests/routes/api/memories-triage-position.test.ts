@@ -409,4 +409,33 @@ describe("POST /api/memories capture defaults, triage, and position routes", () 
     );
     expect(notFound.status).toBe(404);
   });
+
+  it("records last_opened_at via openOnly without overwriting saved last_position", async () => {
+    const { config } = await setupWorkspace();
+
+    const openResponse = await POST_POSITION(
+      createApiEvent(
+        new Request(`http://localhost/api/memories/${MEMORY_ID_1}/position`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ openOnly: true }),
+        }),
+        { memoryId: MEMORY_ID_1 },
+      ),
+    );
+    expect(openResponse.status).toBe(200);
+    const openJson = (await openResponse.json()) as {
+      memoryId: string;
+      lastOpenedAt: string | null;
+    };
+    expect(openJson.memoryId).toBe(MEMORY_ID_1);
+    expect(openJson.lastOpenedAt).not.toBeNull();
+
+    const readerResult = await loadReaderMemory(MEMORY_ID_1, { config });
+    expect(readerResult.status).toBe("ready");
+    if (readerResult.status === "ready") {
+      expect(readerResult.memory.lastOpenedAt).not.toBeNull();
+      expect(readerResult.memory.lastPosition).toBeNull();
+    }
+  });
 });
