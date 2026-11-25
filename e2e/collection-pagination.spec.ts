@@ -80,25 +80,25 @@ test("paginates large Flashback and Moment archives through URL history", async 
   await expectCollectionPage(page, PAGE_SIZE, "Moment Section 37");
 });
 
-test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page }) => {
+test("keeps Reader Landmark Rail Marks in one bounded scrollable panel", async ({
+  page,
+}) => {
   await seedLargeCollectionArchive();
   await page.setViewportSize({ width: 1440, height: 760 });
 
   await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const flashbackSection = await openReaderFlashbacksSection(page);
-  await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
-
-  const listBody = flashbackSection.locator("div.overflow-y-auto").first();
-  const pageControls = flashbackSection.getByRole("navigation", {
-    name: "All Flashback pages",
+  const marksContainer = await openReaderLandmarkMarks(page);
+  const flashbackSection = marksContainer.getByRole("region", {
+    name: "Flashbacks",
   });
-  await expect(listBody.getByRole("link")).toHaveCount(PAGE_SIZE);
-  await expect(listBody.getByText("Flashback selection 37", { exact: false })).toBeVisible();
-  await expect(listBody.getByText("Flashback selection 07", { exact: false })).toHaveCount(0);
-  await expect(pageControls.getByRole("button", { name: "Previous" })).toBeDisabled();
 
-  const scrollStyle = await listBody.evaluate((element) => {
+  await expect(flashbackSection.getByRole("link")).toHaveCount(ARCHIVE_SIZE);
+  await expect(
+    flashbackSection.getByText("Flashback selection 37", { exact: false }),
+  ).toBeVisible();
+
+  const scrollStyle = await marksContainer.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       maxHeight: style.maxHeight,
@@ -109,22 +109,6 @@ test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page
   expect(scrollStyle.maxHeight).not.toBe("none");
   expect(scrollStyle.overflowY).toBe("auto");
   expect(scrollStyle.overscrollBehaviorY).toBe("contain");
-
-  await pageControls.getByRole("button", { name: "Next" }).click();
-  await expect(listBody.getByRole("link")).toHaveCount(ARCHIVE_SIZE - PAGE_SIZE);
-  await expect(listBody.getByText("Flashback selection 07", { exact: false })).toBeVisible();
-  await expect(listBody.getByText("Flashback selection 37", { exact: false })).toHaveCount(0);
-
-  await flashbackSection.getByRole("button", { name: "Current", exact: true }).click();
-  await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
-  await expect(listBody.getByRole("link")).toHaveCount(ARCHIVE_SIZE - PAGE_SIZE);
-
-  await pageControls.getByRole("button", { name: "Previous" }).click();
-  await expect(listBody.getByRole("link")).toHaveCount(PAGE_SIZE);
-  await pageControls.getByRole("button", { name: "Next" }).click();
-  await expect(listBody.getByRole("link")).toHaveCount(ARCHIVE_SIZE - PAGE_SIZE);
-  await pageControls.getByRole("button", { name: "First" }).click();
-  await expect(listBody.getByRole("link")).toHaveCount(PAGE_SIZE);
 });
 
 test("retries failed first Flashback and Moment pages without resetting the URL", async ({
@@ -169,46 +153,6 @@ test("retries failed first Flashback and Moment pages without resetting the URL"
   }
 });
 
-test("retries a failed Reader All page without changing its rail-local cursor", async ({
-  page,
-}) => {
-  await seedLargeCollectionArchive();
-  const interception = await interceptCollectionPageRetry(
-    page,
-    FLASHBACK_PAGE_QUERY_ID,
-  );
-  try {
-    await page.setViewportSize({ width: 1440, height: 760 });
-    await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
-    await waitForReaderReady(page);
-    const flashbackSection = await openReaderFlashbacksSection(page);
-    await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
-
-    const region = flashbackSection.getByRole("region", {
-      name: "All flashbacks page",
-    });
-    const alert = region.getByRole("alert");
-    await expect(alert).toContainText("Failed to load flashbacks.");
-    const retry = alert.getByRole("button");
-    await expect(retry).toHaveAccessibleName("Retry all flashbacks");
-
-    await retry.click();
-    await expect.poll(interception.attempts).toBe(2);
-    await expect(retry).toBeDisabled();
-    await expect(retry).toHaveAccessibleName("Retrying all flashbacks...");
-    await retry.evaluate((button: HTMLButtonElement) => button.click());
-
-    interception.release();
-    await expect(region.getByRole("link")).toHaveCount(PAGE_SIZE);
-    expect(interception.attempts()).toBe(2);
-    expect(new URL(page.url()).pathname).toBe(`/memories/${PAGINATION_MEMORY_ID}`);
-    await expect(region).toBeFocused();
-  } finally {
-    interception.release();
-    await interception.remove();
-  }
-});
-
 for (const surface of ROUTE_RETRY_SURFACES) {
   test(`does not render an abandoned ${surface.navLabel} retry after navigating to First`, async ({
     page,
@@ -248,51 +192,6 @@ for (const surface of ROUTE_RETRY_SURFACES) {
     }
   });
 }
-
-test("does not render an abandoned Reader All retry after navigating to Previous", async ({
-  page,
-}) => {
-  await seedLargeCollectionArchive();
-  await page.setViewportSize({ width: 1440, height: 760 });
-  await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
-  await waitForReaderReady(page);
-  const flashbackSection = await openReaderFlashbacksSection(page);
-  await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
-  const region = flashbackSection.getByRole("region", {
-    name: "All flashbacks page",
-  });
-  await expect(region.getByRole("link")).toHaveCount(PAGE_SIZE);
-  const interception = await interceptCollectionPageRetry(
-    page,
-    FLASHBACK_PAGE_QUERY_ID,
-  );
-
-  try {
-    const pageControls = region.getByRole("navigation", {
-      name: "All Flashback pages",
-    });
-    await pageControls.getByRole("button", { name: "Next" }).click();
-    await expect(region.getByRole("alert")).toBeVisible();
-    const retry = region.getByRole("button", { name: "Retry all flashbacks" });
-    await retry.click();
-    await expect.poll(interception.attempts).toBe(2);
-
-    await pageControls.getByRole("button", { name: "Previous" }).click();
-    await expect(region.getByRole("link")).toHaveCount(PAGE_SIZE);
-    await expect(region.getByText("Flashback selection 37", { exact: false }))
-      .toBeVisible();
-    await expect(region.getByRole("alert")).toHaveCount(0);
-
-    await interception.releaseAndWait();
-    await expect(region.getByRole("link")).toHaveCount(PAGE_SIZE);
-    await expect(region.getByRole("alert")).toHaveCount(0);
-    await expect(pageControls.getByRole("button", { name: "Previous" }))
-      .toBeDisabled();
-  } finally {
-    interception.release();
-    await interception.remove();
-  }
-});
 
 test("returns keyboard focus to Retry after repeated recovery failures", async ({
   page,
@@ -344,16 +243,15 @@ async function waitForReaderReady(page: Page): Promise<void> {
   );
 }
 
-async function openReaderFlashbacksSection(page: Page) {
-  const dialog = page.locator("#reader-inspector-dialog");
-  if ((await dialog.count()) === 0) {
-    await page.locator("[data-reader-inspector-trigger]").click();
+async function openReaderLandmarkMarks(page: Page) {
+  const rail = page.locator("[data-reader-landmark-rail]");
+  await expect(rail).toBeVisible();
+  const marks = rail.locator("[data-reader-landmark-marks]");
+  if ((await marks.count()) === 0) {
+    await rail.hover();
   }
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("tab", { exact: true, name: "Marks" }).click();
-  return dialog
-    .getByRole("heading", { name: "Flashbacks", exact: true })
-    .locator("xpath=..");
+  await expect(marks).toBeVisible();
+  return marks;
 }
 
 async function interceptCollectionPageRetry(

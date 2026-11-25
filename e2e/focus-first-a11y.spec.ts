@@ -80,7 +80,7 @@ test("Library lane has zero serious or critical axe-core violations", async ({
   );
 });
 
-test("Reader has zero serious or critical axe-core violations with Inspector closed and open", async ({
+test("Reader has zero serious or critical axe-core violations with micro-surfaces closed and open", async ({
   page,
 }) => {
   await materializeE2eFixture("reader_base");
@@ -90,23 +90,42 @@ test("Reader has zero serious or critical axe-core violations with Inspector clo
     "data-reader-ready",
     "true",
   );
-  await expect(page.locator("#reader-inspector-dialog")).toHaveCount(0);
+  await expect(page.locator("#reader-psychiatrist-sheet")).toHaveCount(0);
+  await expect(page.locator("#reader-translate-popover")).toHaveCount(0);
+  await expect(page.locator("#reader-details-popover")).toHaveCount(0);
 
   await assertNoSeriousOrCriticalA11yViolations(
     page,
-    "Reader (Inspector closed)",
+    "Reader (micro-surfaces closed)",
   );
 
-  await page.locator("[data-reader-inspector-trigger]").click();
-  await expect(page.locator("#reader-inspector-dialog")).toBeVisible();
-
+  await page.locator("[data-reader-details-trigger]").click();
+  await expect(page.locator("#reader-details-popover")).toBeVisible();
   await assertNoSeriousOrCriticalA11yViolations(
     page,
-    "Reader (Inspector open)",
+    "Reader (Details popover open)",
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#reader-details-popover")).toHaveCount(0);
+
+  await page.locator("[data-reader-translate-trigger]").click();
+  await expect(page.locator("#reader-translate-popover")).toBeVisible();
+  await assertNoSeriousOrCriticalA11yViolations(
+    page,
+    "Reader (Translate popover open)",
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#reader-translate-popover")).toHaveCount(0);
+
+  await page.keyboard.press("]");
+  await expect(page.locator("#reader-psychiatrist-sheet")).toBeVisible();
+  await assertNoSeriousOrCriticalA11yViolations(
+    page,
+    "Reader (Psychiatrist sheet open)",
   );
 });
 
-test("prefers-reduced-motion disables reader inspector, topbar, landmark rail, and shell rail transitions", async ({
+test("prefers-reduced-motion disables reader psychiatrist sheet, topbar, landmark rail, and shell rail transitions", async ({
   page,
 }) => {
   await materializeE2eFixture("reader_base");
@@ -117,8 +136,8 @@ test("prefers-reduced-motion disables reader inspector, topbar, landmark rail, a
     "data-reader-ready",
     "true",
   );
-  await page.locator("[data-reader-inspector-trigger]").click();
-  await expect(page.locator("#reader-inspector-dialog")).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(page.locator("#reader-psychiatrist-sheet")).toBeVisible();
 
   const durations = await page.evaluate(() => {
     const read = (selector: string) => {
@@ -129,13 +148,13 @@ test("prefers-reduced-motion disables reader inspector, topbar, landmark rail, a
       leftRail: read(".trauma-shell-left-rail"),
       topbar: read(".trauma-reader-topbar"),
       landmarkRail: read(".trauma-reader-landmark-rail"),
-      inspector: read(".trauma-reader-inspector"),
+      psychiatristSheet: read(".trauma-reader-psychiatrist-sheet"),
     };
   });
 
   expect(durations.leftRail).toBe("0s");
   expect(durations.topbar).toBe("0s");
-  expect(durations.inspector).toBe("0s");
+  expect(durations.psychiatristSheet).toBe("0s");
   if (durations.landmarkRail !== null) {
     expect(durations.landmarkRail).toBe("0s");
   }
