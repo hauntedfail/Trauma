@@ -110,6 +110,11 @@ import {
   submitReaderTriage,
 } from "./reader-position";
 import { PsychiatristDock } from "./PsychiatristDock";
+import {
+  ReaderMarginNoteCard,
+  type MarginNoteAction,
+  type ReaderMarginNoteRequest,
+} from "./ReaderMarginNoteCard";
 import { toSafeReaderSourceHref } from "./source-url";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
@@ -297,6 +302,8 @@ function ReadyMemoryReader(props: {
   let topBarRef: HTMLDivElement | undefined;
   let psychiatristSheetRef: HTMLElement | undefined;
   let psychiatristReturnFocusEl: HTMLElement | undefined;
+  let marginNoteReturnFocusEl: HTMLElement | undefined;
+  let marginNoteRequestSeq = 0;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
   let translationModelSelectRef: HTMLSelectElement | undefined;
@@ -379,6 +386,7 @@ function ReadyMemoryReader(props: {
     createSignal(false);
   const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [psychiatristOpen, setPsychiatristOpen] = createSignal(false);
+  const [marginNote, setMarginNote] = createSignal<ReaderMarginNoteRequest>();
   const [topBarHidden, setTopBarHidden] = createSignal(false);
   const [landmarkExpanded, setLandmarkExpanded] = createSignal(false);
   const [readState, setReadState] = createSignal(props.result.memory.read);
@@ -428,6 +436,7 @@ function ReadyMemoryReader(props: {
     ) {
       psychiatristReturnFocusEl = document.activeElement;
     }
+    setMarginNote(undefined);
     setTopBarHidden(false);
     setPsychiatristOpen(true);
   };
@@ -451,6 +460,94 @@ function ReadyMemoryReader(props: {
       openPsychiatrist();
     }
   };
+  const resolveSelectionSection = (
+    menu: ReaderSelectionMenuState,
+  ): { sectionAnchor?: string; sectionTitle?: string } => {
+    if (menu.momentSection !== undefined) {
+      return {
+        sectionAnchor: menu.momentSection.id,
+        sectionTitle: menu.momentSection.text,
+      };
+    }
+    const toc = props.result.rendered.toc;
+    let offsetMatched: ReaderTocEntry | undefined;
+    for (const entry of toc) {
+      if (
+        entry.startOffset !== undefined &&
+        entry.startOffset <= menu.selection.startOffset
+      ) {
+        offsetMatched = entry;
+      }
+    }
+    if (offsetMatched !== undefined) {
+      return {
+        sectionAnchor: offsetMatched.id,
+        sectionTitle: offsetMatched.text,
+      };
+    }
+    const activeLeadId = activeTocRange().leadId;
+    if (activeLeadId !== undefined) {
+      const leadEntry = toc.find((entry) => entry.id === activeLeadId);
+      if (leadEntry !== undefined) {
+        return {
+          sectionAnchor: leadEntry.id,
+          sectionTitle: leadEntry.text,
+        };
+      }
+    }
+    return {};
+  };
+  const openMarginNoteFromSelection = (action: MarginNoteAction): void => {
+    const menu = selectionMenu();
+    if (menu === undefined) {
+      return;
+    }
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement &&
+      !(selectionMenuRef !== undefined && selectionMenuRef.contains(document.activeElement))
+    ) {
+      marginNoteReturnFocusEl = document.activeElement;
+    } else {
+      marginNoteReturnFocusEl = contentRef;
+    }
+    const section = resolveSelectionSection(menu);
+    closeSelectionMenu();
+    setPsychiatristOpen(false);
+    setMarginNote({
+      action,
+      requestId: ++marginNoteRequestSeq,
+      selectedText: menu.selection.text,
+      ...section,
+    });
+  };
+  const closeMarginNote = (): void => {
+    setMarginNote(undefined);
+    queueMicrotask(() => {
+      if (marginNoteReturnFocusEl?.isConnected === true) {
+        marginNoteReturnFocusEl.focus({ preventScroll: true });
+        return;
+      }
+      if (contentRef?.isConnected === true) {
+        contentRef.focus({ preventScroll: true });
+      }
+    });
+  };
+  const continueMarginNoteInPsychiatrist = (): void => {
+    setMarginNote(undefined);
+    openPsychiatrist();
+  };
+  let lastMarginNoteIdentity: string | undefined;
+  createEffect(() => {
+    const nextIdentity = `${props.result.memory.id}\u0000${props.result.content.langCode ?? ""}`;
+    if (
+      lastMarginNoteIdentity !== undefined &&
+      lastMarginNoteIdentity !== nextIdentity
+    ) {
+      setMarginNote(undefined);
+    }
+    lastMarginNoteIdentity = nextIdentity;
+  });
   useDismissableLayer({
     getRoot: () => psychiatristSheetRef,
     isEnabled: psychiatristOpen,
@@ -826,7 +923,7 @@ function ReadyMemoryReader(props: {
           height: window.innerHeight,
           width: window.innerWidth,
         },
-        momentSection === undefined ? 108 : 152,
+        momentSection === undefined ? 260 : 304,
       ),
       selection,
     });
@@ -2046,6 +2143,18 @@ function ReadyMemoryReader(props: {
         getRootContainer={() => readerRootRef}
       />
 
+      <Show when={marginNote()}>
+        {(note) => (
+          <ReaderMarginNoteCard
+            langCode={props.result.content.langCode}
+            memoryId={props.result.memory.id}
+            request={note()}
+            onClose={closeMarginNote}
+            onContinueInPsychiatrist={continueMarginNoteInPsychiatrist}
+          />
+        )}
+      </Show>
+
       <Show when={psychiatristOpen()}>
         <aside
           ref={psychiatristSheetRef}
@@ -2101,15 +2210,32 @@ function ReadyMemoryReader(props: {
               )}
             </Show>
             <button
-              aria-label="Ask Psychiatrist about selection"
+              aria-label="Simplify selected passage"
               class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
-              data-reader-selection-ask
-              title="Ask (])"
+              data-reader-selection-simplify=""
+              title="Simplify selection"
               type="button"
-              onClick={() => {
-                closeSelectionMenu();
-                openPsychiatrist();
-              }}
+              onClick={() => openMarginNoteFromSelection("simplify")}
+            >
+              Simplify
+            </button>
+            <button
+              aria-label="Explain selected passage"
+              class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              data-reader-selection-explain=""
+              title="Explain selection"
+              type="button"
+              onClick={() => openMarginNoteFromSelection("explain")}
+            >
+              Explain
+            </button>
+            <button
+              aria-label="Ask about selection"
+              class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              data-reader-selection-ask=""
+              title="Ask about selection (] for Psychiatrist)"
+              type="button"
+              onClick={() => openMarginNoteFromSelection("ask")}
             >
               Ask
             </button>
