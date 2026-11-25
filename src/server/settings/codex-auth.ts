@@ -1,5 +1,8 @@
 import {
-  CodexAppServerClient,
+  createLlmAuthClient,
+  isOpenAICompatibleProviderEnabled,
+} from "../llm/provider";
+import {
   CodexAppServerError,
   safeCodexAppServerErrorMessage,
   type CodexAuthEvent,
@@ -91,7 +94,16 @@ export async function readCodexAuthStatus(input: {
   client?: CodexAuthClient;
 } = {}): Promise<CodexAuthStatusResponse> {
   const ownsClient = input.client === undefined;
-  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  const usesOpenAICompatible =
+    input.client === undefined &&
+    input.createClient === undefined &&
+    isOpenAICompatibleProviderEnabled();
+  let client: CodexAuthClient;
+  try {
+    client = input.client ?? input.createClient?.() ?? createLlmAuthClient();
+  } catch (error) {
+    return mapAuthError(error, usesOpenAICompatible);
+  }
   try {
     const status = await client.checkAuth();
     if (status.status === "enabled") {
@@ -99,7 +111,9 @@ export async function readCodexAuthStatus(input: {
       return {
         status: "enabled",
         provider: "codex",
-        message: "Codex ChatGPT sign-in is enabled.",
+        message: usesOpenAICompatible
+          ? "OpenAI-compatible LLM provider is connected."
+          : "Codex ChatGPT sign-in is enabled.",
       };
     }
     if (pendingLogin !== undefined) {
@@ -111,7 +125,7 @@ export async function readCodexAuthStatus(input: {
     }
     return mapAuthStatus(status);
   } catch (error) {
-    return mapAuthError(error);
+    return mapAuthError(error, usesOpenAICompatible);
   } finally {
     if (ownsClient) {
       await closeCodexAuthClient(client);
@@ -124,7 +138,7 @@ export async function startCodexDeviceCodeLogin(input: {
   client?: CodexAuthClient;
 } = {}): Promise<CodexDeviceCodeStartResponse> {
   const ownsClient = input.client === undefined;
-  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  const client = input.client ?? input.createClient?.() ?? createLlmAuthClient();
   const current = await readCodexAuthStatus({ client });
   if (current.status === "enabled" || current.status === "login_started") {
     if (ownsClient) {
@@ -160,7 +174,7 @@ export async function cancelCodexDeviceCodeLogin(input: {
     return { status: "not_pending", provider: "codex" };
   }
   const ownsClient = input.client === undefined;
-  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  const client = input.client ?? input.createClient?.() ?? createLlmAuthClient();
   try {
     await client.cancelDeviceCodeLogin({ loginId: current.loginId });
     clearPendingLogin();
@@ -181,7 +195,7 @@ export async function deleteCodexAuth(input: {
   client?: CodexAuthClient;
 } = {}): Promise<CodexAuthDeleteResponse> {
   const ownsClient = input.client === undefined;
-  const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+  const client = input.client ?? input.createClient?.() ?? createLlmAuthClient();
   try {
     clearPendingLogin();
     const result = await client.logout();
@@ -322,13 +336,21 @@ function mapAuthStatus(status: CodexAuthStatus): CodexAuthStatusResponse {
   }
 }
 
-function mapAuthError(error: unknown): CodexAuthStatusResponse {
+function mapAuthError(
+  error: unknown,
+  usesOpenAICompatible = false,
+): CodexAuthStatusResponse {
   if (error instanceof CodexAppServerError) {
     if (error.code === "setup_required" || error.code === "app_server_unavailable") {
+      const reason = usesOpenAICompatible
+        ? error.code === "setup_required"
+          ? "openai_compatible_setup_required"
+          : "openai_compatible_unavailable"
+        : "codex_app_server_unavailable";
       return {
         status: "setup_required",
         provider: "codex",
-        reason: "codex_app_server_unavailable",
+        reason,
       };
     }
     if (error.code === "auth_required") {

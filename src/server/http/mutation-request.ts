@@ -1,9 +1,11 @@
+import { authenticateApiRequest } from "./api-auth";
+
 export const MAX_MUTATION_JSON_BODY_BYTES = 1_048_576;
 
 export type MutationRequestFailure = {
   ok: false;
   error: string;
-  status: 400 | 403 | 413 | 415;
+  status: 400 | 401 | 403 | 413 | 415;
 };
 
 export type MutationRequestGuard =
@@ -21,6 +23,14 @@ interface ReadJsonMutationRequestOptions {
 }
 
 export function guardMutationRequest(request: Request): MutationRequestGuard {
+  const auth = authenticateApiRequest(request);
+  if (!auth.ok) {
+    return auth;
+  }
+  if (auth.authenticated) {
+    return { ok: true, browser: false };
+  }
+
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
 

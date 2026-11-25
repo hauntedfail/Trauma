@@ -3,6 +3,19 @@ import type { SupportedLanguageCode } from "../../settings/languages";
 
 export type BrowseView = "list" | "grid";
 export type BrowseReadStateFilter = "all" | "read" | "unread";
+export const BROWSE_LANES = ["today", "shelf", "library"] as const;
+export type BrowseLane = (typeof BROWSE_LANES)[number];
+export type BrowseSort = "recent" | "last_opened";
+export type ShelfExpiryAction = "mark" | "soft-archive";
+export type MemoryTriageState = "shelf" | "today" | "library" | "archive";
+
+export interface MemoryLastPosition {
+  variant: string;
+  headingId: string | null;
+  paragraphIndex: number;
+  scrollRatio: number;
+  updatedAt: string;
+}
 
 export interface BrowseTaxonomyItem {
   id: string;
@@ -43,6 +56,12 @@ export interface BrowseMemory {
   capturedAt: string;
   read: boolean;
   extractionStatus: ExtractionStatus;
+  triageState?: MemoryTriageState;
+  triageChangedAt?: string;
+  lastPosition?: MemoryLastPosition | null;
+  lastOpenedAt?: string | null;
+  wordCount?: number | null;
+  shelfExpired?: boolean;
   categories: BrowseTaxonomyItem[];
   tags: BrowseTaxonomyItem[];
   flashbacks: BrowseFlashback[];
@@ -56,17 +75,23 @@ export interface BrowseQuery {
   tag: string;
   flashback: string;
   view: BrowseView;
+  lane?: BrowseLane;
+  sort?: BrowseSort;
 }
 
 export interface BrowseMemoryCursor {
   createdAt: string;
   id: string;
+  lastOpenedAt?: string | null;
 }
 
 export interface BrowseMemoryPageRequest {
   query: BrowseQuery;
   cursor: BrowseMemoryCursor | null;
   limit: number;
+  shelfTtlDays?: number | null;
+  shelfExpiryAction?: ShelfExpiryAction;
+  now?: string;
 }
 
 export interface BrowseMemoryPage {
@@ -85,8 +110,16 @@ export const defaultBrowseQuery: BrowseQuery = {
 export function parseBrowseQuery(search: string): BrowseQuery {
   const params = new URLSearchParams(search);
   const view = params.get("view") === "grid" ? "grid" : "list";
+  const rawLane = params.get("lane")?.trim().toLowerCase();
+  const lane: BrowseLane | undefined =
+    rawLane === "today" || rawLane === "shelf" || rawLane === "library"
+      ? rawLane
+      : undefined;
+  const rawSort = params.get("sort")?.trim().toLowerCase();
+  const sort: BrowseSort | undefined =
+    rawSort === "recent" || rawSort === "last_opened" ? rawSort : undefined;
 
-  return {
+  const query: BrowseQuery = {
     q: params.get("q") ?? "",
     category: params.get("category")?.trim() ?? "",
     tag: params.get("tag")?.trim() ?? "",
@@ -96,24 +129,113 @@ export function parseBrowseQuery(search: string): BrowseQuery {
       "",
     view,
   };
+  if (lane !== undefined) {
+    query.lane = lane;
+  }
+  if (sort !== undefined) {
+    query.sort = sort;
+  }
+  return query;
 }
 
-export function createInitialBrowseMemoryPageRequest(query: BrowseQuery): BrowseMemoryPageRequest {
+export type BrowseLengthBucket = "short" | "medium" | "long";
+
+export interface BrowseMemoryPageRequestOptions {
+  shelfTtlDays?: number | null;
+  shelfExpiryAction?: ShelfExpiryAction;
+  now?: string;
+}
+
+export function resolveBrowseLane(query: BrowseQuery): BrowseLane {
+  if (query.lane !== undefined) {
+    return query.lane;
+  }
+
+  if (
+    query.q.trim().length > 0 ||
+    query.category.length > 0 ||
+    query.tag.length > 0 ||
+    query.flashback.length > 0
+  ) {
+    return "library";
+  }
+
+  return "today";
+}
+
+export function getLengthBucket(
+  wordCount: number | null | undefined,
+): BrowseLengthBucket | null {
+  if (
+    typeof wordCount !== "number" ||
+    !Number.isFinite(wordCount) ||
+    wordCount < 0
+  ) {
+    return null;
+  }
+
+  if (wordCount < 500) {
+    return "short";
+  }
+
+  if (wordCount <= 1500) {
+    return "medium";
+  }
+
+  return "long";
+}
+
+export function formatResumptionCue(
+  lastPosition: MemoryLastPosition | null | undefined,
+): string | null {
+  if (lastPosition === null || lastPosition === undefined) {
+    return null;
+  }
+
+  const current = Math.max(1, Math.trunc(lastPosition.paragraphIndex) + 1);
+  const ratio = lastPosition.scrollRatio;
+  const total =
+    typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0 && ratio <= 1
+      ? Math.max(current, Math.round(current / ratio))
+      : current;
+
+  return `continue at ${current}/${total}`;
+}
+
+export function createInitialBrowseMemoryPageRequest(
+  query: BrowseQuery,
+  options?: BrowseMemoryPageRequestOptions,
+): BrowseMemoryPageRequest {
   return {
     query,
     cursor: null,
     limit: BROWSE_MEMORY_PAGE_SIZE,
+    ...(options?.shelfTtlDays !== undefined
+      ? { shelfTtlDays: options.shelfTtlDays }
+      : {}),
+    ...(options?.shelfExpiryAction !== undefined
+      ? { shelfExpiryAction: options.shelfExpiryAction }
+      : {}),
+    ...(options?.now !== undefined ? { now: options.now } : {}),
   };
 }
 
 export function createNextBrowseMemoryPageRequest(
   query: BrowseQuery,
   cursor: BrowseMemoryCursor,
+  options?: BrowseMemoryPageRequestOptions,
 ): BrowseMemoryPageRequest {
   return {
     query,
     cursor,
     limit: BROWSE_MEMORY_PAGE_SIZE,
+    ...(options?.shelfTtlDays !== undefined
+      ? { shelfTtlDays: options.shelfTtlDays }
+      : {}),
+    ...(options?.shelfExpiryAction !== undefined
+      ? { shelfExpiryAction: options.shelfExpiryAction }
+      : {}),
+    ...(options?.now !== undefined ? { now: options.now } : {}),
   };
 }
 
@@ -123,7 +245,9 @@ export function isSameBrowseQuery(left: BrowseQuery, right: BrowseQuery): boolea
     left.category === right.category &&
     left.tag === right.tag &&
     left.flashback === right.flashback &&
-    left.view === right.view
+    left.view === right.view &&
+    left.lane === right.lane &&
+    left.sort === right.sort
   );
 }
 
@@ -134,10 +258,16 @@ export function buildBrowseHref(query: BrowseQuery, patch: Partial<BrowseQuery>)
   };
   const params = new URLSearchParams();
 
+  if (next.lane !== undefined) {
+    params.set("lane", next.lane);
+  }
   appendParam(params, "q", next.q);
   appendParam(params, "category", next.category.trim());
   appendParam(params, "tag", next.tag.trim());
   appendParam(params, "flashback", next.flashback.trim());
+  if (next.sort === "last_opened") {
+    params.set("sort", "last_opened");
+  }
   if (next.view === "grid") {
     params.set("view", "grid");
   }
@@ -153,7 +283,19 @@ export function buildFlashbackBrowseHref(flashbackId: string): string {
 export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuery): BrowseMemory[] {
   const search = parseBrowseSearch(query.q);
 
-  return memories.filter((memory) => {
+  const filtered = memories.filter((memory) => {
+    if (search.inArchive) {
+      if (memory.triageState !== "archive") {
+        return false;
+      }
+    } else if (query.lane !== undefined) {
+      const effectiveTriageState =
+        memory.triageState ?? (memory.read ? "library" : "shelf");
+      if (effectiveTriageState !== query.lane) {
+        return false;
+      }
+    }
+
     if (query.category.length > 0 && !memory.categories.some((category) => category.id === query.category)) {
       return false;
     }
@@ -192,6 +334,19 @@ export function filterBrowseMemories(memories: BrowseMemory[], query: BrowseQuer
 
     return true;
   });
+
+  if (query.sort === "last_opened") {
+    return filtered.toSorted((left, right) => {
+      const leftOpened = left.lastOpenedAt ? Date.parse(left.lastOpenedAt) : -Infinity;
+      const rightOpened = right.lastOpenedAt ? Date.parse(right.lastOpenedAt) : -Infinity;
+      if (rightOpened !== leftOpened) {
+        return rightOpened - leftOpened;
+      }
+      return Date.parse(right.capturedAt) - Date.parse(left.capturedAt);
+    });
+  }
+
+  return filtered;
 }
 
 export function getBrowseCategories(memories: BrowseMemory[]): BrowseTaxonomyItem[] {
@@ -260,6 +415,7 @@ export interface BrowseFieldFilter {
 export interface ParsedBrowseSearch {
   fields: BrowseFieldFilter[];
   freeTerms: string[];
+  inArchive: boolean;
   readState: "all" | "both" | "read" | "unread";
 }
 
@@ -274,6 +430,7 @@ const fieldNames = new Set<BrowseSearchField>([
 export function parseBrowseSearch(query: string): ParsedBrowseSearch {
   const fields: BrowseFieldFilter[] = [];
   const freeTerms: string[] = [];
+  let inArchive = false;
   let read = false;
   let unread = false;
 
@@ -293,6 +450,11 @@ export function parseBrowseSearch(query: string): ParsedBrowseSearch {
       continue;
     }
 
+    if (normalized === "in:archive" || normalized === "in=archive") {
+      inArchive = true;
+      continue;
+    }
+
     if (normalized === "read") {
       read = true;
       continue;
@@ -309,6 +471,7 @@ export function parseBrowseSearch(query: string): ParsedBrowseSearch {
   return {
     fields: fields.filter((field) => field.value.length > 0),
     freeTerms,
+    inArchive,
     readState: read && unread ? "both" : read ? "read" : unread ? "unread" : "all",
   };
 }
@@ -354,6 +517,35 @@ export function setBrowseReadStateFilter(
   }
 
   return nextParts.join(" ");
+}
+
+export function hasBrowseInArchiveFilter(query: string): boolean {
+  return parseBrowseSearch(query).inArchive;
+}
+
+export function setBrowseInArchiveFilter(
+  query: string,
+  includeArchive: boolean,
+): string {
+  const nextParts = tokenizeBrowseSearch(query)
+    .filter((token) => !isArchiveSearchToken(token))
+    .map((token) => readBrowseTokenText(query, token))
+    .filter((part) => part.length > 0);
+
+  if (includeArchive) {
+    nextParts.push("in:archive");
+  }
+
+  return nextParts.join(" ");
+}
+
+function isArchiveSearchToken(token: BrowseSearchToken): boolean {
+  if (token.kind !== "term") {
+    return false;
+  }
+
+  const normalized = normalize(token.value);
+  return normalized === "in:archive" || normalized === "in=archive";
 }
 
 function isReadStateSearchToken(token: BrowseSearchToken): boolean {

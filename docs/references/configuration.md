@@ -275,3 +275,35 @@ verify a sandbox, and it must not be set until the app-server process or
 container is actually isolated. The legacy
 `TRAUMA_PSYCHIATRIST_RUNTIME_ISOLATION` name remains accepted for compatibility;
 new deployments should use the shared name.
+
+## OpenAI-Compatible LLM Provider Environment
+
+Brilliant translation and Psychiatrist can alternatively use any
+OpenAI-compatible HTTP API (such as a Magpie gateway) instead of a local Codex
+app-server.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `TRAUMA_LLM_PROVIDER` | No | `codex` | Selects the LLM backend: `codex` (local Codex app-server) or `openai_compatible` (OpenAI-compatible HTTP API). |
+| `TRAUMA_OPENAI_BASE_URL` | Yes when `TRAUMA_LLM_PROVIDER=openai_compatible` | — | Base URL for the OpenAI-compatible API without trailing slash (for example `https://sibyl.haunted.fail/llm/v1` or `http://127.0.0.1:3425/v1`). Must use `http://` or `https://` without embedded credentials. |
+| `TRAUMA_OPENAI_API_KEY` | No | — | Optional bearer token sent in `Authorization: Bearer <token>` requests to `/models` and `/chat/completions`. Never logged or returned in API errors. |
+| `TRAUMA_OPENAI_DEFAULT_MODEL` | No | First model from `GET /models` | Default model ID used for Psychiatrist and translation when no explicit model is selected. |
+| `TRAUMA_OPENAI_REQUEST_TIMEOUT_MS` | No | `120000` | Positive integer request timeout in milliseconds for OpenAI-compatible API calls. |
+
+Example configuration:
+
+```bash
+TRAUMA_LLM_PROVIDER=openai_compatible \
+TRAUMA_OPENAI_BASE_URL=https://sibyl.haunted.fail/llm/v1 \
+TRAUMA_OPENAI_API_KEY=your-token \
+TRAUMA_OPENAI_DEFAULT_MODEL=gpt-4o-mini \
+bun run dev
+```
+
+When `TRAUMA_LLM_PROVIDER=openai_compatible` is active:
+
+- Psychiatrist streams assistant responses via `POST /chat/completions` with `stream: true`.
+- Brilliant translation translates chunks via `POST /chat/completions`.
+- Settings reads available models from `GET /models` and reports connection status directly without requiring Codex device-code sign-in.
+- Codex app-server and `TRAUMA_CODEX_RUNTIME_ISOLATION` are not required.
+- When `TRAUMA_LLM_PROVIDER` is unset or set to `codex`, TRAUMA preserves existing Codex app-server behavior unchanged.

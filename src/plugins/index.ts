@@ -1,0 +1,81 @@
+import { focusPluginRegistry } from "./registry";
+import { registerBuiltinFocusPlugins } from "./builtin";
+
+registerBuiltinFocusPlugins(focusPluginRegistry);
+
+export {
+  FocusPluginProvider,
+  createFallbackFocusPluginContext,
+  useFocusPlugins,
+  type FocusPluginContextValue,
+  type FocusPluginProviderProps,
+  type RecordPulseInput,
+} from "./context";
+export {
+  FocusPluginRegistry,
+  computeDefaultPluginSettings,
+  createFocusPluginRegistry,
+  focusPluginRegistry,
+  sanitizePluginSettings,
+  validateSettingValue,
+  type RegisterPluginOptions,
+  type SurfaceFilterOptions,
+} from "./registry";
+export {
+  FOCUS_PLUGIN_STORAGE_KEY,
+  MAX_PULSE_LOG_ENTRIES,
+  appendPulseEntry,
+  clearPulseLog,
+  createPulseEntry,
+  getBrowserStorage,
+  loadFocusPluginState,
+  saveFocusPluginState,
+  type CreatePulseEntryInput,
+  type FocusPluginStorageLike,
+  type FocusPluginStorageOptions,
+} from "./storage";
+export type {
+  FocusPluginBooleanField,
+  FocusPluginDefinition,
+  FocusPluginEvidenceLevel,
+  FocusPluginInstanceState,
+  FocusPluginNumberField,
+  FocusPluginPulseEntry,
+  FocusPluginPulseRating,
+  FocusPluginSelectField,
+  FocusPluginSelectOption,
+  FocusPluginSettingField,
+  FocusPluginSettingValue,
+  FocusPluginSettingValues,
+  FocusPluginSettingsSchema,
+  FocusPluginState,
+  FocusPluginSurface,
+} from "./types";
+export {
+  ADAPTIVE_AI_PRESENTER_DEFINITION,
+  ADAPTIVE_AI_PRESENTER_PLUGIN_ID,
+  AdaptiveAiResponse,
+  BUILTIN_FOCUS_PLUGINS,
+  EPHEMERAL_SHELF_TRIAGE_DEFINITION,
+  EPHEMERAL_SHELF_TRIAGE_PLUGIN_ID,
+  READING_RULER_DEFINITION,
+  READING_RULER_PLUGIN_ID,
+  RESUMPTION_BEACON_DEFINITION,
+  RESUMPTION_BEACON_PLUGIN_ID,
+  ReadingRulerOverlay,
+  ResumptionBeacon,
+  computeReadingRulerGeometry,
+  hasResumableLastPosition,
+  registerBuiltinFocusPlugins,
+  resolveResumptionTargetElement,
+  restructureAiResponse,
+  shouldTriggerResumptionCue,
+  type AdaptedBulletItem,
+  type AdaptiveAiResponseProps,
+  type ReadingRulerFollowMode,
+  type ReadingRulerGeometry,
+  type ReadingRulerStyle,
+  type RestructuredAiResponse,
+  type ResumptionBeaconProps,
+  type ResumptionTarget,
+} from "./builtin";

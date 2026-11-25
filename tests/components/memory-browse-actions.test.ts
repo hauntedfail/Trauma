@@ -250,25 +250,28 @@ describe("memory browse actions", () => {
   it("uses a dedicated search bar component wired to the URL query state", () => {
     expect(browseSource).toContain("MemorySearchBar");
     expect(searchBarSource).toContain("parseBrowseQuery(location.search)");
-    expect(searchBarSource).toContain("navigate(buildBrowseHref(query(), { q: value }), { replace: true })");
+    expect(searchBarSource).toContain("navigate(buildBrowseHref(current, { lane, q: value }), { replace: true })");
   });
 
-  it("wires vim-like keyboard operation to the memories route", () => {
+  it("wires keyboard operation and one-key triage to the memories route", () => {
     expect(browseSource).toContain("onCleanup");
     expect(browseSource).toContain('document.addEventListener("keydown", handleBrowseKeyDown)');
     expect(browseSource).toContain('document.removeEventListener("keydown", handleBrowseKeyDown)');
     expect(browseSource).toContain('event.key === "j"');
     expect(browseSource).toContain('event.key === "k"');
     expect(browseSource).toContain('event.key === "/"');
+    expect(browseSource).toContain('event.key === "p"');
     expect(browseSource).toContain('event.key === "l"');
+    expect(browseSource).toContain('event.key === "x"');
+    expect(browseSource).toContain('event.key === "u"');
     expect(browseSource).toContain('event.key === "Enter"');
     expect(browseSource).toContain('data-keyboard-selected={isSelected() ? "true" : "false"}');
     expect(browseSource).toContain("focusSearchInput");
     expect(browseSource).toContain("isBrowseKeyboardSuppressed");
     expect(browseSource).toContain("isNativeActivationTarget");
-    expect(browseSource).toContain("memoryLinkRefs.delete(memoryId)");
+    expect(browseSource).toContain("memoryLinkRefs.delete(memory.id)");
     expect(searchBarSource).toContain("onSearchInputMount");
-    expect(searchBarSource).toContain("event.key === \"Escape\"");
+    expect(searchBarSource).toContain('event.key === "Escape"');
     expect(searchBarSource).toContain("event.preventDefault()");
     expect(searchBarSource).toContain("event.currentTarget.blur()");
   });
@@ -316,7 +319,7 @@ describe("memory browse actions", () => {
       "!isSameBrowseQuery(currentFirstPageResult.query, query())",
     );
     expect(browseSource).toContain("firstPageForCurrentQuery() === undefined");
-    expect(browseSource).toContain("createNextBrowseMemoryPageRequest(requestedQuery, cursor)");
+    expect(browseSource).toContain("createNextBrowseMemoryPageRequest(requestedQuery, cursor, options)");
   });
 
   it("clears lazy pages and card flashback cache when the first page revalidates", () => {
@@ -336,7 +339,7 @@ describe("memory browse actions", () => {
 
   it("defers selected flashback hrefs until lazy flashback hydration is available", () => {
     expect(browseSource).toContain("flashbacksHydrated?: boolean");
-    expect(browseSource).toContain("const isSelectedFlashbackHydrating = createMemo(() =>");
+    expect(browseSource).toContain("const isSelectedFlashbackHydrating = createMemo(");
     expect(browseSource).toContain("displayFlashback()?.id !== props.selectedFlashbackId");
     expect(browseSource).toContain("href={isSelectedFlashbackHydrating() ? undefined : href()}");
     expect(browseSource).toContain("event.preventDefault()");
@@ -351,7 +354,7 @@ describe("memory browse actions", () => {
 
   it("keeps empty filtered pages continuable when the server returns a cursor", () => {
     const memoriesShowStart = browseSource.indexOf(
-      "when={visibleMemories().length > 0}",
+      "when={orderedVisibleMemories().length > 0}",
     );
     const memoriesShowEnd = browseSource.indexOf(
       "\n            </Show>",
@@ -466,19 +469,138 @@ describe("memory browse actions", () => {
     expect(addMemoryFormSource).not.toContain("revalidateBrowseMemories");
   });
 
-  it("renders memories read-state tabs instead of list and grid view controls", () => {
-    expect(browseSource).toContain("MemoryReadStateTabs");
-    expect(browseSource).toContain('role="tablist"');
-    expect(browseSource).toContain('aria-label="Memory read status"');
-    expect(browseSource).toContain("tabIndex={active() ? 0 : -1}");
-    expect(browseSource).toContain("onKeyDown={(event) => handleKeyDown(event, index())}");
-    expect(browseSource).toContain('event.key === "ArrowRight"');
-    expect(browseSource).toContain('event.key === "Home"');
-    expect(browseSource).toContain("setBrowseReadStateFilter");
-    expect(browseSource).not.toContain('typeof window === "undefined"');
-    expect(browseSource).not.toContain('aria-label="View mode"');
-    expect(browseSource).not.toContain('hint="List view"');
-    expect(browseSource).not.toContain('hint="Grid view"');
+  it("replaces read-state tabs and EphemeralShelfBar with focus-first Today, Shelf, and Library lanes", () => {
+    expect(browseSource).not.toContain("MemoryReadStateTabs");
+    expect(browseSource).not.toContain("EphemeralShelfBar");
+    expect(browseSource).not.toContain('aria-label="Memory read status"');
+    expect(browseSource).toContain('role="list"');
+    expect(browseSource).toContain('role="listitem"');
+    expect(browseSource).toContain("LibraryFiltersPopover");
+    expect(browseSource).toContain("Nothing picked. Choose from the Shelf when you're ready.");
+    expect(browseSource).toContain("Still here");
+    expect(browseSource).toContain("UNDO_TOAST_DURATION_MS = 6_000");
+    expect(browseSource).toContain("max-w-[720px]");
+  });
+
+  it("renders flat row anatomy without 48px avatar or description paragraph and hides taxonomy chips outside Library", () => {
+    const todayHtml = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory: {
+          ...memory,
+          triageState: "today",
+          wordCount: 920,
+          lastPosition: {
+            variant: "source",
+            headingId: "sec-3",
+            paragraphIndex: 2,
+            scrollRatio: 3 / 7,
+            updatedAt: "2026-05-14T12:00:00.000Z",
+          },
+        },
+        lane: "today",
+        selectedFlashbackId: "",
+        view: "list",
+      }),
+    );
+
+    expect(todayHtml).toContain('role="listitem"');
+    expect(todayHtml).toContain('data-memory-favicon="true"');
+    expect(todayHtml).toContain("example.com · medium · continue at 3/7");
+    expect(todayHtml).not.toContain("Imported description");
+    expect(todayHtml).not.toContain("size-12");
+    expect(todayHtml).not.toContain('data-memory-taxonomy-chips="true"');
+    expect(todayHtml).not.toContain("Add tag");
+
+    const shelfHtml = renderToString(() =>
+      createComponent(MemoryItem, {
+        memory: {
+          ...memory,
+          triageState: "shelf",
+          wordCount: 300,
+          lastPosition: null,
+        },
+        lane: "shelf",
+        pickDisabled: true,
+        selectedFlashbackId: "",
+        view: "list",
+      }),
+    );
+
+    expect(shelfHtml).toContain("example.com · short");
+    expect(shelfHtml).not.toContain("continue at");
+    expect(shelfHtml).not.toContain('data-memory-taxonomy-chips="true"');
+    expect(shelfHtml).toContain("Pick");
+    expect(shelfHtml).toContain("Keep");
+    expect(shelfHtml).toContain("Let go");
+    expect(shelfHtml).toContain("disabled");
+  });
+
+  it("posts triage state mutations and recognizes HTTP 409 today cap errors", async () => {
+    const requests: Array<{ url: string; method: string; body: unknown }> = [];
+    const { setMemoryTriageState, isTodayCapReachedError, TODAY_CAP_REACHED_MESSAGE } =
+      await import("../../src/components/memories/MemoryBrowse");
+
+    const result = await setMemoryTriageState({
+      memoryId: "memory-1",
+      triageState: "today",
+      todayCap: 3,
+      fetch: async (input, init) => {
+        requests.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+          body: init?.body ? JSON.parse(String(init.body)) : null,
+        });
+        return new Response(
+          JSON.stringify({
+            memoryId: "memory-1",
+            triageState: "today",
+            triageChangedAt: "2026-05-14T12:00:00.000Z",
+            changed: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    expect(result).toEqual({
+      memoryId: "memory-1",
+      triageState: "today",
+      triageChangedAt: "2026-05-14T12:00:00.000Z",
+      changed: true,
+    });
+    expect(requests).toEqual([
+      {
+        url: "/api/memories/memory-1/triage",
+        method: "POST",
+        body: { triage_state: "today", todayCap: 3 },
+      },
+    ]);
+
+    let capError: unknown;
+    try {
+      await setMemoryTriageState({
+        memoryId: "memory-2",
+        triageState: "today",
+        todayCap: 3,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: TODAY_CAP_REACHED_MESSAGE,
+              code: "today_cap_reached",
+              todayCount: 3,
+              todayCap: 3,
+            }),
+            { status: 409, headers: { "content-type": "application/json" } },
+          ),
+      });
+    } catch (error) {
+      capError = error;
+    }
+
+    expect(isTodayCapReachedError(capError)).toBe(true);
+    expect(capError instanceof Error ? capError.message : "").toBe(
+      TODAY_CAP_REACHED_MESSAGE,
+    );
   });
 
   it("does not render a header subtitle above the memories title", () => {

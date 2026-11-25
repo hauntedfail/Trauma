@@ -20,7 +20,10 @@ import type {
 import { generateMemoryId } from "../memories/id";
 import { createTranslationChunks } from "./chunker";
 import {
-  CodexAppServerClient,
+  createLlmTranslationClient,
+  isOpenAICompatibleProviderEnabled,
+} from "../llm/provider";
+import {
   CodexAppServerError,
   safeCodexAppServerErrorMessage,
   type TranslationClient,
@@ -249,6 +252,7 @@ export async function startTranslationJob(
     }
 
     if (
+      !isOpenAICompatibleProviderEnabled() &&
       !isCodexRuntimeIsolationReady({
         hasInjectedClient:
           input.client !== undefined || input.createClient !== undefined,
@@ -301,7 +305,7 @@ export async function startTranslationJob(
       });
     }
 
-    const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+    const client = input.client ?? input.createClient?.() ?? createLlmTranslationClient();
     if (input.client === undefined) {
       ownedClient = client;
     }
@@ -436,6 +440,7 @@ export async function runTranslationJob(
   options: TranslationRunOptions = {},
 ): Promise<void> {
   if (
+    !isOpenAICompatibleProviderEnabled() &&
     !isCodexRuntimeIsolationReady({
       hasInjectedClient:
         options.client !== undefined || options.createClient !== undefined,
@@ -566,7 +571,7 @@ export async function runTranslationJob(
       if (record?.status === "complete" || record?.status === "purged") {
         continue;
       }
-      client ??= options.createClient?.() ?? new CodexAppServerClient();
+      client ??= options.createClient?.() ?? createLlmTranslationClient();
       const chunkResult = await translateAndPersistChunk({
         cancelGraceMs: options.cancelGraceMs ?? BRILLIANT_CANCEL_GRACE_MS,
         chunk,

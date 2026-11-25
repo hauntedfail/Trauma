@@ -32,6 +32,7 @@ import {
   type MemoryDeletionReservation,
 } from "./mutation-reservation";
 import { acquireMemoryOperationMutationLease } from "./operation-coordination";
+import { deleteMemorySearchDocument } from "../search";
 
 export type DeleteMemoryResult =
   | { status: "deleted"; warnings?: DeleteMemoryWarning[] }
@@ -284,6 +285,7 @@ async function deleteMemoryReserved(
       }
       return { status: "not_found" };
     }
+    deleteMemorySearchDocument(input.db, input.memoryId);
   } catch (error) {
     const restoreError = staged
       ? await restoreStagedContent({ fileSystem, paths })

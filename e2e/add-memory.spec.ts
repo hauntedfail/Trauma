@@ -82,6 +82,48 @@ test("persists a link-only memory when the deterministic import response fails",
   expect(persisted.trackedContent).toBe(persisted.fileContent);
 });
 
+test("captures via a key, icon button, and palette into Shelf without ever opening a taxonomy prompt (AC 3)", async ({
+  page,
+}) => {
+  await resetAddMemoryFixture();
+  await page.goto("/memories");
+  await expect(
+    page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+  ).toBeVisible();
+
+  // 1. Capture via `a` key -> opens URL-only capture palette, no category/tag prompt
+  await page.keyboard.press("a");
+  const paletteDialog = page.getByRole("dialog", { name: "Command palette" });
+  await expect(paletteDialog).toBeVisible();
+  await expect(paletteDialog.getByLabel("URL to capture")).toBeVisible();
+  await expect(paletteDialog.getByText(/categor|tag/i)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(paletteDialog).toHaveCount(0);
+
+  // 2. Capture via left-rail Add icon button -> URL-only popover, no category/tag prompt
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const composerDialog = page.getByRole("dialog", { name: "Add memory" });
+  await expect(composerDialog).toBeVisible();
+  await expect(composerDialog.getByLabel("URL")).toBeVisible();
+  await expect(composerDialog.getByText(/categor|tag/i)).toHaveCount(0);
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/memories") &&
+      response.request().method() === "POST",
+  );
+  await composerDialog.getByLabel("URL").fill(SUCCESS_URL);
+  await composerDialog.getByLabel("URL").press("Enter");
+
+  const response = await responsePromise;
+  expect(response.status()).toBe(201);
+  const payload = (await response.json()) as {
+    memory?: { id?: string; triageState?: string };
+  };
+  expect(payload.memory?.triageState).toBe("shelf");
+  await expect(page.getByRole("dialog", { name: /category|tag/i })).toHaveCount(0);
+});
+
 async function addMemoryThroughComposer(page: Page, url: string) {
   await page.goto("/memories");
   await page.getByRole("button", { name: "Add memory" }).click();

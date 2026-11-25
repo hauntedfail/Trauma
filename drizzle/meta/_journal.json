@@ -162,6 +162,20 @@
       "when": 1785060493598,
       "tag": "0022_calm_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785100000000,
+      "tag": "0023_memory_search_fts",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785200000000,
+      "tag": "0024_focus_first_triage_and_position",
+      "breakpoints": true
     }
   ]
 }

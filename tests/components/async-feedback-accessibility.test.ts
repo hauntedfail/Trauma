@@ -44,8 +44,8 @@ describe("async action feedback accessibility", () => {
     expect(readerSource).toContain(
       'role={progress().status === "failed" ? "alert" : "status"}',
     );
-    expect(readerSource).toContain(
-      'aria-live={progress().status === "failed" ? "assertive" : "polite"}',
+    expect(readerSource).toMatch(
+      /aria-live=\{\s*progress\(\)\.status === "failed" \? "assertive" : "polite"\s*,?\s*\}/,
     );
     expect(readerSource).toContain(
       '<Show when={errorMessage()}>',

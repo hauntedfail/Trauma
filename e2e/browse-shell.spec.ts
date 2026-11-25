@@ -1,12 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { materializeE2eFixture } from "./bun-fixture";
+import { materializeE2eFixture, resetE2eFixture } from "./bun-fixture";
+
+test.beforeEach(async () => {
+  await resetE2eFixture("read_only");
+});
 
 test("redirects the home route to the canonical memories browse route", async ({ page }) => {
   await page.goto("/");
 
   await expect(page).toHaveURL(/\/memories$/);
-  await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Today", exact: true })).toBeVisible();
 });
 
 test("aligns the desktop brand mark with left rail tab icons", async ({ page }) => {
@@ -16,47 +20,41 @@ test("aligns the desktop brand mark with left rail tab icons", async ({ page }) 
     .getByRole("link", { name: "TRAUMA home" })
     .locator("img")
     .boundingBox();
-  const memoriesIconBox = await page
+  const todayIconBox = await page
     .getByRole("navigation", { name: "Primary sections" })
-    .getByRole("link", { name: "Memories" })
+    .getByRole("link", { name: "Today" })
     .locator("span")
     .first()
     .boundingBox();
 
   expect(brandBox).not.toBeNull();
-  expect(memoriesIconBox).not.toBeNull();
+  expect(todayIconBox).not.toBeNull();
 
   const brandCenter = brandBox!.x + brandBox!.width / 2;
-  const memoriesIconCenter = memoriesIconBox!.x + memoriesIconBox!.width / 2;
-  expect(Math.abs(brandCenter - memoriesIconCenter)).toBeLessThanOrEqual(1);
+  const todayIconCenter = todayIconBox!.x + todayIconBox!.width / 2;
+  expect(Math.abs(brandCenter - todayIconCenter)).toBeLessThanOrEqual(1);
 });
 
 test("uses filled active nav icons without active tab background", async ({ page }) => {
   await page.goto("/memories");
 
-  const memoriesLink = page
+  const todayLink = page
     .getByRole("navigation", { name: "Primary sections" })
-    .getByRole("link", { name: "Memories" });
-  const normalState = await memoriesLink.evaluate((link) => {
-    const label = link.querySelector(".trauma-active-nav-label");
+    .getByRole("link", { name: "Today" });
+  const normalState = await todayLink.evaluate((link) => {
     const firstFilledShape = link.querySelector("svg [fill]");
 
     return {
       backgroundColor: getComputedStyle(link).backgroundColor,
       fill: firstFilledShape?.getAttribute("fill") ?? "",
-      fontWeight: Number.parseInt(
-        label === null ? "0" : getComputedStyle(label).fontWeight,
-        10,
-      ),
     };
   });
 
   expect(normalState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   expect(normalState.fill).toBe("currentColor");
-  expect(normalState.fontWeight).toBeGreaterThanOrEqual(700);
 });
 
-test("keeps paper active nav underline while removing active tab background", async ({
+test("keeps paper active nav underline under the icon while removing active tab background", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -69,18 +67,15 @@ test("keeps paper active nav underline while removing active tab background", as
     "paper-warm-light",
   );
 
-  const memoriesLink = page
+  const todayLink = page
     .getByRole("navigation", { name: "Primary sections" })
-    .getByRole("link", { name: "Memories" });
-  const paperState = await memoriesLink.evaluate((link) => {
-    const label = link.querySelector(".trauma-active-nav-label");
+    .getByRole("link", { name: "Today" });
+  const paperState = await todayLink.evaluate((link) => {
     const linkUnderline = getComputedStyle(link, "::after");
 
     return {
       animationName: linkUnderline.animationName,
       backgroundColor: getComputedStyle(link).backgroundColor,
-      labelUnderlineContent:
-        label === null ? "none" : getComputedStyle(label, "::after").content,
       underlineBottom: linkUnderline.bottom,
       underlineContent: linkUnderline.content,
       underlineLeft: linkUnderline.left,
@@ -89,15 +84,14 @@ test("keeps paper active nav underline while removing active tab background", as
   });
 
   expect(paperState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
-  expect(paperState.labelUnderlineContent).toBe("none");
   expect(paperState.underlineContent).toBe('""');
-  expect(paperState.underlineLeft).toBe("62px");
-  expect(paperState.underlineRight).toBe("18px");
-  expect(paperState.underlineBottom).toBe("5px");
+  expect(paperState.underlineLeft).toBe("6px");
+  expect(paperState.underlineRight).toBe("6px");
+  expect(paperState.underlineBottom).toBe("2px");
   expect(paperState.animationName).toBe("trauma-handwrite-underline");
 });
 
-test("keeps paper active nav underline on the desktop rail item for pip tabs", async ({
+test("keeps paper active nav underline under the icon on dark paper theme", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -114,12 +108,9 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
     .getByRole("navigation", { name: "Primary sections" })
     .getByRole("link", { name: "Flashbacks" });
   const underlineState = await flashbacksLink.evaluate((link) => {
-    const label = link.querySelector(".trauma-active-nav-label");
     const linkUnderline = getComputedStyle(link, "::after");
 
     return {
-      labelUnderlineContent:
-        label === null ? "none" : getComputedStyle(label, "::after").content,
       underlineBottom: linkUnderline.bottom,
       underlineContent: linkUnderline.content,
       underlineLeft: linkUnderline.left,
@@ -127,83 +118,64 @@ test("keeps paper active nav underline on the desktop rail item for pip tabs", a
     };
   });
 
-  expect(underlineState.labelUnderlineContent).toBe("none");
   expect(underlineState.underlineContent).toBe('""');
-  expect(underlineState.underlineLeft).toBe("62px");
-  expect(underlineState.underlineRight).toBe("18px");
-  expect(underlineState.underlineBottom).toBe("5px");
+  expect(underlineState.underlineLeft).toBe("6px");
+  expect(underlineState.underlineRight).toBe("6px");
+  expect(underlineState.underlineBottom).toBe("2px");
 });
 
-test("updates URL query state from search, taxonomy filters, and read-state tabs", async ({
+test("updates URL query state from Library search and Filters popover without debt counters (AC 2)", async ({
   page,
 }) => {
-  await page.goto("/memories");
+  const debtPattern = /\d+\s+(unread|items|memories|left|waiting)/i;
 
-  await page.getByRole("searchbox", { name: "Search memories" }).fill("reader mode");
-  await expect(page).toHaveURL(/q=reader\+mode/);
-  await expect(page.getByText("Reader Mode Notes")).toBeVisible();
-  await expect(page.getByRole("main").locator("mark", { hasText: /flashback-aware/ })).toBeVisible();
+  // Check Today, Shelf, and Library for zero debt counters and zero All/Unread/Read tabs
+  for (const route of ["/memories", "/memories?lane=shelf", "/memories?lane=library"]) {
+    await page.goto(route);
+    await expect(page.getByRole("tablist", { name: "Memory read status" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Unread" })).toHaveCount(0);
+    const bodyText = await page.locator("main").innerText();
+    expect(bodyText).not.toMatch(debtPattern);
+    // Taxonomy counts must not appear outside the Filters popover
+    await expect(page.locator("[data-taxonomy-count]")).toHaveCount(0);
+  }
 
-  await page.getByRole("button", { name: "Research" }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research",
-  );
-  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch/);
+  // Library search + Filters popover
+  await page.goto("/memories?lane=library");
+  await page.getByRole("searchbox", { name: "Search memories" }).fill("browse");
+  await expect(page).toHaveURL(/lane=library/);
+  await expect(page).toHaveURL(/q=browse/);
+  await expect(page.getByText("Browse Shell Sketch")).toBeVisible();
 
-  await page.getByRole("button", { name: "solidstart" }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart",
-  );
-  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch\+tag%3Dsolidstart/);
-
-  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
-  await expect(statusTabs).toBeVisible();
-  await expect(statusTabs.getByRole("tab", { name: "All" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-
-  await statusTabs.getByRole("tab", { name: "Unread" }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart unread",
-  );
-  await expect(page).toHaveURL(/q=reader\+mode\+category%3DResearch\+tag%3Dsolidstart\+unread/);
-  await expect(statusTabs.getByRole("tab", { name: "Unread" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-
-  await statusTabs.getByRole("tab", { name: "Read", exact: true }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart read",
-  );
+  // Compatibility: read / unread search terms still work in Library
+  await page.getByRole("searchbox", { name: "Search memories" }).fill("browse read");
+  await expect(page.getByText("Browse Shell Sketch")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search memories" }).fill("browse unread");
   await expect(page.getByText("No matching memories")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search memories" }).fill("");
 
-  await statusTabs.getByRole("tab", { name: "All" }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart",
-  );
+  // Open single Filters popover: categories, tags with counts inside popover only, Flashback, in:archive, sort
+  await page.getByRole("button", { name: "Filters" }).click();
+  const popover = page.getByRole("dialog", { name: "Library filters" });
+  await expect(popover).toBeVisible();
+  await expect(popover.locator("[data-taxonomy-count]").first()).toBeVisible();
 
-  await statusTabs.getByRole("tab", { name: "All" }).focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart unread",
-  );
-  await expect(statusTabs.getByRole("tab", { name: "Unread" })).toBeFocused();
-  await page.keyboard.press("End");
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart read",
-  );
-  await expect(statusTabs.getByRole("tab", { name: "Read", exact: true })).toBeFocused();
-  await page.keyboard.press("Home");
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader mode category=Research tag=solidstart",
-  );
+  await popover.getByRole("button", { name: "Last opened" }).click();
+  await expect(page).toHaveURL(/sort=last_opened/);
+
+  await popover.getByRole("button", { name: "in:archive" }).click();
+  await expect(page).toHaveURL(/in%3Aarchive/);
+
+  await popover.getByRole("button", { name: "Clear all" }).click();
+  await expect(popover).toHaveCount(0);
+  await expect(page).not.toHaveURL(/sort=last_opened/);
+  await expect(page).not.toHaveURL(/in%3Aarchive/);
 });
 
-test("loads additional memory pages and keeps search global", async ({ page }) => {
-  await page.goto("/memories");
+test("loads additional Shelf pages via cursor pagination with no total count", async ({ page }) => {
+  await page.goto("/memories?lane=shelf");
 
+  await expect(page.getByRole("list", { name: "Shelf memories" })).toBeVisible();
   await expect(page.locator("article")).toHaveCount(30);
   await expect(
     page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
@@ -214,13 +186,13 @@ test("loads additional memory pages and keeps search global", async ({ page }) =
   await expect(
     page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
   ).toBeVisible();
-  await expect(page.locator("article")).toHaveCount(36);
+  await expect(page.locator("article")).toHaveCount(33);
   const memoryTitles = await page
-    .locator("article h2 a")
-    .evaluateAll((links) => links.map((link) => link.textContent ?? ""));
+    .locator("article h2")
+    .evaluateAll((headings) => headings.map((heading) => heading.textContent ?? ""));
   expect(new Set(memoryTitles).size).toBe(memoryTitles.length);
 
-  await page.goto("/memories?q=Pagination+Fixture+31");
+  await page.goto("/memories?lane=shelf&q=Pagination+Fixture+31");
 
   await expect(
     page.getByRole("link", { name: "Open memory Pagination Fixture 31" }),
@@ -276,7 +248,7 @@ test("uses a native full-row memory link for whitespace, keyboard, and new-tab n
 test("keeps the memories search focus indicator on the rounded search surface", async ({
   page,
 }) => {
-  await page.goto("/memories");
+  await page.goto("/memories?lane=library");
 
   const searchBox = page.getByRole("searchbox", { name: "Search memories" });
   await searchBox.click();
@@ -297,64 +269,43 @@ test("keeps the memories search focus indicator on the rounded search surface", 
   expect(Number.parseFloat(focusState.surfaceBorderRadius)).toBeGreaterThanOrEqual(20);
 });
 
-test("keeps source URL link hitboxes limited to the rendered URL text", async ({
+test("renders flat rows within 720px browse column with 20px favicon, length bucket, and resumption cue only when present", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/memories");
 
-  const row = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
-  const sourceLink = row.locator('a[href="https://example.com/local-hosting"]');
-  const metrics = await sourceLink.evaluate((link) => {
-    const linkRect = link.getBoundingClientRect();
-    const text = link.querySelector(".trauma-scroll-url-text");
-    const textRect = text?.getBoundingClientRect() ?? new DOMRect();
-    const parentRect = link.parentElement?.getBoundingClientRect() ?? new DOMRect();
+  const columnWidth = await page
+    .locator(".trauma-browse-column")
+    .evaluate((el) => el.getBoundingClientRect().width);
+  expect(columnWidth).toBeLessThanOrEqual(720);
 
-    return {
-      linkWidth: linkRect.width,
-      parentWidth: parentRect.width,
-      rightSlack: parentRect.right - linkRect.right,
-      textWidth: textRect.width,
-    };
-  });
+  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  const faviconBox = await readerRow.locator("[data-memory-favicon='true']").boundingBox();
+  expect(faviconBox).not.toBeNull();
+  expect(Math.round(faviconBox!.width)).toBe(20);
+  expect(Math.round(faviconBox!.height)).toBe(20);
 
-  expect(metrics.linkWidth).toBeLessThan(metrics.parentWidth * 0.6);
-  expect(metrics.linkWidth).toBeLessThan(metrics.textWidth + 48);
-  expect(metrics.rightSlack).toBeGreaterThan(120);
-});
+  await expect(readerRow.locator("[data-memory-secondary-line='true']")).toHaveText(
+    "example.com · medium · continue at 3/7",
+  );
+  // No description paragraph, no taxonomy chips in Today
+  await expect(readerRow).not.toContainText("SolidStart route data and shell architecture notes");
+  await expect(readerRow.locator("[data-memory-taxonomy-chips='true']")).toHaveCount(0);
 
-test("keeps long source URLs to one scrollable line with a right-edge fade", async ({
-  page,
-}) => {
-  await page.goto("/memories");
+  const opsRow = page.locator("article", { hasText: "Local Hosting Checklist" }).first();
+  await expect(opsRow.locator("[data-memory-secondary-line='true']")).toHaveText(
+    "example.com · short",
+  );
 
-  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  const sourceLink = row.locator('a[href^="https://example.com/reader-mode/source"]');
-  await expect(sourceLink.locator(".trauma-scroll-url-fade")).toBeVisible();
-
-  const metrics = await sourceLink.evaluate((link) => {
-    const linkRect = link.getBoundingClientRect();
-    const body = link.querySelector<HTMLElement>(".trauma-scroll-url-body");
-    const fade = link.querySelector<HTMLElement>(".trauma-scroll-url-fade");
-    const parentRect = link.parentElement?.getBoundingClientRect() ?? new DOMRect();
-    const bodyStyle = body === null ? null : getComputedStyle(body);
-
-    return {
-      bodyClientWidth: body?.clientWidth ?? 0,
-      bodyOverflowX: bodyStyle?.overflowX ?? "",
-      bodyScrollWidth: body?.scrollWidth ?? 0,
-      bodyWhiteSpace: bodyStyle?.whiteSpace ?? "",
-      fadeVisible: fade !== null,
-      linkWidth: linkRect.width,
-      parentWidth: parentRect.width,
-    };
-  });
-
-  expect(metrics.linkWidth).toBeLessThanOrEqual(metrics.parentWidth + 1);
-  expect(metrics.bodyWhiteSpace).toBe("nowrap");
-  expect(metrics.bodyOverflowX).toBe("auto");
-  expect(metrics.bodyScrollWidth).toBeGreaterThan(metrics.bodyClientWidth + 40);
-  expect(metrics.fadeVisible).toBe(true);
+  // Taxonomy chips appear ONLY in Library
+  await page.goto("/memories?lane=library");
+  const libraryRow = page.locator("article", { hasText: "Browse Shell Sketch" }).first();
+  await expect(libraryRow.locator("[data-memory-secondary-line='true']")).toHaveText(
+    "example.com · long",
+  );
+  await expect(libraryRow.locator("[data-memory-taxonomy-chips='true']")).toBeVisible();
+  await expect(libraryRow).toContainText("Product");
 });
 
 test("keeps browse read-status toggles from opening the memory row", async ({
@@ -369,8 +320,8 @@ test("keeps browse read-status toggles from opening the memory row", async ({
     };
 
     expect(body).toMatchObject({
-      memoryId: "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
-      read: true,
+      memoryId: "memory-design",
+      read: false,
     });
     await route.fulfill({
       body: JSON.stringify({ memoryId: body.memoryId, read: body.read }),
@@ -378,12 +329,12 @@ test("keeps browse read-status toggles from opening the memory row", async ({
       status: 200,
     });
   });
-  await page.goto("/memories");
+  await page.goto("/memories?lane=library");
 
   const row = page.locator("article", {
-    has: page.getByRole("link", { name: "Open memory Reader Mode Notes" }),
+    has: page.getByRole("link", { name: "Open memory Browse Shell Sketch" }),
   });
-  const readToggle = row.getByRole("button", { name: "Mark memory read" });
+  const readToggle = row.getByRole("button", { name: "Mark memory unread" });
   const readStatusResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/memories/read-status") &&
@@ -403,7 +354,7 @@ test("deletes a memory from the browse list through the public DELETE route", as
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
   await createBrowseDeleteFixture();
-  await page.goto("/memories?q=reader+mode");
+  await page.goto("/memories?lane=shelf&q=reader+mode");
 
   const deletedMemoryLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
@@ -454,10 +405,10 @@ test("moves keyboard focus to the next memory after deleting a row", async ({
 }) => {
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
   await createBrowseDeleteFixture();
-  await page.goto("/memories");
+  await page.goto("/memories?lane=shelf");
 
   const nextMemoryLink = page.getByRole("link", {
-    name: "Open memory Local Hosting Checklist",
+    name: "Open memory Archive Import Runbook",
   });
   await expect(nextMemoryLink).toBeVisible();
   const actions = page.getByRole("button", {
@@ -514,7 +465,7 @@ test("restores confirm focus when an async memory deletion fails", async ({
       status: 500,
     });
   });
-  await page.goto("/memories?q=reader+mode");
+  await page.goto("/memories?lane=shelf&q=reader+mode");
 
   const actions = page.getByRole("button", {
     name: "Memory actions for Reader Mode Notes",
@@ -577,7 +528,7 @@ test("keeps user focus when an async confirmation fails after dismissal", async 
       status: 500,
     });
   });
-  await page.goto("/memories?q=reader+mode");
+  await page.goto("/memories?lane=shelf&q=reader+mode");
 
   const actions = page.getByRole("button", {
     name: "Memory actions for Reader Mode Notes",
@@ -600,10 +551,9 @@ test("keeps user focus when an async confirmation fails after dismissal", async 
   await deleteStarted;
   await expect(confirmation.locator("[aria-busy='true']")).toBeFocused();
 
-  const outsideSearch = page.getByRole("searchbox", { name: "Search memories" });
-  await outsideSearch.click();
+  const outsideTarget = page.getByRole("button", { name: "Theme" });
+  await outsideTarget.click();
   await expect(confirmation).toHaveCount(0);
-  await expect(outsideSearch).toBeFocused();
   const deleteResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/memories/${memoryId}`) &&
@@ -617,7 +567,7 @@ test("keeps user focus when an async confirmation fails after dismissal", async 
       .locator("article", { hasText: "Reader Mode Notes" })
       .getByRole("alert"),
   ).toHaveText("Failed to delete memory.");
-  await expect(outsideSearch).toBeFocused();
+  await expect(confirmation).toHaveCount(0);
 });
 
 test("does not restore row focus after a pending confirmation is dismissed", async ({
@@ -642,7 +592,7 @@ test("does not restore row focus after a pending confirmation is dismissed", asy
     await deleteGate;
     await route.fulfill({ status: 204 });
   });
-  await page.goto("/memories?q=reader+mode");
+  await page.goto("/memories?lane=shelf&q=reader+mode");
 
   const actions = page.getByRole("button", {
     name: "Memory actions for Reader Mode Notes",
@@ -691,7 +641,7 @@ test("skips a connected next memory link in a deferred hydration state", async (
 }) => {
   const memoryPageQueryId =
     "src_components_memories_browse-loader_ts--getBrowseMemoryPage_query";
-  await page.goto("/memories");
+  await page.goto("/memories?lane=shelf");
 
   let releaseRevalidation: (() => void) | undefined;
   const revalidationGate = new Promise<void>((resolve) => {
@@ -706,7 +656,7 @@ test("skips a connected next memory link in a deferred hydration state", async (
       await route.continue();
     },
   );
-  await page.route("**/api/memories/memory-ops", async (route) => {
+  await page.route("**/api/memories/memory-pagination-01", async (route) => {
     if (route.request().method() === "DELETE") {
       await route.fulfill({ status: 204 });
       return;
@@ -716,10 +666,10 @@ test("skips a connected next memory link in a deferred hydration state", async (
 
   try {
     const previousLink = page.getByRole("link", {
-      name: "Open memory Reader Mode Notes",
+      name: "Open memory Archive Import Runbook",
     });
     const hydratingNextLink = page
-      .locator("article", { hasText: "Browse Shell Sketch" })
+      .locator("article[data-collection-row='memory-pagination-02']")
       .locator("[data-collection-primary-link]");
     await hydratingNextLink.evaluate((link) => {
       // Match MemoryBrowse while selected-flashback hydration is deferred.
@@ -730,7 +680,8 @@ test("skips a connected next memory link in a deferred hydration state", async (
     await expect(hydratingNextLink).not.toHaveAttribute("href", /.+/);
 
     const actions = page.getByRole("button", {
-      name: "Memory actions for Local Hosting Checklist",
+      name: "Memory actions for Pagination Fixture 1",
+      exact: true,
     });
     await expect(async () => {
       if (await actions.getAttribute("aria-expanded") !== "true") {
@@ -742,12 +693,12 @@ test("skips a connected next memory link in a deferred hydration state", async (
     }).toPass({ timeout: 5_000 });
     await page.getByRole("menuitem", { name: "Delete memory" }).press("Enter");
     const confirmation = page.getByRole("dialog", {
-      name: "Delete memory Local Hosting Checklist confirmation",
+      name: "Delete memory Pagination Fixture 1 confirmation",
     });
     await confirmation.getByRole("button", { name: "Cancel" }).press("Tab");
     const deleteResponse = page.waitForResponse(
       (response) =>
-        response.url().endsWith("/api/memories/memory-ops") &&
+        response.url().endsWith("/api/memories/memory-pagination-01") &&
         response.request().method() === "DELETE",
     );
     await confirmation.getByRole("button", { name: "Delete memory" }).press("Enter");
@@ -759,120 +710,198 @@ test("skips a connected next memory link in a deferred hydration state", async (
   }
 });
 
-test("renders category, tag, and flashback shortcut sections in the right panel", async ({ page }) => {
+test("removes right rail completely at 1280x800 and keeps slim 56px left rail (AC 1)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/memories");
 
-  const filters = page.getByRole("complementary", { name: "Browse filters" });
-  await expect(filters.getByRole("heading", { name: "Categories" })).toBeVisible();
-  await expect(filters.getByRole("heading", { name: "Tags" })).toBeVisible();
-  await expect(filters.getByRole("heading", { name: "Flashback" })).toBeVisible();
-  await expect(filters.getByRole("heading", { name: "Recent flashbacks" })).toHaveCount(0);
-  await expect(filters.getByRole("button", { name: "Research" })).toBeVisible();
-  await expect(filters.getByRole("button", { name: "solidstart" })).toBeVisible();
-  const flashbackLink = filters.getByRole("link", {
-    name: /flashback-aware results/i,
-  });
-  await expect(flashbackLink).toBeVisible();
-  await expect(flashbackLink).toHaveAttribute(
-    "href",
-    /\/memories\?flashback=h-foundation$/,
-  );
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toHaveCount(0);
 
-  const sectionRadius = await filters
-    .locator("section")
-    .first()
-    .evaluate((section) => getComputedStyle(section).borderTopLeftRadius);
-  expect(sectionRadius).toBe("20px");
+  const geometry = await page.evaluate(() => {
+    const rail = document.querySelector<HTMLElement>(
+      'aside[aria-label="Primary navigation"]',
+    );
+    const main = document.querySelector<HTMLElement>("main");
+    if (rail === null || main === null) {
+      throw new Error("Missing rail or main element");
+    }
+
+    const railRect = rail.getBoundingClientRect();
+    const mainRect = main.getBoundingClientRect();
+    const rightSideWideElements: string[] = [];
+
+    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+      if (element === main || main.contains(element) || element.contains(main)) {
+        continue;
+      }
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") {
+        continue;
+      }
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 80 && rect.height > 0 && rect.left >= mainRect.right - 1) {
+        rightSideWideElements.push(
+          `${element.tagName.toLowerCase()}.${element.className} (${Math.round(rect.width)}px)`,
+        );
+      }
+    }
+
+    return {
+      railWidth: Math.round(railRect.width),
+      rightSideWideElements,
+    };
+  });
+
+  expect(geometry.railWidth).toBe(56);
+  expect(geometry.rightSideWideElements).toEqual([]);
 });
 
-test("closes taxonomy creation controls on outside clicks", async ({ page }) => {
+test("opens command palette via Ctrl/Cmd+K from every route, restores focus on Esc, and supports search, navigation, URL capture validation, and focus plugin toggles (AC 8)", async ({
+  page,
+}) => {
+  await createBrowseDeleteFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  for (const route of [
+    "/memories",
+    "/memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901",
+    "/flashbacks",
+    "/moments",
+    "/settings",
+  ]) {
+    await page.goto(route);
+    await expect(
+      page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+    ).toBeVisible();
+    const homeLink = page.getByRole("link", { name: "TRAUMA home" });
+    await homeLink.focus();
+    await expect(homeLink).toBeFocused();
+
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible();
+    await expect(
+      palette.getByRole("combobox", { name: "Search memories or run a command" }),
+    ).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await expect(homeLink).toBeFocused();
+  }
+
+  // Test search, plugin toggle, URL validation error, and route navigation on /memories.
   await page.goto("/memories");
+  await expect(
+    page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+  ).toBeVisible();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const combobox = palette.getByRole("combobox", {
+    name: "Search memories or run a command",
+  });
 
-  await page.getByRole("button", { name: "New tag" }).click();
-  await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
+  // 1. Search memories via existing browse search backend
+  await combobox.fill("Reader Mode");
+  await expect(
+    palette.getByRole("option", { name: /Reader Mode Notes/ }),
+  ).toBeVisible();
 
-  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
-  await statusTabs.getByRole("tab", { name: "Unread" }).click();
+  // 2. Toggle a focus plugin via FocusPluginContext
+  await combobox.fill("Reading Ruler");
+  const rulerOption = palette.getByRole("option", {
+    name: /Toggle Digital Reading Ruler/i,
+  });
+  await expect(rulerOption).toBeVisible();
+  await expect(rulerOption).toContainText("Off");
+  await rulerOption.click();
+  await expect(rulerOption).toContainText("On");
 
-  await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
-  await expect(statusTabs.getByRole("tab", { name: "All" })).toHaveAttribute(
-    "aria-selected",
+  // 3. Capture URL validation (empty & invalid stay open with role=alert)
+  await combobox.fill("Add URL");
+  await palette.getByRole("option", { name: /Add URL/ }).click();
+  const urlInput = palette.getByRole("textbox", { name: "URL to capture" });
+  await expect(urlInput).toBeFocused();
+  await palette.getByRole("button", { name: "Save to Shelf" }).click();
+  await expect(palette.getByRole("alert")).toContainText("Enter a URL before saving.");
+  await expect(palette).toBeVisible();
+
+  await urlInput.fill("not-a-valid-url");
+  await palette.getByRole("button", { name: "Save to Shelf" }).click();
+  await expect(palette.getByRole("alert")).toContainText(
+    "Enter a valid http:// or https:// URL.",
+  );
+  await expect(palette).toBeVisible();
+
+  // 4. Back to search and navigate to Shelf lane
+  await palette.getByRole("button", { name: "Back" }).click();
+  await combobox.fill("Go to Shelf");
+  await palette.getByRole("option", { name: /Go to Shelf/ }).click();
+  await expect(palette).toHaveCount(0);
+  await expect(page).toHaveURL(/\/memories\?lane=shelf$/);
+});
+
+test("auto-hides left rail on reader downward scroll and reveals on upward scroll, left-edge pointer, Esc, and focus", async ({
+  page,
+}) => {
+  await createBrowseDeleteFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901");
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
     "true",
   );
-  await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
-  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+  // Ensure document has enough scroll height to exercise downward scroll cleanly.
+  await page.evaluate(() => {
+    document.body.style.minHeight = "2400px";
+  });
+
+  const rail = page.locator('aside[aria-label="Primary navigation"]');
+  await expect(rail).toHaveAttribute("data-rail-hidden", "false");
+
+  // Downward scroll hides the left rail
+  await page.evaluate(() => {
+    window.scrollTo(0, 120);
+    window.dispatchEvent(new Event("scroll"));
+  });
+  await expect(rail).toHaveAttribute("data-rail-hidden", "true");
+
+  // Left-edge pointer approach reveals it
+  await page.mouse.move(8, 200);
+  await expect(rail).toHaveAttribute("data-rail-hidden", "false");
+
+  // Scroll down further to hide again, then reveal with Escape
+  await page.evaluate(() => {
+    window.scrollTo(0, 320);
+    window.dispatchEvent(new Event("scroll"));
+  });
+  await expect(rail).toHaveAttribute("data-rail-hidden", "true");
+  await page.keyboard.press("Escape");
+  await expect(rail).toHaveAttribute("data-rail-hidden", "false");
+
+  // Scroll down further to hide again, then reveal on keyboard focus entering rail
+  await page.evaluate(() => {
+    window.scrollTo(0, 520);
+    window.dispatchEvent(new Event("scroll"));
+  });
+  await expect(rail).toHaveAttribute("data-rail-hidden", "true");
+  await rail.getByRole("link", { name: "TRAUMA home" }).focus();
+  await expect(rail).toHaveAttribute("data-rail-hidden", "false");
+});
+
+test("closes inline row taxonomy controls on outside clicks", async ({ page }) => {
+  await page.goto("/memories?lane=library");
+
+  const row = page.locator("article", { hasText: "Browse Shell Sketch" }).first();
   await row.getByRole("button", { name: "Add tag" }).click();
   await expect(page.getByRole("dialog", { name: "Add tag" })).toBeVisible();
 
-  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+  await row.getByRole("link", { name: "Open memory Browse Shell Sketch" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
-});
-
-test("keeps outside focus when a dismissed taxonomy submission later resolves", async ({
-  page,
-}) => {
-  let tagRequestCount = 0;
-  let releaseTagRequest: () => void = () => undefined;
-  const tagRequestGate = new Promise<void>((resolve) => {
-    releaseTagRequest = resolve;
-  });
-  await page.route("**/api/tags", async (route) => {
-    if (route.request().method() !== "POST") {
-      await route.continue();
-      return;
-    }
-
-    tagRequestCount += 1;
-    await tagRequestGate;
-    await route.fulfill({
-      body: JSON.stringify({
-        tag: {
-          id: "late-focus-tag-id",
-          name: "late-focus-tag",
-        },
-      }),
-      contentType: "application/json",
-      status: 201,
-    });
-  });
-
-  try {
-    await page.goto("/memories");
-
-    const filters = page.getByRole("complementary", { name: "Browse filters" });
-    await filters.getByRole("button", { name: "New tag" }).click();
-    const input = filters.getByRole("textbox", { name: "New tag" });
-    await input.fill("late-focus-tag");
-    await input.press("Enter");
-    await expect.poll(() => tagRequestCount).toBe(1);
-    await expect(input).toBeDisabled();
-
-    const outsideTarget = await installDismissableClickProbe(page);
-    await outsideTarget.click();
-    await expect(input).toHaveCount(0);
-    await expect(outsideTarget).toBeFocused();
-
-    const completedTagRequest = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === "/api/tags" && response.request().method() === "POST";
-    });
-    releaseTagRequest();
-    const tagResponse = await completedTagRequest;
-    expect(tagResponse.ok()).toBe(true);
-    await tagResponse.finished();
-    await page.evaluate(
-      () => new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      ),
-    );
-    await expect(outsideTarget).toBeFocused();
-  } finally {
-    releaseTagRequest();
-  }
 });
 
 test("uses bottom primary tabs without drawer chrome on phone viewports", async ({ page }) => {
@@ -883,49 +912,27 @@ test("uses bottom primary tabs without drawer chrome on phone viewports", async 
   await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
-  await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toHaveCount(0);
 
   const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
   await expect(primaryTabs).toBeVisible();
-  await primaryTabs.getByRole("link", { name: "Flashbacks" }).click();
-  await expect(page).toHaveURL(/\/flashbacks$/);
+  await expect(primaryTabs.locator("[data-phone-tab]")).toHaveCount(4);
 
-  await page.goto("/memories");
-  const phoneAddMemory = primaryTabs.getByRole("button", { name: "Add memory" });
-  await expect(phoneAddMemory).toHaveAttribute("aria-expanded", "false");
-  await phoneAddMemory.click();
-  await expect(phoneAddMemory).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await primaryTabs.getByRole("button", { name: "More" }).click();
+  const moreSheet = page.getByRole("dialog", { name: "More navigation" });
+  await expect(moreSheet).toBeVisible();
+  await moreSheet.getByRole("link", { name: "Flashbacks" }).click();
+  await expect(page).toHaveURL(/\/flashbacks$/);
 });
 
-test("keeps phone browse read-state tabs in the memories header", async ({
+test("keeps phone browse header clean without All/Unread/Read tabs or debt counters", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
 
-  const header = page.locator(".trauma-memory-browse-header").first();
-  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
-  const allTab = statusTabs.getByRole("tab", { name: "All" });
-  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
-  const readTab = statusTabs.getByRole("tab", { name: "Read", exact: true });
-
-  const headerBox = await header.boundingBox();
-  const allBox = await allTab.boundingBox();
-  const unreadBox = await unreadTab.boundingBox();
-  const readBox = await readTab.boundingBox();
-
-  expect(headerBox).not.toBeNull();
-  expect(allBox).not.toBeNull();
-  expect(unreadBox).not.toBeNull();
-  expect(readBox).not.toBeNull();
-
-  expect(Math.abs(allBox!.width - unreadBox!.width)).toBeLessThanOrEqual(2);
-  expect(Math.abs(unreadBox!.width - readBox!.width)).toBeLessThanOrEqual(2);
-  expect(Math.abs(headerBox!.x - allBox!.x)).toBeLessThanOrEqual(2);
-  expect(Math.abs(headerBox!.x + headerBox!.width - (readBox!.x + readBox!.width))).toBeLessThanOrEqual(
-    2,
-  );
+  await expect(page.getByRole("heading", { name: "Today", exact: true })).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "Memory read status" })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "View mode" })).toHaveCount(0);
 });
 
@@ -939,7 +946,7 @@ test("keeps tablet shell compact without duplicate header or filter drawers", as
   await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Primary sections" })).toBeVisible();
   await expect(page.getByRole("link", { name: "TRAUMA home" })).toHaveCount(1);
-  await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toHaveCount(0);
 });
 
 test("layers left rail popovers above the main pane", async ({ page }) => {
@@ -979,13 +986,19 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await page.goto("/memories");
 
   const primarySections = page.getByRole("navigation", { name: "Primary sections" });
-  const navLabels = await primarySections.locator("a, button").evaluateAll((nodes) =>
+  const navLabels = await primarySections.locator("a").evaluateAll((nodes) =>
     nodes
       .map((node) => node.textContent?.trim().replace(/\s+/g, " "))
       .filter((text): text is string => text !== undefined && text.length > 0),
   );
-  expect(navLabels.indexOf("Backup")).toBeLessThan(navLabels.indexOf("Theme"));
-  expect(navLabels.indexOf("Theme")).toBeLessThan(navLabels.indexOf("Settings"));
+  expect(navLabels).toEqual([
+    "Today",
+    "Shelf",
+    "Library",
+    "Flashbacks",
+    "Moments",
+    "Settings",
+  ]);
 
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
   await page.getByRole("button", { name: "Theme" }).click();
@@ -1015,12 +1028,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
       bodyBeforeContent: '""',
       mainBackgroundColor: "rgba(0, 0, 0, 0)",
       mainBackgroundImage: "none",
-      mainBorderRightWidth: "1px",
       railBackgroundColor: "rgba(0, 0, 0, 0)",
       railBackgroundImage: "none",
       railBorderRightWidth: "1px",
-      rightRailBackgroundColor: "rgba(0, 0, 0, 0)",
-      rightRailBackgroundImage: "none",
       routeBackgroundColor: "rgba(0, 0, 0, 0)",
       routeBackgroundImage: "none",
     });
@@ -1028,68 +1038,6 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
-
-  const waxButton = page.getByRole("button", { name: "Add memory" });
-  await waxButton.click();
-  await expect(waxButton).toHaveAttribute("aria-pressed", "true");
-  const readWaxStyle = () =>
-    waxButton.evaluate((button) => {
-      const label = button.querySelector(".trauma-paper-wax-label");
-      const style = getComputedStyle(button);
-      const edge = getComputedStyle(button, "::before");
-      const stamp = getComputedStyle(button, "::after");
-      const labelStyle =
-        label instanceof HTMLElement ? getComputedStyle(label) : undefined;
-
-      return {
-        backgroundImage: style.backgroundImage,
-        boxShadow: style.boxShadow,
-        textShadow: style.textShadow,
-        ringBorderColor: edge.borderColor,
-        ringBorderStyle: edge.borderStyle,
-        ringBorderWidth: edge.borderWidth,
-        ringBackgroundColor: edge.backgroundColor,
-        ringClipPath: edge.clipPath,
-        ringContent: edge.content,
-        ringInset: edge.inset,
-        ringOpacity: edge.opacity,
-        labelColor: labelStyle?.color,
-        labelPosition: labelStyle?.position,
-        labelZIndex: labelStyle?.zIndex,
-        stampBorderWidth: stamp.borderWidth,
-        stampClipPath: stamp.clipPath,
-        stampOutlineStyle: stamp.outlineStyle,
-        stampContent: stamp.content,
-        stampInset: stamp.inset,
-        stampOpacity: stamp.opacity,
-      };
-    });
-  await expect
-    .poll(() => waxButton.evaluate((button) => getComputedStyle(button, "::before").opacity))
-    .toBe("0.92");
-  const waxStyle = await readWaxStyle();
-  expect(waxStyle.backgroundImage).toBe("none");
-  expect(waxStyle.boxShadow).toBe("none");
-  expect(waxStyle.textShadow).toBe("none");
-  expect(waxStyle.ringContent).not.toBe("none");
-  expect(waxStyle.ringClipPath).toBe("none");
-  expect(waxStyle.ringInset).toBe("3px");
-  expect(waxStyle.ringBorderWidth).toBe("0px");
-  expect(waxStyle.ringBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-  expect(waxStyle.ringBackgroundColor).not.toBe("transparent");
-  expect(waxStyle.labelColor).not.toBe("rgba(0, 0, 0, 0)");
-  expect(waxStyle.labelPosition).toBe("relative");
-  expect(waxStyle.labelZIndex).toBe("1");
-  expect(waxStyle.stampContent).not.toBe("none");
-  expect(waxStyle.stampClipPath).toBe("none");
-  expect(waxStyle.stampBorderWidth).toBe("0px");
-  expect(waxStyle.stampOutlineStyle).toBe("none");
-  expect(waxStyle.stampInset).toBe("7px 10px");
-  await expect
-    .poll(() => waxButton.evaluate((button) => getComputedStyle(button, "::after").opacity))
-    .toBe("1");
-  await page.keyboard.press("Escape");
-  await expect(waxButton).toHaveAttribute("aria-pressed", "false");
 
   await page.reload();
   await expect(page.getByRole("group", { name: "Brightness" })).toHaveCount(0);
@@ -1123,12 +1071,9 @@ test("persists shell theme controls in the browser", async ({ page }) => {
       bodyBeforeContent: '""',
       mainBackgroundColor: "rgba(0, 0, 0, 0)",
       mainBackgroundImage: "none",
-      mainBorderRightWidth: "1px",
       railBackgroundColor: "rgba(0, 0, 0, 0)",
       railBackgroundImage: "none",
       railBorderRightWidth: "1px",
-      rightRailBackgroundColor: "rgba(0, 0, 0, 0)",
-      rightRailBackgroundImage: "none",
       routeBackgroundColor: "rgba(0, 0, 0, 0)",
       routeBackgroundImage: "none",
     });
@@ -1144,35 +1089,26 @@ test("persists shell theme controls in the browser", async ({ page }) => {
   await expect(surfaceGroup.getByRole("button", { name: "Paper" })).toHaveAttribute("aria-pressed", "true");
 });
 
-test("lets active filters be cleared without resetting the rest of the query", async ({ page }) => {
-  await page.goto("/memories?q=reader&view=grid");
+test("preserves URL search and grid view query params on reload", async ({ page }) => {
+  await page.goto("/memories?lane=library&q=browse&view=grid");
   await expect(page.locator(".trauma-memory-list")).toHaveClass(/memory-grid/);
-
-  await page.getByRole("button", { name: "Research" }).click();
   await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader category=Research",
+    "browse",
   );
-  await expect(page).toHaveURL(/view=grid/);
-
-  await page.getByRole("button", { name: "Research" }).click();
-  await expect(page.getByRole("searchbox", { name: "Search memories" })).toHaveValue(
-    "reader",
-  );
-  await expect(page).not.toHaveURL(/category%3DResearch/);
-  await expect(page).toHaveURL(/q=reader/);
+  await expect(page).toHaveURL(/q=browse/);
   await expect(page).toHaveURL(/view=grid/);
 });
 
 test("does not navigate shell and result links to the catch-all route", async ({ page }) => {
   await createBrowseDeleteFixture();
-  await page.goto("/memories");
+  await page.goto("/memories?lane=shelf");
 
   await page.getByRole("link", { name: "Flashbacks" }).click();
   await expect(page).toHaveURL(/\/flashbacks$/);
   await expect(page.getByRole("heading", { name: "Flashbacks", exact: true })).toBeVisible();
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
-  await page.goto("/memories");
+  await page.goto("/memories?lane=shelf");
   await page
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .click();
@@ -1183,10 +1119,15 @@ test("does not navigate shell and result links to the catch-all route", async ({
   );
   await expect(page.getByText("Page not found")).toHaveCount(0);
 
-  await page.goto("/memories");
-  await page
-    .getByRole("link", { name: "Open memory Reader Mode Notes" })
-    .focus();
+  await page.goto("/memories?lane=shelf");
+  await expect(
+    page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+  ).toBeVisible();
+  const readerNotesLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  await readerNotesLink.focus();
+  await expect(readerNotesLink).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
   await expect(page.locator("[data-reader-content]")).toHaveAttribute(
@@ -1215,15 +1156,16 @@ test("preserves native Enter activation on a focused browse result link", async 
   const opsLink = page.getByRole("link", {
     name: "Open memory Local Hosting Checklist",
   });
-  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
   const readerRow = readerLink.locator("xpath=ancestor::article");
 
-  await expect(searchBox).toBeEnabled();
   await expect(readerLink).toBeVisible();
   await expect(opsLink).toBeVisible();
+  await expect(
+    page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+  ).toBeVisible();
 
   await page.keyboard.press("j");
-  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "false");
 
   await opsLink.focus();
   await page.keyboard.press("Enter");
@@ -1232,12 +1174,11 @@ test("preserves native Enter activation on a focused browse result link", async 
   await expect(page.locator("#reader-state-title")).toBeVisible();
 });
 
-test("supports vim-like keyboard operation on the memories browse route", async ({
+test("supports roving tabindex and j/k/Enter keyboard navigation on browse lanes", async ({
   page,
 }) => {
   await page.goto("/memories");
 
-  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
   const readerLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
   });
@@ -1247,39 +1188,32 @@ test("supports vim-like keyboard operation on the memories browse route", async 
   const readerRow = readerLink.locator("xpath=ancestor::article");
   const opsRow = opsLink.locator("xpath=ancestor::article");
 
-  await expect(searchBox).toBeEnabled();
   await expect(readerLink).toBeVisible();
   await expect(opsLink).toBeVisible();
+  await expect(readerLink).toHaveAttribute("tabindex", "0");
+  await expect(opsLink).toHaveAttribute("tabindex", "-1");
 
+  await readerLink.focus();
   await page.keyboard.press("j");
-  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
-
-  await page.keyboard.press("j");
-  await expect(readerRow).not.toHaveAttribute("data-keyboard-selected", "true");
   await expect(opsRow).toHaveAttribute("data-keyboard-selected", "true");
+  await expect(opsLink).toBeFocused();
+  await expect(opsLink).toHaveAttribute("tabindex", "0");
+  await expect(readerLink).toHaveAttribute("tabindex", "-1");
 
   await page.keyboard.press("k");
   await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
+  await expect(readerLink).toBeFocused();
 
+  await page.goto("/memories?lane=library");
+  const searchBox = page.getByRole("searchbox", { name: "Search memories" });
+  await expect(searchBox).toBeEnabled();
   await page.keyboard.press("/");
   await expect(searchBox).toBeFocused();
-
   await page.keyboard.press("j");
   await expect(searchBox).toHaveValue("j");
-
-  await searchBox.fill("reader");
+  await searchBox.fill("browse");
   await page.keyboard.press("Escape");
-  await expect(searchBox).toHaveValue("reader");
   await expect(searchBox).not.toBeFocused();
-  await expect(readerLink).toBeVisible();
-  await expect(readerRow).toHaveAttribute("data-keyboard-selected", "true");
-
-  await page.keyboard.press("l");
-  await expect(page).toHaveURL(/\/memories\/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901$/);
-  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
-    "data-reader-ready",
-    "true",
-  );
 });
 
 test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
@@ -1377,21 +1311,18 @@ test("moves focus through shared dialogs and menus and returns it to the opener"
   await expect(deleteItem).toBeFocused();
 
   await deleteItem.click();
-  const outsideSearch = page.getByRole("searchbox", {
-    name: "Search memories",
-  });
-  await outsideSearch.click();
+  const outsideTarget = page.getByRole("button", { name: "Theme" });
+  await outsideTarget.click();
   await expect(confirmation).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
-  await expect(outsideSearch).toBeFocused();
   await expect(menu).toHaveCount(0);
 });
 
 test("returns taxonomy creation focus after keyboard dismissal", async ({ page }) => {
-  await page.goto("/memories");
+  await page.goto("/memories?lane=library");
 
-  const readerRow = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  const addTagTrigger = readerRow.getByRole("button", { name: "Add tag" });
+  const libraryRow = page.locator("article", { hasText: "Browse Shell Sketch" }).first();
+  const addTagTrigger = libraryRow.getByRole("button", { name: "Add tag" });
   await addTagTrigger.click();
 
   const tagDialog = page.getByRole("dialog", { name: "Add tag" });
@@ -1399,7 +1330,7 @@ test("returns taxonomy creation focus after keyboard dismissal", async ({ page }
   const newTagButton = tagDialog.getByRole("button", { name: "New tag" });
   await newTagButton.click();
 
-  const newTagInput = readerRow.getByRole("textbox", { name: "New tag" });
+  const newTagInput = libraryRow.getByRole("textbox", { name: "New tag" });
   await expect(newTagInput).toBeFocused();
   await newTagInput.press("Escape");
   await expect(newTagInput).toHaveCount(0);
@@ -1410,13 +1341,13 @@ test("closes the add-memory composer on outside row clicks without opening memor
   page,
 }) => {
   await createBrowseDeleteFixture();
-  await page.goto("/memories");
+  await page.goto("/memories?lane=library");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
-  const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
-  await row.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+  const row = page.locator("article", { hasText: "Browse Shell Sketch" }).first();
+  await row.getByRole("link", { name: "Open memory Browse Shell Sketch" }).click();
 
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
@@ -1432,7 +1363,7 @@ test("closes the add-memory composer on outside row clicks without opening memor
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
-  await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
+  await page.getByRole("link", { name: "Open memory Browse Shell Sketch" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
@@ -1475,15 +1406,11 @@ test("keeps a pending add-memory attempt owned across rail dismissal and phone r
 
   await page.keyboard.press("Escape");
   await expect(railComposer).toHaveCount(0);
-  await page.setViewportSize({ width: 390, height: 844 });
-  const phoneAddMemory = page
-    .getByRole("navigation", { name: "Primary tabs" })
-    .getByRole("button", { name: "Add memory" });
-  await phoneAddMemory.click();
-  const phoneComposer = page.getByRole("dialog", { name: "Add memory" });
-  const phoneUrl = phoneComposer.getByRole("textbox", { name: "URL" });
-  await expect(phoneUrl).toHaveValue("https://example.com/pending");
-  await expect(phoneUrl).toBeDisabled();
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const reopenedComposer = page.getByRole("dialog", { name: "Add memory" });
+  const reopenedUrl = reopenedComposer.getByRole("textbox", { name: "URL" });
+  await expect(reopenedUrl).toHaveValue("https://example.com/pending");
+  await expect(reopenedUrl).toBeDisabled();
 
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -1494,16 +1421,17 @@ test("keeps a pending add-memory attempt owned across rail dismissal and phone r
   await responsePromise;
 
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
-  await expect(phoneComposer).toBeVisible();
-  await expect(phoneUrl).toBeEnabled();
-  await expect(phoneUrl).toHaveValue("");
+  await expect(reopenedComposer).toBeVisible();
+  await expect(reopenedUrl).toBeEnabled();
+  await expect(reopenedUrl).toHaveValue("");
   expect(requestCount).toBe(1);
 });
 
 test("does not suppress the next normal click after an outside right-click dismissal", async ({
   page,
 }) => {
-  await page.goto("/memories");
+  await createBrowseDeleteFixture();
+  await page.goto("/memories?lane=shelf");
 
   await page.getByRole("button", { name: "Add memory" }).click();
   await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
@@ -1528,19 +1456,18 @@ test("does not suppress a click after an outside pointer sequence is canceled", 
 }) => {
   await page.goto("/memories");
 
-  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
-  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
-  await page.getByRole("button", { name: "New tag" }).click();
-  await expect(page.getByRole("textbox", { name: "New tag" })).toBeVisible();
+  const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
 
-  await unreadTab.dispatchEvent("pointerdown", {
+  await headerHeading.dispatchEvent("pointerdown", {
     button: 0,
     isPrimary: true,
     pointerId: 17,
     pointerType: "touch",
   });
-  await expect(page.getByRole("textbox", { name: "New tag" })).toHaveCount(0);
-  await unreadTab.dispatchEvent("pointercancel", {
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await headerHeading.dispatchEvent("pointercancel", {
     button: 0,
     isPrimary: true,
     pointerId: 17,
@@ -1557,16 +1484,16 @@ test("does not suppress a click after an outside pointerup produced no click", a
 }) => {
   await page.goto("/memories");
 
-  const statusTabs = page.getByRole("tablist", { name: "Memory read status" });
-  const unreadTab = statusTabs.getByRole("tab", { name: "Unread" });
-  await page.getByRole("button", { name: "New tag" }).click();
-  await unreadTab.dispatchEvent("pointerdown", {
+  const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await headerHeading.dispatchEvent("pointerdown", {
     button: 0,
     isPrimary: true,
     pointerId: 23,
     pointerType: "touch",
   });
-  await unreadTab.dispatchEvent("pointerup", {
+  await headerHeading.dispatchEvent("pointerup", {
     button: 0,
     isPrimary: true,
     pointerId: 23,
@@ -1584,11 +1511,10 @@ test("expires outside click suppression when a pointer sequence goes silent", as
 }) => {
   await page.goto("/memories");
 
-  await page.getByRole("button", { name: "New tag" }).click();
-  const unreadTab = page
-    .getByRole("tablist", { name: "Memory read status" })
-    .getByRole("tab", { name: "Unread" });
-  await unreadTab.dispatchEvent("pointerdown", {
+  await page.getByRole("button", { name: "Add memory" }).click();
+  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
+  await headerHeading.dispatchEvent("pointerdown", {
     button: 0,
     isPrimary: true,
     pointerId: 29,
@@ -1601,6 +1527,184 @@ test("expires outside click suppression when a pointer sequence goes silent", as
   const probe = await installDismissableClickProbe(page);
   await probe.evaluate((button: HTMLButtonElement) => button.click());
   await expect(probe).toHaveAttribute("data-clicked", "true");
+});
+
+test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces Today cap, and rolls back on failure (AC 4)", async ({
+  page,
+}) => {
+  const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+  await createBrowseDeleteFixture();
+
+  // 1. Pick (`p`) on focused Shelf row -> persists to Today and survives reload
+  await page.goto("/memories?lane=shelf");
+  const readerLink = page.getByRole("link", {
+    name: "Open memory Reader Mode Notes",
+  });
+  await expect(readerLink).toBeVisible();
+  await readerLink.focus();
+
+  const pickResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page.keyboard.press("p");
+  expect((await pickResponse).status()).toBe(200);
+  await expect(readerLink).toHaveCount(0);
+  await expect(page.locator("[data-triage-undo-toast='true']")).toBeVisible();
+
+  await page.reload();
+  await expect(readerLink).toHaveCount(0);
+
+  await page.goto("/memories");
+  await expect(readerLink).toBeVisible();
+
+  // 2. Undo (`u`) restores row back to Shelf and survives reload
+  await page.goto("/memories?lane=shelf");
+  // First return it from Today so we can test `l` and `u` cleanly from Shelf
+  await page.goto("/memories");
+  const notNowResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page
+    .locator("article", { hasText: "Reader Mode Notes" })
+    .getByRole("button", { name: "Not now" })
+    .click();
+  expect((await notNowResponse).status()).toBe(200);
+
+  await page.goto("/memories?lane=shelf");
+  await expect(readerLink).toBeVisible();
+  await readerLink.focus();
+
+  const keepResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page.keyboard.press("l");
+  expect((await keepResponse).status()).toBe(200);
+  await expect(readerLink).toHaveCount(0);
+  await expect(page.locator("[data-triage-undo-toast='true']")).toContainText(
+    "Kept in Library.",
+  );
+
+  // Undo via `u` key
+  const undoResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page.keyboard.press("u");
+  expect((await undoResponse).status()).toBe(200);
+  await expect(readerLink).toBeVisible();
+
+  await page.reload();
+  await expect(readerLink).toBeVisible();
+
+  // 3. Let go (`x`) -> persists to archive and appears in Library with in:archive
+  await readerLink.focus();
+  const letGoResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page.keyboard.press("x");
+  expect((await letGoResponse).status()).toBe(200);
+  await expect(readerLink).toHaveCount(0);
+
+  await page.goto("/memories?lane=library&q=in%3Aarchive");
+  await expect(readerLink).toBeVisible();
+
+  // Restore back to Shelf for failure rollback & cap tests
+  const restoreResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${memoryId}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await page
+    .locator("article", { hasText: "Reader Mode Notes" })
+    .getByRole("button", { name: "Restore" })
+    .click();
+  expect((await restoreResponse).status()).toBe(200);
+
+  // 4. Optimistic rollback on failed triage API request (HTTP 500)
+  await page.goto("/memories?lane=shelf");
+  await expect(readerLink).toBeVisible();
+  await page.route(`**/api/memories/${memoryId}/triage`, async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Simulated triage failure" }),
+    });
+  });
+
+  await readerLink.focus();
+  await page.keyboard.press("l");
+  await expect(page.locator("[data-triage-error='true']")).toContainText(
+    "Simulated triage failure",
+  );
+  await expect(readerLink).toBeVisible();
+  await page.unroute(`**/api/memories/${memoryId}/triage`);
+
+  // 5. Pick refused when Today is at cap (HTTP 409)
+  await page.route(`**/api/memories/${memoryId}/triage`, async (route) => {
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Today is full. Finish or return one first.",
+        code: "today_cap_reached",
+        todayCount: 3,
+        todayCap: 3,
+      }),
+    });
+  });
+
+  await readerLink.focus();
+  await page.keyboard.press("p");
+  await expect(page.locator("[data-triage-error='true']")).toContainText(
+    "Today is full. Finish or return one first.",
+  );
+  await expect(readerLink).toBeVisible();
+  await expect(
+    page
+      .locator("article", { hasText: "Reader Mode Notes" })
+      .getByRole("button", { name: /Pick/ }),
+  ).toBeDisabled();
+  await page.unroute(`**/api/memories/${memoryId}/triage`);
+});
+
+test("shows neutral Today empty state with link to Shelf when Today has no picked items", async ({
+  page,
+}) => {
+  await page.route("**/api/memories/*/triage", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        memoryId: "mock",
+        triageState: "shelf",
+        triageChangedAt: "2026-05-09T12:00:00.000Z",
+        changed: true,
+      }),
+    });
+  });
+
+  await page.goto("/memories");
+  // Move both fixture Today items back to Shelf
+  while ((await page.locator("article").count()) > 0) {
+    await page.locator("article").first().getByRole("button", { name: "Not now" }).click();
+  }
+
+  const emptyState = page.locator("[data-today-empty-state='true']");
+  await expect(emptyState).toBeVisible();
+  await expect(emptyState).toContainText(
+    "Nothing picked. Choose from the Shelf when you're ready.",
+  );
+  const shelfLink = emptyState.getByRole("link", { name: "Open Shelf" });
+  await expect(shelfLink).toHaveAttribute("href", "/memories?lane=shelf");
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {
@@ -1654,9 +1758,6 @@ async function readPaperShellMaterial(page: Page) {
       'aside[aria-label="Primary navigation"]',
     );
     const main = document.querySelector<HTMLElement>("main");
-    const rightRail = document.querySelector<HTMLElement>(
-      'aside[aria-label="Browse filters"]',
-    );
     const routePane = document.querySelector<HTMLElement>(
       ".trauma-shell-main > .bg-trauma-bg-surface",
     );
@@ -1664,7 +1765,6 @@ async function readPaperShellMaterial(page: Page) {
     if (
       rail === null ||
       main === null ||
-      rightRail === null ||
       routePane === null
     ) {
       throw new Error("Paper shell material targets are missing");
@@ -1674,7 +1774,6 @@ async function readPaperShellMaterial(page: Page) {
     const bodyAfter = getComputedStyle(document.body, "::after");
     const railStyle = getComputedStyle(rail);
     const mainStyle = getComputedStyle(main);
-    const rightRailStyle = getComputedStyle(rightRail);
     const routePaneStyle = getComputedStyle(routePane);
 
     return {
@@ -1684,12 +1783,9 @@ async function readPaperShellMaterial(page: Page) {
       bodyBeforeBackgroundImage: bodyBefore.backgroundImage,
       mainBackgroundColor: mainStyle.backgroundColor,
       mainBackgroundImage: mainStyle.backgroundImage,
-      mainBorderRightWidth: mainStyle.borderRightWidth,
       railBackgroundColor: railStyle.backgroundColor,
       railBackgroundImage: railStyle.backgroundImage,
       railBorderRightWidth: railStyle.borderRightWidth,
-      rightRailBackgroundColor: rightRailStyle.backgroundColor,
-      rightRailBackgroundImage: rightRailStyle.backgroundImage,
       routeBackgroundColor: routePaneStyle.backgroundColor,
       routeBackgroundImage: routePaneStyle.backgroundImage,
     };

@@ -31,10 +31,13 @@ const flashbackExcerptSource = readFileSync(
 const notFoundRouteSource = readFileSync("src/routes/[...404].tsx", "utf8");
 
 describe("mobile and cross-device responsive contract", () => {
-  it("keeps desktop shell dimensions unchanged", () => {
+  it("uses the slim 56px icon-only rail across tablet and desktop viewports", () => {
     expect(appShellSource).toContain(
-      "min-[1041px]:grid-cols-[275px_minmax(0,840px)_360px]",
+      "min-[721px]:grid-cols-[56px_minmax(0,1fr)]",
     );
+    expect(appShellSource).toContain("w-[56px]");
+    expect(appShellSource).not.toContain("275px");
+    expect(appShellSource).not.toContain("360px");
   });
 
   it("defines route and component containers for responsive internals", () => {
@@ -143,19 +146,14 @@ describe("mobile and cross-device responsive contract", () => {
   it("keeps tablet and mobile shell chrome clean and non-duplicated", () => {
     expect(appShellSource).toContain("BrandHomeLink");
     expect(appShellSource).toContain("PhoneTabBar");
-    expect(appShellSource).toContain("phoneTabItems");
+    expect(appShellSource).toContain("phonePrimaryTabs");
     expect(appShellSource).toContain('aria-label="Primary tabs"');
     expect(appShellSource).toContain("bottom-0");
-    expect(appShellSource).toContain("overflow-x-auto");
-    expect(appShellSource).toContain("data-phone-tab-scroll");
-    expect(appShellSource).not.toContain("grid grid-cols-4 items-end gap-1");
+    expect(appShellSource).toContain("grid grid-cols-4 items-center gap-1");
+    expect(appShellSource).toContain("data-phone-tab-bar");
     expect(appShellSource).toContain("trauma-safe-area-bottom");
-    expect(appShellSource).toContain("showLabel={true}");
-    expect(appShellSource).toContain("showLabel={false}");
     expect(appShellSource).toContain("railIconSlot");
     expect(appShellSource).toContain("railPopoverPanel");
-    expect(appShellSource).toContain("max-[1040px]:hidden");
-    expect(appShellSource).toContain("max-[720px]:grid");
     expect(appShellSource).not.toContain("isFiltersOpen");
     expect(appShellSource).not.toContain("setIsFiltersOpen");
     expect(appShellSource).not.toContain("isNavigationOpen");
@@ -167,70 +165,39 @@ describe("mobile and cross-device responsive contract", () => {
     expect(appShellSource).not.toContain("FilterNavButton");
   });
 
-  it("renders every primary tab on phone instead of dropping low-priority tabs", () => {
-    for (const label of [
-      "Memories",
-      "Flashbacks",
-      "Moments",
-      "Categories",
-      "Tags",
-      "Backup",
-      "Add memory",
-      "Theme",
-      "Settings",
-    ]) {
+  it("renders exactly 4 phone bottom tabs (Today, Shelf, Library, More) with no disabled tabs", () => {
+    for (const label of ["Today", "Shelf", "Library"]) {
       expect(appShellSource).toContain(`label: "${label}"`);
     }
-
-    expect(appShellSource).toContain('kind: "disabled"');
-    expect(appShellSource).toContain("PhoneDisabledTab");
+    expect(appShellSource).toContain('id="phone-more-sheet"');
+    expect(appShellSource).toContain('label: "Flashbacks"');
+    expect(appShellSource).toContain('label: "Moments"');
+    expect(appShellSource).toContain('label: "Settings"');
+    expect(appShellSource).not.toContain('label: "Categories"');
+    expect(appShellSource).not.toContain('label: "Tags"');
+    expect(appShellSource).not.toContain('label: "Backup"');
+    expect(appShellSource).not.toContain("PhoneDisabledTab");
   });
 
-  it("keeps phone tabs readable with larger dedicated icon slots", () => {
+  it("keeps phone tabs readable with dedicated icon slots and labels", () => {
     expect(appShellSource).toContain("phoneIconSlot");
     expect(appShellSource).toContain("phoneTabLabel");
-    expect(appShellSource).toContain("grid size-9 place-items-center");
-    expect(appShellSource).toContain("[&>svg]:size-8");
-    expect(appShellSource).toContain("<PlusIcon size={28} />");
-    expect(appShellSource).toContain("TraumaNavIcons.theme");
-    expect(appShellSource).toContain("{icon()()}");
-  });
-
-  it("keeps phone tab text labels accessible but visually hidden", () => {
-    expect(appShellSource).toContain('const phoneTabLabel = "sr-only"');
     expect(appShellSource).toContain("data-phone-tab-label");
-    expect(appShellSource).not.toContain('<span class="truncate">{props.item.label}</span>');
-    expect(appShellSource).not.toContain('<span class="truncate">Add memory</span>');
-    expect(appShellSource).not.toContain(
-      'isPhone() ? "truncate" : "min-w-0 truncate max-[1040px]:sr-only"',
-    );
+    expect(appShellSource).toContain("TraumaNavIcons.theme");
   });
 
-  it("keeps phone memories read-state tabs in the sticky header", () => {
+  it("uses focus-first browse lanes without legacy All/Unread/Read tabs", () => {
     expect(memoryBrowseSource).toContain("trauma-memory-browse-header");
-    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
-    expect(memoryBrowseSource).toContain('role="tablist"');
-    expect(memoryBrowseSource).toContain('aria-label="Memory read status"');
-    expect(memoryBrowseSource).toContain('label: "All"');
-    expect(memoryBrowseSource).toContain('label: "Unread"');
-    expect(memoryBrowseSource).toContain('label: "Read"');
-    expect(tailwindCss).toContain(".trauma-memory-read-tabs");
-    expect(tailwindCss).toContain(
-      "grid-template-columns: repeat(3, minmax(0, 1fr))",
-    );
+    expect(memoryBrowseSource).toContain("data-browse-lane");
+    expect(memoryBrowseSource).not.toContain("MemoryReadStateTabs");
+    expect(memoryBrowseSource).not.toContain('aria-label="Memory read status"');
     expect(memoryBrowseSource).not.toContain('aria-label="View mode"');
-    expect(memoryBrowseSource).not.toContain("justify-self-end");
-    expect(memoryBrowseSource).not.toContain(
-      "flex items-center justify-between gap-4 border-b",
-    );
   });
 
-  it("keeps compact tablet add-memory controls centered without wax seal chrome", () => {
-    expect(appShellSource).toContain("compactAddMemoryButton");
-    expect(appShellSource).toContain("max-[1040px]:grid");
-    expect(appShellSource).toContain("min-[1041px]:inline-flex");
-    expect(appShellSource).toContain("max-[1040px]:hidden");
-    expect(appShellSource).toContain("max-[1040px]:size-[52px]");
+  it("renders the add-memory control as a standard icon button without wax seal chrome", () => {
+    expect(appShellSource).toContain("AddMemoryComposerButton");
+    expect(appShellSource).not.toContain("<WaxSealButton");
+    expect(appShellSource).not.toContain("bg-trauma-accent");
   });
 
   it("keeps reader chrome legible outside desktop", () => {
@@ -278,18 +245,13 @@ describe("mobile and cross-device responsive contract", () => {
     expect(flashbacksRouteSource).toContain("trauma-route-surface");
   });
 
-  it("keeps paper active underline scoped to desktop rail container width only", () => {
+  it("places paper active underline under the left-rail icon", () => {
     expect(tailwindCss).toContain("container: trauma-left-rail / inline-size");
-    expect(tailwindCss).toContain("@container trauma-left-rail (width > 16rem)");
     expect(tailwindCss).toContain(
-      ':root[data-theme^="paper"] .trauma-active-nav-item::after',
+      ':root[data-theme^="paper"] .trauma-shell-left-rail .trauma-active-nav-item::after',
     );
     expect(tailwindCss).not.toContain(
-      ':root[data-theme^="paper"] .trauma-active-nav-item .trauma-active-nav-label::after',
-    );
-    expect(appShellSource).toContain("trauma-active-nav-label");
-    expect(appShellSource).not.toContain(
-      '<span class="trauma-active-nav-label truncate">{props.item.label}</span>',
+      "@container trauma-left-rail (width > 16rem)",
     );
   });
 });

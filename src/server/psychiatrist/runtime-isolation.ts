@@ -3,6 +3,7 @@ import {
   LEGACY_CODEX_RUNTIME_ISOLATION_ENV,
   isCodexRuntimeIsolationReady,
 } from "../codex/runtime-isolation";
+import { isOpenAICompatibleProviderEnabled } from "../llm/provider";
 
 export const PSYCHIATRIST_RUNTIME_ISOLATION_ENV =
   LEGACY_CODEX_RUNTIME_ISOLATION_ENV;
@@ -19,5 +20,8 @@ export function isPsychiatristRuntimeIsolationReady(input: {
   environment?: Readonly<Record<string, string | undefined>>;
   hasInjectedClient: boolean;
 }): boolean {
+  if (isOpenAICompatibleProviderEnabled(input.environment)) {
+    return true;
+  }
   return isCodexRuntimeIsolationReady(input);
 }

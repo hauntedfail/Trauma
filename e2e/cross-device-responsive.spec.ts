@@ -20,12 +20,12 @@ for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto("/memories");
 
-    await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Today", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Open filters" })).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Filters" })).toHaveCount(0);
-    await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
+    await expect(page.getByRole("complementary", { name: "Browse filters" })).toHaveCount(0);
 
     if (viewport.kind === "phone") {
       await expect(page.getByRole("navigation", { name: "Primary tabs" })).toBeVisible();
@@ -68,116 +68,69 @@ test("keeps long Moment rows within the phone viewport", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
-test("keeps phone primary actions reachable from the bottom tab bar", async ({ page }) => {
+test("renders exactly 4 phone bottom tabs (Today, Shelf, Library, More) with no disabled tabs", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/memories");
 
   const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
-  for (const tabName of [
-    "Memories",
-    "Flashbacks",
-    "Categories",
-    "Tags",
-    "Backup",
-    "Add memory",
-    "Theme",
-    "Settings",
-  ]) {
-    await expect(primaryTabs.getByText(tabName, { exact: true })).toBeAttached();
+  await expect(primaryTabs).toBeVisible();
+
+  const tabItems = primaryTabs.locator("[data-phone-tab]");
+  await expect(tabItems).toHaveCount(4);
+
+  const tabLabels = await primaryTabs
+    .locator("[data-phone-tab-label]")
+    .allTextContents();
+  expect(tabLabels.map((text) => text.trim())).toEqual([
+    "Today",
+    "Shelf",
+    "Library",
+    "More",
+  ]);
+
+  await expect(primaryTabs.locator("[disabled], [aria-disabled='true']")).toHaveCount(0);
+  for (const removedLabel of ["Categories", "Tags", "Backup"]) {
+    await expect(primaryTabs.getByText(removedLabel, { exact: true })).toHaveCount(0);
   }
 
-  const scrollState = await primaryTabs.evaluate((nav) => {
-    const scroller = nav.querySelector("[data-phone-tab-scroll]");
+  await primaryTabs.getByRole("link", { name: "Shelf" }).click();
+  await expect(page).toHaveURL(/\/memories\?lane=shelf$/);
 
-    if (scroller === null) {
-      return null;
-    }
+  await primaryTabs.getByRole("link", { name: "Library" }).click();
+  await expect(page).toHaveURL(/\/memories\?lane=library$/);
 
-    const style = getComputedStyle(scroller);
+  await primaryTabs.getByRole("button", { name: "More" }).click();
+  const moreSheet = page.getByRole("dialog", { name: "More navigation" });
+  await expect(moreSheet).toBeVisible();
+  await expect(moreSheet.getByRole("link", { name: "Flashbacks" })).toBeVisible();
+  await expect(moreSheet.getByRole("link", { name: "Moments" })).toBeVisible();
+  await expect(moreSheet.getByRole("link", { name: "Settings" })).toBeVisible();
 
-    return {
-      clientWidth: scroller.clientWidth,
-      overflowX: style.overflowX,
-      scrollWidth: scroller.scrollWidth,
-    };
-  });
-
-  expect(scrollState).not.toBeNull();
-  expect(["auto", "scroll"]).toContain(scrollState!.overflowX);
-  expect(scrollState!.scrollWidth).toBeGreaterThan(scrollState!.clientWidth);
-
-  await primaryTabs.getByRole("link", { name: "Flashbacks" }).click();
+  await moreSheet.getByRole("link", { name: "Flashbacks" }).click();
   await expect(page).toHaveURL(/\/flashbacks$/);
   await expect(page.getByRole("heading", { name: "Flashbacks", exact: true })).toBeVisible();
-
-  await primaryTabs.getByRole("button", { name: "Theme" }).click();
-  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
-
-  await primaryTabs.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "URL" })).toBeVisible();
 });
 
-test("keeps phone tabs large and free of paper underline decoration", async ({ page }) => {
+test("keeps paper phone tabs without desktop rail underlines", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/memories");
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
     localStorage.setItem("trauma:brightness", "sun");
     localStorage.setItem("trauma:surface", "paper");
-    document.documentElement.dataset.theme = "paper-warm-light";
   });
-  await page.reload();
+  await page.goto("/memories");
 
-  const memoriesTab = page
+  const todayTab = page
     .getByRole("navigation", { name: "Primary tabs" })
-    .getByRole("link", { name: "Memories" });
-  const iconBox = await memoriesTab.locator("span").first().boundingBox();
-  const underlineContent = await memoriesTab.evaluate((tab) =>
+    .getByRole("link", { name: "Today" });
+  const underlineContent = await todayTab.evaluate((tab) =>
     getComputedStyle(tab, "::after").content,
   );
-
-  expect(iconBox).not.toBeNull();
-  expect(iconBox!.width).toBeGreaterThanOrEqual(34);
-  expect(iconBox!.height).toBeGreaterThanOrEqual(34);
   expect(underlineContent).toBe("none");
 });
 
-test("keeps phone tab labels visually hidden while preserving names", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/memories");
-
-  const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
-  await expect(primaryTabs.getByRole("link", { name: "Memories" })).toBeVisible();
-  await expect(primaryTabs.getByRole("button", { name: "Theme" })).toBeVisible();
-
-  const labels = primaryTabs.locator("[data-phone-tab-label]");
-  await expect(labels).toHaveCount(9);
-
-  const labelBoxes = await labels.evaluateAll((elements) =>
-    elements.map((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-
-      return {
-        height: rect.height,
-        overflow: style.overflow,
-        position: style.position,
-        width: rect.width,
-      };
-    }),
-  );
-
-  for (const box of labelBoxes) {
-    expect(box.position).toBe("absolute");
-    expect(box.overflow).toBe("hidden");
-    expect(box.width).toBeLessThanOrEqual(1);
-    expect(box.height).toBeLessThanOrEqual(1);
-  }
-});
-
-test("keeps tablet paper add-memory icon centered in the compact rail", async ({ page }) => {
+test("keeps tablet paper add-memory icon centered in the slim 56px rail", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.addInitScript(() => {
     localStorage.setItem("trauma:brightness", "sun");
@@ -185,9 +138,12 @@ test("keeps tablet paper add-memory icon centered in the compact rail", async ({
   });
   await page.goto("/memories");
 
-  const addMemory = page
-    .locator('aside[aria-label="Primary navigation"]')
-    .getByRole("button", { name: "Add memory" });
+  const rail = page.locator('aside[aria-label="Primary navigation"]');
+  const railBox = await rail.boundingBox();
+  expect(railBox).not.toBeNull();
+  expect(Math.round(railBox!.width)).toBe(56);
+
+  const addMemory = rail.getByRole("button", { name: "Add memory" });
   const delta = await addMemory.evaluate((button) => {
     const buttonRect = button.getBoundingClientRect();
     const iconRect = button.querySelector("svg")?.getBoundingClientRect();
@@ -231,15 +187,15 @@ test("keeps non-desktop theme box readable", async ({ page }) => {
   expect(paperBox!.width).toBeGreaterThan(80);
 });
 
-test("keeps tablet navigation icon-only and browse content fluid", async ({ page }) => {
+test("keeps tablet navigation 56px icon-only and browse content fluid", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 1180 });
-  await page.goto("/memories");
+  await page.goto("/memories?lane=library");
 
   await expect(page.getByRole("navigation", { name: "Primary sections" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary tabs" })).toBeHidden();
-  await expect(page.getByRole("heading", { name: "Memories", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open memory Reader Mode Notes" })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Browse filters" })).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Library", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open memory Browse Shell Sketch" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Browse filters" })).toHaveCount(0);
 
   const routeSurface = page.locator(".trauma-route-surface").first();
   const box = await routeSurface.boundingBox();

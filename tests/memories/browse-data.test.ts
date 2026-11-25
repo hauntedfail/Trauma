@@ -398,4 +398,43 @@ describe("browse query state", () => {
       "h-shell",
     ]);
   });
+
+  it("resolves default lanes and computes length buckets, resumption cues, and in:archive toggles", async () => {
+    const {
+      formatResumptionCue,
+      getLengthBucket,
+      hasBrowseInArchiveFilter,
+      resolveBrowseLane,
+      setBrowseInArchiveFilter,
+    } = await import("../../src/components/memories/browse-data");
+
+    expect(resolveBrowseLane(parseBrowseQuery(""))).toBe("today");
+    expect(resolveBrowseLane(parseBrowseQuery("?lane=shelf"))).toBe("shelf");
+    expect(resolveBrowseLane(parseBrowseQuery("?lane=library"))).toBe("library");
+    expect(resolveBrowseLane(parseBrowseQuery("?q=reader"))).toBe("library");
+    expect(resolveBrowseLane(parseBrowseQuery("?flashback=h-foundation"))).toBe("library");
+
+    expect(getLengthBucket(null)).toBeNull();
+    expect(getLengthBucket(undefined)).toBeNull();
+    expect(getLengthBucket(499)).toBe("short");
+    expect(getLengthBucket(500)).toBe("medium");
+    expect(getLengthBucket(1500)).toBe("medium");
+    expect(getLengthBucket(1501)).toBe("long");
+
+    expect(formatResumptionCue(null)).toBeNull();
+    expect(
+      formatResumptionCue({
+        variant: "source",
+        headingId: "section-3",
+        paragraphIndex: 2,
+        scrollRatio: 3 / 7,
+        updatedAt: "2026-05-09T12:30:00.000Z",
+      }),
+    ).toBe("continue at 3/7");
+
+    expect(hasBrowseInArchiveFilter("reader in:archive")).toBe(true);
+    expect(hasBrowseInArchiveFilter("reader")).toBe(false);
+    expect(setBrowseInArchiveFilter("reader", true)).toBe("reader in:archive");
+    expect(setBrowseInArchiveFilter("reader in:archive", false)).toBe("reader");
+  });
 });

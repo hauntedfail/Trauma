@@ -11,6 +11,25 @@ import {
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 const SECOND_READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f102";
 const TOC_SCROLL_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f103";
+const TODAY_FIXTURE_MEMORY_ID = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
+
+async function openReaderInspector(page: Page) {
+  const dialog = page.locator("#reader-inspector-dialog");
+  if ((await dialog.count()) === 0) {
+    await page.locator("[data-reader-inspector-trigger]").click();
+  }
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function openReaderInspectorTab(
+  page: Page,
+  tab: "Outline" | "Marks" | "Translate" | "Details" | "Psychiatrist",
+) {
+  const dialog = await openReaderInspector(page);
+  await dialog.getByRole("tab", { exact: true, name: tab }).click();
+  return dialog;
+}
 
 test.describe.configure({ mode: "serial" });
 
@@ -20,9 +39,10 @@ test("renders a fixture memory in reader mode", async ({ page }) => {
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
 
-  await expect(page.getByText("Memory", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-reader-topbar]")).toContainText("Fixture Reader");
   await expect(page.getByRole("heading", { name: "Fixture Reader" })).toBeVisible();
-  const detailsLink = page.getByRole("link", {
+  const inspector = await openReaderInspectorTab(page, "Outline");
+  const detailsLink = inspector.getByRole("link", {
     exact: true,
     name: "Details",
   });
@@ -132,11 +152,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const trigger = page.getByRole("button", {
-    name: "Translate memory",
-  });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "Translation settings" });
+  const dialog = await openReaderInspectorTab(page, "Translate");
   const modelSelect = dialog.getByLabel("Model", { exact: true });
   const effortSelect = dialog.getByLabel("Reasoning effort", { exact: true });
   await expect(dialog).toBeVisible();
@@ -144,20 +160,14 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
   await expect(effortSelect).toHaveValue("high");
 
   await modelSelect.selectOption("gpt-5.3");
-  await page.getByRole("heading", { name: "Fixture Reader" }).click();
-  await expect(dialog).toHaveCount(0);
-  expect(translationStartCount).toBe(0);
-
-  await trigger.click();
-  await expect(dialog).toBeVisible();
-  await expect(modelSelect).toHaveValue("gpt-5.5");
-  await expect(effortSelect).toHaveValue("high");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   expect(translationStartCount).toBe(0);
 
-  await trigger.click();
+  await openReaderInspectorTab(page, "Translate");
   await expect(dialog).toBeVisible();
+  await expect(modelSelect).toHaveValue("gpt-5.5");
+  await expect(effortSelect).toHaveValue("high");
   await modelSelect.selectOption("gpt-5.3");
   await effortSelect.selectOption("medium");
   const defaultsRequest = page.waitForRequest(
@@ -187,7 +197,6 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     defaultsRequest,
     translationRequest,
   ]);
-  await expect(dialog).toHaveCount(0);
   expect(settingsRequest.postDataJSON()).toEqual({
     language: "ja-JP",
     model: "gpt-5.3",
@@ -198,7 +207,7 @@ test("uses remembered translation defaults and cancels the popover on dismissal"
     model: "gpt-5.3",
     reasoning_effort: "medium",
   });
-  expect(translationStartCount).toBe(1);
+  await expect.poll(() => translationStartCount).toBe(1);
 });
 
 test("deletes a memory from reader actions and returns to browse", async ({
@@ -215,7 +224,8 @@ test("deletes a memory from reader actions and returns to browse", async ({
       response.url().endsWith(`/api/memories/${READER_MEMORY_ID}`) &&
       response.request().method() === "DELETE",
   );
-  await page
+  const inspector = await openReaderInspectorTab(page, "Details");
+  await inspector
     .getByRole("button", { name: "Memory actions for Fixture Reader" })
     .click();
   await page.getByRole("menuitem", { name: "Delete memory" }).click();
@@ -290,7 +300,8 @@ test("keeps sun reader links bright in normal and paper themes", async ({
     await waitForReaderReady(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.name);
 
-    const sourceLinkColor = await page
+    const inspector = await openReaderInspectorTab(page, "Details");
+    const sourceLinkColor = await inspector
       .getByRole("link", {
         name:
           "https://example.com/articles/a-very-long-reader-source-path-without-breakable-segments",
@@ -309,7 +320,7 @@ test("keeps sun reader links bright in normal and paper themes", async ({
   }
 });
 
-test("keeps the psychiatrist dock clear and named across phone and desktop layouts", async ({
+test("keeps the psychiatrist panel accessible across phone and desktop layouts inside the Inspector", async ({
   page,
 }) => {
   await createReaderFixture();
@@ -326,75 +337,49 @@ test("keeps the psychiatrist dock clear and named across phone and desktop layou
       width: viewport.width,
     });
 
-    const dock = page.locator(".trauma-psychiatrist-dock");
-    const bottomOffset = await dock.evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      return window.innerHeight - box.bottom;
-    });
-
     if (viewport.kind === "phone") {
-      const primaryTabs = page.getByRole("navigation", { name: "Primary tabs" });
-      await expect(primaryTabs).toBeVisible();
-      const [dockBox, tabBox] = await Promise.all([
-        dock.boundingBox(),
-        primaryTabs.boundingBox(),
-      ]);
-
-      expect(bottomOffset).toBeCloseTo(76, 0);
-      expect(dockBox).not.toBeNull();
-      expect(tabBox).not.toBeNull();
-      expect(dockBox!.y + dockBox!.height).toBeLessThanOrEqual(tabBox!.y);
+      await expect(page.getByRole("navigation", { name: "Primary tabs" })).toBeVisible();
     } else {
       await expect(page.getByRole("navigation", { name: "Primary tabs" })).toBeHidden();
-      expect(bottomOffset).toBeCloseTo(24, 0);
     }
   }
 
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(
     page.getByRole("textbox", { name: "Message Psychiatrist" }),
   ).toBeVisible();
 });
 
-test("closes the topmost reader popup before the psychiatrist dock on Escape", async ({
+test("closes the topmost reader popup before the Inspector on Escape", async ({
   page,
 }) => {
   await createReaderFixture();
   await installPsychiatristMock(page);
-  await page.route("**/api/settings/codex-models", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ models: [] }),
-    });
-  });
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
 
-  const dockTrigger = page.getByRole("button", { name: "Open Psychiatrist" });
-  await dockTrigger.click();
-  const dock = page.getByRole("region", { name: "Psychiatrist" });
-  await expect(dock).toBeVisible();
+  const inspectorTrigger = page.locator("[data-reader-inspector-trigger]");
+  const inspector = await openReaderInspectorTab(page, "Details");
+  await expect(inspector).toBeVisible();
 
-  const translationTrigger = page.getByRole("button", {
-    name: "Translate memory",
+  const actionsTrigger = inspector.getByRole("button", {
+    name: "Memory actions for Fixture Reader",
   });
-  await translationTrigger.click();
-  const translationDialog = page.getByRole("dialog", {
-    name: "Translation settings",
+  await actionsTrigger.click();
+  const menu = page.getByRole("menu", {
+    name: "Memory actions for Fixture Reader",
   });
-  await expect(translationDialog).toBeVisible();
-  await expect(translationDialog.getByLabel("Language")).toBeFocused();
-  await expect(dock).toBeVisible();
+  await expect(menu).toBeVisible();
 
   await page.keyboard.press("Escape");
-  await expect(translationDialog).toHaveCount(0);
-  await expect(dock).toBeVisible();
-  await expect(translationTrigger).toBeFocused();
+  await expect(menu).toHaveCount(0);
+  await expect(inspector).toBeVisible();
+  await expect(actionsTrigger).toBeFocused();
 
   await page.keyboard.press("Escape");
-  await expect(dock).toHaveCount(0);
-  await expect(dockTrigger).toBeFocused();
+  await expect(inspector).toHaveCount(0);
+  await expect(inspectorTrigger).toBeFocused();
 });
 
 test("coalesces pending reader model catalogs and retries after malformed 2xx", async ({
@@ -444,17 +429,16 @@ test("coalesces pending reader model catalogs and retries after malformed 2xx", 
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const trigger = page.getByRole("button", { name: "Translate memory" });
-  const dialog = page.getByRole("dialog", { name: "Translation settings" });
+  const dialog = page.locator("#reader-inspector-dialog");
 
   try {
-    await trigger.click();
+    await openReaderInspectorTab(page, "Translate");
     await expect(dialog).toBeVisible();
     await expect.poll(() => catalogRequestCount).toBe(1);
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await trigger.click();
+    await openReaderInspectorTab(page, "Translate");
     await expect(dialog).toBeVisible();
     await expect.poll(() => catalogRequestCount).toBe(1);
 
@@ -496,7 +480,7 @@ test("does not submit the psychiatrist prompt while an IME composition is active
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
   await expect(prompt).toBeEnabled();
   await prompt.fill("変換中の質問");
@@ -526,7 +510,7 @@ test("keeps psychiatrist transcript scrolling sticky only near the bottom", asyn
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   const transcript = page.locator("[data-psychiatrist-transcript]");
   await expect(transcript).toBeVisible();
   await expect.poll(() => transcript.evaluate((element) =>
@@ -591,7 +575,7 @@ test("bounds a 1000-pair psychiatrist transcript while keeping pinned rows reach
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
 
   const transcript = page.locator("[data-psychiatrist-transcript]");
   const rows = transcript.locator("[data-psychiatrist-pair]");
@@ -686,7 +670,7 @@ test("projects only public Psychiatrist citations as links for persisted and SSE
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
 
   await expect(page.getByRole("link", { name: "Persisted safe source" }))
     .toHaveAttribute("href", "https://example.com/persisted");
@@ -732,7 +716,7 @@ test("keeps visible Psychiatrist process rows bounded and useful", async ({ page
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   const prompt = page.getByRole("textbox", { name: "Message Psychiatrist" });
   await prompt.fill("Show bounded progress.");
   await prompt.press("Enter");
@@ -772,9 +756,9 @@ test("hands loading Psychiatrist focus from Close to the enabled prompt", async 
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
-  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("button", { exact: true, name: "Close" })).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" })).toBeDisabled();
 
   mock.releaseThread?.();
@@ -790,10 +774,10 @@ test("does not steal focus moved by the user during Psychiatrist loading", async
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
-  await trigger.click();
+  const trigger = page.locator("[data-reader-inspector-trigger]");
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
-  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("button", { exact: true, name: "Close" })).toBeFocused();
   await trigger.focus();
 
   mock.releaseThread?.();
@@ -809,10 +793,10 @@ test("does not steal focus when Psychiatrist loading resolves after close", asyn
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
-  await trigger.click();
+  const trigger = page.locator("[data-reader-inspector-trigger]");
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
-  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("button", { exact: true, name: "Close" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Psychiatrist" })).toHaveCount(0);
   await expect(trigger).toBeFocused();
@@ -860,7 +844,7 @@ test("closes a malformed terminal stream and reconciles once from the canonical 
 
     await page.goto(`/memories/${READER_MEMORY_ID}`);
     await waitForReaderReady(page);
-    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await openReaderInspectorTab(page, "Psychiatrist");
     await page.locator("textarea").fill("Exercise the real SSE transport.");
     await page.getByRole("button", { name: "Send" }).click();
 
@@ -914,7 +898,7 @@ test("shows Retry when malformed-terminal canonical reconciliation fails", async
 
     await page.goto(`/memories/${READER_MEMORY_ID}`);
     await waitForReaderReady(page);
-    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await openReaderInspectorTab(page, "Psychiatrist");
     await page.getByRole("textbox", { name: "Message Psychiatrist" })
       .fill("Reconcile a failed canonical reload.");
     await page.getByRole("button", { name: "Send" }).click();
@@ -947,7 +931,7 @@ test("caps malformed-terminal canonical reconciliation at one automatic reload p
 
     await page.goto(`/memories/${READER_MEMORY_ID}`);
     await waitForReaderReady(page);
-    await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+    await openReaderInspectorTab(page, "Psychiatrist");
     await page.getByRole("textbox", { name: "Message Psychiatrist" })
       .fill("Bound malformed terminal recovery.");
     await page.getByRole("button", { name: "Send" }).click();
@@ -976,7 +960,7 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await installFakeEventSource(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(page.getByRole("region", { name: "Psychiatrist" })).toBeVisible();
 
   await page.locator("textarea").fill("What does this memory say?");
@@ -997,14 +981,14 @@ test("keeps a running psychiatrist turn alive across navigation, reload, and exp
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await installFakeEventSource(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
   await expect(page.getByText("Partial answer from the memory")).toBeVisible();
   expect(mock.cancelRequests).toBe(0);
 
   await page.reload();
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
   await expect(page.getByText("Partial answer from the memory")).toBeVisible();
   const eventSourceUrls = await page.evaluate(() =>
@@ -1029,7 +1013,7 @@ test("reloads the canonical psychiatrist thread when completion wins the Stop ra
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Finish while Stop races.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Partial answer from the memory")).toBeVisible();
@@ -1061,7 +1045,7 @@ test("keeps a terminal psychiatrist turn final when its pending Stop request lat
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Finish before Stop returns.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
@@ -1101,7 +1085,7 @@ test("adopts a canonical successor after a successful canceled response", async 
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Cancel only the old turn.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1125,7 +1109,7 @@ test("becomes idle when a rejected cancel response persisted cancellation", asyn
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("The server may cancel despite the response.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1145,7 +1129,7 @@ test("restores the exact old active turn after an ambiguous cancel failure", asy
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Keep running if canonical state says so.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1168,7 +1152,7 @@ test("keeps canceled Stop non-repeatable until failed reconciliation is retried"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Retry canonical reconciliation.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1196,7 +1180,7 @@ test("adopts a different canonical active turn after the stopped turn completed"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Stop the old turn only.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByRole("button", { name: "Stop" })).toBeEnabled();
@@ -1222,7 +1206,7 @@ test("clears stopping when Stop reload resumes a different idle thread", async (
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Finish on the old thread.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1249,7 +1233,7 @@ test("adopts a successor active turn from a different Stop-reload thread", async
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Adopt the successor thread turn.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1290,7 +1274,7 @@ test("does not carry a historical web-source retry into a successor active turn"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Run the successor without stale approval UI.");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { exact: true, name: "Stop" }).click();
@@ -1313,7 +1297,7 @@ test("keeps Stop unavailable while a psychiatrist turn is starting", async ({
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Wait for identifiers.");
   const sendClick = page.getByRole("button", { name: "Send" }).click();
 
@@ -1336,9 +1320,9 @@ test("keeps psychiatrist actions disabled until thread loading succeeds and can 
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
 
-  const close = page.getByRole("button", { name: "Close" });
+  const close = page.getByRole("button", { exact: true, name: "Close" });
   await expect(page.getByRole("textbox", { name: "Message Psychiatrist" }))
     .toBeDisabled();
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -1372,12 +1356,12 @@ test("does not steal Psychiatrist retry focus moved by the user", async ({
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const trigger = page.getByRole("button", { name: "Open Psychiatrist" });
-  await trigger.click();
+  const trigger = page.locator("[data-reader-inspector-trigger]");
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.getByRole("button", { name: "Retry thread load" }).click();
 
   await expect.poll(() => mock.releaseThread !== undefined).toBe(true);
-  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("button", { exact: true, name: "Close" })).toBeFocused();
   await trigger.focus();
   mock.releaseThread?.();
 
@@ -1405,7 +1389,7 @@ test("native-disables every Regenerate action while a psychiatrist turn is busy"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   const regenerateButtons = page.getByRole("button", { name: "Regenerate" });
   await expect(regenerateButtons).toHaveCount(2);
   const regenerateClick = regenerateButtons.first().click();
@@ -1430,7 +1414,7 @@ test("keeps a newer psychiatrist turn running when the stopped stream delivers a
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
 
   await page.locator("textarea").fill("Start the old turn.");
   await page.getByRole("button", { name: "Send" }).click();
@@ -1496,7 +1480,7 @@ test("does not connect a deferred psychiatrist turn after the reader unmounts", 
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Resolve this after navigation.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect.poll(async () => page.evaluate(() =>
@@ -1544,7 +1528,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
   await installFakeEventSource(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(page.getByText("Original answer from stored context.")).toBeVisible();
   await expect.poll(() => mock.threadRequests).toBeGreaterThan(0);
 
@@ -1585,7 +1569,7 @@ test("regenerates a psychiatrist answer in the same pair and preserves it after 
 
   await page.reload();
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await expect(page.getByText("Regenerated answer from the same pair.")).toBeVisible();
   expect(mock.regenerateRequests.map((request) => request.pairId)).toEqual([
     "pair-e2e",
@@ -1602,7 +1586,7 @@ test("requires per-turn psychiatrist web-source approval before recording source
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   await page.locator("textarea").fill("Use current web sources for this memory.");
   await page.getByRole("button", { name: "Send" }).click();
 
@@ -1649,7 +1633,7 @@ test("retains persisted web-source approval after an ambiguous Regenerate failur
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page.getByRole("button", { name: "Open Psychiatrist" }).click();
+  await openReaderInspectorTab(page, "Psychiatrist");
   const approval = page.getByRole("button", {
     name: "Allow web sources for this turn",
   });
@@ -2635,20 +2619,21 @@ test("keeps a warning-committed unflashback removed after authoritative revalida
   expect(await readE2eFlashbackIds()).not.toContain("flashback-fixture");
 });
 
-test("creates a Moment from a right-rail table of contents button", async ({
+test("creates a Moment from the Inspector Outline table of contents button", async ({
   page,
 }) => {
   await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
+  const inspector = await openReaderInspectorTab(page, "Outline");
 
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/moments") &&
       response.request().method() === "POST",
   );
-  await page
+  await inspector
     .getByRole("navigation", { name: "Table of contents" })
     .getByRole("button", { name: "Moment Details" })
     .click();
@@ -2656,22 +2641,23 @@ test("creates a Moment from a right-rail table of contents button", async ({
   const response = await createResponse;
   expect(response.status(), await response.text()).toBe(201);
   await expect(
-    page
+    inspector
       .getByRole("navigation", { name: "Table of contents" })
       .getByRole("button", { name: "Moment Details" }),
   ).toHaveAttribute("aria-pressed", "true");
   expect(await readMomentAnchors()).toContain("details");
 });
 
-test("toggles a Moment off from the right-rail table of contents button", async ({
+test("toggles a Moment off from the Inspector Outline table of contents button", async ({
   page,
 }) => {
   await createReaderFixture();
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
+  const inspector = await openReaderInspectorTab(page, "Outline");
 
-  const tocButton = page
+  const tocButton = inspector
     .getByRole("navigation", { name: "Table of contents" })
     .getByRole("button", { name: "Moment Details" });
   const createResponse = page.waitForResponse(
@@ -2696,7 +2682,7 @@ test("toggles a Moment off from the right-rail table of contents button", async 
   expect(await readMomentAnchors()).not.toContain("details");
 });
 
-test("preserves right-rail tab and scroll state while toggling a Moment", async ({
+test("preserves Inspector Outline scroll state while toggling a Moment", async ({
   page,
 }) => {
   await createReaderFixture();
@@ -2704,32 +2690,23 @@ test("preserves right-rail tab and scroll state while toggling a Moment", async 
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
   await waitForReaderReady(page);
+  const inspector = await openReaderInspectorTab(page, "Outline");
 
-  const rightRailScroll = page.locator(".trauma-shell-right-rail > div");
-  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  const toc = inspector.getByRole("navigation", { name: "Table of contents" });
   const tocScroll = toc.locator("ol");
-  const allTab = page.getByRole("button", { exact: true, name: "All" });
-  await allTab.click();
-  await expect(allTab).toHaveAttribute("aria-pressed", "true");
 
   const before = await page.evaluate(() => {
-    const rightRail = document.querySelector<HTMLElement>(
-      ".trauma-shell-right-rail > div",
-    );
     const tocList = document.querySelector<HTMLElement>(
-      'nav[aria-label="Table of contents"] ol',
+      '#reader-inspector-dialog nav[aria-label="Table of contents"] ol',
     );
-    if (rightRail === null || tocList === null) {
-      throw new Error("Reader right-rail scroll containers are missing");
+    if (tocList === null) {
+      throw new Error("Inspector TOC scroll container is missing");
     }
-    rightRail.scrollTop = Math.min(80, rightRail.scrollHeight - rightRail.clientHeight);
     tocList.scrollTop = Math.min(120, tocList.scrollHeight - tocList.clientHeight);
     return {
-      rightRail: rightRail.scrollTop,
       toc: tocList.scrollTop,
     };
   });
-  expect(before.rightRail).toBeGreaterThan(0);
   expect(before.toc).toBeGreaterThan(0);
 
   const createResponse = page.waitForResponse(
@@ -2744,14 +2721,9 @@ test("preserves right-rail tab and scroll state while toggling a Moment", async 
   await expect(
     toc.getByRole("button", { name: "Moment Section 20" }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(allTab).toHaveAttribute("aria-pressed", "true");
 
-  const after = {
-    rightRail: await rightRailScroll.evaluate((element) => element.scrollTop),
-    toc: await tocScroll.evaluate((element) => element.scrollTop),
-  };
-  expect(Math.abs(after.rightRail - before.rightRail)).toBeLessThanOrEqual(1);
-  expect(Math.abs(after.toc - before.toc)).toBeLessThanOrEqual(1);
+  const afterToc = await tocScroll.evaluate((element) => element.scrollTop);
+  expect(Math.abs(afterToc - before.toc)).toBeLessThanOrEqual(1);
 });
 
 test("creates a Moment from a reader heading affordance button", async ({
@@ -2785,12 +2757,13 @@ test("opens Moment rows at the reader section and deletes from the Moments menu"
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
+  const inspector = await openReaderInspectorTab(page, "Outline");
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/moments") &&
       response.request().method() === "POST",
   );
-  await page
+  await inspector
     .getByRole("navigation", { name: "Table of contents" })
     .getByRole("button", { name: "Moment Details" })
     .click();
@@ -2900,7 +2873,7 @@ test("moves keyboard focus to the next Flashback after deleting a row", async ({
   await expect(nextFlashbackLink).toBeFocused();
 });
 
-test("opens reader right-rail Flashback shortcuts at the reader flashback mark", async ({
+test("opens Inspector Marks Flashback shortcuts at the reader flashback mark", async ({
   page,
 }) => {
   await createReaderFixture();
@@ -2908,8 +2881,8 @@ test("opens reader right-rail Flashback shortcuts at the reader flashback mark",
 
   await page.goto(`/memories/${READER_MEMORY_ID}`);
   await waitForReaderReady(page);
-  await page
-    .getByRole("complementary", { name: "Browse filters" })
+  const inspector = await openReaderInspectorTab(page, "Marks");
+  await inspector
     .getByRole("link", { name: /deep saved flashback/i })
     .click();
 
@@ -2998,8 +2971,9 @@ test("shows reader toc scroll blur fades only for available scroll directions", 
 
   await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
   await waitForReaderReady(page);
+  const inspector = await openReaderInspectorTab(page, "Outline");
 
-  const toc = page.getByRole("navigation", { name: "Table of contents" });
+  const toc = inspector.getByRole("navigation", { name: "Table of contents" });
   await expect(toc).toBeVisible();
 
   const topFade = toc.locator(".trauma-toc-scroll-fade-top");
@@ -3134,6 +3108,249 @@ test("suspends reader heading layout reads while the right rail is hidden", asyn
   await page.evaluate(() => window.dispatchEvent(new Event("scroll")));
   await settleAnimationFrames();
   expect(await readMeasurementCount()).toBe(0);
+});
+
+test("keeps reader text column between 55ch and 75ch and stationary when Inspector toggles at 1280px and 1920px (AC 5)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/memories/${READER_MEMORY_ID}`);
+    await waitForReaderReady(page);
+
+    const measureGeometry = async () =>
+      page.evaluate(() => {
+        const column = document.querySelector<HTMLElement>("[data-reader-column]");
+        if (!column) {
+          throw new Error("Missing [data-reader-column]");
+        }
+        const rect = column.getBoundingClientRect();
+        const probe = document.createElement("span");
+        probe.textContent = "0".repeat(100);
+        probe.style.position = "absolute";
+        probe.style.visibility = "hidden";
+        probe.style.whiteSpace = "nowrap";
+        column.appendChild(probe);
+        const chPx = probe.getBoundingClientRect().width / 100;
+        probe.remove();
+        return {
+          width: Number(rect.width.toFixed(2)),
+          left: Number(rect.left.toFixed(2)),
+          chWidth: rect.width / chPx,
+        };
+      });
+
+    const before = await measureGeometry();
+    expect(before.chWidth, `${viewport.width}px min`).toBeGreaterThanOrEqual(55);
+    expect(before.chWidth, `${viewport.width}px max`).toBeLessThanOrEqual(75);
+
+    await openReaderInspector(page);
+    const duringOpen = await measureGeometry();
+    expect(Math.abs(duringOpen.width - before.width)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(duringOpen.left - before.left)).toBeLessThanOrEqual(0.5);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#reader-inspector-dialog")).toHaveCount(0);
+    const afterClose = await measureGeometry();
+    expect(Math.abs(afterClose.width - before.width)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(afterClose.left - before.left)).toBeLessThanOrEqual(0.5);
+  }
+});
+
+test("persists last_position on section 4, restores silently on reload, and shows continue at 4/N in Today (AC 6)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const positionSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${TOC_SCROLL_MEMORY_ID}/position`) &&
+      response.request().method() === "POST",
+  );
+
+  await page.locator("#section-4").scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const heading = document.getElementById("section-4");
+    heading?.scrollIntoView({ behavior: "auto", block: "start" });
+    window.dispatchEvent(new Event("scroll"));
+  });
+
+  const savedResponse = await positionSaved;
+  expect(savedResponse.status()).toBe(200);
+  const savedJson = (await savedResponse.json()) as {
+    lastPosition: {
+      variant: string;
+      headingId: string | null;
+      paragraphIndex: number;
+      scrollRatio: number;
+      updatedAt: string;
+    };
+  };
+  expect(savedJson.lastPosition.headingId).toBe("section-4");
+  expect(savedJson.lastPosition.paragraphIndex).toBe(3);
+
+  await page.reload();
+  await waitForReaderReady(page);
+  await expect.poll(async () => {
+    const box = await page.locator("#section-4").boundingBox();
+    return box !== null && box.y >= -40 && box.y <= 300;
+  }).toBe(true);
+
+  // Verify the same persisted lastPosition renders "continue at 4/N" on the Today lane row.
+  await materializeE2eFixture("browse_delete");
+  const triageRes = await page.request.post(
+    `/api/memories/${TODAY_FIXTURE_MEMORY_ID}/triage`,
+    { data: { triage_state: "today" } },
+  );
+  expect(triageRes.status()).toBe(200);
+  const posRes = await page.request.post(
+    `/api/memories/${TODAY_FIXTURE_MEMORY_ID}/position`,
+    { data: savedJson.lastPosition },
+  );
+  expect(posRes.status()).toBe(200);
+
+  await page.goto("/memories");
+  await expect(page.getByText(/continue at 4\/\d+/)).toBeVisible();
+});
+
+test("renders zero mid-text dialogs or alerts and fails silently on position persistence errors (AC 7)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  let positionRequests = 0;
+  await page.route(
+    `**/api/memories/${TOC_SCROLL_MEMORY_ID}/position`,
+    async (route) => {
+      positionRequests += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "transient persistence failure" }),
+      });
+    },
+  );
+
+  await page.goto(`/memories/${TOC_SCROLL_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+  await expect(page.locator('[role="alertdialog"]')).toHaveCount(0);
+  await expect(page.locator('[role="alert"]')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const heading = document.getElementById("section-4");
+    heading?.scrollIntoView({ behavior: "auto", block: "start" });
+    window.dispatchEvent(new Event("scroll"));
+  });
+
+  await expect.poll(() => positionRequests, { timeout: 5_000 }).toBeGreaterThan(0);
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+  await expect(page.locator('[role="alertdialog"]')).toHaveCount(0);
+  await expect(page.locator('[role="alert"]')).toHaveCount(0);
+  await expect(page.locator("[data-reader-content]")).toBeVisible();
+});
+
+test("toggles Inspector with ] and closes with Esc returning focus, remembering last tab per session", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await installPsychiatristMock(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const trigger = page.locator("[data-reader-inspector-trigger]");
+  const inspector = page.locator("#reader-inspector-dialog");
+  await expect(inspector).toHaveCount(0);
+
+  await page.keyboard.press("]");
+  await expect(inspector).toBeVisible();
+
+  await inspector.getByRole("tab", { exact: true, name: "Details" }).click();
+  await expect(inspector.locator("#inspector-panel-details")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await page.reload();
+  await waitForReaderReady(page);
+  await expect(inspector).toHaveCount(0);
+
+  await page.keyboard.press("]");
+  await expect(inspector).toBeVisible();
+  await expect(
+    inspector.getByRole("tab", { exact: true, name: "Details" }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("submits end-of-article triage actions and auto-marks read after 75% depth and 20s dwell", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.clock.install();
+
+  let readStatusRequests: Array<{ memoryId: string; read: boolean }> = [];
+  await page.route("**/api/memories/read-status", async (route) => {
+    const body = route.request().postDataJSON() as {
+      memoryId: string;
+      read: boolean;
+    };
+    readStatusRequests.push(body);
+    await route.continue();
+  });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const endFooter = page.locator("[data-reader-end-footer]");
+  await endFooter.scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    window.dispatchEvent(new Event("scroll"));
+  });
+
+  await page.clock.runFor(21_000);
+  await expect
+    .poll(() =>
+      readStatusRequests.some(
+        (req) => req.memoryId === READER_MEMORY_ID && req.read === true,
+      ),
+    )
+    .toBe(true);
+
+  const triageResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/memories/${READER_MEMORY_ID}/triage`) &&
+      response.request().method() === "POST",
+  );
+  await endFooter.getByRole("button", { exact: true, name: "Keep" }).click();
+  expect((await triageResponse).status()).toBe(200);
+  await expect(endFooter).toContainText("Saved to Library.");
+
+  // Verify read status is reversible in Inspector > Details.
+  const inspector = await openReaderInspectorTab(page, "Details");
+  const readToggle = inspector.getByRole("button", {
+    name: "Mark memory unread",
+  });
+  await expect(readToggle).toBeVisible();
+  await readToggle.click();
+  await expect(
+    inspector.getByRole("button", { name: "Mark memory read" }),
+  ).toBeVisible();
 });
 
 async function setReaderTheme(

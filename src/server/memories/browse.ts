@@ -22,6 +22,7 @@ import {
 } from "../../components/memories/browse-data";
 import { normalizeBrowseLimit } from "../browse/limits";
 import { collectFilteredCursorPage } from "../browse/filtered-page";
+import { findMemoryIdsMatchingSearchTerm } from "../search";
 
 const MAX_RENDERABLE_FLASHBACK_FILTER_FETCH_ROUNDS = 20;
 
@@ -51,6 +52,7 @@ export async function loadBrowseMemoryPage(
           query: request.query,
           repositories: connection.repositories,
           repositoryInput,
+          sqlite: connection.sqlite,
         })
       : await connection.repositories.memories.listForBrowsePage(
           repositoryInput,
@@ -64,6 +66,14 @@ export async function loadBrowseMemoryPage(
           : {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
+              ...(page.nextCursor.lastOpenedAt !== undefined
+                ? {
+                    lastOpenedAt:
+                      page.nextCursor.lastOpenedAt === null
+                        ? null
+                        : page.nextCursor.lastOpenedAt.toISOString(),
+                  }
+                : {}),
             },
     };
   } finally {
@@ -110,6 +120,7 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
   query: BrowseQuery;
   repositories: ReturnType<typeof initializeDatabase>["repositories"];
   repositoryInput: ListMemoryBrowsePageInput;
+  sqlite: ReturnType<typeof initializeDatabase>["sqlite"];
 }): Promise<MemoryBrowsePageResult> {
   const limit = normalizeBrowseLimit(input.repositoryInput.limit);
   return collectFilteredCursorPage({
@@ -120,6 +131,7 @@ async function listBrowseMemoryPageWithRenderableFlashbackFilters(input: {
         query: input.query,
         repositories: input.repositories,
         rows,
+        sqlite: input.sqlite,
       }),
     limit,
     loadPage: ({ cursor, limit: pageLimit }) =>
@@ -146,6 +158,7 @@ async function filterPageRowsByRenderableFlashbacks(input: {
   query: BrowseQuery;
   repositories: ReturnType<typeof initializeDatabase>["repositories"];
   rows: MemoryBrowsePageRow[];
+  sqlite: ReturnType<typeof initializeDatabase>["sqlite"];
 }): Promise<MemoryBrowsePageRow[]> {
   const memoryIds = input.rows.map((row) => row.id);
   const renderableFlashbacks = await filterRenderableFlashbackRows({
@@ -157,17 +170,82 @@ async function filterPageRowsByRenderableFlashbacks(input: {
   });
   const flashbacksByMemoryId =
     groupBrowseFlashbacksByMemoryId(renderableFlashbacks);
+  const search = parseBrowseSearch(input.query.q);
+  const ftsMatchesByTerm = search.freeTerms.map((term) =>
+    findMemoryIdsMatchingSearchTerm(input.sqlite, term, memoryIds),
+  );
   const matchingIds = new Set(
-    filterBrowseMemories(
-      input.rows.map((row) => ({
+    input.rows
+      .map((row) => ({
         ...toBrowseMemoryWithoutFlashbacks(row),
         flashbacks: flashbacksByMemoryId.get(row.id) ?? [],
-      })),
-      input.query,
-    ).map((memory) => memory.id),
+      }))
+      .filter((memory) =>
+        memoryMatchesRenderableBrowseSearch(
+          memory,
+          input.query,
+          search,
+          ftsMatchesByTerm,
+        ),
+      )
+      .map((memory) => memory.id),
   );
 
   return input.rows.filter((row) => matchingIds.has(row.id));
+}
+
+function memoryMatchesRenderableBrowseSearch(
+  memory: BrowseMemory,
+  query: BrowseQuery,
+  search: ReturnType<typeof parseBrowseSearch>,
+  ftsMatchesByTerm: readonly ReadonlySet<string>[],
+): boolean {
+  if (
+    query.flashback.length > 0 &&
+    !memory.flashbacks.some((flashback) => flashback.id === query.flashback)
+  ) {
+    return false;
+  }
+
+  for (const field of search.fields) {
+    if (field.field !== "flashback" || field.value.length === 0) {
+      continue;
+    }
+    const matched = memory.flashbacks.some((flashback) =>
+      [flashback.text, flashback.prefix, flashback.suffix].some((value) =>
+        value.trim().toLowerCase().includes(field.value),
+      ),
+    );
+    if (!matched) {
+      return false;
+    }
+  }
+
+  if (search.freeTerms.length > 0) {
+    const searchableValues = [
+      memory.title,
+      memory.url,
+      memory.description,
+      ...memory.categories.map((category) => category.name),
+      ...memory.tags.map((tag) => tag.name),
+      ...memory.flashbacks.flatMap((flashback) => [
+        flashback.text,
+        flashback.prefix,
+        flashback.suffix,
+      ]),
+    ].map((value) => value.trim().toLowerCase());
+
+    for (const [index, term] of search.freeTerms.entries()) {
+      if (ftsMatchesByTerm[index]?.has(memory.id)) {
+        continue;
+      }
+      if (!searchableValues.some((value) => value.includes(term))) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function groupBrowseFlashbacksByMemoryId(
@@ -201,18 +279,31 @@ function toMemoryBrowsePageRepositoryInput(
   request: BrowseMemoryPageRequest,
 ): ListMemoryBrowsePageInput {
   const search = parseBrowseSearch(request.query.q);
+  const parsedNow =
+    typeof request.now === "string" && request.now.trim().length > 0
+      ? new Date(request.now)
+      : undefined;
+  if (parsedNow !== undefined && Number.isNaN(parsedNow.getTime())) {
+    throw new Error("Invalid memory browse now timestamp.");
+  }
 
   return {
     categoryId: request.query.category,
     cursor: toRepositoryCursor(request.cursor),
     flashbackId: request.query.flashback,
+    includeArchive: search.inArchive,
+    lane: request.query.lane,
     limit: request.limit,
+    now: parsedNow,
     readState: search.readState,
     searchFields: search.fields.map((field) => ({
       field: field.field,
       values: [field.value],
     })),
     searchTerms: search.freeTerms,
+    shelfExpiryAction: request.shelfExpiryAction,
+    shelfTtlDays: request.shelfTtlDays,
+    sort: request.query.sort,
     tagId: request.query.tag,
   };
 }
@@ -229,9 +320,30 @@ function toRepositoryCursor(
     throw new Error("Invalid memory browse cursor timestamp.");
   }
 
+  if (cursor.lastOpenedAt === undefined) {
+    return {
+      createdAt,
+      id: cursor.id,
+    };
+  }
+
+  if (cursor.lastOpenedAt === null) {
+    return {
+      createdAt,
+      id: cursor.id,
+      lastOpenedAt: null,
+    };
+  }
+
+  const lastOpenedAt = new Date(cursor.lastOpenedAt);
+  if (Number.isNaN(lastOpenedAt.getTime())) {
+    throw new Error("Invalid memory browse cursor lastOpenedAt timestamp.");
+  }
+
   return {
     createdAt,
     id: cursor.id,
+    lastOpenedAt,
   };
 }
 

@@ -13,6 +13,7 @@ import {
 } from "../../settings/languages";
 import { validateTagName } from "../../taxonomy/name-policy";
 import { normalizeBrowseLimit } from "../browse/limits";
+import { containsCjkCharacters, sanitizeFtsQuery } from "../search/fts";
 import {
   TRANSLATION_CHUNK_STATUSES,
   type TranslationChunkStatus,
@@ -24,6 +25,118 @@ import {
   type TranslationValidationDiagnostic,
 } from "../translation/types";
 import * as schema from "./schema";
+
+export {
+  MEMORY_TRIAGE_STATES,
+  type MemoryLastPosition,
+  type MemoryTriageState,
+} from "./schema";
+
+export type BrowseLane = "today" | "shelf" | "library";
+export type BrowseSort = "recent" | "last_opened";
+export type ShelfExpiryAction = "mark" | "soft-archive";
+
+export type SetTriageStateResult =
+  | { status: "updated"; memory: Memory; changed: boolean }
+  | { status: "not_found" }
+  | { status: "today_cap_reached"; todayCount: number; todayCap: number };
+
+const TRIAGE_STATE_SET = new Set<string>(schema.MEMORY_TRIAGE_STATES);
+
+export function isMemoryTriageState(value: unknown): value is schema.MemoryTriageState {
+  return typeof value === "string" && TRIAGE_STATE_SET.has(value);
+}
+
+export function validateMemoryLastPosition(
+  value: unknown,
+): { ok: true; position: schema.MemoryLastPosition } | { ok: false; error: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, error: "lastPosition must be an object" };
+  }
+
+  const record = value as Record<string, unknown>;
+  const expectedKeys = [
+    "variant",
+    "headingId",
+    "paragraphIndex",
+    "scrollRatio",
+    "updatedAt",
+  ] as const;
+  const keys = Object.keys(record);
+  if (
+    keys.length !== expectedKeys.length ||
+    !expectedKeys.every((key) => Object.hasOwn(record, key))
+  ) {
+    return {
+      ok: false,
+      error:
+        "lastPosition must contain only variant, headingId, paragraphIndex, scrollRatio, and updatedAt",
+    };
+  }
+
+  if (typeof record.variant !== "string" || record.variant.trim().length === 0) {
+    return { ok: false, error: "variant must be a non-empty string" };
+  }
+
+  if (
+    record.headingId !== null &&
+    (typeof record.headingId !== "string" || record.headingId.trim().length === 0)
+  ) {
+    return { ok: false, error: "headingId must be a non-empty string or null" };
+  }
+
+  if (
+    typeof record.paragraphIndex !== "number" ||
+    !Number.isInteger(record.paragraphIndex) ||
+    record.paragraphIndex < 0
+  ) {
+    return { ok: false, error: "paragraphIndex must be a non-negative integer" };
+  }
+
+  if (
+    typeof record.scrollRatio !== "number" ||
+    !Number.isFinite(record.scrollRatio) ||
+    record.scrollRatio < 0 ||
+    record.scrollRatio > 1
+  ) {
+    return { ok: false, error: "scrollRatio must be a finite number between 0 and 1" };
+  }
+
+  if (
+    typeof record.updatedAt !== "string" ||
+    record.updatedAt.trim().length === 0 ||
+    Number.isNaN(Date.parse(record.updatedAt))
+  ) {
+    return { ok: false, error: "updatedAt must be a valid ISO timestamp string" };
+  }
+
+  return {
+    ok: true,
+    position: {
+      variant: record.variant.trim(),
+      headingId: record.headingId === null ? null : record.headingId.trim(),
+      paragraphIndex: record.paragraphIndex,
+      scrollRatio: record.scrollRatio,
+      updatedAt: record.updatedAt.trim(),
+    },
+  };
+}
+
+export function parseMemoryLastPosition(
+  raw: string | null | undefined,
+): schema.MemoryLastPosition | null {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const validated = validateMemoryLastPosition(parsed);
+    return validated.ok ? validated.position : null;
+  } catch {
+    return null;
+  }
+}
 
 export type TraumaDatabase = BunSQLiteDatabase<typeof schema>;
 type Memory = typeof schema.memories.$inferSelect;
@@ -62,6 +175,11 @@ type ReaderMemoryRow = Pick<
   | "extractionStatus"
   | "contentPath"
   | "read"
+  | "triageState"
+  | "triageChangedAt"
+  | "lastPosition"
+  | "lastOpenedAt"
+  | "wordCount"
   | "createdAt"
   | "updatedAt"
 >;
@@ -92,6 +210,12 @@ export interface MemoryBrowsePageRow {
   capturedAt: string;
   read: boolean;
   extractionStatus: ExtractionStatus;
+  triageState: schema.MemoryTriageState;
+  triageChangedAt: string;
+  lastPosition: schema.MemoryLastPosition | null;
+  lastOpenedAt: string | null;
+  wordCount: number | null;
+  shelfExpired?: boolean;
   categories: { id: string; name: string }[];
   tags: { id: string; name: string }[];
 }
@@ -103,12 +227,24 @@ export type MemoryBrowseSearchField =
   | "category"
   | "flashback";
 
+export interface MemoryBrowseCursor {
+  createdAt: Date;
+  id: string;
+  lastOpenedAt?: Date | null;
+}
+
 export interface ListMemoryBrowsePageInput {
   categoryId: string;
-  cursor: { createdAt: Date; id: string } | null;
+  cursor: MemoryBrowseCursor | null;
   flashbackId: string;
   limit: number;
   readState: "all" | "both" | "read" | "unread";
+  lane?: BrowseLane;
+  includeArchive?: boolean;
+  sort?: BrowseSort;
+  shelfTtlDays?: number | null;
+  shelfExpiryAction?: ShelfExpiryAction;
+  now?: Date;
   searchFields: {
     field: MemoryBrowseSearchField;
     values: string[];
@@ -119,7 +255,7 @@ export interface ListMemoryBrowsePageInput {
 
 export interface MemoryBrowsePageResult {
   rows: MemoryBrowsePageRow[];
-  nextCursor: { createdAt: Date; id: string } | null;
+  nextCursor: MemoryBrowseCursor | null;
 }
 
 export interface FlashbackBrowseRow {
@@ -186,6 +322,22 @@ export interface MemoryRepository {
     memoryId: string;
     read: boolean;
     updatedAt: Date;
+  }) => Promise<Memory | undefined>;
+  setTriageState: (input: {
+    memoryId: string;
+    triageState: schema.MemoryTriageState;
+    todayCap?: number | null;
+    now?: Date;
+  }) => Promise<SetTriageStateResult>;
+  updateLastPosition: (input: {
+    memoryId: string;
+    lastPosition: schema.MemoryLastPosition;
+    lastOpenedAt?: Date;
+    updatedAt?: Date;
+  }) => Promise<Memory | undefined>;
+  markOpened: (input: {
+    memoryId: string;
+    openedAt?: Date;
   }) => Promise<Memory | undefined>;
   findDeletionTarget: (
     memoryId: string,
@@ -821,6 +973,11 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
             extractionStatus: true,
             contentPath: true,
             read: true,
+            triageState: true,
+            triageChangedAt: true,
+            lastPosition: true,
+            lastOpenedAt: true,
+            wordCount: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -862,7 +1019,23 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           },
         }),
       create: async (input) => {
-        await db.insert(schema.memories).values(input).run();
+        const triageState = input.triageState ?? "shelf";
+        const triageChangedAt =
+          input.triageChangedAt ?? input.updatedAt ?? input.createdAt;
+        const lastPosition = input.lastPosition ?? null;
+        const lastOpenedAt = input.lastOpenedAt ?? null;
+        const wordCount = input.wordCount ?? null;
+        await db
+          .insert(schema.memories)
+          .values({
+            ...input,
+            triageState,
+            triageChangedAt,
+            lastPosition,
+            lastOpenedAt,
+            wordCount,
+          })
+          .run();
         return {
           id: input.id,
           url: input.url,
@@ -873,6 +1046,11 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           extractionStatus: input.extractionStatus,
           extractionError: input.extractionError ?? null,
           read: input.read ?? false,
+          triageState,
+          triageChangedAt,
+          lastPosition,
+          lastOpenedAt,
+          wordCount,
           backupStatus: input.backupStatus,
           lastBackupAt: input.lastBackupAt ?? null,
           lastBackupError: input.lastBackupError ?? null,
@@ -890,6 +1068,98 @@ export function createRepositories(db: TraumaDatabase): TraumaRepositories {
           .where(eq(schema.memories.id, input.memoryId))
           .returning()
           .get(),
+      setTriageState: async (input) =>
+        db.transaction(
+          (tx) => {
+            const existing = tx
+              .select()
+              .from(schema.memories)
+              .where(eq(schema.memories.id, input.memoryId))
+              .get();
+            if (existing === undefined) {
+              return { status: "not_found" as const };
+            }
+
+            if (existing.triageState === input.triageState) {
+              return {
+                status: "updated" as const,
+                memory: existing,
+                changed: false,
+              };
+            }
+
+            if (
+              input.triageState === "today" &&
+              typeof input.todayCap === "number" &&
+              Number.isFinite(input.todayCap) &&
+              input.todayCap >= 0
+            ) {
+              const countRow = tx
+                .select({ count: sql<number>`count(*)` })
+                .from(schema.memories)
+                .where(eq(schema.memories.triageState, "today"))
+                .get();
+              const todayCount = Number(countRow?.count ?? 0);
+              if (todayCount >= input.todayCap) {
+                return {
+                  status: "today_cap_reached" as const,
+                  todayCount,
+                  todayCap: input.todayCap,
+                };
+              }
+            }
+
+            const now = input.now ?? new Date();
+            const updated = tx
+              .update(schema.memories)
+              .set({
+                triageState: input.triageState,
+                triageChangedAt: now,
+                updatedAt: now,
+              })
+              .where(eq(schema.memories.id, input.memoryId))
+              .returning()
+              .get();
+            if (updated === undefined) {
+              return { status: "not_found" as const };
+            }
+            return {
+              status: "updated" as const,
+              memory: updated,
+              changed: true,
+            };
+          },
+          { behavior: "immediate" },
+        ),
+      updateLastPosition: async (input) => {
+        const now = input.updatedAt ?? new Date();
+        const parsedUpdatedAt = new Date(input.lastPosition.updatedAt);
+        const lastOpenedAt =
+          input.lastOpenedAt ??
+          (Number.isNaN(parsedUpdatedAt.getTime()) ? now : parsedUpdatedAt);
+        return db
+          .update(schema.memories)
+          .set({
+            lastPosition: JSON.stringify(input.lastPosition),
+            lastOpenedAt,
+            updatedAt: now,
+          })
+          .where(eq(schema.memories.id, input.memoryId))
+          .returning()
+          .get();
+      },
+      markOpened: async (input) => {
+        const openedAt = input.openedAt ?? new Date();
+        return db
+          .update(schema.memories)
+          .set({
+            lastOpenedAt: openedAt,
+            updatedAt: openedAt,
+          })
+          .where(eq(schema.memories.id, input.memoryId))
+          .returning()
+          .get();
+      },
       findDeletionTarget: async (memoryId) =>
         db.query.memories.findFirst({
           columns: {
@@ -1652,7 +1922,50 @@ async function listMemoryBrowsePage(
     return { rows: [], nextCursor: null };
   }
 
+  const now = input.now ?? new Date();
+  const hasShelfTtl =
+    input.lane === "shelf" &&
+    input.includeArchive !== true &&
+    typeof input.shelfTtlDays === "number" &&
+    Number.isFinite(input.shelfTtlDays) &&
+    input.shelfTtlDays > 0;
+  const shelfExpiryCutoffMs = hasShelfTtl
+    ? now.getTime() - (input.shelfTtlDays as number) * 86_400_000
+    : null;
+
+  if (
+    hasShelfTtl &&
+    shelfExpiryCutoffMs !== null &&
+    input.shelfExpiryAction === "soft-archive"
+  ) {
+    await db
+      .update(schema.memories)
+      .set({
+        triageState: "archive",
+        triageChangedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.memories.triageState, "shelf"),
+          sql`${schema.memories.triageChangedAt} < ${shelfExpiryCutoffMs}`,
+        ),
+      )
+      .run();
+  }
+
+  const sort = input.sort ?? "recent";
   const limit = normalizeBrowseLimit(input.limit);
+  const orderByClauses =
+    sort === "last_opened"
+      ? [
+          sql`(${schema.memories.lastOpenedAt} is null) asc`,
+          desc(schema.memories.lastOpenedAt),
+          desc(schema.memories.createdAt),
+          desc(schema.memories.id),
+        ]
+      : [desc(schema.memories.createdAt), desc(schema.memories.id)];
+
   const fetchedRows = await db
     .select({
       id: schema.memories.id,
@@ -1662,17 +1975,28 @@ async function listMemoryBrowsePage(
       createdAt: schema.memories.createdAt,
       read: schema.memories.read,
       extractionStatus: schema.memories.extractionStatus,
+      triageState: schema.memories.triageState,
+      triageChangedAt: schema.memories.triageChangedAt,
+      lastPosition: schema.memories.lastPosition,
+      lastOpenedAt: schema.memories.lastOpenedAt,
+      wordCount: schema.memories.wordCount,
     })
     .from(schema.memories)
     .where(buildMemoryBrowsePageWhere(input))
-    .orderBy(desc(schema.memories.createdAt), desc(schema.memories.id))
+    .orderBy(...orderByClauses)
     .limit(limit + 1);
 
   const pageRows = fetchedRows.slice(0, limit);
   const lastPageRow = pageRows[pageRows.length - 1];
-  const nextCursor =
+  const nextCursor: MemoryBrowseCursor | null =
     fetchedRows.length > limit && lastPageRow !== undefined
-      ? { createdAt: lastPageRow.createdAt, id: lastPageRow.id }
+      ? sort === "last_opened"
+        ? {
+            createdAt: lastPageRow.createdAt,
+            id: lastPageRow.id,
+            lastOpenedAt: lastPageRow.lastOpenedAt,
+          }
+        : { createdAt: lastPageRow.createdAt, id: lastPageRow.id }
       : null;
   const memoryIds = pageRows.map((row) => row.id);
   const [categoriesByMemoryId, tagsByMemoryId] = await Promise.all([
@@ -1681,17 +2005,32 @@ async function listMemoryBrowsePage(
   ]);
 
   return {
-    rows: pageRows.map((memory) => ({
-      id: memory.id,
-      title: memory.title,
-      url: memory.url,
-      description: memory.description ?? "",
-      capturedAt: formatDate(memory.createdAt),
-      read: memory.read,
-      extractionStatus: memory.extractionStatus,
-      categories: categoriesByMemoryId.get(memory.id) ?? [],
-      tags: tagsByMemoryId.get(memory.id) ?? [],
-    })),
+    rows: pageRows.map((memory) => {
+      const row: MemoryBrowsePageRow = {
+        id: memory.id,
+        title: memory.title,
+        url: memory.url,
+        description: memory.description ?? "",
+        capturedAt: formatDate(memory.createdAt),
+        read: memory.read,
+        extractionStatus: memory.extractionStatus,
+        triageState: memory.triageState,
+        triageChangedAt: formatDateTime(memory.triageChangedAt),
+        lastPosition: parseMemoryLastPosition(memory.lastPosition),
+        lastOpenedAt:
+          memory.lastOpenedAt !== null
+            ? formatDateTime(memory.lastOpenedAt)
+            : null,
+        wordCount: memory.wordCount ?? null,
+        categories: categoriesByMemoryId.get(memory.id) ?? [],
+        tags: tagsByMemoryId.get(memory.id) ?? [],
+      };
+      if (hasShelfTtl && shelfExpiryCutoffMs !== null) {
+        row.shelfExpired =
+          memory.triageChangedAt.getTime() < shelfExpiryCutoffMs;
+      }
+      return row;
+    }),
     nextCursor,
   };
 }
@@ -1703,9 +2042,40 @@ function buildMemoryBrowsePageWhere(
 
   if (input.cursor !== null) {
     const cursorCreatedAt = input.cursor.createdAt.getTime();
-    filters.push(
-      sql`(${schema.memories.createdAt} < ${cursorCreatedAt} or (${schema.memories.createdAt} = ${cursorCreatedAt} and ${schema.memories.id} < ${input.cursor.id}))`,
-    );
+    if (input.sort === "last_opened") {
+      if (
+        input.cursor.lastOpenedAt !== undefined &&
+        input.cursor.lastOpenedAt !== null
+      ) {
+        const cursorLastOpenedAt = input.cursor.lastOpenedAt.getTime();
+        filters.push(
+          sql`(
+            (${schema.memories.lastOpenedAt} is not null and (
+              ${schema.memories.lastOpenedAt} < ${cursorLastOpenedAt}
+              or (${schema.memories.lastOpenedAt} = ${cursorLastOpenedAt} and (
+                ${schema.memories.createdAt} < ${cursorCreatedAt}
+                or (${schema.memories.createdAt} = ${cursorCreatedAt} and ${schema.memories.id} < ${input.cursor.id})
+              ))
+            ))
+            or ${schema.memories.lastOpenedAt} is null
+          )`,
+        );
+      } else {
+        filters.push(
+          sql`(${schema.memories.lastOpenedAt} is null and (${schema.memories.createdAt} < ${cursorCreatedAt} or (${schema.memories.createdAt} = ${cursorCreatedAt} and ${schema.memories.id} < ${input.cursor.id})))`,
+        );
+      }
+    } else {
+      filters.push(
+        sql`(${schema.memories.createdAt} < ${cursorCreatedAt} or (${schema.memories.createdAt} = ${cursorCreatedAt} and ${schema.memories.id} < ${input.cursor.id}))`,
+      );
+    }
+  }
+
+  if (input.includeArchive === true) {
+    filters.push(eq(schema.memories.triageState, "archive"));
+  } else if (input.lane !== undefined) {
+    filters.push(eq(schema.memories.triageState, input.lane));
   }
 
   if (input.readState === "read") {
@@ -1800,8 +2170,32 @@ function memoryMatchesFreeSearchTerm(term: string): SQL {
       memoryHasCategoryNameLike(term),
       memoryHasTagNameLike(term),
       memoryHasFlashbackTextLike(term),
+      memoryMatchesSearchFts(term),
     ) ?? sql`0 = 1`
   );
+}
+
+function memoryMatchesSearchFts(term: string): SQL {
+  const clauses: SQL[] = [];
+  const sanitized = sanitizeFtsQuery(term);
+  if (sanitized.length > 0) {
+    clauses.push(
+      sql`${schema.memories.id} in (
+        select memory_id from memory_search_fts
+        where memory_search_fts match ${sanitized}
+      )`,
+    );
+  }
+  if (containsCjkCharacters(term)) {
+    const likePattern = `%${escapeSqlLikeValue(term)}%`;
+    clauses.push(
+      sql`${schema.memories.id} in (
+        select memory_id from memory_search_fts
+        where lower(body_text) like ${likePattern} escape '\\'
+      )`,
+    );
+  }
+  return or(...clauses) ?? sql`0 = 1`;
 }
 
 function memoryMatchesFieldSearchValue(

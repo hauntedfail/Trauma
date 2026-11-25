@@ -86,9 +86,7 @@ test("keeps Reader All Flashbacks on one bounded rail-local page", async ({ page
 
   await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const flashbackSection = page
-    .getByRole("heading", { name: "Flashbacks", exact: true })
-    .locator("xpath=..");
+  const flashbackSection = await openReaderFlashbacksSection(page);
   await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
 
   const listBody = flashbackSection.locator("div.overflow-y-auto").first();
@@ -183,9 +181,7 @@ test("retries a failed Reader All page without changing its rail-local cursor", 
     await page.setViewportSize({ width: 1440, height: 760 });
     await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
     await waitForReaderReady(page);
-    const flashbackSection = page
-      .getByRole("heading", { name: "Flashbacks", exact: true })
-      .locator("xpath=..");
+    const flashbackSection = await openReaderFlashbacksSection(page);
     await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
 
     const region = flashbackSection.getByRole("region", {
@@ -260,9 +256,7 @@ test("does not render an abandoned Reader All retry after navigating to Previous
   await page.setViewportSize({ width: 1440, height: 760 });
   await page.goto(`/memories/${PAGINATION_MEMORY_ID}`);
   await waitForReaderReady(page);
-  const flashbackSection = page
-    .getByRole("heading", { name: "Flashbacks", exact: true })
-    .locator("xpath=..");
+  const flashbackSection = await openReaderFlashbacksSection(page);
   await flashbackSection.getByRole("button", { name: "All", exact: true }).click();
   const region = flashbackSection.getByRole("region", {
     name: "All flashbacks page",
@@ -348,6 +342,18 @@ async function waitForReaderReady(page: Page): Promise<void> {
     "data-reader-ready",
     "true",
   );
+}
+
+async function openReaderFlashbacksSection(page: Page) {
+  const dialog = page.locator("#reader-inspector-dialog");
+  if ((await dialog.count()) === 0) {
+    await page.locator("[data-reader-inspector-trigger]").click();
+  }
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("tab", { exact: true, name: "Marks" }).click();
+  return dialog
+    .getByRole("heading", { name: "Flashbacks", exact: true })
+    .locator("xpath=..");
 }
 
 async function interceptCollectionPageRetry(
