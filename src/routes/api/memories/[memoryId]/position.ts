@@ -9,8 +9,7 @@ import {
 import { readJsonMutationRequest } from "~/server/http/mutation-request";
 
 type PositionPayload =
-  | { ok: true; kind: "open" }
-  | { ok: true; kind: "position"; position: MemoryLastPosition }
+  | { ok: true; position: MemoryLastPosition }
   | { ok: false; error: string; status?: number };
 
 export async function POST(event: APIEvent): Promise<Response> {
@@ -33,28 +32,6 @@ export async function POST(event: APIEvent): Promise<Response> {
 
   const connection = initializeDatabase(config);
   try {
-    if (payload.kind === "open") {
-      const openedAt = new Date();
-      const updated = await connection.repositories.memories.markOpened({
-        memoryId,
-        openedAt,
-      });
-
-      if (updated === undefined) {
-        return json({ error: "memory was not found" }, { status: 404 });
-      }
-
-      const lastOpenedAt = updated.lastOpenedAt?.toISOString() ?? null;
-      return json(
-        {
-          memoryId: updated.id,
-          lastOpenedAt,
-          last_opened_at: lastOpenedAt,
-        },
-        { status: 200 },
-      );
-    }
-
     const updated = await connection.repositories.memories.updateLastPosition({
       memoryId,
       lastPosition: payload.position,
@@ -88,21 +65,12 @@ async function parsePositionPayload(request: Request): Promise<PositionPayload> 
     return body;
   }
 
-  if (
-    typeof body.payload === "object" &&
-    body.payload !== null &&
-    !Array.isArray(body.payload) &&
-    (body.payload as Record<string, unknown>).openOnly === true
-  ) {
-    return { ok: true, kind: "open" };
-  }
-
   const validated = validateMemoryLastPosition(body.payload);
   if (!validated.ok) {
     return { ok: false, error: validated.error };
   }
 
-  return { ok: true, kind: "position", position: validated.position };
+  return { ok: true, position: validated.position };
 }
 
 function json(body: unknown, init: ResponseInit): Response {

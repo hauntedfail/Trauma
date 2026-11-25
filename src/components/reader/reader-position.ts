@@ -252,13 +252,9 @@ export async function submitReaderOpened(input: {
   const requestFetch = input.fetch ?? fetch;
   try {
     const response = await requestFetch(
-      `/api/memories/${encodeURIComponent(input.memoryId)}/position`,
+      `/api/memories/${encodeURIComponent(input.memoryId)}/open`,
       {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ openOnly: true }),
       },
     );
     return response.ok;

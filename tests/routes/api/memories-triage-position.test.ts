@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createMemoryPostHandler } from "../../../src/routes/api/memories";
+import { POST as POST_OPEN } from "../../../src/routes/api/memories/[memoryId]/open";
 import { POST as POST_POSITION } from "../../../src/routes/api/memories/[memoryId]/position";
 import { POST as POST_TRIAGE } from "../../../src/routes/api/memories/[memoryId]/triage";
 import { initializeDatabase } from "../../../src/server/db";
@@ -410,15 +411,13 @@ describe("POST /api/memories capture defaults, triage, and position routes", () 
     expect(notFound.status).toBe(404);
   });
 
-  it("records last_opened_at via openOnly without overwriting saved last_position", async () => {
+  it("records last_opened_at via POST /open without overwriting saved last_position", async () => {
     const { config } = await setupWorkspace();
 
-    const openResponse = await POST_POSITION(
+    const openResponse = await POST_OPEN(
       createApiEvent(
-        new Request(`http://localhost/api/memories/${MEMORY_ID_1}/position`, {
+        new Request(`http://localhost/api/memories/${MEMORY_ID_1}/open`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ openOnly: true }),
         }),
         { memoryId: MEMORY_ID_1 },
       ),
