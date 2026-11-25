@@ -493,7 +493,9 @@ describe("URL importer", () => {
     expect(result.markdown).not.toContain("amp;page");
     expect(result.markdown).not.toContain("&#38;");
     expect(result.markdown).not.toContain("&#x26;");
-    expect(result.markdown).toContain("![diagram](https://example.com/image).png)");
+    expect(result.markdown).toContain(
+      "![diagram](https://example.com/image\\).png)",
+    );
   });
 
   it("escapes markdown syntax that came from article text nodes", async () => {
