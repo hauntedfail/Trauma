@@ -86,8 +86,8 @@ export const PALETTE_LANE_MOVE_TARGETS: readonly PaletteLaneMoveTarget[] = [
   {
     state: "archive",
     label: "Move to Archive",
-    description: "Let go of focused memory",
-    keywords: ["move", "archive", "let go", "lane", "triage"],
+    description: "Archive focused memory",
+    keywords: ["move", "archive", "lane", "triage"],
   },
 ] as const;
 

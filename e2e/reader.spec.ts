@@ -3337,7 +3337,7 @@ test("submits end-of-article triage actions and auto-marks read after 75% depth 
       response.url().endsWith(`/api/memories/${READER_MEMORY_ID}/triage`) &&
       response.request().method() === "POST",
   );
-  await endFooter.getByRole("button", { exact: true, name: "Keep" }).click();
+  await endFooter.getByRole("button", { exact: true, name: "Library" }).click();
   expect((await triageResponse).status()).toBe(200);
   await expect(endFooter).toContainText("Saved to Library.");
 

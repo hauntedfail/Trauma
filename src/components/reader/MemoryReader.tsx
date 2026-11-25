@@ -2399,7 +2399,7 @@ function ReaderEndFooter(props: {
           type="button"
           onClick={() => props.onTriage("library")}
         >
-          Keep
+          Library
         </button>
         <button
           aria-pressed={props.triageState === "archive"}
@@ -2413,7 +2413,7 @@ function ReaderEndFooter(props: {
           type="button"
           onClick={() => props.onTriage("archive")}
         >
-          Let go
+          Archive
         </button>
         <button
           aria-pressed={props.triageState === "shelf"}
@@ -2427,7 +2427,7 @@ function ReaderEndFooter(props: {
           type="button"
           onClick={() => props.onTriage("shelf")}
         >
-          Not now
+          Shelf
         </button>
         <Show when={props.triageStatus !== ""}>
           <span class="text-xs font-medium text-trauma-text-muted" role="status">

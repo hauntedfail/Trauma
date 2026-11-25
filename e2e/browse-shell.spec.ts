@@ -1570,7 +1570,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   );
   await page
     .locator("article", { hasText: "Reader Mode Notes" })
-    .getByRole("button", { name: "Not now" })
+    .getByRole("button", { name: /Shelf/ })
     .click();
   expect((await notNowResponse).status()).toBe(200);
 
@@ -1587,7 +1587,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   expect((await keepResponse).status()).toBe(200);
   await expect(readerLink).toHaveCount(0);
   await expect(page.locator("[data-triage-undo-toast='true']")).toContainText(
-    "Kept in Library.",
+    "Saved to Library.",
   );
 
   // Undo via `u` key
@@ -1671,7 +1671,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   await expect(
     page
       .locator("article", { hasText: "Reader Mode Notes" })
-      .getByRole("button", { name: /Pick/ }),
+      .getByRole("button", { name: /Today/ }),
   ).toBeDisabled();
   await page.unroute(`**/api/memories/${memoryId}/triage`);
 });
@@ -1695,7 +1695,7 @@ test("shows neutral Today empty state with link to Shelf when Today has no picke
   await page.goto("/memories");
   // Move both fixture Today items back to Shelf
   while ((await page.locator("article").count()) > 0) {
-    await page.locator("article").first().getByRole("button", { name: "Not now" }).click();
+    await page.locator("article").first().getByRole("button", { name: /Shelf/ }).click();
   }
 
   const emptyState = page.locator("[data-today-empty-state='true']");

@@ -45,12 +45,14 @@ marked as such.
 | D2 | Separate *choosing* from *reading*: a short Today list (picked items) is distinct from the Shelf and from the Library. | Gstell CHI '26 (ephemeral vs. long-term structures); catalog plugin 7 (Daily Pick cap) | Strong for separation; cap size is a tunable parameter |
 | D3 | No unread counts, overdue badges, streaks, or "N items waiting" anywhere. | Protocol §2 Hard Prohibitions; Navneet et al. arXiv '26 (RSD-safe feedback) | Moderate, adopted as a hard rule |
 | D4 | Length is shown as a bucket (short / medium / long) and progress as distance traveled (section 3 of 7), never as minutes left. | Navneet et al. arXiv '26 (temporal landmarks instead of countdowns) | Moderate |
-| D5 | No persistent side rails. Peripheral content opens on demand in one inspector. | Llana et al. CHI EA '26 (readers asked for distraction-free, customizable layouts); Spiel et al. CHI '22 (user control) | Moderate, plus design reasoning |
+| D5 | *(Revised 2026-11-25)* No persistent side rails **and no multi-tab Inspector drawer**. Each secondary reader control is spatially co-located where its need arises and remains hidden during reading: Outline + Marks live in the collapsed left Landmark Rail, Translate lives on `ReaderVariantTabs`, and rare metadata/actions live in a quiet `⋯` top-bar popover. | Llana et al. CHI EA '26 (distraction-free, customizable layouts); Spiel et al. CHI '22 (user control); Ayres & Sweller 2021 / Ginns 2006 / Schroeder & Cenkci 2018 (Split-Attention Effect under constrained working memory) | Strong |
 | D6 | The reader is a single column with a bounded measure (default 66ch, range 55–75ch) and user-adjustable type. | Llana et al. CHI EA '26 (speed vs. comprehension trade-off varies by face and size); catalog plugin 10 | Strong for adjustability; the default value is design reasoning |
 | D7 | The reader always records the last active paragraph, and Today shows where to continue. | Jo et al. CHI '15 (resumption cues cut resumption lag) | Strong |
 | D8 | Prompts (pulse, triage after reading) appear only at article end or on close, never mid-text. | Protocol §2; Navneet et al. arXiv '26 (hyperfocus-safe timing) | Moderate, adopted as a hard rule |
 | D9 | Interventions with high individual variance stay plugins, off by default unless graduated by the N-of-1 protocol. | Niklaus et al. CHI '23 (no ruler works for everyone); Moussaoui et al. JINS '25; Snell 2024; Rahman et al. NLP4PI '26 | Strong |
 | D10 | Keyboard-first operation with a command palette; mouse paths remain complete. | Design reasoning (fewer visible controls without losing reach) | Design reasoning only |
+| D11 | Triage actions use **destination-explicit, self-evident labels** (`Today`, `Shelf`, `Library`, `Archive`) instead of opaque metaphors (`Pick`, `Not now`, `Keep`, `Let go`). No control may require explanatory copy to clarify destination or destructiveness. | Norman/Nielsen recognition-over-recall; Llana et al. CHI EA '26 (ADHD rapid visual scanning increases misread risk on ambiguous copy such as `Let go` vs. *"Let's go"*) | Strong (usability principle + empirical scanning evidence) |
+| D12 | Replace the docked Psychiatrist chat tab with a **two-layer post-chat AI architecture**: (1) selection/section-anchored **In-Situ AI Margin Notes** with 1-tap deictic triggers and automatic passage context, and (2) a **Headless Agent API** (`/api/agent/v1/*`) exposing TRAUMA's shared reading state so external agents (e.g., Hermes) and in-reader assistance share one contract. | Joshi & Vogel CHI '26 (AI Margin Notes > chat sidebars; deictic triggers cut mental demand); CHI EA '26 Gaze-to-Context (89% preference for automatic passage grounding); Lo et al. CACM '24 Semantic Reader; Pinto et al. OzCHI '25; Kim & Kim EMNLP '26 ABRA | Strong |
 
 ### Epistemic boundary
 
@@ -227,38 +229,50 @@ structure and density change.
 ## 7. Reader
 
 ```text
-| landmark rail |      text column (measure 66ch)      |
-| (collapsed,   |  title                               |
-|  nodes only)  |  domain · long · source / ja tabs    |
-|               |  ...body...                          |
-|               |  ---- end of article ----            |
-|               |  [Keep] [Let go] [Not now]           |
+| landmark rail   |      text column (measure 66ch)      |  (optional in-situ    |
+| (collapsed,     |  title                               |   AI margin card      |
+|  outline+marks) |  domain · long · source / ja + [⋯]   |   anchored to text)   |
+|                 |  ...body...                          |                       |
+|                 |  ---- end of article ----            |                       |
+|                 |  [Library] [Archive] [Shelf]         |                       |
 ```
 
 - **Top bar** (auto-hides on downward scroll, returns on upward scroll):
-  back, title (truncated), variant tabs, and one "Inspector" button. Nothing
-  else.
+  back, title (truncated), `ReaderVariantTabs` (with an inline `+ Translate`
+  popover co-located on the language switcher), and a quiet `⋯` overflow
+  popover for rare metadata/management actions (URL, captured date, categories,
+  tags, read state, delete). No `Inspector` button and no 5-tab side drawer
+  (revised D5).
 - **Text column**: measure token `--reader-measure` (default 66ch), body size
-  and line-height from tokens. The typography plugin may override them.
+  and line-height from tokens. The typography plugin may override them. Opening
+  any popover or margin card never shifts the column width or horizontal
+  position.
 - **Landmark rail**: a thin column of section nodes on the left; nodes up to
   the current section are filled (distance traveled). Hover or focus expands it
-  into the full outline. Replaces the right-rail TOC and reuses
+  into the unified outline + marks jump list (TOC headings, Moments, and
+  current-memory Flashbacks mapped to document order). Reuses
   `toc-scroll-spy.ts` / `toc-reading-range.ts`.
-- **Inspector** (`]` or button; `Esc` closes): one right-side overlay panel with
-  tabs Outline, Marks (Flashbacks and Moments of this memory), Translate,
-  Details (URL, captured date, categories, tags, read state, delete),
-  Psychiatrist. On viewports >= 1440px it may dock instead of overlay, and the
-  text column does not move when it opens either way. Last-open tab is
-  remembered per session, not globally, so a fresh open starts with clean text.
-- **Selection**: Flashback toggling on text selection is unchanged. The
-  selection toolbar stays the only in-text control.
+- **Selection & In-Situ AI Margin Notes** (D12): selecting text opens the
+  reader selection menu with `Flashback` plus 1-tap deictic AI actions
+  (`Simplify`, `Explain`, `Ask…`). Activating an AI action attaches the
+  selected passage, surrounding section, and memory metadata automatically and
+  renders an **in-situ margin card** (or compact bottom sheet on narrow
+  viewports) formatted through `adaptive-ai-presenter`. Users can pin the
+  result as a note or Flashback, dismiss it, or explicitly escalate to a deeper
+  thread / external agent. No chat sidebar is docked by default.
+- **Headless Agent API** (D12): `/api/agent/v1/*` exposes TRAUMA's shared
+  reading state (memories, reading `last_position`, Flashbacks, Moments,
+  triage lanes, and in-situ query execution) over JSON REST + SSE so external
+  agents (Hermes, CLI tools, custom clients) operate on the exact same contract
+  as the reader UI.
 - **Position**: core saves `last_position` on paragraph change (debounced 2s),
   on `visibilitychange: hidden`, and on route leave. Reopen restores the
   position silently; the resumption plugin adds the visual cue.
-- **End of article**: a quiet footer offers Keep / Let go / Not now and, if the
-  experiment log is on, the 3-state pulse. This is the only place the reader
-  asks anything (D8). Reaching 75% depth with >= 20s dwell marks `read`
-  automatically (the protocol's completion definition), reversible in Details.
+- **End of article**: a quiet footer offers destination-explicit triage
+  controls (`Library`, `Archive`, `Shelf` — D11) and, if the experiment log is
+  on, the 3-state pulse. This is the only place the reader asks anything (D8).
+  Reaching 75% depth with >= 20s dwell marks `read` automatically (the
+  protocol's completion definition), reversible in the `⋯` menu.
 
 ## 8. Plugin Surfaces After the Redesign
 
@@ -266,8 +280,8 @@ structure and density change.
 
 | Surface | Mount point | Plugins |
 |---|---|---|
-| `reader` | overlay layer above the text column, below the inspector | reading-ruler, sentence spotlight, skim lens, RSVP, typography lab, resumption-beacon, temporal-landmark-bar nudges |
-| `psychiatrist` | Psychiatrist tab inside the inspector | adaptive-ai-presenter |
+| `reader` | overlay layer above the text column | reading-ruler, sentence spotlight, skim lens, RSVP, typography lab, resumption-beacon, temporal-landmark-bar nudges |
+| `psychiatrist` | in-situ AI margin card (and escalated thread view) | adaptive-ai-presenter |
 | `browse` | Shelf and Today lane controllers | ephemeral-shelf-triage (TTL, cap) |
 | `global` | command palette and Settings > Focus | plugin toggles, experiment log |
 

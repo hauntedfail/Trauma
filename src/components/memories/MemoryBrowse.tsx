@@ -1440,36 +1440,40 @@ export function MemoryItem(props: {
       <div class="relative z-10 flex shrink-0 items-center gap-1.5">
         <Show when={lane() === "today"}>
           <button
+            aria-label={`Move ${props.memory.title} to Shelf`}
             class={rowActionButtonClass}
+            title="Move to Shelf"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               props.onTriage?.("shelf");
             }}
           >
-            Not now
+            Shelf
           </button>
           <button
+            aria-label={`Archive ${props.memory.title}`}
             class={rowActionButtonClass}
+            title="Move to Archive (x)"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               props.onTriage?.("archive");
             }}
           >
-            Let go
+            Archive
           </button>
         </Show>
 
         <Show when={lane() === "shelf"}>
           <button
-            aria-label={`Pick ${props.memory.title} for Today`}
+            aria-label={`Move ${props.memory.title} to Today`}
             class={rowActionButtonClass}
             disabled={props.pickDisabled === true}
             title={
               props.pickDisabled === true
                 ? TODAY_CAP_REACHED_MESSAGE
-                : "Pick for Today (p)"
+                : "Move to Today (p)"
             }
             type="button"
             onClick={(event) => {
@@ -1477,31 +1481,31 @@ export function MemoryItem(props: {
               props.onTriage?.("today");
             }}
           >
-            Pick
+            Today
           </button>
           <button
-            aria-label={`Keep ${props.memory.title} in Library`}
+            aria-label={`Move ${props.memory.title} to Library`}
             class={rowActionButtonClass}
-            title="Keep in Library (l)"
+            title="Move to Library (l)"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               props.onTriage?.("library");
             }}
           >
-            Keep
+            Library
           </button>
           <button
-            aria-label={`Let go of ${props.memory.title}`}
+            aria-label={`Archive ${props.memory.title}`}
             class={rowActionButtonClass}
-            title="Let go (x)"
+            title="Move to Archive (x)"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               props.onTriage?.("archive");
             }}
           >
-            Let go
+            Archive
           </button>
         </Show>
 
@@ -1545,13 +1549,13 @@ export function MemoryItem(props: {
 function describeTriageAction(targetState: MemoryTriageState): string {
   switch (targetState) {
     case "today":
-      return "Picked for Today.";
+      return "Moved to Today.";
     case "library":
-      return "Kept in Library.";
+      return "Saved to Library.";
     case "archive":
-      return "Let go.";
+      return "Moved to Archive.";
     case "shelf":
-      return "Returned to Shelf.";
+      return "Moved to Shelf.";
   }
 }
 

@@ -104,9 +104,9 @@ describe("memory reader actions", () => {
     expect(html).toContain('data-reader-column');
     expect(html).toContain('data-flashback-id="flashback-1"');
     expect(html).toContain('data-reader-end-footer');
-    expect(html).toContain(">Keep<");
-    expect(html).toContain(">Let go<");
-    expect(html).toContain(">Not now<");
+    expect(html).toContain(">Library<");
+    expect(html).toContain(">Archive<");
+    expect(html).toContain(">Shelf<");
     expect(html).not.toContain('data-reader-inspector="open"');
     expect(html).not.toContain('role="dialog"');
     expect(html).not.toContain("Global category");

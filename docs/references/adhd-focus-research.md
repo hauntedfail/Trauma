@@ -178,6 +178,87 @@ plugins so users can run personal experiments and keep only what improves focus.
     significantly reduced saving friction (t(28)=2.98, p<0.01, Cohen's d=0.63)
     and alleviated workspace overload.
 
+### G. Spatial Contiguity, Self-Evident Signifiers, and Post-Chat / Agent-Bound Reading UI
+
+- **Ayres, P., & Sweller, J. (2021); Ginns, P. (2006); Schroeder, N. L., &
+  Cenkci, A. T. (2018); Moon, J. A. (2022).** *The Split-Attention Effect /
+  Spatial Contiguity Principle* (Cognitive Load Theory).
+  - **Finding:** Separating mutually referring information sources (e.g., main
+    text vs. detached explanations, translation controls, or annotations in a
+    side drawer) forces visual search and mental integration, imposing
+    extraneous cognitive load. The penalty is strongest when **working-memory
+    capacity is constrained**—a primary ADHD bottleneck.
+  - **Principle:** Do not bundle heterogeneous reader tools into a single
+    multi-tab Inspector drawer. Co-locate each on-demand control with the exact
+    reading surface where its need arises (outline + marks on the document
+    landmark rail; translation on language-variant tabs; rare metadata/actions
+    in a quiet top-bar overflow menu), while keeping all chrome hidden during
+    active reading.
+- **Joshi, N., & Vogel, D. (2026).** *Designing and Evaluating AI Margin Notes
+  in Document Reader Software.* ACM CHI '26.
+  [`doi:10.1145/3772318.3790786`](https://doi.org/10.1145/3772318.3790786) /
+  [`arXiv:2509.09840`](https://arxiv.org/abs/2509.09840)
+  - **Finding:** Directly compared detached chat sidebars against text-anchored
+    **AI Margin Notes** across three experiments. Readers preferred integrated
+    margin notes over separate chat panels and preferred **manual text
+    selection** (higher psychological ownership, `Mdn=88` vs. `80.5`).
+    Formulating explicit natural-language prompts while reading imposed heavy
+    mental demand (`Mdn=61–70.5`), whereas deictic selection-anchored triggers
+    significantly reduced cognitive load (`Mdn=11.5–40.5`) without harming
+    comprehension.
+  - **Principle:** Make selection-anchored **In-Situ AI Margin Notes** (with
+    1-tap deictic actions such as *Simplify* / *Explain* plus optional brief
+    follow-up) the primary in-reader AI surface instead of a docked chat box.
+- **CHI EA '26.** *When LLMs See Where You Struggle: A Gaze-to-Context Approach
+  for Reader-Driven Reading Assistance.* ACM CHI EA '26.
+  [`doi:10.1145/3772363.3798566`](https://doi.org/10.1145/3772363.3798566)
+  - **Finding:** System-initiated proactive popups disrupt reading flow and
+    misalign with reader intent. In contrast, **reader-driven queries**
+    automatically grounded with struggling/current passage context were
+    preferred in **89% (8/9)** of underspecified queries (e.g., *"I don't get
+    it"*).
+  - **Principle:** Never proactively interrupt mid-read; automatically attach
+    selected passage, surrounding section, and memory metadata whenever the
+    reader invokes assistance.
+- **Lo, K., Chang, J. C., Head, A., Bragg, J., et al. (2024).** *The Semantic
+  Reader Project.* Communications of the ACM.
+  [`doi:10.1145/3659096`](https://doi.org/10.1145/3659096) (building on
+  *Paper Plain*, August et al., CHI '23, and *ScholarPhi*, Head et al., CHI '21)
+  - **Finding:** In-situ micro-cards and section-adjacent plain-language margin
+    summaries reduce interaction cost and back-and-forth navigation compared to
+    jumping to detached panels or end-of-document references.
+- **Pinto, A., Quilter, E., Vasikaran, J., et al. (2025).** *"A little bit of a
+  life raft" – Exploring the Use and Experiences of ChatGPT as a Support Tool
+  among Adults with ADHD.* ACM OzCHI '25.
+  [`doi:10.1145/3764687.3764713`](https://doi.org/10.1145/3764687.3764713);
+  corroborated by **Tether 2.0 (2026)**
+  [`arXiv:2610.00555`](https://arxiv.org/pdf/2610.00555.pdf)
+  - **Finding:** Adults with ADHD value LLMs for executive-function relief
+    (breaking brain fog, decision paralysis, and comprehension stalls)—not for
+    managing another chat window, which participants warn can become *"another
+    app to interact with / detract from work"* and cause cognitive overload.
+- **Kim, S. G., & Kim, H. (2026).** *ABRA: Agent-Bound UI for Human-Agent
+  Communication beyond Chat with Reusable Views.* EMNLP '26 System
+  Demonstrations. [`arXiv:2610.30780`](https://arxiv.org/abs/2610.30780)
+  - **Finding:** Separating reusable UI views from task-specific agent bindings
+    over **shared structured state** lets humans and external agents collaborate
+    directly on domain surfaces rather than routing every interaction through a
+    generic chat log.
+  - **Principle:** Expose TRAUMA's canonical reading state (memories, active
+    position, Flashbacks, Moments, margin notes, triage lanes) via a **Headless
+    Agent API** so external agents (e.g., Hermes, CLI tools) and TRAUMA's own
+    in-situ reader actions share one contract without bloating TRAUMA into a
+    chat application.
+- **Recognition Over Recall & Self-Evident Signifiers (Norman; Nielsen;
+  amplified by ADHD rapid-scanning patterns in Llana et al., CHI EA '26).**
+  - **Principle:** Action labels that require user explanation—or rely on
+    metaphors that hide destination and reversibility (e.g., `Let go`, `Keep`,
+    `Not now`, `Pick`)—are UI/UX defects. In particular, `Let go` is easily
+    misread as *"Let's go"* under rapid ADHD scanning and obscures whether the
+    action archives or deletes. Every triage control must name its exact
+    destination lane (`Today`, `Shelf`, `Library`, `Archive`), eliminating the
+    need for memorization or onboarding copy.
+
 ## 2. Modular ADHD-Focus GUI Plugin Catalog
 
 Each plugin is designed as an independent, toggleable module in TRAUMA

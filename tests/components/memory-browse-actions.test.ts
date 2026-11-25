@@ -529,9 +529,9 @@ describe("memory browse actions", () => {
     expect(shelfHtml).toContain("example.com · short");
     expect(shelfHtml).not.toContain("continue at");
     expect(shelfHtml).not.toContain('data-memory-taxonomy-chips="true"');
-    expect(shelfHtml).toContain("Pick");
-    expect(shelfHtml).toContain("Keep");
-    expect(shelfHtml).toContain("Let go");
+    expect(shelfHtml).toContain("Today");
+    expect(shelfHtml).toContain("Library");
+    expect(shelfHtml).toContain("Archive");
     expect(shelfHtml).toContain("disabled");
   });
 
