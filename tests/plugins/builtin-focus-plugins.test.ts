@@ -248,14 +248,14 @@ describe("built-in starter focus plugins", () => {
     expect(aiHtml).toContain("Original");
   });
 
-  it("disables inspector, rail reveal, ruler, and beacon transitions under prefers-reduced-motion", () => {
+  it("disables psychiatrist sheet, rail reveal, ruler, and beacon transitions under prefers-reduced-motion", () => {
     const css = readFileSync("src/styles/tailwind.css", "utf8");
     const reducedMotionStart = css.lastIndexOf("@media (prefers-reduced-motion: reduce)");
     expect(reducedMotionStart).toBeGreaterThan(-1);
     const reducedMotionBlock = css.slice(reducedMotionStart);
     expect(reducedMotionBlock).toContain(".trauma-reader-topbar");
     expect(reducedMotionBlock).toContain(".trauma-reader-landmark-rail");
-    expect(reducedMotionBlock).toContain(".trauma-reader-inspector");
+    expect(reducedMotionBlock).toContain(".trauma-reader-psychiatrist-sheet");
     expect(reducedMotionBlock).toContain(".trauma-resumption-beacon-pill");
     expect(reducedMotionBlock).toContain(".trauma-reading-ruler-band");
     expect(reducedMotionBlock).toContain("[data-resumption-beacon-highlight]");

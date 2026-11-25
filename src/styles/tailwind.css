@@ -601,7 +601,7 @@
     transform: scale(1.25);
   }
 
-  .trauma-reader-inspector {
+  .trauma-reader-psychiatrist-sheet {
     position: fixed;
     inset-block: 0;
     inset-inline-end: 0;
@@ -1190,7 +1190,7 @@
   .trauma-reader-topbar,
   .trauma-reader-landmark-rail,
   .trauma-reader-landmark-node,
-  .trauma-reader-inspector,
+  .trauma-reader-psychiatrist-sheet,
   .trauma-resumption-beacon-pill,
   .trauma-reading-ruler-band,
   [data-resumption-beacon-highlight] {

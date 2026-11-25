@@ -85,7 +85,7 @@ const readyResult = {
 } satisfies ReaderMemoryResult;
 
 describe("memory reader actions", () => {
-  it("renders a clean focus-first canvas with topbar Inspector trigger, landmark rail, flashback marks, and quiet end footer", () => {
+  it("renders a clean focus-first canvas with topbar Translate & Details popovers, landmark rail, flashback marks, and quiet end footer without an Inspector button", () => {
     const html = renderReader(readyResult, {
       tagOptions: [
         {
@@ -98,8 +98,13 @@ describe("memory reader actions", () => {
     });
 
     expect(html).toContain('data-reader-topbar');
-    expect(html).toContain('data-reader-inspector-trigger');
-    expect(html).toContain('aria-label="Open Inspector"');
+    expect(html).toContain('data-reader-translate-trigger');
+    expect(html).toContain('aria-label="Translate"');
+    expect(html).toContain('data-reader-details-trigger');
+    expect(html).toContain('aria-label="Memory details and actions"');
+    expect(html).not.toContain('data-reader-inspector-trigger');
+    expect(html).not.toContain('aria-label="Open Inspector"');
+    expect(html).not.toContain('reader-inspector-dialog');
     expect(html).toContain('data-reader-landmark-rail');
     expect(html).toContain('data-reader-column');
     expect(html).toContain('data-flashback-id="flashback-1"');
@@ -107,32 +112,36 @@ describe("memory reader actions", () => {
     expect(html).toContain(">Library<");
     expect(html).toContain(">Archive<");
     expect(html).toContain(">Shelf<");
-    expect(html).not.toContain('data-reader-inspector="open"');
+    expect(html).not.toContain('data-reader-psychiatrist-sheet="open"');
     expect(html).not.toContain('role="dialog"');
     expect(html).not.toContain("Global category");
     expect(html).not.toContain("#global");
   });
 
-  it("mounts Psychiatrist inside the Inspector Psychiatrist tab instead of a floating dock", () => {
+  it("mounts Psychiatrist inside an on-demand sheet triggered from selection Ask or ] instead of a 5-tab Inspector drawer", () => {
     const html = renderReader(readyResult);
 
     expect(html).not.toContain('data-psychiatrist-dock="collapsed"');
     expect(html).not.toContain('aria-label="Open Psychiatrist"');
     expect(memoryReaderSource).toContain("<PsychiatristDock");
     expect(memoryReaderSource).toContain("embedded");
-    expect(memoryReaderSource).toContain('id="inspector-panel-psychiatrist"');
+    expect(memoryReaderSource).toContain('id="reader-psychiatrist-sheet"');
+    expect(memoryReaderSource).toContain("data-reader-selection-ask");
+    expect(memoryReaderSource).toContain("togglePsychiatrist()");
     expect(memoryReaderSource).toContain("langCode={props.result.content.langCode}");
   });
 
-  it("does not render Psychiatrist or Inspector for non-ready reader states", () => {
+  it("does not render Psychiatrist, Translate, or Details triggers for non-ready reader states", () => {
     const html = renderReader({
       status: "not_found",
       message: "Missing memory.",
     } satisfies ReaderMemoryResult);
 
-    expect(html).not.toContain("Open Inspector");
+    expect(html).not.toContain("data-reader-translate-trigger");
+    expect(html).not.toContain("data-reader-details-trigger");
     expect(html).not.toContain("Open Psychiatrist");
     expect(html).not.toContain("data-psychiatrist-dock");
+    expect(html).not.toContain("data-reader-psychiatrist-sheet");
   });
 
   it("keeps lifted leading h1 title canonical without duplicating headings or injecting inline taxonomy chrome", () => {
@@ -185,13 +194,8 @@ describe("memory reader actions", () => {
         "        ),",
       ].join("\n"),
     );
-    expect(memoryReaderSource).toContain(
-      [
-        "                      revalidateAfterReadStatusChange(",
-        "                        props.result.memory.id,",
-        "                        props.result.content.langCode,",
-        "                      )",
-      ].join("\n"),
+    expect(memoryReaderSource).toMatch(
+      /revalidateAfterReadStatusChange\(\s*props\.result\.memory\.id,\s*props\.result\.content\.langCode,\s*\)/,
     );
     expect(memoryReaderSource).toContain(
       [
@@ -272,16 +276,19 @@ describe("memory reader actions", () => {
     expect(resultSync).not.toContain("translationEventSource");
   });
 
-  it("removes useRightRailContent and mounts Outline, Marks, Translate, Details, and Psychiatrist in one Inspector", () => {
+  it("dismantles the 5-tab Inspector drawer in favor of spatially contiguous micro-surfaces (Landmark Rail Outline+Marks, topbar Translate & Details popovers, on-demand Psychiatrist sheet)", () => {
     expect(memoryReaderSource).not.toContain("useRightRailContent");
-    expect(memoryReaderSource).toContain('id="reader-inspector-dialog"');
-    expect(memoryReaderSource).toContain('id="inspector-panel-outline"');
-    expect(memoryReaderSource).toContain('id="inspector-panel-marks"');
-    expect(memoryReaderSource).toContain('id="inspector-panel-translate"');
-    expect(memoryReaderSource).toContain('id="inspector-panel-details"');
-    expect(memoryReaderSource).toContain('id="inspector-panel-psychiatrist"');
-    expect(memoryReaderSource).toContain("READER_INSPECTOR_TAB_SESSION_KEY");
-    expect(memoryReaderSource).toContain("sessionStorage");
+    expect(memoryReaderSource).not.toContain('id="reader-inspector-dialog"');
+    expect(memoryReaderSource).not.toContain('id="inspector-panel-outline"');
+    expect(memoryReaderSource).not.toContain('id="inspector-panel-marks"');
+    expect(memoryReaderSource).not.toContain('id="inspector-panel-translate"');
+    expect(memoryReaderSource).not.toContain('id="inspector-panel-details"');
+    expect(memoryReaderSource).not.toContain('id="inspector-panel-psychiatrist"');
+    expect(memoryReaderSource).not.toContain("READER_INSPECTOR_TAB_SESSION_KEY");
+    expect(memoryReaderSource).toContain('id="reader-translate-popover"');
+    expect(memoryReaderSource).toContain('id="reader-details-popover"');
+    expect(memoryReaderSource).toContain("data-reader-landmark-marks");
+    expect(memoryReaderSource).toContain('id="reader-psychiatrist-sheet"');
   });
 
   it("offers an accessible in-popover retry for reader model-catalog failures", () => {
@@ -543,9 +550,9 @@ describe("memory reader actions", () => {
     );
   });
 
-  it("mounts translation controls inside the Inspector Translate tab", () => {
-    expect(memoryReaderSource).toContain('id="inspector-panel-translate"');
-    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
+  it("mounts translation controls inside the topbar Translate popover next to ReaderVariantTabs", () => {
+    expect(memoryReaderSource).toContain('id="reader-translate-popover"');
+    expect(memoryReaderSource).toContain("setTranslationDialogOpen(open)");
     expect(memoryReaderSource).toContain("translationFormModel");
     expect(memoryReaderSource).toContain("reasoning_effort");
     expect(memoryReaderSource).toContain("submitTranslationDialog(() => undefined)");

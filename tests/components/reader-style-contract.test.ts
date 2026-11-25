@@ -50,14 +50,20 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("data-reader-column");
   });
 
-  it("renders auto-hiding topbar, left landmark rail, single Inspector dialog, and quiet end footer without useRightRailContent", () => {
+  it("renders auto-hiding topbar with Translate and Details popovers, left landmark rail, on-demand Psychiatrist sheet, and quiet end footer without useRightRailContent or Inspector drawer", () => {
     expect(readerSource).not.toContain("useRightRailContent");
+    expect(readerSource).not.toContain("reader-inspector-dialog");
+    expect(readerSource).not.toContain("data-reader-inspector");
     expect(readerSource).toContain("data-reader-topbar");
     expect(readerSource).toContain("data-topbar-hidden");
+    expect(readerSource).toContain("data-reader-translate-trigger");
+    expect(readerSource).toContain("data-reader-details-trigger");
+    expect(readerSource).toContain('aria-label="Memory details and actions"');
     expect(readerSource).toContain("data-reader-landmark-rail");
-    expect(readerSource).toContain("data-reader-inspector");
+    expect(readerSource).toContain("data-reader-landmark-marks");
+    expect(readerSource).toContain("data-reader-psychiatrist-sheet");
     expect(readerSource).toContain('role="dialog"');
-    expect(readerSource).toContain('aria-label="Reader Inspector"');
+    expect(readerSource).toContain('aria-label="Psychiatrist"');
     expect(readerSource).toContain("data-reader-end-footer");
     expect(readerSource).toContain("readerSourceLinkClass");
     expect(readerSource).toContain("ScrollableUrlLink");
@@ -65,7 +71,8 @@ describe("refined reader visual contract", () => {
     expect(tailwindSource).toContain(".trauma-scroll-url-shell");
     expect(tailwindSource).toContain(".trauma-reader-topbar");
     expect(tailwindSource).toContain(".trauma-reader-landmark-rail");
-    expect(tailwindSource).toContain(".trauma-reader-inspector");
+    expect(tailwindSource).toContain(".trauma-reader-psychiatrist-sheet");
+    expect(tailwindSource).not.toContain(".trauma-reader-inspector");
     expect(readerSource).toContain("onCleanup");
     expect(readerSource).toContain("animate-trauma-pop-bounce");
     expect(readerSource).toContain("readerTocScrollContent");

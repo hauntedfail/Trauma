@@ -61,9 +61,9 @@ describe("dismissable popup layers", () => {
     );
   });
 
-  it("keeps anchored popover dismissal inside the shared Popup shell and uses dismissable-layer for the reader Inspector", () => {
+  it("keeps anchored popover dismissal inside the shared Popup shell and uses dismissable-layer for the reader Psychiatrist sheet", () => {
     expect(popupSource).toContain("useDismissableLayer");
     expect(memoryReaderSource).toContain("useDismissableLayer");
-    expect(memoryReaderSource).toContain("getRoot: () => inspectorRef");
+    expect(memoryReaderSource).toContain("getRoot: () => psychiatristSheetRef");
   });
 });

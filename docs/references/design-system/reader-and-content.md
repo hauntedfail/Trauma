@@ -17,7 +17,7 @@ w-full bg-trauma-bg-surface
 ```
 
 The reading column's computed width and horizontal position remain fixed when
-the right-side Inspector opens.
+any reader popover, landmark rail, or on-demand Psychiatrist sheet opens.
 
 ## Reader Header (Auto-Hiding Top Bar)
 
@@ -27,50 +27,64 @@ downward scroll, revealing on upward scroll or keyboard focus.
 Contract:
 
 - Back control links to `/memories`.
-- Shows truncated title, language variant tabs when translations exist, and a
-  single `Inspector` button (`data-reader-inspector-trigger`).
-- Does not render taxonomy chips, source metadata clutter, or `Reader mode`
-  copy above the article.
+- Shows truncated title, compact language variant tabs (`ReaderVariantTabs`)
+  when translations exist, an inline `+ Translate` popover trigger
+  (`data-reader-translate-trigger`) co-located next to the variant tabs, and a
+  quiet `⋯` overflow popover trigger (`data-reader-details-trigger`,
+  `aria-label="Memory details and actions"`).
+- Does not render an `Inspector` button, taxonomy chips, source metadata
+  clutter, or `Reader mode` copy above the article.
 - `prefers-reduced-motion: reduce` disables the slide/fade transition.
 
-## Left Landmark Rail And Reader Inspector
+## Spatially Contiguous Reader Micro-Surfaces
 
-Peripheral reader aids no longer occupy a persistent right rail. Instead:
+Peripheral reader aids do not occupy a persistent right rail or a multi-tab
+Inspector drawer (revised D5). Instead, each secondary control is co-located
+where its need arises and remains hidden during active reading:
 
 - **Left landmark rail** (`.trauma-reader-landmark-rail`): collapsed by default
   to compact section progress dots (`section K of N`, never minutes left),
-  expanding on hover or focus to jump to headings.
-- **Right-side Inspector** (`.trauma-reader-inspector`, `#reader-inspector-dialog`,
-  `role="dialog"`, `z-index: 50`): opens on demand from the top bar and returns
-  focus on close. It consolidates five tabs:
-  - `Outline`: bounded table of contents with live reading-range spy and Moment
-    toggles.
-  - `Marks`: current-memory and lazily-loaded all-memories Flashbacks plus
-    Moments.
-  - `Translate`: Brilliant translation controls and status.
-  - `Details`: source URL (safe links open in a new tab using
-    `text-trauma-link`), length bucket, captured date, read-state toggle,
-    categories, tags, and delete action.
-  - `Psychiatrist`: memory-scoped Psychiatrist dock with `AdaptiveAiResponse`
-    mounted when enabled.
+  expanding on hover or focus into a unified **Outline + Marks** panel
+  (`data-reader-landmark-panel`) containing the bounded table of contents
+  (with live reading-range spy and Moment toggles) plus current-memory Moments
+  and Flashbacks (`data-reader-landmark-marks`) with zero count badges.
+- **Top-bar Translate popover** (`#reader-translate-popover`,
+  `data-reader-translate-trigger`, `role="dialog"`): co-located right next to
+  `ReaderVariantTabs`. Hosts the Brilliant translation form (language, model,
+  reasoning effort), live SSE translation progress, and accessible
+  retry-on-catalog-error controls. Escape closes and returns focus to the
+  trigger.
+- **Top-bar Details & Actions overflow popover** (`#reader-details-popover`,
+  `data-reader-details-trigger`, `aria-label="Memory details and actions"`,
+  `role="dialog"`): quiet `⋯` trigger hosting rare metadata and management
+  controls — source URL (safe links open in a new tab using
+  `text-trauma-link`), captured date, read-state toggle, categories, tags, and
+  delete/category action menu (`MemoryActionMenu`). Escape closes the topmost
+  popup first and returns focus to the trigger.
+- **On-demand Psychiatrist sheet** (`.trauma-reader-psychiatrist-sheet`,
+  `#reader-psychiatrist-sheet`, `role="dialog"`, `z-index: 50`): opens on
+  demand from the text selection menu (`Ask`, `data-reader-selection-ask`) or
+  the `]` keyboard shortcut without a 5-tab Inspector drawer. Mounts the
+  memory-scoped `PsychiatristDock` (`embedded`) with `AdaptiveAiResponse` when
+  enabled; Escape or Close dismisses and returns focus.
 - **Reader focus plugin overlays**: `ReadingRulerOverlay` and `ResumptionBeacon`
-  mount in the overlay layer above text and below the Inspector (`z-40`).
-  `ResumptionBeacon` reads core `last_position` and adds only visual cues
-  without duplicating persistence.
-- **Quiet end-of-article footer**: offers `Keep` (`library`), `Let go`
-  (`archive`), and `Not now` (`shelf`) triage controls, plus the 3-state focus
-  pulse when plugins or experiment logs are active. Reaching `>= 75%` scroll
-  depth with `>= 20s` dwell automatically marks `read` (reversible in Details).
+  mount in the overlay layer above text and below the Psychiatrist sheet
+  (`z-40`). `ResumptionBeacon` reads core `last_position` and adds only visual
+  cues without duplicating persistence.
+- **Quiet end-of-article footer**: offers destination-explicit `Library`,
+  `Archive`, and `Shelf` triage controls (D11), plus the 3-state focus pulse
+  when plugins or experiment logs are active. Reaching `>= 75%` scroll depth
+  with `>= 20s` dwell automatically marks `read` (reversible in the `⋯` menu).
 
-## Table Of Contents (Inspector > Outline)
+## Table Of Contents & Marks (Left Landmark Rail)
 
-The table of contents is a reader aid mounted inside the Inspector `Outline`
-tab, not inside the main reading column.
+The table of contents and current-memory Marks are reader aids mounted inside
+the expanded left Landmark Rail, not inside the main reading column.
 
 Contract:
 
-- Rendered inside the Inspector `Outline` tab on ready source and translated
-  reader routes.
+- Rendered inside the expanded left Landmark Rail on ready source and
+  translated reader routes.
 - Hidden from `/memories`, `/flashbacks`, and other non-reader routes.
 - Text is compact.
 - Links target generated markdown heading anchors and use the reader link
@@ -79,14 +93,13 @@ Contract:
   padding; reserve only the small Moment affordance slot and use heading-level
   indentation for hierarchy.
 - Heading links live inside a bounded scroll body so many headings do not expand
-  the Inspector or the whole app layout.
-- All Flashbacks in `Marks` loads lazily through the same bounded page loader as
-  the canonical Flashbacks route. It renders one page at a time in a bounded
-  scroll body and owns local First/Previous/Next cursor history.
+  the landmark panel or the whole app layout.
+- Current-memory Moments and Flashbacks render in a bounded Marks section below
+  the outline with zero numeric count badges.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
   the available scroll edge.
-- Motion (Inspector, top bar, landmark rail, beacon highlight fade, reading
-  ruler) is disabled under `prefers-reduced-motion: reduce`.
+- Motion (Psychiatrist sheet, top bar, landmark rail, beacon highlight fade,
+  reading ruler) is disabled under `prefers-reduced-motion: reduce`.
 
 ### Reading-Progress Visualization
 
