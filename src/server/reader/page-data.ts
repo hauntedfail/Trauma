@@ -1,8 +1,11 @@
 import { initializeDatabase } from "../db";
-import type {
-  Flashback,
-  ReaderMemoryAggregateRow,
-  TranslationJobRecord,
+import {
+  parseMemoryLastPosition,
+  type Flashback,
+  type MemoryLastPosition,
+  type MemoryTriageState,
+  type ReaderMemoryAggregateRow,
+  type TranslationJobRecord,
 } from "../db/repositories";
 import {
   loadRuntimeTraumaConfig,
@@ -76,6 +79,11 @@ export interface ReaderMemory {
   extractionStatus: ReaderMemoryAggregateRow["extractionStatus"];
   contentPath: string;
   read: boolean;
+  triageState?: MemoryTriageState;
+  triageChangedAt?: Date;
+  lastPosition?: MemoryLastPosition | null;
+  lastOpenedAt?: Date | null;
+  wordCount?: number | null;
   categories: ReaderTaxonomyItem[];
   moments: ReaderMomentItem[];
   tags: ReaderTaxonomyItem[];
@@ -407,6 +415,11 @@ function toReaderMemory(
     extractionStatus: memory.extractionStatus,
     contentPath: memory.contentPath,
     read: memory.read,
+    triageState: memory.triageState,
+    triageChangedAt: memory.triageChangedAt,
+    lastPosition: parseMemoryLastPosition(memory.lastPosition),
+    lastOpenedAt: memory.lastOpenedAt,
+    wordCount: memory.wordCount,
     categories: memory.memoryCategories.map(({ category }) => ({
       id: category.id,
       name: category.name,

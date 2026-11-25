@@ -83,7 +83,6 @@ import {
 } from "./flashback-events";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
-import { Popup } from "../ui/Popup";
 import {
   readFlashbackFailure,
   shouldRevalidateBackupFailsafeAfterFlashbackFailure,
@@ -92,18 +91,38 @@ import { readFlashbackBackupWarning } from "./flashback-backup-warning";
 import { readFlashbackDurabilityWarning } from "./flashback-durability-warning";
 import {
   readerArticle,
+  readerColumn,
   readerFrame,
   readerPadding,
   readerStatePanel,
 } from "./reader-styles";
+import {
+  computeReaderPositionSnapshot,
+  computeReaderScrollDepth,
+  isSameReaderPosition,
+  READER_POSITION_DEBOUNCE_MS,
+  readReaderBodyHeadingPositions,
+  readReaderReadableBlockPositions,
+  restoreReaderPositionInDom,
+  shouldAutoMarkRead,
+  submitReaderOpened,
+  submitReaderPosition,
+  submitReaderTriage,
+} from "./reader-position";
 import { PsychiatristDock } from "./PsychiatristDock";
 import { toSafeReaderSourceHref } from "./source-url";
-import { useRightRailContent } from "../shell/right-rail-context";
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "./reader-memory-loader";
 import { TaxonomyList } from "../taxonomy/TaxonomyList";
 import { RouteHeader } from "../layout/RouteHeader";
 import { TaxonomyAddControl } from "../memories/TaxonomyAddControl";
+import {
+  getLengthBucket,
+  type MemoryLastPosition,
+  type MemoryTriageState,
+} from "../memories/browse-data";
+import { submitMemoryReadStatus } from "../memories/MemoryReadStatusControl";
+import { useDismissableLayer } from "../ui/dismissable-layer";
 import {
   ScrollableUrlDisplay,
   ScrollableUrlLink,
@@ -118,6 +137,12 @@ import {
   createReaderGenerationGuard,
   type ReaderGenerationSnapshot,
 } from "./reader-generation";
+import {
+  ReadingRulerOverlay,
+  ResumptionBeacon,
+  useFocusPlugins,
+  type FocusPluginPulseRating,
+} from "../../plugins";
 
 export { findReaderMomentForSection, resolveReaderMomentTarget };
 
@@ -193,6 +218,86 @@ const readerContextMenuClass =
 const readerSourceLinkClass =
   "min-h-9 max-w-full justify-self-start text-sm leading-tight text-trauma-link";
 
+export type ReaderInspectorTab =
+  | "outline"
+  | "marks"
+  | "translate"
+  | "details"
+  | "psychiatrist";
+
+const READER_INSPECTOR_TABS: readonly {
+  id: ReaderInspectorTab;
+  label: string;
+}[] = [
+  { id: "outline", label: "Outline" },
+  { id: "marks", label: "Marks" },
+  { id: "translate", label: "Translate" },
+  { id: "details", label: "Details" },
+  { id: "psychiatrist", label: "Psychiatrist" },
+];
+
+const READER_INSPECTOR_TAB_SESSION_KEY = "trauma:reader:inspector-tab";
+const READER_TOPBAR_HIDE_SCROLL_Y = 48;
+const READER_TOPBAR_SCROLL_DELTA = 8;
+
+function isReaderInspectorTab(value: unknown): value is ReaderInspectorTab {
+  return (
+    value === "outline" ||
+    value === "marks" ||
+    value === "translate" ||
+    value === "details" ||
+    value === "psychiatrist"
+  );
+}
+
+function readSessionInspectorTab(): ReaderInspectorTab {
+  if (typeof window === "undefined") {
+    return "outline";
+  }
+  try {
+    const raw = window.sessionStorage.getItem(READER_INSPECTOR_TAB_SESSION_KEY);
+    return isReaderInspectorTab(raw) ? raw : "outline";
+  } catch {
+    return "outline";
+  }
+}
+
+function writeSessionInspectorTab(tab: ReaderInspectorTab): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(READER_INSPECTOR_TAB_SESSION_KEY, tab);
+  } catch {
+    // Session tab preference is best-effort.
+  }
+}
+
+function extractReaderDomain(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return rawUrl;
+  }
+}
+
+function formatReaderCapturedDate(value: Date): string {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return "";
+  }
+  return value.toISOString().slice(0, 10);
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return (
+    target.isContentEditable ||
+    target.matches("input, textarea, select")
+  );
+}
+
 export function MemoryReader(props: MemoryReaderProps) {
   const readyResult = () =>
     props.result.status === "ready" ? props.result : undefined;
@@ -240,6 +345,10 @@ function ReadyMemoryReader(props: {
   let readerRootRef: HTMLElement | undefined;
   let contentRef: HTMLDivElement | undefined;
   let bodyContentRef: HTMLDivElement | undefined;
+  let topBarRef: HTMLDivElement | undefined;
+  let inspectorRef: HTMLElement | undefined;
+  let inspectorTriggerRef: HTMLButtonElement | undefined;
+  let inspectorCloseRef: HTMLButtonElement | undefined;
   let selectionMenuRef: ReaderMenuElement;
   let sectionMenuRef: ReaderMenuElement;
   let translationModelSelectRef: HTMLSelectElement | undefined;
@@ -320,13 +429,154 @@ function ReadyMemoryReader(props: {
   const [translationCatalogError, setTranslationCatalogError] = createSignal("");
   const [translationCatalogPending, setTranslationCatalogPending] =
     createSignal(false);
-  const { setRightRailContent } = useRightRailContent();
+  const [inspectorOpen, setInspectorOpen] = createSignal(false);
+  const [inspectorTab, setInspectorTab] = createSignal<ReaderInspectorTab>(
+    "outline",
+  );
+  const [topBarHidden, setTopBarHidden] = createSignal(false);
+  const [landmarkExpanded, setLandmarkExpanded] = createSignal(false);
+  const [readState, setReadState] = createSignal(props.result.memory.read);
+  const [triageState, setTriageState] = createSignal<
+    MemoryTriageState | undefined
+  >(props.result.memory.triageState);
+  const [triagePending, setTriagePending] = createSignal(false);
+  const [triageStatus, setTriageStatus] = createSignal("");
+  const [endPulseNotice, setEndPulseNotice] = createSignal("");
+  const [currentLastPosition, setCurrentLastPosition] =
+    createSignal<MemoryLastPosition | null>(
+      props.result.memory.lastPosition ?? null,
+    );
+  const focusPlugins = useFocusPlugins();
+  const activeVariant = () => props.result.content.langCode ?? "source";
+  const leadingTitleAnchorId = createMemo(
+    () =>
+      findLeadingReaderTitleEntry({
+        html: props.result.rendered.html,
+        title: props.result.memory.title,
+        toc: props.result.rendered.toc,
+      })?.id,
+  );
+  const lengthBucket = createMemo(() =>
+    getLengthBucket(props.result.memory.wordCount),
+  );
+  const domainLabel = createMemo(() => extractReaderDomain(sourceUrl()));
+  const capturedDateLabel = createMemo(() =>
+    formatReaderCapturedDate(props.result.memory.createdAt),
+  );
+  const experimentLogEnabled = createMemo(
+    () =>
+      focusPlugins.getActivePluginIds().length > 0 ||
+      focusPlugins.pulseLog().length > 0,
+  );
   let translationEventSource: EventSource | undefined;
   let translationCatalogRequest: {
     generation: number;
     promise: Promise<"error" | "ignored" | "success">;
   } | undefined;
   let translationRequestGeneration = 0;
+
+  const selectInspectorTab = (tab: ReaderInspectorTab): void => {
+    setInspectorTab(tab);
+    writeSessionInspectorTab(tab);
+    if (tab === "translate") {
+      setTranslationDialogOpen(true);
+      if (canOpenTranslationSettings() && translationCatalogModels().length === 0) {
+        void refreshTranslationCatalog();
+      }
+    } else {
+      setTranslationDialogOpen(false);
+    }
+  };
+  const openInspector = (tab?: ReaderInspectorTab): void => {
+    const nextTab = tab ?? inspectorTab();
+    selectInspectorTab(nextTab);
+    setTopBarHidden(false);
+    setInspectorOpen(true);
+    queueMicrotask(() => {
+      if (inspectorCloseRef?.isConnected === true) {
+        inspectorCloseRef.focus({ preventScroll: true });
+      }
+    });
+  };
+  const closeInspector = (): void => {
+    setInspectorOpen(false);
+    setTranslationDialogOpen(false);
+    resetTranslationFormToDefaults();
+    setTopBarHidden(false);
+    queueMicrotask(() => {
+      if (inspectorTriggerRef?.isConnected === true) {
+        inspectorTriggerRef.focus({ preventScroll: true });
+      }
+    });
+  };
+  const toggleInspector = (): void => {
+    if (inspectorOpen()) {
+      closeInspector();
+    } else {
+      openInspector();
+    }
+  };
+  useDismissableLayer({
+    getRoot: () => inspectorRef,
+    isEnabled: inspectorOpen,
+    onDismiss: (reason) => {
+      if (reason === "escape") {
+        closeInspector();
+      }
+    },
+    shouldIgnoreOutsidePointerDown: () => true,
+  });
+
+  const handleEndFooterTriage = async (
+    nextState: MemoryTriageState,
+  ): Promise<void> => {
+    const readerGeneration = captureReaderGeneration();
+    if (triagePending() || !isCurrentReaderGeneration(readerGeneration)) {
+      return;
+    }
+    setTriagePending(true);
+    setTriageStatus("");
+    try {
+      const updated = await submitReaderTriage({
+        memoryId: readerGeneration.memoryId,
+        triageState: nextState,
+      });
+      if (!isCurrentReaderGeneration(readerGeneration)) {
+        return;
+      }
+      setTriageState(updated.triageState);
+      setTriageStatus(
+        updated.triageState === "library"
+          ? "Saved to Library."
+          : updated.triageState === "archive"
+            ? "Archived."
+            : "Returned to Shelf.",
+      );
+      void Promise.all([
+        revalidateBrowseMemoryWorkspace(),
+        revalidateReaderMemory(
+          readerGeneration.memoryId,
+          readerGeneration.langCode,
+        ),
+      ]);
+    } catch {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setTriageStatus("Could not update triage state.");
+      }
+    } finally {
+      if (isCurrentReaderGeneration(readerGeneration)) {
+        setTriagePending(false);
+      }
+    }
+  };
+
+  const handleEndFooterPulse = (rating: FocusPluginPulseRating): void => {
+    focusPlugins.recordPulse({ rating, surface: "reader" });
+    const label =
+      READER_PULSE_OPTIONS.find((item) => item.rating === rating)?.label ??
+      rating;
+    setEndPulseNotice(`Saved: ${label}`);
+  };
 
   const closeSelectionMenu = () => setSelectionMenu(undefined);
   const closeSectionMenu = () => setSectionMenu(undefined);
@@ -376,6 +626,8 @@ function ReadyMemoryReader(props: {
     setTags([...props.result.memory.tags]);
     setMoments([...props.result.memory.moments]);
     setCurrentFlashbacks([...props.result.memory.flashbacks]);
+    setReadState(props.result.memory.read);
+    setTriageState(props.result.memory.triageState);
   });
   onCleanup(() => {
     readerGenerationGuard.invalidate();
@@ -383,25 +635,164 @@ function ReadyMemoryReader(props: {
     const activeTranslationEventSource = translationEventSource;
     translationEventSource = undefined;
     activeTranslationEventSource?.close();
-    setRightRailContent(undefined);
+  });
+
+  let lastRecordedOpenedMemoryId: string | undefined;
+  createEffect(() => {
+    if (!isReaderClientReady()) {
+      return;
+    }
+    const memoryId = props.result.memory.id;
+    if (memoryId === lastRecordedOpenedMemoryId) {
+      return;
+    }
+    lastRecordedOpenedMemoryId = memoryId;
+    void submitReaderOpened({ memoryId });
   });
 
   onMount(() => {
-    setRightRailContent(
-      <ReaderRightRailContent
-        activeTocRange={activeTocRange}
-        currentFlashbacks={currentFlashbacks}
-        flashbackRows={props.flashbackRows}
-        moments={moments}
-        memoryId={props.result.memory.id}
-        onCreateMoment={(section) => void toggleMoment(section)}
-        onOpenSectionMenu={openSectionMenu}
-        pendingMomentKey={pendingMomentKey}
-        toc={props.result.rendered.toc}
-      />,
-    );
+    setInspectorTab(readSessionInspectorTab());
     setIsReaderClientReady(true);
-    const closeOnEscape = (event: KeyboardEvent) => {
+
+    let lastScrollY = window.scrollY;
+    let hasUserScrolled = false;
+    let lastPersistedPosition: MemoryLastPosition | null =
+      props.result.memory.lastPosition ?? null;
+    let positionSaveTimer: number | undefined;
+    let dwellMs = 0;
+    let lastVisibleAt = document.visibilityState === "visible" ? Date.now() : null;
+    let maxScrollDepth = computeReaderScrollDepth({
+      scrollY: window.scrollY,
+      viewportHeight: window.innerHeight,
+      scrollHeight: document.documentElement.scrollHeight,
+    });
+    let autoReadTriggered = readState();
+
+    const captureCurrentPosition = (): MemoryLastPosition =>
+      computeReaderPositionSnapshot({
+        headings: readReaderBodyHeadingPositions(
+          readerRootRef,
+          leadingTitleAnchorId(),
+        ),
+        blocks: readReaderReadableBlockPositions(bodyContentRef),
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight,
+        scrollHeight: document.documentElement.scrollHeight,
+        variant: activeVariant(),
+      });
+
+    const clearPositionTimer = () => {
+      if (positionSaveTimer !== undefined) {
+        window.clearTimeout(positionSaveTimer);
+        positionSaveTimer = undefined;
+      }
+    };
+
+    const flushPosition = (keepalive = false) => {
+      clearPositionTimer();
+      const candidate = hasUserScrolled ? captureCurrentPosition() : null;
+      if (candidate === null || isSameReaderPosition(lastPersistedPosition, candidate)) {
+        return;
+      }
+      lastPersistedPosition = candidate;
+      setCurrentLastPosition(candidate);
+      void submitReaderPosition({
+        memoryId: props.result.memory.id,
+        position: candidate,
+        keepalive,
+      });
+    };
+
+    const maybeTriggerAutoRead = () => {
+      if (autoReadTriggered || readState()) {
+        return;
+      }
+      const now = Date.now();
+      if (lastVisibleAt !== null && document.visibilityState === "visible") {
+        dwellMs += Math.max(0, now - lastVisibleAt);
+        lastVisibleAt = now;
+      }
+      maxScrollDepth = Math.max(
+        maxScrollDepth,
+        computeReaderScrollDepth({
+          scrollY: window.scrollY,
+          viewportHeight: window.innerHeight,
+          scrollHeight: document.documentElement.scrollHeight,
+        }),
+      );
+      if (
+        shouldAutoMarkRead({
+          alreadyRead: readState(),
+          dwellMs,
+          scrollDepth: maxScrollDepth,
+        })
+      ) {
+        autoReadTriggered = true;
+        const readerGeneration = captureReaderGeneration();
+        setReadState(true);
+        void submitMemoryReadStatus({
+          memoryId: readerGeneration.memoryId,
+          read: true,
+        })
+          .then(() => {
+            if (isCurrentReaderGeneration(readerGeneration)) {
+              void revalidateAfterReadStatusChange(
+                readerGeneration.memoryId,
+                readerGeneration.langCode,
+              );
+            }
+          })
+          .catch(() => {
+            // Auto-read persistence fails silently without mid-text prompts.
+          });
+      }
+    };
+
+    const dwellInterval = window.setInterval(maybeTriggerAutoRead, 1_000);
+
+    const handleReaderScroll = () => {
+      const currentY = window.scrollY;
+      const delta = currentY - lastScrollY;
+      lastScrollY = currentY;
+      hasUserScrolled = true;
+
+      if (
+        delta > READER_TOPBAR_SCROLL_DELTA &&
+        currentY > READER_TOPBAR_HIDE_SCROLL_Y &&
+        !inspectorOpen() &&
+        !(topBarRef !== undefined && topBarRef.contains(document.activeElement))
+      ) {
+        setTopBarHidden(true);
+      } else if (
+        delta < -READER_TOPBAR_SCROLL_DELTA ||
+        currentY <= READER_TOPBAR_HIDE_SCROLL_Y
+      ) {
+        setTopBarHidden(false);
+      }
+
+      clearPositionTimer();
+      positionSaveTimer = window.setTimeout(() => {
+        flushPosition(false);
+      }, READER_POSITION_DEBOUNCE_MS);
+
+      maybeTriggerAutoRead();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (lastVisibleAt !== null) {
+          dwellMs += Math.max(0, Date.now() - lastVisibleAt);
+          lastVisibleAt = null;
+        }
+        if (hasUserScrolled) {
+          flushPosition(true);
+        }
+      } else if (document.visibilityState === "visible") {
+        lastVisibleAt = Date.now();
+      }
+    };
+
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === "Escape" &&
         (selectionMenu() !== undefined || sectionMenu() !== undefined)
@@ -409,6 +800,20 @@ function ReadyMemoryReader(props: {
         event.preventDefault();
         closeReaderMenus();
         focusReaderContent();
+        return;
+      }
+
+      if (
+        event.key === "]" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !isEditableKeyboardTarget(event.target) &&
+        !isEditableKeyboardTarget(document.activeElement) &&
+        document.querySelector('[role="dialog"]:not([data-reader-inspector])') === null
+      ) {
+        event.preventDefault();
+        toggleInspector();
       }
     };
     const closeOnPointerDown = (event: PointerEvent) => {
@@ -425,15 +830,41 @@ function ReadyMemoryReader(props: {
     };
     const scrollHashTarget = () => scheduleReaderHashTargetScroll(readerRootRef);
 
-    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("keydown", handleGlobalKeyDown);
     document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("scroll", closeReaderMenus, true);
+    window.addEventListener("scroll", handleReaderScroll, { passive: true });
     window.addEventListener("hashchange", scrollHashTarget);
-    scheduleReaderHashTargetScroll(readerRootRef);
+
+    if (window.location.hash.length > 1) {
+      scheduleReaderHashTargetScroll(readerRootRef);
+    } else if (props.result.memory.lastPosition != null) {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          restoreReaderPositionInDom({
+            activeVariant: activeVariant(),
+            bodyContainer: bodyContentRef,
+            lastPosition: props.result.memory.lastPosition,
+            root: readerRootRef,
+          });
+          lastScrollY = window.scrollY;
+        });
+      });
+    }
+
     onCleanup(() => {
-      document.removeEventListener("keydown", closeOnEscape);
+      window.clearInterval(dwellInterval);
+      if (hasUserScrolled) {
+        flushPosition(true);
+      } else {
+        clearPositionTimer();
+      }
+      document.removeEventListener("keydown", handleGlobalKeyDown);
       document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("scroll", closeReaderMenus, true);
+      window.removeEventListener("scroll", handleReaderScroll);
       window.removeEventListener("hashchange", scrollHashTarget);
       clearSectionLongPress();
     });
@@ -785,18 +1216,6 @@ function ReadyMemoryReader(props: {
         }
       });
     });
-  };
-  const handleTranslationPopoverOpenChange = (open: boolean): void => {
-    setTranslationDialogOpen(open);
-    if (!open) {
-      resetTranslationFormToDefaults();
-      return;
-    }
-
-    resetTranslationFormToDefaults();
-    if (translationCatalogModels().length === 0) {
-      void refreshTranslationCatalog();
-    }
   };
   const connectTranslationProgress = (
     eventUrl: string,
@@ -1191,89 +1610,64 @@ function ReadyMemoryReader(props: {
 
   return (
     <article ref={readerRootRef} class={readerFrame} aria-label="Memory">
-      <PsychiatristDock
-        langCode={props.result.content.langCode}
-        memoryId={props.result.memory.id}
-      />
-      <RouteHeader
-        class={`${readerPadding} trauma-reader-header`}
-        leading={() => (
-          <a class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary" href="/memories" aria-label="Back to memories">
-            <ChevronLeftIcon />
-          </a>
-        )}
-        layout="single"
-        title="Memory"
-        titleElement="p"
-      />
-      <div class={`${readerPadding} trauma-reader-body py-5 pb-10`}>
-        <div class="trauma-fluid-page-shell">
-          <header class="mb-5 grid gap-4">
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-              <Show
-                when={sourceHref()}
-                fallback={(
-                  <ScrollableUrlDisplay
-                    class={readerSourceLinkClass}
-                    url={sourceUrl()}
-                  />
-                )}
+      <div
+        ref={topBarRef}
+        class="trauma-reader-topbar"
+        data-reader-topbar
+        data-topbar-hidden={topBarHidden() ? "true" : "false"}
+        onFocusIn={() => setTopBarHidden(false)}
+      >
+        <RouteHeader
+          actions={
+            <div class="flex items-center gap-2">
+              <ReaderVariantTabs
+                compact
+                variants={props.result.content.variants}
+              />
+              <button
+                ref={inspectorTriggerRef}
+                aria-controls="reader-inspector-dialog"
+                aria-expanded={inspectorOpen()}
+                aria-label={inspectorOpen() ? "Close Inspector" : "Open Inspector"}
+                class="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-trauma-border-strong bg-trauma-bg-elev px-3 py-1.5 text-xs font-extrabold text-trauma-text-primary transition hover:bg-trauma-bg-tint"
+                data-reader-inspector-trigger
+                title="Inspector (])"
+                type="button"
+                onClick={toggleInspector}
               >
-                {(href) => (
-                  <ScrollableUrlLink
-                    class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
-                    href={href()}
-                    rel="noreferrer"
-                    target="_blank"
-                    url={sourceUrl()}
-                  />
-                )}
-              </Show>
-              <div class="flex items-center gap-2">
-                <MemoryReadStatusControl
-                  initialRead={props.result.memory.read}
-                  memoryId={props.result.memory.id}
-                  variant="icon"
-                  onSaved={() =>
-                    revalidateAfterReadStatusChange(
-                      props.result.memory.id,
-                      props.result.content.langCode,
-                    )
-                  }
-                />
-                <MemoryActionMenu
-                  memoryId={props.result.memory.id}
-                  memoryTitle={props.result.memory.title}
-                  attachedCategories={categories()}
-                  categoryOptions={props.categoryOptions}
-                  onAttachCategoryByName={attachCategory}
-                  onDelete={deleteMemory}
-                />
-              </div>
+                <span>Inspector</span>
+              </button>
             </div>
-          </header>
-          <ReaderVariantTabs variants={props.result.content.variants} />
-          <Show when={translationProgress()}>
-            {(progress) => (
-              <section
-                aria-live={progress().status === "failed" ? "assertive" : "polite"}
-                class="mb-5 grid gap-2 rounded-[20px] border border-trauma-border bg-trauma-bg-elev/50 px-4 py-3 text-sm font-bold text-trauma-text-secondary backdrop-blur"
-                role={progress().status === "failed" ? "alert" : "status"}
-              >
-                <div class="flex items-center gap-2 text-trauma-text-primary">
-                  <CodexIcon size={16} />
-                  <span>{progress().message}</span>
-                </div>
-                <Show when={progress().preview.trim()}>
-                  {(preview) => (
-                    <p class="mb-0 max-h-20 overflow-hidden text-xs leading-relaxed text-trauma-text-muted">
-                      {preview()}
-                    </p>
-                  )}
-                </Show>
-              </section>
-            )}
-          </Show>
+          }
+          class={`${readerPadding} trauma-reader-header`}
+          leading={() => (
+            <a
+              class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary"
+              href="/memories"
+              aria-label="Back to memories"
+            >
+              <ChevronLeftIcon />
+            </a>
+          )}
+          layout="split"
+          title={props.result.memory.title}
+          titleElement="p"
+        />
+      </div>
+
+      <ReaderLandmarkRail
+        activeTocRange={activeTocRange}
+        expanded={landmarkExpanded()}
+        moments={moments()}
+        onCreateMoment={(section) => void toggleMoment(section)}
+        onExpandedChange={setLandmarkExpanded}
+        onOpenSectionMenu={openSectionMenu}
+        pendingMomentKey={pendingMomentKey()}
+        toc={props.result.rendered.toc}
+      />
+
+      <div class={`${readerPadding} trauma-reader-body py-6 pb-12`}>
+        <div class={readerColumn} data-reader-column>
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
@@ -1291,7 +1685,7 @@ function ReadyMemoryReader(props: {
             onPointerDown={handleReaderContentPointerDown}
             tabIndex={0}
           >
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+            <div class="mb-3">
               <Show
                 when={readerTitleHtml()}
                 fallback={(
@@ -1312,210 +1706,28 @@ function ReadyMemoryReader(props: {
                   />
                 )}
               </Show>
-              <Show when={canOpenTranslationSettings()}>
-                <div class="relative flex shrink-0 justify-end" data-reader-noncontent>
-                  <Popup
-                    disabled={translationProgress()?.status === "starting" || translationProgress()?.status === "running"}
-                    id={`memory-${props.result.memory.id}-translation-settings`}
-                    label="Translation settings"
-                    mode="dialog"
-                    panelClass="grid w-[min(18rem,calc(100vw-2rem))] gap-3 p-3 text-left"
-                    placement="bottom-end"
-                    onOpenChange={handleTranslationPopoverOpenChange}
-                    trigger={({ triggerProps }) => (
-                      <button
-                        {...triggerProps}
-                        aria-label="Translate memory"
-                        class="group grid h-10 w-10 grid-cols-[2.5rem_minmax(0,1fr)] items-center overflow-hidden rounded-full text-trauma-text-muted transition-[width,background-color,color] duration-200 hover:w-32 hover:bg-trauma-bg-elev hover:text-trauma-text-primary disabled:opacity-60"
-                        title="Translate memory"
-                        type="button"
-                      >
-                        <span class="grid size-10 place-items-center">
-                          <CodexIcon size={18} />
-                        </span>
-                        <span class="whitespace-nowrap pr-4 text-sm font-extrabold opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                          Translate
-                        </span>
-                      </button>
-                    )}
-                  >
-                    {({ close }) => (
-                      <form
-                        aria-busy={translationSubmitPending()}
-                        class="grid gap-3"
-                        onSubmit={submitTranslationDialog(close)}
-                      >
-                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                          Language
-                          <select
-                            aria-label="Language"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                            disabled={translationSubmitPending()}
-                            value={translationFormLanguage()}
-                            onChange={(event) =>
-                              setTranslationFormLanguage(
-                                event.currentTarget.value as SupportedLanguageCode,
-                              )
-                            }
-                          >
-                            {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
-                              <option
-                                selected={translationFormLanguage() === option.code}
-                                value={option.code}
-                              >
-                                {option.label} ({option.code})
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                          Model
-                          <select
-                            ref={translationModelSelectRef}
-                            aria-label="Model"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                            disabled={translationSubmitPending()}
-                            value={translationFormModel()}
-                            onChange={(event) =>
-                              setTranslationFormModel(event.currentTarget.value)
-                            }
-                          >
-                            <option
-                              selected={translationFormModel() === ""}
-                              value=""
-                            >
-                              Codex app-server default
-                            </option>
-                            <Show
-                              when={
-                                translationFormModel() !== "" &&
-                                !translationCatalogModels().some((model) =>
-                                  model.model === translationFormModel()
-                                )
-                              }
-                            >
-                              <option
-                                selected
-                                value={translationFormModel()}
-                              >
-                                {translationFormModel()}
-                              </option>
-                            </Show>
-                            {translationCatalogModels().map((model) => (
-                              <option
-                                selected={translationFormModel() === model.model}
-                                value={model.model}
-                              >
-                                {model.displayName} ({model.model})
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
-                          Reasoning effort
-                          <select
-                            aria-label="Reasoning effort"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
-                            disabled={translationSubmitPending()}
-                            value={translationFormEffort()}
-                            onChange={(event) =>
-                              setTranslationFormEffort(
-                                event.currentTarget.value as CodexReasoningEffort | "",
-                              )
-                            }
-                          >
-                            <option
-                              selected={translationFormEffort() === ""}
-                              value=""
-                            >
-                              Selected model default
-                            </option>
-                            <Show
-                              when={
-                                translationFormEffort() !== "" &&
-                                !translationReasoningEfforts().includes(
-                                  translationFormEffort() as CodexReasoningEffort,
-                                )
-                              }
-                            >
-                              <option
-                                selected
-                                value={translationFormEffort()}
-                              >
-                                {translationFormEffort()}
-                              </option>
-                            </Show>
-                            {translationReasoningEfforts().map((effort) => (
-                              <option
-                                selected={translationFormEffort() === effort}
-                                value={effort}
-                              >
-                                {effort}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <Show when={translationCatalogError()}>
-                          {(value) => (
-                            <div
-                              aria-busy={translationCatalogPending()}
-                              aria-live="assertive"
-                              class="grid justify-items-start gap-2"
-                              role="alert"
-                            >
-                              <p class="mb-0 text-xs font-bold text-trauma-text-muted">
-                                {value()}
-                              </p>
-                              <button
-                                aria-label={translationCatalogPending()
-                                  ? "Retrying model catalog..."
-                                  : "Retry model catalog"}
-                                class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary disabled:opacity-60"
-                                disabled={translationCatalogPending()}
-                                type="button"
-                                onClick={(event) =>
-                                  retryTranslationCatalog(event.currentTarget)}
-                              >
-                                {translationCatalogPending()
-                                  ? "Retrying..."
-                                  : "Retry"}
-                              </button>
-                            </div>
-                          )}
-                        </Show>
-                        <div class="flex justify-end gap-2">
-                          <button
-                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
-                            disabled={translationSubmitPending()}
-                            type="button"
-                            onClick={close}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
-                            disabled={translationSubmitPending()}
-                            type="submit"
-                          >
-                            Translate
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </Popup>
-                </div>
-              </Show>
             </div>
-            <div data-reader-noncontent>
-              <ReaderTaxonomyChips
-                categories={categories()}
-                memoryId={props.result.memory.id}
-                tagOptions={props.tagOptions}
-                tags={tags()}
-                onAddTag={attachTag}
-                onRemoveTag={detachTag}
-                onTaxonomyError={setErrorMessage}
-              />
+            <div
+              class="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-trauma-text-muted"
+              data-reader-meta-line
+              data-reader-noncontent
+            >
+              <span>{domainLabel()}</span>
+              <Show when={lengthBucket()}>
+                {(bucket) => (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{bucket()}</span>
+                  </>
+                )}
+              </Show>
+              <Show when={props.result.content.variants.length > 1}>
+                <span aria-hidden="true">·</span>
+                <ReaderVariantTabs
+                  inline
+                  variants={props.result.content.variants}
+                />
+              </Show>
             </div>
             <div
               ref={bodyContentRef}
@@ -1524,91 +1736,767 @@ function ReadyMemoryReader(props: {
               innerHTML={readerBodyHtml()}
             />
           </div>
-          <Show when={selectionMenu()}>
-            {(menu) => (
-              <ReaderContextMenu
-                label="Reader text selection actions"
-                menuRef={(element) => {
-                  selectionMenuRef = element;
-                }}
-                onDismiss={dismissSelectionMenu}
-                position={menu().position}
-              >
-                <button
-                  aria-label="Flashback selection"
-                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                  title="Flashback selection"
-                  disabled={pendingSelectionKey() === menu().key}
-                  type="button"
-                  onClick={commitSelectionMenu}
-                >
-                  {TraumaNavIcons.flashbacks.filled({ size: 18 })}
-                </button>
-                <Show when={menu().momentSection}>
-                  {(section) => (
-                    <button
-                      aria-label="Moment selected section"
-                      class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                      title="Moment selected section"
-                      disabled={pendingMomentKey() === getReaderMomentKey(section())}
-                      type="button"
-                      onClick={commitSelectionMomentMenu}
-                    >
-                      {TraumaNavIcons.moment.filled({ size: 18 })}
-                    </button>
-                  )}
-                </Show>
-              </ReaderContextMenu>
-            )}
-          </Show>
-          <Show when={sectionMenu()}>
-            {(menu) => (
-              <ReaderContextMenu
-                label="Reader section actions"
-                menuRef={(element) => {
-                  sectionMenuRef = element;
-                }}
-                onDismiss={dismissSectionMenu}
-                position={menu().position}
-              >
-                <button
-                  aria-label="Moment section"
-                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
-                  title="Moment section"
-                  disabled={pendingMomentKey() === menu().key}
-                  type="button"
-                  onClick={commitSectionMenu}
-                >
-                  {TraumaNavIcons.moment.filled({ size: 18 })}
-                </button>
-              </ReaderContextMenu>
-            )}
-          </Show>
+
+          <ReaderEndFooter
+            experimentLogEnabled={experimentLogEnabled()}
+            onPulse={handleEndFooterPulse}
+            onTriage={(nextState) => void handleEndFooterTriage(nextState)}
+            pulseNotice={endPulseNotice()}
+            triagePending={triagePending()}
+            triageState={triageState()}
+            triageStatus={triageStatus()}
+          />
+
           <Show when={errorMessage()}>
             {(message) => (
-              <p class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger" role="alert">
+              <p
+                class="mt-4 rounded-lg border border-trauma-danger bg-trauma-bg-elev px-3 py-2 text-sm font-semibold text-trauma-danger"
+                role="alert"
+              >
                 {message()}
               </p>
             )}
           </Show>
         </div>
       </div>
+
+      <ReadingRulerOverlay />
+      <ResumptionBeacon
+        memoryId={props.result.memory.id}
+        activeVariant={activeVariant()}
+        lastPosition={currentLastPosition()}
+        getBodyContainer={() => bodyContentRef}
+        getRootContainer={() => readerRootRef}
+      />
+
+      <Show when={inspectorOpen()}>
+        <aside
+          ref={inspectorRef}
+          id="reader-inspector-dialog"
+          aria-label="Reader Inspector"
+          class="trauma-reader-inspector flex flex-col border-l border-trauma-border bg-trauma-bg-elev text-trauma-text-primary shadow-trauma-drawer min-[1440px]:shadow-none"
+          data-reader-inspector="open"
+          role="dialog"
+        >
+          <header class="flex items-center justify-between gap-2 border-b border-trauma-border px-4 py-3">
+            <h2 class="mb-0 text-sm font-extrabold text-trauma-text-primary">
+              Inspector
+            </h2>
+            <button
+              ref={inspectorCloseRef}
+              aria-label="Close Inspector"
+              class="inline-flex min-h-8 items-center justify-center rounded-full border border-trauma-border px-2.5 text-xs font-bold text-trauma-text-secondary hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+              type="button"
+              onClick={closeInspector}
+            >
+              Close
+            </button>
+          </header>
+
+          <div
+            aria-label="Inspector sections"
+            class="grid grid-cols-5 gap-1 border-b border-trauma-border bg-trauma-bg-base/60 px-2 py-1.5"
+            role="tablist"
+          >
+            <For each={READER_INSPECTOR_TABS}>
+              {(tab) => {
+                const selected = () => inspectorTab() === tab.id;
+                return (
+                  <button
+                    aria-controls={`inspector-panel-${tab.id}`}
+                    aria-selected={selected()}
+                    class={`min-h-8 truncate rounded-lg px-1.5 text-[11px] font-bold transition ${
+                      selected()
+                        ? "bg-trauma-bg-elev text-trauma-text-primary ring-1 ring-inset ring-trauma-border-strong"
+                        : "text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+                    }`}
+                    data-inspector-tab={tab.id}
+                    id={`inspector-tab-${tab.id}`}
+                    role="tab"
+                    type="button"
+                    onClick={() => selectInspectorTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+            <Show when={inspectorTab() === "outline"}>
+              <div
+                aria-labelledby="inspector-tab-outline"
+                id="inspector-panel-outline"
+                role="tabpanel"
+              >
+                <ReaderToc
+                  activeTocRange={activeTocRange}
+                  moments={moments()}
+                  onCreateMoment={(section) => void toggleMoment(section)}
+                  onOpenSectionMenu={openSectionMenu}
+                  pendingMomentKey={pendingMomentKey()}
+                  toc={props.result.rendered.toc}
+                />
+              </div>
+            </Show>
+
+            <Show when={inspectorTab() === "marks"}>
+              <div
+                aria-labelledby="inspector-tab-marks"
+                class="grid gap-4"
+                id="inspector-panel-marks"
+                role="tabpanel"
+              >
+                <section class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-4">
+                  <h3 class="mb-2 text-sm font-extrabold text-trauma-text-primary">
+                    Moments
+                  </h3>
+                  <Show
+                    when={moments().length > 0}
+                    fallback={
+                      <p class="mb-0 text-xs text-trauma-text-muted">
+                        No moments for this memory yet.
+                      </p>
+                    }
+                  >
+                    <ul class="grid list-none gap-1.5 pl-0">
+                      <For each={moments()}>
+                        {(moment) => {
+                          const target = () =>
+                            resolveReaderMomentTarget(
+                              moment,
+                              props.result.rendered.toc,
+                            );
+                          const anchor = () =>
+                            target()?.id ?? moment.sectionAnchor;
+                          return (
+                            <li class="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 hover:bg-trauma-bg-tint">
+                              <a
+                                class="min-w-0 flex-1 truncate text-xs font-bold text-trauma-text-primary hover:underline"
+                                href={buildSameMemoryAnchorHref(anchor())}
+                              >
+                                {moment.sectionTitle}
+                              </a>
+                              <button
+                                aria-label={`Remove moment ${moment.sectionTitle}`}
+                                class="rounded-full px-2 py-0.5 text-[11px] font-bold text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-danger"
+                                type="button"
+                                onClick={() =>
+                                  void toggleMoment({
+                                    id: anchor(),
+                                    level: moment.sectionLevel,
+                                    path: moment.sectionPath,
+                                    text: moment.sectionTitle,
+                                  })
+                                }
+                              >
+                                Remove
+                              </button>
+                            </li>
+                          );
+                        }}
+                      </For>
+                    </ul>
+                  </Show>
+                </section>
+                <ReaderFlashbackTabs
+                  allFlashbacks={props.flashbackRows}
+                  currentFlashbacks={currentFlashbacks()}
+                  memoryId={props.result.memory.id}
+                />
+              </div>
+            </Show>
+
+            <Show when={inspectorTab() === "translate"}>
+              <div
+                aria-labelledby="inspector-tab-translate"
+                class="grid gap-4"
+                id="inspector-panel-translate"
+                role="tabpanel"
+              >
+                <ReaderVariantTabs variants={props.result.content.variants} />
+                <Show when={translationProgress()}>
+                  {(progress) => (
+                    <section
+                      aria-live={
+                        progress().status === "failed" ? "assertive" : "polite"
+                      }
+                      class="grid gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-base px-3 py-2.5 text-sm font-bold text-trauma-text-secondary"
+                      role={progress().status === "failed" ? "alert" : "status"}
+                    >
+                      <div class="flex items-center gap-2 text-trauma-text-primary">
+                        <CodexIcon size={16} />
+                        <span>{progress().message}</span>
+                      </div>
+                      <Show when={progress().preview.trim()}>
+                        {(preview) => (
+                          <p class="mb-0 max-h-20 overflow-hidden text-xs leading-relaxed text-trauma-text-muted">
+                            {preview()}
+                          </p>
+                        )}
+                      </Show>
+                    </section>
+                  )}
+                </Show>
+                <Show
+                  when={canOpenTranslationSettings()}
+                  fallback={
+                    <p class="mb-0 text-xs text-trauma-text-muted">
+                      {isTranslatedReader()
+                        ? "Viewing a translated variant. Switch to Original to start another translation."
+                        : "All supported translations are already available."}
+                    </p>
+                  }
+                >
+                  <form
+                    aria-busy={translationSubmitPending()}
+                    class="grid gap-3"
+                    onSubmit={submitTranslationDialog(() => undefined)}
+                  >
+                    <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                      Language
+                      <select
+                        aria-label="Language"
+                        class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                        disabled={translationSubmitPending()}
+                        value={translationFormLanguage()}
+                        onChange={(event) =>
+                          setTranslationFormLanguage(
+                            event.currentTarget.value as SupportedLanguageCode,
+                          )
+                        }
+                      >
+                        {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
+                          <option
+                            selected={translationFormLanguage() === option.code}
+                            value={option.code}
+                          >
+                            {option.label} ({option.code})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                      Model
+                      <select
+                        ref={translationModelSelectRef}
+                        aria-label="Model"
+                        class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                        disabled={translationSubmitPending()}
+                        value={translationFormModel()}
+                        onChange={(event) =>
+                          setTranslationFormModel(event.currentTarget.value)
+                        }
+                      >
+                        <option
+                          selected={translationFormModel() === ""}
+                          value=""
+                        >
+                          Codex app-server default
+                        </option>
+                        <Show
+                          when={
+                            translationFormModel() !== "" &&
+                            !translationCatalogModels().some(
+                              (model) => model.model === translationFormModel(),
+                            )
+                          }
+                        >
+                          <option selected value={translationFormModel()}>
+                            {translationFormModel()}
+                          </option>
+                        </Show>
+                        {translationCatalogModels().map((model) => (
+                          <option
+                            selected={translationFormModel() === model.model}
+                            value={model.model}
+                          >
+                            {model.displayName} ({model.model})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label class="grid gap-1 text-xs font-extrabold text-trauma-text-secondary">
+                      Reasoning effort
+                      <select
+                        aria-label="Reasoning effort"
+                        class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                        disabled={translationSubmitPending()}
+                        value={translationFormEffort()}
+                        onChange={(event) =>
+                          setTranslationFormEffort(
+                            event.currentTarget.value as
+                              | CodexReasoningEffort
+                              | "",
+                          )
+                        }
+                      >
+                        <option
+                          selected={translationFormEffort() === ""}
+                          value=""
+                        >
+                          Selected model default
+                        </option>
+                        <Show
+                          when={
+                            translationFormEffort() !== "" &&
+                            !translationReasoningEfforts().includes(
+                              translationFormEffort() as CodexReasoningEffort,
+                            )
+                          }
+                        >
+                          <option selected value={translationFormEffort()}>
+                            {translationFormEffort()}
+                          </option>
+                        </Show>
+                        {translationReasoningEfforts().map((effort) => (
+                          <option
+                            selected={translationFormEffort() === effort}
+                            value={effort}
+                          >
+                            {effort}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <Show when={translationCatalogError()}>
+                      {(value) => (
+                        <div
+                          aria-busy={translationCatalogPending()}
+                          aria-live="assertive"
+                          class="grid justify-items-start gap-2"
+                          role="alert"
+                        >
+                          <p class="mb-0 text-xs font-bold text-trauma-text-muted">
+                            {value()}
+                          </p>
+                          <button
+                            aria-label={
+                              translationCatalogPending()
+                                ? "Retrying model catalog..."
+                                : "Retry model catalog"
+                            }
+                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary disabled:opacity-60"
+                            disabled={translationCatalogPending()}
+                            type="button"
+                            onClick={(event) =>
+                              retryTranslationCatalog(event.currentTarget)
+                            }
+                          >
+                            {translationCatalogPending()
+                              ? "Retrying..."
+                              : "Retry"}
+                          </button>
+                        </div>
+                      )}
+                    </Show>
+                    <div class="flex justify-end gap-2">
+                      <button
+                        class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                        disabled={translationSubmitPending()}
+                        type="button"
+                        onClick={resetTranslationFormToDefaults}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
+                        disabled={translationSubmitPending()}
+                        type="submit"
+                      >
+                        Translate
+                      </button>
+                    </div>
+                  </form>
+                </Show>
+              </div>
+            </Show>
+
+            <Show when={inspectorTab() === "details"}>
+              <div
+                aria-labelledby="inspector-tab-details"
+                class="grid gap-4"
+                id="inspector-panel-details"
+                role="tabpanel"
+              >
+                <div class="grid gap-1">
+                  <p class="mb-0 text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+                    Source URL
+                  </p>
+                  <Show
+                    when={sourceHref()}
+                    fallback={(
+                      <ScrollableUrlDisplay
+                        class={readerSourceLinkClass}
+                        url={sourceUrl()}
+                      />
+                    )}
+                  >
+                    {(href) => (
+                      <ScrollableUrlLink
+                        class={`${readerSourceLinkClass} hover:text-trauma-link-hover hover:underline`}
+                        href={href()}
+                        rel="noreferrer"
+                        target="_blank"
+                        url={sourceUrl()}
+                      />
+                    )}
+                  </Show>
+                </div>
+
+                <Show when={capturedDateLabel()}>
+                  {(capturedDate) => (
+                    <div class="grid gap-0.5">
+                      <p class="mb-0 text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+                        Captured
+                      </p>
+                      <p class="mb-0 text-sm font-medium text-trauma-text-primary">
+                        {capturedDate()}
+                      </p>
+                    </div>
+                  )}
+                </Show>
+
+                <div class="grid gap-1.5">
+                  <p class="mb-0 text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+                    Read status
+                  </p>
+                  <MemoryReadStatusControl
+                    initialRead={readState()}
+                    memoryId={props.result.memory.id}
+                    variant="label"
+                    onChange={setReadState}
+                    onSaved={() =>
+                      revalidateAfterReadStatusChange(
+                        props.result.memory.id,
+                        props.result.content.langCode,
+                      )
+                    }
+                  />
+                </div>
+
+                <div class="grid gap-1.5">
+                  <p class="mb-0 text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+                    Categories &amp; Tags
+                  </p>
+                  <ReaderTaxonomyChips
+                    categories={categories()}
+                    memoryId={props.result.memory.id}
+                    tagOptions={props.tagOptions}
+                    tags={tags()}
+                    onAddTag={attachTag}
+                    onRemoveTag={detachTag}
+                    onTaxonomyError={setErrorMessage}
+                  />
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-trauma-divider pt-3">
+                  <MemoryActionMenu
+                    memoryId={props.result.memory.id}
+                    memoryTitle={props.result.memory.title}
+                    attachedCategories={categories()}
+                    categoryOptions={props.categoryOptions}
+                    onAttachCategoryByName={attachCategory}
+                    onDelete={deleteMemory}
+                  />
+                </div>
+              </div>
+            </Show>
+
+            <Show when={inspectorTab() === "psychiatrist"}>
+              <div
+                aria-labelledby="inspector-tab-psychiatrist"
+                class="h-full min-h-[24rem]"
+                id="inspector-panel-psychiatrist"
+                role="tabpanel"
+              >
+                <PsychiatristDock
+                  embedded
+                  langCode={props.result.content.langCode}
+                  memoryId={props.result.memory.id}
+                  onClose={closeInspector}
+                />
+              </div>
+            </Show>
+          </div>
+        </aside>
+      </Show>
+
+      <Show when={selectionMenu()}>
+        {(menu) => (
+          <ReaderContextMenu
+            label="Reader text selection actions"
+            menuRef={(element) => {
+              selectionMenuRef = element;
+            }}
+            onDismiss={dismissSelectionMenu}
+            position={menu().position}
+          >
+            <button
+              aria-label="Flashback selection"
+              class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+              title="Flashback selection"
+              disabled={pendingSelectionKey() === menu().key}
+              type="button"
+              onClick={commitSelectionMenu}
+            >
+              {TraumaNavIcons.flashbacks.filled({ size: 18 })}
+            </button>
+            <Show when={menu().momentSection}>
+              {(section) => (
+                <button
+                  aria-label="Moment selected section"
+                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  title="Moment selected section"
+                  disabled={pendingMomentKey() === getReaderMomentKey(section())}
+                  type="button"
+                  onClick={commitSelectionMomentMenu}
+                >
+                  {TraumaNavIcons.moment.filled({ size: 18 })}
+                </button>
+              )}
+            </Show>
+          </ReaderContextMenu>
+        )}
+      </Show>
+      <Show when={sectionMenu()}>
+        {(menu) => (
+          <ReaderContextMenu
+            label="Reader section actions"
+            menuRef={(element) => {
+              sectionMenuRef = element;
+            }}
+            onDismiss={dismissSectionMenu}
+            position={menu().position}
+          >
+            <button
+              aria-label="Moment section"
+              class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+              title="Moment section"
+              disabled={pendingMomentKey() === menu().key}
+              type="button"
+              onClick={commitSectionMenu}
+            >
+              {TraumaNavIcons.moment.filled({ size: 18 })}
+            </button>
+          </ReaderContextMenu>
+        )}
+      </Show>
     </article>
   );
 }
 
-function ReaderVariantTabs(props: { variants: ReaderContentVariant[] }) {
+function ReaderLandmarkRail(props: {
+  activeTocRange: Accessor<ActiveTocRange>;
+  expanded: boolean;
+  moments: ReaderMomentItem[];
+  onCreateMoment: (section: ReaderMomentSection) => void;
+  onExpandedChange: (expanded: boolean) => void;
+  onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
+  pendingMomentKey: string;
+  toc: ReaderTocEntry[];
+}) {
+  const activeLeadIndex = createMemo(() => {
+    const leadId = props.activeTocRange().leadId;
+    if (leadId === undefined) {
+      return -1;
+    }
+    return props.toc.findIndex((entry) => entry.id === leadId);
+  });
+
+  return (
+    <Show when={props.toc.length > 0}>
+      <nav
+        aria-label="Reading landmarks"
+        class="trauma-reader-landmark-rail max-[1040px]:hidden"
+        data-landmark-expanded={props.expanded ? "true" : "false"}
+        data-reader-landmark-rail
+        onFocusIn={() => props.onExpandedChange(true)}
+        onFocusOut={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+            props.onExpandedChange(false);
+          }
+        }}
+        onPointerEnter={() => props.onExpandedChange(true)}
+        onPointerLeave={() => props.onExpandedChange(false)}
+      >
+        <Show
+          when={props.expanded}
+          fallback={
+            <ol class="m-0 flex list-none flex-col items-center gap-2 rounded-full border border-transparent p-1.5">
+              <For each={props.toc}>
+                {(entry, index) => {
+                  const isCurrent = () =>
+                    props.activeTocRange().leadId === entry.id;
+                  const isVisited = () =>
+                    activeLeadIndex() >= 0 && index() <= activeLeadIndex();
+                  return (
+                    <li>
+                      <a
+                        aria-current={isCurrent() ? "location" : undefined}
+                        aria-label={entry.text}
+                        class="grid size-5 place-items-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent"
+                        href={`#${entry.id}`}
+                        title={entry.text}
+                      >
+                        <span
+                          aria-hidden="true"
+                          class="trauma-reader-landmark-node"
+                          data-landmark-current={isCurrent() ? "true" : "false"}
+                          data-landmark-visited={isVisited() ? "true" : "false"}
+                        />
+                      </a>
+                    </li>
+                  );
+                }}
+              </For>
+            </ol>
+          }
+        >
+          <div class="w-[260px] rounded-[22px] border border-trauma-border bg-trauma-bg-elev/95 p-1 shadow-trauma-2 backdrop-blur">
+            <ReaderToc
+              activeTocRange={props.activeTocRange}
+              moments={props.moments}
+              onCreateMoment={props.onCreateMoment}
+              onOpenSectionMenu={props.onOpenSectionMenu}
+              pendingMomentKey={props.pendingMomentKey}
+              toc={props.toc}
+            />
+          </div>
+        </Show>
+      </nav>
+    </Show>
+  );
+}
+
+function ReaderEndFooter(props: {
+  experimentLogEnabled: boolean;
+  onPulse: (rating: FocusPluginPulseRating) => void;
+  onTriage: (nextState: MemoryTriageState) => void;
+  pulseNotice: string;
+  triagePending: boolean;
+  triageState: MemoryTriageState | undefined;
+  triageStatus: string;
+}) {
+  return (
+    <footer
+      aria-label="End of article"
+      class="trauma-reader-end-footer mt-16 grid gap-4 border-t border-trauma-border pt-8 pb-12"
+      data-reader-end-footer
+    >
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Finish reading triage">
+        <button
+          aria-pressed={props.triageState === "library"}
+          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
+            props.triageState === "library"
+              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
+              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
+          }`}
+          data-end-triage="library"
+          disabled={props.triagePending}
+          type="button"
+          onClick={() => props.onTriage("library")}
+        >
+          Keep
+        </button>
+        <button
+          aria-pressed={props.triageState === "archive"}
+          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
+            props.triageState === "archive"
+              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
+              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
+          }`}
+          data-end-triage="archive"
+          disabled={props.triagePending}
+          type="button"
+          onClick={() => props.onTriage("archive")}
+        >
+          Let go
+        </button>
+        <button
+          aria-pressed={props.triageState === "shelf"}
+          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
+            props.triageState === "shelf"
+              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
+              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
+          }`}
+          data-end-triage="shelf"
+          disabled={props.triagePending}
+          type="button"
+          onClick={() => props.onTriage("shelf")}
+        >
+          Not now
+        </button>
+        <Show when={props.triageStatus !== ""}>
+          <span class="text-xs font-medium text-trauma-text-muted" role="status">
+            {props.triageStatus}
+          </span>
+        </Show>
+      </div>
+
+      <Show when={props.experimentLogEnabled}>
+        <div class="flex flex-wrap items-center gap-2" data-reader-end-pulse>
+          <span class="text-xs font-medium text-trauma-text-muted">
+            How did this session feel?
+          </span>
+          <div
+            aria-label="Reading focus pulse"
+            class="flex flex-wrap items-center gap-1.5"
+            role="group"
+          >
+            <For each={READER_PULSE_OPTIONS}>
+              {(option) => (
+                <button
+                  class="inline-flex min-h-7 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-bg-base px-2.5 text-[11px] font-bold text-trauma-text-primary hover:bg-trauma-bg-elev"
+                  type="button"
+                  onClick={() => props.onPulse(option.rating)}
+                >
+                  {option.label}
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={props.pulseNotice !== ""}>
+            <span class="text-xs font-medium text-trauma-text-muted" role="status">
+              {props.pulseNotice}
+            </span>
+          </Show>
+        </div>
+      </Show>
+    </footer>
+  );
+}
+
+function ReaderVariantTabs(props: {
+  compact?: boolean;
+  inline?: boolean;
+  variants: ReaderContentVariant[];
+}) {
   return (
     <Show when={props.variants.length > 1}>
       <nav
         aria-label="Memory content variants"
-        class="mb-5 flex flex-wrap gap-2 border-b border-trauma-border pb-3"
+        class={
+          props.inline
+            ? "inline-flex flex-wrap items-center gap-1.5"
+            : props.compact
+              ? "flex items-center gap-1"
+              : "mb-2 flex flex-wrap gap-2 border-b border-trauma-border pb-3"
+        }
       >
         <For each={props.variants}>
           {(variant) => (
             <a
               aria-current={variant.active ? "page" : undefined}
-              class="inline-flex min-h-9 items-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
+              class={
+                props.inline
+                  ? "rounded px-1.5 py-0.5 text-xs font-semibold text-trauma-text-muted transition hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
+                  : props.compact
+                    ? "inline-flex min-h-8 items-center rounded-full border border-trauma-border px-2.5 text-xs font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
+                    : "inline-flex min-h-9 items-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
+              }
               href={variant.readerUrl}
             >
               {variant.label}
@@ -2411,36 +3299,6 @@ function focusReaderToolbarButton(
   return true;
 }
 
-function ReaderRightRailContent(props: {
-  activeTocRange: Accessor<ActiveTocRange>;
-  currentFlashbacks: Accessor<ReaderFlashbackItem[]>;
-  flashbackRows?: FlashbackBrowseRow[];
-  moments: Accessor<ReaderMomentItem[]>;
-  memoryId: string;
-  onCreateMoment: (section: ReaderMomentSection) => void;
-  onOpenSectionMenu: (section: ReaderMomentSection, rect: DOMRect) => void;
-  pendingMomentKey: Accessor<string>;
-  toc: ReaderTocEntry[];
-}) {
-  return (
-    <div class="grid gap-4">
-      <ReaderToc
-        activeTocRange={props.activeTocRange}
-        moments={props.moments()}
-        onCreateMoment={props.onCreateMoment}
-        onOpenSectionMenu={props.onOpenSectionMenu}
-        pendingMomentKey={props.pendingMomentKey()}
-        toc={props.toc}
-      />
-      <ReaderFlashbackTabs
-        allFlashbacks={props.flashbackRows}
-        currentFlashbacks={props.currentFlashbacks()}
-        memoryId={props.memoryId}
-      />
-    </div>
-  );
-}
-
 export function ReaderFlashbackTabs(props: {
   allFlashbacks?: FlashbackBrowseRow[];
   currentFlashbacks: ReaderFlashbackItem[];
@@ -2774,6 +3632,21 @@ function clamp(value: number, min: number, max: number): number {
 function ReaderState(props: { message: string }) {
   return (
     <section class={readerFrame} aria-labelledby="reader-state-title">
+      <RouteHeader
+        class={`${readerPadding} trauma-reader-header`}
+        leading={() => (
+          <a
+            class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary"
+            href="/memories"
+            aria-label="Back to memories"
+          >
+            <ChevronLeftIcon />
+          </a>
+        )}
+        layout="single"
+        title="Memory"
+        titleElement="p"
+      />
       <div class={readerStatePanel}>
         <h1 class="mb-2 text-3xl font-bold text-trauma-text-primary" id="reader-state-title">{props.message}</h1>
         <p>Open another memory from the archive.</p>
@@ -3541,3 +4414,12 @@ function toPayload(selection: ReaderSelection): ReaderSelectionPayload {
     endOffset: selection.endOffset,
   };
 }
+
+const READER_PULSE_OPTIONS: ReadonlyArray<{
+  rating: FocusPluginPulseRating;
+  label: string;
+}> = [
+  { rating: "helped", label: "Helped" },
+  { rating: "neutral", label: "Neutral" },
+  { rating: "distracting", label: "Distracting" },
+];

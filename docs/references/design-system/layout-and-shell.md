@@ -1,16 +1,15 @@
 # Layout And Shell
 
-## Desktop Shell Grid
+## Desktop And Tablet Shell Grid
 
-The desktop shell is a three-column grid:
+The desktop and tablet shell (`min-width: 721px`) is a two-column focus-first grid:
 
 ```text
-275px left rail / minmax(0, 840px) main pane / 360px right rail
+56px icon-only left rail / minmax(0, 1fr) centered main canvas (max-width: 920px)
 ```
 
-The shell is centred with `justify-center`, but panes themselves are flush.
-There must be no contrasting gutter or material seam between the left rail,
-main pane, and right rail.
+There is no persistent right rail. Panes are flush with no contrasting gutter
+or material seam between the left rail and the main canvas.
 
 Column separation is always done with `border-trauma-border`. Paper/Hermès
 must keep those borders while avoiding pane-local background seams.
@@ -18,11 +17,15 @@ must keep those borders while avoiding pane-local background seams.
 ## Left Rail
 
 The left rail is the primary navigation surface. It is global, route-agnostic,
-and visible on desktop and tablet.
+and visible on desktop and tablet (`min-width: 721px`). On reader routes
+(`/memories/:id` and `/memories/:langCode/:id`), it auto-hides on downward
+scroll (`data-rail-hidden="true"`) and reveals on upward scroll, left-edge
+pointer proximity, or keyboard focus (`prefers-reduced-motion: reduce` disables
+the slide/fade transition).
 
-Current desktop contract:
+Current desktop/tablet contract:
 
-- Width: `275px`.
+- Width: `56px` icon-only rail.
 - Surface: `bg-trauma-bg-base`.
 - Paper/Hermès material: the app background is one global body-level material.
   Shell panes and route panes must stay transparent so the material reads as a
@@ -32,86 +35,45 @@ Current desktop contract:
   column borders as borders, not as background colour changes.
 - Hermès uses leather pore/fiber/grain noise over a flat base. Do not add broad
   radial glow, blob, or vignette gradients.
-- Padding: `px-2 py-1 pb-3`.
-- Position: sticky, full viewport height.
+- Position: sticky, full viewport height (`h-[100svh]`).
 - Border: right border only.
-- Internal layout: `flex flex-col gap-1.5`.
-- Brand/home mark: use the `30px` rail/tablet mark inside the `40px` icon
-  column. The phone header uses `28px`; Local archive uses `26px`.
+- Brand/home mark: centered inside the `40px` icon slot.
 
 Navigation item contract:
 
-- Grid: `grid-cols-[40px_minmax(0,1fr)]`.
-- Icon/text gap: `18px`.
-- Minimum height: `3rem`.
-- Text size: `19px`.
-- Text line-height: at least `1.2` so descenders such as `g`, `q`, `p`, and
-  `y` are not clipped.
+- Icon-only `40px` square hit targets with tooltips and accessible names.
 - Shape: rounded full pill for hit area only; active state must not add a
-  selected pill fill or surrounding primary-colour highlight.
-- Active route, all themes: use the filled icon variant and bold visible tab
-  label.
-- Active route, paper themes on desktop rail: draw the hand-written underline
-  from the active rail item, using the historical desktop geometry
-  `left: 62px`, `right: 18px`, and `bottom: 5px` so the line keeps a stable
-  width independent of the text span. Scope this with the left-rail container
-  width, not a viewport breakpoint.
-- Paper active underline draws from left to right on page render. Honour
-  reduced-motion by showing the completed underline without animation.
-- Tablet icon rail and phone bottom tabs must not render the paper underline.
-- Disabled/future routes: disabled button, low opacity, no live link.
+  selected pill fill, unread count pip, or surrounding primary-colour highlight.
+- Active route, all themes: use the filled icon variant.
+- Active route, paper themes on left rail: draw the hand-written underline
+  under the active icon. Honour `prefers-reduced-motion: reduce` by showing the
+  completed underline without animation.
+- Phone bottom tabs must not render the paper underline.
 
-Memories, Flashbacks, Moments, and Settings are live rail routes. Categories and
-Tags are desktop shortcuts to right-rail filters. Backup remains disabled until
-its route or action contract exists.
+`Today`, `Shelf`, `Library`, `Flashbacks`, `Moments`, and `Settings` are live
+rail routes. There are no disabled placeholder tabs.
 
-## Add Memory Action
+## Add Memory Action And Command Palette
 
-`Add memory` is a global shell action and opens the shared composer popover
-from the rail action on desktop shell layouts.
+`Add memory` is a normal icon button in the left rail (not an accent wax-seal
+CTA) that opens the shared capture popover. Capture accepts one URL and lands
+items directly on `Shelf` without asking for categories or tags.
 
-Current rail button contract:
-
-- Minimum height: `52px`.
-- Horizontal margin: `mx-1`.
-- Vertical margin: `my-3.5`.
-- Full pill shape.
-- Accent background.
-- Extra-bold `17px` label.
-
-Do not duplicate route-local add-memory forms when the shell action is
-sufficient.
-
-## Local Archive Surface
-
-The local archive row sits at the bottom of the left rail. It is not an auth
-profile and must not imply account management. It is a static status surface,
-not a button or menu trigger.
-
-Current contract:
-
-- Transparent background with no hover or pressed treatment.
-- Rounded rail layout without interactive semantics or a trailing action icon.
-- `40px` mark/avatar cell.
-- Text shows local archive status and a non-sensitive on-device label. Do not
-  expose or guess the configured store path in browser-visible shell chrome.
+`Cmd/Ctrl+K` opens the global Command Palette (`CommandPalette.tsx`) from every
+route, providing search, route navigation, URL capture, and Focus plugin
+toggles.
 
 ## Theme Controls
 
-Theme controls are opened from a normal `Theme` tab in the left rail and persist
-only to browser `localStorage`. The full control block must not be constantly
-expanded in the rail.
+Theme controls are opened from the `Theme` icon button in the left rail (or
+inside the phone `More` sheet) and persist only to browser `localStorage`. The
+full control block must not be constantly expanded in the rail.
 
 Interaction rules:
 
-- The `Theme` tab uses the same left-rail tab scale and icon/text rhythm as
-  other navigation controls.
-- The `Theme` tab icon is a paint-tool mark and does not change with the
-  selected brightness.
-- The `Theme` tab sits between `Backup` and `Settings`.
-- Clicking the tab opens a small popover from that tab.
-- The popover contains the existing brightness and surface controls.
-- Escape and outside pointer interaction close the popover.
+- Clicking the button opens a small popover with brightness and surface
+  controls.
+- Escape and outside pointer interaction dismiss the popover cleanly.
 
 Selection rules:
 
@@ -145,49 +107,12 @@ background in Light and Midnight. Paper/Hermès override the shell and route
 frame backgrounds to transparent so the single body-level material remains
 continuous.
 
-## Right Rail
+## Right Rail (Removed)
 
-The right rail is not a mirrored left rail. In Light and Midnight it is a
-base-colour column with independent rounded islands. In Paper/Hermès, the
-column frame is transparent over the global material and the islands keep their
-own framed surfaces.
-
-Current desktop contract:
-
-- Width: `360px`.
-- Surface: `bg-trauma-bg-base`.
-- Padding: `px-6 py-4`.
-- Height: fixed to the viewport.
-- Overflow: the rail frame is bounded; scrollable content must be explicit.
-- Hidden on tablet and mobile.
-- Contains no search input.
-
-Island contract:
-
-- Component: `RightPanelSection`.
-- Radius: `rounded-[20px]`.
-- Border: `border-trauma-border`.
-- Background: `bg-trauma-bg-base`.
-- Padding: `p-5`.
-
-Current islands:
-
-- Categories.
-- Tags.
-- Flashbacks.
-
-Route-specific content may be inserted above these browse filters when a route
-has a strong contextual aid. The current example is the reader table of
-contents on ready source and translated memory routes. This content is
-registered through the shell right rail context, appears before browse filters,
-and is cleared when the route
-unmounts. Do not show reader TOC content on `/memories`, `/flashbacks`, or other
-non-reader routes.
-
-Long right-rail aids must not grow the application layout by item count. TOC and
-Flashback shortcut lists render their item bodies as bounded scroll regions.
-The rail itself remains viewport-bound, and each long list owns its own
-scrolling.
+The legacy `360px` persistent right rail and `right-rail-context.tsx` have been
+removed. Taxonomy filters moved into the on-demand Library `Filters` popover,
+and peripheral reader aids (Outline, Marks, Translate, Details, Psychiatrist)
+moved into the single on-demand right-side reader `Inspector` dialog.
 
 ## Tablet And Mobile
 
@@ -198,9 +123,10 @@ fluid token can express the same behaviour.
 
 Shell thresholds:
 
-- Desktop: `min-[1041px]`, three columns.
-- Tablet: `721px` through `1040px`, compact left rail and route content.
-- Phone: `max-[720px]`, route content plus bottom primary tabs.
+- Desktop and tablet: `min-[721px]`, slim `56px` icon-only left rail and
+  centered route content (`max-w-[920px]`).
+- Phone: `max-[720px]`, compact brand header, route content, and fixed bottom
+  `Primary tabs` bar.
 
 Responsive implementation stack:
 
@@ -216,34 +142,15 @@ Responsive implementation stack:
   `prefers-reduced-motion`, `forced-colors`, `prefers-contrast`, and
   `orientation`.
 
-Tablet:
-
-- Left rail collapses to an `80px` icon rail.
-- Rail labels are visually hidden; icon size, icon slot, and brand mark remain
-  aligned to the same `40px` rhythm.
-- Right rail is hidden.
-- Main pane starts at column 2.
-- Header chrome does not duplicate the brand or filter affordances. There is no
-  filter drawer on tablet.
-- Theme and Add memory remain available from left-rail popovers. Those popovers
-  must render above the route pane.
-
 Phone:
 
 - The persistent left rail is hidden.
-- Primary navigation is the bottom `Primary tabs` bar, using a native-app-like
-  tab layout.
-- The phone tab bar renders every primary rail item: Memories, Flashbacks,
-  Moments, Categories, Tags, Backup, Add memory, Theme, and Settings.
-- When all tabs do not fit, only the tab bar scrolls horizontally. Do not drop
-  tabs or reintroduce navigation/filter drawers.
-- Categories, Tags, and Backup render as disabled tabs rather than links to
-  routes that do not exist. Settings is a live route.
-- Phone tab icons use a dedicated larger icon slot than the compact tablet rail.
-- Phone tab text labels are visually hidden. Keep accessible names on the tabs,
-  but do not render visible text in the bottom bar.
-- Add memory and Theme open popovers above the bottom bar.
-- Right rail content and filter drawers are not rendered as mobile chrome.
+- Compact top brand header exposes Search/Command Palette and Capture actions.
+- Primary navigation is the bottom `Primary tabs` bar with exactly four live
+  tabs: `Today`, `Shelf`, `Library`, and `More`.
+- `More` opens a sheet containing `Flashbacks`, `Moments`, `Settings`, and
+  `Theme`.
+- No disabled placeholder tabs and no side filter drawer.
 - Phone route content reserves bottom safe-area space so the tab bar does not
   cover interactive content.
 
@@ -265,7 +172,7 @@ Reader image contract:
 ## Route Frame Ownership
 
 Route frame classes belong to the route surface, not the shell. The shell owns
-columns, global navigation, bottom phone tabs, global composer popover state,
-and the right rail slot. Route files own headers, search controls, read-state
-tabs, empty states, reader content, and
+columns, global navigation, Command Palette, bottom phone tabs, global composer
+and theme popover state, and backup failsafe banner. Route files own headers,
+search controls, lane/triage controls, empty states, reader content, and
 route-specific loading states.

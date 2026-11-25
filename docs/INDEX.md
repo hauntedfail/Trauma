@@ -14,6 +14,9 @@ disagree, verify the code and tests, then correct the owning semantic document.
   translation, Psychiatrist, and git backup.
 - [UI and routing](architecture/ui-and-routing.md): canonical routes, shell,
   browse/filter state, reader behavior, and responsive navigation.
+- [Focus-first UI](architecture/focus-first-ui.md): implemented focus-first
+  architecture for the shell, browse lanes (Today, Shelf, Library), reader,
+  and focus plugins, derived from the ADHD-focus research.
 
 ## References
 
@@ -26,6 +29,12 @@ disagree, verify the code and tests, then correct the owning semantic document.
 - [Coding standards](references/coding-standards/INDEX.md): TypeScript,
   SolidStart, Bun, Drizzle, security, testing, and review-feedback rules.
 - [Glossary](references/glossary.md): product terms and persisted status fields.
+- [ADHD-focus research and plugin catalog](references/adhd-focus-research.md):
+  empirical HCI/cognitive-accessibility findings and modular focus plugin
+  candidates.
+- [ADHD-focus evaluation protocol](references/adhd-focus-evaluation-protocol.md):
+  N-of-1 single-case experimental design (ABAB / ATD), RSD-safe telemetry,
+  graduation/kill criteria, and Hermes periodic review digest workflow.
 
 ## Operations And Quality
 

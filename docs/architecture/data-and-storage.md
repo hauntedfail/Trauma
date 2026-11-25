@@ -99,6 +99,17 @@ Runtime tables:
 - `translation_jobs`
 - `translation_chunks`
 - `translation_projection_spans`
+- `memory_search_fts` (FTS5 virtual table: `memory_id UNINDEXED`, `title`, `url`, `description`, `body_text`, `tokenize='unicode61'`)
+
+`memory_search_fts` is a derived SQLite full-text search index over memory
+metadata and plain-text-stripped `CONTENT.md` bodies. It is not a source of
+truth and is not part of built-in git backup: creating a memory upserts its
+index row, deleting a memory removes its index row, and
+`backfillMemorySearchIndex` can index existing memories from disk (skipping
+missing files safely). Because SQLite's `unicode61` tokenizer treats contiguous
+CJK runs as single tokens, CJK/Japanese queries combine FTS5 matching with a
+`LIKE` substring fallback over `memory_search_fts` so substring searches match
+reliably and still produce snippets.
 
 Runtime initialization applies and validates bundled migrations before
 repositories are exposed. Application code must not observe a partially

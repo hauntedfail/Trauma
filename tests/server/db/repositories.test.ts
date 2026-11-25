@@ -1617,6 +1617,257 @@ describe("memory and taxonomy repositories", () => {
       categories: 1,
     });
   });
+
+  it("supports idempotent triage transitions with todayCap, lastPosition, markOpened, lane filters, last_opened sort, and lazy Shelf TTL", () => {
+    const root = createTempRoot(tempRoots);
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const connection = initializeDatabase({
+          configFilePath: join(root, "trauma.config.json"),
+          projectPath: join(root, "data"),
+          storePath: join(root, "data/store"),
+          databasePath: join(root, ".trauma/trauma.sqlite"),
+          backup: {
+            git: {
+              enabled: false,
+              remote: "origin",
+              branch: "main",
+              push: false,
+              commitMessageTemplate: "backup memory {memoryId}",
+            },
+          },
+        });
+
+        try {
+          const base = new Date("2026-05-01T10:00:00.000Z");
+          const oldShelfDate = new Date("2026-04-01T10:00:00.000Z");
+          const freshShelfDate = new Date("2026-05-14T10:00:00.000Z");
+          const now = new Date("2026-05-15T10:00:00.000Z");
+
+          await connection.repositories.memories.create({
+            id: "mem-1",
+            url: "https://example.com/1",
+            title: "Old Shelf Item",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/mem-1/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            triageState: "shelf",
+            triageChangedAt: oldShelfDate,
+            wordCount: 420,
+            createdAt: oldShelfDate,
+            updatedAt: oldShelfDate,
+          });
+          await connection.repositories.memories.create({
+            id: "mem-2",
+            url: "https://example.com/2",
+            title: "Fresh Shelf Item",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/mem-2/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            triageState: "shelf",
+            triageChangedAt: freshShelfDate,
+            wordCount: 1100,
+            createdAt: freshShelfDate,
+            updatedAt: freshShelfDate,
+          });
+          await connection.repositories.memories.create({
+            id: "mem-3",
+            url: "https://example.com/3",
+            title: "Library Item A",
+            description: null,
+            faviconUrl: null,
+            contentPath: "memories/mem-3/CONTENT.md",
+            extractionStatus: "success",
+            extractionError: null,
+            backupStatus: "disabled",
+            triageState: "library",
+            triageChangedAt: base,
+            wordCount: 2200,
+            createdAt: base,
+            updatedAt: base,
+          });
+
+          const move1 = await connection.repositories.memories.setTriageState({
+            memoryId: "mem-2",
+            triageState: "today",
+            todayCap: 1,
+            now: new Date("2026-05-15T01:00:00.000Z"),
+          });
+          const move1Again = await connection.repositories.memories.setTriageState({
+            memoryId: "mem-2",
+            triageState: "today",
+            todayCap: 1,
+            now: new Date("2026-05-15T02:00:00.000Z"),
+          });
+          const moveCapBlocked = await connection.repositories.memories.setTriageState({
+            memoryId: "mem-3",
+            triageState: "today",
+            todayCap: 1,
+            now: new Date("2026-05-15T02:00:00.000Z"),
+          });
+          const moveMissing = await connection.repositories.memories.setTriageState({
+            memoryId: "mem-missing",
+            triageState: "library",
+            now,
+          });
+
+          const position = {
+            variant: "source",
+            headingId: "sec-2",
+            paragraphIndex: 7,
+            scrollRatio: 0.42,
+            updatedAt: "2026-05-15T05:00:00.000Z",
+          };
+          await connection.repositories.memories.updateLastPosition({
+            memoryId: "mem-3",
+            lastPosition: position,
+            updatedAt: new Date("2026-05-15T05:00:00.000Z"),
+          });
+          await connection.repositories.memories.markOpened({
+            memoryId: "mem-2",
+            openedAt: new Date("2026-05-15T06:00:00.000Z"),
+          });
+
+          await connection.repositories.memories.setTriageState({
+            memoryId: "mem-2",
+            triageState: "shelf",
+            now: freshShelfDate,
+          });
+
+          const openedPage1 = await connection.repositories.memories.listForBrowsePage({
+            categoryId: "",
+            cursor: null,
+            flashbackId: "",
+            limit: 2,
+            readState: "all",
+            sort: "last_opened",
+            searchFields: [],
+            searchTerms: [],
+            tagId: "",
+          });
+          const openedPage2 = await connection.repositories.memories.listForBrowsePage({
+            categoryId: "",
+            cursor: openedPage1.nextCursor,
+            flashbackId: "",
+            limit: 2,
+            readState: "all",
+            sort: "last_opened",
+            searchFields: [],
+            searchTerms: [],
+            tagId: "",
+          });
+
+          const shelfMarked = await connection.repositories.memories.listForBrowsePage({
+            categoryId: "",
+            cursor: null,
+            flashbackId: "",
+            lane: "shelf",
+            limit: 10,
+            readState: "all",
+            shelfTtlDays: 14,
+            shelfExpiryAction: "mark",
+            now,
+            searchFields: [],
+            searchTerms: [],
+            tagId: "",
+          });
+
+          const shelfArchived = await connection.repositories.memories.listForBrowsePage({
+            categoryId: "",
+            cursor: null,
+            flashbackId: "",
+            lane: "shelf",
+            limit: 10,
+            readState: "all",
+            shelfTtlDays: 14,
+            shelfExpiryAction: "soft-archive",
+            now,
+            searchFields: [],
+            searchTerms: [],
+            tagId: "",
+          });
+
+          const archiveLane = await connection.repositories.memories.listForBrowsePage({
+            categoryId: "",
+            cursor: null,
+            flashbackId: "",
+            lane: "library",
+            includeArchive: true,
+            limit: 10,
+            readState: "all",
+            searchFields: [],
+            searchTerms: [],
+            tagId: "",
+          });
+
+          process.stdout.write(JSON.stringify({
+            move1Status: move1.status,
+            move1Changed: move1.status === "updated" ? move1.changed : null,
+            move1AgainStatus: move1Again.status,
+            move1AgainChanged: move1Again.status === "updated" ? move1Again.changed : null,
+            move1AgainTimestampPreserved:
+              move1.status === "updated" && move1Again.status === "updated"
+                ? move1.memory.triageChangedAt.getTime() === move1Again.memory.triageChangedAt.getTime()
+                : false,
+            moveCapBlocked,
+            moveMissing,
+            openedOrder: [...openedPage1.rows, ...openedPage2.rows].map((row) => row.id),
+            mem3LastPosition: openedPage1.rows.find((row) => row.id === "mem-3")?.lastPosition ?? null,
+            mem3WordCount: openedPage1.rows.find((row) => row.id === "mem-3")?.wordCount ?? null,
+            shelfMarked: shelfMarked.rows.map((row) => ({ id: row.id, shelfExpired: row.shelfExpired })),
+            shelfAfterSoftArchive: shelfArchived.rows.map((row) => row.id),
+            archiveIds: archiveLane.rows.map((row) => row.id),
+          }));
+        } finally {
+          connection.close();
+        }
+      `,
+      { TRAUMA_TEST_ROOT: root },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      move1Status: "updated",
+      move1Changed: true,
+      move1AgainStatus: "updated",
+      move1AgainChanged: false,
+      move1AgainTimestampPreserved: true,
+      moveCapBlocked: {
+        status: "today_cap_reached",
+        todayCount: 1,
+        todayCap: 1,
+      },
+      moveMissing: { status: "not_found" },
+      openedOrder: ["mem-2", "mem-3", "mem-1"],
+      mem3LastPosition: {
+        variant: "source",
+        headingId: "sec-2",
+        paragraphIndex: 7,
+        scrollRatio: 0.42,
+        updatedAt: "2026-05-15T05:00:00.000Z",
+      },
+      mem3WordCount: 2200,
+      shelfMarked: [
+        { id: "mem-2", shelfExpired: false },
+        { id: "mem-1", shelfExpired: true },
+      ],
+      shelfAfterSoftArchive: ["mem-2"],
+      archiveIds: ["mem-1"],
+    });
+  });
 });
 
 function createTempRoot(tempRoots: string[]): string {

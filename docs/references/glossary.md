@@ -49,11 +49,44 @@ older use of `Flashback` for section bookmarks.
 `Moment`. Prefer `Moment` in user-facing docs.
 
 `Psychiatrist`
-: TRAUMA product language for a memory-scoped reader assistant. It answers from
-the active memory context and current thread pair history; it is not a medical
-professional and does not provide diagnosis or treatment advice.
+: TRAUMA product language for a memory-scoped reader assistant mounted inside
+Reader > Inspector > Psychiatrist. It answers from the active memory context
+and current thread pair history; it is not a medical professional and does not
+provide diagnosis or treatment advice.
+
+`Today`
+: Default `/memories` browse lane holding a small set of picked items
+(`triage_state = 'today'`) for active reading, capped without unread debt
+counters.
+
+`Shelf`
+: Ephemeral landing lane (`/memories?lane=shelf`, `triage_state = 'shelf'`) for
+newly captured memories awaiting deferred triage (`p` Pick, `l` Library, `x` Let
+go, `u` Undo).
+
+`Library`
+: Permanent kept collection (`/memories?lane=library`,
+`triage_state = 'library'`) with search and an on-demand `Filters` popover for
+categories, tags, and Flashbacks.
+
+`Inspector`
+: Single on-demand right-side reader dialog (`Outline`, `Marks`, `Translate`,
+`Details`, `Psychiatrist`) that replaces the legacy persistent right rail.
 
 ## Status Fields
+
+`triage_state`
+: Focus-first browse lifecycle state for a memory: `shelf`, `today`, `library`,
+or `archive`. New captures land in `shelf` without premature taxonomy prompts.
+
+`last_position`
+: Persisted JSON reading position (`variant`, `headingId`, `paragraphIndex`,
+`scrollRatio`, `updatedAt`) owned by the core reader for silent reopen restore
+and consumed by the optional `resumption-beacon` plugin for visual cues.
+
+`word_count`
+: Persisted source word count used to display neutral length buckets
+(`short` / `medium` / `long`) rather than countdown timers.
 
 `extraction_status`
 : Import/extraction state for a memory. It distinguishes successful extraction

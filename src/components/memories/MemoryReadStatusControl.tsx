@@ -40,11 +40,19 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal("");
   let requestVersion = 0;
+  let lastSyncedMemoryId = props.memoryId;
 
   createEffect(
     on(
       () => [props.memoryId, props.initialRead] as const,
-      ([, nextRead]) => {
+      ([nextMemoryId, nextRead]) => {
+        const sameMemory = nextMemoryId === lastSyncedMemoryId;
+        lastSyncedMemoryId = nextMemoryId;
+        // Ignore the parent echoing back our own optimistic onChange value
+        // while the read-status request for this memory is still in flight.
+        if (sameMemory && pending() && nextRead === read()) {
+          return;
+        }
         requestVersion += 1;
         setRead(nextRead);
         setPending(false);

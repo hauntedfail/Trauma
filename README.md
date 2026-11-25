@@ -18,6 +18,26 @@ Bun runtime, SQLite for relational state, a file-backed memory store for reader
 content and Psychiatrist threads, and built-in git backup for selected store
 artifacts.
 
+## Design Philosophy
+
+TRAUMA is designed with an **ADHD-focus** philosophy for personal reading,
+bookmarking, and knowledge retention:
+
+- **Low-friction capture, low-cost resumption**: Saving links should be
+  effortless, and returning to a saved memory after a context switch should not
+  require rebuilding mental context from scratch.
+- **Single-focus over visual sprawl**: Interfaces should minimize cognitive
+  clutter, competing rails, and decision fatigue during triage and deep reading.
+- **Modular, toggleable focus plugins**: ADHD traits and effective coping
+  mechanisms differ from person to person. Focus, triage, and reading
+  interventions are therefore designed as modular plugins that can be
+  individually enabled, disabled, and tuned—making it practical to run personal
+  experiments and keep only what genuinely improves focus.
+- **Research-informed, personally owned**: UI experiments draw from empirical
+  HCI and cognitive-accessibility literature rather than ad-hoc gimmicks, while
+  all memories, notes, and AI discussions stay local/self-hosted and backed by
+  plain files and Git.
+
 ## Status
 
 The current baseline includes URL and browser-assisted import, memory browsing

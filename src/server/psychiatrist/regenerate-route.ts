@@ -11,8 +11,8 @@ import {
   type ResolvedTraumaConfig,
 } from "../config";
 import { jsonResponse } from "../http/json";
+import { createLlmConversationClient } from "../llm/provider";
 import {
-  CodexAppServerClient,
   CodexAppServerError,
   type CodexAppServerEvent,
   type CodexConversationClient,
@@ -272,7 +272,7 @@ export async function handleRegeneratePsychiatristResponseRequest(
     });
 
     const ownsClient = input.client === undefined;
-    const client = input.client ?? input.createClient?.() ?? new CodexAppServerClient();
+    const client = input.client ?? input.createClient?.() ?? createLlmConversationClient();
     activeTurns.register({
       client,
       ...(loaded.contextSnapshot.langCode === undefined ? {} : { langCode: loaded.contextSnapshot.langCode }),

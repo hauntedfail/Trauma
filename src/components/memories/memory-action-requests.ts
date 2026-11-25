@@ -1,18 +1,119 @@
-import type { BrowseTaxonomyItem } from "./browse-data";
+import type { BrowseTaxonomyItem, MemoryTriageState } from "./browse-data";
+
+export const TODAY_CAP_REACHED_MESSAGE =
+  "Today is full. Finish or return one first.";
 
 export type FetchFunction = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
 
+export interface MemoryActionRequestErrorOptions {
+  backupFailsafe?: boolean;
+  code?: string;
+  status?: number;
+  todayCount?: number;
+  todayCap?: number;
+}
+
 export class MemoryActionRequestError extends Error {
   readonly backupFailsafe: boolean;
+  readonly code: string | undefined;
+  readonly status: number | undefined;
+  readonly todayCount: number | undefined;
+  readonly todayCap: number | undefined;
 
-  constructor(message: string, options: { backupFailsafe?: boolean } = {}) {
+  constructor(
+    message: string,
+    options: MemoryActionRequestErrorOptions = {},
+  ) {
     super(message);
     this.name = "MemoryActionRequestError";
     this.backupFailsafe = options.backupFailsafe === true;
+    this.code = options.code;
+    this.status = options.status;
+    this.todayCount = options.todayCount;
+    this.todayCap = options.todayCap;
   }
+}
+
+export interface SetMemoryTriageStateInput {
+  memoryId: string;
+  triageState: MemoryTriageState;
+  todayCap?: number | null;
+  fetch?: FetchFunction;
+}
+
+export interface SetMemoryTriageStateResult {
+  memoryId: string;
+  triageState: MemoryTriageState;
+  triageChangedAt: string;
+  changed: boolean;
+}
+
+export async function setMemoryTriageState(
+  input: SetMemoryTriageStateInput,
+): Promise<SetMemoryTriageStateResult> {
+  const requestFetch = input.fetch ?? fetch;
+  const response = await requestFetch(
+    `/api/memories/${encodeURIComponent(input.memoryId)}/triage`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        triage_state: input.triageState,
+        ...(input.todayCap !== undefined ? { todayCap: input.todayCap } : {}),
+      }),
+    },
+  );
+
+  const body = await readJsonRecord(response);
+  if (!response.ok) {
+    const code = typeof body?.code === "string" ? body.code : undefined;
+    const todayCount =
+      typeof body?.todayCount === "number" ? body.todayCount : undefined;
+    const todayCap =
+      typeof body?.todayCap === "number" ? body.todayCap : undefined;
+    throw new MemoryActionRequestError(
+      readErrorMessage(body) ??
+        (code === "today_cap_reached"
+          ? TODAY_CAP_REACHED_MESSAGE
+          : "Could not update lane. Please try again."),
+      {
+        backupFailsafe: hasBackupFailsafe(body),
+        code,
+        status: response.status,
+        todayCount,
+        todayCap,
+      },
+    );
+  }
+
+  const triageState =
+    typeof body?.triageState === "string"
+      ? (body.triageState as MemoryTriageState)
+      : input.triageState;
+  const triageChangedAt =
+    typeof body?.triageChangedAt === "string"
+      ? body.triageChangedAt
+      : new Date().toISOString();
+  const changed = typeof body?.changed === "boolean" ? body.changed : true;
+
+  return {
+    memoryId: typeof body?.memoryId === "string" ? body.memoryId : input.memoryId,
+    triageState,
+    triageChangedAt,
+    changed,
+  };
+}
+
+export function isTodayCapReachedError(error: unknown): boolean {
+  return (
+    error instanceof MemoryActionRequestError &&
+    (error.code === "today_cap_reached" || error.status === 409)
+  );
 }
 
 export async function attachTagToMemoryByName(input: {

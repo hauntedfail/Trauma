@@ -6,8 +6,8 @@ import {
 } from "../../settings/languages";
 import { formatConfigError, jsonResponse } from "../http/json";
 import { readJsonMutationRequest } from "../http/mutation-request";
+import { createLlmModelsClient } from "../llm/provider";
 import {
-  CodexAppServerClient,
   CodexAppServerError,
   safeCodexAppServerErrorMessage,
   type CodexModelCatalog,
@@ -78,7 +78,7 @@ export function createReadCodexModelsHandler(input: {
   listModels?: ListCodexModels;
 } = {}) {
   const listModels = input.listModels ??
-    (() => listModelsWithOwnedClient(input.createClient?.() ?? new CodexAppServerClient()));
+    (() => listModelsWithOwnedClient(input.createClient?.() ?? createLlmModelsClient()));
   return async function readCodexModels(_event: APIEvent): Promise<Response> {
     try {
       return jsonResponse(await listModels(), { status: 200 });
@@ -95,7 +95,7 @@ export function createUpdateCodexTranslationDefaultsHandler(input: {
   updateDefaults?: UpdateDefaults;
 } = {}) {
   const listModels = input.listModels ??
-    (() => listModelsWithOwnedClient(input.createClient?.() ?? new CodexAppServerClient()));
+    (() => listModelsWithOwnedClient(input.createClient?.() ?? createLlmModelsClient()));
   const readDefaults = input.readDefaults ?? getCodexTranslationDefaults;
   const updateDefaults = input.updateDefaults ??
     ((defaults) => updateCodexTranslationDefaults(defaults));
@@ -132,7 +132,7 @@ export function createUpdateTranslationDefaultsHandler(input: {
   updateDefaults?: UpdateCombinedDefaults;
 } = {}) {
   const listModels = input.listModels ??
-    (() => listModelsWithOwnedClient(input.createClient?.() ?? new CodexAppServerClient()));
+    (() => listModelsWithOwnedClient(input.createClient?.() ?? createLlmModelsClient()));
   const updateDefaults = input.updateDefaults ?? updateTranslationDefaults;
 
   return async function updateTranslationDefaultsRoute(

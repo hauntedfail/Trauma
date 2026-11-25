@@ -99,9 +99,9 @@ describe("button hover hints", () => {
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
     expect(appShellSource).toContain('title="Theme settings"');
-    expect(appShellSource).toContain('hint="Add memory"');
+    expect(appShellSource).toContain('title="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
-    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
+    expect(memoryBrowseSource).toContain("data-browse-lane");
     expect(memoryBrowseSource).toContain("TaxonomyAddControl");
     expect(taxonomyAddControlSource).toContain("title={label()}");
     expect(addMemoryFormSource).toContain(

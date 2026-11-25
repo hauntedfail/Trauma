@@ -61,8 +61,9 @@ describe("dismissable popup layers", () => {
     );
   });
 
-  it("keeps anchored popover dismissal inside the shared Popup shell", () => {
+  it("keeps anchored popover dismissal inside the shared Popup shell and uses dismissable-layer for the reader Inspector", () => {
     expect(popupSource).toContain("useDismissableLayer");
-    expect(memoryReaderSource).not.toContain("useDismissableLayer");
+    expect(memoryReaderSource).toContain("useDismissableLayer");
+    expect(memoryReaderSource).toContain("getRoot: () => inspectorRef");
   });
 });

@@ -3,6 +3,7 @@ import { Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 import { AppShell } from "./components/shell/AppShell";
+import { FocusPluginProvider } from "./plugins";
 import "./styles/tailwind.css";
 
 export default function App() {
@@ -12,9 +13,11 @@ export default function App() {
         <MetaProvider>
           <Title>TRAUMA</Title>
           <Link href="/favicon.ico" rel="icon" type="image/png" />
-          <Suspense>
-            <AppShell>{props.children}</AppShell>
-          </Suspense>
+          <FocusPluginProvider>
+            <Suspense>
+              <AppShell>{props.children}</AppShell>
+            </Suspense>
+          </FocusPluginProvider>
         </MetaProvider>
       )}
     >

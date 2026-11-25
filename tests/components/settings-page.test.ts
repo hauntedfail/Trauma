@@ -323,7 +323,7 @@ describe("settings page", () => {
 
   it("exposes settings in desktop and phone navigation", () => {
     expect(appShellSource).toContain('href: "/settings"');
-    expect(appShellSource).toContain("settingsNavItem");
+    expect(appShellSource).toContain("phoneMoreRoutes");
     expect(appShellSource).not.toContain('href="/backup"');
   });
 
