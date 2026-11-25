@@ -40,10 +40,13 @@ import {
   projectPsychiatristTranscriptWindow,
 } from "./psychiatrist-transcript-window";
 import { useDismissableLayer } from "../ui/dismissable-layer";
+import { AdaptiveAiResponse } from "../../plugins";
 
 interface PsychiatristDockProps {
+  embedded?: boolean;
   langCode?: string;
   memoryId: string;
+  onClose?: () => void;
 }
 
 interface PsychiatristPromptKeyInput {
@@ -119,7 +122,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   let panelRef: HTMLElement | undefined;
   let transcriptRef: HTMLDivElement | undefined;
   let disconnectPsychiatristStream: (() => void) | undefined;
-  const [isOpen, setIsOpen] = createSignal(false);
+  const [isOpen, setIsOpen] = createSignal(props.embedded === true);
   const [thread, setThread] = createSignal<PsychiatristThreadResponse>();
   const [transcriptPairs, setTranscriptPairs] = createSignal<
     PsychiatristTranscriptPair[]
@@ -169,6 +172,10 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
   const closeDock = () => {
     openFocusGeneration += 1;
     transcriptScrollGeneration += 1;
+    if (props.embedded) {
+      props.onClose?.();
+      return;
+    }
     setIsOpen(false);
     triggerRef?.focus();
   };
@@ -914,6 +921,9 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
 
   onMount(() => {
     document.addEventListener("keydown", handleKeyDown);
+    if (props.embedded) {
+      openDock();
+    }
     onCleanup(() => {
       isDisposed = true;
       openFocusGeneration += 1;
@@ -926,24 +936,34 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
 
   return (
     <div
-      class="trauma-psychiatrist-dock fixed inset-x-0 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-[60] mx-auto grid w-[min(100%-1.5rem,26rem)] justify-items-center px-3 min-[721px]:bottom-6"
+      class={
+        props.embedded
+          ? "trauma-psychiatrist-dock trauma-psychiatrist-embedded grid h-full min-h-0 w-full"
+          : "trauma-psychiatrist-dock fixed inset-x-0 bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))] z-[60] mx-auto grid w-[min(100%-1.5rem,26rem)] justify-items-center px-3 min-[721px]:bottom-6"
+      }
       data-psychiatrist-lang-code={props.langCode}
     >
       <style>{psychiatristDockStyles}</style>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label="Open Psychiatrist"
-        aria-expanded={isOpen()}
-        class="h-8 w-32 rounded-full border border-trauma-border bg-trauma-text-primary/85 shadow-lg shadow-black/10 transition hover:bg-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-trauma-focus"
-        data-psychiatrist-dock="collapsed"
-        onClick={openDock}
-      />
+      <Show when={!props.embedded}>
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label="Open Psychiatrist"
+          aria-expanded={isOpen()}
+          class="h-8 w-32 rounded-full border border-trauma-border bg-trauma-text-primary/85 shadow-lg shadow-black/10 transition hover:bg-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-trauma-focus"
+          data-psychiatrist-dock="collapsed"
+          onClick={openDock}
+        />
+      </Show>
       <Show when={isOpen()}>
         <section
           ref={panelRef}
           aria-label="Psychiatrist"
-          class="trauma-psychiatrist-panel mt-3 grid max-h-[min(70vh,34rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border border-trauma-border bg-trauma-bg-elev p-3 text-trauma-text-primary shadow-xl"
+          class={
+            props.embedded
+              ? "trauma-psychiatrist-panel grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 text-trauma-text-primary"
+              : "trauma-psychiatrist-panel mt-3 grid max-h-[min(70vh,34rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border border-trauma-border bg-trauma-bg-elev p-3 text-trauma-text-primary shadow-xl"
+          }
           data-psychiatrist-dock="expanded"
         >
           <header class="flex items-center justify-between gap-3">
@@ -1043,7 +1063,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                         when={pair.answer}
                         fallback={<p class="text-xs uppercase tracking-[0.08em]">{pair.status}</p>}
                       >
-                        {(response) => <p>{response()}</p>}
+                        {(response) => <AdaptiveAiResponse text={response()} />}
                       </Show>
                       <Show when={pair.citations.length > 0}>
                         <ul class="mt-2 grid gap-1 text-xs">

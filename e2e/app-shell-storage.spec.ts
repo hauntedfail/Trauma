@@ -11,7 +11,7 @@ test("hydrates and changes theme when local storage is blocked", async ({ page }
 
   await page.goto("/memories");
   await expect(
-    page.getByRole("heading", { name: "Memories", exact: true }),
+    page.getByRole("heading", { name: "Today", exact: true }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Theme" }).click();

@@ -27,11 +27,30 @@ import {
 
 export type { BackupStatus } from "../backup/status";
 
+export const MEMORY_TRIAGE_STATES = [
+  "shelf",
+  "today",
+  "library",
+  "archive",
+] as const;
+export type MemoryTriageState = (typeof MEMORY_TRIAGE_STATES)[number];
+
+export interface MemoryLastPosition {
+  variant: string;
+  headingId: string | null;
+  paragraphIndex: number;
+  scrollRatio: number;
+  updatedAt: string;
+}
+
 const extractionStatusSqlList = sql.raw(
   EXTRACTION_STATUSES.map(toSqlStringLiteral).join(", "),
 );
 const backupStatusSqlList = sql.raw(
   BACKUP_STATUSES.map(toSqlStringLiteral).join(", "),
+);
+const triageStateSqlList = sql.raw(
+  MEMORY_TRIAGE_STATES.map(toSqlStringLiteral).join(", "),
 );
 const backupFailsafeAlertKindSqlList = sql.raw(
   [
@@ -83,6 +102,16 @@ export const memories = sqliteTable(
       .notNull(),
     extractionError: text("extraction_error"),
     read: integer("read", { mode: "boolean" }).notNull().default(false),
+    triageState: text("triage_state")
+      .$type<MemoryTriageState>()
+      .notNull()
+      .default("shelf"),
+    triageChangedAt: integer("triage_changed_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`0`),
+    lastPosition: text("last_position"),
+    lastOpenedAt: integer("last_opened_at", { mode: "timestamp_ms" }),
+    wordCount: integer("word_count"),
     backupStatus: text("backup_status").$type<BackupStatus>().notNull(),
     lastBackupAt: integer("last_backup_at", { mode: "timestamp_ms" }),
     lastBackupError: text("last_backup_error"),
@@ -94,6 +123,12 @@ export const memories = sqliteTable(
     index("memories_created_at_id_idx").on(table.createdAt, table.id),
     index("memories_extraction_status_idx").on(table.extractionStatus),
     index("memories_backup_status_idx").on(table.backupStatus),
+    index("memories_triage_state_created_at_id_idx").on(
+      table.triageState,
+      table.createdAt,
+      table.id,
+    ),
+    index("memories_last_opened_at_id_idx").on(table.lastOpenedAt, table.id),
     check(
       "memories_extraction_status_check",
       sql`${table.extractionStatus} in (${extractionStatusSqlList})`,
@@ -101,6 +136,10 @@ export const memories = sqliteTable(
     check(
       "memories_backup_status_check",
       sql`${table.backupStatus} in (${backupStatusSqlList})`,
+    ),
+    check(
+      "memories_triage_state_check",
+      sql`${table.triageState} in (${triageStateSqlList})`,
     ),
   ],
 );

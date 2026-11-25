@@ -45,6 +45,21 @@ describe("PsychiatristDock", () => {
     expect(html).not.toContain("Ask questions about this memory");
   });
 
+  it("renders expanded without a floating trigger when embedded inside the Inspector", () => {
+    const html = renderToString(() =>
+      createComponent(PsychiatristDock, {
+        embedded: true,
+        langCode: "ja-JP",
+        memoryId: "memory-reader",
+      }),
+    );
+
+    expect(html).toContain('data-psychiatrist-dock="expanded"');
+    expect(html).toContain('data-psychiatrist-lang-code="ja-JP"');
+    expect(html).not.toContain('data-psychiatrist-dock="collapsed"');
+    expect(html).not.toContain('aria-label="Open Psychiatrist"');
+  });
+
   it("clears phone primary tabs through the shell breakpoint without moving larger layouts", () => {
     expect(dockSource).toContain(
       "bottom-[calc(4.75rem+var(--trauma-layout-safe-area-bottom))]",

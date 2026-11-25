@@ -93,7 +93,7 @@ describe("route header", () => {
       expect(source).toContain("RouteHeader");
     }
 
-    expect(memoryBrowseSource).toContain("MemoryReadStateTabs");
+    expect(memoryBrowseSource).toContain("data-browse-lane");
     expect(memoryBrowseSource).not.toContain("RouteHeader");
 
     for (const source of [

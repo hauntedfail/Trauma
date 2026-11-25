@@ -24,6 +24,7 @@ import {
   recoverInterruptedMemoryOperations,
 } from "./operation-journal";
 import { withMemoryOperationMutationLease } from "./operation-coordination";
+import { markdownToSearchText, upsertMemorySearchDocument } from "../search";
 
 export interface MemoryImporter {
   importUrl: (input: { url: string }) => Promise<ImporterResult>;
@@ -152,6 +153,7 @@ async function addMemoryWithId(
       imported.status === "success"
         ? imported.markdown
         : formatFallbackMarkdownLink(imported.url);
+    const wordCount = resolveImportedWordCount(imported);
     const initialBackupStatus = input.config.backup.git.enabled ? "pending" : "disabled";
     const contentPath = resolveMemoryContentPath(
       { storePath: input.config.storePath },
@@ -206,6 +208,11 @@ async function addMemoryWithId(
           contentWritten = true;
           memory = await repositories.memories.create({
             ...creationJournal.memory,
+            triageState: "shelf",
+            triageChangedAt: capturedAt,
+            lastPosition: null,
+            lastOpenedAt: null,
+            wordCount,
             createdAt: capturedAt,
             updatedAt: capturedAt,
             lastBackupAt: null,
@@ -238,6 +245,13 @@ async function addMemoryWithId(
           config: input.config,
           memoryId: id,
         }).catch(() => undefined);
+        upsertMemorySearchDocument(input.db, {
+          memoryId: memory.id,
+          title: memory.title,
+          url: memory.url,
+          description: memory.description,
+          bodyText: markdownToSearchText(markdown),
+        });
         return { memory, written };
       },
     );
@@ -305,4 +319,21 @@ function escapeMarkdownDestination(value: string) {
 
 function formatUnknownError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveImportedWordCount(imported: ImporterResult): number | null {
+  if (imported.status !== "success") {
+    return null;
+  }
+
+  const candidate = (imported as { wordCount?: unknown }).wordCount;
+  if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+    return Math.round(candidate);
+  }
+
+  const plainText = markdownToSearchText(imported.markdown).trim();
+  if (plainText.length === 0) {
+    return 0;
+  }
+  return plainText.split(/\s+/).length;
 }

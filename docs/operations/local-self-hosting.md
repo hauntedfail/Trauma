@@ -146,6 +146,46 @@ Codex app-server login used by Brilliant and Psychiatrist authenticates that
 backend integration only; it does not protect the TRAUMA web application.
 Public or team operation requires a separate auth design and threat model.
 
+## Hermes REST API and Bearer Token Auth
+
+TRAUMA exposes JSON REST endpoints for headless clients and agents such as
+Hermes:
+
+- `GET /api/memories` — list or search memories with cursor pagination.
+  Query parameters:
+  - `q` (optional): full-text search query backed by SQLite FTS5; matching
+    items include `snippet` and `rank`.
+  - `tag` (optional): filter by tag ID or tag name.
+  - `category` (optional): filter by category ID or category name.
+  - `read` (optional): `all` (default), `read` / `true`, or `unread` / `false`.
+  - `limit` (optional): page size (default `20`, max `100`).
+  - `cursor` (optional): opaque cursor returned in `nextCursor`.
+  Returns `{ items, nextCursor, hasMore }`.
+- `GET /api/memories/:memoryId` — fetch full memory metadata, raw `CONTENT.md`
+  text (`contentMarkdown`), `tags`, `categories`, `flashbacks`, and `moments`
+  (`404` when not found).
+- `POST /api/memories` — import a new memory URL.
+- `DELETE /api/memories/:memoryId` — delete an existing memory.
+
+To authenticate headless API requests, set the optional `TRAUMA_API_TOKEN`
+environment variable to a high-entropy secret and send
+`Authorization: Bearer <token>` on requests:
+
+```bash
+TRAUMA_API_TOKEN="your-secret-token" bun run start
+```
+
+Behavior when `TRAUMA_API_TOKEN` is set:
+
+- Requests presenting an `Authorization: Bearer <token>` header are validated
+  in constant time using SHA-256 digests (`timingSafeEqual`). Invalid tokens
+  return `401 Unauthorized`, and token values are never logged.
+- A valid Bearer token permits headless mutation calls (`POST`, `DELETE`, etc.)
+  without requiring browser `Origin` or `Sec-Fetch-Site` headers.
+- Requests without a Bearer header keep existing browser same-origin CSRF
+  guards, local browser usage, and reverse-proxy / Cloudflare Access flows
+  unchanged.
+
 ## Codex Runtime Isolation
 
 Do not enable production Brilliant translation or Psychiatrist turns against an

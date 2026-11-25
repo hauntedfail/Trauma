@@ -20,6 +20,8 @@ const MEMORY_CREATION_IDEMPOTENCY_MIGRATION_FOLDER_MILLIS = 1784234421333;
 const CASE_INSENSITIVE_TAXONOMY_MIGRATION_FOLDER_MILLIS = 1784238332412;
 const COLLECTION_BROWSE_INDEXES_MIGRATION_FOLDER_MILLIS = 1784534032874;
 const CODEX_REASONING_EFFORT_MIGRATION_FOLDER_MILLIS = 1785060493598;
+const MEMORY_SEARCH_FTS_MIGRATION_FOLDER_MILLIS = 1785100000000;
+const FOCUS_FIRST_TRIAGE_AND_POSITION_MIGRATION_FOLDER_MILLIS = 1785200000000;
 
 describe("db foundation", () => {
   it("exports all foundation tables", () => {
@@ -190,6 +192,11 @@ describe("db foundation", () => {
         capturedAt: page.rows[0].capturedAt,
         read: false,
         extractionStatus: "success",
+        triageState: "shelf",
+        triageChangedAt: "1970-01-01T00:00:00.000Z",
+        lastPosition: null,
+        lastOpenedAt: null,
+        wordCount: null,
         categories: [{ id: "research", name: "Research" }],
         tags: [{ id: "sqlite", name: "sqlite" }],
       }],
@@ -2442,6 +2449,160 @@ describe("db foundation", () => {
     expect(JSON.parse(output)).toEqual({
       failed: true,
       applicationCloseCalls: 1,
+    });
+  });
+
+  it("backfills focus-first triage_state and triage_changed_at from pre-0024 rows and enforces triage_state check", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
+    const output = runBunScript(
+      `
+          import { mkdirSync } from "node:fs";
+          import { dirname, join } from "node:path";
+          import { Database } from "bun:sqlite";
+          import { initializeDatabase } from "./src/server/db/index.ts";
+          import { readBundledMigrations } from "./src/server/db/bundled-migrations.ts";
+
+          const root = process.env.TRAUMA_TEST_DB_ROOT;
+          if (!root) {
+            throw new Error("TRAUMA_TEST_DB_ROOT is required");
+          }
+
+          const databasePath = join(root, ".trauma/trauma.sqlite");
+          mkdirSync(dirname(databasePath), { recursive: true });
+          const legacyDb = new Database(databasePath, { create: true });
+          try {
+            legacyDb.exec(\`
+              create table if not exists "__drizzle_migrations" (
+                id integer primary key autoincrement,
+                hash text not null,
+                created_at numeric
+              );
+            \`);
+            const pre0024Migrations = readBundledMigrations().filter(
+              (migration) => migration.folderMillis <= ${MEMORY_SEARCH_FTS_MIGRATION_FOLDER_MILLIS},
+            );
+            for (const migration of pre0024Migrations) {
+              for (const statement of migration.sql) {
+                const trimmed = statement.trim();
+                if (trimmed.length > 0) {
+                  legacyDb.exec(trimmed);
+                }
+              }
+              legacyDb
+                .prepare('insert into "__drizzle_migrations" ("hash", "created_at") values (?, ?)')
+                .run(migration.hash, migration.folderMillis);
+            }
+
+            const t1Created = Date.parse("2026-05-01T10:00:00.000Z");
+            const t1Updated = Date.parse("2026-05-02T12:00:00.000Z");
+            const t2Created = Date.parse("2026-05-03T08:00:00.000Z");
+            legacyDb
+              .prepare(\`
+                insert into memories (
+                  id, url, title, description, content_path,
+                  extraction_status, read, backup_status, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f901",
+                "https://example.com/read-item",
+                "Read Item",
+                null,
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f901/CONTENT.md",
+                "success",
+                1,
+                "disabled",
+                t1Created,
+                t1Updated,
+              );
+            legacyDb
+              .prepare(\`
+                insert into memories (
+                  id, url, title, description, content_path,
+                  extraction_status, read, backup_status, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              \`)
+              .run(
+                "018f04a2-3c6f-7c88-9a8b-8c99a9b7f902",
+                "https://example.com/unread-item",
+                "Unread Item",
+                null,
+                "memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f902/CONTENT.md",
+                "success",
+                0,
+                "disabled",
+                t2Created,
+                t2Created,
+              );
+          } finally {
+            legacyDb.close();
+          }
+
+          const connection = initializeDatabase({
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath,
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          });
+
+          try {
+            const readRow = await connection.repositories.memories.findById("018f04a2-3c6f-7c88-9a8b-8c99a9b7f901");
+            const unreadRow = await connection.repositories.memories.findById("018f04a2-3c6f-7c88-9a8b-8c99a9b7f902");
+            let invalidStateError = null;
+            try {
+              connection.sqlite
+                .prepare("update memories set triage_state = 'invalid' where id = ?")
+                .run("018f04a2-3c6f-7c88-9a8b-8c99a9b7f902");
+            } catch (error) {
+              invalidStateError = error instanceof Error ? error.message : String(error);
+            }
+            const migrationRow = connection.sqlite
+              .prepare('select created_at from "__drizzle_migrations" where created_at = ?')
+              .get(${FOCUS_FIRST_TRIAGE_AND_POSITION_MIGRATION_FOLDER_MILLIS});
+
+            process.stdout.write(JSON.stringify({
+              readTriageState: readRow?.triageState,
+              readTriageChangedAt: readRow?.triageChangedAt.toISOString(),
+              readLastPosition: readRow?.lastPosition,
+              readLastOpenedAt: readRow?.lastOpenedAt,
+              readWordCount: readRow?.wordCount,
+              unreadTriageState: unreadRow?.triageState,
+              unreadTriageChangedAt: unreadRow?.triageChangedAt.toISOString(),
+              invalidStateError,
+              recordedMigration: migrationRow?.created_at ?? null,
+            }));
+          } finally {
+            connection.close();
+          }
+        `,
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TRAUMA_TEST_DB_ROOT: root,
+        },
+      },
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      readTriageState: "library",
+      readTriageChangedAt: "2026-05-02T12:00:00.000Z",
+      readLastPosition: null,
+      readLastOpenedAt: null,
+      readWordCount: null,
+      unreadTriageState: "shelf",
+      unreadTriageChangedAt: "2026-05-03T08:00:00.000Z",
+      invalidStateError: expect.stringMatching(/CHECK constraint failed/i),
+      recordedMigration: FOCUS_FIRST_TRIAGE_AND_POSITION_MIGRATION_FOLDER_MILLIS,
     });
   });
 });

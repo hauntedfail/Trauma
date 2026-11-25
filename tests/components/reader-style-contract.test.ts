@@ -34,32 +34,38 @@ describe("refined reader visual contract", () => {
     expect(readerSource).not.toContain("contenteditable");
   });
 
-  it("uses tighter reader-only main pane padding", () => {
+  it("uses measure-bound centered reader canvas and tighter reader-only padding", () => {
     expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
+    expect(readerStyles).toContain('readerColumn = "trauma-reader-column min-w-0"');
     expect(readerStyles).not.toContain("px-8");
+    expect(tailwindSource).toContain("--reader-measure: 66ch");
+    expect(tailwindSource).toContain(".trauma-reader-column");
+    expect(tailwindSource).toContain(
+      "inline-size: min(100%, clamp(55ch, var(--reader-measure, 66ch), 75ch))",
+    );
     expect(tailwindSource).toContain(".trauma-reader-route-padding");
     expect(tailwindSource).toContain("padding-inline: clamp(0.5rem, 2cqi, 1rem)");
     expect(tailwindSource).toContain("padding-inline: 0.75rem");
-    expect(readerSource).toContain("trauma-reader-body py-5 pb-10");
-    expect(readerSource).toContain('class="mb-5 grid gap-4"');
-    expect(readerSource).not.toContain("trauma-reader-body py-7 pb-14");
-    expect(readerSource).not.toContain('class="mb-7 grid gap-4"');
+    expect(readerSource).toContain("trauma-reader-body py-6 pb-12");
+    expect(readerSource).toContain("data-reader-column");
   });
 
-  it("aligns the memory source URL with the reader action menu row", () => {
+  it("renders auto-hiding topbar, left landmark rail, single Inspector dialog, and quiet end footer without useRightRailContent", () => {
+    expect(readerSource).not.toContain("useRightRailContent");
+    expect(readerSource).toContain("data-reader-topbar");
+    expect(readerSource).toContain("data-topbar-hidden");
+    expect(readerSource).toContain("data-reader-landmark-rail");
+    expect(readerSource).toContain("data-reader-inspector");
+    expect(readerSource).toContain('role="dialog"');
+    expect(readerSource).toContain('aria-label="Reader Inspector"');
+    expect(readerSource).toContain("data-reader-end-footer");
     expect(readerSource).toContain("readerSourceLinkClass");
     expect(readerSource).toContain("ScrollableUrlLink");
     expect(tailwindSource).toContain(".trauma-scroll-url-link");
     expect(tailwindSource).toContain(".trauma-scroll-url-shell");
-    expect(readerSource).not.toContain("wrap-anywhere inline-flex");
-    expect(readerSource).toContain("grid-cols-[minmax(0,1fr)_auto] items-center gap-4");
-    expect(readerSource).toContain('class="flex items-center gap-2"');
-    expect(readerSource).not.toContain("grid-cols-[minmax(0,1fr)_auto] items-start gap-4");
-    expect(readerSource).not.toContain('class="flex items-start gap-2"');
-  });
-
-  it("moves the reader table of contents into the contextual right rail", () => {
-    expect(readerSource).toContain("useRightRailContent");
+    expect(tailwindSource).toContain(".trauma-reader-topbar");
+    expect(tailwindSource).toContain(".trauma-reader-landmark-rail");
+    expect(tailwindSource).toContain(".trauma-reader-inspector");
     expect(readerSource).toContain("onCleanup");
     expect(readerSource).toContain("animate-trauma-pop-bounce");
     expect(readerSource).toContain("readerTocScrollContent");

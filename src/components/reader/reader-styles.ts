@@ -3,6 +3,8 @@ export const readerFrame =
 
 export const readerPadding = "trauma-reader-route-padding";
 
+export const readerColumn = "trauma-reader-column min-w-0";
+
 export const readerStatePanel = `${readerPadding} py-12 text-trauma-text-secondary`;
 
 export const readerArticle =

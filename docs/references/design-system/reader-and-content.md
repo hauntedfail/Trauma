@@ -6,73 +6,87 @@ Reader mode is for reading extracted memory content. It is not a markdown
 editor. The only direct text interaction is flashback toggling through text
 selection.
 
-## Reader Frame
+## Reader Frame And Measure
 
-Reader route frames use:
+Reader route frames use a centered single-column canvas bound by
+`--reader-measure` (default `66ch`, clamped to `55ch–75ch`):
 
 ```text
 trauma-route-surface trauma-reader-surface trauma-mobile-stable-viewport
 w-full bg-trauma-bg-surface
 ```
 
-The frame must fill the main pane. It must not centre itself independently
-inside the shell.
+The reading column's computed width and horizontal position remain fixed when
+the right-side Inspector opens.
 
-## Reader Header
+## Reader Header (Auto-Hiding Top Bar)
 
-The reader header is sticky and route-local.
+The reader top bar (`.trauma-reader-topbar`) is sticky and auto-hides on
+downward scroll, revealing on upward scroll or keyboard focus.
 
 Contract:
 
 - Back control links to `/memories`.
-- Header uses the route frame background with backdrop blur.
-- Header label is exactly `Memory`.
-- Do not repeat the memory title in the sticky header. `MemoryReader` lifts the
-  content title, or renders the memory title fallback, in the main reader intro.
-- Do not render `Reader mode` copy.
-- The main reader intro shows the source URL and memory actions.
-- A safe source URL opens in a new tab.
-- Source URL links use `text-trauma-link` and `hover:text-trauma-link-hover`.
-- Unsafe or non-linkable source values render as text.
+- Shows truncated title, language variant tabs when translations exist, and a
+  single `Inspector` button (`data-reader-inspector-trigger`).
+- Does not render taxonomy chips, source metadata clutter, or `Reader mode`
+  copy above the article.
+- `prefers-reduced-motion: reduce` disables the slide/fade transition.
 
-## Table Of Contents
+## Left Landmark Rail And Reader Inspector
 
-The table of contents is a reader aid, not a global navigation panel. It is not
-rendered inside the main reading column.
+Peripheral reader aids no longer occupy a persistent right rail. Instead:
+
+- **Left landmark rail** (`.trauma-reader-landmark-rail`): collapsed by default
+  to compact section progress dots (`section K of N`, never minutes left),
+  expanding on hover or focus to jump to headings.
+- **Right-side Inspector** (`.trauma-reader-inspector`, `#reader-inspector-dialog`,
+  `role="dialog"`, `z-index: 50`): opens on demand from the top bar and returns
+  focus on close. It consolidates five tabs:
+  - `Outline`: bounded table of contents with live reading-range spy and Moment
+    toggles.
+  - `Marks`: current-memory and lazily-loaded all-memories Flashbacks plus
+    Moments.
+  - `Translate`: Brilliant translation controls and status.
+  - `Details`: source URL (safe links open in a new tab using
+    `text-trauma-link`), length bucket, captured date, read-state toggle,
+    categories, tags, and delete action.
+  - `Psychiatrist`: memory-scoped Psychiatrist dock with `AdaptiveAiResponse`
+    mounted when enabled.
+- **Reader focus plugin overlays**: `ReadingRulerOverlay` and `ResumptionBeacon`
+  mount in the overlay layer above text and below the Inspector (`z-40`).
+  `ResumptionBeacon` reads core `last_position` and adds only visual cues
+  without duplicating persistence.
+- **Quiet end-of-article footer**: offers `Keep` (`library`), `Let go`
+  (`archive`), and `Not now` (`shelf`) triage controls, plus the 3-state focus
+  pulse when plugins or experiment logs are active. Reaching `>= 75%` scroll
+  depth with `>= 20s` dwell automatically marks `read` (reversible in Details).
+
+## Table Of Contents (Inspector > Outline)
+
+The table of contents is a reader aid mounted inside the Inspector `Outline`
+tab, not inside the main reading column.
 
 Contract:
 
-- Registered by `MemoryReader` into the shell right rail while a ready memory
-  route is mounted.
-- The right-rail subtree is registered once per ready Reader mount. Reader-owned
-  Flashbacks, Moments, and pending Moment state flow into that stable subtree
-  through reactive accessors; state changes must not replace the subtree.
-- Rendered as the first right rail island on ready source and translated reader
-  routes.
+- Rendered inside the Inspector `Outline` tab on ready source and translated
+  reader routes.
 - Hidden from `/memories`, `/flashbacks`, and other non-reader routes.
-- Removed from the right rail on reader unmount.
-- Rounded island surface matching right rail section geometry.
 - Text is compact.
 - Links target generated markdown heading anchors and use the reader link
   token on hover.
-- Heading entries are left-aligned inside the island. Do not add global list
+- Heading entries are left-aligned inside the panel. Do not add global list
   padding; reserve only the small Moment affordance slot and use heading-level
   indentation for hierarchy.
 - Heading links live inside a bounded scroll body so many headings do not expand
-  the right rail or the whole app layout.
-- Toggling a Moment preserves the Flashbacks Current/All selection, the bounded
-  TOC `scrollTop`, and the enclosing right-rail `scrollTop`.
-- All Flashbacks loads lazily through the same bounded page loader as the
-  canonical Flashbacks route. It renders one page at a time in a bounded scroll
-  body and owns rail-local First/Previous/Next cursor history. Current remains
-  memory-local and switching tabs does not reset the All page.
+  the Inspector or the whole app layout.
+- All Flashbacks in `Marks` loads lazily through the same bounded page loader as
+  the canonical Flashbacks route. It renders one page at a time in a bounded
+  scroll body and owns local First/Previous/Next cursor history.
 - When the bounded TOC body can scroll further, show a subtle blur fade only on
-  the available scroll edge. At the top of the list this appears only after the
-  user has scrolled down; at the bottom it disappears when no more content
-  remains below. The fade starts at the scroll body edge and uses CSS mask
-  gradients so the transition into unblurred content is soft.
-- Entry uses `animate-trauma-pop-bounce` for a short popup-style bounce.
-- Motion is disabled under `prefers-reduced-motion: reduce`.
+  the available scroll edge.
+- Motion (Inspector, top bar, landmark rail, beacon highlight fade, reading
+  ruler) is disabled under `prefers-reduced-motion: reduce`.
 
 ### Reading-Progress Visualization
 

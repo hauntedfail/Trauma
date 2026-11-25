@@ -172,7 +172,7 @@ describe("reader flashback tabs", () => {
     const source = readFileSync("src/components/reader/MemoryReader.tsx", "utf8");
     const readyReaderSource = source.slice(
       source.indexOf("function ReadyMemoryReader"),
-      source.indexOf("function ReaderRightRailContent"),
+      source.indexOf("function ReaderLandmarkRail"),
     );
     const tabsSource = source.slice(
       source.indexOf("export function ReaderFlashbackTabs"),

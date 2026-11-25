@@ -1,33 +1,44 @@
 import { loadTraumaConfig } from "../src/server/config";
 import { initializeDatabase } from "../src/server/db";
+import { backfillMemorySearchIndex } from "../src/server/search";
 
 interface ParsedArguments {
   configPath?: string;
   help: boolean;
 }
 
-try {
-  const args = parseArguments(process.argv.slice(2));
-  if (args.help) {
-    process.stdout.write(
-      "Usage: bun run db:migrate [--config <trauma.config.json>]\n",
-    );
-  } else {
-    migrateDatabase(args.configPath);
+async function main() {
+  try {
+    const args = parseArguments(process.argv.slice(2));
+    if (args.help) {
+      process.stdout.write(
+        "Usage: bun run db:migrate [--config <trauma.config.json>]\n",
+      );
+    } else {
+      await migrateDatabase(args.configPath);
+    }
+  } catch (error) {
+    process.stderr.write(`${formatUnknownError(error)}\n`);
+    process.exitCode = 1;
   }
-} catch (error) {
-  process.stderr.write(`${formatUnknownError(error)}\n`);
-  process.exitCode = 1;
 }
 
-function migrateDatabase(configPath?: string) {
+void main();
+
+async function migrateDatabase(configPath?: string) {
   const config = loadTraumaConfig({
     configPath: configPath ?? process.env.TRAUMA_CONFIG_PATH,
   });
   const connection = initializeDatabase(config);
 
   try {
-    process.stdout.write(`Applied runtime migrations to ${config.databasePath}\n`);
+    const backfill = await backfillMemorySearchIndex({
+      db: connection.sqlite,
+      storePath: config.storePath,
+    });
+    process.stdout.write(
+      `Applied runtime migrations to ${config.databasePath} (indexed ${backfill.indexed} memories)\n`,
+    );
   } finally {
     connection.close();
   }

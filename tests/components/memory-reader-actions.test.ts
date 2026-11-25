@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 
-import { createSignal, type JSX } from "solid-js";
 import { createComponent, renderToString } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 
@@ -12,8 +11,18 @@ import {
   MemoryReader,
   startReaderTranslation,
 } from "../../src/components/reader/MemoryReader";
-import { RightRailContentContext } from "../../src/components/shell/right-rail-context";
-import type { BrowseTaxonomySummaryItem } from "../../src/components/memories/browse-data";
+import {
+  computeReaderPositionSnapshot,
+  computeReaderScrollDepth,
+  isSameReaderPosition,
+  shouldAutoMarkRead,
+  submitReaderPosition,
+  submitReaderTriage,
+} from "../../src/components/reader/reader-position";
+import {
+  formatResumptionCue,
+  type BrowseTaxonomySummaryItem,
+} from "../../src/components/memories/browse-data";
 import type { SupportedLanguageCode } from "../../src/settings/languages";
 import type { ReaderMemoryResult } from "../../src/server/reader/page-data";
 
@@ -76,7 +85,7 @@ const readyResult = {
 } satisfies ReaderMemoryResult;
 
 describe("memory reader actions", () => {
-  it("renders shared actions, read status, attached taxonomy, tag add control, and existing flashbacks", () => {
+  it("renders a clean focus-first canvas with topbar Inspector trigger, landmark rail, flashback marks, and quiet end footer", () => {
     const html = renderReader(readyResult, {
       tagOptions: [
         {
@@ -88,59 +97,50 @@ describe("memory reader actions", () => {
       ],
     });
 
-    expect(html).toContain("Memory actions for Reader Memory");
-    expect(html).toContain('aria-label="Mark memory unread"');
-    expect(html).toContain('data-read-status-icon="read"');
-    expect(html).not.toContain(">Read<");
-    expect(html).not.toContain("Mark unread");
-    expect(html).toContain("Reader");
-    expect(html).toContain("solid");
-    expect(html).toContain("Add tag");
-    expect(html).toContain('data-taxonomy-create-trigger="true"');
+    expect(html).toContain('data-reader-topbar');
+    expect(html).toContain('data-reader-inspector-trigger');
+    expect(html).toContain('aria-label="Open Inspector"');
+    expect(html).toContain('data-reader-landmark-rail');
+    expect(html).toContain('data-reader-column');
     expect(html).toContain('data-flashback-id="flashback-1"');
+    expect(html).toContain('data-reader-end-footer');
+    expect(html).toContain(">Keep<");
+    expect(html).toContain(">Let go<");
+    expect(html).toContain(">Not now<");
+    expect(html).not.toContain('data-reader-inspector="open"');
+    expect(html).not.toContain('role="dialog"');
     expect(html).not.toContain("Global category");
     expect(html).not.toContain("#global");
   });
 
-  it("renders the reader-only Psychiatrist dock outside markdown content", () => {
+  it("mounts Psychiatrist inside the Inspector Psychiatrist tab instead of a floating dock", () => {
     const html = renderReader(readyResult);
-    const dockIndex = html.indexOf('data-psychiatrist-dock="collapsed"');
-    const contentIndex = html.indexOf("data-reader-content");
 
-    expect(dockIndex).toBeGreaterThan(-1);
-    expect(contentIndex).toBeGreaterThan(-1);
-    expect(dockIndex).toBeLessThan(contentIndex);
-    expect(html).toContain('aria-label="Open Psychiatrist"');
+    expect(html).not.toContain('data-psychiatrist-dock="collapsed"');
+    expect(html).not.toContain('aria-label="Open Psychiatrist"');
+    expect(memoryReaderSource).toContain("<PsychiatristDock");
+    expect(memoryReaderSource).toContain("embedded");
+    expect(memoryReaderSource).toContain('id="inspector-panel-psychiatrist"');
+    expect(memoryReaderSource).toContain("langCode={props.result.content.langCode}");
   });
 
-  it("passes translated reader language into the Psychiatrist dock", () => {
-    const html = renderReader({
-      ...readyResult,
-      content: {
-        ...readyResult.content,
-        langCode: "ja-JP",
-      },
-    });
-
-    expect(html).toContain('data-psychiatrist-lang-code="ja-JP"');
-  });
-
-  it("does not render Psychiatrist for non-ready reader states", () => {
+  it("does not render Psychiatrist or Inspector for non-ready reader states", () => {
     const html = renderReader({
       status: "not_found",
       message: "Missing memory.",
     } satisfies ReaderMemoryResult);
 
+    expect(html).not.toContain("Open Inspector");
     expect(html).not.toContain("Open Psychiatrist");
     expect(html).not.toContain("data-psychiatrist-dock");
   });
 
-  it("renders the reader title before taxonomy without hiding the body h1", () => {
+  it("keeps lifted leading h1 title canonical without duplicating headings or injecting inline taxonomy chrome", () => {
     const html = renderReader({
       ...readyResult,
       memory: {
         ...readyResult.memory,
-        categories: [{ id: "category-order", name: "Category After Title" }],
+        categories: [{ id: "category-order", name: "Category In Inspector" }],
       },
       rendered: {
         html: '<h1 data-reader-section-anchor="reader-memory"><mark data-flashback-id="title-flashback" id="title-flashback">Reader Memory</mark></h1><p>Body</p>',
@@ -148,21 +148,19 @@ describe("memory reader actions", () => {
       },
     });
 
-    const introTitleIndex = html.indexOf("data-reader-section-anchor=\"reader-memory\"");
-    const categoryIndex = html.indexOf("Category After Title");
-    const flashbackIndex = html.indexOf("data-flashback-id=\"title-flashback\"");
+    const introTitleIndex = html.indexOf('data-reader-section-anchor="reader-memory"');
+    const flashbackIndex = html.indexOf('data-flashback-id="title-flashback"');
     const bodyIndex = html.indexOf("<p>Body</p>");
 
     expect(introTitleIndex).toBeGreaterThan(-1);
-    expect(categoryIndex).toBeGreaterThan(-1);
     expect(flashbackIndex).toBeGreaterThan(-1);
     expect(bodyIndex).toBeGreaterThan(-1);
-    expect(introTitleIndex).toBeLessThan(categoryIndex);
-    expect(categoryIndex).toBeLessThan(bodyIndex);
+    expect(introTitleIndex).toBeLessThan(bodyIndex);
     expect(html.match(/data-reader-section-anchor="reader-memory"/g)).toHaveLength(1);
+    expect(html).not.toContain("Category In Inspector");
   });
 
-  it("does not render empty attached taxonomy sections", () => {
+  it("keeps empty taxonomy sections hidden in Details", () => {
     const html = renderReader({
       ...readyResult,
       memory: {
@@ -176,7 +174,6 @@ describe("memory reader actions", () => {
 
     expect(html).not.toContain("No categories");
     expect(html).not.toContain("No tags");
-    expect(html).toContain("Add tag");
   });
 
   it("revalidates the active translated reader cache after reader-local actions", () => {
@@ -190,10 +187,10 @@ describe("memory reader actions", () => {
     );
     expect(memoryReaderSource).toContain(
       [
-        "                    revalidateAfterReadStatusChange(",
-        "                      props.result.memory.id,",
-        "                      props.result.content.langCode,",
-        "                    )",
+        "                      revalidateAfterReadStatusChange(",
+        "                        props.result.memory.id,",
+        "                        props.result.content.langCode,",
+        "                      )",
       ].join("\n"),
     );
     expect(memoryReaderSource).toContain(
@@ -275,22 +272,16 @@ describe("memory reader actions", () => {
     expect(resultSync).not.toContain("translationEventSource");
   });
 
-  it("registers one right-rail subtree with reactive reader-owned state", () => {
-    expect(memoryReaderSource).toContain(
-      "currentFlashbacks={currentFlashbacks}",
-    );
-    expect(memoryReaderSource).toContain("moments={moments}");
-    expect(memoryReaderSource).toContain("pendingMomentKey={pendingMomentKey}");
-    expect(memoryReaderSource).toContain(
-      "currentFlashbacks: Accessor<ReaderFlashbackItem[]>",
-    );
-    expect(memoryReaderSource).toContain(
-      "moments: Accessor<ReaderMomentItem[]>",
-    );
-    expect(memoryReaderSource).toContain("pendingMomentKey: Accessor<string>");
-    expect(memoryReaderSource).not.toContain(
-      "currentFlashbacks={currentFlashbacks()}",
-    );
+  it("removes useRightRailContent and mounts Outline, Marks, Translate, Details, and Psychiatrist in one Inspector", () => {
+    expect(memoryReaderSource).not.toContain("useRightRailContent");
+    expect(memoryReaderSource).toContain('id="reader-inspector-dialog"');
+    expect(memoryReaderSource).toContain('id="inspector-panel-outline"');
+    expect(memoryReaderSource).toContain('id="inspector-panel-marks"');
+    expect(memoryReaderSource).toContain('id="inspector-panel-translate"');
+    expect(memoryReaderSource).toContain('id="inspector-panel-details"');
+    expect(memoryReaderSource).toContain('id="inspector-panel-psychiatrist"');
+    expect(memoryReaderSource).toContain("READER_INSPECTOR_TAB_SESSION_KEY");
+    expect(memoryReaderSource).toContain("sessionStorage");
   });
 
   it("offers an accessible in-popover retry for reader model-catalog failures", () => {
@@ -552,33 +543,12 @@ describe("memory reader actions", () => {
     );
   });
 
-  it("renders the reader translation trigger as a popup opener", () => {
-    const html = renderReader(readyResult, {
-      translationTargetLanguage: "ja-JP",
-      translationModel: "gpt-5.5",
-      translationReasoningEffort: "high",
-    });
-
-    expect(html).toContain('aria-label="Translate memory"');
-    expect(html).toContain('aria-haspopup="dialog"');
-    expect(html).toContain(">Translate<");
-    expect(memoryReaderSource).toContain(
-      "setTranslationDialogOpen(open)",
-    );
+  it("mounts translation controls inside the Inspector Translate tab", () => {
+    expect(memoryReaderSource).toContain('id="inspector-panel-translate"');
+    expect(memoryReaderSource).toContain("setTranslationDialogOpen(true)");
     expect(memoryReaderSource).toContain("translationFormModel");
     expect(memoryReaderSource).toContain("reasoning_effort");
-  });
-
-  it("uses the shared Popup shell for reader translation settings", () => {
-    expect(memoryReaderSource).toContain('import { Popup } from "../ui/Popup"');
-    expect(memoryReaderSource).toContain("<Popup");
-    expect(memoryReaderSource).toContain(
-      'label="Translation settings"',
-    );
-    expect(memoryReaderSource).toContain(
-      "onOpenChange={handleTranslationPopoverOpenChange}",
-    );
-    expect(memoryReaderSource).toContain("onSubmit={submitTranslationDialog(close)}");
+    expect(memoryReaderSource).toContain("submitTranslationDialog(() => undefined)");
     expect(memoryReaderSource).not.toContain(
       'class="absolute right-0 top-12 z-20 grid w-[min(18rem,calc(100vw-2rem))] gap-3 rounded-[18px] border border-trauma-border bg-trauma-bg-elev/50 p-3 text-left shadow-lg backdrop-blur"',
     );
@@ -601,7 +571,7 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain("canonicalTranslationModel");
     expect(memoryReaderSource).toContain("submitTranslationDefaults");
     expect(memoryReaderSource).toContain(
-      "!translationCatalogModels().some((model) =>",
+      "!translationCatalogModels().some(",
     );
     expect(memoryReaderSource).toContain(
       "model.model === translationFormModel()",
@@ -703,7 +673,6 @@ describe("memory reader actions", () => {
     expect(html).toContain(">Original<");
     expect(html).toContain(">Japanese<");
     expect(html).toContain('href="/memories/ja-JP/memory-reader"');
-    expect(html).toContain('aria-label="Translate memory"');
     expect(memoryReaderSource).toContain("canOpenTranslationSettings");
     expect(memoryReaderSource).toContain("SUPPORTED_TRANSLATION_LANGUAGES.some");
     expect(memoryReaderSource).toContain("canStartTranslation(option.code)");
@@ -778,6 +747,95 @@ describe("memory reader actions", () => {
       "translationTargetLanguage={settings()?.translationTargetLanguage}",
     );
   });
+
+  it("computes lastPosition snapshots that format as continue at 4/N on Today rows", () => {
+    const snapshot = computeReaderPositionSnapshot({
+      headings: [
+        { id: "section-1", top: -1200 },
+        { id: "section-2", top: -800 },
+        { id: "section-3", top: -400 },
+        { id: "section-4", top: 64 },
+        { id: "section-5", top: 520 },
+        { id: "section-6", top: 980 },
+      ],
+      scrollY: 1300,
+      scrollHeight: 2400,
+      viewportHeight: 800,
+      variant: "source",
+      nowIso: "2026-06-01T00:00:00.000Z",
+    });
+
+    expect(snapshot).toEqual({
+      variant: "source",
+      headingId: "section-4",
+      paragraphIndex: 3,
+      scrollRatio: 4 / 6,
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+    expect(formatResumptionCue(snapshot)).toBe("continue at 4/6");
+    expect(isSameReaderPosition(snapshot, { ...snapshot, updatedAt: "2026-06-02T00:00:00.000Z" })).toBe(true);
+  });
+
+  it("fails silently when position persistence fails with HTTP 500 or network error", async () => {
+    const position = {
+      variant: "source",
+      headingId: "section-4",
+      paragraphIndex: 3,
+      scrollRatio: 4 / 6,
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    };
+
+    const okHttp = await submitReaderPosition({
+      memoryId: "memory-reader",
+      position,
+      fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    });
+    expect(okHttp).toBe(true);
+
+    const failedHttp = await submitReaderPosition({
+      memoryId: "memory-reader",
+      position,
+      fetch: async () => new Response("server error", { status: 500 }),
+    });
+    expect(failedHttp).toBe(false);
+
+    const failedNetwork = await submitReaderPosition({
+      memoryId: "memory-reader",
+      position,
+      fetch: async () => {
+        throw new Error("offline");
+      },
+    });
+    expect(failedNetwork).toBe(false);
+  });
+
+  it("submits end-of-article triage decisions through the triage API", async () => {
+    const requests: Request[] = [];
+    const result = await submitReaderTriage({
+      memoryId: "memory-reader",
+      triageState: "library",
+      fetch: async (input, init) => {
+        requests.push(new Request(new URL(String(input), "http://localhost"), init));
+        return new Response(
+          JSON.stringify({ triageState: "library", triage_state: "library" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    expect(result).toEqual({ triageState: "library" });
+    expect(requests[0]?.url).toBe("http://localhost/api/memories/memory-reader/triage");
+    expect(requests[0]?.method).toBe("POST");
+    expect(await requests[0]?.json()).toEqual({ triage_state: "library" });
+  });
+
+  it("requires >=75% scroll depth and >=20s dwell before auto-marking read", () => {
+    expect(computeReaderScrollDepth({ scrollY: 700, viewportHeight: 800, scrollHeight: 2000 })).toBe(0.75);
+    expect(shouldAutoMarkRead({ alreadyRead: false, scrollDepth: 0.74, dwellMs: 25_000 })).toBe(false);
+    expect(shouldAutoMarkRead({ alreadyRead: false, scrollDepth: 0.8, dwellMs: 19_999 })).toBe(false);
+    expect(shouldAutoMarkRead({ alreadyRead: false, scrollDepth: 0.75, dwellMs: 20_000 })).toBe(true);
+    expect(shouldAutoMarkRead({ alreadyRead: true, scrollDepth: 0.9, dwellMs: 30_000 })).toBe(false);
+  });
 });
 
 function renderReader(
@@ -789,28 +847,17 @@ function renderReader(
     translationTargetLanguage?: SupportedLanguageCode;
   } = {},
 ): string {
-  return renderToString(() => {
-    const [rightRailContent, setRightRailContent] =
-      createSignal<JSX.Element | undefined>();
-
-    return createComponent(RightRailContentContext.Provider, {
-      value: {
-        rightRailContent,
-        setRightRailContent,
-      },
-      get children() {
-        return createComponent(MemoryReader, {
-          flashbackRows: [],
-          navigate: () => {},
-          result,
-          tagOptions: options.tagOptions ?? [],
-          translationModel: options.translationModel,
-          translationReasoningEffort: options.translationReasoningEffort,
-          translationTargetLanguage: options.translationTargetLanguage,
-        });
-      },
-    });
-  });
+  return renderToString(() =>
+    createComponent(MemoryReader, {
+      flashbackRows: [],
+      navigate: () => {},
+      result,
+      tagOptions: options.tagOptions ?? [],
+      translationModel: options.translationModel,
+      translationReasoningEffort: options.translationReasoningEffort,
+      translationTargetLanguage: options.translationTargetLanguage,
+    }),
+  );
 }
 
 function createDeferred<T>(): {

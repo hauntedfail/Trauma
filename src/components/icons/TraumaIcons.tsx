@@ -11,6 +11,10 @@ interface IconProps {
 }
 
 type NavIconName =
+  | "today"
+  | "shelf"
+  | "library"
+  | "more"
   | "memories"
   | "flashbacks"
   | "moment"
@@ -54,6 +58,79 @@ function Svg(props: IconProps & { children: JSX.Element }) {
 }
 
 export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
+  today: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <circle {...stroke} cx="13" cy="13" r="8.5" />
+        <circle {...stroke} cx="13" cy="13" r="2.75" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <circle {...fill} cx="13" cy="13" r="8.5" />
+        <circle cx="13" cy="13" fill="var(--bg-base)" r="3" />
+      </Svg>
+    ),
+  },
+  shelf: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <path
+          {...stroke}
+          d="M4.5 14.5 6.8 6.5A1.8 1.8 0 0 1 8.5 5.2h9a1.8 1.8 0 0 1 1.7 1.3l2.3 8v4.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-4.3z"
+        />
+        <path {...stroke} d="M4.5 14.5h4.8l1.4 2.3h4.6l1.4-2.3h4.8" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <path
+          {...fill}
+          d="M4.5 14.5 6.8 6.5A1.8 1.8 0 0 1 8.5 5.2h9a1.8 1.8 0 0 1 1.7 1.3l2.3 8v4.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-4.3z"
+        />
+        <path
+          d="M4.5 14.5h4.8l1.4 2.3h4.6l1.4-2.3h4.8"
+          fill="none"
+          stroke="var(--bg-base)"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+        />
+      </Svg>
+    ),
+  },
+  library: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <rect {...stroke} height="16" rx="1.2" width="4" x="4.5" y="5" />
+        <rect {...stroke} height="16" rx="1.2" width="4" x="10.5" y="5" />
+        <path {...stroke} d="m16.8 6.2 3.7-.9 2 14.9-3.7.9z" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <rect {...fill} height="16" rx="1.2" width="4" x="4.5" y="5" />
+        <rect {...fill} height="16" rx="1.2" width="4" x="10.5" y="5" />
+        <path {...fill} d="m16.8 6.2 3.7-.9 2 14.9-3.7.9z" />
+      </Svg>
+    ),
+  },
+  more: {
+    outline: (props = {}) => (
+      <Svg {...props}>
+        <circle {...stroke} cx="6" cy="13" r="1.75" />
+        <circle {...stroke} cx="13" cy="13" r="1.75" />
+        <circle {...stroke} cx="20" cy="13" r="1.75" />
+      </Svg>
+    ),
+    filled: (props = {}) => (
+      <Svg {...props}>
+        <circle {...fill} cx="6" cy="13" r="2" />
+        <circle {...fill} cx="13" cy="13" r="2" />
+        <circle {...fill} cx="20" cy="13" r="2" />
+      </Svg>
+    ),
+  },
   memories: {
     outline: (props = {}) => (
       <Svg {...props}>

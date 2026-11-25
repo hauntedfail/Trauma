@@ -6,37 +6,53 @@ accessibility details without redefining route availability.
 
 ## Canonical Routes
 
-- `/memories`: browse, search, filter, read state, and memory actions.
+- `/memories`: focus-first browse lanes (`Today` default, `?lane=shelf`, `?lane=library`), search, Library filters, triage actions, and memory actions.
 - `/memories/:id`: source reader.
 - `/memories/:langCode/:id`: current translated reader.
 - `/flashbacks`: renderable source and translated Flashback excerpts.
 - `/moments`: source-canonical section bookmarks.
-- `/settings`: translation defaults, Codex model/effort, and Codex auth state.
+- `/settings`: translation defaults, Codex model/effort, Codex auth state, and Focus plugin settings.
 
 `/` redirects to `/memories`. `/highlights` redirects to `/flashbacks` and
 `/flashback` redirects to `/moments` only for legacy compatibility; do not link
 to them or use their retired terminology in new contracts.
 
 `/category`, `/tags`, `/backup`, and `/memories/new` are not routes. Categories
-and tags are managed inline and through the browse right rail. Backup is exposed
-through status/failsafe surfaces. Add memory is a global shell popover.
+and tags are managed inline in Reader > Inspector > Details and filtered inside
+the Library `Filters` popover. Backup is exposed through status/failsafe
+surfaces. Add memory is a global shell popover and Command Palette capture mode.
 
 ## Browse Query State
 
-`/memories` owns filter and view state in the URL:
+`/memories` owns lane, filter, and search state in the URL:
 
 ```text
-/memories?q=...&category=...&tag=...&flashback=...&view=list|grid
+/memories?lane=today|shelf|library&q=...&category=...&tag=...&flashback=...&view=list|grid
 ```
+
+- **Today** (default, `/memories`): picked items (`triage_state = 'today'`),
+  capped by the `ephemeral-shelf-triage` `dailyPickCap` setting (default `3`),
+  showing a neutral resume cue (`continue at section K/N`) when `last_position`
+  exists.
+- **Shelf** (`/memories?lane=shelf`): newly captured items (`triage_state = 'shelf'`)
+  for low-friction deferred triage. Focused rows support one-key triage:
+  `p` (Pick for Today), `l` (Keep in Library), `x` (Let go / archive), and `u`
+  (Undo). `ephemeral-shelf-triage` supplies optional TTL expiry and Today cap
+  parameters; `EphemeralShelfBar` has been removed.
+- **Library** (`/memories?lane=library`): kept memories (`triage_state = 'library'`)
+  with search and an on-demand `Filters` popover for categories, tags, and
+  Flashbacks.
+
+No unread debt counters, overdue badges, streaks, or numeric backlog prompts
+appear on any browse lane.
 
 `q` supports free text, `title:`, `url:`, `tag:`, `category:`, `flashback:`, and
 standalone `read`/`unread` terms. Search covers memory metadata, taxonomy, and
 renderable Flashback text/context, not the full reader body. Explicit taxonomy
 and Flashback query keys combine with search terms rather than clearing them.
 
-Memory results are cursor-paginated. Read-state tabs manipulate the search
-terms, and list/grid remains URL-addressable even when no dedicated view toggle
-is rendered.
+Memory results are cursor-paginated, and `view=list|grid` remains
+URL-addressable.
 
 `/flashbacks` and `/moments` use an opaque `cursor` query value. The URL is the
 page source of truth: Next writes the continuation cursor, First removes it,
@@ -45,32 +61,27 @@ the current page; they never append earlier pages to the DOM.
 
 ## Shell Layout
 
-Desktop (`min-width: 1041px`):
+Desktop and tablet (`min-width: 721px`):
 
-- Persistent `275px` left rail.
-- Route-owned main pane up to `840px`.
-- `360px` right rail with category/tag filters and contextual shortcuts.
-- Ready source and translated readers may replace the top right-rail slot with
-  their table of contents.
-
-Tablet (`721px` through `1040px`):
-
-- Compact `80px` icon rail and route main pane.
-- No right rail, navigation drawer, filter drawer, or duplicate brand/filter
-  header.
-- Add memory and Theme remain available from rail popovers.
+- Slim `56px` icon-only left rail (`Today`, `Shelf`, `Library`, `Flashbacks`,
+  `Moments`, `Settings`, plus `Add`, `Search / Palette`, and `Theme` popovers).
+- Centered route-owned main canvas (`max-width: 920px`).
+- No persistent right rail (`right-rail-context.tsx` is removed).
+- On reader routes, the left rail auto-hides on downward scroll and reveals on
+  upward scroll, left-edge pointer proximity, or keyboard focus.
+- `Cmd/Ctrl+K` opens the global Command Palette from any route for search,
+  navigation, URL capture, and Focus plugin toggles.
 
 Phone (`max-width: 720px`):
 
-- Compact brand header, route main pane, and fixed horizontally scrollable
-  bottom `Primary tabs` bar.
-- Live tabs: Memories, Flashbacks, Moments, and Settings.
-- Disabled placeholders: Categories, Tags, and Backup.
-- Add memory and Theme are actions that open popovers above the bar.
-- No navigation or filter drawer.
+- Compact brand header with Search/Palette and Capture actions, route main pane,
+  and fixed bottom `Primary tabs` bar.
+- Exactly four live bottom tabs: `Today`, `Shelf`, `Library`, and `More`
+  (which opens a sheet for `Flashbacks`, `Moments`, `Settings`, and `Theme`).
+- No disabled placeholder tabs and no side filter drawer.
 
-The shell owns global chrome, composer/theme popup state, backup alert, and the
-right-rail slot. Routes own headers, controls, loading/empty/error states, and
+The shell owns global chrome, Command Palette, composer/theme popup state, and
+backup alert. Routes own headers, controls, loading/empty/error states, and
 content. Responsive route/component sizing should use the shared fluid and
 container-query utilities rather than device-specific wrappers.
 
@@ -81,7 +92,7 @@ context, selected text as the focal content, and the memory title as subordinate
 metadata. Its link opens the matching source or translated reader at the
 Flashback anchor.
 
-Right-rail Flashback shortcuts may filter `/memories` with `flashback=<id>`.
+Library `Filters` may filter `/memories?lane=library` with `flashback=<id>`.
 They do not replace direct reader links from the canonical Flashbacks route.
 The route uses a bounded server page and exposes First/Next navigation. A page
 may be empty while still offering Next when stale stored rows were scanned.
@@ -95,11 +106,12 @@ The route uses the same URL-owned First/Next page model as `/flashbacks`.
 
 ## Add Memory
 
-Add memory is a shared anchored `Popup` available from desktop/tablet rail and
-phone tabs. It accepts one URL and has no dedicated route. Escape, outside
-pointer dismissal, and successful completion use the shared popup lifecycle.
-Rail and phone forms project one shell-owned URL, pending, error, and
-idempotency attempt state. Dismissing or switching popovers cannot start a
+Add memory is a shared anchored `Popup` (and Command Palette capture mode)
+available from the left rail and phone header. It accepts one URL, never opens
+a taxonomy prompt, and lands new items in `triage_state = 'shelf'`. Escape,
+outside pointer dismissal, and successful completion use the shared popup
+lifecycle. Rail and palette forms project one shell-owned URL, pending, error,
+and idempotency attempt state. Dismissing or switching popovers cannot start a
 duplicate request, and an unmounted form cannot navigate or close a later
 popover when its request settles.
 
@@ -109,15 +121,29 @@ The source route reads source `CONTENT.md`. A translated route renders only a
 completed translation whose source hash, output hash, job row, and language
 file are current.
 
-Both reader variants support:
+Both reader variants use the focus-first layout (`docs/architecture/focus-first-ui.md`):
 
-- GitHub Flavored Markdown, footnotes, tables, and task lists.
-- Syntax highlighting.
-- Sanitized HTML and controlled external embeds.
-- Stable heading anchors and a live table-of-contents reading range.
-- Variant-local Flashback marks and source-canonical Moments.
-- Brilliant translation controls and variant tabs.
-- The memory-scoped Psychiatrist dock.
+- Centered single-column reading canvas bound by `--reader-measure` (default
+  `66ch`, range `55ch–75ch`) whose width and horizontal position stay stable
+  when the Inspector opens.
+- Auto-hiding top bar with back link, truncated title, variant tabs, and a
+  single `Inspector` trigger.
+- Collapsed-by-default left landmark rail showing section progress dots
+  (`section K of N`, never minutes left).
+- Single right-side `Inspector` dialog (`Outline`, `Marks`, `Translate`,
+  `Details`, `Psychiatrist`) with focus return on close.
+- Core `last_position` persistence (debounced on scroll and flushed on route
+  leave) with silent restore on reopen; `ResumptionBeacon` reads core
+  `last_position` to add visual resumption cues without duplicating persistence.
+- Quiet end-of-article footer (`Keep` / `Let go` / `Not now` plus optional
+  3-state focus pulse when plugins or experiment logs are active) and automatic
+  `read` completion at `>= 75%` depth with `>= 20s` dwell (reversible in Details).
+- GitHub Flavored Markdown, footnotes, tables, task lists, syntax highlighting,
+  sanitized HTML, controlled external embeds, variant-local Flashback marks,
+  and source-canonical Moments.
+- Reader plugin overlays (`ReadingRulerOverlay`, `ResumptionBeacon`) mount
+  above reader text and below the Inspector (`z-40` vs Inspector `z-50`);
+  `AdaptiveAiResponse` mounts inside Inspector > Psychiatrist.
 
 Text selection toggles Flashback ranges. Source and translated Flashbacks never
 share offsets: translated writes include language and current output hash, and

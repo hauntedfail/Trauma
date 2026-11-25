@@ -23,6 +23,8 @@ import migration0019Sql from "../../../drizzle/0019_memory_creation_idempotency.
 import migration0020Sql from "../../../drizzle/0020_nasty_kulan_gath.sql?raw";
 import migration0021Sql from "../../../drizzle/0021_large_dazzler.sql?raw";
 import migration0022Sql from "../../../drizzle/0022_calm_speed.sql?raw";
+import migration0023Sql from "../../../drizzle/0023_memory_search_fts.sql?raw";
+import migration0024Sql from "../../../drizzle/0024_focus_first_triage_and_position.sql?raw";
 import type { RuntimeMigration } from "./migrations";
 
 const BUNDLED_MIGRATIONS = [
@@ -139,6 +141,16 @@ const BUNDLED_MIGRATIONS = [
   {
     sql: migration0022Sql,
     folderMillis: 1785060493598,
+    bps: true,
+  },
+  {
+    sql: migration0023Sql,
+    folderMillis: 1785100000000,
+    bps: true,
+  },
+  {
+    sql: migration0024Sql,
+    folderMillis: 1785200000000,
     bps: true,
   },
 ] as const;

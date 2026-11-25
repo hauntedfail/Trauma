@@ -37,6 +37,12 @@ import {
 } from "../async-action-focus";
 import { RouteHeader } from "../layout/RouteHeader";
 import { ConfirmationPopup } from "../ui/ConfirmationPopup";
+import {
+  useFocusPlugins,
+  type FocusPluginEvidenceLevel,
+  type FocusPluginPulseRating,
+  type FocusPluginSettingField,
+} from "../../plugins";
 
 export interface SettingsPageProps {
   initialCodexModelCatalog?: CodexModelCatalog | null;
@@ -665,6 +671,8 @@ export function SettingsPage(props: SettingsPageProps) {
           </Show>
         </section>
 
+        <FocusPluginsSettingsSection />
+
         <Show when={message()}>
           {(value) => (
             <p class="mb-0 rounded-lg border border-trauma-border bg-trauma-bg-base px-3 py-2 text-sm font-bold text-trauma-text-secondary" role="status">
@@ -751,4 +759,329 @@ export function readSafeVerificationUrl(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+const PULSE_OPTIONS: ReadonlyArray<{
+  rating: FocusPluginPulseRating;
+  label: string;
+}> = [
+  { rating: "helped", label: "Helped" },
+  { rating: "neutral", label: "Neutral" },
+  { rating: "distracting", label: "Distracting" },
+];
+
+const evidenceBadgeLabel: Record<FocusPluginEvidenceLevel, string> = {
+  high: "High evidence",
+  moderate: "Moderate evidence",
+  experimental: "Experimental",
+  low: "Low evidence",
+};
+
+const evidenceBadgeClass: Record<FocusPluginEvidenceLevel, string> = {
+  high: "border-trauma-success/40 bg-trauma-bg-surface text-trauma-success",
+  moderate: "border-trauma-info/40 bg-trauma-bg-surface text-trauma-info",
+  experimental: "border-trauma-warning/40 bg-trauma-bg-surface text-trauma-warning",
+  low: "border-trauma-border bg-trauma-bg-surface text-trauma-text-muted",
+};
+
+export function FocusPluginsSettingsSection() {
+  const focusPlugins = useFocusPlugins();
+  const [pulseNotice, setPulseNotice] = createSignal("");
+
+  const handleRecordPulse = (
+    rating: FocusPluginPulseRating,
+    pluginId?: string,
+  ): void => {
+    focusPlugins.recordPulse({ rating, pluginId });
+    const label = PULSE_OPTIONS.find((item) => item.rating === rating)?.label ?? rating;
+    setPulseNotice(`Recorded "${label}" for your current focus setup.`);
+  };
+
+  return (
+    <section
+      aria-labelledby="focus-plugins-heading"
+      class={fieldClass}
+      data-focus-plugins-settings
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="grid gap-1">
+          <h2 id="focus-plugins-heading" class={labelClass}>
+            Focus Plugins
+          </h2>
+          <p class={hintClass}>
+            Opt-in ADHD-focus experiments stored locally in this browser. Toggle individual plugins to keep only what helps.
+          </p>
+        </div>
+        <Show when={focusPlugins.plugins().length > 0}>
+          <button
+            class={secondaryButtonClass}
+            type="button"
+            onClick={() => focusPlugins.resetAllPlugins()}
+          >
+            Reset defaults
+          </button>
+        </Show>
+      </div>
+
+      <Show
+        when={focusPlugins.plugins().length > 0}
+        fallback={
+          <p class="mb-0 rounded-xl border border-trauma-border bg-trauma-bg-surface px-4 py-3 text-sm font-semibold text-trauma-text-muted">
+            No focus plugins are registered yet.
+          </p>
+        }
+      >
+        <div class="grid gap-3">
+          <For each={focusPlugins.plugins()}>
+            {(plugin) => {
+              const enabled = () => focusPlugins.isPluginEnabled(plugin.id);
+              return (
+                <div
+                  class="grid gap-3 rounded-2xl border border-trauma-border bg-trauma-bg-surface p-4"
+                  data-focus-plugin-id={plugin.id}
+                >
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="grid min-w-0 gap-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <h3 class="m-0 text-sm font-extrabold text-trauma-text-primary">
+                          {plugin.name}
+                        </h3>
+                        <span
+                          class={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${evidenceBadgeClass[plugin.evidenceLevel]}`}
+                        >
+                          {evidenceBadgeLabel[plugin.evidenceLevel]}
+                        </span>
+                        <span class="inline-flex items-center rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-0.5 text-xs font-bold text-trauma-chip-ink">
+                          {plugin.surface}
+                        </span>
+                      </div>
+                      <p class="mb-0 text-sm font-semibold text-trauma-text-secondary">
+                        {plugin.description}
+                      </p>
+                      <Show when={plugin.evidenceSummary}>
+                        {(summary) => (
+                          <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+                            {summary()}
+                          </p>
+                        )}
+                      </Show>
+                    </div>
+                    <button
+                      aria-checked={enabled()}
+                      class={
+                        enabled()
+                          ? primaryButtonClass
+                          : secondaryButtonClass
+                      }
+                      role="switch"
+                      type="button"
+                      onClick={() => focusPlugins.togglePlugin(plugin.id)}
+                    >
+                      {enabled() ? "Enabled" : "Off"}
+                    </button>
+                  </div>
+
+                  <Show when={plugin.settingsSchema.length > 0}>
+                    <div class="grid gap-3 border-t border-trauma-divider pt-3">
+                      <For each={plugin.settingsSchema}>
+                        {(field) => (
+                          <FocusPluginSettingControl
+                            field={field}
+                            pluginId={plugin.id}
+                          />
+                        )}
+                      </For>
+                      <div class="flex justify-end">
+                        <button
+                          class="text-xs font-bold text-trauma-link hover:text-trauma-link-hover"
+                          type="button"
+                          onClick={() => focusPlugins.resetPluginSettings(plugin.id)}
+                        >
+                          Reset plugin parameters
+                        </button>
+                      </div>
+                    </div>
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+
+      <div class="grid gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-surface p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
+            Self-experiment pulse
+          </p>
+          <Show when={focusPlugins.pulseLog().length > 0}>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-semibold text-trauma-text-muted">
+                {focusPlugins.pulseLog().length}{" "}
+                {focusPlugins.pulseLog().length === 1 ? "entry" : "entries"} saved locally
+              </span>
+              <button
+                class="text-xs font-bold text-trauma-link hover:text-trauma-link-hover"
+                type="button"
+                onClick={() => {
+                  focusPlugins.clearPulseHistory();
+                  setPulseNotice("");
+                }}
+              >
+                Clear log
+              </button>
+            </div>
+          </Show>
+        </div>
+        <p class={hintClass}>
+          Optional check-in tagged with your active plugins. No scores, streaks, or reminders.
+        </p>
+        <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Focus setup pulse feedback">
+          <For each={PULSE_OPTIONS}>
+            {(option) => (
+              <button
+                class={secondaryButtonClass}
+                type="button"
+                onClick={() => handleRecordPulse(option.rating)}
+              >
+                {option.label}
+              </button>
+            )}
+          </For>
+        </div>
+        <Show when={pulseNotice()}>
+          {(notice) => (
+            <p class="mb-0 text-xs font-bold text-trauma-text-secondary" role="status">
+              {notice()}
+            </p>
+          )}
+        </Show>
+      </div>
+    </section>
+  );
+}
+
+function FocusPluginSettingControl(props: {
+  pluginId: string;
+  field: FocusPluginSettingField;
+}) {
+  const focusPlugins = useFocusPlugins();
+  const inputId = () => `focus-plugin-${props.pluginId}-${props.field.key}`;
+  const currentValue = () =>
+    focusPlugins.getPluginSetting(props.pluginId, props.field.key) ??
+    props.field.defaultValue;
+
+  if (props.field.type === "boolean") {
+    const field = props.field;
+    const checked = () => Boolean(currentValue());
+    return (
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="grid gap-0.5">
+          <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+            {field.label}
+          </label>
+          <Show when={field.description}>
+            {(description) => (
+              <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+                {description()}
+              </p>
+            )}
+          </Show>
+        </div>
+        <input
+          checked={checked()}
+          class="size-4 accent-trauma-accent"
+          id={inputId()}
+          type="checkbox"
+          onChange={(event) =>
+            focusPlugins.setPluginSetting(
+              props.pluginId,
+              field.key,
+              event.currentTarget.checked,
+            )
+          }
+        />
+      </div>
+    );
+  }
+
+  if (props.field.type === "number") {
+    const field = props.field;
+    const numericValue = () => {
+      const value = currentValue();
+      return typeof value === "number" ? value : field.defaultValue;
+    };
+    return (
+      <div class="grid gap-1">
+        <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+          {field.label}
+          <Show when={field.unit}>
+            {(unit) => (
+              <span class="ml-1 text-xs font-semibold text-trauma-text-muted">
+                ({unit()})
+              </span>
+            )}
+          </Show>
+        </label>
+        <Show when={field.description}>
+          {(description) => (
+            <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+              {description()}
+            </p>
+          )}
+        </Show>
+        <input
+          class={selectClass}
+          id={inputId()}
+          max={field.max}
+          min={field.min}
+          step={field.step}
+          type="number"
+          value={numericValue()}
+          onInput={(event) => {
+            const parsed = Number(event.currentTarget.value);
+            if (Number.isFinite(parsed)) {
+              focusPlugins.setPluginSetting(props.pluginId, field.key, parsed);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  const field = props.field;
+  const selectedValue = () => {
+    const value = currentValue();
+    return typeof value === "string" ? value : field.defaultValue;
+  };
+  return (
+    <div class="grid gap-1">
+      <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+        {field.label}
+      </label>
+      <Show when={field.description}>
+        {(description) => (
+          <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+            {description()}
+          </p>
+        )}
+      </Show>
+      <select
+        class={selectClass}
+        id={inputId()}
+        value={selectedValue()}
+        onChange={(event) =>
+          focusPlugins.setPluginSetting(
+            props.pluginId,
+            field.key,
+            event.currentTarget.value,
+          )
+        }
+      >
+        <For each={field.options}>
+          {(option) => <option value={option.value}>{option.label}</option>}
+        </For>
+      </select>
+    </div>
+  );
 }
