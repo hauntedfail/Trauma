@@ -26,6 +26,9 @@ disagree, verify the code and tests, then correct the owning semantic document.
   route surfaces, icons, interaction, accessibility, and visual verification.
 - [Configuration](references/configuration.md): `trauma.config.json`, path and
   backup rules, browser import, and Codex app-server environment.
+- [Agent API](references/agent-api.md): headless `/api/agent/v1/*` JSON REST and
+  SSE endpoints, bearer authentication, field schemas, error shapes, and `curl`
+  examples.
 - [Coding standards](references/coding-standards/INDEX.md): TypeScript,
   SolidStart, Bun, Drizzle, security, testing, and review-feedback rules.
 - [Glossary](references/glossary.md): product terms and persisted status fields.

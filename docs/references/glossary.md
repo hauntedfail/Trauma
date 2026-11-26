@@ -49,10 +49,10 @@ older use of `Flashback` for section bookmarks.
 `Moment`. Prefer `Moment` in user-facing docs.
 
 `Psychiatrist`
-: TRAUMA product language for a memory-scoped reader assistant mounted inside
-Reader > Inspector > Psychiatrist. It answers from the active memory context
-and current thread pair history; it is not a medical professional and does not
-provide diagnosis or treatment advice.
+: TRAUMA product language for a memory-scoped reader assistant mounted in the
+on-demand reader Psychiatrist sheet (and backing in-situ AI margin notes). It
+answers from the active memory context and current thread pair history; it is
+not a medical professional and does not provide diagnosis or treatment advice.
 
 `Today`
 : Default `/memories` browse lane holding a small set of picked items
@@ -61,17 +61,24 @@ counters.
 
 `Shelf`
 : Ephemeral landing lane (`/memories?lane=shelf`, `triage_state = 'shelf'`) for
-newly captured memories awaiting deferred triage (`p` Pick, `l` Library, `x` Let
-go, `u` Undo).
+newly captured memories awaiting deferred triage (`p` Today, `l` Library,
+`x` Archive, `u` Undo).
 
 `Library`
 : Permanent kept collection (`/memories?lane=library`,
 `triage_state = 'library'`) with search and an on-demand `Filters` popover for
 categories, tags, and Flashbacks.
 
-`Inspector`
-: Single on-demand right-side reader dialog (`Outline`, `Marks`, `Translate`,
-`Details`, `Psychiatrist`) that replaces the legacy persistent right rail.
+`Inspector` *(removed)*
+: Retired multi-tab right-side reader drawer dismantled under revised D5 into
+co-located micro-surfaces (left landmark rail for Outline + Marks, inline
+`+ Translate` popover, quiet `⋯` overflow popover for rare metadata/actions,
+in-situ AI margin notes, and an on-demand Psychiatrist sheet).
+
+`Headless Agent API`
+: Versioned JSON REST and SSE contract under `/api/agent/v1/*` (`context`,
+`memories/:memoryId`, `triage`, `ask`) that exposes TRAUMA's shared reading
+state to external agents and CLI tools. See [Agent API](agent-api.md).
 
 ## Status Fields
 
@@ -86,7 +93,10 @@ and consumed by the optional `resumption-beacon` plugin for visual cues.
 
 `word_count`
 : Persisted source word count used to display neutral length buckets
-(`short` / `medium` / `long`) rather than countdown timers.
+(`short` / `medium` / `long`, exposed as `lengthBucket` in API responses) rather
+than countdown timers. Nullable (`null`) when no word count is stored, such as
+for a failed extraction or a memory captured before migration `0024` until
+`bun run db:migrate` has run its backfill.
 
 `extraction_status`
 : Import/extraction state for a memory. It distinguishes successful extraction

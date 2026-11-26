@@ -52,6 +52,7 @@ const MEMORY_TODAY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f701";
 const MEMORY_SHELF_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f702";
 const MEMORY_LIBRARY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f703";
 const MEMORY_ARCHIVE_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f704";
+const MEMORY_NO_WORD_COUNT_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f705";
 const MISSING_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f799";
 
 const SAMPLE_SOURCE_MARKDOWN = [
@@ -316,6 +317,23 @@ class FakePsychiatristClient implements CodexConversationClient {
       turnId: "codex-turn-1",
     };
   }
+}
+
+// The ask endpoint answers 202 and finishes the turn in a detached task that
+// borrows the runtime lease. A test that ends while that task is still running
+// leaves the lease release pending, and the next test then fails in
+// setupWorkspace. Wait for the turn itself; a fixed delay loses under load.
+async function waitForDetachedTurnToFinish(turnId: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (activePsychiatristTurns.getByTurnId(turnId) !== undefined) {
+    if (Date.now() > deadline) {
+      throw new Error(`Psychiatrist turn ${turnId} did not finish in time`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  // The task returns its lease borrow in the microtasks that follow
+  // unregistration. One macrotask boundary lets them run.
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe("Headless Agent API (/api/agent/v1/*)", () => {
@@ -722,8 +740,7 @@ describe("Headless Agent API (/api/agent/v1/*)", () => {
         prompt: null,
       });
 
-      // Wait briefly for detached turn execution to invoke the fake client
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitForDetachedTurnToFinish(body.turnId);
       expect(fakeClient.capturedPrompts).toHaveLength(1);
       expect(fakeClient.capturedPrompts[0]).toContain(
         "Section: In-Situ Assistance (#in-situ-assistance)",
@@ -831,6 +848,383 @@ describe("Headless Agent API (/api/agent/v1/*)", () => {
         ),
       );
       expect(missingMemory.status).toBe(404);
+    });
+  });
+
+  describe("Contract coverage (AC 16)", () => {
+    it("returns documented JSON shape for /context and maps stored wordCount to lengthBucket or null when unset (AC 16)", async () => {
+      const { config } = await setupWorkspace();
+      const connection = initializeDatabase(config);
+      const t5 = new Date("2026-06-05T08:00:00.000Z");
+      try {
+        await connection.repositories.memories.create({
+          id: MEMORY_NO_WORD_COUNT_ID,
+          url: "https://legacy.example/pre-migration-article",
+          title: "Legacy Article Without Word Count",
+          description: null,
+          faviconUrl: null,
+          contentPath: `memories/${MEMORY_NO_WORD_COUNT_ID}/CONTENT.md`,
+          extractionStatus: "success",
+          extractionError: null,
+          backupStatus: "disabled",
+          triageState: "shelf",
+          triageChangedAt: t5,
+          wordCount: null,
+          createdAt: t5,
+          updatedAt: t5,
+        });
+      } finally {
+        connection.close();
+      }
+
+      const response = await GET_AGENT_CONTEXT(
+        createApiEvent(new Request("http://localhost/api/agent/v1/context")),
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as AgentContextResponse;
+
+      expect(Object.keys(body).sort()).toEqual([
+        "activeMemory",
+        "shelf",
+        "today",
+      ]);
+
+      const todayItem = body.today[0];
+      expect(todayItem).toBeDefined();
+      expect(Object.keys(todayItem ?? {}).sort()).toEqual([
+        "domain",
+        "id",
+        "lastPosition",
+        "lengthBucket",
+        "title",
+        "triageState",
+      ]);
+      expect(todayItem?.lengthBucket).toBe("medium");
+
+      expect(body.activeMemory).not.toBeNull();
+      expect(Object.keys(body.activeMemory ?? {}).sort()).toEqual([
+        "domain",
+        "id",
+        "lastOpenedAt",
+        "lastPosition",
+        "lengthBucket",
+        "read",
+        "title",
+        "triageState",
+      ]);
+      expect(body.activeMemory?.lengthBucket).toBe("medium");
+
+      const shelfWithWordCount = body.shelf.find(
+        (item) => item.id === MEMORY_SHELF_ID,
+      );
+      const shelfWithoutWordCount = body.shelf.find(
+        (item) => item.id === MEMORY_NO_WORD_COUNT_ID,
+      );
+      expect(shelfWithWordCount?.lengthBucket).toBe("short");
+      expect(shelfWithoutWordCount?.lengthBucket).toBeNull();
+    });
+
+    it("returns documented JSON shape for /memories/:id with nullable wordCount and lengthBucket and 404 for missing memory (AC 16)", async () => {
+      const { config } = await setupWorkspace();
+      const connection = initializeDatabase(config);
+      const t5 = new Date("2026-06-05T08:00:00.000Z");
+      try {
+        await connection.repositories.memories.create({
+          id: MEMORY_NO_WORD_COUNT_ID,
+          url: "https://legacy.example/pre-migration-article",
+          title: "Legacy Article Without Word Count",
+          description: null,
+          faviconUrl: null,
+          contentPath: `memories/${MEMORY_NO_WORD_COUNT_ID}/CONTENT.md`,
+          extractionStatus: "success",
+          extractionError: null,
+          backupStatus: "disabled",
+          triageState: "shelf",
+          triageChangedAt: t5,
+          wordCount: null,
+          createdAt: t5,
+          updatedAt: t5,
+        });
+
+        await writeMemoryContent({
+          config: { storePath: config.storePath },
+          memoryId: MEMORY_NO_WORD_COUNT_ID,
+          overwrite: true,
+          frontmatter: {
+            id: MEMORY_NO_WORD_COUNT_ID,
+            url: "https://legacy.example/pre-migration-article",
+            title: "Legacy Article Without Word Count",
+            capturedAt: t5.toISOString(),
+            extractionStatus: "success",
+          },
+          markdown: "# Legacy Article\n\nBody stored before word_count backfill.",
+        });
+
+        await writeMemoryContent({
+          config: { storePath: config.storePath },
+          memoryId: MEMORY_LIBRARY_ID,
+          overwrite: true,
+          frontmatter: {
+            id: MEMORY_LIBRARY_ID,
+            url: "https://library.example/long-essay",
+            title: "Long Essay",
+            capturedAt: t5.toISOString(),
+            extractionStatus: "success",
+          },
+          markdown: "# Long Essay\n\nLong essay body.",
+        });
+      } finally {
+        connection.close();
+      }
+
+      const mediumResponse = await GET_AGENT_MEMORY(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MEMORY_TODAY_ID}`,
+          ),
+          { memoryId: MEMORY_TODAY_ID },
+        ),
+      );
+      expect(mediumResponse.status).toBe(200);
+      const mediumBody =
+        (await mediumResponse.json()) as AgentMemoryReadingStateResponse;
+
+      expect(Object.keys(mediumBody).sort()).toEqual([
+        "activeVariant",
+        "capturedAt",
+        "categories",
+        "createdAt",
+        "description",
+        "domain",
+        "extractionStatus",
+        "faviconUrl",
+        "flashbacks",
+        "id",
+        "lastOpenedAt",
+        "lastPosition",
+        "lengthBucket",
+        "markdown",
+        "moments",
+        "read",
+        "tags",
+        "title",
+        "toc",
+        "triageChangedAt",
+        "triageState",
+        "updatedAt",
+        "url",
+        "variants",
+        "wordCount",
+      ]);
+      expect(Object.keys(mediumBody.activeVariant).sort()).toEqual([
+        "kind",
+        "langCode",
+        "relativePath",
+      ]);
+      expect(mediumBody.wordCount).toBe(920);
+      expect(mediumBody.lengthBucket).toBe("medium");
+
+      const longResponse = await GET_AGENT_MEMORY(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MEMORY_LIBRARY_ID}`,
+          ),
+          { memoryId: MEMORY_LIBRARY_ID },
+        ),
+      );
+      expect(longResponse.status).toBe(200);
+      const longBody =
+        (await longResponse.json()) as AgentMemoryReadingStateResponse;
+      expect(longBody.wordCount).toBe(2400);
+      expect(longBody.lengthBucket).toBe("long");
+
+      const nullCountResponse = await GET_AGENT_MEMORY(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MEMORY_NO_WORD_COUNT_ID}`,
+          ),
+          { memoryId: MEMORY_NO_WORD_COUNT_ID },
+        ),
+      );
+      expect(nullCountResponse.status).toBe(200);
+      const nullCountBody =
+        (await nullCountResponse.json()) as AgentMemoryReadingStateResponse;
+      expect(nullCountBody.wordCount).toBeNull();
+      expect(nullCountBody.lengthBucket).toBeNull();
+
+      const missingResponse = await GET_AGENT_MEMORY(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MISSING_MEMORY_ID}`,
+          ),
+          { memoryId: MISSING_MEMORY_ID },
+        ),
+      );
+      expect(missingResponse.status).toBe(404);
+      expect(await missingResponse.json()).toEqual({
+        error: "memory was not found",
+      });
+    });
+
+    it("returns documented JSON shapes for /triage and /ask endpoints (AC 16)", async () => {
+      const { config } = await setupWorkspace();
+      const lease = ensureRuntimeProcessLease(config);
+      leaseDisposers.push(() => lease.release());
+
+      const triageResponse = await POST_AGENT_TRIAGE(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MEMORY_SHELF_ID}/triage`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ triageState: "library" }),
+            },
+          ),
+          { memoryId: MEMORY_SHELF_ID },
+        ),
+      );
+      expect(triageResponse.status).toBe(200);
+      const triageBody = (await triageResponse.json()) as AgentTriageResponse;
+      expect(Object.keys(triageBody).sort()).toEqual([
+        "changed",
+        "memoryId",
+        "triageChangedAt",
+        "triageState",
+      ]);
+
+      const fakeClient = new FakePsychiatristClient();
+      const askHandler = createAgentAskHandler({
+        config,
+        startThread: (forwarded) =>
+          handleStartPsychiatristThreadRequest(forwarded, { config }),
+        sendMessage: (forwarded) =>
+          handleSendPsychiatristMessageRequest(forwarded, {
+            config,
+            client: fakeClient,
+          }),
+      });
+      const askResponse = await askHandler(
+        createApiEvent(
+          new Request(
+            `http://localhost/api/agent/v1/memories/${MEMORY_TODAY_ID}/ask`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                action: "simplify",
+                sectionAnchor: "in-situ-assistance",
+              }),
+            },
+          ),
+          { memoryId: MEMORY_TODAY_ID },
+        ),
+      );
+      expect(askResponse.status).toBe(202);
+      const askBody = (await askResponse.json()) as AgentAskResponse;
+      expect(Object.keys(askBody).sort()).toEqual([
+        "eventsUrl",
+        "groundedContext",
+        "pairId",
+        "threadId",
+        "turnId",
+      ]);
+      expect(Object.keys(askBody.groundedContext).sort()).toEqual([
+        "action",
+        "domain",
+        "langCode",
+        "memoryId",
+        "memoryTitle",
+        "prompt",
+        "sectionAnchor",
+        "sectionTitle",
+        "selectedText",
+        "variantKind",
+      ]);
+
+      await waitForDetachedTurnToFinish(askBody.turnId);
+    });
+
+    it("returns 401 without echoing token for wrong bearer token across /api/agent/v1 endpoints when TRAUMA_API_TOKEN is configured (AC 16)", async () => {
+      await setupWorkspace();
+      const configuredToken = "test-token";
+      const wrongToken = "wrong-test-token";
+      process.env[TRAUMA_API_TOKEN_ENV_VAR] = configuredToken;
+
+      const responses = await Promise.all([
+        GET_AGENT_CONTEXT(
+          createApiEvent(
+            new Request("http://localhost/api/agent/v1/context", {
+              headers: { authorization: `Bearer ${wrongToken}` },
+            }),
+          ),
+        ),
+        GET_AGENT_MEMORY(
+          createApiEvent(
+            new Request(
+              `http://localhost/api/agent/v1/memories/${MEMORY_TODAY_ID}`,
+              {
+                headers: { authorization: `Bearer ${wrongToken}` },
+              },
+            ),
+            { memoryId: MEMORY_TODAY_ID },
+          ),
+        ),
+        POST_AGENT_TRIAGE(
+          createApiEvent(
+            new Request(
+              `http://localhost/api/agent/v1/memories/${MEMORY_SHELF_ID}/triage`,
+              {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${wrongToken}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({ triageState: "library" }),
+              },
+            ),
+            { memoryId: MEMORY_SHELF_ID },
+          ),
+        ),
+        POST_AGENT_ASK(
+          createApiEvent(
+            new Request(
+              `http://localhost/api/agent/v1/memories/${MEMORY_TODAY_ID}/ask`,
+              {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${wrongToken}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({ action: "simplify" }),
+              },
+            ),
+            { memoryId: MEMORY_TODAY_ID },
+          ),
+        ),
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(401);
+        const text = await response.text();
+        expect(text).not.toContain(configuredToken);
+        expect(text).not.toContain(wrongToken);
+        expect(JSON.parse(text)).toEqual({ error: "invalid API token" });
+      }
+
+      const withoutHeader = await GET_AGENT_CONTEXT(
+        createApiEvent(new Request("http://localhost/api/agent/v1/context")),
+      );
+      expect(withoutHeader.status).toBe(200);
+
+      const withValidToken = await GET_AGENT_CONTEXT(
+        createApiEvent(
+          new Request("http://localhost/api/agent/v1/context", {
+            headers: { authorization: `Bearer ${configuredToken}` },
+          }),
+        ),
+      );
+      expect(withValidToken.status).toBe(200);
     });
   });
 });
