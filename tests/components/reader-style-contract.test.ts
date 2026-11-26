@@ -41,8 +41,12 @@ describe("refined reader visual contract", () => {
     expect(tailwindSource).toContain("--reader-measure: 66ch");
     expect(tailwindSource).toContain(".trauma-reader-column");
     expect(tailwindSource).toContain(
-      "inline-size: min(100%, clamp(55ch, var(--reader-measure, 66ch), 75ch))",
+      "inline-size: min(100%, var(--reader-measure, 66ch))",
     );
+    expect(tailwindSource).toContain(".trauma-reader-column:lang(ja)");
+    expect(tailwindSource).toContain("--reader-measure: 40ic");
+    expect(tailwindSource).toContain(".trauma-reader-column:lang(ko)");
+    expect(tailwindSource).toContain("--reader-measure: 42ic");
     expect(tailwindSource).toContain(".trauma-reader-route-padding");
     expect(tailwindSource).toContain("padding-inline: clamp(0.5rem, 2cqi, 1rem)");
     expect(tailwindSource).toContain("padding-inline: 0.75rem");
@@ -62,8 +66,8 @@ describe("refined reader visual contract", () => {
     expect(readerSource).toContain("data-reader-landmark-rail");
     expect(readerSource).toContain("data-reader-landmark-marks");
     expect(readerSource).toContain("data-reader-psychiatrist-sheet");
-    expect(readerSource).toContain('role="dialog"');
-    expect(readerSource).toContain('aria-label="Psychiatrist"');
+    expect(readerSource).toContain("<TraumaSheet");
+    expect(readerSource).toContain('ariaLabel="Psychiatrist"');
     expect(readerSource).toContain("data-reader-end-footer");
     expect(readerSource).toContain("readerSourceLinkClass");
     expect(readerSource).toContain("ScrollableUrlLink");
@@ -147,5 +151,21 @@ describe("refined reader visual contract", () => {
     expect(tailwindSource).toContain("@keyframes trauma-pop-bounce");
     expect(tailwindSource).toContain(".animate-trauma-pop-bounce");
     expect(tailwindSource).toContain("prefers-reduced-motion: reduce");
+  });
+
+  it("defines :lang() typography rules for JA, CJK, RTL, Devanagari, and Thai reader content", () => {
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(ja)");
+    expect(tailwindSource).toContain("line-break: strict");
+    expect(tailwindSource).toContain("text-autospace: normal");
+    expect(tailwindSource).toContain('font-feature-settings: "palt" 1');
+    expect(tailwindSource).toContain("word-break: auto-phrase");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(ko)");
+    expect(tailwindSource).toContain("word-break: keep-all");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(zh-Hans)");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(zh-Hant)");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(ar)");
+    expect(tailwindSource).toContain("letter-spacing: 0 !important");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(hi)");
+    expect(tailwindSource).toContain(".trauma-reader-content:lang(th)");
   });
 });

@@ -58,12 +58,13 @@ Rules:
 
 ## Theme Persistence
 
-Theme preference is client-local only.
+Theme and reading-font preferences are client-local only.
 
 Storage keys:
 
 - `trauma:brightness`
 - `trauma:surface`
+- `trauma.reader-font` (`READER_FONT_STORAGE_KEY`)
 
 Theme controls:
 
@@ -71,11 +72,19 @@ Theme controls:
 - Use `aria-pressed`.
 - Persist to `localStorage`.
 - Set `data-theme` on `document.documentElement`.
+- Expose a 4-preset `Reading font` segmented group (`Sans`, `Serif`, `Focus`,
+  `Mono`) that sets `data-reader-font` on `document.documentElement` and
+  persists to `trauma.reader-font` (defaulting to `serif` on `paper` surface
+  and `sans` on `normal` surface when unset).
 - Do not write to SQLite, markdown files, or `trauma.config.json`.
 - Expose the opened panel as a labelled dialog-like popover.
 - Close the popover with Escape and outside pointer interaction.
-- Use the shared translucent `Popup` surface for anchored popovers; domain
-  components must not add their own outside-pointer listeners for those panels.
+- Use the shared `Popup` (`@kobalte/core/popover`) surface for anchored
+  popovers, `TraumaDialog` (`@kobalte/core/dialog`) for modal dialogs such as
+  `CommandPalette`, and `TraumaSheet` (`@corvu/drawer`) for swipeable sheets
+  such as the reader Psychiatrist sheet; domain components must not add ad hoc
+  outside-pointer listeners for those surfaces. (`useDismissableLayer` remains
+  for non-migrated inline controls such as `TaxonomyInlineCreateControl`.)
 - Shared outside-pointer dismissal may suppress the click produced by that same
   primary pointer sequence so a closing popover does not activate the surface
   beneath it. Suppression is bound to the initiating `pointerId` and clears on
@@ -202,6 +211,10 @@ Mobile:
 ## Motion And Feedback
 
 Use simple transitions for hover and selected state.
+
+Overlay surfaces (`.trauma-ui-popover`, `.trauma-ui-dialog`, and
+`.trauma-ui-backdrop`) use CSS `@starting-style` enter transitions that are
+disabled under `prefers-reduced-motion: reduce`.
 
 Reader TOC entry may use the dedicated popup-style bounce utility. Keep this
 motion short, route-entry scoped, and disabled for reduced-motion users.

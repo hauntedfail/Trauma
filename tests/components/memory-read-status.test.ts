@@ -29,12 +29,14 @@ describe("memory read status control", () => {
     );
 
     expect(readHtml).toContain("Read");
-    expect(readHtml).toContain("Mark unread");
+    expect(readHtml).toContain("Mark memory unread");
+    expect(readHtml).not.toContain('aria-label="Mark memory unread"');
     expect(readHtml).toContain('aria-pressed="true"');
     expect(readHtml).toContain('data-read-status-icon="read"');
     expect(readHtml).toContain('d="m5 12 4 4L19 6"');
     expect(unreadHtml).toContain("Unread");
-    expect(unreadHtml).toContain("Mark read");
+    expect(unreadHtml).toContain("Mark memory read");
+    expect(unreadHtml).not.toContain('aria-label="Mark memory read"');
     expect(unreadHtml).toContain('aria-pressed="false"');
     expect(unreadHtml).toContain('data-read-status-icon="unread"');
     expect(unreadHtml).not.toContain('d="m5 12 4 4L19 6"');

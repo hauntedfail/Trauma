@@ -87,15 +87,27 @@
     --hl-quote-ink: #59483d;
     --link: var(--accent);
     --link-hover: var(--accent-hover);
+    --font-ui:
+      "Inter Variable", "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI",
+      ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
     --font-sans:
-      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-      "Segoe UI", sans-serif;
-    --font-serif: Newsreader, ui-serif, Georgia, "Times New Roman", serif;
+      "IBM Plex Sans Variable", "IBM Plex Sans JP", "Hiragino Sans",
+      "BIZ UDPGothic", "Yu Gothic", ui-sans-serif, system-ui, sans-serif;
+    --font-serif:
+      "Literata Variable", "Shippori Mincho", "Hiragino Mincho ProN",
+      "Yu Mincho", ui-serif, Georgia, serif;
+    --font-focus:
+      "Atkinson Hyperlegible Next Variable", "BIZ UDPGothic", "Hiragino Sans",
+      ui-sans-serif, system-ui, sans-serif;
     --font-mono:
-      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-      monospace;
+      "JetBrains Mono Variable", "IBM Plex Sans JP", ui-monospace,
+      SFMono-Regular, Menlo, Consolas, monospace;
     --font-body: var(--font-sans);
     --reader-measure: 66ch;
+    --reader-leading: 1.65;
+    --reader-tracking: 0em;
+    --reader-word-spacing: 0em;
     --focus-ring: 0 0 0 3px rgb(184 87 106 / 50%);
     --shadow-1: 0 1px 2px rgb(17 24 39 / 6%);
     --shadow-2: 0 4px 10px rgb(17 24 39 / 8%);
@@ -105,20 +117,23 @@
   :root,
   :root[data-theme="black-dark"] {
     color-scheme: dark;
-    --bg-base: #000000;
-    --bg-surface: #000000;
-    --bg-elev: #181818;
-    --bg-sunken: #050505;
-    --bg-tint: #1f1f1f;
-    --border: #262626;
-    --border-strong: #3a3a3a;
-    --divider: #1f1f1f;
-    --fg-1: #f4f4f3;
-    --fg-2: #c8c8c5;
-    --fg-3: #8a8a86;
-    --fg-4: #5a5a56;
+    --bg-base: #0c0d0f;
+    --bg-surface: #0c0d0f;
+    --bg-elev: #16181c;
+    --bg-sunken: #07080a;
+    --bg-tint: #1e2127;
+    --border: #262930;
+    --border-strong: #393e48;
+    --divider: #1d2026;
+    --fg-1: #e4e4e0;
+    --fg-2: #b9bab4;
+    --fg-3: #848682;
+    --fg-4: #595b58;
     --fg-inverse: #0a0a0a;
-    --accent: #b8576a;
+    --font-serif:
+      "Literata Variable", "BIZ UDPMincho", "Shippori Mincho",
+      "Hiragino Mincho ProN", ui-serif, Georgia, serif;
+    --accent: #c86c7e;
     --accent-hover: #d28490;
     --accent-press: #9a334a;
     --accent-ink: #0a0a0a;
@@ -129,7 +144,7 @@
     --chip-ink: #d4d4d2;
     --selection-bg: #4a0f16;
     --selection-fg: #fbf2f3;
-    --focus-ring: 0 0 0 3px rgb(184 87 106 / 50%);
+    --focus-ring: 0 0 0 3px rgb(200 108 126 / 50%);
     --shadow-1: 0 1px 2px rgb(0 0 0 / 60%);
     --shadow-2: 0 4px 10px rgb(0 0 0 / 50%);
     --shadow-drawer: 0 20px 60px rgb(0 0 0 / 70%);
@@ -218,9 +233,9 @@
         transparent 64%
       );
     --paper-texture-blend: multiply;
-    --paper-grain-opacity: 0.38;
+    --paper-grain-opacity: 0.22;
     --paper-grain-blend: multiply;
-    --paper-glow-opacity: 0.45;
+    --paper-glow-opacity: 0.32;
     --paper-glow-blend: soft-light;
     --paper-glow-layer:
       radial-gradient(
@@ -272,9 +287,28 @@
     --leather-grain-overlay: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='170' height='170'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.18' numOctaves='4' seed='17' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.58 0 0 0 0 0.31 0 0 0 0 0.13 0 0 0 0.52 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
     --leather-fiber-overlay: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='340' height='340'><filter id='f'><feTurbulence type='turbulence' baseFrequency='0.075 0.32' numOctaves='4' seed='29' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.68 0 0 0 0 0.37 0 0 0 0 0.16 0 0 0 0.3 0'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>");
     --leather-pore-overlay: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.052 0.082' numOctaves='5' seed='43' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.82 0 0 0 0 0.46 0 0 0 0 0.21 0 0 0 0.5 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
-    --leather-grain-opacity: 0.84;
+    --leather-grain-opacity: 0.42;
     --leather-grain-blend: overlay;
+    --font-serif:
+      "Literata Variable", "BIZ UDPMincho", "Shippori Mincho",
+      "Hiragino Mincho ProN", ui-serif, Georgia, serif;
     --font-body: var(--font-serif);
+  }
+
+  /* User-selectable reading font presets (override theme default) */
+  :root[data-reader-font="sans"] {
+    --font-body: var(--font-sans);
+  }
+  :root[data-reader-font="serif"] {
+    --font-body: var(--font-serif);
+  }
+  :root[data-reader-font="focus"] {
+    --font-body: var(--font-focus);
+    --reader-tracking: 0.02em;
+    --reader-word-spacing: 0.06em;
+  }
+  :root[data-reader-font="mono"] {
+    --font-body: var(--font-mono);
   }
 
   *,
@@ -547,8 +581,111 @@
   }
 
   .trauma-reader-column {
-    inline-size: min(100%, clamp(55ch, var(--reader-measure, 66ch), 75ch));
+    inline-size: min(100%, var(--reader-measure, 66ch));
     margin-inline: auto;
+  }
+
+  .trauma-reader-column:lang(ja),
+  .trauma-reader-column:lang(zh) {
+    --reader-measure: 40ic;
+  }
+
+  .trauma-reader-column:lang(ko) {
+    --reader-measure: 42ic;
+  }
+
+  .trauma-reader-content {
+    font-family: var(--font-body);
+    line-height: var(--reader-leading, 1.65);
+    letter-spacing: var(--reader-tracking, 0em);
+    word-spacing: var(--reader-word-spacing, 0em);
+    font-optical-sizing: auto;
+    overflow-wrap: break-word;
+  }
+
+  .trauma-reader-content:lang(ja) {
+    --reader-leading: 1.85;
+    line-break: strict;
+    text-autospace: normal;
+  }
+
+  .trauma-reader-content:lang(ja) :is(h1, h2, h3) {
+    font-feature-settings: "palt" 1;
+    word-break: auto-phrase;
+  }
+
+  .trauma-reader-content:lang(ko) {
+    --reader-leading: 1.75;
+    font-family: "IBM Plex Sans Variable", "Noto Sans KR Variable", var(--font-body);
+    word-break: keep-all;
+  }
+
+  .trauma-reader-content:lang(zh-Hans) {
+    --reader-leading: 1.85;
+    font-family: "IBM Plex Sans Variable", "Noto Sans SC Variable", var(--font-body);
+    line-break: strict;
+    text-autospace: normal;
+  }
+
+  .trauma-reader-content:lang(zh-Hant) {
+    --reader-leading: 1.85;
+    font-family: "IBM Plex Sans Variable", "Noto Sans TC Variable", var(--font-body);
+    line-break: strict;
+    text-autospace: normal;
+  }
+
+  .trauma-reader-content:lang(ar),
+  .trauma-reader-content:lang(fa),
+  .trauma-reader-content:lang(ur) {
+    --reader-leading: 1.85;
+    font-family: "IBM Plex Sans Arabic", var(--font-body);
+    letter-spacing: 0 !important;
+  }
+
+  .trauma-reader-content:lang(hi),
+  .trauma-reader-content:lang(mr) {
+    --reader-leading: 1.8;
+    font-family: "Noto Sans Devanagari Variable", var(--font-body);
+  }
+
+  .trauma-reader-content:lang(th) {
+    --reader-leading: 1.8;
+    font-family: "Noto Sans Thai Variable", var(--font-body);
+  }
+
+  /* Refined Coss / Linear overlay transitions */
+  .trauma-ui-popover,
+  .trauma-ui-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition:
+      opacity 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .trauma-ui-backdrop {
+    opacity: 1;
+    transition: opacity 150ms ease-out;
+  }
+
+  @starting-style {
+    .trauma-ui-popover,
+    .trauma-ui-dialog {
+      opacity: 0;
+      transform: translateY(4px) scale(0.985);
+    }
+
+    .trauma-ui-backdrop {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trauma-ui-popover,
+    .trauma-ui-dialog,
+    .trauma-ui-backdrop {
+      transition: none;
+    }
   }
 
   .trauma-reader-topbar {
@@ -1205,6 +1342,10 @@
   [data-resumption-beacon-highlight] {
     transition: none;
   }
+}
+
+.trauma-psychiatrist-embedded .trauma-psychiatrist-panel {
+  animation: none;
 }
 
 .trauma-reader-content mark[data-flashback-id]:target {

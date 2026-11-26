@@ -7,6 +7,7 @@ const commandPaletteSource = readFileSync(
   "src/components/shell/CommandPalette.tsx",
   "utf8",
 );
+const dialogSource = readFileSync("src/components/ui/Dialog.tsx", "utf8");
 const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
 const addMemoryFormSource = readFileSync(
   "src/components/memories/AddMemoryForm.tsx",
@@ -135,8 +136,19 @@ describe("focus-first app shell contract", () => {
     expect(appShellSource).toContain("isCommandPaletteShortcut");
     expect(appShellSource).toContain("<CommandPalette");
     expect(appShellSource).toContain("previousFocusedElement");
-    expect(commandPaletteSource).toContain('role="dialog"');
-    expect(commandPaletteSource).toContain('aria-modal="true"');
+    expect(commandPaletteSource).toContain("<TraumaDialog");
+    expect(dialogSource).toContain("@kobalte/core/dialog");
+  });
+
+  it("exposes and persists all four reading font presets and uses Kobalte Popover placement", () => {
+    expect(appShellSource).toContain("READER_FONT_STORAGE_KEY");
+    expect(appShellSource).toContain("data-reader-font");
+    expect(appShellSource).toContain('aria-label="Reading font"');
+    for (const label of ["Sans", "Serif", "Focus", "Mono"]) {
+      expect(appShellSource).toContain(`<span>${label}</span>`);
+    }
+    expect(appShellSource).toContain('placement="right-end"');
+    expect(appShellSource).not.toContain("left-full bottom-0 top-auto");
   });
 
   it("keeps add-memory URL label colour theme-tokenized and opens via Popup", () => {

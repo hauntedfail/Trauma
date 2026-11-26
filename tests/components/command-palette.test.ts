@@ -9,6 +9,7 @@ import {
   extractMemoryIdFromPathname,
   isCommandPaletteShortcut,
   looksLikeCaptureUrl,
+  OPEN_READER_PSYCHIATRIST_EVENT,
   submitMemoryTriageMove,
   validateCaptureUrl,
 } from "../../src/components/shell/command-palette-model";
@@ -19,6 +20,7 @@ const commandPaletteSource = readFileSync(
   "src/components/shell/CommandPalette.tsx",
   "utf8",
 );
+const dialogSource = readFileSync("src/components/ui/Dialog.tsx", "utf8");
 
 const sampleMemory: BrowseMemory = {
   id: "mem-focus-1",
@@ -167,6 +169,75 @@ describe("command palette model", () => {
     });
   });
 
+  it("lists Open Psychiatrist only on reader routes and omits it on /memories", () => {
+    const pluginContext = createFallbackFocusPluginContext();
+
+    const browseItems = buildCommandPaletteItems({
+      query: "",
+      searchResults: [],
+      focusedMemoryId: "mem-focus-1",
+      isReaderRoute: isMemoryReaderPath("/memories"),
+      plugins: pluginContext.plugins(),
+      isPluginEnabled: (id) => pluginContext.isPluginEnabled(id),
+    });
+    expect(
+      browseItems.some(
+        (item) =>
+          item.kind === "open-psychiatrist" ||
+          item.label === "Open Psychiatrist",
+      ),
+    ).toBe(false);
+
+    const browseQueryItems = buildCommandPaletteItems({
+      query: "Open Psychiatrist",
+      searchResults: [],
+      focusedMemoryId: "mem-focus-1",
+      isReaderRoute: isMemoryReaderPath("/memories"),
+      plugins: pluginContext.plugins(),
+      isPluginEnabled: (id) => pluginContext.isPluginEnabled(id),
+    });
+    expect(
+      browseQueryItems.some((item) => item.kind === "open-psychiatrist"),
+    ).toBe(false);
+
+    const readerItems = buildCommandPaletteItems({
+      query: "",
+      searchResults: [],
+      focusedMemoryId: "mem-focus-1",
+      isReaderRoute: isMemoryReaderPath("/memories/mem-focus-1"),
+      plugins: pluginContext.plugins(),
+      isPluginEnabled: (id) => pluginContext.isPluginEnabled(id),
+    });
+    expect(readerItems).toContainEqual(
+      expect.objectContaining({
+        id: "action-open-psychiatrist",
+        section: "Actions",
+        kind: "open-psychiatrist",
+        label: "Open Psychiatrist",
+      }),
+    );
+
+    const translatedReaderQueryItems = buildCommandPaletteItems({
+      query: "psychiatrist",
+      searchResults: [],
+      focusedMemoryId: "mem-focus-1",
+      isReaderRoute: isMemoryReaderPath("/memories/ja/mem-focus-1"),
+      plugins: pluginContext.plugins(),
+      isPluginEnabled: (id) => pluginContext.isPluginEnabled(id),
+    });
+    expect(
+      translatedReaderQueryItems.filter(
+        (item) => item.kind === "open-psychiatrist",
+      ),
+    ).toHaveLength(1);
+
+    expect(OPEN_READER_PSYCHIATRIST_EVENT).toBe("trauma:open-reader-psychiatrist");
+    expect(commandPaletteSource).toContain("OPEN_READER_PSYCHIATRIST_EVENT");
+    expect(commandPaletteSource).toContain("isReaderRoute: props.isReaderRoute");
+    const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
+    expect(appShellSource).toContain("isReaderRoute={isReaderRoute()}");
+  });
+
   it("submits memory triage moves and surfaces cap errors cleanly", async () => {
     const requests: Array<{ url: string; body: string }> = [];
     const okResult = await submitMemoryTriageMove({
@@ -210,17 +281,26 @@ describe("command palette model", () => {
     });
   });
 
-  it("reuses getBrowseMemoryPage and useFocusPlugins with accessible error alerts", () => {
+  it("reuses getBrowseMemoryPage, useFocusPlugins, and TraumaDialog with accessible error alerts", () => {
     expect(commandPaletteSource).toContain("getBrowseMemoryPage");
     expect(commandPaletteSource).toContain("useFocusPlugins");
     expect(commandPaletteSource).toContain('role="alert"');
-    expect(commandPaletteSource).toContain('role="dialog"');
-    expect(commandPaletteSource).toContain('aria-modal="true"');
+    expect(commandPaletteSource).toContain("<TraumaDialog");
+    expect(commandPaletteSource).toContain('ariaLabel="Command palette"');
+    expect(commandPaletteSource).toContain('id="trauma-command-palette"');
     expect(commandPaletteSource).toContain('role="listbox"');
     expect(commandPaletteSource).not.toContain("category");
     expect(commandPaletteSource).not.toContain("tag");
     expect(commandPaletteSource).toContain("paletteSessionId");
     expect(commandPaletteSource).toContain('event.key === "Tab"');
+
+    expect(dialogSource).toContain('import { Dialog as KobalteDialog } from "@kobalte/core/dialog"');
+    expect(dialogSource).toContain("modal={true}");
+    expect(dialogSource).toContain("<KobalteDialog.Portal>");
+    expect(dialogSource).toContain("<KobalteDialog.Overlay");
+    expect(dialogSource).toContain("<KobalteDialog.Content");
+    expect(dialogSource).toContain("data-command-palette-backdrop");
+
     const memoryBrowseSource = readFileSync(
       "src/components/memories/MemoryBrowse.tsx",
       "utf8",

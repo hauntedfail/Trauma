@@ -68,7 +68,7 @@ test("keeps long Moment rows within the phone viewport", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
-test("renders exactly 4 phone bottom tabs (Today, Shelf, Library, More) with no disabled tabs", async ({
+test("renders exactly 4 phone bottom tabs (Today, Shelf, Library, More) with no disabled tabs (AC 9)", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });

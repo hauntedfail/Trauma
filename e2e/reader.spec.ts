@@ -3370,6 +3370,234 @@ test("submits end-of-article triage actions and auto-marks read after 75% depth 
   ).toBeVisible();
 });
 
+test("opens Psychiatrist from overflow popover and command palette without shifting the reader column and returns focus on close (AC 15)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+  await expect(
+    page.locator('.trauma-shell-frame[data-shell-hydrated="true"]'),
+  ).toBeVisible();
+
+  const column = page.locator("[data-reader-column]");
+  const beforeBox = await column.boundingBox();
+  expect(beforeBox).not.toBeNull();
+
+  const detailsTrigger = page.locator("[data-reader-details-trigger]");
+  const detailsPopover = await openReaderDetailsPopover(page);
+  const psychiatristAction = detailsPopover.getByRole("button", {
+    exact: true,
+    name: "Psychiatrist",
+  });
+  await expect(psychiatristAction).toBeVisible();
+  await psychiatristAction.click();
+
+  await expect(page.locator("#reader-details-popover")).toHaveCount(0);
+  const sheet = page.locator("#reader-psychiatrist-sheet");
+  await expect(sheet).toBeVisible();
+
+  const openBox = await column.boundingBox();
+  expect(openBox).not.toBeNull();
+  expect(Math.abs(openBox!.x - beforeBox!.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(openBox!.width - beforeBox!.width)).toBeLessThanOrEqual(0.5);
+
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(detailsTrigger).toBeFocused();
+
+  const afterCloseBox = await column.boundingBox();
+  expect(afterCloseBox).not.toBeNull();
+  expect(Math.abs(afterCloseBox!.x - beforeBox!.x)).toBeLessThanOrEqual(0.5);
+  expect(
+    Math.abs(afterCloseBox!.width - beforeBox!.width),
+  ).toBeLessThanOrEqual(0.5);
+
+  // Open from the command palette on a reader route.
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  const combobox = palette.getByRole("combobox", {
+    name: "Search memories or run a command",
+  });
+  await combobox.fill("Open Psychiatrist");
+  const openPsychiatristOption = palette.getByRole("option", {
+    name: /Open Psychiatrist/,
+  });
+  await expect(openPsychiatristOption).toBeVisible();
+  await openPsychiatristOption.click();
+
+  await expect(palette).toHaveCount(0);
+  await expect(sheet).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  const readerContent = page.locator("[data-reader-content]");
+  await expect(readerContent).toBeFocused();
+  const activeIsBody = await page.evaluate(
+    () => document.activeElement === document.body,
+  );
+  expect(activeIsBody).toBe(false);
+
+  // Verify the ] shortcut still opens the sheet and returns focus on Escape.
+  await page.keyboard.press("]");
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(readerContent).toBeFocused();
+});
+
+test("renders no Inspector control or tabbed side drawer and keeps rare metadata and actions in the overflow popover (AC 12)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  await expect(page.locator("[data-reader-inspector-trigger]")).toHaveCount(0);
+  await expect(page.locator("#reader-inspector-dialog")).toHaveCount(0);
+  await expect(
+    page.locator('[role="dialog"] [role="tablist"], aside [role="tablist"]'),
+  ).toHaveCount(0);
+
+  const inspectorControls = await page.evaluate(() => {
+    const controls = document.querySelectorAll<HTMLElement>(
+      'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="tab"]',
+    );
+    return Array.from(controls)
+      .map((el) => ({
+        ariaLabel: el.getAttribute("aria-label")?.trim() ?? "",
+        text: el.textContent?.trim() ?? "",
+      }))
+      .filter(
+        ({ ariaLabel, text }) =>
+          /\binspector\b/i.test(ariaLabel) || /\binspector\b/i.test(text),
+      );
+  });
+  expect(inspectorControls).toEqual([]);
+
+  const detailsPopover = await openReaderDetailsPopover(page);
+  await expect(detailsPopover).toHaveAttribute("role", "dialog");
+  await expect(detailsPopover.locator('[role="tablist"]')).toHaveCount(0);
+  await expect(detailsPopover.getByText("Source URL", { exact: true })).toBeVisible();
+  await expect(
+    detailsPopover.getByRole("button", { exact: true, name: "Psychiatrist" }),
+  ).toBeVisible();
+  await expect(
+    detailsPopover.getByRole("button", { name: /Mark memory (read|unread)/ }),
+  ).toBeVisible();
+  await expect(
+    detailsPopover.getByRole("button", { name: "Memory actions for Fixture Reader" }),
+  ).toBeVisible();
+});
+
+test("offers Simplify, Explain, and Ask on text selection and renders an in-situ margin note card with no chat surface open by default (AC 14)", async ({
+  page,
+}) => {
+  await createReaderFixture();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  const askRequests: Array<{ action?: string; selectedText?: string }> = [];
+  const threadId = "thread-margin-ac14";
+  const turnId = "turn-margin-ac14";
+  const pairId = "pair-margin-ac14";
+  const eventsUrl = `/api/memories/${READER_MEMORY_ID}/psychiatrist/events?threadId=${threadId}&turnId=${turnId}`;
+
+  await page.route(
+    `**/api/agent/v1/memories/${READER_MEMORY_ID}/ask`,
+    async (route) => {
+      const payload = route.request().postDataJSON() as {
+        action?: string;
+        selectedText?: string;
+      };
+      askRequests.push(payload);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          threadId,
+          turnId,
+          pairId,
+          eventsUrl,
+          groundedContext: {
+            memoryId: READER_MEMORY_ID,
+            title: "Fixture Reader",
+            selectedText: payload.selectedText ?? null,
+          },
+        }),
+      });
+    },
+  );
+
+  await page.route(
+    `**/api/memories/${READER_MEMORY_ID}/psychiatrist/events*`,
+    async (route) => {
+      const completedEvent = {
+        type: "psychiatrist.answer.completed",
+        eventId: "evt-margin-ac14-done",
+        memoryId: READER_MEMORY_ID,
+        threadId,
+        turnId,
+        timestamp: 1_700_000_000_000,
+        data: {
+          pair_id: pairId,
+          text: "Plain-language summary of the curated markdown body.",
+        },
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `event: psychiatrist.answer.completed\ndata: ${JSON.stringify(completedEvent)}\n\n`,
+      });
+    },
+  );
+
+  await page.goto(`/memories/${READER_MEMORY_ID}`);
+  await waitForReaderReady(page);
+
+  const psychiatristSheet = page.locator("#reader-psychiatrist-sheet");
+  await expect(psychiatristSheet).toHaveCount(0);
+
+  await selectReaderText(page, "Curated markdown body");
+
+  const simplifyButton = page.locator("[data-reader-selection-simplify]");
+  const explainButton = page.locator("[data-reader-selection-explain]");
+  const askButton = page.locator("[data-reader-selection-ask]");
+  await expect(simplifyButton).toBeVisible();
+  await expect(simplifyButton).toHaveText("Simplify");
+  await expect(explainButton).toBeVisible();
+  await expect(explainButton).toHaveText("Explain");
+  await expect(askButton).toBeVisible();
+  await expect(askButton).toHaveText("Ask");
+
+  await simplifyButton.click();
+
+  const marginNote = page.locator("[data-reader-margin-note]");
+  await expect(marginNote).toBeVisible();
+  await expect(marginNote).toHaveAttribute("data-margin-note-action", "simplify");
+  await expect(marginNote.locator("[data-margin-note-quote]")).toContainText(
+    "Curated markdown body",
+  );
+  await expect(marginNote.locator("[data-margin-note-answer]")).toContainText(
+    "Plain-language summary of the curated markdown body.",
+  );
+  await expect(psychiatristSheet).toHaveCount(0);
+  expect(askRequests).toEqual([
+    expect.objectContaining({
+      action: "simplify",
+      selectedText: "Curated markdown body",
+    }),
+  ]);
+
+  await page.keyboard.press("Escape");
+  await expect(marginNote).toHaveCount(0);
+  await expect(psychiatristSheet).toHaveCount(0);
+});
+
 async function setReaderTheme(
   page: Page,
   brightness: "night" | "sun",

@@ -23,6 +23,9 @@ describe("scrollable URL text", () => {
     expect(html).toContain("trauma-scroll-url-body");
     expect(html).toContain("trauma-scroll-url-text");
     expect(html).not.toContain("wrap-anywhere");
+    expect(html.indexOf("trauma-scroll-url-body")).toBeLessThan(
+      html.indexOf("<a"),
+    );
   });
 
   it("supports non-clickable source URL displays with the same text surface", () => {

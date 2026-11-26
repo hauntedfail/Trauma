@@ -29,7 +29,7 @@ const memoryReaderSource = readFileSync(
 const tailwindSource = readFileSync("src/styles/tailwind.css", "utf8");
 
 describe("reader in-situ margin note card (D12)", () => {
-  it("builds Simplify, Explain, and Ask payloads with grounded passage context", () => {
+  it("builds Simplify, Explain, and Ask payloads with grounded passage context (AC 14)", () => {
     expect(
       buildReaderMarginNoteAskPayload({
         action: "simplify",
@@ -338,7 +338,7 @@ describe("reader in-situ margin note card (D12)", () => {
     ).rejects.toThrow("Psychiatrist backend is unavailable");
   });
 
-  it("renders Simplify, Explain, and Ask-input states with passage snippet, Close, and Continue in Psychiatrist", () => {
+  it("renders Simplify, Explain, and Ask-input states with passage snippet, Close, and Continue in Psychiatrist (AC 14)", () => {
     const simplifyHtml = renderToString(() =>
       createComponent(ReaderMarginNoteCard, {
         memoryId: "mem-1",

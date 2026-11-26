@@ -8,7 +8,10 @@ export type DismissableLayerDismissReason = "escape" | "outside-pointer";
 export interface DismissableLayerOptions<TRoot extends HTMLElement> {
   getRoot: () => TRoot | undefined;
   isEnabled?: () => boolean;
-  onDismiss: (reason: DismissableLayerDismissReason) => void;
+  onDismiss: (
+    reason: DismissableLayerDismissReason,
+    target?: EventTarget | null,
+  ) => void;
   shouldIgnoreOutsidePointerDown?: (target: EventTarget | null) => boolean;
   shouldSuppressOutsideClick?: (target: EventTarget | null) => boolean;
 }
@@ -131,7 +134,7 @@ export function useDismissableLayer<TRoot extends HTMLElement>(
       ) {
         armOutsideClickSuppression(event);
       }
-      options.onDismiss("outside-pointer");
+      options.onDismiss("outside-pointer", event.target);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isTopmostLayer()) {

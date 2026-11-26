@@ -1535,7 +1535,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   const memoryId = "018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901";
   await createBrowseDeleteFixture();
 
-  // 1. Pick (`p`) on focused Shelf row -> persists to Today and survives reload
+  // 1. Today (`p`) on focused Shelf row -> persists to Today and survives reload
   await page.goto("/memories?lane=shelf");
   const readerLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
@@ -1603,7 +1603,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   await page.reload();
   await expect(readerLink).toBeVisible();
 
-  // 3. Let go (`x`) -> persists to archive and appears in Library with in:archive
+  // 3. Archive (`x`) -> persists to archive and appears in Library with in:archive
   await readerLink.focus();
   const letGoResponse = page.waitForResponse(
     (response) =>
@@ -1648,7 +1648,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   await expect(readerLink).toBeVisible();
   await page.unroute(`**/api/memories/${memoryId}/triage`);
 
-  // 5. Pick refused when Today is at cap (HTTP 409)
+  // 5. Today move refused when Today is at cap (HTTP 409)
   await page.route(`**/api/memories/${memoryId}/triage`, async (route) => {
     await route.fulfill({
       status: 409,
@@ -1705,6 +1705,101 @@ test("shows neutral Today empty state with link to Shelf when Today has no picke
   );
   const shelfLink = emptyState.getByRole("link", { name: "Open Shelf" });
   await expect(shelfLink).toHaveAttribute("href", "/memories?lane=shelf");
+});
+
+test("renders destination triage labels without retired Pick, Not now, Keep, or Let go control names (AC 13)", async ({
+  page,
+}) => {
+  const assertNoRetiredControlNames = async (surface: string) => {
+    const violations = await page.evaluate(() => {
+      const retiredPattern = /^(pick|not now|keep|let go)$/i;
+      const controls = document.querySelectorAll<HTMLElement>(
+        'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="tab"]',
+      );
+      const hits: Array<{ ariaLabel: string; text: string }> = [];
+      for (const control of controls) {
+        const text = (control.textContent ?? "").replace(/\s+/g, " ").trim();
+        const ariaLabel = (control.getAttribute("aria-label") ?? "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (retiredPattern.test(text) || retiredPattern.test(ariaLabel)) {
+          hits.push({ ariaLabel, text });
+        }
+      }
+      return hits;
+    });
+
+    expect(
+      violations,
+      `Expected no retired control names on ${surface}`,
+    ).toEqual([]);
+  };
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Today lane
+  await page.goto("/memories");
+  await expect(
+    page.getByRole("heading", { name: "Today", exact: true }),
+  ).toBeVisible();
+  const todayRow = page.locator("article").first();
+  await expect(todayRow).toBeVisible();
+  await expect(
+    todayRow.locator("button", { hasText: /^Shelf$/ }),
+  ).toBeVisible();
+  await expect(
+    todayRow.locator("button", { hasText: /^Archive$/ }),
+  ).toBeVisible();
+  await assertNoRetiredControlNames("Today");
+
+  // Shelf lane
+  await page.goto("/memories?lane=shelf");
+  await expect(
+    page.getByRole("heading", { name: "Shelf", exact: true }),
+  ).toBeVisible();
+  const shelfRow = page.locator("article").first();
+  await expect(shelfRow).toBeVisible();
+  await expect(
+    shelfRow.locator("button", { hasText: /^Today$/ }),
+  ).toBeVisible();
+  await expect(
+    shelfRow.locator("button", { hasText: /^Library$/ }),
+  ).toBeVisible();
+  await expect(
+    shelfRow.locator("button", { hasText: /^Archive$/ }),
+  ).toBeVisible();
+  await assertNoRetiredControlNames("Shelf");
+
+  // Library lane
+  await page.goto("/memories?lane=library");
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  await assertNoRetiredControlNames("Library");
+
+  // Reader + end footer + overflow popover
+  await materializeE2eFixture("reader_base");
+  await page.goto("/memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f101");
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
+  const endFooter = page.locator("[data-reader-end-footer]");
+  await endFooter.scrollIntoViewIfNeeded();
+  await expect(
+    endFooter.getByRole("button", { exact: true, name: "Library" }),
+  ).toBeVisible();
+  await expect(
+    endFooter.getByRole("button", { exact: true, name: "Archive" }),
+  ).toBeVisible();
+  await expect(
+    endFooter.getByRole("button", { exact: true, name: "Shelf" }),
+  ).toBeVisible();
+  await assertNoRetiredControlNames("Reader");
+
+  await page.locator("[data-reader-details-trigger]").click();
+  await expect(page.locator("#reader-details-popover")).toBeVisible();
+  await assertNoRetiredControlNames("Reader (Details popover open)");
 });
 
 async function expectRailDialogAboveMain(page: Page, dialogName: string) {

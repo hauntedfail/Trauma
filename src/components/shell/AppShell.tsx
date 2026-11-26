@@ -48,6 +48,11 @@ import {
 } from "./command-palette-model";
 import { SegmentedToggleButton } from "../ui/SegmentedToggleButton";
 import { Popup } from "../ui/Popup";
+import {
+  isReaderFontPreset,
+  READER_FONT_STORAGE_KEY,
+  type ReaderFontPreset,
+} from "../../lib/language-detect";
 
 interface RouteNavItem {
   href: string;
@@ -74,8 +79,7 @@ const railNavItemBase =
 const activeNavItem =
   "trauma-active-nav-item relative text-trauma-text-primary";
 const railPopoverRoot = "relative grid place-items-center";
-const railPopoverPanel =
-  "w-[252px] max-w-[calc(100vw-4.5rem)] left-full bottom-0 top-auto ml-2 mt-0";
+const railPopoverPanel = "w-[264px] max-w-[calc(100vw-4.5rem)]";
 const phoneTabButton =
   "trauma-capability-touch-target flex min-h-[48px] w-full flex-col items-center justify-center gap-1 rounded-xl px-1 py-1 text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
 
@@ -166,6 +170,7 @@ export function AppShell(props: AppShellProps) {
     DEFAULT_BRIGHTNESS_MODE,
   );
   const [surface, setSurface] = createSignal<SurfaceMode>(DEFAULT_SURFACE_MODE);
+  const [readerFont, setReaderFont] = createSignal<ReaderFontPreset | null>(null);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialMode, setPaletteInitialMode] = createSignal<
     "search" | "capture"
@@ -210,6 +215,7 @@ export function AppShell(props: AppShellProps) {
   onMount(() => {
     setBrightness(readStoredBrightness());
     setSurface(readStoredSurface());
+    setReaderFont(readStoredReaderFont());
     setIsHydrated(true);
 
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
@@ -259,6 +265,22 @@ export function AppShell(props: AppShellProps) {
     document.documentElement.setAttribute("data-theme", theme);
     writeLocalStorageItem(BRIGHTNESS_STORAGE_KEY, nextBrightness);
     writeLocalStorageItem(SURFACE_STORAGE_KEY, nextSurface);
+  });
+
+  createEffect(() => {
+    if (!isHydrated()) {
+      return;
+    }
+
+    const nextFont = readerFont();
+    if (nextFont === null) {
+      document.documentElement.removeAttribute("data-reader-font");
+      removeLocalStorageItem(READER_FONT_STORAGE_KEY);
+      return;
+    }
+
+    document.documentElement.setAttribute("data-reader-font", nextFont);
+    writeLocalStorageItem(READER_FONT_STORAGE_KEY, nextFont);
   });
 
   // Reset reader rail visibility on route change and attach auto-hide listeners on reader routes.
@@ -342,7 +364,9 @@ export function AppShell(props: AppShellProps) {
           brightness={brightness()}
           onOpenPalette={() => openCommandPalette("search")}
           onSetBrightness={setBrightness}
+          onSetReaderFont={setReaderFont}
           onSetSurface={setSurface}
+          readerFont={readerFont()}
           surface={surface()}
         />
       </aside>
@@ -359,13 +383,16 @@ export function AppShell(props: AppShellProps) {
         onOpenCapture={() => openCommandPalette("capture")}
         onOpenPalette={() => openCommandPalette("search")}
         onSetBrightness={setBrightness}
+        onSetReaderFont={setReaderFont}
         onSetSurface={setSurface}
+        readerFont={readerFont()}
         surface={surface()}
       />
       <CommandPalette
         addMemorySubmission={addMemorySubmission}
         focusedMemoryId={focusedMemoryId()}
         initialMode={paletteInitialMode()}
+        isReaderRoute={isReaderRoute()}
         open={paletteOpen()}
         onClose={closeCommandPalette}
       />
@@ -434,7 +461,9 @@ function NavigationContent(props: {
   onNavigate?: () => void;
   onOpenPalette: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
+  onSetReaderFont: (preset: ReaderFontPreset | null) => void;
   onSetSurface: (mode: SurfaceMode) => void;
+  readerFont: ReaderFontPreset | null;
   surface: SurfaceMode;
 }) {
   return (
@@ -476,8 +505,10 @@ function NavigationContent(props: {
         <ThemeNavButton
           brightness={props.brightness}
           onBrightness={props.onSetBrightness}
+          onReaderFont={props.onSetReaderFont}
           onSurface={props.onSetSurface}
           popoverId="rail-theme-settings"
+          readerFont={props.readerFont}
           surface={props.surface}
         />
       </div>
@@ -523,8 +554,8 @@ function AddMemoryComposerButton(props: {
       id={props.popoverId}
       label="Add memory"
       mode="dialog"
-      panelClass="w-[min(320px,calc(100vw-4.5rem))] left-full bottom-0 top-auto ml-2 mt-0"
-      placement="top-start"
+      panelClass="w-[min(320px,calc(100vw-4.5rem))]"
+      placement="right-end"
       trigger={({ open, triggerProps }) => (
         <button
           {...triggerProps}
@@ -565,8 +596,10 @@ function AddMemoryComposerButton(props: {
 function ThemeNavButton(props: {
   brightness: BrightnessMode;
   onBrightness: (mode: BrightnessMode) => void;
+  onReaderFont: (preset: ReaderFontPreset | null) => void;
   onSurface: (mode: SurfaceMode) => void;
   popoverId: string;
+  readerFont: ReaderFontPreset | null;
   surface: SurfaceMode;
 }) {
   return (
@@ -576,7 +609,7 @@ function ThemeNavButton(props: {
       label="Theme settings"
       mode="dialog"
       panelClass={railPopoverPanel}
-      placement="top-start"
+      placement="right-end"
       trigger={({ open, triggerProps }) => {
         const Icon = TraumaNavIcons.theme[open ? "filled" : "outline"];
         return (
@@ -598,7 +631,9 @@ function ThemeNavButton(props: {
         <ThemeBlock
           brightness={props.brightness}
           onBrightness={props.onBrightness}
+          onReaderFont={props.onReaderFont}
           onSurface={props.onSurface}
+          readerFont={props.readerFont}
           surface={props.surface}
         />
       )}
@@ -613,7 +648,9 @@ function PhoneTabBar(props: {
   onOpenCapture: () => void;
   onOpenPalette: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
+  onSetReaderFont: (preset: ReaderFontPreset | null) => void;
   onSetSurface: (mode: SurfaceMode) => void;
+  readerFont: ReaderFontPreset | null;
   surface: SurfaceMode;
 }) {
   const isMoreRouteActive = createMemo(() =>
@@ -726,7 +763,9 @@ function PhoneTabBar(props: {
                 <ThemeBlock
                   brightness={props.brightness}
                   onBrightness={props.onSetBrightness}
+                  onReaderFont={props.onSetReaderFont}
                   onSurface={props.onSetSurface}
+                  readerFont={props.readerFont}
                   surface={props.surface}
                 />
               </div>
@@ -768,7 +807,9 @@ function PhoneRouteTab(props: {
 function ThemeBlock(props: {
   brightness: BrightnessMode;
   onBrightness: (mode: BrightnessMode) => void;
+  onReaderFont: (preset: ReaderFontPreset | null) => void;
   onSurface: (mode: SurfaceMode) => void;
+  readerFont: ReaderFontPreset | null;
   surface: SurfaceMode;
 }) {
   const normalSurfaceLabel = createMemo(() =>
@@ -780,9 +821,14 @@ function ThemeBlock(props: {
   const paperSurfaceIcon = createMemo(() =>
     props.brightness === "night" ? <HermesIcon /> : <PaperIcon />,
   );
+  const activeFontPreset = createMemo<ReaderFontPreset>(
+    () => props.readerFont ?? (props.surface === "paper" ? "serif" : "sans"),
+  );
   return (
-    <section aria-label="Theme" class="grid w-full gap-1.5 px-2 py-2.5">
-      <p class="text-[11px] font-bold uppercase text-trauma-text-muted">Theme</p>
+    <section aria-label="Theme" class="grid w-full gap-2 px-2.5 py-2.5">
+      <p class="text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+        Theme
+      </p>
       <div
         aria-label="Brightness"
         class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1"
@@ -827,6 +873,43 @@ function ThemeBlock(props: {
           <span>{paperSurfaceLabel()}</span>
         </SegmentedToggleButton>
       </div>
+      <p class="pt-1 text-[11px] font-bold uppercase tracking-wide text-trauma-text-muted">
+        Reading font
+      </p>
+      <div
+        aria-label="Reading font"
+        class="grid grid-cols-4 gap-1 rounded-full bg-trauma-bg-sunken p-1"
+        role="group"
+      >
+        <SegmentedToggleButton
+          active={activeFontPreset() === "sans"}
+          hint="Use Sans reading font (IBM Plex Sans + JP)"
+          onClick={() => props.onReaderFont("sans")}
+        >
+          <span>Sans</span>
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={activeFontPreset() === "serif"}
+          hint="Use Serif reading font (Literata + Mincho)"
+          onClick={() => props.onReaderFont("serif")}
+        >
+          <span>Serif</span>
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={activeFontPreset() === "focus"}
+          hint="Use Focus accessible reading font (Atkinson + BIZ UD)"
+          onClick={() => props.onReaderFont("focus")}
+        >
+          <span>Focus</span>
+        </SegmentedToggleButton>
+        <SegmentedToggleButton
+          active={activeFontPreset() === "mono"}
+          hint="Use Mono reading font (JetBrains Mono + JP)"
+          onClick={() => props.onReaderFont("mono")}
+        >
+          <span>Mono</span>
+        </SegmentedToggleButton>
+      </div>
     </section>
   );
 }
@@ -854,6 +937,19 @@ function readStoredBrightness(): BrightnessMode {
 function readStoredSurface(): SurfaceMode {
   const value = readLocalStorageItem(SURFACE_STORAGE_KEY);
   return value === "normal" || value === "paper" ? value : DEFAULT_SURFACE_MODE;
+}
+
+function readStoredReaderFont(): ReaderFontPreset | null {
+  const value = readLocalStorageItem(READER_FONT_STORAGE_KEY);
+  return isReaderFontPreset(value) ? value : null;
+}
+
+function removeLocalStorageItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Best-effort storage cleanup.
+  }
 }
 
 function readLocalStorageItem(key: string): string | null {

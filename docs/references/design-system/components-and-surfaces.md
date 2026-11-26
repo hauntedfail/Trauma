@@ -97,15 +97,19 @@ or list/grid toggle.
 Left-rail transient controls open as anchored popovers rather than global
 drawers:
 
+- `Popup` (`src/components/ui/Popup.tsx`) is built on `@kobalte/core/popover`,
+  rendering inside `Popover.Portal` on the client and falling back to inline
+  `Popover.Content` during SSR (`isServer === true`).
 - Theme settings and Add memory composer use the shared `Popup` shell with
   `role="dialog"`, `aria-haspopup`, `aria-expanded`, and `aria-controls`.
 - General action menus use the same `Popup` shell with `role="menu"`. Memory,
   Moment, and Flashback delete actions use one danger menu-item treatment and
   the shared trash icon.
-- Popup chrome is translucent by default: `Popup` owns the rounded elevated
-  border, `bg-trauma-bg-elev/50`, backdrop blur, animation, and layer. Consumers
-  only provide width, grid, gap, padding, text alignment, and placement-specific
-  constraints.
+- Popup chrome is elevated and translucent by default: `Popup` owns the rounded
+  border (`border-trauma-border/90`), `bg-trauma-bg-elev/95`, `backdrop-blur-xl`,
+  inset hairline ring, layered shadow, `.trauma-ui-popover` enter transition,
+  and `z-[70]` layer. Consumers only provide width, grid, gap, padding, text
+  alignment, and placement-specific constraints.
 - Popovers close on Escape, outside pointer interaction, or successful
   completion of the contained workflow.
 - Opening moves focus into the panel. Escape and successful completion restore
@@ -119,6 +123,19 @@ drawers:
 - The primary rail must allow visible overflow and sit above route panes.
   Anchored popovers use a higher layer than the rail and main pane so their
   content is never clipped beneath the current route.
+
+Shared modal dialog and sheet primitives follow the same elevated glass-hairline
+surface contract:
+
+- `TraumaDialog` (`src/components/ui/Dialog.tsx`) wraps `@kobalte/core/dialog`
+  with portalled modal focus trapping, backdrop blur (`.trauma-ui-backdrop`),
+  Escape/outside-click dismissal, and `.trauma-ui-dialog` enter transitions.
+  `CommandPalette` (`#trauma-command-palette`) mounts inside `TraumaDialog`.
+- `TraumaSheet` (`src/components/ui/Sheet.tsx`) wraps `@corvu/drawer` for
+  swipeable side/bottom sheets (`modal={false}`, Escape dismissal, touch-drag
+  dismissal on narrower viewports, docked without a heavy backdrop at
+  `>= 1440px`). `MemoryReader` uses `TraumaSheet` for the on-demand
+  Psychiatrist sheet.
 
 ## Form Inputs
 

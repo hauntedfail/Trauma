@@ -19,7 +19,8 @@ Primary token groups:
 - Linked flashback anchors: `anchor-flashback-bg`, `anchor-flashback-ink`,
   `anchor-flashback-ring`.
 - State: `state-success`, `state-warning`, `state-danger`, `state-info`.
-- Typography: `font-sans`, `font-serif`, `font-mono`, `font-body`.
+- Typography: `font-ui`, `font-sans`, `font-serif`, `font-focus`, `font-mono`,
+  `font-body`.
 - Shadows: `shadow-1`, `shadow-2`, `shadow-drawer`.
 
 ## Tailwind Mapping
@@ -91,10 +92,14 @@ Current base/surface values:
 
 | Theme name | Theme token (`data-theme`) | `--bg-base` and `--bg-surface` |
 | --- | --- | --- |
-| `midnight` | `black-dark` | `#000000` |
+| `midnight` | `black-dark` | `#0c0d0f` |
 | `light` | `warm-light` | `#f6f7f4` |
 | `paper` | `paper-warm-light` | `#ece2cc` |
 | `hermes` | `paper-black-dark` | `#211307` |
+
+`black-dark` uses APCA-tuned low-halation contrast tokens (`--bg-base` and
+`--bg-surface` at `#0c0d0f`, `--fg-1` at `#e4e4e0`, `--fg-2` at `#b9bab4`, and
+`--fg-3` at `#848682`) instead of pure `#000000` / `#ffffff`.
 
 `--bg-elev`, `--bg-sunken`, and `--bg-tint` remain distinct so controls,
 selected states, popovers, right rail islands, theme toggles, and hover states
@@ -141,28 +146,67 @@ Light and Midnight themes must not enable these material texture layers.
 
 ## Typography
 
-The default UI font is:
+Core English and Japanese fonts are self-hosted via `@fontsource*` packages and
+eagerly imported from `src/styles/fonts.ts` (loaded in `src/app.tsx`).
+Non-EN/JA scripts (`ko`, `zh-Hans`, `zh-Hant`, `ar`/`fa`/`ur`, `hi`/`mr`, `th`)
+load on demand through dynamic `import()` in `src/lib/multilingual-fonts.ts`.
+
+Font stacks:
+
+- UI chrome (`--font-ui`):
 
 ```text
-Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-"Segoe UI", sans-serif
+"Inter Variable", "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI",
+ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+sans-serif
 ```
 
-Paper themes set `--font-body` to the serif stack:
+- Sans reading stack (`--font-sans`, default `--font-body` for Light/Midnight):
 
 ```text
-Newsreader, ui-serif, Georgia, "Times New Roman", serif
+"IBM Plex Sans Variable", "IBM Plex Sans JP", "Hiragino Sans",
+"BIZ UDPGothic", "Yu Gothic", ui-sans-serif, system-ui, sans-serif
 ```
 
-Code uses:
+- Serif reading stack (`--font-serif`, default `--font-body` for Paper/Hermès):
 
 ```text
-"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
+"Literata Variable", "Shippori Mincho", "Hiragino Mincho ProN",
+"Yu Mincho", ui-serif, Georgia, serif
 ```
+
+In dark themes (`black-dark` and `paper-black-dark`), `--font-serif` promotes
+`"BIZ UDPMincho"` ahead of `"Shippori Mincho"` for stronger low-light stroke
+legibility:
+
+```text
+"Literata Variable", "BIZ UDPMincho", "Shippori Mincho",
+"Hiragino Mincho ProN", ui-serif, Georgia, serif
+```
+
+- Focus accessible reading stack (`--font-focus`):
+
+```text
+"Atkinson Hyperlegible Next Variable", "BIZ UDPGothic", "Hiragino Sans",
+ui-sans-serif, system-ui, sans-serif
+```
+
+- Monospace / code stack (`--font-mono`):
+
+```text
+"JetBrains Mono Variable", "IBM Plex Sans JP", ui-monospace, SFMono-Regular,
+Menlo, Consolas, monospace
+```
+
+User-selectable reading font presets (`Sans`, `Serif`, `Focus`, `Mono`) override
+the theme default `--font-body` via `:root[data-reader-font="sans"|"serif"|"focus"|"mono"]`.
+The `focus` preset also sets `--reader-tracking: 0.02em` and
+`--reader-word-spacing: 0.06em`.
 
 Rules:
 
-- Keep `letter-spacing: 0`.
+- Keep `letter-spacing: 0` outside the `focus` reading preset (and keep
+  `letter-spacing: 0 !important` for RTL Arabic/Persian/Urdu prose).
 - Do not use negative tracking.
 - Do not scale font size with viewport width.
 - Match type scale to context: large route titles, compact panel headings,

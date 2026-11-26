@@ -11,6 +11,7 @@ import {
 
 import { useFocusPlugins } from "../../plugins";
 import { PlusIcon, SearchIcon } from "../icons";
+import { TraumaDialog } from "../ui/Dialog";
 import type { AddMemorySubmissionController } from "../memories/add-memory-controller";
 import {
   defaultBrowseQuery,
@@ -23,6 +24,7 @@ import {
 import {
   buildCommandPaletteItems,
   looksLikeCaptureUrl,
+  OPEN_READER_PSYCHIATRIST_EVENT,
   submitMemoryTriageMove,
   validateCaptureUrl,
   type CommandPaletteItem,
@@ -32,6 +34,7 @@ export interface CommandPaletteProps {
   open: boolean;
   initialMode?: "search" | "capture";
   focusedMemoryId: string | null;
+  isReaderRoute: boolean;
   addMemorySubmission: AddMemorySubmissionController;
   onClose: (restoreFocus: boolean) => void;
 }
@@ -58,12 +61,21 @@ export function CommandPalette(props: CommandPaletteProps) {
   let captureInputRef: HTMLInputElement | undefined;
   let searchSequence = 0;
   let paletteSessionId = 0;
+  let pendingPsychiatristTimer: number | undefined;
+
+  onCleanup(() => {
+    if (pendingPsychiatristTimer !== undefined) {
+      window.clearTimeout(pendingPsychiatristTimer);
+      pendingPsychiatristTimer = undefined;
+    }
+  });
 
   const items = createMemo(() =>
     buildCommandPaletteItems({
       query: query(),
       searchResults: searchResults(),
       focusedMemoryId: props.focusedMemoryId,
+      isReaderRoute: props.isReaderRoute,
       plugins: focusPlugins.plugins(),
       isPluginEnabled: (pluginId) => focusPlugins.isPluginEnabled(pluginId),
     }),
@@ -297,6 +309,18 @@ export function CommandPalette(props: CommandPaletteProps) {
       case "open-capture":
         switchToCaptureMode();
         return;
+      case "open-psychiatrist":
+        props.onClose(false);
+        if (typeof window !== "undefined") {
+          if (pendingPsychiatristTimer !== undefined) {
+            window.clearTimeout(pendingPsychiatristTimer);
+          }
+          pendingPsychiatristTimer = window.setTimeout(() => {
+            pendingPsychiatristTimer = undefined;
+            window.dispatchEvent(new CustomEvent(OPEN_READER_PSYCHIATRIST_EVENT));
+          }, 0);
+        }
+        return;
       case "memory":
       case "navigate":
         props.onClose(false);
@@ -409,25 +433,21 @@ export function CommandPalette(props: CommandPaletteProps) {
   };
 
   return (
-    <Show when={props.open}>
-      <div
-        class="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 px-4 pt-[min(14vh,6rem)] backdrop-blur-[2px]"
-        data-command-palette-backdrop
-        onPointerDown={(event) => {
-          if (event.target === event.currentTarget) {
-            props.onClose(true);
-          }
-        }}
-      >
-        <div
-          ref={dialogRef}
-          aria-label="Command palette"
-          aria-modal="true"
-          class="w-full max-w-[560px] overflow-hidden rounded-[20px] border border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary shadow-trauma-2"
-          id="trauma-command-palette"
-          role="dialog"
-        >
-          <Show
+    <TraumaDialog
+      ariaLabel="Command palette"
+      contentClass="max-w-[560px]"
+      contentRef={(el) => {
+        dialogRef = el;
+      }}
+      id="trauma-command-palette"
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          props.onClose(true);
+        }
+      }}
+      open={props.open}
+    >
+      <Show
             when={mode() === "search"}
             fallback={
               <form
@@ -627,8 +647,6 @@ export function CommandPalette(props: CommandPaletteProps) {
               <span>⌘K / Ctrl+K</span>
             </div>
           </Show>
-        </div>
-      </div>
-    </Show>
+    </TraumaDialog>
   );
 }

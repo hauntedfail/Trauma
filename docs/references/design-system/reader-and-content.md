@@ -3,13 +3,16 @@
 ## Reader Purpose
 
 Reader mode is for reading extracted memory content. It is not a markdown
-editor. The only direct text interaction is flashback toggling through text
-selection.
+editor. Direct text interaction is limited to the text-selection menu
+(Flashback toggling, section Moment toggling when applicable, and in-situ AI
+margin notes: `Simplify`, `Explain`, `Ask`).
 
 ## Reader Frame And Measure
 
 Reader route frames use a centered single-column canvas bound by
-`--reader-measure` (default `66ch`, clamped to `55ch–75ch`):
+`--reader-measure` (default `66ch`, clamped to `55ch–75ch`; CJK languages
+override measure via `:lang(ja)` / `:lang(zh)` at `40ic` and `:lang(ko)` at
+`42ic`):
 
 ```text
 trauma-route-surface trauma-reader-surface trauma-mobile-stable-viewport
@@ -61,12 +64,24 @@ where its need arises and remains hidden during active reading:
   `text-trauma-link`), captured date, read-state toggle, categories, tags, and
   delete/category action menu (`MemoryActionMenu`). Escape closes the topmost
   popup first and returns focus to the trigger.
+- **In-situ AI margin note card** (`.trauma-reader-margin-note`,
+  `data-reader-margin-note`, `role="complementary"`): opens from the text
+  selection menu (`Simplify`, `Explain`, `Ask`) with automatic passage and
+  section context, renders the passage snippet and `AdaptiveAiResponse` output
+  (or a compact bottom sheet on narrow viewports), supports follow-up questions,
+  dismisses on `Escape` or Close with focus return, and offers
+  `Continue in Psychiatrist` to escalate to a full thread.
 - **On-demand Psychiatrist sheet** (`.trauma-reader-psychiatrist-sheet`,
-  `#reader-psychiatrist-sheet`, `role="dialog"`, `z-index: 50`): opens on
-  demand from the text selection menu (`Ask`, `data-reader-selection-ask`) or
-  the `]` keyboard shortcut without a 5-tab Inspector drawer. Mounts the
-  memory-scoped `PsychiatristDock` (`embedded`) with `AdaptiveAiResponse` when
-  enabled; Escape or Close dismisses and returns focus.
+  `#reader-psychiatrist-sheet`, `role="dialog"`, `z-index: 50`, built on
+  `TraumaSheet` / `@corvu/drawer`): opens on demand without a 5-tab Inspector
+  drawer, from the `Psychiatrist` action in the `⋯` overflow popover, the
+  `Open Psychiatrist` command-palette command on reader routes, the `]`
+  keyboard shortcut, or a margin note's `Continue in Psychiatrist` action
+  ([`focus-first-ui.md`](../../architecture/focus-first-ui.md) AC 15). Closing
+  returns focus to the control that opened it; opened from the palette, focus
+  returns to the reader column. Mounts the memory-scoped `PsychiatristDock`
+  (`embedded`) with `AdaptiveAiResponse` when enabled; Escape, backdrop click on
+  narrow viewports, or Close dismisses the sheet.
 - **Reader focus plugin overlays**: `ReadingRulerOverlay` and `ResumptionBeacon`
   mount in the overlay layer above text and below the Psychiatrist sheet
   (`z-40`). `ResumptionBeacon` reads core `last_position` and adds only visual
@@ -115,7 +130,7 @@ static aids (anchors, scroll fades, Moment toggles, long-press menus).
   chapter. If the sections for several chapters are visible at once, every
   visible entry is highlighted. The result is always a contiguous slice of the
   TOC ordering; the topmost visible entry is the `leadId`.
-- The reader and the right-rail TOC communicate this range through
+- The reader and the landmark-rail TOC communicate this range through
   `MemoryReader`-owned reactive state passed down as props; the TOC never reads
   reader DOM.
 - The range is painted by a single measured overlay element
@@ -182,6 +197,37 @@ Reader prose rules:
 Do not introduce broad global prose selectors outside the reader unless the
 markup cannot be authored directly.
 
+### Multilingual Typography & Language Detection
+
+`MemoryReader` detects each rendered article's BCP-47 language tag and text
+direction via `detectArticleLanguage` and `isRtlLanguage`
+(`src/lib/language-detect.ts`), preferring an explicit variant `langCode` and
+otherwise inspecting Unicode script ratios. It binds `lang` and `dir` (`rtl`
+for `ar`, `fa`, `he`, `ur`, `yi`, `ps`, `sd`; `ltr` otherwise) on the reading
+column.
+
+- English (`en`) and Japanese (`ja`) fonts are eagerly self-hosted from
+  `src/styles/fonts.ts`.
+- Other supported scripts (`ko`, `zh-Hans`, `zh-Hant`, `ar`/`fa`/`ur`,
+  `hi`/`mr`, `th`) are loaded on demand by `ensureMultilingualFontLoaded`
+  (`src/lib/multilingual-fonts.ts`) via dynamic `import()` of their
+  `@fontsource*` packages.
+- Scoped `:lang(...)` rules in `src/styles/tailwind.css` tune leading, font
+  fallback, and line breaking per script:
+  - `:lang(ja)`: `--reader-leading: 1.85`, `line-break: strict`,
+    `text-autospace: normal`, plus `"palt" 1` and `word-break: auto-phrase` on
+    `h1`–`h3`.
+  - `:lang(ko)`: `--reader-leading: 1.75`, `Noto Sans KR Variable`,
+    `word-break: keep-all`.
+  - `:lang(zh-Hans)` / `:lang(zh-Hant)`: `--reader-leading: 1.85`,
+    `Noto Sans SC Variable` / `Noto Sans TC Variable`, `line-break: strict`,
+    `text-autospace: normal`.
+  - `:lang(ar)`, `:lang(fa)`, `:lang(ur)`: `--reader-leading: 1.85`,
+    `IBM Plex Sans Arabic`, `letter-spacing: 0 !important`.
+  - `:lang(hi)`, `:lang(mr)`: `--reader-leading: 1.8`,
+    `Noto Sans Devanagari Variable`.
+  - `:lang(th)`: `--reader-leading: 1.8`, `Noto Sans Thai Variable`.
+
 ## Flashback Rendering
 
 Persisted flashbacks render as:
@@ -202,7 +248,7 @@ Visual contract:
   Keep this target treatment in the reader scope rather than as a generic mark
   rule.
 
-Flashback browse excerpts and right-rail shortcuts use the shared
+Flashback browse excerpts and landmark-rail marks use the shared
 `FlashbackInlineText` primitive, not the reader prose mark style.
 
 ## Flashback Interaction
@@ -235,11 +281,10 @@ restored Model control unless the user moved focus elsewhere.
 
 ## Psychiatrist Dock
 
-Psychiatrist uses a bottom-centered floating home-bar affordance on ready reader
-routes. The collapsed state is a small pill at the bottom of the viewport; it
-must not cover the reader title, selection menu, right rail, or bottom shell
-navigation. The expanded state is a compact chat panel anchored to that home bar
-and keeps the reader page usable around it.
+On ready reader routes, `PsychiatristDock` mounts in `embedded` mode inside the
+on-demand `#reader-psychiatrist-sheet` (`TraumaSheet`) dialog rather than as a
+docked sidebar or floating bottom pill. No chat surface is open or docked on
+the reading surface by default (D12).
 
 The dock creates or resumes the active memory variant's latest thread. Stored
 pair history returned by the thread API is rendered as user prompt/assistant
@@ -303,5 +348,5 @@ Interaction contract:
   canceled by a newer manual scroll, reader generation, close, or unmount.
 
 Motion follows the reader's accessibility contract. Normal expansion may animate
-from the home bar, but `prefers-reduced-motion: reduce` disables transform-heavy
+on open/close, but `prefers-reduced-motion: reduce` disables transform-heavy
 motion and keeps the open/close transition usable on mobile and desktop.

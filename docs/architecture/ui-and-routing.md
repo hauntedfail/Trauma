@@ -18,9 +18,10 @@ accessibility details without redefining route availability.
 to them or use their retired terminology in new contracts.
 
 `/category`, `/tags`, `/backup`, and `/memories/new` are not routes. Categories
-and tags are managed inline in Reader > Inspector > Details and filtered inside
-the Library `Filters` popover. Backup is exposed through status/failsafe
-surfaces. Add memory is a global shell popover and Command Palette capture mode.
+and tags are managed inline in the reader's `⋯` Details & Actions overflow
+popover and filtered inside the Library `Filters` popover. Backup is exposed
+through status/failsafe surfaces. Add memory is a global shell popover and
+Command Palette capture mode.
 
 ## Browse Query State
 
@@ -35,9 +36,10 @@ surfaces. Add memory is a global shell popover and Command Palette capture mode.
   showing a neutral resume cue (`continue at section K/N`) when `last_position`
   exists.
 - **Shelf** (`/memories?lane=shelf`): newly captured items (`triage_state = 'shelf'`)
-  for low-friction deferred triage. Focused rows support one-key triage:
-  `p` (Pick for Today), `l` (Keep in Library), `x` (Let go / archive), and `u`
-  (Undo). `ephemeral-shelf-triage` supplies optional TTL expiry and Today cap
+  for low-friction deferred triage. Visible controls use destination labels
+  (`Today`, `Library`, `Archive`), and focused rows support one-key triage:
+  `p` (`Today`), `l` (`Library`), `x` (`Archive`), and `u` (Undo).
+  `ephemeral-shelf-triage` supplies optional TTL expiry and Today cap
   parameters; `EphemeralShelfBar` has been removed.
 - **Library** (`/memories?lane=library`): kept memories (`triage_state = 'library'`)
   with search and an on-demand `Filters` popover for categories, tags, and
@@ -125,30 +127,42 @@ Both reader variants use the focus-first layout (`docs/architecture/focus-first-
 
 - Centered single-column reading canvas bound by `--reader-measure` (default
   `66ch`, range `55ch–75ch`) whose width and horizontal position stay stable
-  when the Inspector opens.
-- Auto-hiding top bar with back link, truncated title, variant tabs, and a
-  single `Inspector` trigger.
+  when any reader micro-surface opens.
+- Auto-hiding top bar with back link, truncated title, variant tabs with a
+  co-located `+ Translate` popover trigger, and a quiet `⋯` overflow popover
+  trigger for rare metadata and management actions (URL, captured date, read
+  status, categories, tags, delete). No `Inspector` trigger or multi-tab side
+  drawer exists (revised D5).
 - Collapsed-by-default left landmark rail showing section progress dots
-  (`section K of N`, never minutes left).
-- Single right-side `Inspector` dialog (`Outline`, `Marks`, `Translate`,
-  `Details`, `Psychiatrist`) with focus return on close.
+  (`section K of N`, never minutes left) that expands on hover or focus into a
+  unified Outline + Marks panel (TOC headings, Moments, and current-memory
+  Flashbacks).
+- Selection-anchored in-situ AI margin notes (`Simplify`, `Explain`, `Ask`)
+  grounded on the selected passage without opening a docked chat sidebar, plus
+  an on-demand `Psychiatrist` sheet (`role="dialog"`, `z-50`) for escalated
+  threads (see [`focus-first-ui.md`](./focus-first-ui.md) AC 15 for the full
+  entry contract).
 - Core `last_position` persistence (debounced on scroll and flushed on route
   leave) with silent restore on reopen; `ResumptionBeacon` reads core
   `last_position` to add visual resumption cues without duplicating persistence.
-- Quiet end-of-article footer (`Keep` / `Let go` / `Not now` plus optional
+- Quiet end-of-article footer (`Library` / `Archive` / `Shelf` plus optional
   3-state focus pulse when plugins or experiment logs are active) and automatic
-  `read` completion at `>= 75%` depth with `>= 20s` dwell (reversible in Details).
+  `read` completion at `>= 75%` depth with `>= 20s` dwell (reversible in the
+  `⋯` popover).
 - GitHub Flavored Markdown, footnotes, tables, task lists, syntax highlighting,
   sanitized HTML, controlled external embeds, variant-local Flashback marks,
   and source-canonical Moments.
 - Reader plugin overlays (`ReadingRulerOverlay`, `ResumptionBeacon`) mount
-  above reader text and below the Inspector (`z-40` vs Inspector `z-50`);
-  `AdaptiveAiResponse` mounts inside Inspector > Psychiatrist.
+  above reader text and below the Psychiatrist sheet (`z-40` vs sheet `z-50`);
+  `AdaptiveAiResponse` mounts inside in-situ AI margin cards and the on-demand
+  Psychiatrist sheet.
 
-Text selection toggles Flashback ranges. Source and translated Flashbacks never
-share offsets: translated writes include language and current output hash, and
-only current rows render. Moment creation from translated content is validated
-then mapped to the matching source section.
+Text selection opens the selection-actions menu for toggling Flashback ranges,
+marking Moments, or invoking in-situ AI margin notes (`Simplify`, `Explain`,
+`Ask`). Source and translated Flashbacks never share offsets: translated writes
+include language and current output hash, and only current rows render. Moment
+creation from translated content is validated then mapped to the matching
+source section.
 
 Psychiatrist appears only on ready source and translated readers. It creates or
 resumes a thread for the active memory variant through TRAUMA APIs; the browser

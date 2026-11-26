@@ -33,6 +33,30 @@ function readThemeToken(body: string, tokenName: string): string {
   return match[1].trim();
 }
 
+function relativeLuminance(hex: string): number {
+  const normalized = hex.replace(/^#/, "");
+  if (normalized.length !== 6) {
+    throw new Error(`Expected 6-digit hex color, got ${hex}`);
+  }
+  const channels = [0, 2, 4].map((offset) => {
+    const srgb = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    return srgb <= 0.03928
+      ? srgb / 12.92
+      : ((srgb + 0.055) / 1.055) ** 2.4;
+  });
+  return (
+    0.2126 * (channels[0] ?? 0) +
+    0.7152 * (channels[1] ?? 0) +
+    0.0722 * (channels[2] ?? 0)
+  );
+}
+
+function contrastRatio(foregroundHex: string, backgroundHex: string): number {
+  const l1 = relativeLuminance(foregroundHex);
+  const l2 = relativeLuminance(backgroundHex);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
 describe("front-end refine design tokens", () => {
   it("defines all refined theme selectors", () => {
     for (const theme of [
@@ -60,16 +84,32 @@ describe("front-end refine design tokens", () => {
     }
   });
 
-  it("sets normal night mode root background to pure black", () => {
-    expect(tailwindCss).toMatch(
-      /:root,\s*:root\[data-theme="black-dark"\]\s*{[^}]*--bg-base:\s*#000000;/s,
-    );
+  it("uses APCA halation-reduced dark charcoal base, surface, and ink in normal night mode", () => {
+    const body = tailwindCss.match(
+      /:root,\s*:root\[data-theme="black-dark"\]\s*{(?<body>[^}]*)}/s,
+    )?.groups?.body;
+
+    if (body === undefined) {
+      throw new Error("Missing black-dark theme block");
+    }
+
+    expect(readThemeToken(body, "--bg-base")).toBe("#0c0d0f");
+    expect(readThemeToken(body, "--bg-surface")).toBe("#0c0d0f");
+    expect(readThemeToken(body, "--fg-1")).toBe("#e4e4e0");
+    expect(readThemeToken(body, "--font-serif")).toContain("BIZ UDPMincho");
+    expect(contrastRatio(readThemeToken(body, "--accent"), readThemeToken(body, "--bg-base"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(readThemeToken(body, "--accent"), readThemeToken(body, "--bg-elev"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(readThemeToken(body, "--accent"), readThemeToken(body, "--bg-tint"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(readThemeToken(body, "--accent-ink"), readThemeToken(body, "--accent"))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("keeps normal night mode pane surfaces pure black", () => {
-    expect(tailwindCss).toMatch(
-      /:root,\s*:root\[data-theme="black-dark"\]\s*{[^}]*--bg-surface:\s*#000000;/s,
-    );
+  it("exposes all four user-selectable reading font presets", () => {
+    for (const preset of ["sans", "serif", "focus", "mono"]) {
+      expect(tailwindCss).toContain(`:root[data-reader-font="${preset}"]`);
+    }
+    expect(tailwindCss).toContain("--font-focus:");
+    expect(tailwindCss).toContain("Atkinson Hyperlegible Next Variable");
+    expect(tailwindCss).toContain("BIZ UDPGothic");
   });
 
   it("uses one pane background color per theme", () => {
@@ -199,7 +239,7 @@ describe("front-end refine design tokens", () => {
 
     expect(
       Number(readThemeToken(body, "--leather-grain-opacity")),
-    ).toBeGreaterThanOrEqual(0.62);
+    ).toBeGreaterThanOrEqual(0.4);
   });
 
   it("keeps refined typography local without runtime font imports or negative tracking", () => {

@@ -101,6 +101,9 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
   }): boolean =>
     requestVersion === input.version && props.memoryId === input.memoryId;
   const actionHint = () => read() ? "Mark as unread" : "Mark as read";
+  const isIconVariant = () => props.variant === "icon";
+  const accessibleActionLabel = () =>
+    read() ? "Mark memory unread" : "Mark memory read";
   const handleToggleClick = (event: MouseEvent): void => {
     event.preventDefault();
     event.stopPropagation();
@@ -109,53 +112,45 @@ export function MemoryReadStatusControl(props: MemoryReadStatusControlProps) {
 
   return (
     <span class={`inline-grid gap-1 ${props.class ?? ""}`}>
-      <button
-        class={props.variant === "icon" ? iconButtonClass : buttonClass}
-        type="button"
-        aria-pressed={read()}
-        aria-label={read() ? "Mark memory unread" : "Mark memory read"}
-        title={actionHint()}
-        disabled={pending()}
-        onClick={handleToggleClick}
-      >
-        <span
-          aria-hidden="true"
-          class={props.variant === "icon" ? "grid size-5 place-items-center" : statusIconClass}
-          data-read-status-icon={read() ? "read" : "unread"}
+      <span class={isIconVariant() ? "inline-flex" : "inline-flex items-center gap-2"}>
+        <Show when={!isIconVariant()}>
+          <span class="text-xs font-bold text-trauma-text-secondary">
+            {read() ? "Read" : "Unread"}
+          </span>
+        </Show>
+        <button
+          class={isIconVariant() ? iconButtonClass : buttonClass}
+          type="button"
+          aria-pressed={read()}
+          aria-label={isIconVariant() ? accessibleActionLabel() : undefined}
+          title={actionHint()}
+          disabled={pending()}
+          onClick={handleToggleClick}
         >
-          {props.variant === "icon"
-            ? read()
-              ? <EyeClosedIcon size={18} />
-              : <EyeOpenIcon size={18} />
-            : read()
-              ? <CheckIcon size={16} />
-              : <span class={statusDotClass} />}
-        </span>
-        <ShowVisibleReadStatusLabels compact={props.compact} read={read()} variant={props.variant ?? "label"} />
-      </button>
+          <span
+            aria-hidden="true"
+            class={isIconVariant() ? "grid size-5 place-items-center" : statusIconClass}
+            data-read-status-icon={read() ? "read" : "unread"}
+          >
+            {isIconVariant()
+              ? read()
+                ? <EyeClosedIcon size={18} />
+                : <EyeOpenIcon size={18} />
+              : read()
+                ? <CheckIcon size={16} />
+                : <span class={statusDotClass} />}
+          </span>
+          <Show when={!isIconVariant()}>
+            <span>{accessibleActionLabel()}</span>
+          </Show>
+        </button>
+      </span>
       {error() !== "" ? (
         <span class="text-xs font-bold text-trauma-danger" role="alert">
           {error()}
         </span>
       ) : null}
     </span>
-  );
-}
-
-function ShowVisibleReadStatusLabels(props: {
-  compact?: boolean;
-  read: boolean;
-  variant: "label" | "icon";
-}) {
-  return (
-    <Show when={props.variant === "label"}>
-      <>
-        <span>{props.read ? "Read" : "Unread"}</span>
-        <span class={props.compact ? "sr-only" : "text-trauma-text-muted"}>
-          {props.read ? "Mark unread" : "Mark read"}
-        </span>
-      </>
-    </Show>
   );
 }
 

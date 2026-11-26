@@ -11,6 +11,7 @@ const taxonomyInlineCreateSource = readFileSync(
   "utf8",
 );
 const popupSource = readFileSync("src/components/ui/Popup.tsx", "utf8");
+const sheetSource = readFileSync("src/components/ui/Sheet.tsx", "utf8");
 const memoryReaderSource = readFileSync(
   "src/components/reader/MemoryReader.tsx",
   "utf8",
@@ -61,9 +62,23 @@ describe("dismissable popup layers", () => {
     );
   });
 
-  it("keeps anchored popover dismissal inside the shared Popup shell and uses dismissable-layer for the reader Psychiatrist sheet", () => {
+  it("combines Kobalte Popover positioning with shared dismissable-layer contracts and delegates the Psychiatrist sheet to Corvu Drawer", () => {
+    expect(popupSource).toContain('import { Popover } from "@kobalte/core/popover"');
     expect(popupSource).toContain("useDismissableLayer");
-    expect(memoryReaderSource).toContain("useDismissableLayer");
-    expect(memoryReaderSource).toContain("getRoot: () => psychiatristSheetRef");
+    expect(popupSource).toContain("shouldIgnoreOutsidePointerDown");
+    expect(popupSource).toContain("onEscapeKeyDown");
+    expect(popupSource).toContain("onPointerDownOutside");
+
+    expect(memoryReaderSource).toContain("<TraumaSheet");
+    expect(memoryReaderSource).toContain('id="reader-psychiatrist-sheet"');
+    expect(memoryReaderSource).not.toContain("useDismissableLayer");
+
+    expect(sheetSource).toContain('import Drawer from "@corvu/drawer"');
+    expect(sheetSource).toContain("trapFocus={false}");
+    expect(sheetSource).toContain("restoreFocus={false}");
+    expect(sheetSource).toContain("closeOnEscapeKeyDown={true}");
+    expect(sheetSource).toContain("closeOnOutsidePointer={false}");
+    expect(sheetSource).toContain("closeOnOutsideFocus={false}");
+    expect(sheetSource).toContain('role="dialog"');
   });
 });

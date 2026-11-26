@@ -13,6 +13,7 @@ import {
 } from "solid-js";
 
 import { ChevronLeftIcon, CodexIcon, TraumaNavIcons } from "../icons";
+import { OPEN_READER_PSYCHIATRIST_EVENT } from "../shell/command-palette-model";
 import type {
   ReaderMomentItem,
   ReaderFlashbackItem,
@@ -128,7 +129,12 @@ import {
 } from "../memories/browse-data";
 import { submitMemoryReadStatus } from "../memories/MemoryReadStatusControl";
 import { Popup } from "../ui/Popup";
-import { useDismissableLayer } from "../ui/dismissable-layer";
+import { TraumaSheet } from "../ui/Sheet";
+import {
+  detectArticleLanguage,
+  isRtlLanguage,
+} from "../../lib/language-detect";
+import { ensureMultilingualFontLoaded } from "../../lib/multilingual-fonts";
 import {
   ScrollableUrlDisplay,
   ScrollableUrlLink,
@@ -300,7 +306,7 @@ function ReadyMemoryReader(props: {
   let contentRef: HTMLDivElement | undefined;
   let bodyContentRef: HTMLDivElement | undefined;
   let topBarRef: HTMLDivElement | undefined;
-  let psychiatristSheetRef: HTMLElement | undefined;
+  let detailsTriggerRef: HTMLButtonElement | undefined;
   let psychiatristReturnFocusEl: HTMLElement | undefined;
   let marginNoteReturnFocusEl: HTMLElement | undefined;
   let marginNoteRequestSeq = 0;
@@ -334,6 +340,19 @@ function ReadyMemoryReader(props: {
     }),
   );
   const readerBodyHtml = createMemo(() => readerContent().bodyHtml);
+  const articleLang = createMemo(() =>
+    detectArticleLanguage({
+      langCode: props.result.content.langCode,
+      title: props.result.memory.title,
+      text: readerBodyHtml(),
+    }),
+  );
+  const articleDir = createMemo<"ltr" | "rtl">(() =>
+    isRtlLanguage(articleLang()) ? "rtl" : "ltr",
+  );
+  createEffect(() => {
+    void ensureMultilingualFontLoaded(articleLang());
+  });
   const readerTitleHtml = createMemo(() => readerContent().titleHtml);
   const [categories, setCategories] = createSignal([
     ...props.result.memory.categories,
@@ -429,12 +448,18 @@ function ReadyMemoryReader(props: {
   } | undefined;
   let translationRequestGeneration = 0;
 
-  const openPsychiatrist = (): void => {
-    if (
+  const openPsychiatrist = (returnFocusTarget?: HTMLElement): void => {
+    if (returnFocusTarget !== undefined) {
+      psychiatristReturnFocusEl = returnFocusTarget;
+    } else if (
       typeof document !== "undefined" &&
-      document.activeElement instanceof HTMLElement
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement !== document.body &&
+      document.activeElement !== document.documentElement
     ) {
       psychiatristReturnFocusEl = document.activeElement;
+    } else {
+      psychiatristReturnFocusEl = contentRef;
     }
     setMarginNote(undefined);
     setTopBarHidden(false);
@@ -444,7 +469,11 @@ function ReadyMemoryReader(props: {
     setPsychiatristOpen(false);
     setTopBarHidden(false);
     queueMicrotask(() => {
-      if (psychiatristReturnFocusEl?.isConnected === true) {
+      if (
+        psychiatristReturnFocusEl?.isConnected === true &&
+        psychiatristReturnFocusEl !== document.body &&
+        psychiatristReturnFocusEl !== document.documentElement
+      ) {
         psychiatristReturnFocusEl.focus({ preventScroll: true });
         return;
       }
@@ -547,16 +576,6 @@ function ReadyMemoryReader(props: {
       setMarginNote(undefined);
     }
     lastMarginNoteIdentity = nextIdentity;
-  });
-  useDismissableLayer({
-    getRoot: () => psychiatristSheetRef,
-    isEnabled: psychiatristOpen,
-    onDismiss: (reason) => {
-      if (reason === "escape") {
-        closePsychiatrist();
-      }
-    },
-    shouldIgnoreOutsidePointerDown: () => true,
   });
 
   const handleEndFooterTriage = async (
@@ -862,6 +881,9 @@ function ReadyMemoryReader(props: {
       closeReaderMenus();
     };
     const scrollHashTarget = () => scheduleReaderHashTargetScroll(readerRootRef);
+    const handleOpenPsychiatristEvent = () => {
+      openPsychiatrist(contentRef);
+    };
 
     document.addEventListener("keydown", handleGlobalKeyDown);
     document.addEventListener("pointerdown", closeOnPointerDown);
@@ -869,6 +891,10 @@ function ReadyMemoryReader(props: {
     window.addEventListener("scroll", closeReaderMenus, true);
     window.addEventListener("scroll", handleReaderScroll, { passive: true });
     window.addEventListener("hashchange", scrollHashTarget);
+    window.addEventListener(
+      OPEN_READER_PSYCHIATRIST_EVENT,
+      handleOpenPsychiatristEvent,
+    );
 
     if (window.location.hash.length > 1) {
       scheduleReaderHashTargetScroll(readerRootRef);
@@ -899,6 +925,10 @@ function ReadyMemoryReader(props: {
       window.removeEventListener("scroll", closeReaderMenus, true);
       window.removeEventListener("scroll", handleReaderScroll);
       window.removeEventListener("hashchange", scrollHashTarget);
+      window.removeEventListener(
+        OPEN_READER_PSYCHIATRIST_EVENT,
+        handleOpenPsychiatristEvent,
+      );
       clearSectionLongPress();
     });
   });
@@ -1910,6 +1940,7 @@ function ReadyMemoryReader(props: {
                 trigger={({ triggerProps }) => (
                   <button
                     {...triggerProps}
+                    ref={detailsTriggerRef}
                     aria-label="Memory details and actions"
                     class="grid size-8 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
                     data-reader-details-trigger
@@ -1920,7 +1951,7 @@ function ReadyMemoryReader(props: {
                   </button>
                 )}
               >
-                {() => (
+                {({ close }) => (
                   <div
                     class="grid gap-4"
                     data-reader-details-popover
@@ -1996,7 +2027,18 @@ function ReadyMemoryReader(props: {
                       />
                     </div>
 
-                    <div class="flex items-center justify-end gap-2 border-t border-trauma-divider pt-3">
+                    <div class="flex items-center justify-between gap-2 border-t border-trauma-divider pt-3">
+                      <button
+                        class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-bg-surface px-3 py-1.5 text-xs font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent"
+                        data-reader-details-psychiatrist
+                        type="button"
+                        onClick={() => {
+                          close();
+                          openPsychiatrist(detailsTriggerRef);
+                        }}
+                      >
+                        Psychiatrist
+                      </button>
                       <MemoryActionMenu
                         memoryId={props.result.memory.id}
                         memoryTitle={props.result.memory.title}
@@ -2041,7 +2083,12 @@ function ReadyMemoryReader(props: {
       />
 
       <div class={`${readerPadding} trauma-reader-body py-6 pb-12`}>
-        <div class={readerColumn} data-reader-column>
+        <div
+          class={readerColumn}
+          data-reader-column
+          dir={articleDir()}
+          lang={articleLang()}
+        >
           <div
             ref={contentRef}
             aria-busy={pendingSelectionKey().length > 0}
@@ -2155,25 +2202,25 @@ function ReadyMemoryReader(props: {
         )}
       </Show>
 
-      <Show when={psychiatristOpen()}>
-        <aside
-          ref={psychiatristSheetRef}
-          id="reader-psychiatrist-sheet"
-          aria-label="Psychiatrist"
-          class="trauma-reader-psychiatrist-sheet flex flex-col border-l border-trauma-border bg-trauma-bg-elev text-trauma-text-primary shadow-trauma-drawer min-[1440px]:shadow-none"
-          data-reader-psychiatrist-sheet="open"
-          role="dialog"
-        >
-          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-            <PsychiatristDock
-              embedded
-              langCode={props.result.content.langCode}
-              memoryId={props.result.memory.id}
-              onClose={closePsychiatrist}
-            />
-          </div>
-        </aside>
-      </Show>
+      <TraumaSheet
+        ariaLabel="Psychiatrist"
+        id="reader-psychiatrist-sheet"
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closePsychiatrist();
+          }
+        }}
+        open={psychiatristOpen()}
+      >
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+          <PsychiatristDock
+            embedded
+            langCode={props.result.content.langCode}
+            memoryId={props.result.memory.id}
+            onClose={closePsychiatrist}
+          />
+        </div>
+      </TraumaSheet>
 
       <Show when={selectionMenu()}>
         {(menu) => (
@@ -2291,6 +2338,7 @@ function ReaderLandmarkRail(props: {
   const hasMarks = () =>
     props.moments.length > 0 || props.currentFlashbacks.length > 0;
   const hasLandmarks = () => props.toc.length > 0 || hasMarks();
+  let pointerInside = false;
 
   return (
     <Show when={hasLandmarks()}>
@@ -2302,12 +2350,35 @@ function ReaderLandmarkRail(props: {
         onFocusIn={() => props.onExpandedChange(true)}
         onFocusOut={(event) => {
           const nextTarget = event.relatedTarget;
-          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-            props.onExpandedChange(false);
+          if (
+            nextTarget instanceof Node &&
+            event.currentTarget.contains(nextTarget)
+          ) {
+            return;
           }
+          if (pointerInside) {
+            return;
+          }
+          if (nextTarget === null && props.pendingMomentKey.length > 0) {
+            return;
+          }
+          props.onExpandedChange(false);
         }}
-        onPointerEnter={() => props.onExpandedChange(true)}
-        onPointerLeave={() => props.onExpandedChange(false)}
+        onPointerEnter={() => {
+          pointerInside = true;
+          props.onExpandedChange(true);
+        }}
+        onPointerLeave={(event) => {
+          pointerInside = false;
+          const activeElement = document.activeElement;
+          if (
+            activeElement instanceof Node &&
+            event.currentTarget.contains(activeElement)
+          ) {
+            return;
+          }
+          props.onExpandedChange(false);
+        }}
       >
         <Show
           when={props.expanded}
@@ -4014,14 +4085,17 @@ function ReaderTocEntryRow(props: {
       }}
     >
       <button
+        aria-disabled={props.pending ? "true" : undefined}
         aria-label={`Moment ${props.entry.text}`}
         aria-pressed={props.active}
         class="mt-0.5 grid size-5 place-items-center rounded-full text-trauma-text-muted opacity-0 transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent group-hover:opacity-100 aria-pressed:opacity-100 aria-pressed:text-trauma-link"
         title={props.active ? "Remove moment" : "Save moment"}
-        disabled={props.pending}
         type="button"
         onClick={(event) => {
           event.preventDefault();
+          if (props.pending) {
+            return;
+          }
           props.onCreateMoment(props.entry);
         }}
       >

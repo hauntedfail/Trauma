@@ -11,6 +11,7 @@ import {
   MemoryReader,
   startReaderTranslation,
 } from "../../src/components/reader/MemoryReader";
+import { OPEN_READER_PSYCHIATRIST_EVENT } from "../../src/components/shell/command-palette-model";
 import {
   computeReaderPositionSnapshot,
   computeReaderScrollDepth,
@@ -85,7 +86,7 @@ const readyResult = {
 } satisfies ReaderMemoryResult;
 
 describe("memory reader actions", () => {
-  it("renders a clean focus-first canvas with topbar Translate & Details popovers, landmark rail, flashback marks, and quiet end footer without an Inspector button", () => {
+  it("renders a clean focus-first canvas with topbar Translate & Details popovers, landmark rail, flashback marks, and quiet end footer without an Inspector button (AC 12)", () => {
     const html = renderReader(readyResult, {
       tagOptions: [
         {
@@ -129,6 +130,23 @@ describe("memory reader actions", () => {
     expect(memoryReaderSource).toContain("data-reader-selection-ask");
     expect(memoryReaderSource).toContain("togglePsychiatrist()");
     expect(memoryReaderSource).toContain("langCode={props.result.content.langCode}");
+  });
+
+  it("exposes a visible Psychiatrist action in the Details overflow popover and opens via palette event with focus return", () => {
+    const html = renderReader(readyResult);
+
+    expect(html).not.toContain('data-reader-psychiatrist-sheet="open"');
+    expect(html).not.toContain("data-psychiatrist-dock");
+    expect(OPEN_READER_PSYCHIATRIST_EVENT).toBe("trauma:open-reader-psychiatrist");
+    expect(memoryReaderSource).toContain("data-reader-details-psychiatrist");
+    expect(memoryReaderSource).toContain("openPsychiatrist(detailsTriggerRef)");
+    expect(memoryReaderSource).toContain("openPsychiatrist(contentRef)");
+    expect(memoryReaderSource).toContain("OPEN_READER_PSYCHIATRIST_EVENT");
+    expect(memoryReaderSource).toContain("window.addEventListener(");
+    expect(memoryReaderSource).toContain("window.removeEventListener(");
+    expect(memoryReaderSource).toContain(
+      "psychiatristReturnFocusEl !== document.body",
+    );
   });
 
   it("does not render Psychiatrist, Translate, or Details triggers for non-ready reader states", () => {
@@ -276,7 +294,7 @@ describe("memory reader actions", () => {
     expect(resultSync).not.toContain("translationEventSource");
   });
 
-  it("dismantles the 5-tab Inspector drawer in favor of spatially contiguous micro-surfaces (Landmark Rail Outline+Marks, topbar Translate & Details popovers, on-demand Psychiatrist sheet)", () => {
+  it("dismantles the 5-tab Inspector drawer in favor of spatially contiguous micro-surfaces (Landmark Rail Outline+Marks, topbar Translate & Details popovers, on-demand Psychiatrist sheet) (AC 12)", () => {
     expect(memoryReaderSource).not.toContain("useRightRailContent");
     expect(memoryReaderSource).not.toContain('id="reader-inspector-dialog"');
     expect(memoryReaderSource).not.toContain('id="inspector-panel-outline"');

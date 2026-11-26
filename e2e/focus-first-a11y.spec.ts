@@ -5,10 +5,27 @@ import { materializeE2eFixture, resetE2eFixture } from "./bun-fixture";
 
 const READER_MEMORY_ID = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f101";
 
+// Overlays fade in over 150 ms (opacity and transform). axe-core measures the
+// colors on screen at the instant it runs, so a scan started mid-fade reports
+// the blended colors of an unfinished frame. Wait for every finite animation
+// to settle so the scan sees the surface as the reader sees it.
+async function waitForRunningAnimationsToSettle(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const finiteAnimations = document.getAnimations().filter((animation) => {
+      const endTime = animation.effect?.getComputedTiming().endTime;
+      return typeof endTime === "number" && Number.isFinite(endTime);
+    });
+    await Promise.allSettled(
+      finiteAnimations.map((animation) => animation.finished),
+    );
+  });
+}
+
 async function assertNoSeriousOrCriticalA11yViolations(
   page: Page,
   surfaceName: string,
 ): Promise<void> {
+  await waitForRunningAnimationsToSettle(page);
   const results = await new AxeBuilder({ page }).analyze();
   const blockingViolations = results.violations.filter(
     (violation) =>
@@ -35,7 +52,7 @@ async function assertNoSeriousOrCriticalA11yViolations(
 
 test.describe.configure({ mode: "serial" });
 
-test("Today lane has zero serious or critical axe-core violations", async ({
+test("Today lane has zero serious or critical axe-core violations (AC 10)", async ({
   page,
 }) => {
   await resetE2eFixture("read_only");
@@ -48,7 +65,7 @@ test("Today lane has zero serious or critical axe-core violations", async ({
   await assertNoSeriousOrCriticalA11yViolations(page, "Today (/memories)");
 });
 
-test("Shelf lane has zero serious or critical axe-core violations", async ({
+test("Shelf lane has zero serious or critical axe-core violations (AC 10)", async ({
   page,
 }) => {
   await resetE2eFixture("read_only");
@@ -64,7 +81,7 @@ test("Shelf lane has zero serious or critical axe-core violations", async ({
   );
 });
 
-test("Library lane has zero serious or critical axe-core violations", async ({
+test("Library lane has zero serious or critical axe-core violations (AC 10)", async ({
   page,
 }) => {
   await resetE2eFixture("read_only");
@@ -80,7 +97,7 @@ test("Library lane has zero serious or critical axe-core violations", async ({
   );
 });
 
-test("Reader has zero serious or critical axe-core violations with micro-surfaces closed and open", async ({
+test("Reader has zero serious or critical axe-core violations with micro-surfaces closed and open (AC 10)", async ({
   page,
 }) => {
   await materializeE2eFixture("reader_base");

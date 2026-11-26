@@ -91,6 +91,8 @@ export const PALETTE_LANE_MOVE_TARGETS: readonly PaletteLaneMoveTarget[] = [
   },
 ] as const;
 
+export const OPEN_READER_PSYCHIATRIST_EVENT = "trauma:open-reader-psychiatrist";
+
 export type CommandPaletteItem =
   | {
       id: string;
@@ -113,6 +115,13 @@ export type CommandPaletteItem =
       id: string;
       section: "Actions";
       kind: "open-capture";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      section: "Actions";
+      kind: "open-psychiatrist";
       label: string;
       description: string;
     }
@@ -258,6 +267,7 @@ export interface BuildCommandPaletteItemsInput {
   query: string;
   searchResults: readonly BrowseMemory[];
   focusedMemoryId: string | null;
+  isReaderRoute?: boolean;
   plugins: readonly FocusPluginDefinition[];
   isPluginEnabled: (pluginId: string) => boolean;
 }
@@ -309,6 +319,30 @@ export function buildCommandPaletteItems(
       label: "Add URL",
       description: "Capture a link directly to Shelf",
     });
+  }
+
+  if (input.isReaderRoute === true) {
+    const psychiatristActionMatches =
+      needle === "" ||
+      matchesNeedle(needle, [
+        "open psychiatrist",
+        "psychiatrist",
+        "chat",
+        "thread",
+        "ask",
+        "ai",
+        "reader",
+        "]",
+      ]);
+    if (psychiatristActionMatches) {
+      items.push({
+        id: "action-open-psychiatrist",
+        section: "Actions",
+        kind: "open-psychiatrist",
+        label: "Open Psychiatrist",
+        description: "Open the Psychiatrist thread for this memory (])",
+      });
+    }
   }
 
   if (input.focusedMemoryId !== null) {

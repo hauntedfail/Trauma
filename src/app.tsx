@@ -4,6 +4,7 @@ import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 import { AppShell } from "./components/shell/AppShell";
 import { FocusPluginProvider } from "./plugins";
+import "./styles/fonts";
 import "./styles/tailwind.css";
 
 export default function App() {

@@ -71,8 +71,8 @@ full control block must not be constantly expanded in the rail.
 
 Interaction rules:
 
-- Clicking the button opens a small popover with brightness and surface
-  controls.
+- Clicking the button opens a small popover with brightness, surface, and
+  reading font preset (`Sans`, `Serif`, `Focus`, `Mono`) controls.
 - Escape and outside pointer interaction dismiss the popover cleanly.
 
 Selection rules:
@@ -109,10 +109,13 @@ continuous.
 
 ## Right Rail (Removed)
 
-The legacy `360px` persistent right rail and `right-rail-context.tsx` have been
-removed. Taxonomy filters moved into the on-demand Library `Filters` popover,
-and peripheral reader aids (Outline, Marks, Translate, Details, Psychiatrist)
-moved into the single on-demand right-side reader `Inspector` dialog.
+The legacy `360px` persistent right rail, `right-rail-context.tsx`, and the
+multi-tab reader `Inspector` drawer have been removed. Taxonomy filters live in
+the on-demand Library `Filters` popover, and peripheral reader aids live in
+spatially co-located micro-surfaces: Outline + Marks in the collapsed left
+landmark rail, Translate on `ReaderVariantTabs`, rare metadata/actions in the
+quiet `⋯` top-bar popover, and AI assistance in selection-anchored margin notes
+plus an on-demand Psychiatrist sheet.
 
 ## Tablet And Mobile
 
