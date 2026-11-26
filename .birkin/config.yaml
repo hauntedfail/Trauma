@@ -1,0 +1,170 @@
+# Birkin Project Specification (.birkin/config.yaml)
+# Enforced mechanically by Birkin across CLI, git pre-commit, CI, Claude Code, and Hermes.
+version: 1
+
+project:
+  name: trauma
+  languages:
+    - typescript
+  exclude_globs:
+    - ".git/**"
+    - "**/.git/**"
+    - "**/node_modules/**"
+    - ".output/**"
+    - ".output-verify/**"
+    - ".vinxi/**"
+    - ".solid/**"
+    - "dist/**"
+    - "playwright-report/**"
+    - "test-results/**"
+    - ".trauma/**"
+    - "data/**"
+    - ".serena/**"
+    - ".tmp/**"
+    - ".eda/**"
+    - ".superpowers/**"
+    - ".hermes/**"
+    - "plans/**"
+    - "**/.birkin/ledger/**"
+
+orientation:
+  entry_docs:
+    - AGENTS.md
+    - CLAUDE.md
+  max_entry_doc_lines: 180
+  verify_markdown_links: true
+  required_docs:
+    - README.md
+    - docs/INDEX.md
+    - Backlog.md
+    - LICENSE
+  require_committed_spec: true
+  max_review_age_days: 90
+
+architecture:
+  max_file_lines: 600
+  file_line_exemptions:
+    - "**/tests/**"
+    - "**/__tests__/**"
+    - "**/e2e/**"
+    - "**/fixture/**"
+    - "**/fixtures/**"
+    - "**/generated/**"
+    - "**/*.test.ts"
+    - "**/*.test.tsx"
+    - "**/*.spec.ts"
+    - "**/*.spec.tsx"
+  layers:
+    - name: shared
+      paths:
+        - "src/types/**"
+        - "src/styles/**"
+        - "src/lib/**"
+        - "src/settings/**"
+        - "src/taxonomy/**"
+        - "src/psychiatrist/**"
+      allowed_dependencies: []
+      remediation: "Shared domain, types, styles, and taxonomy modules must remain independent of server, UI components, plugins, and routes."
+    - name: app
+      paths:
+        - "src/server/**"
+        - "src/components/**"
+        - "src/plugins/**"
+      allowed_dependencies:
+        - shared
+      remediation: "Application server modules, UI components, and focus plugins may depend only on shared modules and must not import routes."
+    - name: routes
+      paths:
+        - "src/routes/**"
+      allowed_dependencies:
+        - shared
+        - app
+      remediation: "Route entrypoints compose shared and app layers only."
+  forbidden_imports:
+    - id: no-db-or-os-in-ui
+      from_globs:
+        - "src/components/**"
+        - "src/plugins/**"
+      forbid_patterns:
+        - "drizzle-orm*"
+        - "bun:sqlite*"
+        - "node:fs*"
+        - "node:child_process*"
+        - "simple-git*"
+      message: "UI components and focus plugins must not import database, filesystem, child-process, or git primitives directly."
+      remediation: "Route persistence and OS interactions through server loaders, actions, or server modules."
+
+verify:
+  commands:
+    - name: docs-check
+      cmd: "sh -c 'command -v bun >/dev/null 2>&1 && bun run docs:check || mise exec -- bun run docs:check'"
+      kind: lint
+      timeout_seconds: 120
+    - name: verify
+      cmd: "sh -c 'command -v bun >/dev/null 2>&1 && bun run verify || mise exec -- bun run verify'"
+      kind: test
+      timeout_seconds: 300
+  check_ci_parity: true
+
+invariants:
+  forbid_secrets: true
+  secret_exempt_globs:
+    - "tests/**"
+    - "e2e/**"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+  english_prose_only: false
+  prose_exempt_globs: []
+  forbid_debug_leftovers: false
+  custom_regex_rules: []
+
+semantic:
+  enabled: false
+  base_url: "http://127.0.0.1:3425/v1"
+  api_key_env: BIRKIN_SEMANTIC_API_KEY
+  model: "auto/gemini-3.8-flash"
+  timeout_seconds: 15.0
+  max_diff_chars: 24000
+  rules_dir: .birkin/rules
+  rules: []
+
+telemetry:
+  enabled: true
+  ledger_path: null
+  thrash_threshold: 3
+  thrash_window_minutes: 30
+  stale_rule_min_runs: 20
+
+proofs:
+  emit_path: null
+  timeout_seconds: 120
+  require_zero_sorry: true
+  require_standard_axioms_only: true
+  prove_architecture: true
+  state_machines: []
+  policies: []
+  lean_projects: []
+
+workflow:
+  enabled_contracts:
+    - plan
+    - scope
+    - authority
+    - stage
+    - sawyer
+    - review_closure
+  require_plan_receipt: false
+  toolchain_pin_files:
+    - package.json
+    - bun.lock
+    - mise.toml
+  exclude_whitelist_path: .sawyer/exclude-whitelist.txt
+  test_runners:
+    - name: vitest
+      parser: vitest
+      require_nonzero: true
+    - name: playwright
+      parser: playwright
+      require_nonzero: true
+  service_build_guards:
+    - ".output"
