@@ -9,8 +9,8 @@ import { SegmentedToggleButton } from "../../src/components/ui/SegmentedToggleBu
 import { WaxSealButton, WaxSealLabel } from "../../src/components/ui/WaxSealButton";
 
 const tailwindSource = readFileSync("src/styles/tailwind.css", "utf8");
-const addMemoryFormSource = readFileSync(
-  "src/components/memories/AddMemoryForm.tsx",
+const commandPaletteSource = readFileSync(
+  "src/components/shell/CommandPalette.tsx",
   "utf8",
 );
 const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
@@ -99,13 +99,13 @@ describe("button hover hints", () => {
 
   it("wires hints into common shell, browse, composer, and reader action buttons", () => {
     expect(appShellSource).toContain('title="Theme settings"');
-    expect(appShellSource).toContain('title="Add memory"');
+    expect(appShellSource).not.toContain('title="Add memory"');
     expect(appShellSource).toContain('hint="Use sun theme"');
     expect(memoryBrowseSource).toContain("data-browse-lane");
     expect(memoryBrowseSource).toContain("TaxonomyAddControl");
     expect(taxonomyAddControlSource).toContain("title={label()}");
-    expect(addMemoryFormSource).toContain(
-      'hint={props.submission.isSubmitting() ? "Saving..." : props.submitLabel}',
+    expect(commandPaletteSource).toContain(
+      '{isSaving() ? "Saving..." : "Save to Shelf"}',
     );
     expect(readerSource).toContain('title="Flashback selection"');
     expect(readerSource).toContain('title="Moment section"');

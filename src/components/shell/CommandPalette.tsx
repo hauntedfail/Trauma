@@ -48,7 +48,6 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const [mode, setMode] = createSignal<"search" | "capture">("search");
   const [query, setQuery] = createSignal("");
-  const [captureUrl, setCaptureUrl] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<BrowseMemory[]>([]);
   const [isSearching, setIsSearching] = createSignal(false);
   const [activeIndex, setActiveIndex] = createSignal(0);
@@ -122,7 +121,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     const nextMode = props.initialMode ?? "search";
     setMode(nextMode);
     setQuery("");
-    setCaptureUrl("");
     setSearchResults([]);
     setIsSearching(false);
     setActiveIndex(0);
@@ -249,9 +247,14 @@ export function CommandPalette(props: CommandPaletteProps) {
     });
   });
 
-  const switchToCaptureMode = (initialUrl = "") => {
+  // The shell-owned controller keeps the URL draft and the pending attempt, so
+  // closing and reopening the palette shows the same capture state.
+  const isSaving = () => isBusy() || props.addMemorySubmission.isSubmitting();
+  const captureError = () =>
+    errorMessage() !== "" ? errorMessage() : props.addMemorySubmission.errorMessage();
+
+  const switchToCaptureMode = () => {
     setMode("capture");
-    setCaptureUrl(initialUrl);
     setErrorMessage("");
     setStatusMessage("");
     queueMicrotask(() => {
@@ -263,6 +266,10 @@ export function CommandPalette(props: CommandPaletteProps) {
     const validated = validateCaptureUrl(rawUrl);
     if (!validated.ok) {
       setErrorMessage(validated.error);
+      return;
+    }
+
+    if (props.addMemorySubmission.isSubmitting()) {
       return;
     }
 
@@ -427,8 +434,8 @@ export function CommandPalette(props: CommandPaletteProps) {
     event,
   ) => {
     event.preventDefault();
-    if (!isBusy()) {
-      void submitCaptureUrl(captureUrl());
+    if (!isSaving()) {
+      void submitCaptureUrl(props.addMemorySubmission.url());
     }
   };
 
@@ -481,28 +488,28 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </span>
                   <input
                     ref={captureInputRef}
-                    aria-invalid={errorMessage() !== "" ? "true" : undefined}
+                    aria-invalid={captureError() !== "" ? "true" : undefined}
                     aria-label="URL to capture"
                     class="trauma-field min-h-[42px] w-full text-sm placeholder:text-trauma-text-placeholder"
-                    disabled={isBusy()}
+                    disabled={isSaving()}
                     inputMode="url"
                     placeholder="https://example.com/article"
                     type="text"
-                    value={captureUrl()}
+                    value={props.addMemorySubmission.url()}
                     onInput={(event) => {
-                      setCaptureUrl(event.currentTarget.value);
+                      props.addMemorySubmission.setUrl(event.currentTarget.value);
                       if (errorMessage() !== "") {
                         setErrorMessage("");
                       }
                     }}
                   />
                 </label>
-                <Show when={errorMessage() !== ""}>
+                <Show when={captureError() !== ""}>
                   <p
                     class="mb-0 text-sm font-semibold text-red-700 dark:text-red-400"
                     role="alert"
                   >
-                    {errorMessage()}
+                    {captureError()}
                   </p>
                 </Show>
                 <div class="flex items-center justify-end gap-2 pt-1">
@@ -515,10 +522,10 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </button>
                   <button
                     class="trauma-control trauma-control-primary"
-                    disabled={isBusy()}
+                    disabled={isSaving()}
                     type="submit"
                   >
-                    {isBusy() ? "Saving..." : "Save to Shelf"}
+                    {isSaving() ? "Saving..." : "Save to Shelf"}
                   </button>
                 </div>
               </form>

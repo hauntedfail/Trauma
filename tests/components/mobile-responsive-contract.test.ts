@@ -194,8 +194,8 @@ describe("mobile and cross-device responsive contract", () => {
     expect(memoryBrowseSource).not.toContain('aria-label="View mode"');
   });
 
-  it("renders the add-memory control as a standard icon button without wax seal chrome", () => {
-    expect(appShellSource).toContain("AddMemoryComposerButton");
+  it("keeps URL capture in the command palette instead of a separate composer", () => {
+    expect(appShellSource).not.toContain("AddMemoryComposerButton");
     expect(appShellSource).not.toContain("<WaxSealButton");
     expect(appShellSource).not.toContain("bg-trauma-accent");
   });

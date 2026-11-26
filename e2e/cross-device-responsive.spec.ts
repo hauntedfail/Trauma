@@ -143,8 +143,8 @@ test("keeps tablet paper add-memory icon centered in the slim 56px rail", async 
   expect(railBox).not.toBeNull();
   expect(Math.round(railBox!.width)).toBe(56);
 
-  const addMemory = rail.getByRole("button", { name: "Add memory" });
-  const delta = await addMemory.evaluate((button) => {
+  const commandPalette = rail.getByRole("button", { name: "Command palette" });
+  const delta = await commandPalette.evaluate((button) => {
     const buttonRect = button.getBoundingClientRect();
     const iconRect = button.querySelector("svg")?.getBoundingClientRect();
 

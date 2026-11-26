@@ -20,8 +20,7 @@ to them or use their retired terminology in new contracts.
 `/category`, `/tags`, `/backup`, and `/memories/new` are not routes. Categories
 and tags are managed inline in the reader's `⋯` Details & Actions overflow
 popover and filtered inside the Library `Filters` popover. Backup is exposed
-through status/failsafe surfaces. Add memory is a global shell popover and
-Command Palette capture mode.
+through status/failsafe surfaces. Add memory is Command Palette capture mode.
 
 ## Browse Query State
 
@@ -108,14 +107,13 @@ The route uses the same URL-owned First/Next page model as `/flashbacks`.
 
 ## Add Memory
 
-Add memory is a shared anchored `Popup` (and Command Palette capture mode)
-available from the left rail and phone header. It accepts one URL, never opens
-a taxonomy prompt, and lands new items in `triage_state = 'shelf'`. Escape,
-outside pointer dismissal, and successful completion use the shared popup
-lifecycle. Rail and palette forms project one shell-owned URL, pending, error,
-and idempotency attempt state. Dismissing or switching popovers cannot start a
-duplicate request, and an unmounted form cannot navigate or close a later
-popover when its request settles.
+Add memory is Command Palette capture mode, available from every route with
+`Cmd/Ctrl+K`. It accepts one URL, never opens a taxonomy prompt, and lands new
+items in `triage_state = 'shelf'`. Escape and successful completion use the
+shared dialog lifecycle. The palette projects one shell-owned URL, pending,
+error, and idempotency attempt state. Dismissing or reopening the palette cannot
+start a duplicate request, and an unmounted form cannot navigate or close a
+later dialog when its request settles.
 
 ## Reader
 

@@ -143,7 +143,7 @@ Required shell labels:
 - `Primary navigation` on the left rail.
 - `Primary tabs` on the phone bottom tab bar.
 - `Browse filters` on the right rail.
-- `Add memory` on the composer popover/dialog.
+- `Command palette` on the capture dialog.
 - `TRAUMA home` on the brand link.
 - `Theme` on the theme control section.
 
@@ -186,15 +186,17 @@ Tablet:
 - Left rail becomes compact.
 - Right rail is hidden.
 - Header chrome does not duplicate the brand or filter controls.
-- Theme and Add memory stay reachable from compact rail popovers.
+- Theme stays reachable from its compact rail popover. URL capture stays in the
+  command palette.
 - Theme popover controls keep readable text labels and must not collapse into
   icon-only pills inside the popover.
 - There is no filter drawer.
 
 Mobile:
 
-- Bottom `Primary tabs` render Memories, Flashbacks, Moments, Categories, Tags,
-  Backup, Add memory, Theme, and Settings.
+- Bottom `Primary tabs` render Today, Shelf, Library, and More. More contains
+  Flashbacks, Moments, Settings, and Theme. URL capture stays in the command
+  palette.
 - The tab list scrolls horizontally when space is constrained. The page itself
   must not gain horizontal overflow from the tab bar.
 - Categories, Tags, and Backup are disabled. Memories, Flashbacks, Moments, and
@@ -203,7 +205,8 @@ Mobile:
   scannable without enlarging desktop rail icons.
 - Phone tab text labels are `sr-only`: names must remain available to assistive
   technology, but labels must not be visible in the bottom bar.
-- Add memory and Theme popovers render above the bottom bar.
+- Theme opens from the phone More sheet. URL capture stays in the command
+  palette.
 - Paper/Hermès active underline decoration is not rendered in the phone tab bar.
 - There is no navigation drawer or filter drawer.
 - Text and controls must not overflow their containers.

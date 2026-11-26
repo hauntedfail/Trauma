@@ -9,10 +9,6 @@ const commandPaletteSource = readFileSync(
 );
 const dialogSource = readFileSync("src/components/ui/Dialog.tsx", "utf8");
 const tailwindCss = readFileSync("src/styles/tailwind.css", "utf8");
-const addMemoryFormSource = readFileSync(
-  "src/components/memories/AddMemoryForm.tsx",
-  "utf8",
-);
 const rightRailContextPath = "src/components/shell/right-rail-context.tsx";
 const popupSource = readFileSync("src/components/ui/Popup.tsx", "utf8");
 
@@ -51,12 +47,13 @@ describe("focus-first app shell contract", () => {
     expect(appShellSource).not.toContain("RightRailContentContext");
   });
 
-  it("renders Add as a normal icon button rather than an accent wax seal button", () => {
-    expect(appShellSource).toContain("AddMemoryComposerButton");
-    expect(appShellSource).toContain('popoverId="rail-add-memory-composer"');
+  it("keeps URL capture in the command palette instead of a separate composer", () => {
+    expect(appShellSource).not.toContain("AddMemoryComposerButton");
+    expect(appShellSource).not.toContain("rail-add-memory-composer");
     expect(appShellSource).not.toContain("<WaxSealButton");
     expect(appShellSource).not.toContain("bg-trauma-accent");
-    expect(appShellSource).toContain("PlusIcon");
+    expect(appShellSource).not.toContain("PlusIcon");
+    expect(commandPaletteSource).toContain("Capture URL");
   });
 
   it("uses filled icons for active routes without active background fills or unread pips", () => {
@@ -151,9 +148,11 @@ describe("focus-first app shell contract", () => {
     expect(appShellSource).not.toContain("left-full bottom-0 top-auto");
   });
 
-  it("keeps add-memory URL label colour theme-tokenized and opens via Popup", () => {
-    expect(addMemoryFormSource).toContain("text-trauma-text-muted");
-    expect(addMemoryFormSource).not.toContain("text-[#4e5a48]");
+  it("keeps the capture URL label colour theme-tokenized and rail popovers on Popup", () => {
+    expect(commandPaletteSource).toContain("text-trauma-text-muted");
+    expect(commandPaletteSource).not.toContain("text-[#4e5a48]");
+    expect(commandPaletteSource).toContain("props.addMemorySubmission.url()");
+    expect(commandPaletteSource).toContain("props.addMemorySubmission.isSubmitting()");
     expect(popupSource).toContain('"aria-controls": open() ? props.id : undefined');
     expect(popupSource).toContain('"aria-expanded": open()');
     expect(popupSource).toContain('"aria-haspopup": mode()');

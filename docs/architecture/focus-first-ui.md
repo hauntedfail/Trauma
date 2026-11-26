@@ -160,9 +160,9 @@ Desktop and Tablet >= 721px
 ```
 
 - **Left rail**: fixed 56px icon column on `>= 721px` (`Today`, `Shelf`,
-  `Library`, `Flashbacks`, `Moments`, `Settings`, plus `Add`, `Search / Palette`,
-  and `Theme` popovers). Labels appear on hover/focus as tooltips. The
-  accent-filled "Add memory" pill is removed; Add is a normal icon button. The
+  `Library`, `Flashbacks`, `Moments`, `Settings`, plus `Search / Palette` and
+  `Theme`). Labels appear on hover/focus as tooltips. URL capture belongs only
+  to the command palette. The
   `Theme` popover hosts brightness, surface, and reading font presets (`Sans`,
   `Serif`, `Focus`, `Mono`). Active route keeps the filled icon and, on paper
   themes, the hand-drawn underline moves under the icon.
@@ -171,7 +171,7 @@ Desktop and Tablet >= 721px
   landmark rail; Flashback shortcuts to Library.
 - **Reader mode hides the rail** after the first downward scroll and reveals it
   on pointer approach to the left edge, upward scroll, keyboard focus, or `Esc`.
-- **Phone** (`<= 720px`): compact brand header (Search/Palette and Capture) plus
+- **Phone** (`<= 720px`): compact brand header (Search/Palette) plus
   bottom tabs reduced to `Today`, `Shelf`, `Library`, and `More` (`Flashbacks`,
   `Moments`, `Settings`, `Theme`). Disabled placeholder tabs (Categories, Tags,
   Backup) are removed; dead affordances are noise.

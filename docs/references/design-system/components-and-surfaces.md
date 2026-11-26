@@ -186,6 +186,7 @@ Every non-reader route (`Today`, `Shelf`, `Library`, `Flashbacks`, `Moments`, `S
 - `.trauma-route-column` centers the primary content column at `45rem` (`720px`) across browse, collection, settings, and fallback routes.
 - `.trauma-surface-card` (`--radius-card: 1rem`, inset `1px` border, subtle shadow) is the shared surface primitive for memory rows, flashback cards, moment cards, and settings groups. Interactive list items pair it with `.trauma-list-card` inside `.trauma-card-list` / `.trauma-memory-list`.
 - `.trauma-section-heading` provides the shared uppercase muted section label (`0.75rem`, `font-semibold`, `tracking-wide`) for grouped sections such as Settings groups and Shelf `Still here`.
+- The reader body (`readerColumn` in `src/components/reader/reader-styles.ts`) sits on the same `.trauma-surface-card`. A memory keeps one material from its list row into the reader instead of turning into bare text on the page ground. `.trauma-reader-column` adds `--reader-card-padding` outside the reading measure, so the card never narrows the text column.
 - `RouteState` (`src/components/layout/RouteState.tsx`) owns loading, empty, and error states across routes.
 - `CollectionPagination` (`src/components/collections/CollectionPagination.tsx`) renders First/Next navigation using `trauma-control trauma-control-compact`.
 
@@ -273,19 +274,13 @@ Current and back to All preserves that local page.
 
 ## Add Memory Composer
 
-The global composer uses the existing `AddMemoryForm` and existing
-`POST /api/memories` flow.
+The command palette owns URL capture through the existing add-memory submission
+and `POST /api/memories` flow. There is no separate rail or phone composer.
 
 Rules:
 
-- The shell opens the composer as an anchored popover/dialog from the rail
-  action on desktop shell layouts.
-- On phone layouts, the same composer opens as a popover above the bottom
-  `Primary tabs` bar.
-- The composer popover renders above the rail and main pane layers and must not
-  be clipped by route content.
+- `Cmd/Ctrl+K` opens capture from every route.
 - The form accepts only URL input.
-- The submit button uses the primary command treatment. The rail trigger uses the icon-tool treatment.
 - Successful creation navigates to the created memory.
 - On backup-failsafe errors, revalidate the backup alert.
 - Do not add edit fields for title/body/tags in this composer.

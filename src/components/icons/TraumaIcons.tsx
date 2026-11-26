@@ -238,30 +238,50 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
   theme: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <path {...stroke} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
-        <path {...stroke} d="M15.4 8.4 18.6 11.6" />
-        <path {...stroke} d="M9 14.8l3.3 3.3" />
-        <path {...stroke} d="M6.5 20.5l4.2-1.1" />
+        <path {...stroke} d="M13 3.2v2.1" />
+        <path {...stroke} d="M13 20.7v2.1" />
+        <path {...stroke} d="M6.1 6.1 7.6 7.6" />
+        <path {...stroke} d="M18.4 18.4l1.5 1.5" />
+        <path {...stroke} d="M3.2 13h2.1" />
+        <path {...stroke} d="M20.7 13h2.1" />
+        <path {...stroke} d="M6.1 19.9 7.6 18.4" />
+        <path {...stroke} d="M18.4 7.6l1.5-1.5" />
+        <circle {...stroke} cx="13" cy="13" r="4.2" />
+        <path {...stroke} d="M13 8.8a4.2 4.2 0 0 1 0 8.4" />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <path {...fill} d="M6.5 20.5 9 14.8l8.2-8.2a2.25 2.25 0 0 1 3.2 3.2l-8.1 8.3-5.8 2.4z" />
-        <path stroke="var(--bg-base)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M15.4 8.4 18.6 11.6M9 14.8l3.3 3.3" />
+        <path {...stroke} d="M13 3.2v2.1" />
+        <path {...stroke} d="M13 20.7v2.1" />
+        <path {...stroke} d="M6.1 6.1 7.6 7.6" />
+        <path {...stroke} d="M18.4 18.4l1.5 1.5" />
+        <path {...stroke} d="M3.2 13h2.1" />
+        <path {...stroke} d="M20.7 13h2.1" />
+        <path {...stroke} d="M6.1 19.9 7.6 18.4" />
+        <path {...stroke} d="M18.4 7.6l1.5-1.5" />
+        <circle {...fill} cx="13" cy="13" r="4.2" />
+        <path d="M13 8.8a4.2 4.2 0 0 1 0 8.4" fill="var(--bg-base)" />
       </Svg>
     ),
   },
   settings: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <circle {...stroke} cx="13" cy="13" r="3" />
-        <path {...stroke} d="M13 2v3M13 21v3M4.2 4.2l2.1 2.1M19.7 19.7l2.1 2.1M2 13h3M21 13h3M4.2 21.8l2.1-2.1M19.7 6.3l2.1-2.1" />
+        <circle {...stroke} cx="13" cy="13" r="3.1" />
+        <path
+          {...stroke}
+          d="M11.2 6.03 L11.58 3.51 L14.42 3.51 L14.8 6.03 L16.65 6.8 L18.71 5.28 L20.72 7.29 L19.2 9.35 L19.97 11.2 L22.49 11.58 L22.49 14.42 L19.97 14.8 L19.2 16.65 L20.72 18.71 L18.71 20.72 L16.65 19.2 L14.8 19.97 L14.42 22.49 L11.58 22.49 L11.2 19.97 L9.35 19.2 L7.29 20.72 L5.28 18.71 L6.8 16.65 L6.03 14.8 L3.51 14.42 L3.51 11.58 L6.03 11.2 L6.8 9.35 L5.28 7.29 L7.29 5.28 L9.35 6.8z"
+        />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <circle {...fill} cx="13" cy="13" r="4" />
-        <path {...stroke} d="M13 2v3M13 21v3M4.2 4.2l2.1 2.1M19.7 19.7l2.1 2.1M2 13h3M21 13h3M4.2 21.8l2.1-2.1M19.7 6.3l2.1-2.1" stroke-width="2" />
+        <path
+          {...fill}
+          d="M11.2 6.03 L11.58 3.51 L14.42 3.51 L14.8 6.03 L16.65 6.8 L18.71 5.28 L20.72 7.29 L19.2 9.35 L19.97 11.2 L22.49 11.58 L22.49 14.42 L19.97 14.8 L19.2 16.65 L20.72 18.71 L18.71 20.72 L16.65 19.2 L14.8 19.97 L14.42 22.49 L11.58 22.49 L11.2 19.97 L9.35 19.2 L7.29 20.72 L5.28 18.71 L6.8 16.65 L6.03 14.8 L3.51 14.42 L3.51 11.58 L6.03 11.2 L6.8 9.35 L5.28 7.29 L7.29 5.28 L9.35 6.8z"
+        />
+        <circle cx="13" cy="13" fill="var(--bg-base)" r="2.8" />
       </Svg>
     ),
   },

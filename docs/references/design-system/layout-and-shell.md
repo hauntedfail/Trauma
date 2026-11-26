@@ -55,13 +55,13 @@ rail routes. There are no disabled placeholder tabs.
 
 ## Add Memory Action And Command Palette
 
-`Add memory` is a normal icon button in the left rail (not an accent wax-seal
-CTA) that opens the shared capture popover. Capture accepts one URL and lands
-items directly on `Shelf` without asking for categories or tags.
+URL capture has one entry point: the global Command Palette. The former rail and
+phone composer buttons are not rendered, because they repeated the same URL-only
+flow.
 
-`Cmd/Ctrl+K` opens the global Command Palette (`CommandPalette.tsx`) from every
-route, providing search, route navigation, URL capture, and Focus plugin
-toggles.
+`Cmd/Ctrl+K` opens the palette from every route. Its capture mode accepts one
+URL and lands items directly on `Shelf` without asking for categories or tags.
+The palette also provides search, route navigation, and Focus plugin toggles.
 
 ## Theme Controls
 

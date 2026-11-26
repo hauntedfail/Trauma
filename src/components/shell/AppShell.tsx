@@ -10,10 +10,8 @@ import {
   type JSX,
 } from "solid-js";
 
-import { AddMemoryForm } from "../memories/AddMemoryForm";
 import {
   createAddMemorySubmissionController,
-  type AddMemorySubmissionController,
 } from "../memories/add-memory-controller";
 import { BackupFailsafeBanner } from "../backup/BackupFailsafeBanner";
 import {
@@ -26,7 +24,6 @@ import {
   MoonIcon,
   PageIcon,
   PaperIcon,
-  PlusIcon,
   SearchIcon,
   SunIcon,
   TraumaNavIcons,
@@ -65,11 +62,8 @@ interface AppShellProps {
   children: JSX.Element;
 }
 
-const surfaceInput =
-  "trauma-field min-h-[42px] placeholder:text-trauma-text-placeholder";
 const sideSurface =
   "trauma-shell-left-rail sticky top-0 z-40 h-[100svh] w-[56px] overflow-visible border-r border-trauma-border bg-trauma-bg-base px-1.5 py-2.5 max-[720px]:hidden";
-const composerSubmitButton = "trauma-control trauma-control-primary";
 const railIconSlot = "grid size-10 place-items-center";
 const phoneIconSlot = "grid size-8 place-items-center [&>svg]:size-6";
 const phoneTabLabel = "text-[11px] font-medium leading-none";
@@ -346,7 +340,6 @@ export function AppShell(props: AppShellProps) {
       data-shell-hydrated={isHydrated() ? "true" : "false"}
     >
       <PhoneBrandHeader
-        onOpenCapture={() => openCommandPalette("capture")}
         onOpenPalette={() => openCommandPalette("search")}
       />
       <aside
@@ -359,7 +352,6 @@ export function AppShell(props: AppShellProps) {
         <NavigationContent
           activePath={activePath()}
           activeSearch={activeSearch()}
-          addMemorySubmission={addMemorySubmission}
           brightness={brightness()}
           onOpenPalette={() => openCommandPalette("search")}
           onSetBrightness={setBrightness}
@@ -379,7 +371,6 @@ export function AppShell(props: AppShellProps) {
         activePath={activePath()}
         activeSearch={activeSearch()}
         brightness={brightness()}
-        onOpenCapture={() => openCommandPalette("capture")}
         onOpenPalette={() => openCommandPalette("search")}
         onSetBrightness={setBrightness}
         onSetReaderFont={setReaderFont}
@@ -400,34 +391,21 @@ export function AppShell(props: AppShellProps) {
 }
 
 function PhoneBrandHeader(props: {
-  onOpenCapture: () => void;
   onOpenPalette: () => void;
 }) {
   return (
     <header class="trauma-safe-area-inline hidden min-h-[52px] items-center justify-between border-b border-trauma-border bg-trauma-bg-surface/95 px-3 py-1.5 backdrop-blur max-[720px]:flex">
       <BrandHomeLink markSize={26} />
-      <div class="flex items-center gap-1">
-        <button
-          aria-label="Command palette"
-          class={railNavItemBase}
-          title="Command palette"
-          type="button"
-          onClick={props.onOpenPalette}
-        >
-          <SearchIcon size={20} />
-          <span class="sr-only">Command palette</span>
-        </button>
-        <button
-          aria-label="Add memory"
-          class={railNavItemBase}
-          title="Add memory"
-          type="button"
-          onClick={props.onOpenCapture}
-        >
-          <PlusIcon size={20} />
-          <span class="sr-only">Add memory</span>
-        </button>
-      </div>
+      <button
+        aria-label="Command palette"
+        class={railNavItemBase}
+        title="Command palette"
+        type="button"
+        onClick={props.onOpenPalette}
+      >
+        <SearchIcon size={20} />
+        <span class="sr-only">Command palette</span>
+      </button>
     </header>
   );
 }
@@ -455,7 +433,6 @@ function BrandHomeLink(props: {
 function NavigationContent(props: {
   activePath: string;
   activeSearch: string;
-  addMemorySubmission: AddMemorySubmissionController;
   brightness: BrightnessMode;
   onNavigate?: () => void;
   onOpenPalette: () => void;
@@ -496,11 +473,6 @@ function NavigationContent(props: {
           </span>
           <span class="sr-only">Command palette</span>
         </button>
-        <AddMemoryComposerButton
-          onCreated={props.onNavigate}
-          popoverId="rail-add-memory-composer"
-          submission={props.addMemorySubmission}
-        />
         <ThemeNavButton
           brightness={props.brightness}
           onBrightness={props.onSetBrightness}
@@ -539,56 +511,6 @@ function RouteNavLink(props: {
       <span class={railIconSlot}>{icon()({ size: 22 })}</span>
       <span class="sr-only">{props.item.label}</span>
     </A>
-  );
-}
-
-function AddMemoryComposerButton(props: {
-  onCreated?: () => void;
-  popoverId: string;
-  submission: AddMemorySubmissionController;
-}) {
-  return (
-    <Popup
-      class={railPopoverRoot}
-      id={props.popoverId}
-      label="Add memory"
-      mode="dialog"
-      panelClass="w-[min(320px,calc(100vw-4.5rem))]"
-      placement="right-end"
-      trigger={({ open, triggerProps }) => (
-        <button
-          {...triggerProps}
-          aria-label="Add memory"
-          aria-pressed={open}
-          class={`${railNavItemBase} ${open ? activeNavItem : ""}`}
-          title="Add memory"
-          type="button"
-        >
-          <span class={railIconSlot}>
-            <PlusIcon size={22} />
-          </span>
-          <span class="sr-only">Add memory</span>
-        </button>
-      )}
-    >
-      {({ close }) => (
-        <div class="p-4">
-          <AddMemoryForm
-            buttonClass={composerSubmitButton}
-            formClass="grid gap-3"
-            inputClass={`${surfaceInput} w-full`}
-            onCreated={() => {
-              close();
-              props.onCreated?.();
-            }}
-            showVisibleLabel={false}
-            submission={props.submission}
-            submitLabel="Save memory"
-            title="Add memory"
-          />
-        </div>
-      )}
-    </Popup>
   );
 }
 
@@ -644,7 +566,6 @@ function PhoneTabBar(props: {
   activePath: string;
   activeSearch: string;
   brightness: BrightnessMode;
-  onOpenCapture: () => void;
   onOpenPalette: () => void;
   onSetBrightness: (mode: BrightnessMode) => void;
   onSetReaderFont: (preset: ReaderFontPreset | null) => void;
@@ -734,20 +655,9 @@ function PhoneTabBar(props: {
                   }}
                 </For>
               </nav>
-              <div class="grid grid-cols-2 gap-2 border-t border-trauma-border pt-3">
+              <div class="border-t border-trauma-border pt-3">
                 <button
-                  class="trauma-control trauma-control-compact"
-                  type="button"
-                  onClick={() => {
-                    close();
-                    props.onOpenCapture();
-                  }}
-                >
-                  <PlusIcon size={16} />
-                  <span>Add URL</span>
-                </button>
-                <button
-                  class="trauma-control trauma-control-compact"
+                  class="trauma-control w-full"
                   type="button"
                   onClick={() => {
                     close();
@@ -755,7 +665,7 @@ function PhoneTabBar(props: {
                   }}
                 >
                   <SearchIcon size={16} />
-                  <span>Search</span>
+                  <span>Search or capture</span>
                 </button>
               </div>
               <div class="border-t border-trauma-border pt-2">

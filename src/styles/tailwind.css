@@ -736,9 +736,17 @@
     padding-inline: clamp(0.5rem, 2cqi, 1rem);
   }
 
+  /* The reader body sits on the same surface card as list rows. The card adds
+     its own inline padding on top of the reading measure so the text column
+     keeps its width. */
   .trauma-reader-column {
-    inline-size: min(100%, var(--reader-measure, 66ch));
+    --reader-card-padding: clamp(1rem, 4cqi, 2rem);
+    inline-size: min(
+      100%,
+      calc(var(--reader-measure, 66ch) + 2 * var(--reader-card-padding))
+    );
     margin-inline: auto;
+    padding-inline: var(--reader-card-padding);
   }
 
   .trauma-reader-column:lang(ja),

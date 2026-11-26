@@ -78,7 +78,7 @@ describe("TRAUMA icon system", () => {
     }
   });
 
-  it("exports a paint-tool utility icon for the Theme tab", () => {
+  it("exports a brightness-control icon for the Theme tab", () => {
     const html = renderToString(() => createComponent(PaintToolIcon, { size: 24 }));
 
     expect(html).toContain('aria-hidden="true"');
@@ -86,10 +86,25 @@ describe("TRAUMA icon system", () => {
     expect(html).toContain('width="24"');
     expect(html).toContain('height="24"');
     expect(html).toContain("currentColor");
-    expect(html).toContain("M6.5 20.5 9 14.8");
-    expect(html).toContain("M15.4 8.4 18.6 11.6");
-    expect(html).toContain("M9 14.8l3.3 3.3");
-    expect(html).not.toContain("M15.5 3.5 20.5 8.5");
+    expect(html).toContain('cx="13"');
+    expect(html).toContain('cy="13"');
+    expect(html).toContain('r="4.2"');
+    expect(html).toContain("M13 3.2v2.1");
+    expect(html).toContain("M13 8.8a4.2 4.2 0 0 1 0 8.4");
+    expect(html).not.toContain("M6.5 20.5 9 14.8");
+  });
+
+  it("draws the Settings nav icon as a toothed gear with a centre hole", () => {
+    const outline = renderToString(() => TraumaNavIcons.settings.outline());
+    const filled = renderToString(() => TraumaNavIcons.settings.filled());
+
+    for (const html of [outline, filled]) {
+      expect(html).toContain('viewBox="0 0 26 26"');
+      expect(html).toContain("M11.2 6.03 L11.58 3.51 L14.42 3.51 L14.8 6.03");
+      expect(html).not.toContain("M13 2v3M13 21v3");
+    }
+    expect(outline).toContain('r="3.1"');
+    expect(filled).toContain('fill="var(--bg-base)"');
   });
 
   it("renders the Theme nav icon at the same scale and variant depth as the other nav icons", () => {
@@ -99,13 +114,14 @@ describe("TRAUMA icon system", () => {
     expect(outline).toContain('viewBox="0 0 26 26"');
     expect(outline).toContain('width="26"');
     expect(outline).toContain('height="26"');
-    expect(outline).toContain("M6.5 20.5 9 14.8");
-    expect(outline).toContain("M15.4 8.4 18.6 11.6");
+    expect(outline).toContain('r="4.2"');
+    expect(outline).toContain("M13 8.8a4.2 4.2 0 0 1 0 8.4");
     expect(filled).toContain('viewBox="0 0 26 26"');
     expect(filled).toContain('width="26"');
     expect(filled).toContain('height="26"');
     expect(filled).toContain('fill="currentColor"');
     expect(filled).toContain("var(--bg-base)");
+    expect(filled).not.toContain("M6.5 20.5 9 14.8");
   });
 
   it("keeps theme box utility icons aligned with the refined sample", () => {

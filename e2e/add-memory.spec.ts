@@ -100,11 +100,13 @@ test("captures via a key, icon button, and palette into Shelf without ever openi
   await page.keyboard.press("Escape");
   await expect(paletteDialog).toHaveCount(0);
 
-  // 2. Capture via left-rail Add icon button -> URL-only popover, no category/tag prompt
-  await page.getByRole("button", { name: "Add memory" }).click();
-  const composerDialog = page.getByRole("dialog", { name: "Add memory" });
+  // 2. Capture via the command palette, without a separate composer or taxonomy prompt
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const composerDialog = page.getByRole("dialog", { name: "Command palette" });
   await expect(composerDialog).toBeVisible();
-  await expect(composerDialog.getByLabel("URL")).toBeVisible();
+  await composerDialog.getByRole("combobox").fill("Add URL");
+  await composerDialog.getByRole("option", { name: /Add URL/ }).click();
+  await expect(composerDialog.getByLabel("URL to capture")).toBeVisible();
   await expect(composerDialog.getByText(/categor|tag/i)).toHaveCount(0);
 
   const responsePromise = page.waitForResponse(
@@ -112,8 +114,8 @@ test("captures via a key, icon button, and palette into Shelf without ever openi
       response.url().endsWith("/api/memories") &&
       response.request().method() === "POST",
   );
-  await composerDialog.getByLabel("URL").fill(SUCCESS_URL);
-  await composerDialog.getByLabel("URL").press("Enter");
+  await composerDialog.getByLabel("URL to capture").fill(SUCCESS_URL);
+  await composerDialog.getByLabel("URL to capture").press("Enter");
 
   const response = await responsePromise;
   expect(response.status()).toBe(201);
@@ -126,18 +128,20 @@ test("captures via a key, icon button, and palette into Shelf without ever openi
 
 async function addMemoryThroughComposer(page: Page, url: string) {
   await page.goto("/memories");
-  await page.getByRole("button", { name: "Add memory" }).click();
+  await page.getByRole("button", { name: "Command palette" }).click();
 
-  const composer = page.getByRole("dialog", { name: "Add memory" });
+  const composer = page.getByRole("dialog", { name: "Command palette" });
   await expect(composer).toBeVisible();
-  await composer.getByLabel("URL").fill(url);
+  await composer.getByRole("combobox").fill("Add URL");
+  await composer.getByRole("option", { name: /Add URL/ }).click();
+  await composer.getByLabel("URL to capture").fill(url);
 
   const responsePromise = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/memories") &&
       response.request().method() === "POST",
   );
-  await composer.getByLabel("URL").press("Enter");
+  await composer.getByLabel("URL to capture").press("Enter");
 
   const response = await responsePromise;
   expect(response.status()).toBe(201);

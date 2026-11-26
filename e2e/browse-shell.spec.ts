@@ -1065,25 +1065,23 @@ test("layers left rail popovers above the main pane", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
 
-  const addMemoryButton = page.getByRole("button", { name: "Add memory" });
-  await expect(addMemoryButton).toHaveCount(1);
-  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "false");
-  await addMemoryButton.click();
-  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
-  const addMemoryRadius = await addMemoryButton.evaluate(
-    (button) => getComputedStyle(button).borderTopLeftRadius,
-  );
-  await expect
-    .poll(() =>
-      page
-        .getByRole("button", { name: "Save memory" })
-        .evaluate((button) => getComputedStyle(button).borderTopLeftRadius),
-    )
-    .toBe(addMemoryRadius);
-  await expectRailDialogAboveMain(page, "Add memory");
+  const commandPaletteButton = page.getByRole("button", { name: "Command palette" });
+  await expect(commandPaletteButton).toHaveCount(1);
+  await commandPaletteButton.click();
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  const paletteLayer = await palette.evaluate((dialog) => {
+    const rect = dialog.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + 24);
+    const style = getComputedStyle(dialog);
+    return {
+      containsTopElement: top instanceof Element && dialog.contains(top),
+      zIndex: Number.parseInt(style.zIndex, 10),
+    };
+  });
+  expect(paletteLayer.containsTopElement).toBe(true);
+  expect(Number.isNaN(paletteLayer.zIndex) || paletteLayer.zIndex > 40).toBe(true);
   await page.keyboard.press("Escape");
-  await expect(addMemoryButton).toHaveAttribute("aria-pressed", "false");
 });
 
 test("persists shell theme controls in the browser", async ({ page }) => {
@@ -1320,33 +1318,25 @@ test("supports roving tabindex and j/k/Enter keyboard navigation on browse lanes
   await expect(searchBox).not.toBeFocused();
 });
 
-test("keeps the add-memory composer reachable from shell routes", async ({ page }) => {
+test("keeps URL capture reachable from every route through the command palette", async ({ page }) => {
   await page.goto("/flashbacks");
 
-  const flashbacksAddButton = page.getByRole("button", { name: "Add memory" });
-  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
-  await expect(flashbacksAddButton).toHaveAttribute("aria-pressed", "false");
-  await flashbacksAddButton.click();
-  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "true");
-  await expect(flashbacksAddButton).toHaveAttribute("aria-pressed", "true");
-  const flashbacksComposer = page.getByRole("dialog", { name: "Add memory" });
-  await expect(flashbacksComposer).toBeVisible();
-  await expect(flashbacksComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
-  await expect(flashbacksComposer.getByRole("button", { name: "Close" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const flashbacksCapture = page.getByRole("dialog", { name: "Command palette" });
+  await expect(flashbacksCapture).toBeVisible();
+  await flashbacksCapture.getByRole("combobox").fill("Add URL");
+  await flashbacksCapture.getByRole("option", { name: /Add URL/ }).click();
+  await expect(flashbacksCapture.getByRole("textbox", { name: "URL to capture" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(flashbacksComposer).toHaveCount(0);
-  await expect(flashbacksAddButton).toHaveAttribute("aria-expanded", "false");
+  await expect(flashbacksCapture).toHaveCount(0);
 
   await page.goto("/memories/018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef901");
-  const readerAddButton = page.getByRole("button", { name: "Add memory" });
-  await expect(readerAddButton).toHaveAttribute("aria-expanded", "false");
-  await expect(readerAddButton).toHaveAttribute("aria-pressed", "false");
-  await readerAddButton.click();
-  await expect(readerAddButton).toHaveAttribute("aria-expanded", "true");
-  await expect(readerAddButton).toHaveAttribute("aria-pressed", "true");
-  const readerComposer = page.getByRole("dialog", { name: "Add memory" });
-  await expect(readerComposer).toBeVisible();
-  await expect(readerComposer.getByRole("textbox", { name: "URL" })).toBeVisible();
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const readerCapture = page.getByRole("dialog", { name: "Command palette" });
+  await expect(readerCapture).toBeVisible();
+  await readerCapture.getByRole("combobox").fill("Add URL");
+  await readerCapture.getByRole("option", { name: /Add URL/ }).click();
+  await expect(readerCapture.getByRole("textbox", { name: "URL to capture" })).toBeVisible();
 });
 
 test("moves focus through shared dialogs and menus and returns it to the opener", async ({
@@ -1441,34 +1431,34 @@ test("returns taxonomy creation focus after keyboard dismissal", async ({ page }
   await expect(addTagTrigger).toBeFocused();
 });
 
-test("closes the add-memory composer on outside row clicks without opening memory actions", async ({
+test("closes the theme popover on outside row clicks without opening memory actions", async ({
   page,
 }) => {
   await createBrowseDeleteFixture();
   await page.goto("/memories?lane=library");
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Browse Shell Sketch" }).first();
   await row.getByRole("link", { name: "Open memory Browse Shell Sketch" }).click();
 
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
 
   await row.getByRole("button", { name: "Add tag" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Add tag" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
 
   await page.getByRole("link", { name: "Open memory Browse Shell Sketch" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/memories(?:\?.*)?$/);
   await expect(page.locator("#reader-state-title")).toHaveCount(0);
 });
@@ -1494,9 +1484,12 @@ test("keeps a pending add-memory attempt owned across rail dismissal and phone r
   });
   await page.goto("/memories");
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  const railComposer = page.getByRole("dialog", { name: "Add memory" });
-  const railUrl = railComposer.getByRole("textbox", { name: "URL" });
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const railComposer = page.getByRole("dialog", { name: "Command palette" });
+  await expect(railComposer).toBeVisible();
+  await railComposer.getByRole("combobox").fill("Add URL");
+  await railComposer.getByRole("option", { name: /Add URL/ }).click();
+  const railUrl = railComposer.getByRole("textbox", { name: "URL to capture" });
   await railUrl.fill("https://example.com/pending");
   const requestPromise = page.waitForRequest(
     (request) =>
@@ -1510,9 +1503,12 @@ test("keeps a pending add-memory attempt owned across rail dismissal and phone r
 
   await page.keyboard.press("Escape");
   await expect(railComposer).toHaveCount(0);
-  await page.getByRole("button", { name: "Add memory" }).click();
-  const reopenedComposer = page.getByRole("dialog", { name: "Add memory" });
-  const reopenedUrl = reopenedComposer.getByRole("textbox", { name: "URL" });
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const reopenedComposer = page.getByRole("dialog", { name: "Command palette" });
+  await expect(reopenedComposer).toBeVisible();
+  await reopenedComposer.getByRole("combobox").fill("Add URL");
+  await reopenedComposer.getByRole("option", { name: /Add URL/ }).click();
+  const reopenedUrl = reopenedComposer.getByRole("textbox", { name: "URL to capture" });
   await expect(reopenedUrl).toHaveValue("https://example.com/pending");
   await expect(reopenedUrl).toBeDisabled();
 
@@ -1537,14 +1533,14 @@ test("does not suppress the next normal click after an outside right-click dismi
   await createBrowseDeleteFixture();
   await page.goto("/memories?lane=shelf");
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
 
   const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
   await row
     .getByRole("link", { name: "Open memory Reader Mode Notes" })
     .click({ button: "right" });
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "Open memory Reader Mode Notes" }).click();
 
@@ -1561,8 +1557,8 @@ test("does not suppress a click after an outside pointer sequence is canceled", 
   await page.goto("/memories");
 
   const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
 
   await headerHeading.dispatchEvent("pointerdown", {
     button: 0,
@@ -1570,7 +1566,7 @@ test("does not suppress a click after an outside pointer sequence is canceled", 
     pointerId: 17,
     pointerType: "touch",
   });
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toHaveCount(0);
   await headerHeading.dispatchEvent("pointercancel", {
     button: 0,
     isPrimary: true,
@@ -1589,8 +1585,8 @@ test("does not suppress a click after an outside pointerup produced no click", a
   await page.goto("/memories");
 
   const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
   await headerHeading.dispatchEvent("pointerdown", {
     button: 0,
     isPrimary: true,
@@ -1615,8 +1611,8 @@ test("expires outside click suppression when a pointer sequence goes silent", as
 }) => {
   await page.goto("/memories");
 
-  await page.getByRole("button", { name: "Add memory" }).click();
-  await expect(page.getByRole("dialog", { name: "Add memory" })).toBeVisible();
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("dialog", { name: "Theme settings" })).toBeVisible();
   const headerHeading = page.getByRole("heading", { name: "Today", exact: true });
   await headerHeading.dispatchEvent("pointerdown", {
     button: 0,

@@ -33,7 +33,6 @@ const memory = {
 } satisfies BrowseMemory;
 const browseSource = readFileSync("src/components/memories/MemoryBrowse.tsx", "utf8");
 const searchBarSource = readFileSync("src/components/memories/MemorySearchBar.tsx", "utf8");
-const addMemoryFormSource = readFileSync("src/components/memories/AddMemoryForm.tsx", "utf8");
 const appShellSource = readFileSync("src/components/shell/AppShell.tsx", "utf8");
 
 describe("memory browse actions", () => {
@@ -462,11 +461,6 @@ describe("memory browse actions", () => {
     expect(appShellSource).toContain(
       "onCreationSettled: () => revalidateBrowseMemoryWorkspace()",
     );
-    expect(addMemoryFormSource).not.toContain("revalidateBrowseTaxonomy");
-    expect(addMemoryFormSource).not.toContain("useLocation");
-    expect(addMemoryFormSource).not.toContain("parseBrowseQuery(location.search)");
-    expect(addMemoryFormSource).not.toContain("revalidateBrowseMemoryFirstPage");
-    expect(addMemoryFormSource).not.toContain("revalidateBrowseMemories");
   });
 
   it("replaces read-state tabs and EphemeralShelfBar with focus-first Today, Shelf, and Library lanes", () => {

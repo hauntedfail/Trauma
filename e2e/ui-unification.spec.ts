@@ -119,3 +119,61 @@ test("uses the same surface card radius across Memories, Flashbacks, Moments, an
     .evaluate((el) => getComputedStyle(el).backgroundImage);
   expect(settingsBgImage).toBe("none");
 });
+
+test("keeps a memory on the same surface card when moving from a list row into the reader", async ({
+  page,
+}) => {
+  await materializeE2eFixture("reader_base");
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  const surfaceOf = (selector: string) =>
+    page.locator(selector).first().evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+        radius: style.borderTopLeftRadius,
+      };
+    });
+
+  await page.goto("/memories");
+  const row = page.locator("article.trauma-surface-card").first();
+  await expect(row).toBeVisible();
+  const rowSurface = await surfaceOf("article.trauma-surface-card");
+
+  await page.goto("/memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f101");
+  const readerColumn = page.locator("[data-reader-column]").first();
+  await expect(readerColumn).toBeVisible();
+  await expect(page.locator("[data-reader-content]")).toHaveAttribute(
+    "data-reader-ready",
+    "true",
+  );
+  const readerSurface = await surfaceOf("[data-reader-column]");
+
+  expect(readerSurface).toEqual(rowSurface);
+  expect(readerSurface.radius).toBe("16px");
+
+  // The card pads the text; the reading measure itself must not shrink.
+  const measure = await readerColumn.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const padding = Number.parseFloat(style.paddingLeft);
+    const content = el.querySelector("[data-reader-content]");
+    return {
+      columnWidth: el.getBoundingClientRect().width,
+      contentWidth: content?.getBoundingClientRect().width ?? 0,
+      padding,
+    };
+  });
+  expect(measure.padding).toBeGreaterThanOrEqual(16);
+  expect(measure.contentWidth).toBeLessThanOrEqual(measure.columnWidth - 2 * measure.padding + 1);
+  expect(measure.contentWidth).toBeGreaterThan(480);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(readerColumn).toBeVisible();
+  const phone = await readerColumn.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, viewport: window.innerWidth };
+  });
+  expect(phone.left).toBeGreaterThanOrEqual(0);
+  expect(phone.right).toBeLessThanOrEqual(phone.viewport);
+});
