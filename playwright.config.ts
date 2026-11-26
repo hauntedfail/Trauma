@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -16,8 +17,23 @@ const e2eControlToken = process.env.TRAUMA_E2E_CONTROL_TOKEN_GENERATED === "1" &
   : randomBytes(32).toString("base64url");
 process.env.TRAUMA_E2E_CONTROL_TOKEN = e2eControlToken;
 process.env.TRAUMA_E2E_CONTROL_TOKEN_GENERATED = "1";
+
+function resolveCiWebServerCommand(): string {
+  const explicitOutputDir = process.env.TRAUMA_BUILD_OUTPUT_DIR?.trim();
+  if (explicitOutputDir) {
+    return `bun --bun ${explicitOutputDir.replace(/\/+$/, "")}/server/index.mjs`;
+  }
+  if (
+    !existsSync(".output/server/index.mjs") &&
+    existsSync(".output-verify/server/index.mjs")
+  ) {
+    return "bun --bun .output-verify/server/index.mjs";
+  }
+  return "bun --bun .output/server/index.mjs";
+}
+
 const webServerCommand = process.env.CI
-  ? `bun --bun .output/server/index.mjs`
+  ? resolveCiWebServerCommand()
   : `bun --bun x vinxi dev`;
 
 export default defineConfig({

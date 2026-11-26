@@ -15,10 +15,12 @@
     "test": "bun --bun x vitest run",
     "test:watch": "bun --bun x vitest",
     "test:e2e": "playwright test",
+    "test:e2e:preflight": "bun run scripts/check-playwright-browser.ts",
     "build:extension": "bun run scripts/build-browser-extension.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run scripts/migrate-database.ts",
-    "verify": "bun run docs:check && bun run typecheck && bun run test && bun run build"
+    "verify": "bun run docs:check && bun run typecheck && bun run test && TRAUMA_BUILD_OUTPUT_DIR=${TRAUMA_BUILD_OUTPUT_DIR:-.output-verify} vinxi build",
+    "verify:full": "bun run verify && bun run test:e2e:preflight && bun run test:e2e"
   },
   "dependencies": {
     "@corvu/drawer": "^0.2.4",

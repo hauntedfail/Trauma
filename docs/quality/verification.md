@@ -19,6 +19,19 @@ that documentation check, typecheck, unit/integration tests, and the production
 build. `bun run dev:smoke` is the deterministic startup probe.
 `bun run test:e2e` is the full Playwright suite, not the startup smoke check.
 
+`bun run verify` builds into `.output-verify/` (gitignored; override with
+`TRAUMA_BUILD_OUTPUT_DIR`) and leaves `.output/` untouched, so it is safe to run
+beside a service that serves `.output/` from the same checkout. `bun run build`
+still writes `.output/`: it replaces the hashed assets under a running server,
+so run it only as part of a deploy that restarts that server.
+
+`bun run verify:full` runs `verify`, then `bun run test:e2e:preflight`, then
+the full Playwright suite. The preflight exits non-zero with the install
+command when the Chromium build required by the installed Playwright version
+is missing, instead of letting every browser test fail at launch. A
+`verify:full` run counts only when the Playwright summary reports no failed and
+no unexecuted (`did not run`) test.
+
 Run `bun run audit` for dependency changes and security reviews. CI keeps the
 audit separate from `bun run verify` so the normal typecheck, test, and build
 loop remains network-independent.
@@ -136,7 +149,8 @@ absent local changelog falls back to generated notes.
 - Behavior changes include regression coverage at the owning boundary.
 - Storage, security, import, translation, Psychiatrist, backup, routing, or
   reader changes run focused tests plus the broad checks justified by risk.
-- Browser-visible layout or interaction changes run Playwright.
+- Browser-visible layout or interaction changes are accepted only on a green
+  `bun run verify:full`.
 - Documentation-only changes run `bun run docs:check`; a dedicated lightweight
   CI workflow runs for documentation paths.
 - Verification commands and exact outcomes are recorded at handoff.

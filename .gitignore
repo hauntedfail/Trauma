@@ -6,6 +6,7 @@ app.config.timestamp_*.js
 node_modules/
 .vinxi/
 .output/
+.output-verify/
 .solid/
 dist/
 playwright-report/
