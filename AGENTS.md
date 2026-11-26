@@ -13,3 +13,14 @@ temporary and move lasting requirements into the owning semantic document.
 
 Commit finalization exclusions for Sawyer live in
 [.sawyer/exclude-whitelist.txt](.sawyer/exclude-whitelist.txt).
+
+## Verification
+
+`bun run verify` (docs check, typecheck, Vitest, build) builds into
+`.output-verify/` and leaves the served `.output/` untouched. `bun run build`
+rewrites `.output/` under the running LaunchAgent, so run it only as part of a
+deploy that restarts the service.
+
+UI-affecting work is accepted only on `bun run verify:full`: `verify`, then the
+Playwright browser preflight, then the full Playwright suite with no failed and
+no unexecuted test.
