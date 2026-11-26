@@ -107,7 +107,7 @@ describe("refined reader visual contract", () => {
     expect(readerSource).not.toContain("pl-[18px]");
     expect(readerSource).toContain("grid-cols-[1.125rem_minmax(0,1fr)]");
     expect(readerSource).toContain(
-      "animate-trauma-pop-bounce relative overflow-hidden rounded-[20px]",
+      "animate-trauma-pop-bounce relative overflow-hidden rounded-2xl",
     );
     expect(readerSource).toContain('class="trauma-toc-scroll-shell"');
     expect(readerSource).not.toContain('class="trauma-toc-scroll-shell relative"');

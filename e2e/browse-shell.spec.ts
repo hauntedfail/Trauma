@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { materializeE2eFixture, resetE2eFixture } from "./bun-fixture";
 
@@ -24,11 +24,11 @@ for (const variant of [
     await page.goto("/memories?lane=shelf");
     const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
     const today = row.getByRole("button", { name: /to Today/ });
-    await expect(today).toHaveCSS("background-color", variant.accent);
     const library = row.getByRole("button", { name: /to Library/ });
     const archive = row.getByRole("button", { name: /Archive/ });
     const quiet = await library.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(quiet).not.toBe(variant.accent);
+    await expect(today).toHaveCSS("background-color", quiet);
     await expect(archive).toHaveCSS("background-color", quiet);
     for (const action of [today, library, archive]) {
       await expect(action).toBeInViewport({ ratio: 1 });
@@ -76,6 +76,84 @@ test("uses filled active nav icons without active tab background", async ({ page
   expect(normalState.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   expect(normalState.fill).toBe("currentColor");
 });
+
+test("draws the Library icon as one open book with a legible fold at native size", async ({
+  page,
+}) => {
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const libraryIcon =
+      viewport.width === 390
+        ? page.locator("[data-phone-tab='library'] svg")
+        : page
+            .getByRole("navigation", { name: "Primary sections" })
+            .getByRole("link", { name: "Library" })
+            .locator("svg");
+
+    await page.goto("/memories?lane=shelf");
+    const outline = await scanIconMiddleRow(libraryIcon);
+    expect(outline.inkRuns).toHaveLength(3);
+    expect(Math.min(...outline.gaps)).toBeGreaterThanOrEqual(4);
+
+    await page.goto("/memories?lane=library");
+    const filled = await scanIconMiddleRow(libraryIcon);
+    expect(filled.inkRuns).toHaveLength(2);
+    expect(Math.min(...filled.inkRuns)).toBeGreaterThanOrEqual(6);
+    expect(filled.gaps[0]).toBeGreaterThanOrEqual(1);
+  }
+});
+
+async function scanIconMiddleRow(icon: Locator) {
+  await expect(icon).toHaveCount(1);
+  return icon.evaluate(async (svg) => {
+    const size = Math.round(svg.getBoundingClientRect().width);
+    const markup = new XMLSerializer()
+      .serializeToString(svg)
+      .replaceAll("currentColor", "#000")
+      .replaceAll("var(--bg-base)", "#fff");
+    const image = new Image();
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("2D canvas is unavailable");
+    }
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, size, size);
+    context.drawImage(image, 0, 0, size, size);
+    const row = context.getImageData(0, Math.floor(size / 2), size, 1).data;
+    const inkRuns: number[] = [];
+    const gaps: number[] = [];
+    let run = 0;
+    let gap = 0;
+    for (let x = 0; x < size; x += 1) {
+      const isInk = row[x * 4]! < 128;
+      if (isInk) {
+        if (gap > 0 && inkRuns.length > 0) {
+          gaps.push(gap);
+        }
+        gap = 0;
+        run += 1;
+      } else {
+        if (run > 0) {
+          inkRuns.push(run);
+        }
+        run = 0;
+        gap += 1;
+      }
+    }
+    if (run > 0) {
+      inkRuns.push(run);
+    }
+    return { gaps, inkRuns, size };
+  });
+}
 
 test("keeps paper active nav underline under the icon while removing active tab background", async ({
   page,
@@ -289,7 +367,10 @@ test("keeps the memories search focus indicator on the rounded search surface", 
 
   expect(focusState.inputBoxShadow).not.toContain("184, 87, 106");
   expect(focusState.surfaceBoxShadow).toContain("inset");
-  expect(Number.parseFloat(focusState.surfaceBorderRadius)).toBeGreaterThanOrEqual(20);
+  const filtersRadius = await page
+    .locator("[data-library-filters-trigger='true']")
+    .evaluate((trigger) => getComputedStyle(trigger).borderTopLeftRadius);
+  expect(focusState.surfaceBorderRadius).toBe(filtersRadius);
 });
 
 test("renders flat rows within 720px browse column with 20px favicon, length bucket, and resumption cue only when present", async ({

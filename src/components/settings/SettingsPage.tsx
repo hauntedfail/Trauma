@@ -67,10 +67,10 @@ const fieldClass = "trauma-glass grid min-w-0 gap-4 p-5";
 const labelClass = "text-[15px] font-semibold text-trauma-text-primary";
 const hintClass = "mb-0 text-sm font-semibold text-trauma-text-muted";
 const selectClass =
-  "min-h-11 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 font-bold text-trauma-text-primary";
-const primaryButtonClass = "trauma-pill trauma-pill-primary";
-const secondaryButtonClass = "trauma-pill";
-const dangerButtonClass = "trauma-pill trauma-pill-danger";
+  "trauma-field min-h-11 w-full font-medium";
+const primaryButtonClass = "trauma-control trauma-control-primary";
+const secondaryButtonClass = "trauma-control";
+const dangerButtonClass = "trauma-control trauma-control-danger";
 
 export function SettingsPage(props: SettingsPageProps) {
   const [language, setLanguage] = createSignal<SupportedLanguageCode>(

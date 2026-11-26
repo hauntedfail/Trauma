@@ -102,16 +102,26 @@ export const TraumaNavIcons: Record<NavIconName, NavIconVariants> = {
   library: {
     outline: (props = {}) => (
       <Svg {...props}>
-        <rect {...stroke} height="16" rx="1.2" width="4" x="4.5" y="5" />
-        <rect {...stroke} height="16" rx="1.2" width="4" x="10.5" y="5" />
-        <path {...stroke} d="m16.8 6.2 3.7-.9 2 14.9-3.7.9z" />
+        <path
+          {...stroke}
+          d="M13 7.9C10.9 6.4 7.6 6.1 4.5 7.2v11.9c3.1-1.1 6.4-.8 8.5.7 2.1-1.5 5.4-1.8 8.5-.7V7.2c-3.1-1.1-6.4-.8-8.5.7z"
+        />
+        <path {...stroke} d="M13 7.9v11.9" />
       </Svg>
     ),
     filled: (props = {}) => (
       <Svg {...props}>
-        <rect {...fill} height="16" rx="1.2" width="4" x="4.5" y="5" />
-        <rect {...fill} height="16" rx="1.2" width="4" x="10.5" y="5" />
-        <path {...fill} d="m16.8 6.2 3.7-.9 2 14.9-3.7.9z" />
+        <path
+          {...fill}
+          d="M13 7.9C10.9 6.4 7.6 6.1 4.5 7.2v11.9c3.1-1.1 6.4-.8 8.5.7 2.1-1.5 5.4-1.8 8.5-.7V7.2c-3.1-1.1-6.4-.8-8.5.7z"
+        />
+        <path
+          d="M13 8.6v10.6"
+          fill="none"
+          stroke="var(--bg-base)"
+          stroke-linecap="round"
+          stroke-width="1.8"
+        />
       </Svg>
     ),
   },

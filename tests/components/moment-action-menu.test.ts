@@ -21,7 +21,7 @@ describe("Moment action menu", () => {
     );
 
     expect(html).toContain('aria-label="Moment actions for Details"');
-    expect(html).toContain("hover:bg-trauma-bg-elev");
+    expect(html).toContain("trauma-tool");
     expect(html).toContain("Delete moment");
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain("text-trauma-danger");

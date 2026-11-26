@@ -1,4 +1,5 @@
 import { Title } from "@solidjs/meta";
+import { A } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
 
 export default function NotFound() {
@@ -9,6 +10,7 @@ export default function NotFound() {
       <div class="text-trauma-text-secondary">
         <h1 class="text-3xl font-bold text-trauma-text-primary" id="not-found-title">Page not found</h1>
         <p>This route is not part of the current Trauma foundation.</p>
+        <A class="trauma-control mt-2" href="/memories?lane=shelf">Back to Shelf</A>
       </div>
     </section>
   );

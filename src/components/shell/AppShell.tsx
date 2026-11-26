@@ -66,22 +66,21 @@ interface AppShellProps {
 }
 
 const surfaceInput =
-  "min-h-[42px] min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-trauma-text-primary placeholder:text-trauma-text-placeholder";
+  "trauma-field min-h-[42px] placeholder:text-trauma-text-placeholder";
 const sideSurface =
   "trauma-shell-left-rail sticky top-0 z-40 h-[100svh] w-[56px] overflow-visible border-r border-trauma-border bg-trauma-bg-base px-1.5 py-2.5 max-[720px]:hidden";
-const composerSubmitButton =
-  "inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong px-3 py-2 font-bold";
+const composerSubmitButton = "trauma-control trauma-control-primary";
 const railIconSlot = "grid size-10 place-items-center";
 const phoneIconSlot = "grid size-8 place-items-center [&>svg]:size-6";
 const phoneTabLabel = "text-[11px] font-medium leading-none";
 const railNavItemBase =
-  "trauma-capability-touch-target group relative grid size-10 place-items-center rounded-full text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
+  "trauma-capability-touch-target group relative grid size-10 place-items-center rounded-control text-trauma-text-primary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
 const activeNavItem =
   "trauma-active-nav-item relative text-trauma-text-primary";
 const railPopoverRoot = "relative grid place-items-center";
 const railPopoverPanel = "w-[264px] max-w-[calc(100vw-4.5rem)]";
 const phoneTabButton =
-  "trauma-capability-touch-target flex min-h-[48px] w-full flex-col items-center justify-center gap-1 rounded-xl px-1 py-1 text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
+  "trauma-capability-touch-target flex min-h-[48px] w-full flex-col items-center justify-center gap-1 rounded-control px-1 py-1 text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent";
 
 const BRIGHTNESS_STORAGE_KEY = "trauma:brightness";
 const SURFACE_STORAGE_KEY = "trauma:surface";
@@ -441,7 +440,7 @@ function BrandHomeLink(props: {
   return (
     <A
       aria-label="TRAUMA home"
-      class={`grid size-10 place-items-center rounded-full transition hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent ${props.class ?? ""}`}
+      class={`grid size-10 place-items-center rounded-control transition hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent ${props.class ?? ""}`}
       href="/memories"
       title="TRAUMA"
       onClick={props.onNavigate}
@@ -720,7 +719,7 @@ function PhoneTabBar(props: {
                     return (
                       <A
                         aria-current={active() ? "page" : undefined}
-                        class={`flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint ${
+                        class={`flex min-h-[44px] items-center gap-3 rounded-control px-3 py-2 text-sm font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint ${
                           active() ? "bg-trauma-bg-tint font-bold" : ""
                         }`}
                         href={item.href}
@@ -737,7 +736,7 @@ function PhoneTabBar(props: {
               </nav>
               <div class="grid grid-cols-2 gap-2 border-t border-trauma-border pt-3">
                 <button
-                  class="flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-trauma-border bg-trauma-bg-surface px-3 py-2 text-xs font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint"
+                  class="trauma-control trauma-control-compact"
                   type="button"
                   onClick={() => {
                     close();
@@ -748,7 +747,7 @@ function PhoneTabBar(props: {
                   <span>Add URL</span>
                 </button>
                 <button
-                  class="flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-trauma-border bg-trauma-bg-surface px-3 py-2 text-xs font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint"
+                  class="trauma-control trauma-control-compact"
                   type="button"
                   onClick={() => {
                     close();
@@ -831,7 +830,7 @@ function ThemeBlock(props: {
       </p>
       <div
         aria-label="Brightness"
-        class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1"
+        class="grid grid-cols-2 gap-1 rounded-xl bg-trauma-bg-sunken p-1"
         role="group"
       >
         <SegmentedToggleButton
@@ -853,7 +852,7 @@ function ThemeBlock(props: {
       </div>
       <div
         aria-label="Surface"
-        class="grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1"
+        class="grid grid-cols-2 gap-1 rounded-xl bg-trauma-bg-sunken p-1"
         role="group"
       >
         <SegmentedToggleButton
@@ -878,7 +877,7 @@ function ThemeBlock(props: {
       </p>
       <div
         aria-label="Reading font"
-        class="grid grid-cols-4 gap-1 rounded-full bg-trauma-bg-sunken p-1"
+        class="grid grid-cols-4 gap-1 rounded-xl bg-trauma-bg-sunken p-1"
         role="group"
       >
         <SegmentedToggleButton

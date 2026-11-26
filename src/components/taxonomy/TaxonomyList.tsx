@@ -22,9 +22,9 @@ export interface TaxonomyListProps<TItem extends TaxonomyListItem = TaxonomyList
 
 const chipClass =
   "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink";
-const interactiveChipClass = `${chipClass} hover:border-trauma-border-strong hover:text-trauma-text-primary aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink`;
+const interactiveChipClass = `${chipClass} hover:border-trauma-border-strong hover:text-trauma-text-primary aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink`;
 const filterClass =
-  "grid min-h-[38px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-trauma-border bg-transparent px-3 py-2 text-left font-bold text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink";
+  "grid min-h-[38px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-control border border-trauma-border bg-transparent px-3 py-2 text-left font-bold text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
 
 export function TaxonomyList<TItem extends TaxonomyListItem>(
   props: TaxonomyListProps<TItem>,

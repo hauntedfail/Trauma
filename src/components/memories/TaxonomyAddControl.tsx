@@ -41,7 +41,7 @@ const selectorPanelClass =
 const selectorListClass =
   "flex max-h-[min(40vh,18rem)] flex-wrap items-center gap-x-1.5 gap-y-1.5 overflow-y-auto overscroll-contain p-1";
 const optionClass =
-  "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink hover:border-trauma-border-strong hover:text-trauma-text-primary aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink";
+  "rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-1 text-xs font-bold text-trauma-chip-ink hover:border-trauma-border-strong hover:text-trauma-text-primary aria-pressed:border-trauma-accent aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
 
 export function TaxonomyAddControl(props: TaxonomyAddControlProps) {
   let rootRef: HTMLDivElement | undefined;

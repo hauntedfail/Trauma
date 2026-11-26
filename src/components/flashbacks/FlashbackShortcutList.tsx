@@ -16,7 +16,7 @@ export interface FlashbackShortcutItem {
 }
 
 const flashbackShortcutRowClass =
-  "grid w-full gap-1 rounded-2xl px-3 py-2 text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent aria-pressed:text-trauma-accent-ink";
+  "grid w-full gap-1 rounded-2xl px-3 py-2 text-left text-trauma-text-primary hover:bg-trauma-bg-tint aria-pressed:bg-trauma-accent-soft aria-pressed:text-trauma-accent-soft-ink";
 
 export function FlashbackShortcutList(props: {
   class?: string;
@@ -46,7 +46,7 @@ export function FlashbackShortcutList(props: {
 function FlashbackShortcutRow(props: { flashback: FlashbackShortcutItem }) {
   const activeClass = () =>
     props.flashback.active === true
-      ? "bg-trauma-accent text-trauma-accent-ink"
+      ? "bg-trauma-accent-soft text-trauma-accent-soft-ink"
       : "";
   const content = () => (
     <FlashbackInlineText

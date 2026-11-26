@@ -462,7 +462,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     <h2 class="mb-0 text-base font-bold">Capture URL</h2>
                   </div>
                   <button
-                    class="rounded-full px-2.5 py-1 text-xs font-semibold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+                    class="trauma-control trauma-control-compact trauma-control-quiet"
                     type="button"
                     onClick={() => {
                       setMode("search");
@@ -483,7 +483,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     ref={captureInputRef}
                     aria-invalid={errorMessage() !== "" ? "true" : undefined}
                     aria-label="URL to capture"
-                    class="min-h-[42px] w-full rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm text-trauma-text-primary placeholder:text-trauma-text-placeholder focus:outline focus:outline-2 focus:outline-trauma-accent"
+                    class="trauma-field min-h-[42px] w-full text-sm placeholder:text-trauma-text-placeholder"
                     disabled={isBusy()}
                     inputMode="url"
                     placeholder="https://example.com/article"
@@ -507,14 +507,14 @@ export function CommandPalette(props: CommandPaletteProps) {
                 </Show>
                 <div class="flex items-center justify-end gap-2 pt-1">
                   <button
-                    class="min-h-[38px] rounded-full px-3.5 py-1.5 text-sm font-semibold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+                    class="trauma-control trauma-control-quiet"
                     type="button"
                     onClick={() => props.onClose(true)}
                   >
                     Cancel
                   </button>
                   <button
-                    class="min-h-[38px] rounded-full border border-trauma-border-strong bg-trauma-bg-surface px-4 py-1.5 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:opacity-50"
+                    class="trauma-control trauma-control-primary"
                     disabled={isBusy()}
                     type="submit"
                   >
@@ -600,7 +600,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                           return (
                             <button
                               aria-selected={isSelected()}
-                              class={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
+                              class={`flex w-full items-center justify-between gap-3 rounded-control px-3 py-2 text-left text-sm transition ${
                                 isSelected()
                                   ? "bg-trauma-bg-tint text-trauma-text-primary"
                                   : "text-trauma-text-primary hover:bg-trauma-bg-tint/70"

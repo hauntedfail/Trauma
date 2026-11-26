@@ -608,9 +608,7 @@ describe("memory reader actions", () => {
       "selected={translationFormEffort() === effort}",
     );
     expect(memoryReaderSource).toContain("setTranslationProgress(undefined)");
-    expect(memoryReaderSource).toContain("bg-trauma-accent");
-    expect(memoryReaderSource).toContain("text-trauma-accent-ink");
-    expect(memoryReaderSource).toContain("hover:bg-trauma-accent-hover");
+    expect(memoryReaderSource).toContain("trauma-control trauma-control-primary");
     expect(memoryReaderSource).not.toContain("bg-trauma-accent/50");
   });
 

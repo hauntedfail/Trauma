@@ -586,7 +586,7 @@ export function ReaderMarginNoteCard(props: ReaderMarginNoteCardProps) {
         </span>
         <button
           aria-label="Close margin note"
-          class="grid size-7 place-items-center rounded-full text-sm font-bold text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+          class="trauma-tool trauma-tool-compact"
           data-margin-note-close=""
           title="Close (Esc)"
           type="button"
@@ -665,7 +665,7 @@ export function ReaderMarginNoteCard(props: ReaderMarginNoteCardProps) {
           >
             <p class="m-0 font-semibold">{state().errorMessage}</p>
             <button
-              class="inline-flex h-7 items-center rounded-full border border-trauma-border px-2.5 text-xs font-bold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-control trauma-control-compact"
               data-margin-note-retry=""
               type="button"
               onClick={handleRetry}
@@ -687,7 +687,7 @@ export function ReaderMarginNoteCard(props: ReaderMarginNoteCardProps) {
                   ? "Ask about this passage"
                   : "Ask a follow-up question"
               }
-              class="min-w-0 flex-1 rounded-full border border-trauma-border bg-trauma-bg-surface px-3 py-1.5 text-xs text-trauma-text-primary placeholder:text-trauma-text-muted focus:border-trauma-border-strong focus:outline-none"
+              class="trauma-field min-w-0 flex-1 text-xs placeholder:text-trauma-text-muted"
               data-margin-note-input=""
               disabled={isBusy()}
               placeholder={
@@ -700,7 +700,7 @@ export function ReaderMarginNoteCard(props: ReaderMarginNoteCardProps) {
               onInput={(event) => setPromptInput(event.currentTarget.value)}
             />
             <button
-              class="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-trauma-bg-tint px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-surface disabled:opacity-50"
+              class="trauma-control trauma-control-compact trauma-control-primary shrink-0"
               data-margin-note-submit=""
               disabled={isBusy() || promptInput().trim().length === 0}
               type="submit"
@@ -713,7 +713,7 @@ export function ReaderMarginNoteCard(props: ReaderMarginNoteCardProps) {
 
       <footer class="flex items-center justify-between gap-2 border-t border-trauma-divider px-3.5 py-2">
         <button
-          class="inline-flex h-7 items-center rounded-full px-2 text-xs font-bold text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+          class="trauma-control trauma-control-compact trauma-control-quiet"
           data-margin-note-continue=""
           type="button"
           onClick={props.onContinueInPsychiatrist}

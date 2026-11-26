@@ -26,10 +26,8 @@ export interface ConfirmationPopupProps {
 const panelClass =
   "grid w-[min(320px,calc(100vw-2rem))] gap-3.5 p-4 text-left text-sm text-trauma-text-primary";
 const actionsClass = "flex flex-wrap justify-end gap-2";
-const cancelButtonClass =
-  "inline-flex min-h-9 items-center justify-center rounded-xl border border-trauma-border bg-trauma-bg-surface px-3.5 py-1.5 text-xs font-semibold text-trauma-text-primary transition-colors hover:bg-trauma-bg-tint disabled:opacity-60";
-const confirmButtonClass =
-  "inline-flex min-h-9 items-center justify-center rounded-xl border border-trauma-danger/60 bg-trauma-danger/10 px-3.5 py-1.5 text-xs font-semibold text-trauma-danger transition-colors hover:bg-trauma-danger/20 disabled:opacity-60";
+const cancelButtonClass = "trauma-control trauma-control-compact";
+const confirmButtonClass = "trauma-control trauma-control-compact trauma-control-danger";
 
 export function ConfirmationPopup(props: ConfirmationPopupProps) {
   let confirmButtonRef: HTMLButtonElement | undefined;

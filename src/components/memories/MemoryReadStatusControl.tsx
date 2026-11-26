@@ -29,9 +29,9 @@ type FetchFunction = (
 ) => Promise<Response>;
 
 const buttonClass =
-  "inline-grid min-h-9 grid-cols-[auto_auto] items-center gap-2 rounded-full border border-trauma-border-strong px-3 py-1.5 text-xs font-bold text-trauma-text-primary disabled:opacity-60";
+  "trauma-control trauma-control-compact";
 const iconButtonClass =
-  "grid size-9 place-items-center rounded-full text-trauma-text-muted transition-colors hover:bg-trauma-bg-elev hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:opacity-50";
+  "trauma-tool";
 const statusIconClass = "grid size-4 place-items-center";
 const statusDotClass = "size-2 rounded-full bg-current";
 

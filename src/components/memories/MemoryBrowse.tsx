@@ -103,7 +103,7 @@ const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport trauma-browse-column mx-auto w-full max-w-[720px] bg-trauma-bg-surface";
 const flatRowBase =
   "trauma-glass trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 px-6 py-3.5 transition hover:bg-trauma-bg-tint focus-within:z-20 has-[[aria-expanded='true']]:z-30";
-const rowActionButtonClass = "trauma-pill trauma-pill-compact";
+const rowActionButtonClass = "trauma-control trauma-control-compact trauma-control-quiet";
 
 const LANE_TITLES: Record<BrowseLane, string> = {
   today: "Today",
@@ -892,7 +892,7 @@ export function MemoryBrowse() {
       data-browse-lane={activeLane()}
     >
       <Title>{laneTitle()} | TRAUMA</Title>
-      <header class="trauma-memory-browse-header sticky top-0 z-[2] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 px-6 py-3.5 backdrop-blur">
+      <header class="trauma-chrome trauma-memory-browse-header sticky top-0 z-[2] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 px-6 py-3.5 backdrop-blur">
         <h1
           id="memories-title"
           class="mb-0 text-lg font-semibold tracking-tight text-trauma-text-primary"
@@ -1042,7 +1042,7 @@ export function MemoryBrowse() {
                       Nothing picked. Choose from the Shelf when you're ready.
                     </p>
                     <A
-                      class="inline-flex min-h-[36px] items-center rounded-full border border-trauma-border-strong px-4 py-1.5 text-sm font-semibold text-trauma-text-primary no-underline transition hover:bg-trauma-bg-tint"
+                      class="trauma-control"
                       href="/memories?lane=shelf"
                     >
                       Open Shelf
@@ -1106,7 +1106,7 @@ export function MemoryBrowse() {
                   </p>
                 </Show>
                 <button
-                  class="inline-flex min-h-[38px] items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-bg-surface px-4 py-1.5 text-sm font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:opacity-50"
+                  class="trauma-control"
                   disabled={isLoadingNextPage()}
                   type="button"
                   onClick={() => void loadNextPage()}
@@ -1123,14 +1123,14 @@ export function MemoryBrowse() {
       <Show when={undoEntry()}>
         {(entry) => (
           <div
-            class="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-trauma-border-strong bg-trauma-bg-elev px-4 py-2 text-sm text-trauma-text-primary shadow-trauma-2 max-[720px]:bottom-[calc(5.25rem+var(--trauma-layout-safe-area-bottom))]"
+            class="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 trauma-panel items-center gap-3 py-1.5 pl-4 pr-1.5 text-sm text-trauma-text-primary max-[720px]:bottom-[calc(5.25rem+var(--trauma-layout-safe-area-bottom))]"
             data-triage-undo-toast="true"
             role="status"
             aria-live="polite"
           >
             <span>{entry().label}</span>
             <button
-              class="rounded-full border border-trauma-border-strong bg-trauma-bg-surface px-3 py-0.5 text-xs font-semibold text-trauma-text-primary transition hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent"
+              class="trauma-control trauma-control-compact"
               type="button"
               onClick={() => void undoLastTriage()}
             >
@@ -1440,7 +1440,7 @@ export function MemoryItem(props: {
         <Show when={lane() === "today"}>
           <button
             aria-label={`Move ${props.memory.title} to Shelf`}
-            class={rowActionButtonClass}
+            class={`${rowActionButtonClass} trauma-control-quiet`}
             title="Move to Shelf"
             type="button"
             onClick={(event) => {
@@ -1452,7 +1452,7 @@ export function MemoryItem(props: {
           </button>
           <button
             aria-label={`Archive ${props.memory.title}`}
-            class={rowActionButtonClass}
+            class={`${rowActionButtonClass} trauma-control-quiet`}
             title="Move to Archive (x)"
             type="button"
             onClick={(event) => {
@@ -1467,7 +1467,7 @@ export function MemoryItem(props: {
         <Show when={lane() === "shelf"}>
           <button
             aria-label={`Move ${props.memory.title} to Today`}
-            class={`${rowActionButtonClass} trauma-pill-primary`}
+            class={rowActionButtonClass}
             disabled={props.pickDisabled === true}
             title={
               props.pickDisabled === true
@@ -1484,7 +1484,7 @@ export function MemoryItem(props: {
           </button>
           <button
             aria-label={`Move ${props.memory.title} to Library`}
-            class={rowActionButtonClass}
+            class={`${rowActionButtonClass} trauma-control-quiet`}
             title="Move to Library (l)"
             type="button"
             onClick={(event) => {
@@ -1496,7 +1496,7 @@ export function MemoryItem(props: {
           </button>
           <button
             aria-label={`Archive ${props.memory.title}`}
-            class={rowActionButtonClass}
+            class={`${rowActionButtonClass} trauma-control-quiet`}
             title="Move to Archive (x)"
             type="button"
             onClick={(event) => {
@@ -1511,7 +1511,7 @@ export function MemoryItem(props: {
         <Show when={lane() === "library"}>
           <Show when={props.inArchive === true}>
             <button
-              class={rowActionButtonClass}
+              class={`${rowActionButtonClass} trauma-control-quiet`}
               type="button"
               onClick={(event) => {
                 event.stopPropagation();

@@ -36,8 +36,7 @@ describe("memory action menu", () => {
       }),
     );
 
-    expect(html).toContain("hover:bg-trauma-bg-elev");
-    expect(html).toContain("hover:text-trauma-text-primary");
+    expect(html).toContain("trauma-tool");
   });
 
   it("uses the shared confirmation popup instead of a browser dialog", () => {

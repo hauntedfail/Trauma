@@ -60,7 +60,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
             <Show when={hasAction(props.alert, "revert")}>
               <button
                 type="button"
-                class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
+                class="min-h-10 rounded-control bg-white px-3 py-2 font-bold text-red-950"
                 disabled={pendingAction() !== null || restartRequired()}
                 onClick={() => void submit("revert")}
               >
@@ -70,7 +70,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
             <Show when={hasAction(props.alert, "migrate")}>
               <button
                 type="button"
-                class="min-h-10 rounded-lg border border-red-200 px-3 py-2 font-bold text-white"
+                class="min-h-10 rounded-control border border-red-200 px-3 py-2 font-bold text-white"
                 disabled={pendingAction() !== null || restartRequired()}
                 onClick={() => void submit("migrate")}
               >
@@ -85,7 +85,7 @@ export function BackupFailsafeBanner(props: BackupFailsafeBannerProps) {
           <div class="flex flex-wrap gap-2">
             <button
               type="button"
-              class="min-h-10 rounded-lg bg-white px-3 py-2 font-bold text-red-950"
+              class="min-h-10 rounded-control bg-white px-3 py-2 font-bold text-red-950"
               disabled={pendingAction() !== null || restartRequired()}
               onClick={() => void submit("delete-missing-record")}
             >

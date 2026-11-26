@@ -18,8 +18,7 @@ export interface KebabActionMenuProps {
 }
 
 const rootClass = "relative inline-grid";
-const triggerClass =
-  "grid size-9 place-items-center rounded-full text-trauma-text-muted transition-colors hover:bg-trauma-bg-elev hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:opacity-50";
+const triggerClass = "trauma-tool";
 const menuPanelClass =
   "grid min-w-[196px] gap-0.5 p-1.5 text-[13px] font-medium text-trauma-text-primary";
 

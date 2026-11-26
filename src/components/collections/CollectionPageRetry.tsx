@@ -40,7 +40,7 @@ export function CollectionPageRetry(props: {
       ref={retryButton}
       aria-busy={pending()}
       aria-label={pending() ? `Retrying ${props.subject}...` : `Retry ${props.subject}`}
-      class="mt-4 rounded-full border border-trauma-border px-4 py-2 text-sm font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-not-allowed disabled:opacity-60"
+      class="trauma-control mt-4"
       disabled={pending()}
       onClick={() => void retry()}
       type="button"

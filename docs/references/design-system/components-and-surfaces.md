@@ -38,13 +38,21 @@ capability, user preference, or unavoidable shell chrome transitions only.
 
 ## Buttons
 
-Button shape follows the job:
+Use the shared control styles for actions that recur across routes.
 
-- Primary command: full pill for shell-level action.
-- Compact control: rounded full or rounded-lg with visible border.
-- Filter chip/control: full-width rounded control with `aria-pressed`.
-- Icon-only affordance: circular icon button with accessible label on the
-  button, not the SVG.
+- `trauma-control-primary` marks a commit action such as saving a URL. Pair it with `trauma-control` for the rounded rectangle and the theme’s foreground and accent pair.
+- `trauma-control` gives an ordinary action a neutral surface. `trauma-control-quiet` groups repeated row actions without outlines around every label.
+- Shape separates a command from a selection. Commands, tools, fields and menu rows share the `rounded-control` radius. Filter chips, taxonomy chips and reader variant tabs stay pill-shaped.
+- A selected chip, tab or pressed `trauma-control` uses `accent-soft` with `accent-soft-ink` and an accent border. Solid accent belongs to `trauma-control-primary` alone, so a selection never reads as the commit action.
+- Segmented choices sit in a sunken track and raise the selected segment.
+- Use the filled navigation icon for the current destination.
+- `trauma-tool` gives an icon action a consistent target and visible keyboard focus. Put its accessible name on the interactive element. `trauma-tool-compact` fits a dense card header.
+- Moving a memory between lanes looks the same on a browse row and at the end of the reader. The reader marks the current lane with `aria-pressed`.
+- Reserve destructive styling for irreversible changes. Archive has Undo and uses the secondary treatment.
+- Coarse pointers raise every control and tool to a 44px target.
+
+The Library icon is one open book with a single spine line. Its fold must stay
+visible at the rail and phone-tab sizes in both the outline and filled states.
 
 Use icons inside buttons when an icon exists. Do not replace familiar icon
 actions with verbose text-only controls.
@@ -145,6 +153,8 @@ Inputs use semantic surfaces:
 - Border: `border-trauma-border-strong` for standalone fields.
 - Placeholder: `text-trauma-text-placeholder`.
 - Minimum height: at least `42px`.
+- `trauma-field` supplies the standalone border, radius and focus outline for
+  inputs, selects and textareas in the shell, reader and command palette.
 
 Search inputs:
 
@@ -270,8 +280,7 @@ Rules:
 - The composer popover renders above the rail and main pane layers and must not
   be clipped by route content.
 - The form accepts only URL input.
-- The submit button uses the same rounded-full pill geometry as the rail
-  `Add memory` action.
+- The submit button uses the primary command treatment. The rail trigger uses the icon-tool treatment.
 - Successful creation navigates to the created memory.
 - On backup-failsafe errors, revalidate the backup alert.
 - Do not add edit fields for title/body/tags in this composer.

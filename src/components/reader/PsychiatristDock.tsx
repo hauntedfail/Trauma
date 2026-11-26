@@ -962,7 +962,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
           class={
             props.embedded
               ? "trauma-psychiatrist-panel grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 text-trauma-text-primary"
-              : "trauma-psychiatrist-panel mt-3 grid max-h-[min(70vh,34rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border border-trauma-border bg-trauma-bg-elev p-3 text-trauma-text-primary shadow-xl"
+              : "trauma-psychiatrist-panel mt-3 grid max-h-[min(70vh,34rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-trauma-border bg-trauma-bg-elev p-3 text-trauma-text-primary shadow-xl"
           }
           data-psychiatrist-dock="expanded"
         >
@@ -971,7 +971,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
             <button
               ref={closeButtonRef}
               type="button"
-              class="rounded-md px-2 py-1 text-xs text-trauma-text-secondary hover:bg-trauma-bg-sunken"
+              class="trauma-control trauma-control-compact trauma-control-quiet"
               onClick={closeDock}
             >
               Close
@@ -1008,7 +1008,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                   <button
                     type="button"
                     aria-controls="psychiatrist-transcript"
-                    class="rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
+                    class="trauma-control trauma-control-compact"
                     disabled={!transcriptWindow().hasOlder}
                     onClick={() => moveTranscriptWindow(
                       movePsychiatristTranscriptWindowOlder(
@@ -1022,7 +1022,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                   <button
                     type="button"
                     aria-controls="psychiatrist-transcript"
-                    class="rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
+                    class="trauma-control trauma-control-compact"
                     disabled={!transcriptWindow().hasNewer}
                     onClick={() => moveTranscriptWindow(
                       movePsychiatristTranscriptWindowNewer(
@@ -1098,7 +1098,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                       <Show when={pair.status === "completed"}>
                         <button
                           type="button"
-                          class="mt-2 rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev disabled:opacity-60"
+                          class="trauma-control trauma-control-compact mt-2"
                           disabled={isBusy()}
                           onClick={() => void regeneratePair(pair)}
                         >
@@ -1122,7 +1122,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
             <textarea
               id="psychiatrist-prompt"
               ref={inputRef}
-              class="max-h-28 min-h-16 resize-y rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2 text-sm text-trauma-text-primary"
+              class="trauma-field max-h-28 min-h-16 resize-y text-sm"
               disabled={threadLoadState() !== "ready" || isBusy()}
               onInput={(event) => setPrompt(event.currentTarget.value)}
               value={prompt()}
@@ -1135,7 +1135,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                 <Show when={webSourceRetryPrompt() !== ""}>
                   <button
                     type="button"
-                    class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                    class="trauma-control trauma-control-compact justify-self-start"
                     disabled={threadLoadState() !== "ready" || isBusy()}
                     onClick={() => void approveWebSourcesForTurn()}
                   >
@@ -1145,7 +1145,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
                 <Show when={threadLoadState() === "error"}>
                   <button
                     type="button"
-                    class="justify-self-start rounded-md border border-trauma-border px-2 py-1 text-xs text-trauma-text-primary hover:bg-trauma-bg-elev"
+                    class="trauma-control trauma-control-compact justify-self-start"
                     onClick={(event) => void retryThreadLoad(event.currentTarget)}
                   >
                     Retry thread load
@@ -1155,7 +1155,7 @@ export function PsychiatristDock(props: PsychiatristDockProps) {
             </Show>
             <button
               type={turnPhase() === "idle" ? "submit" : "button"}
-              class="justify-self-end rounded-md bg-trauma-accent px-3 py-2 text-sm font-medium text-trauma-accent-ink hover:bg-trauma-accent-hover disabled:opacity-60"
+              class="trauma-control trauma-control-primary justify-self-end"
               disabled={
                 threadLoadState() !== "ready" ||
                 turnPhase() === "starting" ||

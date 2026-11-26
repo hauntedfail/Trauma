@@ -226,7 +226,7 @@ const readerTocScrollContent =
 const readerFlashbackScrollContent =
   "grid max-h-[min(44vh,24rem)] gap-3 overflow-y-auto overscroll-contain pr-1";
 const readerContextMenuClass =
-  "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-full border border-transparent p-1 shadow-none";
+  "trauma-reader-context-menu fixed z-[70] inline-flex items-center gap-1 rounded-[.875rem] border border-transparent p-1 shadow-none";
 const readerSourceLinkClass =
   "min-h-9 max-w-full justify-self-start text-sm leading-tight text-trauma-link";
 
@@ -1710,7 +1710,7 @@ function ReadyMemoryReader(props: {
                   <button
                     {...triggerProps}
                     aria-label="Translate"
-                    class="inline-flex min-h-8 items-center gap-1 rounded-full border border-trauma-border bg-trauma-bg-elev px-2.5 text-xs font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+                    class="trauma-control trauma-control-compact"
                     data-reader-translate-trigger
                     title="Translate"
                     type="button"
@@ -1767,7 +1767,7 @@ function ReadyMemoryReader(props: {
                           Language
                           <select
                             aria-label="Language"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            class="trauma-field min-h-10 w-full text-sm font-bold"
                             disabled={translationSubmitPending()}
                             value={translationFormLanguage()}
                             onChange={(event) =>
@@ -1791,7 +1791,7 @@ function ReadyMemoryReader(props: {
                           <select
                             ref={translationModelSelectRef}
                             aria-label="Model"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            class="trauma-field min-h-10 w-full text-sm font-bold"
                             disabled={translationSubmitPending()}
                             value={translationFormModel()}
                             onChange={(event) =>
@@ -1830,7 +1830,7 @@ function ReadyMemoryReader(props: {
                           Reasoning effort
                           <select
                             aria-label="Reasoning effort"
-                            class="min-h-10 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 text-sm font-bold text-trauma-text-primary"
+                            class="trauma-field min-h-10 w-full text-sm font-bold"
                             disabled={translationSubmitPending()}
                             value={translationFormEffort()}
                             onChange={(event) =>
@@ -1886,7 +1886,7 @@ function ReadyMemoryReader(props: {
                                     ? "Retrying model catalog..."
                                     : "Retry model catalog"
                                 }
-                                class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary disabled:opacity-60"
+                                class="trauma-control"
                                 disabled={translationCatalogPending()}
                                 type="button"
                                 onClick={(event) =>
@@ -1902,7 +1902,7 @@ function ReadyMemoryReader(props: {
                         </Show>
                         <div class="flex justify-end gap-2">
                           <button
-                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-primary"
+                            class="trauma-control"
                             disabled={translationSubmitPending()}
                             type="button"
                             onClick={() => {
@@ -1913,7 +1913,7 @@ function ReadyMemoryReader(props: {
                             Cancel
                           </button>
                           <button
-                            class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-3 text-sm font-extrabold text-trauma-accent-ink transition hover:bg-trauma-accent-hover"
+                            class="trauma-control trauma-control-primary"
                             disabled={translationSubmitPending()}
                             type="submit"
                           >
@@ -1942,7 +1942,7 @@ function ReadyMemoryReader(props: {
                     {...triggerProps}
                     ref={detailsTriggerRef}
                     aria-label="Memory details and actions"
-                    class="grid size-8 place-items-center rounded-full border border-trauma-border bg-trauma-bg-elev text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
+                    class="trauma-tool"
                     data-reader-details-trigger
                     title="Memory details and actions"
                     type="button"
@@ -2029,7 +2029,7 @@ function ReadyMemoryReader(props: {
 
                     <div class="flex items-center justify-between gap-2 border-t border-trauma-divider pt-3">
                       <button
-                        class="inline-flex min-h-9 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-bg-surface px-3 py-1.5 text-xs font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent"
+                        class="trauma-control trauma-control-compact"
                         data-reader-details-psychiatrist
                         type="button"
                         onClick={() => {
@@ -2056,7 +2056,7 @@ function ReadyMemoryReader(props: {
           class={`${readerPadding} trauma-reader-header`}
           leading={() => (
             <a
-              class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary"
+              class="grid size-10 place-items-center rounded-control text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
               href="/memories"
               aria-label="Back to memories"
             >
@@ -2234,7 +2234,7 @@ function ReadyMemoryReader(props: {
           >
             <button
               aria-label="Flashback selection"
-              class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-tool"
               title="Flashback selection"
               disabled={pendingSelectionKey() === menu().key}
               type="button"
@@ -2246,7 +2246,7 @@ function ReadyMemoryReader(props: {
               {(section) => (
                 <button
                   aria-label="Moment selected section"
-                  class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+                  class="trauma-tool"
                   title="Moment selected section"
                   disabled={pendingMomentKey() === getReaderMomentKey(section())}
                   type="button"
@@ -2258,7 +2258,7 @@ function ReadyMemoryReader(props: {
             </Show>
             <button
               aria-label="Simplify selected passage"
-              class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-control trauma-control-compact trauma-control-quiet"
               data-reader-selection-simplify=""
               title="Simplify selection"
               type="button"
@@ -2268,7 +2268,7 @@ function ReadyMemoryReader(props: {
             </button>
             <button
               aria-label="Explain selected passage"
-              class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-control trauma-control-compact trauma-control-quiet"
               data-reader-selection-explain=""
               title="Explain selection"
               type="button"
@@ -2278,7 +2278,7 @@ function ReadyMemoryReader(props: {
             </button>
             <button
               aria-label="Ask about selection"
-              class="inline-flex h-10 items-center justify-center rounded-full px-3 text-xs font-extrabold text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-control trauma-control-compact trauma-control-quiet"
               data-reader-selection-ask=""
               title="Ask about selection (] for Psychiatrist)"
               type="button"
@@ -2301,7 +2301,7 @@ function ReadyMemoryReader(props: {
           >
             <button
               aria-label="Moment section"
-              class="grid size-10 place-items-center rounded-full text-trauma-text-primary hover:bg-trauma-bg-tint"
+              class="trauma-tool"
               title="Moment section"
               disabled={pendingMomentKey() === menu().key}
               type="button"
@@ -2436,7 +2436,7 @@ function ReaderLandmarkRail(props: {
           }
         >
           <div
-            class="grid w-[272px] gap-2 rounded-[22px] border border-trauma-border bg-trauma-bg-elev/95 p-1.5 shadow-trauma-2 backdrop-blur"
+            class="grid w-[272px] gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-elev/95 p-1.5 shadow-trauma-2 backdrop-blur"
             data-reader-landmark-panel
           >
             <Show when={props.toc.length > 0}>
@@ -2476,7 +2476,7 @@ function ReaderLandmarkRail(props: {
                               </a>
                               <button
                                 aria-label={`Remove moment ${moment.sectionTitle}`}
-                                class="rounded-full px-1.5 py-0.5 text-[11px] font-bold text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-danger"
+                                class="rounded-control px-1.5 py-0.5 text-[11px] font-bold text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-danger"
                                 type="button"
                                 onClick={() =>
                                   props.onCreateMoment({
@@ -2549,11 +2549,7 @@ function ReaderEndFooter(props: {
       <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Finish reading triage">
         <button
           aria-pressed={props.triageState === "library"}
-          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
-            props.triageState === "library"
-              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
-              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
-          }`}
+          class="trauma-control"
           data-end-triage="library"
           disabled={props.triagePending}
           type="button"
@@ -2563,11 +2559,7 @@ function ReaderEndFooter(props: {
         </button>
         <button
           aria-pressed={props.triageState === "archive"}
-          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
-            props.triageState === "archive"
-              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
-              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
-          }`}
+          class="trauma-control"
           data-end-triage="archive"
           disabled={props.triagePending}
           type="button"
@@ -2577,11 +2569,7 @@ function ReaderEndFooter(props: {
         </button>
         <button
           aria-pressed={props.triageState === "shelf"}
-          class={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-xs font-extrabold transition ${
-            props.triageState === "shelf"
-              ? "border-trauma-accent bg-trauma-accent-soft text-trauma-accent-soft-ink"
-              : "border-trauma-border-strong bg-trauma-bg-elev text-trauma-text-primary hover:bg-trauma-bg-tint"
-          }`}
+          class="trauma-control"
           data-end-triage="shelf"
           disabled={props.triagePending}
           type="button"
@@ -2609,7 +2597,7 @@ function ReaderEndFooter(props: {
             <For each={READER_PULSE_OPTIONS}>
               {(option) => (
                 <button
-                  class="inline-flex min-h-7 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-bg-base px-2.5 text-[11px] font-bold text-trauma-text-primary hover:bg-trauma-bg-elev"
+                  class="trauma-control trauma-control-compact"
                   type="button"
                   onClick={() => props.onPulse(option.rating)}
                 >
@@ -2654,8 +2642,8 @@ function ReaderVariantTabs(props: {
                 props.inline
                   ? "rounded px-1.5 py-0.5 text-xs font-semibold text-trauma-text-muted transition hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
                   : props.compact
-                    ? "inline-flex min-h-8 items-center rounded-full border border-trauma-border px-2.5 text-xs font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
-                    : "inline-flex min-h-9 items-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:bg-trauma-bg-elev aria-[current=page]:text-trauma-text-primary"
+                    ? "inline-flex min-h-8 items-center rounded-full border border-trauma-border px-2.5 text-xs font-bold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:border-trauma-accent aria-[current=page]:bg-trauma-accent-soft aria-[current=page]:text-trauma-accent-soft-ink"
+                    : "inline-flex min-h-9 items-center rounded-full border border-trauma-border-strong px-3 text-sm font-extrabold text-trauma-text-secondary transition hover:bg-trauma-bg-tint hover:text-trauma-text-primary aria-[current=page]:border-trauma-accent aria-[current=page]:bg-trauma-accent-soft aria-[current=page]:text-trauma-accent-soft-ink"
               }
               href={variant.readerUrl}
             >
@@ -3536,11 +3524,11 @@ export function ReaderFlashbackTabs(props: {
   };
 
   return (
-    <section class="rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5">
+    <section class="rounded-2xl border border-trauma-border bg-trauma-bg-base p-5">
       <h2 class="mb-3 text-[20px] font-extrabold text-trauma-text-primary">
         Flashbacks
       </h2>
-      <div class="mb-4 grid grid-cols-2 gap-1 rounded-full bg-trauma-bg-sunken p-1">
+      <div class="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-trauma-bg-sunken p-1">
         <SegmentedToggleButton
           active={activeTab() === "memory"}
           hint="Show current"
@@ -3635,7 +3623,7 @@ function ReaderFlashbackPageControls(props: {
   onPrevious: () => void;
 }) {
   const buttonClass =
-    "rounded-full border border-trauma-border px-3 py-1.5 text-xs font-bold text-trauma-text-primary transition hover:bg-trauma-bg-tint disabled:cursor-not-allowed disabled:opacity-60";
+    "trauma-control trauma-control-compact";
   return (
     <nav aria-label="All Flashback pages" class="grid grid-cols-3 gap-2">
       <button
@@ -3796,7 +3784,7 @@ function ReaderState(props: { message: string }) {
         class={`${readerPadding} trauma-reader-header`}
         leading={() => (
           <a
-            class="grid size-10 place-items-center rounded-full text-trauma-text-muted hover:bg-trauma-bg-elev hover:text-trauma-text-primary"
+            class="grid size-10 place-items-center rounded-control text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"
             href="/memories"
             aria-label="Back to memories"
           >
@@ -3949,7 +3937,7 @@ function ReaderToc(props: {
   return (
     <Show when={props.toc.length > 0}>
       <nav
-        class="animate-trauma-pop-bounce relative overflow-hidden rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
+        class="animate-trauma-pop-bounce relative overflow-hidden rounded-2xl border border-trauma-border bg-trauma-bg-base p-5 text-sm text-trauma-text-secondary"
         aria-label="Table of contents"
       >
         <h2 class="mb-4 text-[20px] font-extrabold text-trauma-text-primary">

@@ -64,7 +64,7 @@ export function LibraryFiltersPopover(props: LibraryFiltersPopoverProps) {
       trigger={({ triggerProps }) => (
         <button
           {...triggerProps}
-          class="inline-flex min-h-[42px] shrink-0 items-center gap-2 rounded-full border border-trauma-border bg-trauma-bg-elev px-4 text-sm font-semibold text-trauma-text-primary transition hover:border-trauma-border-strong hover:bg-trauma-bg-tint focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent"
+          class="trauma-control trauma-control-tall shrink-0"
           data-library-filters-trigger="true"
           type="button"
         >
@@ -243,7 +243,7 @@ export function LibraryFiltersPopover(props: LibraryFiltersPopoverProps) {
                     return (
                       <button
                         aria-pressed={active()}
-                        class={`flex w-full items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5 text-left text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent ${
+                        class={`flex w-full items-center justify-between gap-2 rounded-control border px-2.5 py-1.5 text-left text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent ${
                           active() ? chipActiveClass : chipInactiveClass
                         }`}
                         data-filter-flashback={flashback.id}
