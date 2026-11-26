@@ -771,7 +771,6 @@ export function MemoryBrowse() {
   createEffect(() => observeLoadMoreSentinel());
 
   onMount(() => {
-    setIsClientReady(true);
     const handleBrowseKeyDown = (event: KeyboardEvent): void => {
       if (isBrowseKeyboardSuppressed(event)) {
         return;
@@ -840,6 +839,7 @@ export function MemoryBrowse() {
     };
 
     document.addEventListener("keydown", handleBrowseKeyDown);
+    setIsClientReady(true);
     onCleanup(() => {
       document.removeEventListener("keydown", handleBrowseKeyDown);
     });
@@ -911,7 +911,10 @@ export function MemoryBrowse() {
         }
       />
 
-      <div class="trauma-route-column trauma-browse-column">
+      <div
+        class="trauma-route-column trauma-browse-column"
+        data-browse-ready={isClientReady() ? "true" : "false"}
+      >
         <Show when={activeLane() === "library"}>
           <MemorySearchBar
             disabled={!isClientReady()}

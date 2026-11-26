@@ -1637,6 +1637,8 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
 
   // 1. Today (`p`) on focused Shelf row -> persists to Today and survives reload
   await page.goto("/memories?lane=shelf");
+  const browseReady = page.locator(".trauma-browse-column[data-browse-ready='true']");
+  await expect(browseReady).toBeVisible();
   const readerLink = page.getByRole("link", {
     name: "Open memory Reader Mode Notes",
   });
@@ -1675,6 +1677,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   expect((await notNowResponse).status()).toBe(200);
 
   await page.goto("/memories?lane=shelf");
+  await expect(browseReady).toBeVisible();
   await expect(readerLink).toBeVisible();
   await readerLink.focus();
 
@@ -1701,6 +1704,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
   await expect(readerLink).toBeVisible();
 
   await page.reload();
+  await expect(browseReady).toBeVisible();
   await expect(readerLink).toBeVisible();
 
   // 3. Archive (`x`) -> persists to archive and appears in Library with in:archive
@@ -1731,6 +1735,7 @@ test("triages Shelf rows with p, l, x, u keys, persists across reload, enforces 
 
   // 4. Optimistic rollback on failed triage API request (HTTP 500)
   await page.goto("/memories?lane=shelf");
+  await expect(browseReady).toBeVisible();
   await expect(readerLink).toBeVisible();
   await page.route(`**/api/memories/${memoryId}/triage`, async (route) => {
     await route.fulfill({
