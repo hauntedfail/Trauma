@@ -13,6 +13,29 @@ test("redirects the home route to the canonical memories browse route", async ({
   await expect(page.getByRole("heading", { name: "Today", exact: true })).toBeVisible();
 });
 
+for (const variant of [
+  { brightness: "sun", width: 390, accent: "rgb(122, 27, 37)" },
+  { brightness: "night", width: 1280, accent: "rgb(200, 108, 126)" },
+]) {
+  test(`shows the Shelf actions at ${variant.width}px in ${variant.brightness} mode`, async ({ page }) => {
+    await createBrowseDeleteFixture();
+    await page.addInitScript((brightness) => localStorage.setItem("trauma:brightness", brightness), variant.brightness);
+    await page.setViewportSize({ width: variant.width, height: 840 });
+    await page.goto("/memories?lane=shelf");
+    const row = page.locator("article", { hasText: "Reader Mode Notes" }).first();
+    const today = row.getByRole("button", { name: /to Today/ });
+    await expect(today).toHaveCSS("background-color", variant.accent);
+    const library = row.getByRole("button", { name: /to Library/ });
+    const archive = row.getByRole("button", { name: /Archive/ });
+    const quiet = await library.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(quiet).not.toBe(variant.accent);
+    await expect(archive).toHaveCSS("background-color", quiet);
+    for (const action of [today, library, archive]) {
+      await expect(action).toBeInViewport({ ratio: 1 });
+    }
+  });
+}
+
 test("aligns the desktop brand mark with left rail tab icons", async ({ page }) => {
   await page.goto("/memories");
 

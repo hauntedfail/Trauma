@@ -62,19 +62,15 @@ type SettingsAction =
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const contentClass = "trauma-fluid-route-padding grid min-w-0 gap-5 py-7";
-const fieldClass =
-  "grid min-w-0 gap-3 rounded-[20px] border border-trauma-border bg-trauma-bg-base p-5";
-const labelClass = "text-[15px] font-extrabold text-trauma-text-primary";
+const contentClass = "trauma-settings-content";
+const fieldClass = "trauma-glass grid min-w-0 gap-4 p-5";
+const labelClass = "text-[15px] font-semibold text-trauma-text-primary";
 const hintClass = "mb-0 text-sm font-semibold text-trauma-text-muted";
 const selectClass =
   "min-h-11 w-full min-w-0 rounded-lg border border-trauma-border-strong bg-trauma-bg-surface px-3 font-bold text-trauma-text-primary";
-const primaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-full border border-trauma-border-strong bg-trauma-accent px-4 py-2 font-extrabold text-trauma-accent-ink";
-const secondaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-full border border-trauma-border-strong px-4 py-2 font-extrabold text-trauma-text-primary disabled:opacity-60";
-const dangerButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-full border border-trauma-danger px-4 py-2 font-extrabold text-trauma-danger";
+const primaryButtonClass = "trauma-pill trauma-pill-primary";
+const secondaryButtonClass = "trauma-pill";
+const dangerButtonClass = "trauma-pill trauma-pill-danger";
 
 export function SettingsPage(props: SettingsPageProps) {
   const [language, setLanguage] = createSignal<SupportedLanguageCode>(
@@ -443,235 +439,241 @@ export function SettingsPage(props: SettingsPageProps) {
 
   return (
     <section class={pageFrame} aria-labelledby="settings-title">
-      <RouteHeader
-        eyebrow="Settings"
-        layout="single"
-        title="Workspace settings"
-        titleId="settings-title"
-      />
       <div class={contentClass}>
-        <form class={fieldClass} onSubmit={saveLanguage}>
-          <label class="grid gap-2">
-            <span class={labelClass}>Translation target language</span>
-            <select
-              class={selectClass}
-              disabled={isPending("language")}
-              value={language()}
-              onChange={(event) =>
-                setLanguage(event.currentTarget.value as SupportedLanguageCode)
-              }
-            >
-              {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
-                <option value={option.code}>
-                  {option.label} ({option.code})
-                </option>
-              ))}
-            </select>
-          </label>
-          <div>
-            <button
-              class={primaryButtonClass}
-              disabled={isPending("language")}
-              type="submit"
-            >
-              Save language
-            </button>
-          </div>
-        </form>
+        <RouteHeader class="trauma-settings-header" layout="single" title="Settings" titleId="settings-title" />
+        <section aria-labelledby="settings-language" class="grid min-w-0 gap-2">
+          <h2 id="settings-language" class="trauma-settings-heading">Language</h2>
+          <div class={fieldClass}>
+            <form class="grid min-w-0 gap-3" onSubmit={saveLanguage}>
+              <label class="grid gap-2">
+                <span class={labelClass}>Translation target language</span>
+                <select
+                  class={selectClass}
+                  disabled={isPending("language")}
+                  value={language()}
+                  onChange={(event) =>
+                    setLanguage(event.currentTarget.value as SupportedLanguageCode)
+                  }
+                >
+                  {SUPPORTED_TRANSLATION_LANGUAGES.map((option) => (
+                    <option value={option.code}>
+                      {option.label} ({option.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div>
+                <button
+                  class={primaryButtonClass}
+                  disabled={isPending("language")}
+                  type="submit"
+                >
+                  Save language
+                </button>
+              </div>
+            </form>
 
-        <form
-          class={fieldClass}
-          aria-busy={codexCatalogPending()}
-          onSubmit={saveCodexDefaults}
-        >
-          <div class="grid gap-2">
-            <h2 class={labelClass}>Codex Translation</h2>
-          </div>
-          <label class="grid gap-2">
-            <span class={labelClass}>Model</span>
-            <select
-              class={selectClass}
-              disabled={isPending("codex-defaults") || codexCatalogPending()}
-              ref={codexModelSelect}
-              value={codexModel()}
-              onChange={(event) => setCodexModel(event.currentTarget.value)}
+            <form
+              class="grid min-w-0 gap-3"
+              aria-busy={codexCatalogPending()}
+              onSubmit={saveCodexDefaults}
             >
-              <option selected={codexModel() === ""} value="">
-                Codex app-server default
-              </option>
-              <Show
-                when={
-                  codexModel() !== "" &&
-                  !codexModels().some((model) =>
-                    model.id === codexModel() || model.model === codexModel()
-                  )
-                }
-              >
-                <option selected value={codexModel()}>{codexModel()}</option>
-              </Show>
-              <For each={codexModels()}>
-                {(model) => (
-                  <option
-                    selected={
-                      codexModel() === model.model || codexModel() === model.id
+              <div class="grid gap-2">
+                <h3 class={labelClass}>Codex Translation</h3>
+              </div>
+              <label class="grid gap-2">
+                <span class={labelClass}>Model</span>
+                <select
+                  class={selectClass}
+                  disabled={isPending("codex-defaults") || codexCatalogPending()}
+                  ref={codexModelSelect}
+                  value={codexModel()}
+                  onChange={(event) => setCodexModel(event.currentTarget.value)}
+                >
+                  <option selected={codexModel() === ""} value="">
+                    Codex app-server default
+                  </option>
+                  <Show
+                    when={
+                      codexModel() !== "" &&
+                      !codexModels().some((model) =>
+                        model.id === codexModel() || model.model === codexModel()
+                      )
                     }
-                    value={model.model}
                   >
-                    {model.displayName} ({model.model})
+                    <option selected value={codexModel()}>{codexModel()}</option>
+                  </Show>
+                  <For each={codexModels()}>
+                    {(model) => (
+                      <option
+                        selected={
+                          codexModel() === model.model || codexModel() === model.id
+                        }
+                        value={model.model}
+                      >
+                        {model.displayName} ({model.model})
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </label>
+              <label class="grid gap-2">
+                <span class={labelClass}>Reasoning effort</span>
+                <select
+                  class={selectClass}
+                  disabled={isPending("codex-defaults") || codexCatalogPending()}
+                  value={codexEffort()}
+                  onChange={(event) =>
+                    setCodexEffort(
+                      event.currentTarget.value as CodexReasoningEffort | "",
+                    )
+                  }
+                >
+                  <option selected={codexEffort() === ""} value="">
+                    Selected model default
                   </option>
-                )}
-              </For>
-            </select>
-          </label>
-          <label class="grid gap-2">
-            <span class={labelClass}>Reasoning effort</span>
-            <select
-              class={selectClass}
-              disabled={isPending("codex-defaults") || codexCatalogPending()}
-              value={codexEffort()}
-              onChange={(event) =>
-                setCodexEffort(
-                  event.currentTarget.value as CodexReasoningEffort | "",
-                )
-              }
-            >
-              <option selected={codexEffort() === ""} value="">
-                Selected model default
-              </option>
-              <Show
-                when={
-                  codexEffort() !== "" &&
-                  !reasoningEfforts().includes(codexEffort() as CodexReasoningEffort)
-                }
-              >
-                <option selected value={codexEffort()}>{codexEffort()}</option>
+                  <Show
+                    when={
+                      codexEffort() !== "" &&
+                      !reasoningEfforts().includes(codexEffort() as CodexReasoningEffort)
+                    }
+                  >
+                    <option selected value={codexEffort()}>{codexEffort()}</option>
+                  </Show>
+                  <For each={reasoningEfforts()}>
+                    {(effort) => (
+                      <option selected={codexEffort() === effort} value={effort}>
+                        {effort}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </label>
+              <div>
+                <button
+                  class={primaryButtonClass}
+                  disabled={isPending("codex-defaults") || codexCatalogPending()}
+                  type="submit"
+                >
+                  Save Codex defaults
+                </button>
+              </div>
+              <Show when={codexCatalogPending() && codexCatalogError() === ""}>
+                <p class={hintClass} role="status">Loading Codex model catalog...</p>
               </Show>
-              <For each={reasoningEfforts()}>
-                {(effort) => (
-                  <option selected={codexEffort() === effort} value={effort}>
-                    {effort}
-                  </option>
-                )}
-              </For>
-            </select>
-          </label>
-          <div>
-            <button
-              class={primaryButtonClass}
-              disabled={isPending("codex-defaults") || codexCatalogPending()}
-              type="submit"
-            >
-              Save Codex defaults
-            </button>
-          </div>
-          <Show when={codexCatalogPending() && codexCatalogError() === ""}>
-            <p class={hintClass} role="status">Loading Codex model catalog...</p>
-          </Show>
-          <CodexCatalogFeedback
-            error={codexCatalogError()}
-            pending={codexCatalogPending()}
-            retry={retryCodexModels}
-          />
-        </form>
-
-        <section class={fieldClass} aria-labelledby="codex-auth-title">
-          <div class="grid gap-2">
-            <h2 class={labelClass} id="codex-auth-title">
-              Codex Auth
-            </h2>
-            <p class={hintClass}>
-              Codex owns ChatGPT sign-in. TRAUMA stores only safe setup metadata.
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              ref={codexAuthSetupButton}
-              class={secondaryButtonClass}
-              disabled={
-                codexAuth().status === "enabled" ||
-                codexAuth().status === "login_started" ||
-                isPending("openai-auth") || isPending("openai-auth-poll")
-              }
-              type="button"
-              onClick={() => void enableOpenAiAuth()}
-            >
-              {codexAuth().status === "enabled" ? "Enabled" : "Start setup"}
-            </button>
-            <Show when={codexAuth().status === "enabled"}>
-              <ConfirmationPopup
-                confirmLabel="Delete auth"
-                description="Delete Codex auth from this TRAUMA workspace?"
-                disabled={isPending("openai-auth")}
-                id="delete-codex-auth-confirmation"
-                label="Delete Codex auth confirmation"
-                onConfirm={deleteOpenAiAuth}
-                placement="bottom-start"
-                trigger={({ triggerProps }) => (
-                  <button
-                    {...triggerProps}
-                    class={dangerButtonClass}
-                    type="button"
-                  >
-                    Delete auth
-                  </button>
-                )}
+              <CodexCatalogFeedback
+                error={codexCatalogError()}
+                pending={codexCatalogPending()}
+                retry={retryCodexModels}
               />
-            </Show>
-            <Show when={codexAuth().status === "login_started"}>
-              <button
-                class={secondaryButtonClass}
-                disabled={isPending("openai-auth-poll") || isPending("openai-auth")}
-                type="button"
-                onClick={() => void refreshCodexAuthStatus()}
-              >
-                Check status
-              </button>
-              <button
-                class={dangerButtonClass}
-                disabled={isPending("openai-auth")}
-                type="button"
-                onClick={() => void cancelOpenAiAuthSetup()}
-              >
-                Cancel setup
-              </button>
-            </Show>
+            </form>
           </div>
-          <Show when={codexAuth().status === "enabled"}>
-            <p class={hintClass}>Codex ChatGPT sign-in is enabled.</p>
-          </Show>
-          <Show when={pendingCodexAuth()}>
-            {(pendingAuth) => (
-            <div class="grid gap-1 rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2">
-              <p class={hintClass}>Open this verification URL and enter the code.</p>
-              <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
-                {pendingAuth().userCode}
-              </p>
-              <Show when={readSafeVerificationUrl(pendingAuth().verificationUrl)}>
-                {(verificationUrl) => (
-                  <a
-                    class="text-sm font-bold text-trauma-link"
-                    href={verificationUrl()}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {verificationUrl()}
-                  </a>
-                )}
-              </Show>
-            </div>
-            )}
-          </Show>
-          <Show when={codexAuth().status === "setup_required"}>
-            <p class={hintClass}>
-              Codex app-server setup is required before translation can run.
-            </p>
-          </Show>
-          <Show when={codexAuth().status === "error"}>
-            <p class={hintClass}>Codex auth state could not be read.</p>
-          </Show>
         </section>
 
-        <FocusPluginsSettingsSection />
+        <section aria-labelledby="settings-account" class="grid min-w-0 gap-2">
+          <h2 id="settings-account" class="trauma-settings-heading">Account</h2>
+          <section class={fieldClass} aria-labelledby="codex-auth-title">
+            <div class="grid gap-2">
+              <h3 class={labelClass} id="codex-auth-title">
+                Codex Auth
+              </h3>
+              <p class={hintClass}>
+                Codex owns ChatGPT sign-in. TRAUMA stores only safe setup metadata.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                ref={codexAuthSetupButton}
+                class={secondaryButtonClass}
+                disabled={
+                  codexAuth().status === "enabled" ||
+                  codexAuth().status === "login_started" ||
+                  isPending("openai-auth") || isPending("openai-auth-poll")
+                }
+                type="button"
+                onClick={() => void enableOpenAiAuth()}
+              >
+                {codexAuth().status === "enabled" ? "Enabled" : "Start setup"}
+              </button>
+              <Show when={codexAuth().status === "enabled"}>
+                <ConfirmationPopup
+                  confirmLabel="Delete auth"
+                  description="Delete Codex auth from this TRAUMA workspace?"
+                  disabled={isPending("openai-auth")}
+                  id="delete-codex-auth-confirmation"
+                  label="Delete Codex auth confirmation"
+                  onConfirm={deleteOpenAiAuth}
+                  placement="bottom-start"
+                  trigger={({ triggerProps }) => (
+                    <button
+                      {...triggerProps}
+                      class={dangerButtonClass}
+                      type="button"
+                    >
+                      Delete auth
+                    </button>
+                  )}
+                />
+              </Show>
+              <Show when={codexAuth().status === "login_started"}>
+                <button
+                  class={secondaryButtonClass}
+                  disabled={isPending("openai-auth-poll") || isPending("openai-auth")}
+                  type="button"
+                  onClick={() => void refreshCodexAuthStatus()}
+                >
+                  Check status
+                </button>
+                <button
+                  class={dangerButtonClass}
+                  disabled={isPending("openai-auth")}
+                  type="button"
+                  onClick={() => void cancelOpenAiAuthSetup()}
+                >
+                  Cancel setup
+                </button>
+              </Show>
+            </div>
+            <Show when={codexAuth().status === "enabled"}>
+              <p class={hintClass}>Codex ChatGPT sign-in is enabled.</p>
+            </Show>
+            <Show when={pendingCodexAuth()}>
+              {(pendingAuth) => (
+              <div class="grid gap-1 rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2">
+                <p class={hintClass}>Open this verification URL and enter the code.</p>
+                <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
+                  {pendingAuth().userCode}
+                </p>
+                <Show when={readSafeVerificationUrl(pendingAuth().verificationUrl)}>
+                  {(verificationUrl) => (
+                    <a
+                      class="text-sm font-bold text-trauma-link"
+                      href={verificationUrl()}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {verificationUrl()}
+                    </a>
+                  )}
+                </Show>
+              </div>
+              )}
+            </Show>
+            <Show when={codexAuth().status === "setup_required"}>
+              <p class={hintClass}>
+                Codex app-server setup is required before translation can run.
+              </p>
+            </Show>
+            <Show when={codexAuth().status === "error"}>
+              <p class={hintClass}>Codex auth state could not be read.</p>
+            </Show>
+          </section>
+        </section>
+
+        <section aria-labelledby="settings-focus" class="grid min-w-0 gap-2">
+          <h2 id="settings-focus" class="trauma-settings-heading">Focus</h2>
+          <FocusPluginsSettingsSection />
+        </section>
 
         <Show when={message()}>
           {(value) => (
@@ -805,9 +807,9 @@ export function FocusPluginsSettingsSection() {
     >
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="grid gap-1">
-          <h2 id="focus-plugins-heading" class={labelClass}>
+          <h3 id="focus-plugins-heading" class={labelClass}>
             Focus Plugins
-          </h2>
+          </h3>
           <p class={hintClass}>
             Opt-in ADHD-focus experiments stored locally in this browser. Toggle individual plugins to keep only what helps.
           </p>
@@ -868,16 +870,12 @@ export function FocusPluginsSettingsSection() {
                     </div>
                     <button
                       aria-checked={enabled()}
-                      class={
-                        enabled()
-                          ? primaryButtonClass
-                          : secondaryButtonClass
-                      }
+                      class="trauma-switch"
                       role="switch"
                       type="button"
                       onClick={() => focusPlugins.togglePlugin(plugin.id)}
                     >
-                      {enabled() ? "Enabled" : "Off"}
+                      <span class="sr-only">{enabled() ? "Enabled" : "Off"}</span>
                     </button>
                   </div>
 

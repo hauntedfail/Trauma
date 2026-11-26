@@ -102,9 +102,8 @@ const UNDO_TOAST_DURATION_MS = 6_000;
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport trauma-browse-column mx-auto w-full max-w-[720px] bg-trauma-bg-surface";
 const flatRowBase =
-  "trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 border-b border-trauma-border px-6 py-3.5 transition hover:bg-trauma-bg-tint focus-within:z-20 has-[[aria-expanded='true']]:z-30";
-const rowActionButtonClass =
-  "inline-flex min-h-[28px] items-center rounded-full border border-trauma-border bg-trauma-bg-surface px-2.5 py-0.5 text-xs font-medium text-trauma-text-secondary transition hover:border-trauma-border-strong hover:text-trauma-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-trauma-accent disabled:cursor-not-allowed disabled:opacity-45";
+  "trauma-glass trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 px-6 py-3.5 transition hover:bg-trauma-bg-tint focus-within:z-20 has-[[aria-expanded='true']]:z-30";
+const rowActionButtonClass = "trauma-pill trauma-pill-compact";
 
 const LANE_TITLES: Record<BrowseLane, string> = {
   today: "Today",
@@ -1437,7 +1436,7 @@ export function MemoryItem(props: {
         </Show>
       </div>
 
-      <div class="relative z-10 flex shrink-0 items-center gap-1.5">
+      <div class="trauma-row-actions relative z-10 flex flex-wrap items-center gap-1.5">
         <Show when={lane() === "today"}>
           <button
             aria-label={`Move ${props.memory.title} to Shelf`}
@@ -1468,7 +1467,7 @@ export function MemoryItem(props: {
         <Show when={lane() === "shelf"}>
           <button
             aria-label={`Move ${props.memory.title} to Today`}
-            class={rowActionButtonClass}
+            class={`${rowActionButtonClass} trauma-pill-primary`}
             disabled={props.pickDisabled === true}
             title={
               props.pickDisabled === true

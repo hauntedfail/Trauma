@@ -46,6 +46,11 @@ test("keeps settings forms within the phone viewport", async ({ page }) => {
   const model = page.getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toBeEnabled();
   await model.selectOption(longCodexModelId);
+  for (const name of ["Settings", "Language", "Account", "Focus"]) {
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  }
+  const title = page.getByRole("heading", { level: 1, name: "Settings" });
+  expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 
   expect(
     await page.evaluate(() =>
