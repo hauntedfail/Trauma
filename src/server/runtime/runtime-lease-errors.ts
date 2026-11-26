@@ -24,3 +24,12 @@ export class RuntimeStorageBusyError extends Error {
     this.name = "RuntimeStorageBusyError";
   }
 }
+
+export class RuntimeGuardPreparationPendingError extends Error {
+  readonly code = "TRAUMA_RUNTIME_GUARD_PREPARATION_PENDING";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeGuardPreparationPendingError";
+  }
+}

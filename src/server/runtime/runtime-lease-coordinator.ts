@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { RuntimeProcessLeaseError } from "./runtime-lease-errors";
+import {
+  RuntimeGuardPreparationPendingError,
+  RuntimeProcessLeaseError,
+} from "./runtime-lease-errors";
 import {
   acquireUniqueGuard,
   cleanupOrphanGuards,
@@ -72,7 +75,7 @@ export function acquireMigrationCoordinatorLease(
 ): CoordinatorLeaseState {
   const deadline = Date.now() + MIGRATION_LEASE_WAIT_MS;
   prepareCoordinatorStorage();
-  cleanupOrphanGuards();
+  cleanupOrphanGuardsForMigration(deadline);
   assertPlanDoesNotOverlapCoordinatorStorage(plan);
   while (true) {
     const liveOverlap = findLiveCoordinatorOverlap(plan);
@@ -90,12 +93,40 @@ export function acquireMigrationCoordinatorLease(
     try {
       return acquireCoordinatorLeaseForPurpose(plan, "migration");
     } catch (error) {
-      if (!(error instanceof RuntimeProcessLeaseError) || Date.now() >= deadline) {
+      if (!isRetryableMigrationLeaseError(error) || Date.now() >= deadline) {
         throw error;
       }
       waitForMigrationRetry(deadline);
     }
   }
+}
+
+function cleanupOrphanGuardsForMigration(deadline: number): void {
+  while (true) {
+    try {
+      cleanupOrphanGuards();
+      return;
+    } catch (error) {
+      // Another process may have created its guard file before publishing its
+      // coordinator row. Retry only that transient preparation window; once
+      // the grace period expires, orphan cleanup removes stale files and fails
+      // closed on live unreferenced guards.
+      if (
+        !(error instanceof RuntimeGuardPreparationPendingError) ||
+        Date.now() >= deadline
+      ) {
+        throw error;
+      }
+      waitForMigrationRetry(deadline);
+    }
+  }
+}
+
+function isRetryableMigrationLeaseError(error: unknown): boolean {
+  return (
+    error instanceof RuntimeProcessLeaseError ||
+    error instanceof RuntimeGuardPreparationPendingError
+  );
 }
 
 export function transitionCoordinatorLease(

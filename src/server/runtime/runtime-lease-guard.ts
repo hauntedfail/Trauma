@@ -25,6 +25,7 @@ import type {
   HeldGuard,
   PrivateFileIdentity,
 } from "./runtime-lease-coordinator-types";
+import { RuntimeGuardPreparationPendingError } from "./runtime-lease-errors";
 import {
   closeLeaseDatabase,
   formatUnknownError,
@@ -186,7 +187,7 @@ export function cleanupOrphanGuards(): void {
       if (refreshedRows.some((row) => row.guard_path === path)) {
         continue;
       }
-      throw new Error(
+      throw new RuntimeGuardPreparationPendingError(
         `TRAUMA found a newly-created guard with no coordinator row: ${path}. ` +
           "Retry after its owner publishes or the preparation grace period expires.",
       );

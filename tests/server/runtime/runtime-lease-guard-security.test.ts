@@ -166,4 +166,41 @@ describe("runtime lease guard security", () => {
       await rm(livePath, { force: true });
     }
   });
+
+  it("retries migration acquisition across guard preparation grace while keeping runtime and live-orphan fail-closed", async () => {
+    const { config } = await createRuntimeConfig();
+    const bootstrap = acquireRuntimeProcessLease(config);
+    bootstrap.release();
+
+    const freshGuardPath = await createBoundGuard(randomUUID(), randomUUID());
+    try {
+      expect(() => acquireRuntimeProcessLease(config)).toThrow(
+        /newly-created guard with no coordinator row/,
+      );
+
+      const migrationLease = acquireDatabaseInitializationLease(config);
+      try {
+        expect(() => accessSync(freshGuardPath)).toThrow();
+      } finally {
+        migrationLease.release();
+      }
+    } finally {
+      await rm(freshGuardPath, { force: true });
+    }
+
+    const livePath = await createBoundGuard(randomUUID(), randomUUID());
+    const old = new Date(Date.now() - 2_000);
+    await utimes(livePath, old, old);
+    const live = new Database(livePath, { create: false, readwrite: true });
+    live.run("BEGIN EXCLUSIVE;");
+    try {
+      expect(() => acquireDatabaseInitializationLease(config)).toThrow(
+        /live runtime guard with no coordinator row/,
+      );
+    } finally {
+      live.run("ROLLBACK;");
+      live.close();
+      await rm(livePath, { force: true });
+    }
+  });
 });
