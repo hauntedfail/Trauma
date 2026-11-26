@@ -1,4 +1,11 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import {
+  type BigIntStats,
+  lstatSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { formatUnknownError, isErrorWithCode } from "./runtime-lease-sqlite";
@@ -10,6 +17,21 @@ import type {
 } from "./runtime-lease-types";
 
 export const RUNTIME_COORDINATOR_SCHEMA_VERSION = 2;
+
+const MAX_SYMLINK_HOPS = 40;
+
+type ResolvedExistingCandidate =
+  | {
+    readonly canonicalPath: string;
+    readonly kind: "directory";
+  }
+  | {
+    readonly canonicalParent: string;
+    readonly kind: "non-directory";
+    readonly leafName: string;
+    readonly leafPath: string;
+    readonly leafStats: BigIntStats;
+  };
 
 interface SerializedRuntimeResource {
   identities: CanonicalPathIdentity[];
@@ -144,26 +166,32 @@ function canonicalizeRuntimeResource(
 
   const unresolvedParts: string[] = [];
   let candidate = resolve(input.resourcePath);
-  let existingPath: string | undefined;
-  while (existingPath === undefined) {
-    try {
-      existingPath = realpathSync.native(candidate);
-    } catch (error) {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        throw new Error(
-          `Failed to canonicalize runtime resource ${input.resourceLabel}=${input.resourcePath}: ${formatUnknownError(error)}`,
-        );
-      }
-      assertMissingCandidateIsNotDanglingSymlink(candidate, input);
-      const parent = dirname(candidate);
-      if (parent === candidate) {
-        throw new Error(
-          `No existing filesystem root is available for runtime resource ${input.resourcePath}`,
-        );
-      }
-      unresolvedParts.unshift(basename(candidate));
-      candidate = parent;
+  let resolvedExisting: ResolvedExistingCandidate | undefined;
+  while (resolvedExisting === undefined) {
+    resolvedExisting = resolveExistingCandidate(candidate, input);
+    if (resolvedExisting !== undefined) {
+      break;
     }
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(
+        `No existing filesystem root is available for runtime resource ${input.resourcePath}`,
+      );
+    }
+    unresolvedParts.unshift(basename(candidate));
+    candidate = parent;
+  }
+
+  if (
+    resolvedExisting.kind === "non-directory" &&
+    unresolvedParts.length > 0
+  ) {
+    throw createCanonicalizationError(
+      input,
+      new Error(
+        `Path component ${resolvedExisting.leafPath} is not a directory`,
+      ),
+    );
   }
 
   // APFS/HFS+ and Windows commonly case-fold missing names. Conservatively
@@ -176,14 +204,27 @@ function canonicalizeRuntimeResource(
   // comparison identities are normalized: NFC and NFD are distinct names on
   // filesystems such as ext4, so rewriting this path could point operators at
   // a different resource from the one that was actually leased.
-  const resourcePath = join(existingPath, ...unresolvedParts);
+  let resourcePath: string;
   const identities: CanonicalPathIdentity[] = [];
-  let cursor = existingPath;
-  let suffix = [...normalizedUnresolved];
+  let cursor: string;
+  let suffix: string[];
+  if (resolvedExisting.kind === "directory") {
+    resourcePath = join(resolvedExisting.canonicalPath, ...unresolvedParts);
+    cursor = resolvedExisting.canonicalPath;
+    suffix = [...normalizedUnresolved];
+  } else {
+    resourcePath = resolvedExisting.leafPath;
+    identities.push({
+      anchor: formatInodeAnchor(resolvedExisting.leafStats),
+      suffix: [],
+    });
+    cursor = resolvedExisting.canonicalParent;
+    suffix = [normalizeRuntimePathSegment(resolvedExisting.leafName)];
+  }
   while (true) {
     const stats = statSync(cursor, { bigint: true });
     identities.push({
-      anchor: `${stats.dev.toString()}:${stats.ino.toString()}`,
+      anchor: formatInodeAnchor(stats),
       suffix: [...suffix],
     });
     const parent = dirname(cursor);
@@ -247,23 +288,262 @@ function isWindowsAmbiguousPathSegment(value: string): boolean {
   );
 }
 
-function assertMissingCandidateIsNotDanglingSymlink(
+function resolveExistingCandidate(
   candidate: string,
   input: RuntimeResourceLeaseInput,
-): void {
-  try {
-    if (lstatSync(candidate).isSymbolicLink()) {
-      throw new Error(
-        `Cannot lease runtime resource ${input.resourceLabel}=${input.resourcePath}: ` +
-          `dangling symbolic link ${candidate} must be repaired or removed first`,
+): ResolvedExistingCandidate | undefined {
+  let current = candidate;
+  for (let hops = 0; hops <= MAX_SYMLINK_HOPS; hops += 1) {
+    let stats: BigIntStats;
+    try {
+      stats = lstatSync(current, { bigint: true });
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        if (hops === 0) {
+          return undefined;
+        }
+        throw createDanglingSymlinkError(candidate, input);
+      }
+      throw createCanonicalizationError(input, error);
+    }
+
+    if (stats.isDirectory()) {
+      try {
+        return {
+          canonicalPath: realpathSync.native(current),
+          kind: "directory",
+        };
+      } catch (error) {
+        if (isErrorWithCode(error, "ENOENT")) {
+          if (hops === 0) {
+            return undefined;
+          }
+          throw createDanglingSymlinkError(candidate, input);
+        }
+        throw createCanonicalizationError(input, error);
+      }
+    }
+
+    // Do not pass a non-directory leaf to realpathSync.native: on macOS,
+    // realpath uses the kernel name cache and may report a different hard
+    // link's directory and name for the same inode, dropping the requested
+    // presentation's ancestor identities. Canonicalize only the parent
+    // directory (which has a unique real path) and resolve final-component
+    // symbolic links explicitly.
+    const parent = dirname(current);
+    const requestedLeafName = basename(current);
+    if (
+      parent === current ||
+      requestedLeafName === "" ||
+      requestedLeafName === "." ||
+      requestedLeafName === ".."
+    ) {
+      throw createCanonicalizationError(
+        input,
+        new Error(`Unexpected non-directory leaf path: ${current}`),
       );
     }
+
+    let canonicalParent: string;
+    try {
+      canonicalParent = realpathSync.native(parent);
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        if (hops === 0) {
+          return undefined;
+        }
+        throw createDanglingSymlinkError(candidate, input);
+      }
+      throw createCanonicalizationError(input, error);
+    }
+
+    const entryPath = join(canonicalParent, requestedLeafName);
+    if (stats.isSymbolicLink()) {
+      if (hops === MAX_SYMLINK_HOPS) {
+        throw createCanonicalizationError(
+          input,
+          new Error(`Too many symbolic links while resolving ${candidate}`),
+        );
+      }
+      let linkTarget: string;
+      try {
+        linkTarget = readlinkSync(entryPath);
+      } catch (error) {
+        if (isErrorWithCode(error, "ENOENT")) {
+          throw createDanglingSymlinkError(candidate, input);
+        }
+        throw createCanonicalizationError(input, error);
+      }
+      if (linkTarget === "") {
+        throw createDanglingSymlinkError(candidate, input);
+      }
+      current = combineSymlinkTarget(canonicalParent, linkTarget);
+      continue;
+    }
+
+    let leafName: string;
+    try {
+      leafName = resolveCanonicalLeafName(
+        canonicalParent,
+        requestedLeafName,
+        stats,
+      );
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        if (hops === 0) {
+          return undefined;
+        }
+        throw createDanglingSymlinkError(candidate, input);
+      }
+      throw createCanonicalizationError(input, error);
+    }
+
+    const leafPath = join(canonicalParent, leafName);
+    let leafStats: BigIntStats;
+    try {
+      leafStats = lstatSync(leafPath, { bigint: true });
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        if (hops === 0) {
+          return undefined;
+        }
+        throw createDanglingSymlinkError(candidate, input);
+      }
+      throw createCanonicalizationError(input, error);
+    }
+
+    if (
+      leafStats.isSymbolicLink() ||
+      leafStats.isDirectory() ||
+      leafStats.dev !== stats.dev ||
+      leafStats.ino !== stats.ino
+    ) {
+      throw createCanonicalizationError(
+        input,
+        new Error(`Filesystem entry changed while canonicalizing ${candidate}`),
+      );
+    }
+
+    return {
+      canonicalParent,
+      kind: "non-directory",
+      leafName,
+      leafPath,
+      leafStats,
+    };
+  }
+
+  throw createCanonicalizationError(
+    input,
+    new Error(`Too many symbolic links while resolving ${candidate}`),
+  );
+}
+
+function combineSymlinkTarget(
+  canonicalParent: string,
+  linkTarget: string,
+): string {
+  // Preserve ".." segments for OS resolution instead of collapsing them
+  // lexically with path.resolve, so intermediate symlinks in the target path
+  // follow POSIX semantics.
+  if (isAbsolute(linkTarget)) {
+    return linkTarget;
+  }
+  if (process.platform === "win32") {
+    if (
+      /^[A-Za-z]:/u.test(linkTarget) ||
+      linkTarget.startsWith("\\") ||
+      linkTarget.startsWith("/")
+    ) {
+      return resolve(canonicalParent, linkTarget);
+    }
+    return canonicalParent.endsWith("\\") || canonicalParent.endsWith("/")
+      ? `${canonicalParent}${linkTarget}`
+      : `${canonicalParent}\\${linkTarget}`;
+  }
+  return canonicalParent.endsWith("/")
+    ? `${canonicalParent}${linkTarget}`
+    : `${canonicalParent}/${linkTarget}`;
+}
+
+function resolveCanonicalLeafName(
+  canonicalParent: string,
+  requestedLeafName: string,
+  expectedLeafStats: BigIntStats,
+): string {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    return requestedLeafName;
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(canonicalParent);
   } catch (error) {
-    if (isErrorWithCode(error, "ENOENT")) {
-      return;
+    if (isErrorWithCode(error, "EACCES") || isErrorWithCode(error, "EPERM")) {
+      return requestedLeafName;
     }
     throw error;
   }
+
+  if (entries.includes(requestedLeafName)) {
+    return requestedLeafName;
+  }
+
+  const normalizedRequested = normalizeRuntimePathSegment(requestedLeafName);
+  for (const entry of entries) {
+    if (
+      process.platform === "win32" &&
+      isWindowsAmbiguousPathSegment(entry)
+    ) {
+      continue;
+    }
+    if (normalizeRuntimePathSegment(entry) !== normalizedRequested) {
+      continue;
+    }
+    try {
+      const entryStats = lstatSync(join(canonicalParent, entry), {
+        bigint: true,
+      });
+      if (
+        !entryStats.isSymbolicLink() &&
+        !entryStats.isDirectory() &&
+        entryStats.dev === expectedLeafStats.dev &&
+        entryStats.ino === expectedLeafStats.ino
+      ) {
+        return entry;
+      }
+    } catch (error) {
+      if (isErrorWithCode(error, "ENOENT")) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return requestedLeafName;
+}
+
+function formatInodeAnchor(stats: BigIntStats): string {
+  return `${stats.dev.toString()}:${stats.ino.toString()}`;
+}
+
+function createCanonicalizationError(
+  input: RuntimeResourceLeaseInput,
+  error: unknown,
+): Error {
+  return new Error(
+    `Failed to canonicalize runtime resource ${input.resourceLabel}=${input.resourcePath}: ${formatUnknownError(error)}`,
+  );
+}
+
+function createDanglingSymlinkError(
+  candidate: string,
+  input: RuntimeResourceLeaseInput,
+): Error {
+  return new Error(
+    `Cannot lease runtime resource ${input.resourceLabel}=${input.resourcePath}: ` +
+      `dangling symbolic link ${candidate} must be repaired or removed first`,
+  );
 }
 
 function isSerializedRuntimeResource(
