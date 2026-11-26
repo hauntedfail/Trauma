@@ -2,15 +2,24 @@ import { Title } from "@solidjs/meta";
 import { A } from "@solidjs/router";
 import { HttpStatusCode } from "@solidjs/start";
 
+import { RouteHeader } from "~/components/layout/RouteHeader";
+import { RouteState } from "~/components/layout/RouteState";
+
 export default function NotFound() {
   return (
-    <section class="trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface px-8 py-12 max-[720px]:px-5" aria-labelledby="not-found-title">
+    <section
+      class="trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface"
+      aria-labelledby="not-found-title"
+    >
       <Title>Not found | TRAUMA</Title>
       <HttpStatusCode code={404} />
-      <div class="text-trauma-text-secondary">
-        <h1 class="text-3xl font-bold text-trauma-text-primary" id="not-found-title">Page not found</h1>
-        <p>This route is not part of the current Trauma foundation.</p>
-        <A class="trauma-control mt-2" href="/memories?lane=shelf">Back to Shelf</A>
+      <RouteHeader layout="single" title="Page not found" titleId="not-found-title" />
+      <div class="trauma-route-column">
+        <RouteState message="This route is not part of the current Trauma foundation.">
+          <A class="trauma-control" href="/memories?lane=shelf">
+            Back to Shelf
+          </A>
+        </RouteState>
       </div>
     </section>
   );

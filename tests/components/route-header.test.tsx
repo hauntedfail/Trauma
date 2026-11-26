@@ -56,9 +56,10 @@ describe("route header", () => {
   it("owns the shared sticky header chrome and split layout", () => {
     expect(routeHeaderSource).toContain("trauma-route-header");
     expect(routeHeaderSource).toContain("trauma-fluid-route-padding");
+    expect(routeHeaderSource).toContain("trauma-route-column");
     expect(routeHeaderSource).toContain("sticky top-0");
     expect(routeHeaderSource).toContain("min-h-[3.5rem]");
-    expect(routeHeaderSource).toContain("text-[20px] font-bold");
+    expect(routeHeaderSource).toContain("text-lg font-semibold");
     expect(routeHeaderSource).not.toContain("text-3xl");
     expect(routeHeaderSource).not.toContain("py-6");
     expect(routeHeaderSource).toContain("items-center gap-3");
@@ -78,13 +79,16 @@ describe("route header", () => {
   it("keeps route header title sizing centralised", () => {
     expect(memoryReaderSource).not.toContain("text-[20px] font-bold text-trauma-text-primary");
     expect(settingsPageSource).not.toContain("text-[32px] font-extrabold");
+    expect(settingsPageSource).not.toContain("trauma-settings-header");
     expect(settingsPageSource).not.toContain("titleClass=");
     expect(momentBrowseSource).not.toContain("titleClass=");
     expect(flashbacksRouteSource).not.toContain("titleClass=");
+    expect(memoryBrowseSource).not.toContain("titleClass=");
   });
 
-  it("keeps route pages on shared header chrome unless they own route-specific tabs", () => {
+  it("keeps every route page on the shared RouteHeader component", () => {
     for (const source of [
+      memoryBrowseSource,
       memoryReaderSource,
       momentBrowseSource,
       flashbacksRouteSource,
@@ -94,7 +98,6 @@ describe("route header", () => {
     }
 
     expect(memoryBrowseSource).toContain("data-browse-lane");
-    expect(memoryBrowseSource).not.toContain("RouteHeader");
 
     for (const source of [
       memoryBrowseSource,

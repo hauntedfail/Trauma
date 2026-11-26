@@ -23,7 +23,7 @@ const menuPanelClass =
   "grid min-w-[196px] gap-0.5 p-1.5 text-[13px] font-medium text-trauma-text-primary";
 
 export const kebabActionMenuItemClass =
-  "grid min-h-9 grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors hover:bg-trauma-bg-tint focus-visible:bg-trauma-bg-tint focus-visible:outline-none";
+  "grid min-h-9 grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-control px-2.5 text-left transition-colors hover:bg-trauma-bg-tint focus-visible:bg-trauma-bg-tint focus-visible:outline-none";
 
 export const kebabActionMenuDangerItemClass = `${kebabActionMenuItemClass} text-trauma-danger hover:bg-trauma-danger/10`;
 

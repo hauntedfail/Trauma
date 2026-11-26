@@ -3,6 +3,7 @@
 
 @theme {
   --radius-control: .625rem;
+  --radius-card: 1rem;
   --color-trauma-wine-50: #fbf2f3;
   --color-trauma-wine-100: #f4dadd;
   --color-trauma-wine-200: #e6b2b9;
@@ -558,60 +559,58 @@
     container: trauma-route-surface / inline-size;
   }
 
+  .trauma-route-column {
+    inline-size: min(100%, 45rem);
+    max-inline-size: 45rem;
+    margin-inline: auto;
+  }
+
+  .trauma-card-list,
+  .trauma-memory-list {
+    display: grid;
+    gap: .625rem;
+    padding: .75rem clamp(1rem, 4cqi, 1.5rem) 1.5rem;
+  }
+
   .trauma-memory-list {
     container: trauma-memory-list / inline-size;
-    gap: .5rem;
-    padding: .5rem;
   }
 
   .trauma-settings-content {
     display: grid;
     gap: 1.5rem;
-    max-width: 46rem;
-    margin-inline: auto;
-    padding: clamp(1rem, 4cqi, 2rem);
-    background: radial-gradient(ellipse 85% 16rem at 0 0, color-mix(in srgb, var(--accent) 8%, transparent), transparent);
+    padding: 1rem clamp(1rem, 4cqi, 1.5rem) 2rem;
   }
 
-  .trauma-route-header.trauma-settings-header {
-    position: static;
-    padding-inline: 0;
-    border: 0;
-    background: transparent;
-    backdrop-filter: none;
-  }
-
-  .trauma-settings-header h1 {
-    margin: 0;
-    color: var(--fg-1);
-    font-size: 2rem;
-    font-weight: 650;
-    white-space: normal;
-    line-height: 1.15;
-    overflow-wrap: anywhere;
-  }
-
+  .trauma-section-heading,
   .trauma-settings-heading {
-    margin-inline: .85rem;
-    color: var(--fg-2);
-    font-size: .875rem;
+    margin-inline: .25rem;
+    color: var(--fg-3);
+    font-size: .75rem;
     font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
   }
 
+  .trauma-surface-card,
   .trauma-glass {
-    border: 1px solid color-mix(in srgb, var(--border) 65%, var(--bg-elev));
-    border-radius: 1.375rem;
-    background-color: color-mix(in srgb, var(--bg-elev) 84%, transparent);
-    box-shadow: inset 0 1px rgb(255 255 255 / 9%), var(--shadow-1);
-  }
-
-  .trauma-settings-content .trauma-glass { backdrop-filter: blur(18px); }
-  .trauma-glass.trauma-memory-row {
     border: 0;
+    border-radius: var(--radius-card);
+    background-color: color-mix(in srgb, var(--bg-elev) 84%, transparent);
     box-shadow: inset 0 0 0 1px var(--border), var(--shadow-1);
   }
+
+  .trauma-list-card {
+    transition: background-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .trauma-list-card:hover {
+    background-color: var(--bg-tint);
+    box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-1);
+  }
+
   .trauma-memory-row [data-memory-row-link] { border-radius: inherit; }
-  .trauma-memory-row[data-keyboard-selected="true"] { background-color: var(--bg-tint); outline: 1px solid var(--border-strong); }
+  .trauma-memory-row[data-keyboard-selected="true"] { background-color: var(--bg-tint); box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-1); }
 
   .trauma-control, .trauma-tool {
     display: inline-flex;
@@ -730,7 +729,7 @@
   }
 
   .trauma-fluid-route-padding {
-    padding-inline: clamp(1rem, 4cqi, 2rem);
+    padding-inline: clamp(1rem, 4cqi, 1.5rem);
   }
 
   .trauma-reader-route-padding {

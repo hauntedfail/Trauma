@@ -357,7 +357,7 @@ describe("memory browse actions", () => {
       "when={orderedVisibleMemories().length > 0}",
     );
     const memoriesShowEnd = browseSource.indexOf(
-      "\n            </Show>",
+      "\n              </Show>",
       memoriesShowStart,
     );
     const loadMoreStart = browseSource.indexOf(
@@ -479,7 +479,7 @@ describe("memory browse actions", () => {
     expect(browseSource).toContain("Nothing picked. Choose from the Shelf when you're ready.");
     expect(browseSource).toContain("Still here");
     expect(browseSource).toContain("UNDO_TOAST_DURATION_MS = 6_000");
-    expect(browseSource).toContain("max-w-[720px]");
+    expect(browseSource).toContain("trauma-route-column");
   });
 
   it("renders flat row anatomy without 48px avatar or description paragraph and hides taxonomy chips outside Library", () => {

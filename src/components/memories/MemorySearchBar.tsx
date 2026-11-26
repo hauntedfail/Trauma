@@ -26,7 +26,7 @@ export function MemorySearchBar(props: {
   };
 
   return (
-    <div class="trauma-route-row flex items-center gap-2 border-b border-trauma-border px-6 py-4">
+    <div class="trauma-fluid-route-padding flex items-center gap-2 pt-3 pb-1">
       <label class="grid min-h-11 flex-1 grid-cols-[20px_minmax(0,1fr)] items-center gap-2.5 rounded-control border border-trauma-border bg-trauma-bg-elev px-3.5 text-trauma-text-muted focus-within:border-trauma-border-strong focus-within:bg-trauma-bg-surface focus-within:ring-1 focus-within:ring-inset focus-within:ring-trauma-border-strong">
         <span class="grid place-items-center">
           <SearchIcon />

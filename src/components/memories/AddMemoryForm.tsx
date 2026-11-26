@@ -48,14 +48,14 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       onSubmit={handleSubmit}
     >
       <Show when={props.title}>
-        {(title) => <h2 class="mb-0 text-[22px] font-bold">{title()}</h2>}
+        {(title) => <h2 class="mb-0 text-lg font-semibold text-trauma-text-primary">{title()}</h2>}
       </Show>
-      <label class="grid gap-2">
+      <label class="grid gap-1.5">
         <span
           class={
             props.showVisibleLabel === false
               ? "sr-only"
-              : "text-[13px] font-extrabold text-trauma-text-muted"
+              : "text-xs font-semibold text-trauma-text-muted"
           }
         >
           URL
@@ -83,7 +83,7 @@ export function AddMemoryForm(props: AddMemoryFormProps) {
       </WaxSealButton>
       <Show when={props.submission.errorMessage()}>
         {(message) => (
-          <p class="col-span-full mb-0 text-sm font-bold text-red-700" role="alert">
+          <p class="col-span-full mb-0 text-sm font-medium text-trauma-danger" role="alert">
             {message()}
           </p>
         )}

@@ -9,7 +9,6 @@ import {
   on,
   onCleanup,
   onMount,
-  type JSX,
 } from "solid-js";
 
 import {
@@ -81,6 +80,8 @@ import {
 import { revalidateMomentBrowseRows } from "../moments/moments-loader";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { revalidateBackupFailsafeAlert } from "../backup/backup-failsafe-loader";
+import { RouteHeader } from "../layout/RouteHeader";
+import { RouteState } from "../layout/RouteState";
 import {
   EPHEMERAL_SHELF_TRIAGE_PLUGIN_ID,
   useFocusPlugins,
@@ -100,9 +101,9 @@ export {
 const UNDO_TOAST_DURATION_MS = 6_000;
 
 const pageFrame =
-  "trauma-route-surface trauma-mobile-stable-viewport trauma-browse-column mx-auto w-full max-w-[720px] bg-trauma-bg-surface";
+  "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const flatRowBase =
-  "trauma-glass trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 px-6 py-3.5 transition hover:bg-trauma-bg-tint focus-within:z-20 has-[[aria-expanded='true']]:z-30";
+  "trauma-surface-card trauma-list-card trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5 focus-within:z-20 has-[[aria-expanded='true']]:z-30";
 const rowActionButtonClass = "trauma-control trauma-control-compact trauma-control-quiet";
 
 const LANE_TITLES: Record<BrowseLane, string> = {
@@ -892,232 +893,226 @@ export function MemoryBrowse() {
       data-browse-lane={activeLane()}
     >
       <Title>{laneTitle()} | TRAUMA</Title>
-      <header class="trauma-chrome trauma-memory-browse-header sticky top-0 z-[2] flex items-center justify-between gap-4 border-b border-trauma-border bg-trauma-bg-surface/95 px-6 py-3.5 backdrop-blur">
-        <h1
-          id="memories-title"
-          class="mb-0 text-lg font-semibold tracking-tight text-trauma-text-primary"
-        >
-          {laneTitle()}
-        </h1>
-        <Show when={activeLane() === "shelf" && isTodayAtCap()}>
-          <p
-            class="mb-0 text-xs text-trauma-text-muted"
-            data-today-cap-notice="true"
-            role="status"
-          >
-            {TODAY_CAP_REACHED_MESSAGE}
-          </p>
-        </Show>
-        <Show when={activeLane() === "today" && isTodayAtCap()}>
-          <p
-            class="mb-0 text-xs text-trauma-text-muted"
-            data-today-cap-notice="true"
-            role="status"
-          >
-            {TODAY_CAP_REACHED_MESSAGE}
-          </p>
-        </Show>
-      </header>
-
-      <Show when={activeLane() === "library"}>
-        <MemorySearchBar
-          disabled={!isClientReady()}
-          onSearchInputMount={(input) => {
-            searchInput = input;
-          }}
-        >
-          <LibraryFiltersPopover
-            query={query()}
-            categories={availableCategories()}
-            tags={availableTags()}
-            flashbacks={recentFlashbacks() ?? []}
-            disabled={!isClientReady()}
-            onSelectCategory={(category) =>
-              updateQuery({ lane: "library", category })
-            }
-            onSelectTag={(tag) => updateQuery({ lane: "library", tag })}
-            onSelectFlashback={(flashback) =>
-              updateQuery({ lane: "library", flashback })
-            }
-            onToggleArchive={(includeArchive) =>
-              updateQuery({
-                lane: "library",
-                q: setBrowseInArchiveFilter(query().q, includeArchive),
-              })
-            }
-            onSelectSort={(sort: BrowseSort) =>
-              updateQuery({
-                lane: "library",
-                sort: sort === "last_opened" ? "last_opened" : undefined,
-              })
-            }
-            onSelectView={(view: BrowseView) =>
-              updateQuery({ lane: "library", view })
-            }
-            onClearFilters={() =>
-              updateQuery({
-                lane: "library",
-                category: "",
-                tag: "",
-                flashback: "",
-                sort: undefined,
-                q: setBrowseInArchiveFilter(query().q, false),
-              })
-            }
-          />
-        </MemorySearchBar>
-      </Show>
-
-      <Show when={triageError() !== ""}>
-        <div
-          class="flex items-center justify-between gap-3 border-b border-trauma-border bg-trauma-bg-elev px-6 py-2.5 text-sm text-trauma-text-primary"
-          data-triage-error="true"
-          role="alert"
-        >
-          <span>{triageError()}</span>
-          <button
-            class="text-xs font-semibold text-trauma-text-muted hover:text-trauma-text-primary"
-            type="button"
-            onClick={() => setTriageError("")}
-          >
-            Dismiss
-          </button>
-        </div>
-      </Show>
-
-      <div
-        ref={pageRegionRef}
-        aria-busy={
-          firstPageStateForCurrentQuery() === undefined ||
-          firstPageRetry.isRetryingCurrentPage()
+      <RouteHeader
+        class="trauma-memory-browse-header"
+        layout="split"
+        title={laneTitle()}
+        titleId="memories-title"
+        actions={
+          <Show when={(activeLane() === "shelf" || activeLane() === "today") && isTodayAtCap()}>
+            <p
+              class="mb-0 text-xs text-trauma-text-muted"
+              data-today-cap-notice="true"
+              role="status"
+            >
+              {TODAY_CAP_REACHED_MESSAGE}
+            </p>
+          </Show>
         }
-        aria-label="Memory page results"
-        role="region"
-        tabIndex={-1}
-      >
-        <Show
-          when={
-            firstPageStateForCurrentQuery() !== undefined ||
+      />
+
+      <div class="trauma-route-column trauma-browse-column">
+        <Show when={activeLane() === "library"}>
+          <MemorySearchBar
+            disabled={!isClientReady()}
+            onSearchInputMount={(input) => {
+              searchInput = input;
+            }}
+          >
+            <LibraryFiltersPopover
+              query={query()}
+              categories={availableCategories()}
+              tags={availableTags()}
+              flashbacks={recentFlashbacks() ?? []}
+              disabled={!isClientReady()}
+              onSelectCategory={(category) =>
+                updateQuery({ lane: "library", category })
+              }
+              onSelectTag={(tag) => updateQuery({ lane: "library", tag })}
+              onSelectFlashback={(flashback) =>
+                updateQuery({ lane: "library", flashback })
+              }
+              onToggleArchive={(includeArchive) =>
+                updateQuery({
+                  lane: "library",
+                  q: setBrowseInArchiveFilter(query().q, includeArchive),
+                })
+              }
+              onSelectSort={(sort: BrowseSort) =>
+                updateQuery({
+                  lane: "library",
+                  sort: sort === "last_opened" ? "last_opened" : undefined,
+                })
+              }
+              onSelectView={(view: BrowseView) =>
+                updateQuery({ lane: "library", view })
+              }
+              onClearFilters={() =>
+                updateQuery({
+                  lane: "library",
+                  category: "",
+                  tag: "",
+                  flashback: "",
+                  sort: undefined,
+                  q: setBrowseInArchiveFilter(query().q, false),
+                })
+              }
+            />
+          </MemorySearchBar>
+        </Show>
+
+        <Show when={triageError() !== ""}>
+          <div
+            class="trauma-fluid-route-padding pt-3"
+          >
+            <div
+              class="flex items-center justify-between gap-3 rounded-control border border-trauma-border bg-trauma-bg-elev px-4 py-2.5 text-sm text-trauma-text-primary"
+              data-triage-error="true"
+              role="alert"
+            >
+              <span>{triageError()}</span>
+              <button
+                class="trauma-control trauma-control-compact trauma-control-quiet"
+                type="button"
+                onClick={() => setTriageError("")}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        <div
+          ref={pageRegionRef}
+          aria-busy={
+            firstPageStateForCurrentQuery() === undefined ||
             firstPageRetry.isRetryingCurrentPage()
           }
-          fallback={<MemoryBrowseState title="Loading..." />}
+          aria-label="Memory page results"
+          role="region"
+          tabIndex={-1}
         >
           <Show
             when={
-              !firstPageRetry.isRetryingCurrentPage() &&
-              firstPageStateForCurrentQuery()?.status !== "error"
+              firstPageStateForCurrentQuery() !== undefined ||
+              firstPageRetry.isRetryingCurrentPage()
             }
-            fallback={
-              <MemoryBrowseInitialPageFailure
-                getFocusTarget={() => pageRegionRef}
-                onRetry={firstPageRetry.retryCurrentPage}
-              />
-            }
+            fallback={<RouteState title="Loading..." />}
           >
             <Show
-              when={orderedVisibleMemories().length > 0}
+              when={
+                !firstPageRetry.isRetryingCurrentPage() &&
+                firstPageStateForCurrentQuery()?.status !== "error"
+              }
               fallback={
-                <Show
-                  when={activeLane() === "today"}
-                  fallback={
-                    <MemoryBrowseState
-                      message={
-                        activeLane() === "shelf"
-                          ? "New links you capture land here."
-                          : "Adjust the search or filters."
-                      }
-                      title={
-                        activeLane() === "shelf"
-                          ? "Shelf is clear."
-                          : "No matching memories"
-                      }
-                    />
-                  }
-                >
-                  <div
-                    class="trauma-route-row px-6 py-12 text-trauma-text-secondary"
-                    data-today-empty-state="true"
-                  >
-                    <p class="mb-3 text-base text-trauma-text-primary">
-                      Nothing picked. Choose from the Shelf when you're ready.
-                    </p>
-                    <A
-                      class="trauma-control"
-                      href="/memories?lane=shelf"
-                    >
-                      Open Shelf
-                    </A>
-                  </div>
-                </Show>
+                <MemoryBrowseInitialPageFailure
+                  getFocusTarget={() => pageRegionRef}
+                  onRetry={firstPageRetry.retryCurrentPage}
+                />
               }
             >
               <Show
-                when={activeLane() === "shelf" && isEphemeralShelfEnabled()}
+                when={orderedVisibleMemories().length > 0}
                 fallback={
-                  <div
-                    aria-label={`${laneTitle()} memories`}
-                    class={
-                      isGrid()
-                        ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2"
-                        : "trauma-memory-list grid"
+                  <Show
+                    when={activeLane() === "today"}
+                    fallback={
+                      <RouteState
+                        message={
+                          activeLane() === "shelf"
+                            ? "New links you capture land here."
+                            : "Adjust the search or filters."
+                        }
+                        title={
+                          activeLane() === "shelf"
+                            ? "Shelf is clear."
+                            : "No matching memories"
+                        }
+                      />
                     }
-                    role="list"
                   >
-                    <For each={orderedVisibleMemories()}>
-                      {(memory) => renderMemoryRow(memory)}
-                    </For>
-                  </div>
+                    <RouteState
+                      dataAttribute={{ "data-today-empty-state": "true" }}
+                      title="Nothing picked. Choose from the Shelf when you're ready."
+                    >
+                      <A
+                        class="trauma-control"
+                        href="/memories?lane=shelf"
+                      >
+                        Open Shelf
+                      </A>
+                    </RouteState>
+                  </Show>
                 }
               >
-                <div
-                  aria-label="Shelf memories"
-                  class="trauma-memory-list grid"
-                  role="list"
-                >
-                  <For each={shelfActiveMemories()}>
-                    {(memory) => renderMemoryRow(memory)}
-                  </For>
-                  <Show when={shelfStillHereMemories().length > 0}>
+                <Show
+                  when={activeLane() === "shelf" && isEphemeralShelfEnabled()}
+                  fallback={
                     <div
-                      class="border-b border-trauma-border px-6 pb-2 pt-6"
-                      data-shelf-still-here="true"
-                      role="presentation"
+                      aria-label={`${laneTitle()} memories`}
+                      class={
+                        isGrid()
+                          ? "trauma-memory-list memory-grid trauma-memory-grid grid grid-cols-2"
+                          : "trauma-memory-list grid"
+                      }
+                      role="list"
                     >
-                      <h2 class="mb-0 text-xs font-semibold uppercase tracking-wide text-trauma-text-muted">
-                        Still here
-                      </h2>
+                      <For each={orderedVisibleMemories()}>
+                        {(memory) => renderMemoryRow(memory)}
+                      </For>
                     </div>
-                    <For each={shelfStillHereMemories()}>
+                  }
+                >
+                  <div
+                    aria-label="Shelf memories"
+                    class="trauma-memory-list grid"
+                    role="list"
+                  >
+                    <For each={shelfActiveMemories()}>
                       {(memory) => renderMemoryRow(memory)}
                     </For>
+                    <Show when={shelfStillHereMemories().length > 0}>
+                      <div
+                        class="px-1 pt-4 pb-1"
+                        data-shelf-still-here="true"
+                        role="presentation"
+                      >
+                        <h2 class="trauma-section-heading mb-0">
+                          Still here
+                        </h2>
+                      </div>
+                      <For each={shelfStillHereMemories()}>
+                        {(memory) => renderMemoryRow(memory)}
+                      </For>
+                    </Show>
+                  </div>
+                </Show>
+              </Show>
+
+              <Show when={nextCursor() !== null}>
+                <div class="flex flex-col items-center gap-2 px-6 py-6">
+                  <Show when={loadNextPageError() !== ""}>
+                    <p
+                      class="mb-0 text-xs font-semibold text-trauma-danger"
+                      role="alert"
+                    >
+                      {loadNextPageError()}
+                    </p>
                   </Show>
+                  <button
+                    class="trauma-control"
+                    disabled={isLoadingNextPage()}
+                    type="button"
+                    onClick={() => void loadNextPage()}
+                  >
+                    {isLoadingNextPage() ? "Loading..." : "Load more"}
+                  </button>
                 </div>
               </Show>
+              <div aria-hidden="true" class="h-px" ref={setLoadMoreSentinel} />
             </Show>
-
-            <Show when={nextCursor() !== null}>
-              <div class="flex flex-col items-center gap-2 px-6 py-6">
-                <Show when={loadNextPageError() !== ""}>
-                  <p
-                    class="mb-0 text-xs font-semibold text-trauma-danger"
-                    role="alert"
-                  >
-                    {loadNextPageError()}
-                  </p>
-                </Show>
-                <button
-                  class="trauma-control"
-                  disabled={isLoadingNextPage()}
-                  type="button"
-                  onClick={() => void loadNextPage()}
-                >
-                  {isLoadingNextPage() ? "Loading..." : "Load more"}
-                </button>
-              </div>
-            </Show>
-            <div aria-hidden="true" class="h-px" ref={setLoadMoreSentinel} />
           </Show>
-        </Show>
+        </div>
       </div>
 
       <Show when={undoEntry()}>
@@ -1143,28 +1138,6 @@ export function MemoryBrowse() {
   );
 }
 
-function MemoryBrowseState(props: {
-  children?: JSX.Element;
-  message?: string;
-  role?: "alert";
-  title: string;
-}) {
-  return (
-    <div
-      class="trauma-route-row px-6 py-12 text-trauma-text-secondary"
-      role={props.role}
-    >
-      <h2 class="text-base font-semibold text-trauma-text-primary">
-        {props.title}
-      </h2>
-      <Show when={props.message}>
-        {(message) => <p class="mb-0 mt-1 text-sm">{message()}</p>}
-      </Show>
-      {props.children}
-    </div>
-  );
-}
-
 export function MemoryBrowseInitialPageFailure(props: {
   getFocusTarget: () => HTMLElement | undefined;
   onRetry: () =>
@@ -1172,7 +1145,7 @@ export function MemoryBrowseInitialPageFailure(props: {
     | Promise<CollectionPageRetryOutcome>;
 }) {
   return (
-    <MemoryBrowseState
+    <RouteState
       message="Retry the current view."
       role="alert"
       title="Failed to load memories"
@@ -1182,7 +1155,7 @@ export function MemoryBrowseInitialPageFailure(props: {
         onRetry={props.onRetry}
         subject="memories"
       />
-    </MemoryBrowseState>
+    </RouteState>
   );
 }
 
@@ -1341,9 +1314,9 @@ export function MemoryItem(props: {
       ref={rowRef}
       class={`${flatRowBase} cursor-pointer no-underline ${
         isSelected()
-          ? "bg-trauma-bg-tint ring-1 ring-inset ring-trauma-border-strong"
+          ? "bg-trauma-bg-tint"
           : ""
-      } ${props.view === "grid" && lane() === "library" ? "border-r border-trauma-border" : ""}`}
+      }`}
       data-collection-row={props.memory.id}
       data-memory-id={props.memory.id}
       data-keyboard-selected={isSelected() ? "true" : "false"}

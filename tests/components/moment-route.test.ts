@@ -29,7 +29,8 @@ describe("Moment route", () => {
     expect(browseSource).toContain("getMomentBrowsePage");
     expect(browseSource).toContain("useLocation");
     expect(browseSource).toContain("nextCursor");
-    expect(browseSource).toContain('href="/moments"');
+    expect(browseSource).toContain("CollectionPagination");
+    expect(browseSource).toContain('pathname="/moments"');
     expect(browseSource).toContain("MomentActionMenu");
     expect(browseSource).toContain("deleteMomentById");
     expect(browseSource).toContain("revalidateMomentBrowseRows");

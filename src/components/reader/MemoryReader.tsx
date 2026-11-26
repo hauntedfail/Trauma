@@ -1681,6 +1681,7 @@ function ReadyMemoryReader(props: {
         onFocusIn={() => setTopBarHidden(false)}
       >
         <RouteHeader
+          constrained={false}
           actions={
             <div class="flex items-center gap-1.5">
               <ReaderVariantTabs
@@ -3782,6 +3783,7 @@ function ReaderState(props: { message: string }) {
     <section class={readerFrame} aria-labelledby="reader-state-title">
       <RouteHeader
         class={`${readerPadding} trauma-reader-header`}
+        constrained={false}
         leading={() => (
           <a
             class="grid size-10 place-items-center rounded-control text-trauma-text-muted hover:bg-trauma-bg-tint hover:text-trauma-text-primary"

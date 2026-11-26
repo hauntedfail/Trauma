@@ -1,7 +1,8 @@
 import { createAsync, useLocation } from "@solidjs/router";
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 
 import type { MomentBrowseRow } from "~/server/moments/browse";
+import { CollectionPagination } from "../collections/CollectionPagination";
 import {
   CollectionPageRetry,
   createCollectionPageRetryController,
@@ -10,7 +11,6 @@ import {
   captureCollectionRowRemovalFocus,
 } from "../collections/collection-row-removal-focus";
 import {
-  buildCollectionPageHref,
   readCollectionPageCursor,
   settleCollectionPage,
 } from "../collections/page-state";
@@ -24,12 +24,13 @@ import {
 import { buildMemoryAnchorHref } from "../memories/memory-anchor-hrefs";
 import { revalidateReaderMemory } from "../reader/reader-memory-loader";
 import { RouteHeader } from "../layout/RouteHeader";
+import { RouteState } from "../layout/RouteState";
 import { ScrollableUrlText } from "../url/ScrollableUrlText";
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const rowBase =
-  "trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-trauma-border px-6 py-[22px] transition hover:bg-trauma-bg-tint";
+  "trauma-surface-card trauma-list-card trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5";
 
 export function MomentBrowse() {
   let pageRegionRef: HTMLDivElement | undefined;
@@ -86,65 +87,71 @@ export function MomentBrowse() {
   return (
     <section class={pageFrame} aria-labelledby="moment-title">
       <RouteHeader layout="single" title="Moments" titleId="moment-title" />
-      <div
-        ref={pageRegionRef}
-        aria-busy={currentPageState() === undefined || pageRetry.isRetryingCurrentPage()}
-        aria-label="Moment page results"
-        class="grid"
-        role="region"
-        tabIndex={-1}
-      >
-        <Show
-          when={currentPageState() !== undefined || pageRetry.isRetryingCurrentPage()}
-          fallback={<MomentState title="Loading Moments..." />}
+      <div class="trauma-route-column">
+        <div
+          ref={pageRegionRef}
+          aria-busy={currentPageState() === undefined || pageRetry.isRetryingCurrentPage()}
+          aria-label="Moment page results"
+          class="grid"
+          role="region"
+          tabIndex={-1}
         >
           <Show
-            when={!pageRetry.isRetryingCurrentPage() &&
-              currentPageState()?.status !== "error"}
-            fallback={
-              <MomentState
-                title="Failed to load Moments"
-                message={cursor() === null
-                  ? "Retry the first page."
-                  : "Retry this page or return to the first page."}
-                role="alert"
-              >
-                <CollectionPageRetry
-                  getFocusTarget={() => pageRegionRef}
-                  onRetry={pageRetry.retryCurrentPage}
-                  subject="Moments"
-                />
-              </MomentState>
-            }
+            when={currentPageState() !== undefined || pageRetry.isRetryingCurrentPage()}
+            fallback={<RouteState title="Loading Moments..." />}
           >
             <Show
-              when={(rows()?.length ?? 0) > 0}
+              when={!pageRetry.isRetryingCurrentPage() &&
+                currentPageState()?.status !== "error"}
               fallback={
-                <MomentState
-                  title={cursor() === null ? "No Moments yet" : "No Moments on this page"}
+                <RouteState
+                  title="Failed to load Moments"
                   message={cursor() === null
-                    ? "Saved reader sections will appear here."
-                    : "Continue to the next page or return to the first page."}
-                />
+                    ? "Retry the first page."
+                    : "Retry this page or return to the first page."}
+                  role="alert"
+                >
+                  <CollectionPageRetry
+                    getFocusTarget={() => pageRegionRef}
+                    onRetry={pageRetry.retryCurrentPage}
+                    subject="Moments"
+                  />
+                </RouteState>
               }
             >
-              <For each={rows()}>
-                {(moment) => (
-                  <MomentRow
-                    getPageRegion={() => pageRegionRef}
-                    moment={moment}
-                    onDeleteMoment={deleteMoment}
+              <Show
+                when={(rows()?.length ?? 0) > 0}
+                fallback={
+                  <RouteState
+                    title={cursor() === null ? "No Moments yet" : "No Moments on this page"}
+                    message={cursor() === null
+                      ? "Saved reader sections will appear here."
+                      : "Continue to the next page or return to the first page."}
                   />
-                )}
-              </For>
+                }
+              >
+                <div class="trauma-card-list">
+                  <For each={rows()}>
+                    {(moment) => (
+                      <MomentRow
+                        getPageRegion={() => pageRegionRef}
+                        moment={moment}
+                        onDeleteMoment={deleteMoment}
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </Show>
-        </Show>
+        </div>
+        <CollectionPagination
+          ariaLabel="Moment pages"
+          cursor={cursor()}
+          nextCursor={currentPage()?.nextCursor ?? null}
+          pathname="/moments"
+        />
       </div>
-      <MomentPageNavigation
-        cursor={cursor()}
-        nextCursor={currentPage()?.nextCursor ?? null}
-      />
     </section>
   );
 }
@@ -172,24 +179,24 @@ function MomentRow(props: {
       data-collection-row={props.moment.id}
     >
       <a
-        class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2"
+        class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5 no-underline"
         data-collection-primary-link="true"
         href={href()}
       >
-        <header class="grid min-w-0 gap-1">
-          <p class="mb-0 text-[13px] font-bold text-trauma-text-muted">
+        <header class="grid min-w-0 gap-0.5">
+          <p class="mb-0 truncate text-xs text-trauma-text-muted">
             {props.moment.memoryTitle}
           </p>
-          <h2 class="mb-0 text-xl font-bold leading-tight text-trauma-text-primary">
+          <h2 class="mb-0 text-[15px] font-semibold leading-snug text-trauma-text-primary">
             {props.moment.sectionTitle}
           </h2>
         </header>
-        <p class="mb-0 text-sm text-trauma-link">
+        <p class="mb-0 text-xs text-trauma-link">
           <ScrollableUrlText url={props.moment.memoryUrl} />
         </p>
-        <footer class="flex flex-wrap gap-2 text-xs font-bold text-trauma-text-muted">
+        <footer class="flex flex-wrap items-center gap-2 text-xs text-trauma-text-muted">
           <Show when={props.moment.targetStatus === "stale"}>
-            <span class="rounded-full border border-trauma-border bg-trauma-bg-elev px-2 py-0.5 text-trauma-text-secondary">
+            <span class="rounded-full border border-trauma-border bg-trauma-bg-surface px-2 py-0.5 font-medium text-trauma-text-secondary">
               Section moved
             </span>
           </Show>
@@ -221,54 +228,6 @@ function MomentRow(props: {
         />
       </div>
     </article>
-  );
-}
-
-function MomentState(props: {
-  children?: JSX.Element;
-  title: string;
-  message?: string;
-  role?: "alert";
-}) {
-  return (
-    <div
-      class="trauma-route-row px-6 py-12 text-trauma-text-secondary"
-      role={props.role}
-    >
-      <h2 class="text-xl font-bold text-trauma-text-primary">{props.title}</h2>
-      <Show when={props.message}>
-        {(message) => <p>{message()}</p>}
-      </Show>
-      {props.children}
-    </div>
-  );
-}
-
-function MomentPageNavigation(props: {
-  cursor: string | null;
-  nextCursor: string | null;
-}) {
-  return (
-    <nav
-      aria-label="Moment pages"
-      class="trauma-route-row flex items-center justify-between gap-3 px-6 py-5"
-    >
-      <Show when={props.cursor !== null} fallback={<span />}>
-        <a class="font-bold text-trauma-link" href="/moments">
-          First
-        </a>
-      </Show>
-      <Show when={props.nextCursor}>
-        {(nextCursor) => (
-          <a
-            class="ml-auto font-bold text-trauma-link"
-            href={buildCollectionPageHref("/moments", nextCursor())}
-          >
-            Next
-          </a>
-        )}
-      </Show>
-    </nav>
   );
 }
 

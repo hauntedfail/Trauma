@@ -62,10 +62,10 @@ type SettingsAction =
 
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
-const contentClass = "trauma-settings-content";
-const fieldClass = "trauma-glass grid min-w-0 gap-4 p-5";
-const labelClass = "text-[15px] font-semibold text-trauma-text-primary";
-const hintClass = "mb-0 text-sm font-semibold text-trauma-text-muted";
+const contentClass = "trauma-route-column trauma-settings-content";
+const fieldClass = "trauma-surface-card grid min-w-0 gap-4 p-5";
+const labelClass = "text-sm font-semibold text-trauma-text-primary";
+const hintClass = "mb-0 text-sm text-trauma-text-secondary";
 const selectClass =
   "trauma-field min-h-11 w-full font-medium";
 const primaryButtonClass = "trauma-control trauma-control-primary";
@@ -439,10 +439,10 @@ export function SettingsPage(props: SettingsPageProps) {
 
   return (
     <section class={pageFrame} aria-labelledby="settings-title">
+      <RouteHeader layout="single" title="Settings" titleId="settings-title" />
       <div class={contentClass}>
-        <RouteHeader class="trauma-settings-header" layout="single" title="Settings" titleId="settings-title" />
         <section aria-labelledby="settings-language" class="grid min-w-0 gap-2">
-          <h2 id="settings-language" class="trauma-settings-heading">Language</h2>
+          <h2 id="settings-language" class="trauma-section-heading">Language</h2>
           <div class={fieldClass}>
             <form class="grid min-w-0 gap-3" onSubmit={saveLanguage}>
               <label class="grid gap-2">
@@ -571,7 +571,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </section>
 
         <section aria-labelledby="settings-account" class="grid min-w-0 gap-2">
-          <h2 id="settings-account" class="trauma-settings-heading">Account</h2>
+          <h2 id="settings-account" class="trauma-section-heading">Account</h2>
           <section class={fieldClass} aria-labelledby="codex-auth-title">
             <div class="grid gap-2">
               <h3 class={labelClass} id="codex-auth-title">
@@ -639,15 +639,15 @@ export function SettingsPage(props: SettingsPageProps) {
             </Show>
             <Show when={pendingCodexAuth()}>
               {(pendingAuth) => (
-              <div class="grid gap-1 rounded-lg border border-trauma-border bg-trauma-bg-surface px-3 py-2">
+              <div class="grid gap-1 rounded-control border border-trauma-border bg-trauma-bg-surface px-3.5 py-2.5">
                 <p class={hintClass}>Open this verification URL and enter the code.</p>
-                <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
+                <p class="mb-0 text-sm font-semibold text-trauma-text-primary">
                   {pendingAuth().userCode}
                 </p>
                 <Show when={readSafeVerificationUrl(pendingAuth().verificationUrl)}>
                   {(verificationUrl) => (
                     <a
-                      class="text-sm font-bold text-trauma-link"
+                      class="text-sm font-medium text-trauma-link"
                       href={verificationUrl()}
                       rel="noreferrer"
                       target="_blank"
@@ -671,20 +671,20 @@ export function SettingsPage(props: SettingsPageProps) {
         </section>
 
         <section aria-labelledby="settings-focus" class="grid min-w-0 gap-2">
-          <h2 id="settings-focus" class="trauma-settings-heading">Focus</h2>
+          <h2 id="settings-focus" class="trauma-section-heading">Focus</h2>
           <FocusPluginsSettingsSection />
         </section>
 
         <Show when={message()}>
           {(value) => (
-            <p class="mb-0 rounded-lg border border-trauma-border bg-trauma-bg-base px-3 py-2 text-sm font-bold text-trauma-text-secondary" role="status">
+            <p class="mb-0 rounded-control border border-trauma-border bg-trauma-bg-elev px-3.5 py-2.5 text-sm font-medium text-trauma-text-secondary" role="status">
               {value()}
             </p>
           )}
         </Show>
         <Show when={error()}>
           {(value) => (
-            <p class="mb-0 rounded-lg border border-trauma-danger bg-trauma-bg-base px-3 py-2 text-sm font-bold text-trauma-danger" role="alert">
+            <p class="mb-0 rounded-control border border-trauma-danger bg-trauma-bg-elev px-3.5 py-2.5 text-sm font-medium text-trauma-danger" role="alert">
               {value()}
             </p>
           )}
@@ -828,7 +828,7 @@ export function FocusPluginsSettingsSection() {
       <Show
         when={focusPlugins.plugins().length > 0}
         fallback={
-          <p class="mb-0 rounded-xl border border-trauma-border bg-trauma-bg-surface px-4 py-3 text-sm font-semibold text-trauma-text-muted">
+          <p class="mb-0 rounded-control border border-trauma-border bg-trauma-bg-surface px-4 py-3 text-sm text-trauma-text-muted">
             No focus plugins are registered yet.
           </p>
         }
@@ -839,30 +839,30 @@ export function FocusPluginsSettingsSection() {
               const enabled = () => focusPlugins.isPluginEnabled(plugin.id);
               return (
                 <div
-                  class="grid gap-3 rounded-2xl border border-trauma-border bg-trauma-bg-surface p-4"
+                  class="grid gap-3 rounded-control border border-trauma-border bg-trauma-bg-surface p-4"
                   data-focus-plugin-id={plugin.id}
                 >
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div class="grid min-w-0 gap-1">
                       <div class="flex flex-wrap items-center gap-2">
-                        <h3 class="m-0 text-sm font-extrabold text-trauma-text-primary">
+                        <h3 class="m-0 text-sm font-semibold text-trauma-text-primary">
                           {plugin.name}
                         </h3>
                         <span
-                          class={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${evidenceBadgeClass[plugin.evidenceLevel]}`}
+                          class={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${evidenceBadgeClass[plugin.evidenceLevel]}`}
                         >
                           {evidenceBadgeLabel[plugin.evidenceLevel]}
                         </span>
-                        <span class="inline-flex items-center rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-0.5 text-xs font-bold text-trauma-chip-ink">
+                        <span class="inline-flex items-center rounded-full border border-trauma-chip-border bg-trauma-chip-bg px-2.5 py-0.5 text-xs font-medium text-trauma-chip-ink">
                           {plugin.surface}
                         </span>
                       </div>
-                      <p class="mb-0 text-sm font-semibold text-trauma-text-secondary">
+                      <p class="mb-0 text-sm text-trauma-text-secondary">
                         {plugin.description}
                       </p>
                       <Show when={plugin.evidenceSummary}>
                         {(summary) => (
-                          <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+                          <p class="mb-0 text-xs text-trauma-text-muted">
                             {summary()}
                           </p>
                         )}
@@ -891,7 +891,7 @@ export function FocusPluginsSettingsSection() {
                       </For>
                       <div class="flex justify-end">
                         <button
-                          class="text-xs font-bold text-trauma-link hover:text-trauma-link-hover"
+                          class="trauma-control trauma-control-compact trauma-control-quiet"
                           type="button"
                           onClick={() => focusPlugins.resetPluginSettings(plugin.id)}
                         >
@@ -907,19 +907,19 @@ export function FocusPluginsSettingsSection() {
         </div>
       </Show>
 
-      <div class="grid gap-2 rounded-2xl border border-trauma-border bg-trauma-bg-surface p-4">
+      <div class="grid gap-2 rounded-control border border-trauma-border bg-trauma-bg-surface p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="mb-0 text-sm font-extrabold text-trauma-text-primary">
+          <p class="mb-0 text-sm font-semibold text-trauma-text-primary">
             Self-experiment pulse
           </p>
           <Show when={focusPlugins.pulseLog().length > 0}>
             <div class="flex items-center gap-3">
-              <span class="text-xs font-semibold text-trauma-text-muted">
+              <span class="text-xs text-trauma-text-muted">
                 {focusPlugins.pulseLog().length}{" "}
                 {focusPlugins.pulseLog().length === 1 ? "entry" : "entries"} saved locally
               </span>
               <button
-                class="text-xs font-bold text-trauma-link hover:text-trauma-link-hover"
+                class="trauma-control trauma-control-compact trauma-control-quiet"
                 type="button"
                 onClick={() => {
                   focusPlugins.clearPulseHistory();
@@ -949,7 +949,7 @@ export function FocusPluginsSettingsSection() {
         </div>
         <Show when={pulseNotice()}>
           {(notice) => (
-            <p class="mb-0 text-xs font-bold text-trauma-text-secondary" role="status">
+            <p class="mb-0 text-xs font-medium text-trauma-text-secondary" role="status">
               {notice()}
             </p>
           )}
@@ -975,12 +975,12 @@ function FocusPluginSettingControl(props: {
     return (
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="grid gap-0.5">
-          <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+          <label class="text-sm font-medium text-trauma-text-primary" for={inputId()}>
             {field.label}
           </label>
           <Show when={field.description}>
             {(description) => (
-              <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+              <p class="mb-0 text-xs text-trauma-text-muted">
                 {description()}
               </p>
             )}
@@ -1011,11 +1011,11 @@ function FocusPluginSettingControl(props: {
     };
     return (
       <div class="grid gap-1">
-        <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+        <label class="text-sm font-medium text-trauma-text-primary" for={inputId()}>
           {field.label}
           <Show when={field.unit}>
             {(unit) => (
-              <span class="ml-1 text-xs font-semibold text-trauma-text-muted">
+              <span class="ml-1 text-xs font-normal text-trauma-text-muted">
                 ({unit()})
               </span>
             )}
@@ -1023,7 +1023,7 @@ function FocusPluginSettingControl(props: {
         </label>
         <Show when={field.description}>
           {(description) => (
-            <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+            <p class="mb-0 text-xs text-trauma-text-muted">
               {description()}
             </p>
           )}
@@ -1054,12 +1054,12 @@ function FocusPluginSettingControl(props: {
   };
   return (
     <div class="grid gap-1">
-      <label class="text-sm font-bold text-trauma-text-primary" for={inputId()}>
+      <label class="text-sm font-medium text-trauma-text-primary" for={inputId()}>
         {field.label}
       </label>
       <Show when={field.description}>
         {(description) => (
-          <p class="mb-0 text-xs font-semibold text-trauma-text-muted">
+          <p class="mb-0 text-xs text-trauma-text-muted">
             {description()}
           </p>
         )}

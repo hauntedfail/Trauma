@@ -98,7 +98,8 @@ describe("flashbacks route state", () => {
     expect(flashbacksRouteSource).toContain("getFlashbackBrowsePage");
     expect(flashbacksRouteSource).toContain("useLocation");
     expect(flashbacksRouteSource).toContain("nextCursor");
-    expect(flashbacksRouteSource).toContain('href="/flashbacks"');
+    expect(flashbacksRouteSource).toContain("CollectionPagination");
+    expect(flashbacksRouteSource).toContain('pathname="/flashbacks"');
     expect(flashbacksRouteSource).toContain("CollectionPageRetry");
     expect(flashbacksRouteSource).toContain("createCollectionPageRetryController");
     expect(flashbacksRouteSource).toContain("isRetryingCurrentPage()");
