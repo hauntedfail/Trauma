@@ -30,7 +30,7 @@ import { ScrollableUrlText } from "../url/ScrollableUrlText";
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const rowBase =
-  "trauma-surface-card trauma-list-card trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5";
+  "trauma-list-row trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-3.5";
 
 export function MomentBrowse() {
   let pageRegionRef: HTMLDivElement | undefined;

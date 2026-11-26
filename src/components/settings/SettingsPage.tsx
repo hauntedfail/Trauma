@@ -63,7 +63,7 @@ type SettingsAction =
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const contentClass = "trauma-route-column trauma-settings-content";
-const fieldClass = "trauma-surface-card grid min-w-0 gap-4 p-5";
+const fieldClass = "grid min-w-0 gap-4";
 const labelClass = "text-sm font-semibold text-trauma-text-primary";
 const hintClass = "mb-0 text-sm text-trauma-text-secondary";
 const selectClass =
@@ -828,18 +828,18 @@ export function FocusPluginsSettingsSection() {
       <Show
         when={focusPlugins.plugins().length > 0}
         fallback={
-          <p class="mb-0 rounded-control border border-trauma-border bg-trauma-bg-surface px-4 py-3 text-sm text-trauma-text-muted">
+          <p class="mb-0 border-t border-trauma-divider py-4 text-sm text-trauma-text-muted">
             No focus plugins are registered yet.
           </p>
         }
       >
-        <div class="grid gap-3">
+        <div class="divide-y divide-trauma-divider border-t border-trauma-divider">
           <For each={focusPlugins.plugins()}>
             {(plugin) => {
               const enabled = () => focusPlugins.isPluginEnabled(plugin.id);
               return (
                 <div
-                  class="grid gap-3 rounded-control border border-trauma-border bg-trauma-bg-surface p-4"
+                  class="grid gap-3 py-4"
                   data-focus-plugin-id={plugin.id}
                 >
                   <div class="flex flex-wrap items-start justify-between gap-3">
@@ -907,7 +907,7 @@ export function FocusPluginsSettingsSection() {
         </div>
       </Show>
 
-      <div class="grid gap-2 rounded-control border border-trauma-border bg-trauma-bg-surface p-4">
+      <div class="grid gap-2 border-t border-trauma-divider pt-5">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <p class="mb-0 text-sm font-semibold text-trauma-text-primary">
             Self-experiment pulse

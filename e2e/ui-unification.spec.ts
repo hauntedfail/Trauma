@@ -83,34 +83,35 @@ test("keeps header chrome, title typography, and route column aligned across all
   }
 });
 
-test("uses the same surface card radius across Memories, Flashbacks, Moments, and Settings without Settings-only gradient", async ({
+test("renders Memories, Flashbacks, Moments, and Settings directly on the canvas ground without boxed cards or Settings-only gradient", async ({
   page,
 }) => {
   await materializeE2eFixture("reader_base");
   await mutateE2eFixtureState("moment_delete_focus_rows");
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  const cardRoutes = [
-    { path: "/memories", selector: "article.trauma-surface-card" },
-    { path: "/flashbacks", selector: "article.trauma-surface-card" },
-    { path: "/moments", selector: "article.trauma-surface-card" },
-    { path: "/settings", selector: ".trauma-surface-card" },
+  const flatRoutes = [
+    { path: "/memories", selector: "article.trauma-list-row" },
+    { path: "/flashbacks", selector: "article.trauma-list-row" },
+    { path: "/moments", selector: "article.trauma-list-row" },
+    { path: "/settings", selector: ".trauma-settings-content > section" },
   ] as const;
 
-  const radii: Array<{ path: string; radius: string }> = [];
-
-  for (const route of cardRoutes) {
+  for (const route of flatRoutes) {
     await page.goto(route.path);
-    const card = page.locator(route.selector).first();
-    await expect(card).toBeVisible();
-    const radius = await card.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
-    radii.push({ path: route.path, radius });
-  }
-
-  const expectedRadius = radii[0]!.radius;
-  expect(expectedRadius).toBe("16px");
-  for (const entry of radii.slice(1)) {
-    expect(entry.radius, entry.path).toBe(expectedRadius);
+    const element = page.locator(route.selector).first();
+    await expect(element).toBeVisible();
+    const surface = await element.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+        radius: style.borderTopLeftRadius,
+      };
+    });
+    expect(surface.backgroundColor, route.path).toBe("rgba(0, 0, 0, 0)");
+    expect(surface.boxShadow, route.path).toBe("none");
+    expect(surface.radius, route.path).toBe("0px");
   }
 
   // Settings must not apply a route-local radial gradient background.
@@ -120,7 +121,7 @@ test("uses the same surface card radius across Memories, Flashbacks, Moments, an
   expect(settingsBgImage).toBe("none");
 });
 
-test("keeps a memory on the same surface card when moving from a list row into the reader", async ({
+test("keeps a memory on the same bare canvas ground when moving from a list row into the reader", async ({
   page,
 }) => {
   await materializeE2eFixture("reader_base");
@@ -137,9 +138,9 @@ test("keeps a memory on the same surface card when moving from a list row into t
     });
 
   await page.goto("/memories");
-  const row = page.locator("article.trauma-surface-card").first();
+  const row = page.locator("article.trauma-list-row").first();
   await expect(row).toBeVisible();
-  const rowSurface = await surfaceOf("article.trauma-surface-card");
+  const rowSurface = await surfaceOf("article.trauma-list-row");
 
   await page.goto("/memories/018f04a2-3c6f-7c88-9a8b-8c99a9b7f101");
   const readerColumn = page.locator("[data-reader-column]").first();
@@ -151,22 +152,18 @@ test("keeps a memory on the same surface card when moving from a list row into t
   const readerSurface = await surfaceOf("[data-reader-column]");
 
   expect(readerSurface).toEqual(rowSurface);
-  expect(readerSurface.radius).toBe("16px");
+  expect(readerSurface.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(readerSurface.boxShadow).toBe("none");
 
-  // The card pads the text; the reading measure itself must not shrink.
   const measure = await readerColumn.evaluate((el) => {
-    const style = getComputedStyle(el);
-    const padding = Number.parseFloat(style.paddingLeft);
     const content = el.querySelector("[data-reader-content]");
     return {
       columnWidth: el.getBoundingClientRect().width,
       contentWidth: content?.getBoundingClientRect().width ?? 0,
-      padding,
     };
   });
-  expect(measure.padding).toBeGreaterThanOrEqual(16);
-  expect(measure.contentWidth).toBeLessThanOrEqual(measure.columnWidth - 2 * measure.padding + 1);
   expect(measure.contentWidth).toBeGreaterThan(480);
+  expect(Math.abs(measure.columnWidth - measure.contentWidth)).toBeLessThanOrEqual(1);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(readerColumn).toBeVisible();

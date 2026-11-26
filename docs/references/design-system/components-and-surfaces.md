@@ -184,9 +184,9 @@ Every non-reader route (`Today`, `Shelf`, `Library`, `Flashbacks`, `Moments`, `S
 
 - `RouteHeader` (`src/components/layout/RouteHeader.tsx`) owns the sticky top bar (`min-h-[3.5rem]`, `text-lg font-semibold tracking-tight`, `border-b border-trauma-divider`) and aligns its inner grid to `.trauma-route-column` (`45rem` / `720px`) by default. Reader routes pass `constrained={false}` so the top bar spans the reader surface.
 - `.trauma-route-column` centers the primary content column at `45rem` (`720px`) across browse, collection, settings, and fallback routes.
-- `.trauma-surface-card` (`--radius-card: 1rem`, inset `1px` border, subtle shadow) is the shared surface primitive for memory rows, flashback cards, moment cards, and settings groups. Interactive list items pair it with `.trauma-list-card` inside `.trauma-card-list` / `.trauma-memory-list`.
+- `.trauma-list-row` is the shared flat row primitive for memory rows, flashback rows, and moment rows inside `.trauma-card-list` / `.trauma-memory-list`. Rows sit directly on the page ground (`transparent`, no shadow) separated by hairline `1px` `--divider` borders; tint appears only on hover or keyboard selection (`--bg-tint`). Settings groups follow the same flat canvas rule, using hairline `--divider` section separators instead of boxed cards.
 - `.trauma-section-heading` provides the shared uppercase muted section label (`0.75rem`, `font-semibold`, `tracking-wide`) for grouped sections such as Settings groups and Shelf `Still here`.
-- The reader body (`readerColumn` in `src/components/reader/reader-styles.ts`) sits on the same `.trauma-surface-card`. A memory keeps one material from its list row into the reader instead of turning into bare text on the page ground. `.trauma-reader-column` adds `--reader-card-padding` outside the reading measure, so the card never narrows the text column.
+- The reader body (`readerColumn` in `src/components/reader/reader-styles.ts`) sits directly on the same page ground without a card frame, so transitioning from a list row into the reader preserves one continuous canvas material.
 - `RouteState` (`src/components/layout/RouteState.tsx`) owns loading, empty, and error states across routes.
 - `CollectionPagination` (`src/components/collections/CollectionPagination.tsx`) renders First/Next navigation using `trauma-control trauma-control-compact`.
 
@@ -198,13 +198,13 @@ Current row contract:
 
 - Whole row is the link.
 - No trailing `Open` button.
-- Shared `.trauma-surface-card` + `.trauma-list-card` container (`--radius-card: 1rem`) inside `.trauma-memory-list`.
-- Hover uses `bg-trauma-bg-tint` and `--border-strong` inset ring.
+- Shared `.trauma-list-row` flat row inside `.trauma-memory-list` (transparent canvas ground + hairline `--divider` bottom border).
+- Hover uses `bg-trauma-bg-tint`; keyboard focus uses `bg-trauma-bg-tint` with a `2px` `--accent` left bar.
 - Favicon / host fallback uses a `20px` square slot.
 - Title uses `text-[15px] font-semibold leading-snug`.
 - Metadata uses compact muted text (`text-xs text-trauma-text-muted`).
 
-Grid mode reuses the same card surface in a two-column container grid on wide viewports and a single column on narrow viewports.
+Grid mode keeps the transparent canvas ground in a two-column container grid on wide viewports (single column on narrow viewports) with hairline `--divider` cell outlines.
 
 ## Flashback Excerpts
 

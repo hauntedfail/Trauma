@@ -36,14 +36,13 @@ describe("refined reader visual contract", () => {
 
   it("uses measure-bound centered reader canvas and tighter reader-only padding", () => {
     expect(readerStyles).toContain('readerPadding = "trauma-reader-route-padding"');
-    expect(readerStyles).toContain("trauma-reader-column trauma-surface-card min-w-0");
-    expect(readerStyles).not.toContain('readerColumn = "trauma-reader-column min-w-0"');
+    expect(readerStyles).toContain('readerColumn = "trauma-reader-column min-w-0"');
+    expect(readerStyles).not.toContain("trauma-surface-card");
     expect(tailwindSource).toContain("--reader-measure: 66ch");
     expect(tailwindSource).toContain(".trauma-reader-column");
     expect(tailwindSource).toContain(
-      "calc(var(--reader-measure, 66ch) + 2 * var(--reader-card-padding))",
+      "inline-size: min(100%, var(--reader-measure, 66ch))",
     );
-    expect(tailwindSource).toContain("padding-inline: var(--reader-card-padding)");
     expect(tailwindSource).toContain(".trauma-reader-column:lang(ja)");
     expect(tailwindSource).toContain("--reader-measure: 40ic");
     expect(tailwindSource).toContain(".trauma-reader-column:lang(ko)");

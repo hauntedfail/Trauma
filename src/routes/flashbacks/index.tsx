@@ -34,7 +34,7 @@ import { RouteState } from "~/components/layout/RouteState";
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const cardBase =
-  "trauma-surface-card trauma-list-card trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5";
+  "trauma-list-row trauma-route-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-3.5";
 
 export default function FlashbacksIndex() {
   let pageRegionRef: HTMLDivElement | undefined;

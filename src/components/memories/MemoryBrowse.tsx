@@ -103,7 +103,7 @@ const UNDO_TOAST_DURATION_MS = 6_000;
 const pageFrame =
   "trauma-route-surface trauma-mobile-stable-viewport w-full bg-trauma-bg-surface";
 const flatRowBase =
-  "trauma-surface-card trauma-list-card trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5 focus-within:z-20 has-[[aria-expanded='true']]:z-30";
+  "trauma-list-row trauma-memory-row trauma-route-row relative grid min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3 py-3.5 focus-within:z-20 has-[[aria-expanded='true']]:z-30";
 const rowActionButtonClass = "trauma-control trauma-control-compact trauma-control-quiet";
 
 const LANE_TITLES: Record<BrowseLane, string> = {
@@ -1073,7 +1073,7 @@ export function MemoryBrowse() {
                     </For>
                     <Show when={shelfStillHereMemories().length > 0}>
                       <div
-                        class="px-1 pt-4 pb-1"
+                        class="trauma-fluid-route-padding border-b border-trauma-divider pt-6 pb-2"
                         data-shelf-still-here="true"
                         role="presentation"
                       >
